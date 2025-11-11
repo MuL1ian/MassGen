@@ -26,12 +26,16 @@ class BroadcastChannel:
     4. Optionally wait for responses (blocking mode)
     5. Provide status and response retrieval
 
+    When multiple agents call ask_others() simultaneously in human mode, their
+    prompts are queued and shown one at a time to avoid overwhelming the user.
+
     Attributes:
         orchestrator: Reference to the orchestrator
         active_broadcasts: Dict of request_id -> BroadcastRequest
         broadcast_responses: Dict of request_id -> List[BroadcastResponse]
         response_events: Dict of request_id -> asyncio.Event (signals when responses complete)
-        _lock: Lock for thread-safe operations
+        _lock: Lock for thread-safe operations on broadcast data
+        _human_input_lock: Lock to serialize human input prompts (one modal at a time)
     """
 
     def __init__(self, orchestrator: "Orchestrator"):
@@ -45,6 +49,7 @@ class BroadcastChannel:
         self.broadcast_responses: Dict[str, List[BroadcastResponse]] = {}
         self.response_events: Dict[str, asyncio.Event] = {}
         self._lock = asyncio.Lock()
+        self._human_input_lock = asyncio.Lock()  # Serialize human input prompts
 
     async def create_broadcast(
         self,
@@ -262,6 +267,9 @@ class BroadcastChannel:
     async def _prompt_human(self, request_id: str) -> None:
         """Prompt human for response (BLOCKING - pauses all agent execution).
 
+        This method uses a lock to ensure only one human prompt is shown at a time.
+        If multiple agents call ask_others() simultaneously, they will queue up.
+
         Args:
             request_id: ID of the broadcast request
         """
@@ -272,32 +280,39 @@ class BroadcastChannel:
             return
 
         broadcast = self.active_broadcasts[request_id]
-        logger.info(f"📢 [Human] Prompting human for broadcast: {broadcast.question[:50]}...")
 
-        # Use coordination UI to prompt human
-        if hasattr(self.orchestrator, "coordination_ui") and self.orchestrator.coordination_ui:
-            try:
-                human_response = await asyncio.wait_for(
-                    self.orchestrator.coordination_ui.prompt_for_broadcast_response(broadcast),
-                    timeout=broadcast.timeout,
-                )
+        # Check if lock is already held (another prompt is active)
+        if self._human_input_lock.locked():
+            logger.info(f"📢 [Human] Waiting in queue for broadcast from {broadcast.sender_agent_id} (another prompt is active)")
 
-                if human_response:
-                    logger.info(f"📢 [Human] Received response: {human_response[:50]}...")
-                    await self.collect_response(
-                        request_id=request_id,
-                        responder_id="human",
-                        content=human_response,
-                        is_human=True,
+        # Acquire lock to serialize human prompts - only one modal at a time
+        async with self._human_input_lock:
+            logger.info(f"📢 [Human] Prompting human for broadcast from {broadcast.sender_agent_id}: {broadcast.question[:50]}...")
+
+            # Use coordination UI to prompt human
+            if hasattr(self.orchestrator, "coordination_ui") and self.orchestrator.coordination_ui:
+                try:
+                    human_response = await asyncio.wait_for(
+                        self.orchestrator.coordination_ui.prompt_for_broadcast_response(broadcast),
+                        timeout=broadcast.timeout,
                     )
-                else:
-                    logger.info("📢 [Human] No response provided (skipped)")
-            except asyncio.TimeoutError:
-                logger.info("📢 [Human] Timeout - no response received")
-            except Exception as e:
-                logger.error(f"📢 [Human] Error prompting for response: {e}")
-        else:
-            logger.warning("📢 [Human] No coordination_ui available for prompting")
+
+                    if human_response:
+                        logger.info(f"📢 [Human] Received response: {human_response[:50]}...")
+                        await self.collect_response(
+                            request_id=request_id,
+                            responder_id="human",
+                            content=human_response,
+                            is_human=True,
+                        )
+                    else:
+                        logger.info("📢 [Human] No response provided (skipped)")
+                except asyncio.TimeoutError:
+                    logger.info("📢 [Human] Timeout - no response received")
+                except Exception as e:
+                    logger.error(f"📢 [Human] Error prompting for response: {e}")
+            else:
+                logger.warning("📢 [Human] No coordination_ui available for prompting")
 
     async def cleanup_broadcast(self, request_id: str) -> None:
         """Clean up resources for a completed broadcast.
