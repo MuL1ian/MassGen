@@ -306,6 +306,7 @@ Documentation Sections
    user_guide/orchestration_restart
    user_guide/agent_task_planning
    user_guide/multimodal
+   user_guide/terminal_evaluation
    user_guide/general_interoperability
    user_guide/logging
 

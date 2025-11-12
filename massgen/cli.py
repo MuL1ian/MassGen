@@ -1268,6 +1268,7 @@ async def run_question_with_history(
         display_type=ui_config.get("display_type", "rich_terminal"),
         logging_enabled=ui_config.get("logging_enabled", True),
         enable_final_presentation=True,  # Required for multi-turn: ensures final answer is saved
+        skip_agent_selector=ui_config.get("skip_agent_selector", False),
     )
 
     # Determine display mode text
@@ -1337,6 +1338,7 @@ async def run_question_with_history(
                 display_type=ui_config.get("display_type", "rich_terminal"),
                 logging_enabled=ui_config.get("logging_enabled", True),
                 enable_final_presentation=True,
+                skip_agent_selector=ui_config.get("skip_agent_selector", False),
             )
 
             # Continue to next attempt
@@ -1491,6 +1493,7 @@ async def run_single_question(question: str, agents: Dict[str, SingleAgent], ui_
             display_type=ui_config.get("display_type", "rich_terminal"),
             logging_enabled=ui_config.get("logging_enabled", True),
             enable_final_presentation=True,  # Ensures final presentation is generated
+            skip_agent_selector=ui_config.get("skip_agent_selector", False),
         )
 
         print(f"\n🤖 {BRIGHT_CYAN}Multi-Agent Mode{RESET}", flush=True)
@@ -1526,6 +1529,7 @@ async def run_single_question(question: str, agents: Dict[str, SingleAgent], ui_
                     display_type=ui_config.get("display_type", "rich_terminal"),
                     logging_enabled=ui_config.get("logging_enabled", True),
                     enable_final_presentation=True,
+                    skip_agent_selector=ui_config.get("skip_agent_selector", False),
                 )
 
                 # Continue to next attempt
@@ -2683,6 +2687,8 @@ async def main(args):
                     # e.g., ".massgen/workspaces/workspace1" -> ".massgen/workspaces/workspace1_a1b2c3d4"
                     backend_config["cwd"] = f"{original_cwd}_{unique_suffix}"
                     logger.debug(f"[Automation] Auto-generated unique workspace: {original_cwd} -> {backend_config['cwd']}")
+        if args.skip_agent_selector:
+            ui_config["skip_agent_selector"] = True
         if args.no_display:
             ui_config["display_type"] = "simple"
         if args.no_logs:
@@ -2701,6 +2707,11 @@ async def main(args):
 
         # Update config with timeout settings
         config["timeout_settings"] = timeout_settings
+
+        # Check for prompt in config if not provided via CLI
+        if not args.question and "prompt" in config:
+            args.question = config["prompt"]
+            logger.info(f"Using prompt from config file: {args.question}")
 
         # Create agents
         if args.debug:
@@ -2949,6 +2960,11 @@ Environment Variables:
         "REQUIRED for LLM agents and background execution. Automatically isolates workspaces for parallel runs.",
     )
     parser.add_argument(
+        "--skip-agent-selector",
+        action="store_true",
+        help="Skip the Agent Selector interface at the end (useful for terminal recordings/automation). " "MassGen will exit immediately after showing the final answer.",
+    )
+    parser.add_argument(
         "--init",
         action="store_true",
         help="Launch interactive configuration builder to create config file",
@@ -3110,6 +3126,7 @@ Environment Variables:
             return
 
     # First-run detection: auto-trigger setup wizard and config builder if no config specified
+    # Note: If config has a 'prompt' key, it will be used (set above), so args.question will be set
     if not args.question and not args.config and not args.model and not args.backend:
         if should_run_builder():
             print()
