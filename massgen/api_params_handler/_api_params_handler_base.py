@@ -77,6 +77,9 @@ class APIParamsHandlerBase(ABC):
             "command_line_docker_credentials",
             "command_line_docker_packages",
             "exclude_file_operation_mcps",
+            # Code-based tools (CodeAct paradigm)
+            "enable_code_based_tools",
+            "custom_tools_path",
             # Backend identification (handled by orchestrator)
             "type",
             "agent_id",

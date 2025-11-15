@@ -314,6 +314,141 @@ sg --pattern 'class $NAME { $$$ }' --lang python
 For detailed guidance including targeting strategies and examples, invoke: `execute_command("openskills read file-search")`"""
 
 
+class CodeBasedToolsSection(SystemPromptSection):
+    """
+    Guidance for code-based tool access (CodeAct paradigm).
+
+    When enabled, MCP tools are presented as Python code in the filesystem.
+    Agents discover tools by exploring servers/, read docstrings, and call via imports.
+
+    MEDIUM priority - important for tool discovery and usage.
+    """
+
+    def __init__(self, workspace_path: str):
+        super().__init__(
+            title="Code-Based Tools",
+            priority=Priority.MEDIUM,
+            xml_tag="code_based_tools",
+        )
+        self.workspace_path = workspace_path
+
+    def build_content(self) -> str:
+        """Build code-based tools guidance."""
+        return f"""## Available Tools (Code-Based Access)
+
+Tools are available as **Python code** in your workspace filesystem. Discover and call them like regular Python modules.
+
+**Directory Structure:**
+```
+{self.workspace_path}/
+├── servers/              # MCP tool wrappers (auto-generated)
+│   ├── __init__.py      # Tool registry (list_tools, load, describe)
+│   ├── weather/
+│   │   ├── get_forecast.py
+│   │   └── get_current.py
+│   └── github/
+│       └── create_issue.py
+├── custom_tools/         # Full Python implementations
+│   └── [user-provided tools]
+└── utils/               # YOUR scripts (workflows, async, filtering)
+    └── [create your own scripts here]
+```
+
+**Tool Discovery:**
+```python
+# List all available tools
+import servers
+available = servers.list_tools()
+print(available)  # ['weather.get_forecast', 'github.create_issue', ...]
+
+# Get tool documentation
+print(servers.describe('weather.get_forecast'))
+
+# Or explore filesystem
+ls servers/
+cat servers/weather/get_forecast.py  # Read source & docstring
+```
+
+**Usage Pattern:**
+```python
+# Import and use directly
+from servers.weather import get_forecast
+result = get_forecast("San Francisco", days=3)
+
+# Or load dynamically
+tool = servers.load('weather.get_forecast')
+result = tool("San Francisco", days=3)
+```
+
+**Creating Workflows (utils/):**
+Write scripts in `utils/` to combine multiple tools:
+
+```python
+# utils/daily_weather_report.py
+from servers.weather import get_forecast, get_current
+
+def generate_report(city: str) -> str:
+    current = get_current(city)
+    forecast = get_forecast(city, days=3)
+
+    report = f"Current: {{current['temp']}}°F\\n"
+    report += f"Forecast: {{forecast['summary']}}"
+    return report
+
+# Run directly
+if __name__ == "__main__":
+    print(generate_report("San Francisco"))
+```
+
+Then execute: `python utils/daily_weather_report.py`
+
+**Advanced Patterns:**
+- **Async operations**: Use `asyncio` to call multiple tools in parallel
+- **Data filtering**: Process large datasets in utils/ before returning (reduce tokens)
+- **Error handling**: Add try/except in utils/ for robust workflows
+- **Tool composition**: Chain multiple tools together in single script
+
+**Key Principles:**
+1. **Discover first**: Use `ls servers/` or `servers.list_tools()` to find available tools
+2. **Read docstrings**: Use `cat` or `servers.describe()` to understand parameters
+3. **Import only needed tools**: Reduces context (don't import everything upfront)
+4. **Create utils/ for complex workflows**: Combine tools, add async, filter data
+
+**Example - Async Multi-Tool Call:**
+```python
+# utils/parallel_weather.py
+import asyncio
+from servers.weather import get_forecast
+
+async def get_forecasts(cities: list) -> dict:
+    tasks = [get_forecast(city) for city in cities]
+    results = await asyncio.gather(*tasks)
+    return dict(zip(cities, results))
+
+# Get weather for 5 cities in parallel
+cities = ["SF", "NYC", "LA", "Chicago", "Boston"]
+forecasts = asyncio.run(get_forecasts(cities))
+```
+
+**Example - Data Filtering:**
+```python
+# utils/top_leads.py
+from servers.salesforce import get_records
+
+def get_qualified_leads(limit: int = 50) -> list:
+    # Fetch 10k records from Salesforce
+    all_records = get_records(object="Lead", limit=10000)
+
+    # Filter in execution environment (not sent to LLM context)
+    qualified = [r for r in all_records if r["score"] > 80]
+
+    # Return only top N (massive context reduction)
+    return sorted(qualified, key=lambda x: x["score"], reverse=True)[:limit]
+```
+
+This approach provides **98% context reduction** compared to loading all tool schemas upfront."""
+
+
 class MemorySection(SystemPromptSection):
     """
     Memory system instructions for context retention across conversations.

@@ -252,6 +252,7 @@ Documentation Sections
       * :doc:`user_guide/backends`
       * :doc:`user_guide/diversity`
       * :doc:`user_guide/tools`
+      * :doc:`user_guide/code_based_tools`
       * :doc:`user_guide/file_operations`
       * :doc:`user_guide/multi_turn_mode`
       * :doc:`user_guide/general_interoperability`
@@ -302,6 +303,7 @@ Documentation Sections
    user_guide/diversity
    user_guide/validating_configs
    user_guide/tools
+   user_guide/code_based_tools
    user_guide/skills
    user_guide/file_operations
    user_guide/multi_turn_mode

@@ -936,6 +936,17 @@ class CustomToolAndMCPBackend(LLMBackend):
                     hook_manager=getattr(self, "function_hook_manager", None),
                 ),
             )
+
+            # Setup code-based tools if enabled (CodeAct paradigm)
+            if self.filesystem_manager and self.filesystem_manager.enable_code_based_tools:
+                try:
+                    logger.info("[MCP] Setting up code-based tools from MCP client")
+                    await self.filesystem_manager.setup_code_based_tools_from_mcp_client(self._mcp_client)
+                except Exception as e:
+                    logger.error(f"[MCP] Failed to setup code-based tools: {e}", exc_info=True)
+                    # Don't fail MCP setup if code generation fails
+                    # Agent can still use protocol-based tools
+
             self._mcp_initialized = True
             logger.info(f"Successfully initialized MCP sessions with {len(self._mcp_functions)} tools converted to functions")
 

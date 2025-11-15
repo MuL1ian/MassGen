@@ -1,0 +1,50 @@
+# Example: Code-Based Tools (CodeAct Paradigm)
+#
+# This config demonstrates the code-based tools feature where MCP tools are
+# presented as Python code in the filesystem rather than as protocol tools.
+#
+# Benefits:
+# - 98% context reduction (import only needed tools)
+# - Transparent (agents see code & docstrings)
+# - Composable (create utils/ scripts combining multiple tools)
+# - Async-friendly (write async workflows in utils/)
+# - Data filtering (process large datasets before returning)
+#
+# Run with:
+# uv run massgen --automation \
+#   --config massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml \
+#   "List all available tools by exploring the workspace filesystem. Show what MCP tools and custom tools are available."
+
+agents:
+  - id: "agent_a"
+    backend:
+      type: "gemini"
+      model: "gemini-2.5-flash"
+      cwd: "workspace"
+
+      # Enable code-based tools (CodeAct paradigm)
+      enable_code_based_tools: true          # MCP tools → Python code in servers/
+      exclude_file_operation_mcps: true      # Use command-line for file ops
+      enable_mcp_command_line: true          # Enable execute_command
+
+      # Command line execution (required for code-based tools)
+      command_line_execution_mode: "local"   # or "docker"
+
+      # Custom tools directory - full Python implementations
+      custom_tools_path: "massgen/tool/_code_based_example"
+
+      # MCP servers - these will be converted to Python wrappers in servers/
+      mcp_servers:
+        - name: "weather"
+          type: "stdio"
+          command: "npx"
+          args: ["-y", "@fak111/weather-mcp"]
+
+orchestrator:
+  snapshot_storage: "snapshots"
+  agent_temporary_workspace: "temp_workspaces"
+
+# UI Configuration
+ui:
+  type: "rich_terminal"
+  logging_enabled: true

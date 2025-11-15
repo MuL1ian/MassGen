@@ -1,6 +1,6 @@
 # Test memory filesystem mode with minimal MCP tools (command-line only for file operations)
 # This demonstrates using exclude_file_operation_mcps to reduce tool overhead while maintaining full functionality
-# Run with: uv run massgen --config massgen/configs/filesystem/exclude_mcps/test_minimal_mcps.yaml "Create a website about Bob Dylan"
+# Run with: uv run massgen --config massgen/configs/tools/filesystem/exclude_mcps/test_minimal_mcps.yaml "Create a website about Bob Dylan"
 
 agents:
   - id: "agent_a"
@@ -34,4 +34,4 @@ orchestrator:
     enable_agent_task_planning: true
     task_planning_filesystem_mode: true
     # Enable memory filesystem mode
-    # enable_memory_filesystem_mode: true
+    enable_memory_filesystem_mode: true

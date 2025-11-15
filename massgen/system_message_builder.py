@@ -183,6 +183,14 @@ class SystemMessageBuilder:
 
             builder.add_section(FileSearchSection())
 
+            # Add code-based tools section if enabled (CodeAct paradigm)
+            if agent.backend.filesystem_manager.enable_code_based_tools:
+                from massgen.system_prompt_sections import CodeBasedToolsSection
+
+                workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                builder.add_section(CodeBasedToolsSection(workspace_path))
+                logger.info(f"[SystemMessageBuilder] Added code-based tools section for {agent_id}")
+
         # PRIORITY 10 (MEDIUM): Task Planning
         if enable_task_planning:
             filesystem_mode = (

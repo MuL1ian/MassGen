@@ -61,6 +61,8 @@ class FilesystemManager:
         enable_audio_generation: bool = False,
         enable_file_generation: bool = False,
         exclude_file_operation_mcps: bool = False,
+        enable_code_based_tools: bool = False,
+        custom_tools_path: Optional[str] = None,
         instance_id: Optional[str] = None,
     ):
         """
@@ -86,6 +88,9 @@ class FilesystemManager:
             command_line_docker_packages: Package management configuration dict
             exclude_file_operation_mcps: If True, exclude file operation MCP tools (filesystem and workspace_tools file ops).
                                          Agents use command-line tools instead. Keeps command execution, media generation, and planning MCPs.
+            enable_code_based_tools: If True, generate Python wrapper code for MCP tools in servers/ directory.
+                                     Agents discover and call tools via filesystem (CodeAct paradigm).
+            custom_tools_path: Optional path to custom tools directory to copy into workspace
             instance_id: Optional unique instance ID for parallel execution (used in Docker container naming)
         """
         self.agent_id = None  # Will be set by orchestrator via setup_orchestration_paths
@@ -93,6 +98,8 @@ class FilesystemManager:
         self.enable_image_generation = enable_image_generation
         self.enable_mcp_command_line = enable_mcp_command_line
         self.exclude_file_operation_mcps = exclude_file_operation_mcps
+        self.enable_code_based_tools = enable_code_based_tools
+        self.custom_tools_path = Path(custom_tools_path) if custom_tools_path else None
         self.command_line_allowed_commands = command_line_allowed_commands
         self.command_line_blocked_commands = command_line_blocked_commands
         self.command_line_execution_mode = command_line_execution_mode
@@ -123,6 +130,9 @@ class FilesystemManager:
 
         # Store merged skills directory path for local mode
         self.local_skills_directory = None
+
+        # Store user MCP servers for code-based tools (excludes framework MCPs)
+        self.user_mcp_servers = []
 
         # Initialize path permission manager
         self.path_permission_manager = PathPermissionManager(
@@ -362,6 +372,144 @@ class FilesystemManager:
             temp_workspace.mkdir(exist_ok=True)
 
             logger.info(f"[FilesystemManager] Created organized structure in temp workspace: {self.agent_temporary_workspace}")
+
+    async def setup_code_based_tools_from_mcp_client(self, mcp_client) -> None:
+        """Setup code-based tools by extracting schemas from connected MCP client.
+
+        Connects to MCP servers, extracts tool schemas, and generates Python wrappers.
+
+        Args:
+            mcp_client: Connected MCPClient instance with tool schemas
+        """
+        if not self.enable_code_based_tools:
+            return
+
+        if not mcp_client:
+            logger.warning("[FilesystemManager] No MCP client provided for code-based tools")
+            return
+
+        logger.info("[FilesystemManager] Extracting tool schemas from MCP client")
+
+        # Extract tool schemas organized by server
+        servers_with_tools = self._extract_mcp_tool_schemas(mcp_client)
+
+        if not servers_with_tools:
+            logger.info("[FilesystemManager] No tools found in MCP client")
+            return
+
+        logger.info(f"[FilesystemManager] Extracted {len(servers_with_tools)} server(s) with tools")
+
+        from ._tool_code_writer import ToolCodeWriter
+
+        writer = ToolCodeWriter()
+
+        try:
+            writer.setup_code_based_tools(
+                workspace_path=self.cwd,
+                mcp_servers=servers_with_tools,
+                custom_tools_path=self.custom_tools_path,
+            )
+            logger.info(f"[FilesystemManager] Code-based tools setup complete in {self.cwd}")
+        except Exception as e:
+            logger.error(f"[FilesystemManager] Error setting up code-based tools: {e}", exc_info=True)
+            raise
+
+    def _extract_mcp_tool_schemas(self, mcp_client) -> List[Dict[str, Any]]:
+        """Extract tool schemas from MCP client, organized by server.
+
+        Only extracts user-added MCP servers. Framework MCPs (command_line, workspace_tools,
+        filesystem, planning, memory) are excluded as they're handled separately.
+
+        Args:
+            mcp_client: MCPClient instance with connected tools
+
+        Returns:
+            List of server configs with tool schemas:
+            [
+                {
+                    "name": "weather",
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": [...],
+                    "tools": [
+                        {
+                            "name": "get_forecast",
+                            "description": "Get weather forecast",
+                            "inputSchema": {...}
+                        },
+                        ...
+                    ]
+                },
+                ...
+            ]
+        """
+        # Framework MCPs that should NOT be converted to code
+        # These are automatically available or handled by the framework
+        FRAMEWORK_MCPS = {
+            "command_line",  # Command execution (already available via bash)
+            "workspace_tools",  # Workspace operations (file ops, media generation)
+            "filesystem",  # Filesystem operations
+            "planning",  # Task planning MCP
+            "memory",  # Memory management MCP
+        }
+
+        servers_with_tools = {}
+
+        # Group tools by server
+        for tool_name, tool_obj in mcp_client.tools.items():
+            # Get server name for this tool
+            server_name = mcp_client._tool_to_server.get(tool_name)
+            if not server_name:
+                logger.warning(f"[FilesystemManager] Tool {tool_name} has no associated server")
+                continue
+
+            # Skip framework MCPs - they're not user tools
+            if server_name in FRAMEWORK_MCPS:
+                logger.debug(f"[FilesystemManager] Skipping framework MCP: {server_name}")
+                continue
+
+            # Initialize server entry if needed
+            if server_name not in servers_with_tools:
+                # Find server config
+                server_config = next(
+                    (cfg for cfg in mcp_client._server_configs if cfg["name"] == server_name),
+                    None,
+                )
+                if not server_config:
+                    logger.warning(f"[FilesystemManager] No config found for server {server_name}")
+                    continue
+
+                servers_with_tools[server_name] = {
+                    "name": server_name,
+                    "type": server_config.get("type"),
+                    "command": server_config.get("command"),
+                    "args": server_config.get("args"),
+                    "env": server_config.get("env", {}),
+                    "url": server_config.get("url"),
+                    "tools": [],
+                }
+
+            # Extract tool schema (remove mcp__ prefix from name)
+            original_tool_name = tool_name
+            if tool_name.startswith(f"mcp__{server_name}__"):
+                original_tool_name = tool_name[len(f"mcp__{server_name}__") :]
+
+            tool_schema = {
+                "name": original_tool_name,
+                "description": tool_obj.description or f"{original_tool_name} from {server_name}",
+                "inputSchema": tool_obj.inputSchema or {},
+            }
+
+            servers_with_tools[server_name]["tools"].append(tool_schema)
+
+        # Convert to list
+        result = list(servers_with_tools.values())
+
+        # Log summary
+        for server in result:
+            logger.info(f"[FilesystemManager] Server '{server['name']}': {len(server['tools'])} tools")
+
+        return result
 
     def update_backend_mcp_config(self, backend_config: Dict[str, Any]) -> Dict[str, Any]:
         """
