@@ -374,71 +374,109 @@ Your workspace/
     └── [write your own scripts here as needed]
 ```
 
-**Tool Discovery:**
+**Tool Discovery - Fast, Context-Efficient Search:**
 
-**Method 1: Discover Custom Tool Packages (TOOL.md files)**
+**EFFICIENCY PRINCIPLES:**
+1. **Batch commands**: Combine multiple operations in ONE `execute_command()` call
+2. **Search before reading**: Use `rg`/`sg` to find candidates first
+3. **Targeted extraction**: Use `head`, `rg -A`, or `sg` to read only what you need
+4. **Full reads last resort**: Only use `cat` when you need implementation details
 
-Custom tools have TOOL.md files with searchable metadata:
+**Discovery Workflow:**
 
+**Step 1: Parallel Structure Discovery (Single batched command)**
 ```bash
-# List all available custom tool packages
-rg "^name: " */TOOL.md
+# ✅ EFFICIENT: All discovery in one execute_command call
+execute_command(\"\"\"
+    echo '=== MCP Servers ===' && ls servers/ &&
+    echo '=== Custom Tools ===' && ls custom_tools/ &&
+    echo '=== Tool Metadata ===' && rg '^description:' custom_tools/*/TOOL.md
+\"\"\")
 
-# Search by task description
-rg "tasks:" -A 5 */TOOL.md | rg -i "scrape|image|automate"
-
-# Search by keyword
-rg "^keywords:.*web|vision" */TOOL.md -l
-
-# Search by category
-rg "^category: automation|multimodal" */TOOL.md -l
-
-# Check API key requirements
-rg "^requires_api_keys:" */TOOL.md
-env | grep "API_KEY"  # Check which API keys you have available
-
-# Semantic search (if available)
-search "process videos" . --glob "*/TOOL.md" --top-k 5
-
-# Read full documentation
-cat custom_tools/TOOL.md
+# Note: Use && to chain commands, or ; to continue even if one fails
 ```
 
-**Method 2: Discover MCP Tools (servers/ directory)**
-
-MCP tools don't have TOOL.md, but each file in a server directory is a tool:
-
+**Step 2: Search by Functionality (Find candidates)**
 ```bash
-# List all available MCP servers
-ls servers/
+# ✅ EFFICIENT: Multiple searches in one command
+execute_command(\"\"\"
+    rg 'weather|forecast|temperature' servers/ -l &&
+    rg 'github.*issue|create.*pr' servers/ -l &&
+    rg '^category: multimodal' custom_tools/*/TOOL.md -l
+\"\"\")
 
-# See what tools a server provides (each .py file is a tool)
-ls servers/weather/
-# Shows: get_forecast.py, get_current.py, __init__.py
-
-# Read tool documentation from docstring
-cat servers/weather/get_forecast.py
-
-# Search for functionality across all MCP tools
-rg "temperature|forecast" servers/ --type py
-
-# Semantic search within MCP tools
-search "get weather data" servers/ --type py
-
-# Search by task/purpose in docstrings
-rg '\"\"\".*weather.*\"\"\"' servers/ -A 5
+# For custom tools: Search TOOL.md metadata
+execute_command(\"\"\"
+    rg 'tasks:' custom_tools/*/TOOL.md -A 5 | rg -i 'scrape|image' &&
+    rg '^requires_api_keys:' custom_tools/*/TOOL.md &&
+    env | grep 'API_KEY'
+\"\"\")
 ```
 
-**Method 3: Quick Overview**
+**Step 3: Extract Minimal Info (Context-efficient)**
+```bash
+# ✅ EFFICIENT: Get JUST function signatures using ast-grep
+execute_command(\"sg --pattern 'def \\$FUNC(\\$\\$\\$):' --lang python servers/weather/get_forecast.py\")
+
+# ✅ EFFICIENT: Get first 20-25 lines (docstring only, no implementation)
+execute_command(\"head -n 25 servers/weather/get_forecast.py\")
+
+# ✅ EFFICIENT: Get specific section with context
+execute_command(\"rg 'Args:' servers/weather/get_forecast.py -A 10\")
+
+# ❌ WASTEFUL: Reading entire file when you only need the docstring
+execute_command(\"cat servers/weather/get_forecast.py\")  # Avoid unless necessary!
+```
+
+**Step 4: Full Read Only If Implementation Needed**
+```bash
+# Only read full file if you need to understand implementation details
+execute_command(\"cat servers/weather/get_forecast.py\")
+```
+
+**Task-Based Examples:**
 
 ```bash
-# Show all available tools at a glance
-ls servers/     # MCP servers
-ls */TOOL.md    # Custom tool packages
+# Task: "I need weather data"
+# ✅ Single batched command
+execute_command(\"\"\"
+    rg 'weather|forecast' servers/ -l &&
+    ls servers/weather/ &&
+    head -n 25 servers/weather/get_current.py
+\"\"\")
 
-# Count available tools
-ls servers/*/*.py | wc -l      # MCP tools
-ls */TOOL.md | wc -l           # Custom tool packages
+# Task: "Find multimodal tools that don't need API keys"
+# ✅ Combine metadata searches
+execute_command(\"\"\"
+    rg '^category: multimodal' custom_tools/*/TOOL.md -l &&
+    rg '^requires_api_keys: \\[\\]' custom_tools/*/TOOL.md -l
+\"\"\")
+
+# Task: "What can the GitHub server do?"
+# ✅ Structure + signatures (no implementations)
+execute_command(\"\"\"
+    ls servers/github/ &&
+    sg --pattern 'def \\$NAME(\\$\\$\\$):' --lang python servers/github/*.py
+\"\"\")
+
+# Task: "Understand a specific tool's parameters"
+# ✅ Extract just the Args section
+execute_command(\"rg 'Args:' servers/github/create_issue.py -A 15\")
+```
+
+**ast-grep Patterns for Efficient Extraction:**
+```bash
+# Extract all function names (no bodies)
+sg --pattern 'def \\$FUNC(\\$\\$\\$):' --lang python servers/weather/
+
+# Get function signatures with return types
+sg --pattern 'def \\$FUNC(\\$\\$\\$) -> \\$RET:' --lang python servers/
+
+# Find all imports (see dependencies)
+sg --pattern 'import \\$MOD' --lang python servers/github/create_issue.py
+
+# Get __all__ exports list
+sg --pattern '__all__ = [\\$\\$\\$]' --lang python servers/weather/__init__.py
 ```
 
 **Usage Pattern:**
@@ -447,13 +485,21 @@ ls */TOOL.md | wc -l           # Custom tool packages
 from servers.weather import get_forecast
 from servers.github import create_issue
 
-# Import custom tools from custom_tools/
+# Import custom tools - use module path from TOOL.md entry_points
+# Simple tool: from custom_tools.{{file}} import {{function}}
 from custom_tools.string_utils import reverse_string
+
+# Tool in subdirectory: from custom_tools.{{dir}}.{{file}} import {{function}}
+# Example from TOOL.md: entry_points[0] = {{file: "_multimodal_tools/text_to_image_generation.py", function: "text_to_image_generation"}}
+from custom_tools._multimodal_tools.text_to_image_generation import text_to_image_generation
 
 # Use the tools
 weather = get_forecast("San Francisco", days=3)
 reversed_text = reverse_string("hello")
+image = await text_to_image_generation(prompt="sunset", output_path="sunset.png")
 ```
+
+**Important:** Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
 
 **Custom Tools Return Type:**
 
@@ -492,10 +538,11 @@ Then execute: `python utils/daily_weather_report.py`
 - **Tool composition**: Chain multiple tools together in single script
 
 **Key Principles:**
-1. **Discover first**: Use `ls servers/` or `servers.list_tools()` to find available tools
-2. **Read docstrings**: Use `cat` or `servers.describe()` to understand parameters
-3. **Import only needed tools**: Reduces context (don't import everything upfront)
-4. **Create utils/ for complex workflows**: Combine tools, add async, filter data
+1. **Batch discovery operations**: Combine `ls`, `rg`, `sg` in single `execute_command()` calls
+2. **Search then extract**: Use `rg -l` to find candidates, then `head`/`sg` for targeted reads
+3. **Minimize context**: Extract only signatures/docstrings with `sg` or `head -n 25` (not full `cat`)
+4. **Import only needed tools**: Don't import everything upfront (reduces context)
+5. **Create utils/ for complex workflows**: Combine tools, add async, filter data
 
 **Example - Async Multi-Tool Call:**
 ```python

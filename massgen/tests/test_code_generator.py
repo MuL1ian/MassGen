@@ -343,7 +343,7 @@ class TestMCPToolCodeGenerator:
         assert 'prefixed_tool_name = f"mcp__{server}__{tool}"' in code
 
     def test_generate_tools_init(self, generator):
-        """Test tools registry __init__.py generation."""
+        """Test tools directory __init__.py generation (filesystem-based discovery)."""
         servers = ["weather", "github", "salesforce"]
 
         code = generator.generate_tools_init(servers)
@@ -353,22 +353,18 @@ class TestMCPToolCodeGenerator:
         assert "- github" in code
         assert "- salesforce" in code
 
-        # Verify functions
-        assert "def list_tools()" in code
-        assert "def load(tool_path: str)" in code
-        assert "def describe(tool_path: str)" in code
+        # Verify filesystem-based discovery guidance (not registry functions)
+        assert "ls servers/" in code
+        assert "cat servers/" in code
 
-        # Verify imports
-        assert "from pathlib import Path" in code
-        assert "import importlib" in code
+        # Verify usage examples show imports (not registry calls)
+        assert "from servers.weather import" in code or "from servers.github import" in code
 
-        # Verify __all__
-        assert "__all__ = ['list_tools', 'load', 'describe']" in code
-
-        # Verify usage examples in docstring
-        assert "from servers.weather import get_forecast" in code
-        assert "servers.list_tools()" in code
-        assert "servers.load('weather.get_forecast')" in code
+        # Should NOT contain old registry functions
+        assert "def list_tools()" not in code
+        assert "def load(" not in code
+        assert "def describe(" not in code
+        assert "servers.list_tools()" not in code
 
     def test_generate_tool_wrapper_no_parameters(self, generator):
         """Test tool wrapper generation with no parameters."""

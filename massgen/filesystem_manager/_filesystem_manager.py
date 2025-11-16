@@ -126,12 +126,15 @@ class FilesystemManager:
             self.custom_tools_path = None
 
         # Convert shared_tools_directory to absolute path if provided
+        # For code-based tools, we'll append a config hash subdirectory later
         if shared_tools_directory:
             shared_tools_path = Path(shared_tools_directory)
             if not shared_tools_path.is_absolute():
                 shared_tools_path = shared_tools_path.resolve()
-            self.shared_tools_directory = shared_tools_path
+            self.shared_tools_base = shared_tools_path  # Base directory
+            self.shared_tools_directory = None  # Will be set with hash in setup_code_based_tools
         else:
+            self.shared_tools_base = None
             self.shared_tools_directory = None
         self.command_line_allowed_commands = command_line_allowed_commands
         self.command_line_blocked_commands = command_line_blocked_commands
@@ -255,7 +258,7 @@ class FilesystemManager:
                 context_paths=context_paths,
                 skills_directory=skills_directory,
                 massgen_skills=massgen_skills,
-                shared_tools_directory=self.shared_tools_directory,
+                shared_tools_directory=self.shared_tools_base,
             )
             logger.info(f"[FilesystemManager] Docker container created for agent {self.agent_id}")
 
@@ -407,6 +410,30 @@ class FilesystemManager:
 
             logger.info(f"[FilesystemManager] Created organized structure in temp workspace: {self.agent_temporary_workspace}")
 
+    def _compute_tools_config_hash(self, servers_with_tools: List[Dict[str, Any]]) -> str:
+        """Compute hash of tool configuration for shared_tools directory naming.
+
+        Args:
+            servers_with_tools: List of server configs with tools
+
+        Returns:
+            8-character hex hash of configuration
+        """
+        import hashlib
+        import json
+
+        # Build config dict with all relevant parameters
+        config = {
+            "servers": sorted([s["name"] for s in servers_with_tools]),  # Server names
+            "exclude_custom_tools": sorted(self.exclude_custom_tools),
+            "custom_tools_path": str(self.custom_tools_path) if self.custom_tools_path else None,
+        }
+
+        # Compute hash
+        config_str = json.dumps(config, sort_keys=True)
+        hash_obj = hashlib.md5(config_str.encode())
+        return hash_obj.hexdigest()[:8]  # First 8 chars
+
     async def setup_code_based_tools_from_mcp_client(self, mcp_client) -> None:
         """Setup code-based tools by extracting schemas from connected MCP client.
 
@@ -438,21 +465,18 @@ class FilesystemManager:
         writer = ToolCodeWriter()
 
         # Determine where to generate tools
-        if self.shared_tools_directory:
-            # Shared location: generate once, used by all agents (read-only)
-            target_path = self.shared_tools_directory
+        if self.shared_tools_base:
+            # Shared location: create hash-based subdirectory for this config
+            config_hash = self._compute_tools_config_hash(servers_with_tools)
+            target_path = self.shared_tools_base / config_hash
 
-            # Check if tools already exist in shared location (skip regeneration)
-            servers_dir = target_path / "servers"
-            if servers_dir.exists() and list(servers_dir.iterdir()):
-                logger.info(f"[FilesystemManager] Code-based tools already exist in shared location: {target_path}")
-                logger.info("[FilesystemManager] Skipping regeneration (tools are shared across agents)")
+            # Set the actual shared_tools_directory (with hash)
+            self.shared_tools_directory = target_path
 
-                # Add shared tools to read-only paths for this agent
-                self._add_shared_tools_to_allowed_paths(target_path)
-                return
+            # Create directory
+            target_path.mkdir(parents=True, exist_ok=True)
 
-            logger.info(f"[FilesystemManager] Generating code-based tools in shared location: {target_path}")
+            logger.info(f"[FilesystemManager] Generating code-based tools in shared location: {target_path} (hash: {config_hash})")
         else:
             # Per-agent location: generate in workspace (included in snapshots)
             target_path = self.cwd
@@ -1439,6 +1463,14 @@ class FilesystemManager:
         # Cleanup Docker container if Docker mode enabled
         if self.docker_manager and self.agent_id:
             self.docker_manager.cleanup(self.agent_id)
+
+        # Cleanup shared_tools directory if it was created for this run
+        if self.shared_tools_directory and self.shared_tools_directory.exists():
+            try:
+                logger.info(f"[FilesystemManager] Cleaning up shared tools directory: {self.shared_tools_directory}")
+                shutil.rmtree(self.shared_tools_directory)
+            except Exception as e:
+                logger.warning(f"[FilesystemManager] Failed to cleanup shared tools directory: {e}")
 
         # Cleanup local skills directory if it exists
         if self.local_skills_directory and self.local_skills_directory.exists():
