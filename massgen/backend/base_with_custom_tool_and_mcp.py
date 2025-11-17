@@ -29,6 +29,7 @@ import httpx
 from pydantic import BaseModel
 
 from ..logger_config import log_backend_activity, logger
+from ..mcp_tools.server_registry import get_auto_discovery_servers, get_registry_info
 from ..tool import ToolManager
 from ..utils import CoordinationStage
 from .base import LLMBackend, StreamChunk
@@ -235,6 +236,10 @@ class CustomToolAndMCPBackend(LLMBackend):
         """Initialize backend with MCP support."""
         super().__init__(api_key, **kwargs)
 
+        # Initialize backend name and agent ID early (needed for logging)
+        self.backend_name = self.get_provider_name()
+        self.agent_id = kwargs.get("agent_id", None)
+
         # Custom tools support - initialize before api_params_handler
         self.custom_tool_manager = ToolManager()
         self._custom_tool_names: set[str] = set()
@@ -249,6 +254,32 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         # MCP integration (filesystem MCP server may have been injected by base class)
         self.mcp_servers = self.config.get("mcp_servers", [])
+
+        # Auto-discovery: Merge registry servers when enabled
+        auto_discover = self.config.get("auto_discover_custom_tools", False) or kwargs.get("auto_discover_custom_tools", False)
+        if auto_discover:
+            registry_servers = get_auto_discovery_servers()
+            if registry_servers:
+                # Get server names already configured to avoid duplicates
+                configured_server_names = {s.get("name") for s in self.mcp_servers if isinstance(s, dict) and "name" in s}
+
+                # Add registry servers that aren't already configured
+                added_servers = []
+                for registry_server in registry_servers:
+                    if registry_server.get("name") not in configured_server_names:
+                        self.mcp_servers.append(registry_server)
+                        added_servers.append(registry_server.get("name"))
+
+                if added_servers:
+                    logger.info(f"[{self.backend_name}] Auto-discovery enabled: Added MCP servers from registry: {', '.join(added_servers)}")
+
+                    # Log info about unavailable servers
+                    registry_info = get_registry_info()
+                    if registry_info.get("unavailable_servers"):
+                        unavailable = registry_info["unavailable_servers"]
+                        missing_keys = registry_info.get("missing_api_keys", {})
+                        logger.info(f"[{self.backend_name}] Registry servers not added (missing API keys): {', '.join([f'{s} (needs {missing_keys.get(s)})' for s in unavailable])}")
+
         self.allowed_tools = kwargs.pop("allowed_tools", None)
         self.exclude_tools = kwargs.pop("exclude_tools", None)
         self._mcp_client: Optional[MCPClient] = None
@@ -289,10 +320,6 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         # Limit for message history growth within MCP execution loop
         self._max_mcp_message_history = kwargs.pop("max_mcp_message_history", 200)
-
-        # Initialize backend name and agent ID for MCP operations
-        self.backend_name = self.get_provider_name()
-        self.agent_id = kwargs.get("agent_id", None)
 
     def supports_upload_files(self) -> bool:
         """Return True if the backend supports `upload_files` preprocessing."""
@@ -956,7 +983,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                     # Get server name from tool name (format: server__tool or just tool)
                     server_name = self._mcp_client._tool_to_server.get(tool_name) if self._mcp_client else None
 
-                    if server_name and server_name in FRAMEWORK_MCPS:
+                    # Check if server is a framework MCP (exact match or prefix match like "planning_agent_a")
+                    is_framework_mcp = server_name and (server_name in FRAMEWORK_MCPS or any(server_name.startswith(f"{fmcp}_") for fmcp in FRAMEWORK_MCPS))
+
+                    if is_framework_mcp:
                         filtered_functions[tool_name] = function
                     elif not server_name:
                         # Unknown server, keep it to be safe

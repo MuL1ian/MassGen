@@ -27,8 +27,10 @@
 agents:
   - id: "agent_a"
     backend:
-      type: "gemini"
-      model: "gemini-2.5-pro"
+      # type: "gemini"
+      # model: "gemini-2.5-pro"
+      type: "openai"
+      model: "gpt-5"
       cwd: "workspace"
 
       # Enable code-based tools (CodeAct paradigm)
@@ -89,6 +91,16 @@ agents:
 orchestrator:
   snapshot_storage: "snapshots"
   agent_temporary_workspace: "temp_workspaces"
+  coordination:
+    # Enable skills system
+    use_skills: true
+
+    # enable planning
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+
+    # enable filesystem memory mode
+    enable_memory_filesystem_mode: true
 
 # UI Configuration
 ui:

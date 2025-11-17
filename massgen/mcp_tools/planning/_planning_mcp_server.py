@@ -186,6 +186,21 @@ async def create_server() -> fastmcp.FastMCP:
         required=False,
         help="Optional path to agent workspace for filesystem-based task storage",
     )
+    parser.add_argument(
+        "--skills-enabled",
+        action="store_true",
+        help="Enable skills discovery task reminder",
+    )
+    parser.add_argument(
+        "--auto-discovery-enabled",
+        action="store_true",
+        help="Enable custom tools/MCP discovery task reminder",
+    )
+    parser.add_argument(
+        "--memory-enabled",
+        action="store_true",
+        help="Enable memory discovery and saving task reminders",
+    )
     args = parser.parse_args()
 
     # Set workspace path if provided
@@ -198,6 +213,11 @@ async def create_server() -> fastmcp.FastMCP:
     # Store agent and orchestrator IDs
     mcp.agent_id = args.agent_id
     mcp.orchestrator_id = args.orchestrator_id
+
+    # Store feature flags for auto-inserting discovery tasks
+    mcp.skills_enabled = args.skills_enabled
+    mcp.auto_discovery_enabled = args.auto_discovery_enabled
+    mcp.memory_enabled = args.memory_enabled
 
     @mcp.tool()
     def create_task_plan(tasks: List[Union[str, Dict[str, Any]]]) -> Dict[str, Any]:
@@ -266,8 +286,48 @@ async def create_server() -> fastmcp.FastMCP:
             plan.tasks.clear()
             plan._task_index.clear()
 
+            # Auto-insert discovery tasks based on enabled features
+            preparation_tasks = []
+            if mcp.skills_enabled:
+                preparation_tasks.append(
+                    {
+                        "id": "prep_skills",
+                        "description": "Check available skills for relevant capabilities",
+                        "priority": "high",
+                    },
+                )
+            if mcp.auto_discovery_enabled:
+                preparation_tasks.append(
+                    {
+                        "id": "prep_tools",
+                        "description": "Review available custom tools and MCP servers",
+                        "priority": "high",
+                    },
+                )
+            if mcp.memory_enabled:
+                preparation_tasks.append(
+                    {
+                        "id": "prep_memory",
+                        "description": "Check long-term memory for relevant context",
+                        "priority": "high",
+                    },
+                )
+
+            cleanup_tasks = []
+            if mcp.memory_enabled:
+                cleanup_tasks.append(
+                    {
+                        "id": "save_memories",
+                        "description": "Save important findings and learnings to memory",
+                        "priority": "medium",
+                    },
+                )
+
+            # Combine: prep + user tasks + cleanup
+            all_tasks = preparation_tasks + tasks + cleanup_tasks
+
             # Validate and resolve dependencies
-            normalized_tasks = _resolve_dependency_references(tasks)
+            normalized_tasks = _resolve_dependency_references(all_tasks)
             plan.validate_dependencies(normalized_tasks)
 
             # Create tasks

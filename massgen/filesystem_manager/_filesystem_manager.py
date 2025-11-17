@@ -672,7 +672,9 @@ class FilesystemManager:
                 continue
 
             # Skip framework MCPs - they're not user tools
-            if server_name in FRAMEWORK_MCPS:
+            # Check exact match or prefix match (e.g., "planning_agent_a" matches "planning")
+            is_framework_mcp = server_name in FRAMEWORK_MCPS or any(server_name.startswith(f"{fmcp}_") for fmcp in FRAMEWORK_MCPS)
+            if is_framework_mcp:
                 logger.debug(f"[FilesystemManager] Skipping framework MCP: {server_name}")
                 continue
 

@@ -3316,6 +3316,11 @@ Environment Variables:
         help="Launch interactive API key setup wizard to configure credentials",
     )
     parser.add_argument(
+        "--setup-skills",
+        action="store_true",
+        help="Install skills (openskills CLI, Anthropic collection, Crawl4AI)",
+    )
+    parser.add_argument(
         "--list-examples",
         action="store_true",
         help="List available example configurations from package",
@@ -3520,6 +3525,13 @@ Environment Variables:
         else:
             print(f"\n{BRIGHT_YELLOW}⚠️  No API keys configured{RESET}")
             print(f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to set them up{RESET}\n")
+        return
+
+    # Install skills if requested
+    if args.setup_skills:
+        from .utils.skills_installer import install_skills
+
+        install_skills()
         return
 
     # Launch interactive config selector if requested

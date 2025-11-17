@@ -170,6 +170,77 @@ MassGen supports variable substitution in MCP configurations:
 * Environment variables must be UPPERCASE (e.g., ``${API_KEY}``, ``${BRAVE_API_KEY}``)
 * Both systems work together but are resolved separately
 
+Recommended MCP Servers (Registry)
+-----------------------------------
+
+MassGen includes a curated registry of recommended MCP servers that are automatically available when auto-discovery is enabled. These servers have been tested and provide essential capabilities for agent workflows.
+
+**Registry Servers:**
+
+* **Context7** - Up-to-date code documentation for libraries and frameworks
+* **Brave Search** - Web search via Brave API (requires API key)
+
+See :doc:`../reference/mcp_server_registry` for complete documentation of all registry servers, including configuration examples, API key setup, and usage patterns.
+
+Auto-Discovery
+~~~~~~~~~~~~~~
+
+Enable automatic inclusion of registry MCP servers:
+
+.. code-block:: yaml
+
+   agents:
+     - id: "research_agent"
+       backend:
+         type: "gemini"
+         model: "gemini-2.5-flash"
+         auto_discover_custom_tools: true  # Automatically adds registry servers!
+
+**Behavior:**
+
+* **Context7**: Always included (no API key required)
+* **Brave Search**: Only included if ``BRAVE_API_KEY`` is set in ``.env``
+
+**Log Output Example:**
+
+.. code-block:: text
+
+   [gemini] Auto-discovery enabled: Added MCP servers from registry: context7
+   [gemini] Registry servers not added (missing API keys): brave_search (needs BRAVE_API_KEY)
+
+**Benefits:**
+
+* No manual configuration needed for recommended servers
+* Servers are only included if API keys are available
+* Avoids duplicates if you manually configure a registry server
+* Easy to get started with powerful tools
+
+**Example Configurations:**
+
+* ``massgen/configs/tools/mcp/auto_discovery_with_registry.yaml`` - Auto-discovery example
+* ``massgen/configs/tools/mcp/context7_documentation_example.yaml`` - Context7 usage
+* ``massgen/configs/tools/mcp/brave_search_example.yaml`` - Brave Search usage
+
+Manual Configuration
+~~~~~~~~~~~~~~~~~~~~
+
+You can still manually configure any registry server without auto-discovery:
+
+.. code-block:: yaml
+
+   agents:
+     - id: "my_agent"
+       backend:
+         type: "claude"
+         model: "claude-sonnet-4"
+         mcp_servers:
+           - name: "context7"
+             type: "stdio"
+             command: "npx"
+             args: ["-y", "@upstash/context7-mcp"]
+
+This gives you full control over which servers to include and their configuration.
+
 Common MCP Servers
 ------------------
 

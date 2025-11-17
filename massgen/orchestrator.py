@@ -510,6 +510,23 @@ class Orchestrator(ChatAgent):
             else:
                 logger.warning(f"[Orchestrator] Agent {agent_id} has no filesystem_manager")
 
+        # Add feature flags for auto-inserting discovery tasks
+        skills_enabled = hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "use_skills") and self.config.coordination_config.use_skills
+        if skills_enabled:
+            args.append("--skills-enabled")
+
+        auto_discovery_enabled = False
+        if hasattr(agent, "backend") and hasattr(agent.backend, "config"):
+            auto_discovery_enabled = agent.backend.config.get("auto_discover_custom_tools", False)
+        if auto_discovery_enabled:
+            args.append("--auto-discovery-enabled")
+
+        memory_enabled = (
+            hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "enable_memory_filesystem_mode") and self.config.coordination_config.enable_memory_filesystem_mode
+        )
+        if memory_enabled:
+            args.append("--memory-enabled")
+
         config = {
             "name": f"planning_{agent_id}",
             "type": "stdio",

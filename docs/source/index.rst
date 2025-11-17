@@ -264,6 +264,7 @@ Documentation Sections
       * :doc:`reference/python_api`
       * :doc:`reference/cli`
       * :doc:`reference/yaml_schema`
+      * :doc:`reference/mcp_server_registry`
       * :doc:`reference/configuration_examples`
       * :doc:`reference/supported_models`
       * :doc:`reference/timeouts`
@@ -323,6 +324,7 @@ Documentation Sections
    reference/python_api
    reference/cli
    reference/yaml_schema
+   reference/mcp_server_registry
    reference/configuration_examples
    reference/timeouts
    reference/supported_models
