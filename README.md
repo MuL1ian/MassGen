@@ -1098,6 +1098,7 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 - **NLIP (Natural Language Interface Protocol)**: Advanced tool routing with multi-backend support across Claude, Gemini, and OpenAI (`massgen/backend/response.py`, orchestrator integration)
 - **Skills Installation System**: Cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI with comprehensive setup scripts (`massgen/utils/skills_installer.py`)
 - **Enhanced Tool Selection**: Per-agent and orchestrator-level NLIP configuration for sophisticated tool routing
+- **Configuration Examples**: Sample YAML configs for NLIP integration (`massgen/configs/examples/nlip_basic.yaml`, `nlip_orchestrator_test.yaml`, `nlip_openai_weather_test.yaml`), code-based tools (`massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml`), and skills system (`massgen/configs/skills/skills_basic.yaml`)
 
 ### Previous Achievements (v0.0.3 - v0.1.12)
 
