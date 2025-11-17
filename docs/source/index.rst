@@ -111,17 +111,17 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.12 (November 14, 2025)** - System Prompt Architecture, Semantic Skills & Multi-Agent Computer Use
+**v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
+
+Revolutionary code-based tools system implementing CodeAct paradigm with 98% token usage reduction through importable Python code instead of schema-based tools. MCP server registry with auto-discovery and intelligent tool routing. Comprehensive skills installation system with cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI. NLIP (Natural Language Interface Protocol) integration for advanced tool routing across all backends. TOOL.md documentation standard with YAML frontmatter for all custom tools. Enhanced multimodal capabilities with video captioning tools (SRT/VTT generation), Crawl4AI web scraping integration, and Playwright MCP browser automation.
+
+**v0.1.12 (November 14, 2025)** - System Prompt Refactoring, Semantic Search & Multi-Agent Computer Use
 
 Complete system prompt refactoring with hierarchical structure and XML-based formatting for improved LLM attention management. New Semtools skill for semantic search via embedding-based similarity and Serena skill for symbol-level code understanding via LSP integration. Enhanced multi-agent computer use with Docker integration for Linux desktop automation, VNC visualization, and coordinated Claude (Docker/Linux) + Gemini (Browser) workflows.
 
 **v0.1.11 (November 12, 2025)** - Skills System, Memory MCP & Rate Limiting
 
 Modular skills framework with automatic discovery and file search capabilities, MCP-based memory management with persistent markdown storage and cross-agent sharing, multi-dimensional rate limiting (RPM, TPM, RPD) with model-specific thresholds, and memory-filesystem integration for advanced workflows.
-
-**v0.1.10 (November 10, 2025)** - Framework Interoperability Streaming & Docker Enhancements
-
-Real-time intermediate step streaming for LangGraph and SmoLAgent with log/output distinction, restructured Docker authentication with custom image support, parallel execution safety with universal instance IDs, and MassGen Contributor Handbook at https://massgen.github.io/Handbook/.
 
 Quick Start
 -----------

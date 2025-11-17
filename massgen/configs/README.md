@@ -233,6 +233,9 @@ Most configurations use environment variables for API keys:so
 **Configuration Files:**
 - `tools/filesystem/code_based/example_code_based_tools.yaml` - Code-based tools with auto-discovery and shared tools directory
 - `tools/filesystem/exclude_mcps/test_minimal_mcps.yaml` - Minimal MCPs with command-line file operations
+- `examples/nlip_basic.yaml` - Basic NLIP protocol support with router and translation settings
+- `examples/nlip_openai_weather_test.yaml` - OpenAI with NLIP integration for custom tools and MCP servers
+- `examples/nlip_orchestrator_test.yaml` - Orchestrator-level NLIP configuration for multi-agent coordination
 
 **Key Features:**
 - **Code-Based Tools (CodeAct Paradigm)**: Revolutionary tool integration via importable Python code, reducing token usage by 98%
@@ -266,6 +269,16 @@ uv run massgen --config massgen/configs/tools/filesystem/code_based/example_code
 # Prerequisites: Docker running
 uv run massgen --config massgen/configs/tools/filesystem/exclude_mcps/test_minimal_mcps.yaml \
   "Create a website about Bob Dylan"
+
+# NLIP Integration - natural language tool routing with OpenAI
+# Prerequisites: OPENAI_API_KEY in .env, weather MCP (npx -y @fak111/weather-mcp)
+massgen --config massgen/configs/examples/nlip_openai_weather_test.yaml \
+  "What's the sum of 123 and 456? And what's the weather in Tokyo?"
+
+# Orchestrator-level NLIP - multi-agent coordination with NLIP routing
+# Prerequisites: OPENAI_API_KEY, CEREBRAS_API_KEY in .env
+massgen --config massgen/configs/examples/nlip_orchestrator_test.yaml \
+  "What's the sum of 123 and 456? And what's the weather in Tokyo?"
 ```
 
 ### v0.1.12

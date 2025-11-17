@@ -91,6 +91,9 @@ Modular skills system for enhanced agent prompting, MCP-based memory management 
 - **Configuration Examples**: New YAML configurations for v0.1.13 features
   - `massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml`: Code-based tools with auto-discovery and shared tools directory (153 lines)
   - `massgen/configs/tools/filesystem/exclude_mcps/test_minimal_mcps.yaml`: Minimal MCPs with command-line file operations and memory filesystem mode (37 lines)
+  - `massgen/configs/examples/nlip_basic.yaml`: Basic NLIP protocol support with router and translation settings (54 lines)
+  - `massgen/configs/examples/nlip_openai_weather_test.yaml`: OpenAI with NLIP integration for custom tools and MCP servers (36 lines)
+  - `massgen/configs/examples/nlip_orchestrator_test.yaml`: Orchestrator-level NLIP configuration for multi-agent coordination (47 lines)
 
 - **Skills Installation Documentation**: Comprehensive guides for skills setup
   - Updated `scripts/init.sh` with detailed help text and options (438 lines)

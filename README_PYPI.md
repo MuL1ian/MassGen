@@ -184,15 +184,27 @@ pip install --upgrade massgen
 # Automated Skills Installation - cross-platform setup
 massgen --setup-skills  # Installs openskills CLI, Anthropic skills, and Crawl4AI
 
-# Web Scraping with Crawl4AI - extract clean markdown content
-# Prerequisites: Docker with Crawl4AI (docker pull unclecode/crawl4ai:latest && docker run -d -p 11235:11235 --name crawl4ai unclecode/crawl4ai:latest)
-massgen --config massgen/configs/tools/custom_tools/crawl4ai_example.yaml \
-  "Extract and summarize the main content from https://docs.massgen.ai"
+# Code-Based Tools (CodeAct Paradigm) - 98% context reduction
+# Prerequisites: Docker running, .env file with API keys
+uv run massgen --automation \
+  --config massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml \
+  "List all available tools by exploring the workspace filesystem"
 
-# Browser Automation with Playwright - multi-agent coordination
-# Prerequisites: npm install @playwright/mcp@latest
-massgen --config massgen/configs/tools/code-execution/multi_agent_playwright_automation.yaml \
-  "Browse GitHub issues and create a summary report with screenshots"
+# Or use with skills for advanced features:
+uv run massgen --config massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml \
+  "Create a website about Bob Dylan, ensuring that it is visually appealing and user friendly"
+
+# Minimal MCPs - command-line file operations with memory filesystem mode
+uv run massgen --config massgen/configs/tools/filesystem/exclude_mcps/test_minimal_mcps.yaml \
+  "Create a website about Bob Dylan"
+
+# NLIP Integration - natural language tool routing
+massgen --config massgen/configs/examples/nlip_openai_weather_test.yaml \
+  "What's the sum of 123 and 456? And what's the weather in Tokyo?"
+
+# Orchestrator-level NLIP - multi-agent coordination
+massgen --config massgen/configs/examples/nlip_orchestrator_test.yaml \
+  "What's the sum of 123 and 456? And what's the weather in Tokyo?"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
