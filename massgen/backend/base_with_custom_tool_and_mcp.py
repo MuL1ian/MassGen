@@ -1017,6 +1017,16 @@ class CustomToolAndMCPBackend(LLMBackend):
         )
 
         request = self._build_nlip_request(call)
+        call_descriptor = "MCP call" if config.tool_type == "mcp" else "custom tool call"
+        call_reference = f" (id {call_id})" if call_id else ""
+        transfer_message = f"🔁 [NLIP Router] Transferring {call_descriptor} '{tool_name}' via NLIP router{call_reference}"
+        logger.info(f"[NLIP] Routing {call_descriptor} '{tool_name}'{call_reference} through NLIP router")
+        yield StreamChunk(
+            type=config.chunk_type,
+            status="nlip_transfer",
+            content=transfer_message,
+            source=f"{config.source_prefix}{tool_name}",
+        )
 
         # Properly handle the async generator to avoid GeneratorExit issues
         nlip_generator = self._nlip_router.route_message(request)
