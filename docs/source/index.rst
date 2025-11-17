@@ -113,7 +113,7 @@ Recent Releases
 
 **v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
 
-Revolutionary code-based tools system implementing CodeAct paradigm with 98% token usage reduction through importable Python code instead of schema-based tools. MCP server registry with auto-discovery and intelligent tool routing. Comprehensive skills installation system with cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI. NLIP (Natural Language Interface Protocol) integration for advanced tool routing across all backends. TOOL.md documentation standard with YAML frontmatter for all custom tools. Enhanced multimodal capabilities with video captioning tools (SRT/VTT generation), Crawl4AI web scraping integration, and Playwright MCP browser automation.
+Code-based tools system implementing CodeAct paradigm with significant token usage reduction through importable Python code instead of schema-based tools. MCP server registry with auto-discovery and intelligent tool routing. Comprehensive skills installation system with cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI. NLIP (Natural Language Interface Protocol) integration for advanced tool routing across all backends. TOOL.md documentation standard with YAML frontmatter for all custom tools.
 
 **v0.1.12 (November 14, 2025)** - System Prompt Refactoring, Semantic Search & Multi-Agent Computer Use
 

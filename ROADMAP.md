@@ -238,7 +238,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#414](https://github.com/massgen/MassGen/issues/414)
 - Tool integration via importable Python code instead of schema-based tools
 - MCP server registry with auto-discovery
-- Reduces token usage by 98% through on-demand tool loading
+- Reduces token usage through on-demand tool loading
 - **Status:** ✅ Completed in v0.1.13
 
 ### Track: Parallel File Operations (@ncrispino, nickcrispino)

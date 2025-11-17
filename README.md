@@ -161,20 +161,16 @@ This project started with the "threads of thought" and "iterative refinement" id
 **🎉 Released: November 17, 2025**
 
 **What's New in v0.1.13:**
-- **🏗️ Code-Based Tools System (CodeAct Paradigm)** - Revolutionary tool integration via importable Python code, reducing token usage by 98%
+- **🏗️ Code-Based Tools System (CodeAct Paradigm)** - Revolutionary tool integration via importable Python code
 - **🔍 MCP Server Registry & Auto-Discovery** - Intelligent tool routing with automatic server discovery and on-demand loading
 - **🛠️ Skills Installation System** - Cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI
 - **🌐 NLIP Integration** - Advanced tool routing with Natural Language Interface Protocol across all backends
-- **📹 Enhanced Multimodal Tools** - Video captioning, web scraping, and Playwright browser automation
 
 **Key Improvements:**
 - Code-based tool integration dramatically reduces context pollution through on-demand loading
 - MCP server registry enables automatic tool discovery without manual configuration
 - Skills installer works cross-platform (Windows, macOS, Linux) with automatic dependency management
 - NLIP provides intelligent tool routing at both agent and orchestrator levels
-- Video tools generate SRT/VTT subtitles with frame-by-frame analysis
-- Crawl4AI integration for advanced web content extraction with markdown conversion
-- Playwright MCP for comprehensive browser automation (screenshots, forms, JavaScript execution)
 - TOOL.md documentation standard with YAML frontmatter for all custom tools
 
 **Try v0.1.13 Features:**
@@ -1079,7 +1075,7 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 **🎉 Released: November 17, 2025**
 
 #### Code-Based Tools & MCP Registry
-- **CodeAct Paradigm Implementation**: Tool integration via importable Python code instead of schema-based tools, reducing token usage by 98% (`massgen/filesystem_manager/_tool_code_writer.py`, `massgen/mcp_tools/code_generator.py`)
+- **CodeAct Paradigm Implementation**: Tool integration via importable Python code instead of schema-based tools, reducing token usage (`massgen/filesystem_manager/_tool_code_writer.py`, `massgen/mcp_tools/code_generator.py`)
 - **MCP Server Registry**: Auto-discovery and intelligent tool routing with server registry infrastructure (`massgen/mcp_tools/server_registry.py`)
 - **Automatic Tool Loading**: On-demand loading of MCP tools only when needed, dramatically reducing context pollution
 - **TOOL.md Documentation Standard**: Standardized documentation format for custom tools with YAML frontmatter metadata and usage examples
@@ -1088,11 +1084,6 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 - **NLIP (Natural Language Interface Protocol)**: Advanced tool routing with multi-backend support across Claude, Gemini, and OpenAI (`massgen/backend/response.py`, orchestrator integration)
 - **Skills Installation System**: Cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI with comprehensive setup scripts (`massgen/utils/skills_installer.py`)
 - **Enhanced Tool Selection**: Per-agent and orchestrator-level NLIP configuration for sophisticated tool routing
-
-#### Enhanced Multimodal & Web Tools
-- **Video Captioning Tools**: SRT and VTT subtitle generation with frame analysis and description extraction
-- **Web Scraping with Crawl4AI**: Advanced web content extraction using Crawl4AI REST API with markdown conversion
-- **Playwright MCP Integration**: Browser automation with screenshot capture, form filling, and JavaScript execution via MCP protocol
 
 ### Previous Achievements (v0.0.3 - v0.1.12)
 

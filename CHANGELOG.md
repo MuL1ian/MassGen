@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Recent Releases
 
 **v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
-Revolutionary code-based tools system implementing CodeAct paradigm, MCP server registry with auto-discovery, comprehensive skills installation system, TOOL.md documentation standard, self-evolution with terminal recording, and enhanced video/web tools.
+Code-based tools system implementing CodeAct paradigm, MCP server registry with auto-discovery, comprehensive skills installation system, and TOOL.md documentation standard.
 
 **v0.1.12 (November 14, 2025)** - System Prompt Refactoring, Semantic Search & Multi-Agent Computer Use
 Major system prompt architecture redesign with new semantic search skills (semtools/serena), local skill execution support, and enhanced multi-agent computer use capabilities with Docker integration and visualization.
@@ -47,15 +47,6 @@ Modular skills system for enhanced agent prompting, MCP-based memory management 
   - Installs openskills CLI, Anthropic skills collection, and Crawl4AI skill
   - Cross-platform support: Windows, macOS, Linux with idempotent installation
   - Comprehensive progress indicators and error handling
-
-- **Enhanced Multimodal Tools**: Video captioning and web scraping capabilities
-  - New `massgen/tool/_video_tools/generate_captions.py` for AI-powered video captioning (350 lines)
-  - New `massgen/tool/_web_tools/` module for Crawl4AI web scraping (8 functions)
-  - New `massgen/tool/_playwright_mcp/` module for Playwright browser automation (8 functions)
-  - Video caption generation with multiple styles (technical, descriptive, action) in SRT/VTT formats
-  - Web scraping: markdown extraction, screenshots, PDFs, JavaScript execution via Crawl4AI Docker
-  - Browser automation: navigate, click, screenshot, fill forms via Playwright MCP
-
 
 ### Changed
 - **Tool Size & Command-Line Enhancements**: Increased tool capacity and improved CLI execution
