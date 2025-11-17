@@ -7,16 +7,125 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
+Revolutionary code-based tools system implementing CodeAct paradigm, MCP server registry with auto-discovery, comprehensive skills installation system, TOOL.md documentation standard, self-evolution with terminal recording, and enhanced video/web tools.
+
 **v0.1.12 (November 14, 2025)** - System Prompt Refactoring, Semantic Search & Multi-Agent Computer Use
 Major system prompt architecture redesign with new semantic search skills (semtools/serena), local skill execution support, and enhanced multi-agent computer use capabilities with Docker integration and visualization.
 
 **v0.1.11 (November 12, 2025)** - Skills System, Memory MCP & Rate Limiting
 Modular skills system for enhanced agent prompting, MCP-based memory management with filesystem integration for advanced workflows, and multi-dimensional rate limiting for Gemini API calls.
 
-**v0.1.10 (November 10, 2025)** - Docker Configuration, Framework Streaming & Contributor Handbook
-Enhanced Docker configuration with nested credential and package management structures, framework interoperability streaming for LangGraph and SmoLAgent, improved parallel execution safety across all modes, and comprehensive contributor handbook at https://massgen.github.io/Handbook/.
-
 ---
+
+## [0.1.13] - 2025-11-17
+
+### Added
+- **Code-Based Tools System (CodeAct Paradigm)**: Tool integration via importable Python code instead of schema-based tools
+  - New `massgen/filesystem_manager/_tool_code_writer.py` for writing MCP tool wrappers to workspace (450 lines)
+  - New `massgen/mcp_tools/code_generator.py` for generating Python wrapper code from MCP schemas (507 lines)
+  - New `massgen/mcp_tools/server_registry.py` for MCP server catalog with auto-discovery (205 lines)
+  - Enhanced `massgen/filesystem_manager/_filesystem_manager.py` with code-based tools setup (+562 lines)
+  - Agents import and use tools as native Python functions with type hints and docstrings
+  - Reduces token usage by 98% through on-demand tool loading (Anthropic research)
+  - Pre-configured registry with popular MCP servers (Playwright, GitHub, Context7, Memory)
+  - Auto-discovery eliminates manual MCP server configuration
+
+- **NLIP (Natural Language Interface Protocol) Integration**: Advanced tool routing with natural language interface
+  - Enhanced `massgen/backend/response.py` with NLIP routing infrastructure (+134 lines)
+  - Enhanced `massgen/backend/claude.py`, `gemini.py`, `chat_completions.py` with NLIP support (+255 lines total)
+  - Enhanced `massgen/orchestrator.py` with orchestrator-level NLIP configuration (+48 lines)
+  - Routes tool execution requests through natural language interface
+  - Multi-backend support across Claude, Gemini, and OpenAI
+  - Per-agent or orchestrator-level configuration with fallback to direct execution
+  - Enables natural language task decomposition and intelligent tool selection
+
+- **Skills Installation System**: Cross-platform automated skills installer
+  - New `massgen/utils/skills_installer.py` for automated skills installation (350 lines)
+  - New `scripts/init_skills.sh` and `scripts/init.sh` for shell-based setup (650 lines total)
+  - **`massgen --setup-skills` command** for one-command installation
+  - Installs openskills CLI, Anthropic skills collection, and Crawl4AI skill
+  - Cross-platform support: Windows, macOS, Linux with idempotent installation
+  - Comprehensive progress indicators and error handling
+
+- **Enhanced Multimodal Tools**: Video captioning and web scraping capabilities
+  - New `massgen/tool/_video_tools/generate_captions.py` for AI-powered video captioning (350 lines)
+  - New `massgen/tool/_web_tools/` module for Crawl4AI web scraping (8 functions)
+  - New `massgen/tool/_playwright_mcp/` module for Playwright browser automation (8 functions)
+  - Video caption generation with multiple styles (technical, descriptive, action) in SRT/VTT formats
+  - Web scraping: markdown extraction, screenshots, PDFs, JavaScript execution via Crawl4AI Docker
+  - Browser automation: navigate, click, screenshot, fill forms via Playwright MCP
+
+
+### Changed
+- **Tool Size & Command-Line Enhancements**: Increased tool capacity and improved CLI execution
+  - Updated `massgen/backend/utils.py` tool truncation threshold from 10,000 to 15,000 characters
+  - Enhanced `massgen/backend/bash_cli.py` with command-line-only mode improvements
+  - Commit: b51067b8 "Command line only mode; increase tool size from 10k to 15k"
+  - Allows more comprehensive tool documentation and examples
+  - Improved command parsing and error handling
+  - Better integration with code-based tools workflow
+
+- **Exclude File Operation MCPs**: Removed filesystem MCP tools in favor of native file operations
+  - Updated `massgen/mcp_tools/mcp_manager.py` to exclude `@modelcontextprotocol/server-filesystem` (+204 lines)
+  - Commit: 5bdf46bf "Adjusted prompts and added TOOL.md for custom tools"
+  - Prevents redundancy with MassGen's built-in filesystem operations
+  - Reduces token usage from duplicate tool definitions
+  - Clearer tool usage patterns for agents
+
+### Documentations, Configurations and Resources
+
+- **TOOL.md Documentation System**: Standardized documentation format for custom tools
+  - New `massgen/tool/_video_tools/TOOL.md` for video tools documentation (161 lines)
+  - New `massgen/tool/_web_tools/TOOL.md` for web scraping tools documentation (161 lines)
+  - New `massgen/tool/_playwright_mcp/TOOL.md` for Playwright MCP documentation (201 lines)
+  - **Standardized structure**: name, description, category, tasks, keywords, usage examples
+  - Frontmatter metadata in YAML format for tool discovery
+  - Clear "When to Use This Tool" and "When NOT to Use" sections
+  - Function signatures with parameter descriptions and return types
+  - Configuration prerequisites and setup instructions
+  - Common use cases and limitations documentation
+  - Enables agents to understand tool capabilities and make informed decisions
+  - Total: 12 new TOOL.md files across custom tools directory (~3,800 lines)
+
+- **Configuration Examples**: New YAML configurations for v0.1.13 features
+  - `massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml`: Code-based tools with auto-discovery and shared tools directory (153 lines)
+  - `massgen/configs/tools/filesystem/exclude_mcps/test_minimal_mcps.yaml`: Minimal MCPs with command-line file operations and memory filesystem mode (37 lines)
+
+- **Skills Installation Documentation**: Comprehensive guides for skills setup
+  - Updated `scripts/init.sh` with detailed help text and options (438 lines)
+  - Updated `scripts/init_skills.sh` with skip flags for selective installation (212 lines)
+  - Examples: `./init.sh --skip-docker`, `./init_skills.sh --skip-anthropic`
+
+- **Code-Based Tools User Guide**: Complete documentation for CodeAct paradigm implementation
+  - New `docs/source/user_guide/code_based_tools.rst` (726 lines)
+  - Quick start examples and configuration
+  - Explains 98% context reduction benefit (Anthropic research)
+  - Covers workspace structure, Python wrapper generation, async workflows
+  - Real-world examples: weather forecasting, GitHub integration, multi-tool composition
+
+- **MCP Server Registry Reference**: Documentation for built-in MCP server catalog
+  - New `docs/source/reference/mcp_server_registry.rst` (219 lines)
+  - Documents all pre-configured MCP servers (Context7, GitHub, Filesystem, Memory, etc.)
+  - Connection examples and tool listings
+  - API key requirements and configuration
+  - Auto-discovery setup instructions
+
+- **Installation Guide Updates**: Enhanced setup documentation with automation scripts
+  - Updated `docs/source/quickstart/installation.rst` (+115 lines)
+  - Automated development setup using `scripts/init.sh`
+  - Script options and flags documentation
+  - System requirements and verification steps
+  - Windows support roadmap notes
+
+- **Documentation Updates**: Enhanced existing guides with v0.1.13 features
+  - Updated `docs/source/user_guide/file_operations.rst` (+44 lines) - Code-based tools integration
+  - Updated `docs/source/user_guide/mcp_integration.rst` (+71 lines) - Registry and auto-discovery
+  - Updated `docs/source/reference/yaml_schema.rst` (+5 lines) - Code-based tools configuration options
+
+### Technical Details
+- **Major Focus**: CodeAct paradigm implementation, MCP registry infrastructure, skills installation automation, TOOL.md documentation standard, self-evolution capabilities, NLIP integration
+- **Contributors**: @qidanrui @ncrispino @franklinnwren @praneeth999 and the MassGen team
 
 ## [0.1.12] - 2025-11-14
 

@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.12
+**Current Version:** v0.1.13
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** November 14, 2025
+**Last Updated:** November 17, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -40,49 +40,17 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.13** | 11/17/25 | Automatic MCP Tool Selection | @ncrispino | Intelligently select MCP tools based on task requirements |
-| | | NLIP Integration | @qidanrui | Natural Language Integration Platform for hierarchy initialization and RL integration |
 | **v0.1.14** | 11/19/25 | MassGen Terminal Evaluation | @ncrispino | Self-evaluation and improvement of frontend/UI |
+| | | Git Worktrees for Multi-Agent | @ncrispino | Use Git worktrees for different agents to enable parallel development workflows |
 | **v0.1.15** | 11/21/25 | Parallel File Operations | @ncrispino | Increase parallelism and standard efficiency evaluation |
 | | | Launch Custom Tools in Docker | @ncrispino | Enable custom tools to run in isolated Docker containers for security and portability |
+| **v0.1.16** | 11/24/25 | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.13 - Intelligent Tool Selection & NLIP Integration
-
-### Features
-
-**1. Automatic MCP Tool Selection** (@ncrispino)
-- Issue: [#414](https://github.com/massgen/MassGen/issues/414)
-- Intelligent selection of MCP tools before task execution based on user prompts
-- Dynamic tool refinement during execution as task requirements evolve
-- Filesystem-first approach where MCPs appear as files rather than in-context specifications
-- Reduces context pollution from excessive in-context tools (currently >30)
-- Eliminates manual tool selection burden for users
-- **Use Case**: Intelligently select appropriate MCP tools (e.g., Playwright for web testing) based on task requirements, improving performance without requiring users to know which tools to include
-
-**2. NLIP Integration** (@qidanrui)
-- PR: [#475](https://github.com/massgen/MassGen/pull/475) (Draft)
-- Natural Language Integration Platform for enhanced agent coordination
-- Hierarchy initialization for structured multi-agent systems
-- Reinforcement learning integration components
-- Advanced orchestration patterns with NLIP architecture
-- Foundation for sophisticated agent coordination strategies
-- **Use Case**: Enable advanced multi-agent coordination through NLIP's hierarchy and reinforcement learning capabilities, improving agent collaboration and decision-making
-
-### Success Criteria
-- ✅ Automatic tool selection improves task performance vs manual selection
-- ✅ Context pollution reduced through filesystem-first approach
-- ✅ Tool selection adapts dynamically during execution
-- ✅ NLIP hierarchy initialization works correctly
-- ✅ Reinforcement learning components integrate seamlessly
-- ✅ Advanced orchestration patterns demonstrate improved performance
-
----
-
-## 📋 v0.1.14 - Self-Evaluation & Terminal Recording
+## 📋 v0.1.14 - Terminal Evaluation & Multi-Agent Git Workflows
 
 ### Features
 
@@ -96,11 +64,26 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Self-improvement capabilities extended to frontend (currently backend-only via automation mode)
 - **Use Case**: Enable MassGen to analyze its own terminal interface, creating demonstration videos and documentation automatically, showcasing new features through automated workflows
 
+**2. Git Worktrees for Different Agents** (@ncrispino)
+- Issue: [#514](https://github.com/massgen/MassGen/issues/514)
+- Enable multiple agents to work on different Git worktrees simultaneously
+- Isolated working directories for parallel agent development
+- Automatic worktree creation and management
+- Branch synchronization across agent worktrees
+- Conflict resolution support for multi-agent workflows
+- Improved parallelism for multi-agent code development tasks
+- **Use Case**: Allow multiple agents to work on different features or branches simultaneously without conflicts, enabling true parallel development workflows
+
 ### Success Criteria
 - ✅ Terminal recording and playback system works reliably
 - ✅ Video understanding capabilities accurately analyze terminal sessions
 - ✅ Automated case study generation produces high-quality documentation
 - ✅ MassGen successfully self-improves based on terminal analysis
+- ✅ Agents successfully create and manage separate Git worktrees
+- ✅ Multiple agents can work on different branches simultaneously
+- ✅ Worktree cleanup and management works reliably
+- ✅ Branch synchronization maintains code integrity
+- ✅ Performance improvements in multi-agent development scenarios
 
 ---
 
@@ -137,6 +120,27 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - ✅ Security isolation prevents tools from affecting host system
 - ✅ Automatic cleanup of Docker resources after tool execution
 - ✅ Tool execution performance comparable to native execution
+
+---
+
+## 📋 v0.1.16 - MCP Ecosystem Expansion
+
+### Features
+
+**1. Smithery MCP Tools Support** (@ncrispino)
+- Issue: [#521](https://github.com/massgen/MassGen/issues/521)
+- Integration with Smithery to expand available MCP tools
+- Automatic discovery and installation of Smithery MCP servers
+- Curated registry of high-quality MCP tools from Smithery ecosystem
+- Simplified tool onboarding for users
+- Enhanced tool discovery and recommendation system
+- **Use Case**: Expand MassGen's tool ecosystem by integrating with Smithery, giving users access to a wider range of curated MCP tools without manual configuration
+
+### Success Criteria
+- ✅ Smithery integration discovers and installs MCP tools automatically
+- ✅ Tool registry includes curated Smithery tools with proper metadata
+- ✅ Tool recommendation system suggests relevant Smithery tools
+- ✅ Users can easily browse and install Smithery tools
 
 ---
 
@@ -230,11 +234,12 @@ These features are being actively developed on **separate parallel tracks** and 
 - VNC visualization and debugging support
 - **Status:** ✅ Completed in v0.1.12
 
-### Track: Automatic MCP Tool Selection (@ncrispino, nickcrispino)
+### Track: Code-Based Tools System / Automatic MCP Tool Selection (@ncrispino, nickcrispino)
 - Issue: [#414](https://github.com/massgen/MassGen/issues/414)
-- Intelligent selection of MCP tools based on task requirements
-- Filesystem-first approach to reduce context pollution
-- **Target:** v0.1.13
+- Tool integration via importable Python code instead of schema-based tools
+- MCP server registry with auto-discovery
+- Reduces token usage by 98% through on-demand tool loading
+- **Status:** ✅ Completed in v0.1.13
 
 ### Track: Parallel File Operations (@ncrispino, nickcrispino)
 - Issue: [#441](https://github.com/massgen/MassGen/issues/441)
@@ -248,17 +253,30 @@ These features are being actively developed on **separate parallel tracks** and 
 - Security isolation and portability for custom tool execution
 - **Target:** v0.1.15
 
+### Track: Git Worktrees for Multi-Agent (@ncrispino, nickcrispino)
+- Issue: [#514](https://github.com/massgen/MassGen/issues/514)
+- Enable multiple agents to work on different Git worktrees simultaneously
+- Isolated working directories for parallel agent development
+- **Target:** v0.1.14
+
 ### Track: MassGen Terminal Evaluation (@ncrispino, nickcrispino)
 - Issue: [#476](https://github.com/massgen/MassGen/issues/476)
 - Self-evaluation and improvement of frontend/UI through terminal recording
 - Automated video generation and case study creation
 - **Target:** v0.1.14
 
-### Track: NLIP Integration (@qidanrui, danrui2020)
-- PR: [#475](https://github.com/massgen/MassGen/pull/475) (Draft)
-- Natural Language Integration Platform for enhanced agent coordination
-- Hierarchy initialization and reinforcement learning integration
-- **Target:** v0.1.13
+### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
+- Issue: [#521](https://github.com/massgen/MassGen/issues/521)
+- Integration with Smithery to expand available MCP tools
+- Automatic discovery and installation of Smithery MCP servers
+- **Target:** v0.1.16
+
+### Track: NLIP Integration (@praneeth999, @qidanrui, ram2561, danrui2020)
+- PR: [#475](https://github.com/massgen/MassGen/pull/475)
+- Natural Language Integration Platform for advanced tool routing
+- Multi-backend support across Claude, Gemini, and OpenAI
+- Per-agent and orchestrator-level configuration
+- **Status:** ✅ Completed in v0.1.13
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -340,5 +358,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** November 14, 2025
+**Last Updated:** November 17, 2025
 **Maintained By:** MassGen Team

@@ -1,111 +1,111 @@
-# MassGen v0.1.13 Roadmap
+# MassGen v0.1.14 Roadmap
 
 ## Overview
 
-Version 0.1.13 focuses on intelligent tool selection and NLIP integration, bringing key enhancements to the MassGen multi-agent coordination experience.
+Version 0.1.14 focuses on terminal evaluation and multi-agent Git workflows, bringing key enhancements to self-improvement and parallel development capabilities.
 
-- **Automatic MCP Tool Selection** (Required): 🔧 Intelligent selection of MCP tools based on task requirements
-- **NLIP Integration** (Required): 🏗️ Natural Language Integration Platform for enhanced agent coordination
+- **MassGen Terminal Evaluation** (Required): 🎥 Self-evaluation and improvement of frontend/UI through terminal recording
+- **Git Worktrees for Multi-Agent** (Required): 🌳 Enable parallel agent development with isolated Git worktrees
 
 ## Key Technical Priorities
 
-1. **Automatic MCP Tool Selection**: Intelligent selection of MCP tools before task execution based on user prompts
-   **Use Case**: Intelligently select appropriate MCP tools (e.g., Playwright for web testing) based on task requirements, improving performance without requiring users to know which tools to include
+1. **MassGen Terminal Evaluation**: Enable MassGen to evaluate and improve its own frontend/UI
+   **Use Case**: Enable MassGen to analyze its own terminal interface, creating demonstration videos and documentation automatically, showcasing new features through automated workflows
 
-2. **NLIP Integration**: Natural Language Integration Platform for enhanced agent coordination
-   **Use Case**: Enable advanced multi-agent coordination through NLIP's hierarchy and reinforcement learning capabilities, improving agent collaboration and decision-making
+2. **Git Worktrees for Multi-Agent**: Enable multiple agents to work on different Git worktrees simultaneously
+   **Use Case**: Allow multiple agents to work on different features or branches simultaneously without conflicts, enabling true parallel development workflows
 
 ## Key Milestones
 
-### 🎯 Milestone 1: Automatic MCP Tool Selection (REQUIRED)
+### 🎯 Milestone 1: MassGen Terminal Evaluation (REQUIRED)
 
-**Goal**: Intelligent selection of MCP tools based on task requirements to improve performance and reduce context pollution
+**Goal**: Enable MassGen to evaluate and improve its own frontend/UI through terminal recording and analysis
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#414](https://github.com/massgen/MassGen/issues/414)
+**Issue**: [#476](https://github.com/massgen/MassGen/issues/476)
 
-#### 1.1 Pre-Execution Tool Selection
-- [ ] Intelligent selection of MCP tools before task execution
-- [ ] Analysis of user prompts to identify required tools
-- [ ] Automatic tool loading based on task requirements
-- [ ] Reduction of unnecessary tools in context
-- [ ] Support for common tool categories (web, file, data, etc.)
+#### 1.1 Terminal Recording Infrastructure
+- [ ] Terminal session recording using asciinema
+- [ ] Integration with MassGen execution flow
+- [ ] Automatic recording start/stop mechanisms
+- [ ] Recording storage and management
+- [ ] Support for various terminal formats
 
-#### 1.2 Dynamic Tool Refinement
-- [ ] Dynamic tool refinement during execution
-- [ ] Tool addition as task requirements evolve
-- [ ] Tool removal when no longer needed
-- [ ] Adaptive tool selection based on intermediate results
-- [ ] Efficient context management throughout execution
+#### 1.2 Visual Analysis Capabilities
+- [ ] Video understanding integration for terminal sessions
+- [ ] Screenshot analysis of terminal output
+- [ ] Automatic caption generation for recorded sessions
+- [ ] Visual perception of UI elements
+- [ ] Identification of UX issues through visual analysis
 
-#### 1.3 Filesystem-First Approach
-- [ ] MCPs appear as files rather than in-context specifications
-- [ ] File-based tool discovery and loading
-- [ ] Reduced context pollution from excessive in-context tools
-- [ ] Efficient tool metadata storage
-- [ ] Fast tool lookup and activation
+#### 1.3 Case Study Generation
+- [ ] Comprehensive case study generation from terminal recordings
+- [ ] Automated documentation creation from sessions
+- [ ] Video editing integration for demonstration materials
+- [ ] Showcase generation for new features
+- [ ] Automated workflow documentation
 
-#### 1.4 User Experience & Testing
-- [ ] Eliminate manual tool selection burden for users
-- [ ] Automatic selection outperforms manual selection
-- [ ] Clear logging of tool selection decisions
-- [ ] Testing with various task types and requirements
+#### 1.4 Self-Improvement Capabilities
+- [ ] Frontend/UI self-evaluation based on recordings
+- [ ] Extension of automation mode to frontend (currently backend-only)
+- [ ] Automated improvement suggestions
+- [ ] Testing and validation of improvements
 - [ ] Documentation and usage examples
 
 **Success Criteria**:
-- ✅ Automatic tool selection improves task performance vs manual selection
-- ✅ Context pollution reduced through filesystem-first approach
-- ✅ Tool selection adapts dynamically during execution
-- ✅ Users no longer need to manually specify tools
-- ✅ Intelligent selection handles common use cases (Playwright for web, etc.)
-- ✅ Tool discovery and loading is efficient and reliable
+- ✅ Terminal recording and playback system works reliably
+- ✅ Video understanding capabilities accurately analyze terminal sessions
+- ✅ Automated case study generation produces high-quality documentation
+- ✅ MassGen successfully self-improves based on terminal analysis
+- ✅ Demonstration videos are generated automatically
+- ✅ Frontend improvements can be validated through recordings
 
 ---
 
-### 🎯 Milestone 2: NLIP Integration (REQUIRED)
+### 🎯 Milestone 2: Git Worktrees for Multi-Agent (REQUIRED)
 
-**Goal**: Integrate Natural Language Integration Platform for enhanced agent coordination
+**Goal**: Enable multiple agents to work on different Git worktrees simultaneously for parallel development
 
-**Owner**: @qidanrui (danrui2020 on Discord)
+**Owner**: @ncrispino (nickcrispino on Discord)
 
-**PR**: [#475](https://github.com/massgen/MassGen/pull/475) (Draft)
+**Issue**: [#514](https://github.com/massgen/MassGen/issues/514)
 
-#### 2.1 NLIP Core Integration
-- [ ] Integrate NLIP platform into MassGen architecture
-- [ ] Setup NLIP dependencies and requirements
-- [ ] Configure NLIP communication interfaces
-- [ ] Establish connection protocols
-- [ ] Basic NLIP functionality testing
+#### 2.1 Worktree Management
+- [ ] Automatic worktree creation and management
+- [ ] Isolated working directories for parallel agent development
+- [ ] Worktree cleanup and resource management
+- [ ] Support for multiple concurrent worktrees
+- [ ] Worktree status tracking and monitoring
 
-#### 2.2 Hierarchy Initialization
-- [ ] Implement hierarchy initialization for structured multi-agent systems
-- [ ] Define agent hierarchy structures
-- [ ] Setup parent-child agent relationships
-- [ ] Configure hierarchy communication patterns
-- [ ] Test hierarchical coordination flows
+#### 2.2 Branch Synchronization
+- [ ] Branch synchronization across agent worktrees
+- [ ] Automatic branch creation for agent tasks
+- [ ] Branch tracking and relationship management
+- [ ] Merge strategy coordination
+- [ ] Branch cleanup after task completion
 
-#### 2.3 Reinforcement Learning Integration
-- [ ] Integrate RL components from NLIP
-- [ ] Setup reward mechanisms for agents
-- [ ] Implement learning feedback loops
-- [ ] Configure RL training parameters
-- [ ] Test RL-based agent improvements
+#### 2.3 Conflict Resolution
+- [ ] Conflict detection across agent worktrees
+- [ ] Conflict resolution support for multi-agent workflows
+- [ ] Automatic merge conflict handling where possible
+- [ ] Manual resolution workflow integration
+- [ ] Conflict prevention strategies
 
-#### 2.4 Advanced Orchestration Patterns
-- [ ] Implement NLIP-based orchestration patterns
-- [ ] Create coordination strategies using NLIP
-- [ ] Setup sophisticated agent collaboration mechanisms
-- [ ] Optimize coordination efficiency
+#### 2.4 Performance Optimization
+- [ ] Improved parallelism for multi-agent code development
+- [ ] Efficient worktree operations
+- [ ] Resource usage optimization
+- [ ] Performance benchmarking
 - [ ] Documentation and usage examples
 
 **Success Criteria**:
-- ✅ NLIP hierarchy initialization works correctly
-- ✅ Reinforcement learning components integrate seamlessly
-- ✅ Advanced orchestration patterns demonstrate improved performance
-- ✅ Agent collaboration is enhanced through NLIP
-- ✅ System stability maintained with NLIP integration
-- ✅ Comprehensive documentation provided
+- ✅ Agents successfully create and manage separate Git worktrees
+- ✅ Multiple agents can work on different branches simultaneously
+- ✅ Worktree cleanup and management works reliably
+- ✅ Branch synchronization maintains code integrity
+- ✅ Performance improvements in multi-agent development scenarios
+- ✅ Conflict resolution workflow is efficient and reliable
 
 ---
 
@@ -113,25 +113,25 @@ Version 0.1.13 focuses on intelligent tool selection and NLIP integration, bring
 
 ### Functional Requirements
 
-**Automatic MCP Tool Selection:**
-- [ ] Pre-execution tool selection based on prompts
-- [ ] Dynamic tool refinement during execution
-- [ ] Filesystem-first approach implemented
-- [ ] Context pollution reduced
-- [ ] Manual tool selection eliminated
+**MassGen Terminal Evaluation:**
+- [ ] Terminal recording infrastructure functional
+- [ ] Visual analysis capabilities working
+- [ ] Case study generation automated
+- [ ] Self-improvement capabilities extended to frontend
+- [ ] Demonstration video generation working
 
-**NLIP Integration:**
-- [ ] NLIP platform integrated into MassGen
-- [ ] Hierarchy initialization functional
-- [ ] Reinforcement learning components working
-- [ ] Advanced orchestration patterns implemented
-- [ ] Agent coordination improved
+**Git Worktrees for Multi-Agent:**
+- [ ] Worktree management automated
+- [ ] Branch synchronization working
+- [ ] Conflict resolution support implemented
+- [ ] Multiple agents can work in parallel
+- [ ] Performance improvements demonstrated
 
 ### Performance Requirements
-- [ ] Tool selection is fast and efficient
-- [ ] NLIP integration maintains system responsiveness
+- [ ] Terminal recording has minimal overhead
+- [ ] Worktree operations are fast and efficient
 - [ ] Overall system remains responsive
-- [ ] Coordination overhead is minimized
+- [ ] Multi-agent parallelism improves development speed
 
 ### Quality Requirements
 - [ ] All tests passing
@@ -139,33 +139,33 @@ Version 0.1.13 focuses on intelligent tool selection and NLIP integration, bring
 - [ ] Configuration examples provided
 - [ ] Error handling is robust
 - [ ] User-facing messages are clear
-- [ ] NLIP integration stability verified
+- [ ] Recording quality is high and reliable
 
 ---
 
 ## Dependencies & Risks
 
 ### Dependencies
-- **Automatic MCP Tool Selection**: MCP tool registry, filesystem abstraction, prompt analysis capabilities, dynamic tool loading system
-- **NLIP Integration**: NLIP platform, orchestrator system, hierarchy management, reinforcement learning components, agent communication protocols
+- **MassGen Terminal Evaluation**: asciinema recording library, video understanding capabilities, multimodal model integration, automation mode infrastructure
+- **Git Worktrees for Multi-Agent**: Git worktree functionality, branch management system, agent coordination infrastructure, conflict resolution mechanisms
 
 ### Risks & Mitigations
-1. **Tool Selection Accuracy**: *Mitigation*: Prompt analysis testing, fallback to manual selection, user feedback integration
-2. **NLIP Integration Complexity**: *Mitigation*: Phased integration approach, comprehensive testing, clear API boundaries, rollback capabilities
-3. **Hierarchy Initialization**: *Mitigation*: Extensive testing with various agent configurations, clear documentation, fallback to flat orchestration
-4. **RL Component Stability**: *Mitigation*: Isolated RL module, extensive testing, gradual rollout, monitoring and alerting
-5. **Performance Overhead**: *Mitigation*: Performance profiling, optimization passes, lazy loading, caching strategies
+1. **Recording Quality**: *Mitigation*: Testing with various terminal emulators, quality validation checks, fallback recording methods
+2. **Video Analysis Accuracy**: *Mitigation*: Multimodal model testing, validation metrics, human review integration
+3. **Worktree Conflicts**: *Mitigation*: Comprehensive conflict detection, automatic resolution where possible, clear manual resolution workflows
+4. **Branch Synchronization**: *Mitigation*: Robust merge strategies, testing with various git workflows, rollback capabilities
+5. **Performance Overhead**: *Mitigation*: Performance profiling, optimization passes, lazy worktree creation, efficient cleanup
 
 ---
 
-## Future Enhancements (Post-v0.1.13)
-
-### v0.1.14 Plans
-- **MassGen Terminal Evaluation** (@ncrispino): Self-evaluation and improvement of frontend/UI through terminal recording
+## Future Enhancements (Post-v0.1.14)
 
 ### v0.1.15 Plans
 - **Parallel File Operations** (@ncrispino): Increase parallelism of file read operations with standard efficiency evaluation
 - **Launch Custom Tools in Docker** (@ncrispino): Enable custom tools to run in isolated Docker containers for security and portability
+
+### v0.1.16 Plans
+- **Smithery MCP Tools Support** (@ncrispino): Integration with Smithery to expand available MCP tools
 
 ### Long-term Vision
 - **Universal Rate Limiting**: Rate limiting for all backends (OpenAI, Claude, etc.)
@@ -179,10 +179,10 @@ Version 0.1.13 focuses on intelligent tool selection and NLIP integration, bring
 
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
-| Phase 1 | Tool Selection | Intelligent MCP tool selection, filesystem-first approach, dynamic refinement | @ncrispino | **REQUIRED** |
-| Phase 2 | NLIP Integration | NLIP platform integration, hierarchy initialization, RL components, advanced orchestration | @qidanrui | **REQUIRED** |
+| Phase 1 | Terminal Evaluation | Terminal recording, visual analysis, case study generation, self-improvement capabilities | @ncrispino | **REQUIRED** |
+| Phase 2 | Git Worktrees | Worktree management, branch synchronization, conflict resolution, parallel development | @ncrispino | **REQUIRED** |
 
-**Target Release**: November 17, 2025 (Monday @ 9am PT)
+**Target Release**: November 19, 2025 (Wednesday @ 9am PT)
 
 ---
 
@@ -190,41 +190,41 @@ Version 0.1.13 focuses on intelligent tool selection and NLIP integration, bring
 
 ### For Contributors
 
-**Phase 1 - Automatic MCP Tool Selection:**
-1. Implement pre-execution tool selection (Issue #414)
-2. Add dynamic tool refinement during execution
-3. Create filesystem-first tool discovery
-4. Integrate prompt analysis for tool detection
-5. Add testing with various task types
-6. Document automatic tool selection behavior
+**Phase 1 - MassGen Terminal Evaluation:**
+1. Implement terminal recording infrastructure (Issue #476)
+2. Add visual analysis capabilities for terminal sessions
+3. Create case study generation system
+4. Extend self-improvement capabilities to frontend
+5. Add testing with various terminal scenarios
+6. Document terminal evaluation behavior
 
-**Phase 2 - NLIP Integration:**
-1. Integrate NLIP platform into MassGen (PR #475)
-2. Implement hierarchy initialization system
-3. Add reinforcement learning components
-4. Create advanced orchestration patterns
+**Phase 2 - Git Worktrees for Multi-Agent:**
+1. Implement worktree management system (Issue #514)
+2. Add branch synchronization capabilities
+3. Create conflict resolution support
+4. Enable parallel agent development
 5. Add comprehensive testing and benchmarks
-6. Document NLIP usage and configuration
+6. Document worktree usage and configuration
 
 ### For Users
 
-- v0.1.13 brings intelligent tool selection and NLIP integration:
+- v0.1.14 brings terminal evaluation and multi-agent Git workflows:
 
-  **Automatic MCP Tool Selection:**
-  - No more manual tool selection required
-  - Intelligent tool selection based on your prompts
-  - Dynamic tool loading during task execution
-  - Reduced context pollution from unused tools
-  - Better performance with optimized tool sets
-  - Filesystem-first approach for efficient tool discovery
+  **MassGen Terminal Evaluation:**
+  - Automated terminal recording for self-analysis
+  - Visual understanding of your terminal sessions
+  - Automatic demonstration video generation
+  - Self-improvement capabilities for frontend/UI
+  - Comprehensive case study generation
+  - Enhanced documentation through recordings
 
-  **NLIP Integration:**
-  - Enhanced multi-agent coordination capabilities
-  - Hierarchical agent structures for complex workflows
-  - Reinforcement learning for improved agent performance
-  - Advanced orchestration patterns
-  - Better agent collaboration and decision-making
-  - Sophisticated coordination strategies
+  **Git Worktrees for Multi-Agent:**
+  - Multiple agents working in parallel on different branches
+  - Isolated working directories prevent conflicts
+  - Automatic worktree creation and management
+  - Efficient branch synchronization
+  - Conflict resolution support for multi-agent workflows
+  - Improved development speed through parallelism
 
 ---
 
@@ -237,12 +237,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 - Documentation guidelines
 
 **Contact Track Owners:**
-- Automatic MCP Tool Selection: @ncrispino on Discord (nickcrispino)
-- NLIP Integration: @qidanrui on Discord (danrui2020)
+- MassGen Terminal Evaluation: @ncrispino on Discord (nickcrispino)
+- Git Worktrees for Multi-Agent: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.13 priorities focusing on intelligent tool selection and NLIP integration.*
+*This roadmap reflects v0.1.14 priorities focusing on terminal evaluation and multi-agent Git workflows.*
 
-**Last Updated:** November 14, 2025
+**Last Updated:** November 17, 2025
 **Maintained By:** MassGen Team
