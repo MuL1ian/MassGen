@@ -410,6 +410,30 @@ class FilesystemManager:
 
             logger.info(f"[FilesystemManager] Created organized structure in temp workspace: {self.agent_temporary_workspace}")
 
+    def setup_memory_directories(self) -> None:
+        """
+        Setup memory directories for filesystem-based memory mode.
+
+        Creates memory/short_term/ and memory/long_term/ directories in the workspace.
+        Called when enable_memory_filesystem_mode is enabled in coordination config.
+
+        Note: Only creates directories in main workspace (cwd). Temporary workspaces
+        will have memory directories from snapshots of other agents' workspaces.
+        """
+        logger.info("[FilesystemManager] Setting up memory directories for filesystem mode")
+
+        # Create memory directories in current workspace only
+        memory_base = self.cwd / "memory"
+        memory_base.mkdir(exist_ok=True)
+
+        short_term_dir = memory_base / "short_term"
+        short_term_dir.mkdir(exist_ok=True)
+        logger.info(f"[FilesystemManager] Created memory/short_term/ directory at {short_term_dir}")
+
+        long_term_dir = memory_base / "long_term"
+        long_term_dir.mkdir(exist_ok=True)
+        logger.info(f"[FilesystemManager] Created memory/long_term/ directory at {long_term_dir}")
+
     def _compute_tools_config_hash(self, servers_with_tools: List[Dict[str, Any]]) -> str:
         """Compute hash of tool configuration for shared_tools directory naming.
 
@@ -1218,6 +1242,20 @@ class FilesystemManager:
             logger.warning(f"[FilesystemManager] Source path invalid - exists: {source_path.exists()}, " f"is_dir: {source_path.is_dir() if source_path.exists() else False}")
             return
 
+        # Count non-symlink items in source path
+        has_real_content = any(not item.is_symlink() for item in source_path.iterdir()) if source_path.exists() else False
+
+        # Check if snapshot_storage already has content (used for preservation logic)
+        snapshot_storage_has_content = False
+        if self.snapshot_storage and self.snapshot_storage.exists():
+            snapshot_storage_has_content = any(not item.is_symlink() for item in self.snapshot_storage.iterdir()) if self.snapshot_storage.is_dir() else False
+
+        # If workspace is empty but snapshot_storage has content, use snapshot_storage as source for log directories
+        # This ensures we preserve the files in logs even when workspace has been cleared
+        if not has_real_content and snapshot_storage_has_content:
+            logger.info(f"[FilesystemManager.save_snapshot] Workspace is empty but snapshot_storage has content, using snapshot_storage as source for logs: {self.snapshot_storage}")
+            source_path = self.snapshot_storage
+
         if not any(source_path.iterdir()):
             logger.warning(f"[FilesystemManager.save_snapshot] Source path {source_path} is empty, skipping snapshot")
             return
@@ -1225,22 +1263,27 @@ class FilesystemManager:
         try:
             # --- 1. Save to snapshot_storage ---
             if self.snapshot_storage:
-                if self.snapshot_storage.exists():
-                    shutil.rmtree(self.snapshot_storage)
-                self.snapshot_storage.mkdir(parents=True, exist_ok=True)
+                # Don't overwrite a non-empty snapshot with an empty workspace
+                if not has_real_content and snapshot_storage_has_content:
+                    logger.info(f"[FilesystemManager] Skipping snapshot_storage update - workspace is empty but snapshot_storage has content ({self.snapshot_storage})")
+                else:
+                    # Normal case: overwrite with current workspace
+                    if self.snapshot_storage.exists():
+                        shutil.rmtree(self.snapshot_storage)
+                    self.snapshot_storage.mkdir(parents=True, exist_ok=True)
 
-                items_copied = 0
-                for item in source_path.iterdir():
-                    if item.is_symlink():
-                        logger.warning(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
-                        continue
-                    if item.is_file():
-                        shutil.copy2(item, self.snapshot_storage / item.name)
-                    elif item.is_dir():
-                        shutil.copytree(item, self.snapshot_storage / item.name)
-                    items_copied += 1
+                    items_copied = 0
+                    for item in source_path.iterdir():
+                        if item.is_symlink():
+                            logger.warning(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
+                            continue
+                        if item.is_file():
+                            shutil.copy2(item, self.snapshot_storage / item.name)
+                        elif item.is_dir():
+                            shutil.copytree(item, self.snapshot_storage / item.name)
+                        items_copied += 1
 
-                logger.info(f"[FilesystemManager] Saved snapshot with {items_copied} items to {self.snapshot_storage}")
+                    logger.info(f"[FilesystemManager] Saved snapshot with {items_copied} items to {self.snapshot_storage}")
 
             # --- 2. Save to log directories ---
             log_session_dir = get_log_session_dir()

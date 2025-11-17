@@ -300,7 +300,7 @@ async def create_server() -> fastmcp.FastMCP:
                 preparation_tasks.append(
                     {
                         "id": "prep_tools",
-                        "description": "Review available custom tools and MCP servers",
+                        "description": "Review available custom tools and MCP servers in custom_tools/ and servers/",
                         "priority": "high",
                     },
                 )

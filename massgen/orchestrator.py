@@ -267,6 +267,10 @@ class Orchestrator(ChatAgent):
                         agent.backend.filesystem_manager.setup_massgen_skill_directories(
                             massgen_skills=self.config.coordination_config.massgen_skills,
                         )
+                # Setup memory directories if memory filesystem mode is enabled
+                if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "enable_memory_filesystem_mode"):
+                    if self.config.coordination_config.enable_memory_filesystem_mode:
+                        agent.backend.filesystem_manager.setup_memory_directories()
                 # Update MCP config with agent_id for Docker mode (must be after setup_orchestration_paths)
                 agent.backend.filesystem_manager.update_backend_mcp_config(agent.backend.config)
 

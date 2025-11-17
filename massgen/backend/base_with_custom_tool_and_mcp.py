@@ -1825,14 +1825,6 @@ class CustomToolAndMCPBackend(LLMBackend):
                 agent_id=self.agent_id,
             )
 
-        # Cleanup filesystem manager (Docker containers, shared_tools, etc.)
-        if self.filesystem_manager:
-            try:
-                self.filesystem_manager.cleanup()
-                logger.info(f"✅ Filesystem manager cleaned up for agent {self.agent_id}")
-            except Exception as e:
-                logger.warning(f"⚠️ Error cleaning up filesystem manager: {e}")
-
         # Don't suppress the original exception if one occurred
         return False
 
