@@ -440,6 +440,19 @@ if hasattr(agent.backend, 'update_context_paths'):
 5. **`massgen/backend/utils/filesystem_manager/_path_permission_manager.py`**
    - Added `add_previous_turn_paths()` (unused in current implementation)
 
+6. **`massgen/filesystem_manager/_filesystem_manager.py`**
+   - Modified `save_snapshot()` - Preserves non-empty snapshots (never overwrites with empty workspace)
+   - Modified `save_snapshot()` - Uses snapshot_storage as fallback source when workspace empty
+   - Ensures files preserved across answer → vote → final presentation flow
+
+7. **`massgen/backend/base_with_custom_tool_and_mcp.py`**
+   - Removed Docker cleanup from `__aexit__()` - Cleanup now session-level (CLI)
+   - Prevents premature container removal before final presentation
+
+8. **`massgen/cli.py`** (cleanup timing)
+   - Kept Docker cleanup in `finally` block - Runs after all agent work complete
+   - Ensures containers available throughout entire agent lifecycle
+
 ### Session Info Flow
 
 ```
@@ -465,6 +478,109 @@ Returns (session_id, turn_2, normalized_answer)  # Incremented turn
   ↓
 CLI updates: current_turn = 2
 ```
+
+### Workspace Lifecycle & Snapshot Preservation
+
+**Problem**: Agents provide answers → workspace cleared → agents vote with empty workspace → files lost
+
+**Solution**: Preserve non-empty snapshots, never overwrite with empty workspaces
+
+#### Snapshot Storage Behavior
+
+**Location**: `massgen/filesystem_manager/_filesystem_manager.py:save_snapshot()`
+
+**Strategy**:
+1. **Fresh workspace after each answer** - Workspace cleared after saving snapshot (no bias toward previous answers)
+2. **Automatic preservation** - Never overwrite non-empty `snapshot_storage` with empty workspace
+3. **Fallback to snapshot** - When workspace is empty, use `snapshot_storage` as source for log directories
+
+**Example Flow**:
+```
+Turn 1, Agent A:
+  1. Provides answer → workspace has files (index.html, styles.css)
+  2. Save snapshot → snapshot_storage has 5 items ✓
+  3. Clear workspace → workspace empty (only symlinks)
+
+  4. Agent votes → workspace still empty
+  5. Save snapshot:
+     - Check: workspace empty? YES
+     - Check: snapshot_storage has content? YES
+     - Action: Skip overwriting snapshot_storage (preserve files) ✓
+     - Action: Use snapshot_storage as source for log directories ✓
+
+Result: Files preserved in both snapshot_storage and logs
+```
+
+**Code Logic** (`_filesystem_manager.py:1245-1270`):
+```python
+# Count real (non-symlink) content
+has_real_content = any(not item.is_symlink() for item in workspace.iterdir())
+
+# Check if snapshot_storage already has files
+snapshot_storage_has_content = any(not item.is_symlink()
+                                   for item in snapshot_storage.iterdir())
+
+# Don't overwrite non-empty snapshot with empty workspace
+if not has_real_content and snapshot_storage_has_content:
+    logger.info("Skipping snapshot_storage update - preserving existing files")
+    source_path = snapshot_storage  # Use for log directories
+```
+
+**Benefits**:
+- ✅ Maintains fresh workspace strategy (no bias)
+- ✅ Preserves correct answer files automatically
+- ✅ No manual agent instructions needed
+- ✅ Works across answer → vote → final presentation flow
+
+### Docker Container Lifecycle
+
+**Problem**: Docker containers cleaned up too early (before final presentation), causing "No such container" errors
+
+**Solution**: Move cleanup from backend `__aexit__` to CLI's finally block
+
+#### Container Cleanup Timing
+
+**Old Behavior** (❌ Broken):
+```
+1. Agent provides answer
+2. Backend.__aexit__() called → Docker container removed
+3. Final presentation starts → Container missing → ERROR
+```
+
+**New Behavior** (✅ Fixed):
+```
+1. Agent provides answer
+2. Backend.__aexit__() called → (cleanup removed)
+3. Final presentation starts → Container still alive ✓
+4. Final presentation completes
+5. CLI finally block → Docker container cleaned up ✓
+```
+
+**Implementation**:
+
+**Removed from**: `massgen/backend/base_with_custom_tool_and_mcp.py:__aexit__`
+```python
+# OLD CODE (removed):
+# if self.filesystem_manager:
+#     self.filesystem_manager.cleanup()  # ← Removed Docker cleanup
+```
+
+**Kept in**: `massgen/cli.py:3174-3181`
+```python
+finally:
+    # Cleanup all agents' filesystem managers (including Docker containers)
+    for agent_id, agent in agents.items():
+        if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
+            if agent.backend.filesystem_manager:
+                try:
+                    agent.backend.filesystem_manager.cleanup()
+```
+
+**Benefits**:
+- ✅ Container persists through entire agent lifecycle
+- ✅ Final presentation has access to Docker execution
+- ✅ Cleanup still happens (session-level, not agent-level)
+- ✅ No resource leaks
 
 ---
 

@@ -60,6 +60,12 @@ class FilesystemManager:
         command_line_docker_packages: Optional[Dict[str, Any]] = None,
         enable_audio_generation: bool = False,
         enable_file_generation: bool = False,
+        exclude_file_operation_mcps: bool = False,
+        enable_code_based_tools: bool = False,
+        custom_tools_path: Optional[str] = None,
+        auto_discover_custom_tools: bool = False,
+        exclude_custom_tools: Optional[List[str]] = None,
+        shared_tools_directory: Optional[str] = None,
         instance_id: Optional[str] = None,
     ):
         """
@@ -83,12 +89,53 @@ class FilesystemManager:
             command_line_docker_enable_sudo: Enable sudo access in Docker containers (isolated from host system)
             command_line_docker_credentials: Credential management configuration dict
             command_line_docker_packages: Package management configuration dict
+            exclude_file_operation_mcps: If True, exclude file operation MCP tools (filesystem and workspace_tools file ops).
+                                         Agents use command-line tools instead. Keeps command execution, media generation, and planning MCPs.
+            enable_code_based_tools: If True, generate Python wrapper code for MCP tools in servers/ directory.
+                                     Agents discover and call tools via filesystem (CodeAct paradigm).
+            custom_tools_path: Optional path to custom tools directory to copy into workspace
+            auto_discover_custom_tools: If True and custom_tools_path is not set, automatically use default path 'massgen/tool/'
+            exclude_custom_tools: Optional list of directory names to exclude when copying custom tools (e.g., ['_claude_computer_use', '_gemini_computer_use'])
+            shared_tools_directory: Optional shared directory for code-based tools (servers/, custom_tools/, .mcp/).
+                                    If provided, tools are generated once in shared location (read-only for all agents).
+                                    If None, tools are generated in each agent's workspace (per-agent, in snapshots).
             instance_id: Optional unique instance ID for parallel execution (used in Docker container naming)
         """
         self.agent_id = None  # Will be set by orchestrator via setup_orchestration_paths
         self.instance_id = instance_id  # Unique instance ID for parallel execution
         self.enable_image_generation = enable_image_generation
         self.enable_mcp_command_line = enable_mcp_command_line
+        self.exclude_file_operation_mcps = exclude_file_operation_mcps
+        self.enable_code_based_tools = enable_code_based_tools
+        self.exclude_custom_tools = exclude_custom_tools if exclude_custom_tools else []
+
+        # Handle custom_tools_path with auto-discovery
+        if custom_tools_path:
+            # Explicit path takes precedence
+            self.custom_tools_path = Path(custom_tools_path)
+        elif auto_discover_custom_tools:
+            # Auto-discover from default location (massgen/tool/)
+            default_path = Path("massgen/tool")
+            if default_path.exists():
+                self.custom_tools_path = default_path
+                logger.info(f"[FilesystemManager] Auto-discovered custom tools at {default_path}")
+            else:
+                logger.warning(f"[FilesystemManager] auto_discover_custom_tools enabled but default path does not exist: {default_path}")
+                self.custom_tools_path = None
+        else:
+            self.custom_tools_path = None
+
+        # Convert shared_tools_directory to absolute path if provided
+        # For code-based tools, we'll append a config hash subdirectory later
+        if shared_tools_directory:
+            shared_tools_path = Path(shared_tools_directory)
+            if not shared_tools_path.is_absolute():
+                shared_tools_path = shared_tools_path.resolve()
+            self.shared_tools_base = shared_tools_path  # Base directory
+            self.shared_tools_directory = None  # Will be set with hash in setup_code_based_tools
+        else:
+            self.shared_tools_base = None
+            self.shared_tools_directory = None
         self.command_line_allowed_commands = command_line_allowed_commands
         self.command_line_blocked_commands = command_line_blocked_commands
         self.command_line_execution_mode = command_line_execution_mode
@@ -116,6 +163,12 @@ class FilesystemManager:
                 instance_id=instance_id,
             )
         self.enable_audio_generation = enable_audio_generation
+
+        # Store merged skills directory path for local mode
+        self.local_skills_directory = None
+
+        # Store user MCP servers for code-based tools (excludes framework MCPs)
+        self.user_mcp_servers = []
 
         # Initialize path permission manager
         self.path_permission_manager = PathPermissionManager(
@@ -163,6 +216,8 @@ class FilesystemManager:
         agent_id: str,
         snapshot_storage: Optional[str] = None,
         agent_temporary_workspace: Optional[str] = None,
+        skills_directory: Optional[str] = None,
+        massgen_skills: Optional[List[str]] = None,
     ) -> None:
         """
         Setup orchestration-specific paths for snapshots and temporary workspace.
@@ -172,8 +227,12 @@ class FilesystemManager:
             agent_id: The agent identifier for this orchestration
             snapshot_storage: Base path for storing workspace snapshots
             agent_temporary_workspace: Base path for temporary workspace during context sharing
+            skills_directory: Path to skills directory to mount in Docker (e.g., .agent/skills)
         """
-        logger.info(f"[FilesystemManager.setup_orchestration_paths] Called for agent_id={agent_id}, snapshot_storage={snapshot_storage}, agent_temporary_workspace={agent_temporary_workspace}")
+        logger.info(
+            f"[FilesystemManager.setup_orchestration_paths] Called for agent_id={agent_id}, snapshot_storage={snapshot_storage}, "
+            f"agent_temporary_workspace={agent_temporary_workspace}, skills_directory={skills_directory}",
+        )
         self.agent_id = agent_id
 
         # Setup snapshot storage if provided
@@ -192,19 +251,574 @@ class FilesystemManager:
         # Create Docker container if Docker mode enabled
         if self.docker_manager and self.agent_id:
             context_paths = self.path_permission_manager.get_context_paths()
-            self.docker_manager.create_container(
+            docker_skills_dir = self.docker_manager.create_container(
                 agent_id=self.agent_id,
                 workspace_path=self.cwd,
                 temp_workspace_path=self.agent_temporary_workspace_parent if self.agent_temporary_workspace_parent else None,
                 context_paths=context_paths,
+                skills_directory=skills_directory,
+                massgen_skills=massgen_skills,
+                shared_tools_directory=self.shared_tools_base,
             )
             logger.info(f"[FilesystemManager] Docker container created for agent {self.agent_id}")
 
+            # Add Docker skills directory to allowed paths if created
+            if docker_skills_dir:
+                from ._base import Permission
+
+                self.path_permission_manager.add_path(docker_skills_dir, Permission.READ, "docker_skills")
+                logger.info(f"[Docker] Added skills directory to allowed paths: {docker_skills_dir}")
+
+        # Setup local skills if local mode enabled and skills configured
+        if self.enable_mcp_command_line and self.command_line_execution_mode == "local" and (skills_directory or massgen_skills):
+            self.setup_local_skills(skills_directory, massgen_skills)
+
+    def setup_local_skills(self, skills_directory: Optional[str] = None, massgen_skills: Optional[List[str]] = None) -> None:
+        """
+        Setup merged skills directory for local command line execution mode.
+
+        This mirrors Docker mode's skills merging logic, creating a temporary directory
+        that combines user's external skills with MassGen's built-in skills.
+
+        Args:
+            skills_directory: Path to user's skills directory (e.g., .agent/skills)
+            massgen_skills: List of MassGen built-in skills to enable
+        """
+        import shutil
+        import tempfile
+
+        if not (skills_directory or massgen_skills):
+            logger.debug("[FilesystemManager] No skills configured for local mode")
+            return
+
+        # Create temp directory for merged skills
+        temp_skills_dir = Path(tempfile.mkdtemp(prefix="massgen-skills-local-"))
+        logger.info(f"[Local] Creating temp merged skills directory: {temp_skills_dir}")
+
+        # Copy user's .agent/skills if it exists
+        if skills_directory:
+            skills_path = Path(skills_directory).resolve()
+            if skills_path.exists():
+                logger.info(f"[Local] Copying user skills from: {skills_path}")
+                shutil.copytree(skills_path, temp_skills_dir, dirs_exist_ok=True)
+            else:
+                logger.warning(f"[Local] User skills directory does not exist: {skills_path}")
+
+        # Copy massgen built-in skills (flat structure in massgen/skills/)
+        massgen_skills_base = Path(__file__).parent.parent / "skills"
+
+        # Track which skills have been added to avoid duplicates
+        added_skills = set()
+
+        # If specific skills are requested, copy only those
+        if massgen_skills:
+            for skill_name in massgen_skills:
+                skill_source = massgen_skills_base / skill_name
+                if skill_source.exists() and skill_source.is_dir():
+                    skill_dest = temp_skills_dir / skill_name
+                    logger.info(f"[Local] Adding MassGen skill: {skill_name}")
+                    shutil.copytree(skill_source, skill_dest, dirs_exist_ok=True)
+                    added_skills.add(skill_name)
+                else:
+                    logger.warning(f"[Local] MassGen skill not found: {skill_name} at {skill_source}")
+        else:
+            # If no specific skills requested, copy all built-in skills
+            if massgen_skills_base.exists():
+                for skill_dir in massgen_skills_base.iterdir():
+                    if skill_dir.is_dir() and not skill_dir.name.startswith("."):
+                        skill_dest = temp_skills_dir / skill_dir.name
+                        logger.info(f"[Local] Adding MassGen skill: {skill_dir.name}")
+                        shutil.copytree(skill_dir, skill_dest, dirs_exist_ok=True)
+                        added_skills.add(skill_dir.name)
+
+        # Store the merged skills directory path
+        self.local_skills_directory = temp_skills_dir
+
+        # Add skills directory to allowed paths (read-only)
+        from ._base import Permission
+
+        self.path_permission_manager.add_path(temp_skills_dir, Permission.READ, "local_skills")
+        logger.info(f"[Local] Added skills directory to allowed paths: {temp_skills_dir}")
+
+        # Scan and enumerate all skills in the merged directory
+        from .skills_manager import scan_skills
+
+        all_skills = scan_skills(temp_skills_dir)
+        logger.info(f"[Local] Merged skills directory ready at: {temp_skills_dir}")
+        logger.info(f"[Local] Total skills loaded: {len(all_skills)}")
+        for skill in all_skills:
+            title = skill.get("title", skill.get("name", "Unknown"))
+            logger.info(f"[Local]   - {skill['name']}: {title}")
+
+    def setup_massgen_skill_directories(self, massgen_skills: list) -> None:
+        """
+        Setup workspace directories based on enabled MassGen skills.
+
+        Creates directories only for skills that need them:
+        - "file_search": No directory needed
+
+        Note: The old "memory" skill has been removed. Use enable_memory_filesystem_mode
+        config option instead for filesystem-based memory.
+
+        When any skill directory is created, also creates workspace/ for main working files.
+
+        Args:
+            massgen_skills: List of MassGen skills to enable (e.g., ["file_search"])
+        """
+        if not massgen_skills:
+            logger.debug("[FilesystemManager] No MassGen skills configured, skipping directory setup")
+            return
+
+        # Define which skills need directories
+        SKILL_DIRECTORIES = {
+            # "file_search": no directory needed
+            # Note: "memory" skill removed - use enable_memory_filesystem_mode instead
+        }
+
+        # Determine which directories to create
+        dirs_to_create = []
+        for skill in massgen_skills:
+            if skill in SKILL_DIRECTORIES:
+                dirs_to_create.append(SKILL_DIRECTORIES[skill])
+
+        if not dirs_to_create:
+            logger.debug(f"[FilesystemManager] MassGen skills {massgen_skills} don't need directories")
+            return
+
+        logger.info(f"[FilesystemManager] Setting up directories for MassGen skills: {massgen_skills}")
+
+        # Create skill directories in current workspace
+        for dir_name in dirs_to_create:
+            skill_dir = self.cwd / dir_name
+            skill_dir.mkdir(exist_ok=True)
+            logger.info(f"[FilesystemManager] Created {dir_name}/ directory")
+
+        # Also create workspace/ directory for main working files
+        workspace_dir = self.cwd / "workspace"
+        workspace_dir.mkdir(exist_ok=True)
+        logger.info("[FilesystemManager] Created workspace/ directory")
+
+        # Also create in agent's temporary workspace if it exists
+        # This ensures other agents can see the organized structure
+        if self.agent_temporary_workspace:
+            for dir_name in dirs_to_create:
+                temp_dir = self.agent_temporary_workspace / dir_name
+                temp_dir.mkdir(exist_ok=True)
+
+            temp_workspace = self.agent_temporary_workspace / "workspace"
+            temp_workspace.mkdir(exist_ok=True)
+
+            logger.info(f"[FilesystemManager] Created organized structure in temp workspace: {self.agent_temporary_workspace}")
+
+    def setup_memory_directories(self) -> None:
+        """
+        Setup memory directories for filesystem-based memory mode.
+
+        Creates memory/short_term/ and memory/long_term/ directories in the workspace.
+        Called when enable_memory_filesystem_mode is enabled in coordination config.
+
+        Note: Only creates directories in main workspace (cwd). Temporary workspaces
+        will have memory directories from snapshots of other agents' workspaces.
+        """
+        logger.info("[FilesystemManager] Setting up memory directories for filesystem mode")
+
+        # Create memory directories in current workspace only
+        memory_base = self.cwd / "memory"
+        memory_base.mkdir(exist_ok=True)
+
+        short_term_dir = memory_base / "short_term"
+        short_term_dir.mkdir(exist_ok=True)
+        logger.info(f"[FilesystemManager] Created memory/short_term/ directory at {short_term_dir}")
+
+        long_term_dir = memory_base / "long_term"
+        long_term_dir.mkdir(exist_ok=True)
+        logger.info(f"[FilesystemManager] Created memory/long_term/ directory at {long_term_dir}")
+
+    def _compute_tools_config_hash(self, servers_with_tools: List[Dict[str, Any]]) -> str:
+        """Compute hash of tool configuration for shared_tools directory naming.
+
+        Args:
+            servers_with_tools: List of server configs with tools
+
+        Returns:
+            8-character hex hash of configuration
+        """
+        import hashlib
+        import json
+
+        # Build config dict with all relevant parameters
+        config = {
+            "servers": sorted([s["name"] for s in servers_with_tools]),  # Server names
+            "exclude_custom_tools": sorted(self.exclude_custom_tools),
+            "custom_tools_path": str(self.custom_tools_path) if self.custom_tools_path else None,
+        }
+
+        # Compute hash
+        config_str = json.dumps(config, sort_keys=True)
+        hash_obj = hashlib.md5(config_str.encode())
+        return hash_obj.hexdigest()[:8]  # First 8 chars
+
+    async def setup_code_based_tools_from_mcp_client(self, mcp_client) -> None:
+        """Setup code-based tools by extracting schemas from connected MCP client.
+
+        Connects to MCP servers, extracts tool schemas, and generates Python wrappers.
+
+        Args:
+            mcp_client: Connected MCPClient instance with tool schemas
+        """
+        if not self.enable_code_based_tools:
+            return
+
+        if not mcp_client:
+            logger.warning("[FilesystemManager] No MCP client provided for code-based tools")
+            return
+
+        logger.info("[FilesystemManager] Extracting tool schemas from MCP client")
+
+        # Extract tool schemas organized by server
+        servers_with_tools = self._extract_mcp_tool_schemas(mcp_client)
+
+        if not servers_with_tools:
+            logger.info("[FilesystemManager] No tools found in MCP client")
+            return
+
+        logger.info(f"[FilesystemManager] Extracted {len(servers_with_tools)} server(s) with tools")
+
+        from ._tool_code_writer import ToolCodeWriter
+
+        writer = ToolCodeWriter()
+
+        # Determine where to generate tools
+        if self.shared_tools_base:
+            # Shared location: create hash-based subdirectory for this config
+            config_hash = self._compute_tools_config_hash(servers_with_tools)
+            target_path = self.shared_tools_base / config_hash
+
+            # Set the actual shared_tools_directory (with hash)
+            self.shared_tools_directory = target_path
+
+            # Check if tools already exist (optimization: skip regeneration)
+            tools_already_exist = target_path.exists() and (target_path / "servers").exists() and (target_path / ".mcp").exists()
+
+            if tools_already_exist:
+                logger.info(
+                    f"[FilesystemManager] Shared tools already exist at {target_path}, skipping regeneration",
+                )
+            else:
+                # Create directory and generate tools
+                target_path.mkdir(parents=True, exist_ok=True)
+                logger.info(
+                    f"[FilesystemManager] Generating code-based tools in shared location: {target_path} (hash: {config_hash})",
+                )
+
+                try:
+                    # Auto-exclude tools based on missing API keys
+                    auto_excluded = []
+                    if self.custom_tools_path:
+                        auto_excluded = self._get_auto_excluded_tools_by_api_keys(self.custom_tools_path)
+
+                    # Combine manual exclusions with auto-generated ones
+                    all_exclusions = list(set(self.exclude_custom_tools + auto_excluded))
+
+                    writer.setup_code_based_tools(
+                        workspace_path=target_path,
+                        mcp_servers=servers_with_tools,
+                        custom_tools_path=self.custom_tools_path,
+                        exclude_custom_tools=all_exclusions,
+                    )
+                    logger.info(f"[FilesystemManager] Code-based tools setup complete in {target_path}")
+
+                except Exception as e:
+                    logger.error(f"[FilesystemManager] Error setting up code-based tools: {e}", exc_info=True)
+                    raise
+
+            # ALWAYS add to allowed paths for this agent's workspace (creates symlinks)
+            # This must happen for every agent, even if tools were already generated
+            self._add_shared_tools_to_allowed_paths(target_path)
+
+        else:
+            # Per-agent location: generate in workspace (included in snapshots)
+            target_path = self.cwd
+            logger.info(f"[FilesystemManager] Generating code-based tools in agent workspace: {target_path}")
+
+            try:
+                # Auto-exclude tools based on missing API keys
+                auto_excluded = []
+                if self.custom_tools_path:
+                    auto_excluded = self._get_auto_excluded_tools_by_api_keys(self.custom_tools_path)
+
+                # Combine manual exclusions with auto-generated ones
+                all_exclusions = list(set(self.exclude_custom_tools + auto_excluded))
+
+                writer.setup_code_based_tools(
+                    workspace_path=target_path,
+                    mcp_servers=servers_with_tools,
+                    custom_tools_path=self.custom_tools_path,
+                    exclude_custom_tools=all_exclusions,
+                )
+                logger.info(f"[FilesystemManager] Code-based tools setup complete in {target_path}")
+
+            except Exception as e:
+                logger.error(f"[FilesystemManager] Error setting up code-based tools: {e}", exc_info=True)
+                raise
+
+    def _get_auto_excluded_tools_by_api_keys(
+        self,
+        custom_tools_path: Path,
+    ) -> List[str]:
+        """Automatically exclude tools based on unavailable API keys.
+
+        Reads TOOL.md files to check requires_api_keys, compares against
+        configured Docker credentials to determine which tools to exclude.
+
+        Args:
+            custom_tools_path: Path to custom tools directory
+
+        Returns:
+            List of tool directory names to exclude
+        """
+        import yaml
+
+        if not custom_tools_path or not custom_tools_path.exists():
+            return []
+
+        # Get list of available API keys
+        available_keys = self._get_available_api_keys()
+
+        # If no credential config, assume all env vars available (local mode or pass_all_env)
+        if available_keys is None:
+            logger.debug("[FilesystemManager] No credential filtering - all API keys assumed available")
+            return []
+
+        excluded = []
+
+        # Check each subdirectory for TOOL.md
+        for tool_dir in custom_tools_path.iterdir():
+            if not tool_dir.is_dir() or tool_dir.name.startswith("."):
+                continue
+
+            tool_md = tool_dir / "TOOL.md"
+            if not tool_md.exists():
+                continue
+
+            try:
+                # Parse TOOL.md YAML frontmatter
+                content = tool_md.read_text()
+                if not content.startswith("---"):
+                    continue
+
+                parts = content.split("---", 2)
+                if len(parts) < 3:
+                    continue
+
+                metadata = yaml.safe_load(parts[1])
+                required_keys = metadata.get("requires_api_keys", [])
+
+                # Skip if tool doesn't require any keys
+                if not required_keys:
+                    continue
+
+                # Check if all required keys are available
+                missing_keys = [key for key in required_keys if key not in available_keys]
+
+                if missing_keys:
+                    excluded.append(tool_dir.name)
+                    logger.info(
+                        f"[FilesystemManager] Excluding {tool_dir.name}: " f"missing API keys: {', '.join(missing_keys)}",
+                    )
+
+            except Exception as e:
+                logger.warning(f"[FilesystemManager] Error reading {tool_md}: {e}")
+                continue
+
+        return excluded
+
+    def _get_available_api_keys(self) -> Optional[set]:
+        """Get set of API keys that will be available in Docker container.
+
+        Returns:
+            Set of available API key names, or None if no filtering needed
+        """
+        if not self.command_line_docker_credentials:
+            # No credentials config - can't filter
+            return None
+
+        creds = self.command_line_docker_credentials
+        available = set()
+
+        # Check pass_all_env - if true, all keys available
+        if creds.get("pass_all_env"):
+            return None  # No filtering needed
+
+        # Get keys from env_file
+        if creds.get("env_file"):
+            env_file_path = Path(creds["env_file"]).expanduser().resolve()
+            if env_file_path.exists():
+                # Parse .env file
+                with open(env_file_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            key = line.split("=", 1)[0].strip()
+                            # Check if filtering by env_vars_from_file
+                            filter_list = creds.get("env_vars_from_file")
+                            if filter_list:
+                                if key in filter_list:
+                                    available.add(key)
+                            else:
+                                # All keys from env file
+                                available.add(key)
+
+        # Add keys from env_vars (host environment)
+        if creds.get("env_vars"):
+            for var in creds["env_vars"]:
+                if var in os.environ:
+                    available.add(var)
+
+        return available
+
+    def _extract_mcp_tool_schemas(self, mcp_client) -> List[Dict[str, Any]]:
+        """Extract tool schemas from MCP client, organized by server.
+
+        Only extracts user-added MCP servers. Framework MCPs (command_line, workspace_tools,
+        filesystem, planning, memory) are excluded as they're handled separately.
+
+        Args:
+            mcp_client: MCPClient instance with connected tools
+
+        Returns:
+            List of server configs with tool schemas:
+            [
+                {
+                    "name": "weather",
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": [...],
+                    "tools": [
+                        {
+                            "name": "get_forecast",
+                            "description": "Get weather forecast",
+                            "inputSchema": {...}
+                        },
+                        ...
+                    ]
+                },
+                ...
+            ]
+        """
+        # Framework MCPs that should NOT be converted to code
+        # These are automatically available or handled by the framework
+        FRAMEWORK_MCPS = {
+            "command_line",  # Command execution (already available via bash)
+            "workspace_tools",  # Workspace operations (file ops, media generation)
+            "filesystem",  # Filesystem operations
+            "planning",  # Task planning MCP
+            "memory",  # Memory management MCP
+        }
+
+        servers_with_tools = {}
+
+        # Group tools by server
+        for tool_name, tool_obj in mcp_client.tools.items():
+            # Get server name for this tool
+            server_name = mcp_client._tool_to_server.get(tool_name)
+            if not server_name:
+                logger.warning(f"[FilesystemManager] Tool {tool_name} has no associated server")
+                continue
+
+            # Skip framework MCPs - they're not user tools
+            # Check exact match or prefix match (e.g., "planning_agent_a" matches "planning")
+            is_framework_mcp = server_name in FRAMEWORK_MCPS or any(server_name.startswith(f"{fmcp}_") for fmcp in FRAMEWORK_MCPS)
+            if is_framework_mcp:
+                logger.debug(f"[FilesystemManager] Skipping framework MCP: {server_name}")
+                continue
+
+            # Initialize server entry if needed
+            if server_name not in servers_with_tools:
+                # Find server config
+                server_config = next(
+                    (cfg for cfg in mcp_client._server_configs if cfg["name"] == server_name),
+                    None,
+                )
+                if not server_config:
+                    logger.warning(f"[FilesystemManager] No config found for server {server_name}")
+                    continue
+
+                servers_with_tools[server_name] = {
+                    "name": server_name,
+                    "type": server_config.get("type"),
+                    "command": server_config.get("command"),
+                    "args": server_config.get("args"),
+                    "env": server_config.get("env", {}),
+                    "url": server_config.get("url"),
+                    "tools": [],
+                }
+
+            # Extract tool schema (remove mcp__ prefix from name)
+            original_tool_name = tool_name
+            if tool_name.startswith(f"mcp__{server_name}__"):
+                original_tool_name = tool_name[len(f"mcp__{server_name}__") :]
+
+            tool_schema = {
+                "name": original_tool_name,
+                "description": tool_obj.description or f"{original_tool_name} from {server_name}",
+                "inputSchema": tool_obj.inputSchema or {},
+            }
+
+            servers_with_tools[server_name]["tools"].append(tool_schema)
+
+        # Convert to list
+        result = list(servers_with_tools.values())
+
+        # Log summary
+        for server in result:
+            logger.info(f"[FilesystemManager] Server '{server['name']}': {len(server['tools'])} tools")
+
+        return result
+
+    def _add_shared_tools_to_allowed_paths(self, shared_tools_path: Path) -> None:
+        """Add shared tools directory to allowed paths as read-only.
+
+        Makes shared code-based tools (servers/, custom_tools/, .mcp/) accessible
+        to the agent without write permissions. Creates symlinks in workspace for
+        Python imports to work correctly.
+
+        Args:
+            shared_tools_path: Path to shared tools directory
+        """
+        # Add shared tools directory to path manager (read-only)
+        self.path_permission_manager.add_path(
+            shared_tools_path,
+            Permission.READ,
+            "shared_tools",
+        )
+        logger.info(f"[FilesystemManager] Added shared tools directory to read-only paths: {shared_tools_path}")
+
+        # Create symlinks in workspace for Python imports
+        # This allows agents to import from servers/, custom_tools/ as if they were local
+        workspace = self.cwd
+
+        # Directories to symlink (utils/ NOT included - agents create that in their workspace)
+        tool_dirs = ["servers", "custom_tools", ".mcp", "massgen"]
+
+        for dir_name in tool_dirs:
+            source_dir = shared_tools_path / dir_name
+            target_link = workspace / dir_name
+
+            # Only create symlink if source exists and target doesn't
+            if source_dir.exists() and not target_link.exists():
+                try:
+                    target_link.symlink_to(source_dir, target_is_directory=True)
+                    logger.info(f"[FilesystemManager] Created symlink: {target_link} -> {source_dir}")
+                except Exception as e:
+                    logger.warning(f"[FilesystemManager] Failed to create symlink for {dir_name}: {e}")
+
     def update_backend_mcp_config(self, backend_config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Update MCP server configuration with agent_id after it's available.
+        Update MCP server configuration with agent_id and skills directory after they're available.
 
-        This should be called by the backend after setup_orchestration_paths() sets agent_id.
+        This should be called by the backend after setup_orchestration_paths() sets agent_id
+        and local_skills_directory.
 
         Args:
             backend_config: Backend configuration dict containing mcp_servers
@@ -212,29 +826,63 @@ class FilesystemManager:
         Returns:
             Updated backend configuration
         """
-        if not self.enable_mcp_command_line or self.command_line_execution_mode != "docker":
+        if not self.enable_mcp_command_line:
             return backend_config
 
         if not self.agent_id:
-            logger.warning("[FilesystemManager] agent_id not set, cannot update MCP config for Docker mode")
+            logger.warning("[FilesystemManager] agent_id not set, cannot update MCP config")
             return backend_config
 
-        # Update command_line MCP server config to include --agent-id and --instance-id
+        # Update command_line MCP server config
         mcp_servers = backend_config.get("mcp_servers", [])
-        for server in mcp_servers:
-            if isinstance(server, dict) and server.get("name") == "command_line":
+
+        # Handle both list format and Claude Code dict format
+        if isinstance(mcp_servers, dict):
+            # Claude Code dict format: {"command_line": {...}, "filesystem": {...}}
+            if "command_line" in mcp_servers:
+                server = mcp_servers["command_line"]
                 args = server.get("args", [])
-                # Check if --agent-id is already in args
-                if "--agent-id" not in args:
-                    args.extend(["--agent-id", self.agent_id])
+
+                # For Docker mode: add agent-id and instance-id
+                if self.command_line_execution_mode == "docker":
+                    if "--agent-id" not in args:
+                        args.extend(["--agent-id", self.agent_id])
+                        logger.info(f"[FilesystemManager] Updated command_line MCP server config with agent_id: {self.agent_id}")
+                    if self.instance_id and "--instance-id" not in args:
+                        args.extend(["--instance-id", self.instance_id])
+                        logger.info(f"[FilesystemManager] Updated command_line MCP server config with instance_id: {self.instance_id}")
+
+                # For local mode: add local-skills-directory if set
+                if self.command_line_execution_mode == "local" and self.local_skills_directory:
+                    if "--local-skills-directory" not in args:
+                        args.extend(["--local-skills-directory", str(self.local_skills_directory)])
+                        logger.info(f"[FilesystemManager] Updated command_line MCP server config with local_skills_directory: {self.local_skills_directory}")
+
+                server["args"] = args
+
+        elif isinstance(mcp_servers, list):
+            # List format: [{"name": "command_line", ...}, ...]
+            for server in mcp_servers:
+                if isinstance(server, dict) and server.get("name") == "command_line":
+                    args = server.get("args", [])
+
+                    # For Docker mode: add agent-id and instance-id
+                    if self.command_line_execution_mode == "docker":
+                        if "--agent-id" not in args:
+                            args.extend(["--agent-id", self.agent_id])
+                            logger.info(f"[FilesystemManager] Updated command_line MCP server config with agent_id: {self.agent_id}")
+                        if self.instance_id and "--instance-id" not in args:
+                            args.extend(["--instance-id", self.instance_id])
+                            logger.info(f"[FilesystemManager] Updated command_line MCP server config with instance_id: {self.instance_id}")
+
+                    # For local mode: add local-skills-directory if set
+                    if self.command_line_execution_mode == "local" and self.local_skills_directory:
+                        if "--local-skills-directory" not in args:
+                            args.extend(["--local-skills-directory", str(self.local_skills_directory)])
+                            logger.info(f"[FilesystemManager] Updated command_line MCP server config with local_skills_directory: {self.local_skills_directory}")
+
                     server["args"] = args
-                    logger.info(f"[FilesystemManager] Updated command_line MCP server config with agent_id: {self.agent_id}")
-                # Add instance-id if set (for Docker parallel execution)
-                if self.instance_id and "--instance-id" not in args:
-                    args.extend(["--instance-id", self.instance_id])
-                    server["args"] = args
-                    logger.info(f"[FilesystemManager] Updated command_line MCP server config with instance_id: {self.instance_id}")
-                break
+                    break
 
         return backend_config
 
@@ -265,9 +913,15 @@ class FilesystemManager:
 
         return workspace
 
-    def get_mcp_filesystem_config(self) -> Dict[str, Any]:
+    def get_mcp_filesystem_config(self, include_only_write_tools: bool = False) -> Dict[str, Any]:
         """
         Generate MCP filesystem server configuration.
+
+        Args:
+            include_only_write_tools: If True, only include write_file and edit_file tools.
+                                     Used with code-based tools to provide clean file creation
+                                     without shell escaping issues, while using command-line
+                                     for other file operations.
 
         Returns:
             Dictionary with MCP server configuration for filesystem access
@@ -286,10 +940,17 @@ class FilesystemManager:
             ]
             + paths,
             "cwd": str(self.cwd),  # Set working directory for filesystem server (important for relative paths)
-            # Exclude read_media_file since we have our own implementation in workspace_tools
-            # Note: Tool names here are unprefixed (before server name is added)
-            "exclude_tools": ["read_media_file"],
         }
+
+        if include_only_write_tools:
+            # Code-based tools mode: Only include write_file and edit_file
+            # This avoids shell escaping nightmares when creating Python scripts
+            # Other file operations use command-line tools (more efficient for CodeAct)
+            config["allowed_tools"] = ["write_file", "edit_file"]
+        else:
+            # Normal mode: Exclude read_media_file since we have our own implementation
+            # Note: Tool names here are unprefixed (before server name is added)
+            config["exclude_tools"] = ["read_media_file"]
 
         return config
 
@@ -323,12 +984,27 @@ class FilesystemManager:
             "cwd": str(self.cwd),
         }
 
+        # Conditionally exclude file operation tools if flag is set
+        if self.exclude_file_operation_mcps:
+            config["exclude_tools"] = [
+                "copy_file",
+                "copy_files_batch",
+                "delete_file",
+                "delete_files_batch",
+                "compare_directories",
+                "compare_files",
+            ]
+
         # Conditionally exclude image generation tools if not enabled
         if not self.enable_image_generation:
-            config["exclude_tools"] = [
-                "generate_and_store_image_with_input_images",
-                "generate_and_store_image_no_input_images",
-            ]
+            if "exclude_tools" not in config:
+                config["exclude_tools"] = []
+            config["exclude_tools"].extend(
+                [
+                    "generate_and_store_image_with_input_images",
+                    "generate_and_store_image_no_input_images",
+                ],
+            )
         if not self.enable_audio_generation:
             if "exclude_tools" not in config:
                 config["exclude_tools"] = []
@@ -363,6 +1039,9 @@ class FilesystemManager:
         if "DOCKER_HOST" in os.environ:
             env["DOCKER_HOST"] = os.environ["DOCKER_HOST"]
 
+        # Note: PYTHONPATH not needed - workspace is already cwd and has symlinks to shared_tools
+        # Python imports work: `from servers.weather import get_weather`
+
         config = {
             "name": "command_line",
             "type": "stdio",
@@ -394,11 +1073,20 @@ class FilesystemManager:
         if self.command_line_blocked_commands:
             config["args"].extend(["--blocked-commands"] + self.command_line_blocked_commands)
 
+        # Note: --local-skills-directory is added later in update_backend_mcp_config()
+        # after setup_orchestration_paths() sets self.local_skills_directory
+
         return config
 
     def inject_filesystem_mcp(self, backend_config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Inject filesystem and workspace tools MCP servers into backend configuration.
+
+        When exclude_file_operation_mcps is True, skips filesystem and workspace file operation
+        tools, keeping only command execution, media generation, and planning MCPs.
+
+        When enable_code_based_tools is True, filters out user MCP servers (they're accessible
+        via generated Python code instead), keeping only framework MCPs.
 
         Args:
             backend_config: Original backend configuration
@@ -428,16 +1116,37 @@ class FilesystemManager:
             existing_names = []
             mcp_servers = []
 
+        # Note: We do NOT filter user MCP servers here when code-based tools are enabled
+        # The servers need to connect so we can extract their tool schemas for code generation
+        # Tool filtering happens later in the backend after conversion to Function objects
+
         try:
             # Add filesystem server if missing
             if "filesystem" not in existing_names:
-                mcp_servers.append(self.get_mcp_filesystem_config())
+                # When exclude_file_operation_mcps is True, only include write_file and edit_file
+                # This provides clean file creation without shell escaping issues
+                mcp_servers.append(
+                    self.get_mcp_filesystem_config(
+                        include_only_write_tools=self.exclude_file_operation_mcps,
+                    ),
+                )
+                if self.exclude_file_operation_mcps:
+                    logger.info("[FilesystemManager.inject_filesystem_mcp] Added filesystem MCP with write_file and edit_file only (exclude_file_operation_mcps=True)")
             else:
                 logger.warning("[FilesystemManager.inject_filesystem_mcp] Custom filesystem MCP server already present")
 
-            # Add workspace tools server if missing
+            # Add workspace tools server based on configuration
             if "workspace_tools" not in existing_names:
-                mcp_servers.append(self.get_workspace_tools_mcp_config())
+                # If file ops excluded, only add workspace_tools if media generation is enabled
+                if self.exclude_file_operation_mcps:
+                    if self.enable_image_generation or self.enable_audio_generation:
+                        mcp_servers.append(self.get_workspace_tools_mcp_config())
+                        logger.info("[FilesystemManager.inject_filesystem_mcp] Added workspace_tools MCP with media tools only (exclude_file_operation_mcps=True)")
+                    else:
+                        logger.info("[FilesystemManager.inject_filesystem_mcp] Skipping workspace_tools MCP entirely (exclude_file_operation_mcps=True, no media enabled)")
+                else:
+                    # Normal case - add all workspace tools
+                    mcp_servers.append(self.get_workspace_tools_mcp_config())
             else:
                 logger.warning("[FilesystemManager.inject_filesystem_mcp] Custom workspace_tools MCP server already present")
 
@@ -564,6 +1273,20 @@ class FilesystemManager:
             logger.warning(f"[FilesystemManager] Source path invalid - exists: {source_path.exists()}, " f"is_dir: {source_path.is_dir() if source_path.exists() else False}")
             return
 
+        # Count non-symlink items in source path
+        has_real_content = any(not item.is_symlink() for item in source_path.iterdir()) if source_path.exists() else False
+
+        # Check if snapshot_storage already has content (used for preservation logic)
+        snapshot_storage_has_content = False
+        if self.snapshot_storage and self.snapshot_storage.exists():
+            snapshot_storage_has_content = any(not item.is_symlink() for item in self.snapshot_storage.iterdir()) if self.snapshot_storage.is_dir() else False
+
+        # If workspace is empty but snapshot_storage has content, use snapshot_storage as source for log directories
+        # This ensures we preserve the files in logs even when workspace has been cleared
+        if not has_real_content and snapshot_storage_has_content:
+            logger.info(f"[FilesystemManager.save_snapshot] Workspace is empty but snapshot_storage has content, using snapshot_storage as source for logs: {self.snapshot_storage}")
+            source_path = self.snapshot_storage
+
         if not any(source_path.iterdir()):
             logger.warning(f"[FilesystemManager.save_snapshot] Source path {source_path} is empty, skipping snapshot")
             return
@@ -571,22 +1294,27 @@ class FilesystemManager:
         try:
             # --- 1. Save to snapshot_storage ---
             if self.snapshot_storage:
-                if self.snapshot_storage.exists():
-                    shutil.rmtree(self.snapshot_storage)
-                self.snapshot_storage.mkdir(parents=True, exist_ok=True)
+                # Don't overwrite a non-empty snapshot with an empty workspace
+                if not has_real_content and snapshot_storage_has_content:
+                    logger.info(f"[FilesystemManager] Skipping snapshot_storage update - workspace is empty but snapshot_storage has content ({self.snapshot_storage})")
+                else:
+                    # Normal case: overwrite with current workspace
+                    if self.snapshot_storage.exists():
+                        shutil.rmtree(self.snapshot_storage)
+                    self.snapshot_storage.mkdir(parents=True, exist_ok=True)
 
-                items_copied = 0
-                for item in source_path.iterdir():
-                    if item.is_symlink():
-                        logger.warning(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
-                        continue
-                    if item.is_file():
-                        shutil.copy2(item, self.snapshot_storage / item.name)
-                    elif item.is_dir():
-                        shutil.copytree(item, self.snapshot_storage / item.name)
-                    items_copied += 1
+                    items_copied = 0
+                    for item in source_path.iterdir():
+                        if item.is_symlink():
+                            logger.warning(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
+                            continue
+                        if item.is_file():
+                            shutil.copy2(item, self.snapshot_storage / item.name)
+                        elif item.is_dir():
+                            shutil.copytree(item, self.snapshot_storage / item.name)
+                        items_copied += 1
 
-                logger.info(f"[FilesystemManager] Saved snapshot with {items_copied} items to {self.snapshot_storage}")
+                    logger.info(f"[FilesystemManager] Saved snapshot with {items_copied} items to {self.snapshot_storage}")
 
             # --- 2. Save to log directories ---
             log_session_dir = get_log_session_dir()
@@ -811,6 +1539,22 @@ class FilesystemManager:
         # Cleanup Docker container if Docker mode enabled
         if self.docker_manager and self.agent_id:
             self.docker_manager.cleanup(self.agent_id)
+
+        # Cleanup shared_tools directory if it was created for this run
+        if self.shared_tools_directory and self.shared_tools_directory.exists():
+            try:
+                logger.info(f"[FilesystemManager] Cleaning up shared tools directory: {self.shared_tools_directory}")
+                shutil.rmtree(self.shared_tools_directory)
+            except Exception as e:
+                logger.warning(f"[FilesystemManager] Failed to cleanup shared tools directory: {e}")
+
+        # Cleanup local skills directory if it exists
+        if self.local_skills_directory and self.local_skills_directory.exists():
+            try:
+                logger.info(f"[FilesystemManager] Cleaning up local skills directory: {self.local_skills_directory}")
+                shutil.rmtree(self.local_skills_directory)
+            except Exception as e:
+                logger.warning(f"[FilesystemManager] Failed to cleanup local skills directory: {e}")
 
         # Cleanup temporary workspace
         p = self.agent_temporary_workspace

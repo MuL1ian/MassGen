@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.10
+**Current Version:** v0.1.13
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** November 10, 2025
+**Last Updated:** November 17, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -30,9 +30,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 | Session Management | [@ncrispino](https://github.com/ncrispino) | nickcrispino |
 | Automatic MCP Tool Selection | [@ncrispino](https://github.com/ncrispino) | nickcrispino |
 | Parallel File Operations | [@ncrispino](https://github.com/ncrispino) | nickcrispino |
-| Semtools Integration | [@ncrispino](https://github.com/ncrispino) | nickcrispino |
 | MassGen Terminal Evaluation | [@ncrispino](https://github.com/ncrispino) | nickcrispino |
-| Multi-Agent Computer Use | TBD | TBD |
 | Web UI | [@voidcenter](https://github.com/voidcenter) | justin_zhang |
 
 *For general questions, join the #massgen channel on [Discord](https://discord.gg/VVrT2rQaz5)*
@@ -42,86 +40,17 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.11** | 11/12/25 | Gemini Rate Limiting System | @AbhimanyuAryan | Prevent API spam and manage costs within rate limits |
-| | | Automatic MCP Tool Selection | @ncrispino | Intelligently select MCP tools based on task requirements |
-| **v0.1.12** | 11/14/25 | Parallel File Operations | @ncrispino | Increase parallelism and standard efficiency evaluation |
-| | | Semtools Integration | @ncrispino | Semantic search for files, configs, and tool discovery |
-| **v0.1.13** | 11/17/25 | MassGen Terminal Evaluation | @ncrispino | Self-evaluation and improvement of frontend/UI |
-| | | NLIP Integration | @qidanrui | Natural Language Integration Platform for hierarchy initialization and RL integration |
+| **v0.1.14** | 11/19/25 | MassGen Terminal Evaluation | @ncrispino | Self-evaluation and improvement of frontend/UI |
+| | | Git Worktrees for Multi-Agent | @ncrispino | Use Git worktrees for different agents to enable parallel development workflows |
+| **v0.1.15** | 11/21/25 | Parallel File Operations | @ncrispino | Increase parallelism and standard efficiency evaluation |
+| | | Launch Custom Tools in Docker | @ncrispino | Enable custom tools to run in isolated Docker containers for security and portability |
+| **v0.1.16** | 11/24/25 | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.11 - Rate Limiting & Intelligent Tool Selection
-
-### Features
-
-**1. Gemini Rate Limiting System** (@AbhimanyuAryan)
-- PR: [#383](https://github.com/massgen/MassGen/pull/383) (Draft)
-- Multi-dimensional rate limiting for Gemini models (RPM, TPM, RPD)
-- Model-specific limits: Flash (9 RPM), Pro (2 RPM)
-- Sliding window tracking for precise rate management
-- External YAML configuration for centralized limit control
-- Optional `--rate-limit` CLI flag to enable/disable
-- Mandatory cooldown after agent startup to prevent API bursts
-- **Use Case**: Prevent API spam and manage costs while ensuring smooth operation within Gemini's rate limits
-
-**2. Automatic MCP Tool Selection** (@ncrispino)
-- Issue: [#414](https://github.com/massgen/MassGen/issues/414)
-- Intelligent selection of MCP tools before task execution based on user prompts
-- Dynamic tool refinement during execution as task requirements evolve
-- Filesystem-first approach where MCPs appear as files rather than in-context specifications
-- Reduces context pollution from excessive in-context tools (currently >30)
-- Eliminates manual tool selection burden for users
-- **Use Case**: Intelligently select appropriate MCP tools (e.g., Playwright for web testing) based on task requirements, improving performance without requiring users to know which tools to include
-
-### Success Criteria
-- ✅ Rate limiting prevents API quota violations and manages costs
-- ✅ Features are configurable and well-documented
-- ✅ Rate limiting works across all Gemini model types
-- ✅ Sliding window tracking is accurate and efficient
-- ✅ Automatic tool selection improves task performance vs manual selection
-- ✅ Context pollution reduced through filesystem-first approach
-- ✅ Tool selection adapts dynamically during execution
-
----
-
-## 📋 v0.1.12 - Performance Optimization & Semantic Search
-
-### Features
-
-**1. Parallel File Operations & Performance** (@ncrispino)
-- Issue: [#441](https://github.com/massgen/MassGen/issues/441)
-- Increase parallelism of file read operations for improved performance
-- Standard methodology for efficiency evaluation and benchmarking
-- Optimized file I/O for multi-agent scenarios
-- Performance metrics and monitoring framework
-- Comprehensive efficiency evaluation with standard metrics
-- **Use Case**: Increase parallelism and efficiency with standard evaluation metrics, reducing file operation latency in multi-agent workflows
-
-**2. Semtools Integration** (@ncrispino)
-- Issue: [#465](https://github.com/massgen/MassGen/issues/465)
-- Semantic search capabilities for file parsing and retrieval using [semtools](https://github.com/run-llama/semtools)
-- Semantic understanding for filesystem efficiency (PDFs, various document formats)
-- Intelligent configuration file and MCP tool discovery through semantic search
-- Automatic identification of relevant tools before prompt execution
-- Replaces keyword matching with semantic understanding for better accuracy
-- **Use Case**: Enable semantic search for files, configurations, and automated tool discovery, improving search performance and reducing manual configuration effort
-
-### Success Criteria
-- ✅ Parallel file reads demonstrate measurable performance improvement
-- ✅ Efficiency evaluation framework established with clear metrics
-- ✅ Standard evaluation methodology implemented and documented
-- ✅ Benchmarking shows improvements in real-world scenarios
-- ✅ Feature maintains data consistency and safety
-- ✅ Semtools semantic search outperforms keyword-based search
-- ✅ Tool discovery automation reduces manual configuration
-- ✅ Semantic search handles diverse document formats effectively
-
----
-
-## 📋 v0.1.13 - Self-Evaluation & NLIP Integration
+## 📋 v0.1.14 - Terminal Evaluation & Multi-Agent Git Workflows
 
 ### Features
 
@@ -135,23 +64,83 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Self-improvement capabilities extended to frontend (currently backend-only via automation mode)
 - **Use Case**: Enable MassGen to analyze its own terminal interface, creating demonstration videos and documentation automatically, showcasing new features through automated workflows
 
-**2. NLIP Integration** (@qidanrui)
-- PR: [#475](https://github.com/massgen/MassGen/pull/475) (Draft)
-- Natural Language Integration Platform for enhanced agent coordination
-- Hierarchy initialization for structured multi-agent systems
-- Reinforcement learning integration components
-- Advanced orchestration patterns with NLIP architecture
-- Foundation for sophisticated agent coordination strategies
-- **Use Case**: Enable advanced multi-agent coordination through NLIP's hierarchy and reinforcement learning capabilities, improving agent collaboration and decision-making
+**2. Git Worktrees for Different Agents** (@ncrispino)
+- Issue: [#514](https://github.com/massgen/MassGen/issues/514)
+- Enable multiple agents to work on different Git worktrees simultaneously
+- Isolated working directories for parallel agent development
+- Automatic worktree creation and management
+- Branch synchronization across agent worktrees
+- Conflict resolution support for multi-agent workflows
+- Improved parallelism for multi-agent code development tasks
+- **Use Case**: Allow multiple agents to work on different features or branches simultaneously without conflicts, enabling true parallel development workflows
 
 ### Success Criteria
 - ✅ Terminal recording and playback system works reliably
 - ✅ Video understanding capabilities accurately analyze terminal sessions
 - ✅ Automated case study generation produces high-quality documentation
 - ✅ MassGen successfully self-improves based on terminal analysis
-- ✅ NLIP hierarchy initialization works correctly
-- ✅ Reinforcement learning components integrate seamlessly
-- ✅ Advanced orchestration patterns demonstrate improved performance
+- ✅ Agents successfully create and manage separate Git worktrees
+- ✅ Multiple agents can work on different branches simultaneously
+- ✅ Worktree cleanup and management works reliably
+- ✅ Branch synchronization maintains code integrity
+- ✅ Performance improvements in multi-agent development scenarios
+
+---
+
+## 📋 v0.1.15 - Performance Optimization & Docker Tools
+
+### Features
+
+**1. Parallel File Operations & Performance** (@ncrispino)
+- Issue: [#441](https://github.com/massgen/MassGen/issues/441)
+- Increase parallelism of file read operations for improved performance
+- Standard methodology for efficiency evaluation and benchmarking
+- Optimized file I/O for multi-agent scenarios
+- Performance metrics and monitoring framework
+- Comprehensive efficiency evaluation with standard metrics
+- **Use Case**: Increase parallelism and efficiency with standard evaluation metrics, reducing file operation latency in multi-agent workflows
+
+**2. Launch Custom Tools in Docker** (@ncrispino)
+- Issue: [#510](https://github.com/massgen/MassGen/issues/510)
+- Enable custom tools to run in isolated Docker containers
+- Automatic containerization of custom tool execution
+- Security isolation for untrusted or experimental tools
+- Improved portability across different environments
+- Resource management and cleanup for tool containers
+- Integration with existing Docker infrastructure
+- **Use Case**: Run custom tools in isolated Docker containers for enhanced security, enabling safe execution of untrusted code and ensuring consistent tool behavior across environments
+
+### Success Criteria
+- ✅ Parallel file reads demonstrate measurable performance improvement
+- ✅ Efficiency evaluation framework established with clear metrics
+- ✅ Standard evaluation methodology implemented and documented
+- ✅ Benchmarking shows improvements in real-world scenarios
+- ✅ Feature maintains data consistency and safety
+- ✅ Custom tools successfully launch in Docker containers
+- ✅ Security isolation prevents tools from affecting host system
+- ✅ Automatic cleanup of Docker resources after tool execution
+- ✅ Tool execution performance comparable to native execution
+
+---
+
+## 📋 v0.1.16 - MCP Ecosystem Expansion
+
+### Features
+
+**1. Smithery MCP Tools Support** (@ncrispino)
+- Issue: [#521](https://github.com/massgen/MassGen/issues/521)
+- Integration with Smithery to expand available MCP tools
+- Automatic discovery and installation of Smithery MCP servers
+- Curated registry of high-quality MCP tools from Smithery ecosystem
+- Simplified tool onboarding for users
+- Enhanced tool discovery and recommendation system
+- **Use Case**: Expand MassGen's tool ecosystem by integrating with Smithery, giving users access to a wider range of curated MCP tools without manual configuration
+
+### Success Criteria
+- ✅ Smithery integration discovers and installs MCP tools automatically
+- ✅ Tool registry includes curated Smithery tools with proper metadata
+- ✅ Tool recommendation system suggests relevant Smithery tools
+- ✅ Users can easily browse and install Smithery tools
 
 ---
 
@@ -201,10 +190,10 @@ These features are being actively developed on **separate parallel tracks** and 
 - **Status:** ✅ Completed in v0.1.10
 
 ### Track: Rate Limiting System (@AbhimanyuAryan, abhimanyuaryan)
-- PR: [#383](https://github.com/massgen/MassGen/pull/383) (Draft)
+- PR: [#383](https://github.com/massgen/MassGen/pull/383)
 - Multi-dimensional rate limiting for Gemini models
 - Model-specific limits with sliding window tracking
-- **Target:** v0.1.11
+- **Status:** ✅ Completed in v0.1.11
 
 ### Track: MassGen Handbook (@a5507203, @Henry-811, crinvo, henry_weiqi)
 - Issue: [#387](https://github.com/massgen/MassGen/issues/387)
@@ -224,35 +213,70 @@ These features are being actively developed on **separate parallel tracks** and 
 - Resume previous MassGen conversations with full context
 - **Status:** ✅ Completed in v0.1.9
 
-### Track: Automatic MCP Tool Selection (@ncrispino, nickcrispino)
+### Track: Semtools & Serena Skills (@ncrispino, nickcrispino)
+- PR: [#515](https://github.com/massgen/MassGen/pull/515)
+- Semantic search capabilities via semtools (embedding-based similarity)
+- Symbol-level code understanding via serena (LSP integration)
+- Package as reusable skills within MassGen framework
+- **Status:** ✅ Completed in v0.1.12
+
+### Track: System Prompt Architecture (@ncrispino, nickcrispino)
+- PR: [#515](https://github.com/massgen/MassGen/pull/515)
+- Complete refactoring of system prompt assembly
+- Hierarchical structure with improved LLM attention management
+- Skills system local execution support
+- **Status:** ✅ Completed in v0.1.12
+
+### Track: Multi-Agent Computer Use (@franklinnwren, zhichengren)
+- PR: [#513](https://github.com/massgen/MassGen/pull/513)
+- Enhanced Gemini computer use with Docker integration
+- Multi-agent coordination for computer automation
+- VNC visualization and debugging support
+- **Status:** ✅ Completed in v0.1.12
+
+### Track: Code-Based Tools System / Automatic MCP Tool Selection (@ncrispino, nickcrispino)
 - Issue: [#414](https://github.com/massgen/MassGen/issues/414)
-- Intelligent selection of MCP tools based on task requirements
-- Filesystem-first approach to reduce context pollution
-- **Target:** v0.1.11
+- Tool integration via importable Python code instead of schema-based tools
+- MCP server registry with auto-discovery
+- Reduces token usage through on-demand tool loading
+- **Status:** ✅ Completed in v0.1.13
 
 ### Track: Parallel File Operations (@ncrispino, nickcrispino)
 - Issue: [#441](https://github.com/massgen/MassGen/issues/441)
 - Increase parallelism of file read operations
 - Standard efficiency evaluation and benchmarking methodology
-- **Target:** v0.1.12
+- **Target:** v0.1.15
 
-### Track: Semtools Integration (@ncrispino, nickcrispino)
-- Issue: [#465](https://github.com/massgen/MassGen/issues/465)
-- Semantic search for files, configs, and automated tool discovery
-- Replace keyword matching with semantic understanding
-- **Target:** v0.1.12
+### Track: Launch Custom Tools in Docker (@ncrispino, nickcrispino)
+- Issue: [#510](https://github.com/massgen/MassGen/issues/510)
+- Enable custom tools to run in isolated Docker containers
+- Security isolation and portability for custom tool execution
+- **Target:** v0.1.15
+
+### Track: Git Worktrees for Multi-Agent (@ncrispino, nickcrispino)
+- Issue: [#514](https://github.com/massgen/MassGen/issues/514)
+- Enable multiple agents to work on different Git worktrees simultaneously
+- Isolated working directories for parallel agent development
+- **Target:** v0.1.14
 
 ### Track: MassGen Terminal Evaluation (@ncrispino, nickcrispino)
 - Issue: [#476](https://github.com/massgen/MassGen/issues/476)
 - Self-evaluation and improvement of frontend/UI through terminal recording
 - Automated video generation and case study creation
-- **Target:** v0.1.13
+- **Target:** v0.1.14
 
-### Track: NLIP Integration (@qidanrui, danrui2020)
-- PR: [#475](https://github.com/massgen/MassGen/pull/475) (Draft)
-- Natural Language Integration Platform for enhanced agent coordination
-- Hierarchy initialization and reinforcement learning integration
-- **Target:** v0.1.13
+### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
+- Issue: [#521](https://github.com/massgen/MassGen/issues/521)
+- Integration with Smithery to expand available MCP tools
+- Automatic discovery and installation of Smithery MCP servers
+- **Target:** v0.1.16
+
+### Track: NLIP Integration (@praneeth999, @qidanrui, ram2561, danrui2020)
+- PR: [#475](https://github.com/massgen/MassGen/pull/475)
+- Natural Language Integration Platform for advanced tool routing
+- Multi-backend support across Claude, Gemini, and OpenAI
+- Per-agent and orchestrator-level configuration
+- **Status:** ✅ Completed in v0.1.13
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -334,5 +358,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** November 10, 2025
+**Last Updated:** November 17, 2025
 **Maintained By:** MassGen Team

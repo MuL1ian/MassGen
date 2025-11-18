@@ -61,6 +61,9 @@ class APIParamsHandlerBase(ABC):
             "context_write_access_enabled",
             "enforce_read_before_delete",
             "enable_image_generation",
+            "enable_audio_generation",
+            "enable_file_generation",
+            "enable_video_generation",
             "enable_mcp_command_line",
             "command_line_allowed_commands",
             "command_line_blocked_commands",
@@ -73,15 +76,27 @@ class APIParamsHandlerBase(ABC):
             # Docker credential and package management (nested dicts)
             "command_line_docker_credentials",
             "command_line_docker_packages",
+            "exclude_file_operation_mcps",
+            # Code-based tools (CodeAct paradigm)
+            "enable_code_based_tools",
+            "custom_tools_path",
+            "auto_discover_custom_tools",
+            "exclude_custom_tools",
+            "shared_tools_directory",
             # Backend identification (handled by orchestrator)
-            "enable_audio_generation",  # Audio generation parameter
             "type",
             "agent_id",
             "session_id",
             # MCP configuration (handled by base class for MCP backends)
             "mcp_servers",
+            # NLIP configuration belongs to MassGen routing, never provider APIs
+            "enable_nlip",
+            "nlip",
+            "nlip_config",
             # Parallelization
             "instance_id",
+            # Rate limiting (handled by rate_limiter.py)
+            "enable_rate_limit",
         }
 
     def build_base_api_params(

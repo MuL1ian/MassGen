@@ -231,6 +231,7 @@ class TaskPlan:
         self,
         task_id: str,
         status: Literal["pending", "in_progress", "completed", "blocked"],
+        completion_notes: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Update task status and detect newly unblocked tasks.
@@ -238,6 +239,7 @@ class TaskPlan:
         Args:
             task_id: ID of task to update
             status: New status
+            completion_notes: Optional notes documenting how task was completed
 
         Returns:
             Dictionary with updated task and newly_ready_tasks
@@ -254,6 +256,10 @@ class TaskPlan:
 
         if status == "completed":
             task.completed_at = datetime.now()
+
+            # Store completion notes in metadata if provided
+            if completion_notes:
+                task.metadata["completion_notes"] = completion_notes
 
             # Find newly ready tasks
             newly_ready = []

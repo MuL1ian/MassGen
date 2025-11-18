@@ -138,6 +138,7 @@ class DockerManager:
             raise RuntimeError(f"Failed to connect to Docker: {e}")
 
         self.containers: Dict[str, Container] = {}  # agent_id -> container
+        self.temp_skills_dirs: Dict[str, Path] = {}  # agent_id -> temp skills directory path
 
     def ensure_image_exists(self) -> None:
         """
@@ -457,7 +458,10 @@ class DockerManager:
         workspace_path: Path,
         temp_workspace_path: Optional[Path] = None,
         context_paths: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:
+        skills_directory: Optional[str] = None,
+        massgen_skills: Optional[List[str]] = None,
+        shared_tools_directory: Optional[Path] = None,
+    ) -> Optional[Path]:
         """
         Create and start a persistent Docker container for an agent.
 
@@ -473,16 +477,23 @@ class DockerManager:
             temp_workspace_path: Path to shared temp workspace (mounted at same path, read-only)
             context_paths: List of context path dicts with 'path', 'permission', and optional 'name' keys
                           (each mounted at its host path)
+            skills_directory: Path to skills directory (e.g., .agent/skills) to mount read-only
+            massgen_skills: List of MassGen built-in skills to enable (optional)
+            shared_tools_directory: Path to shared tools directory (servers/, custom_tools/, .mcp/) to mount read-only
 
         Returns:
-            Container ID
+            Path to temporary merged skills directory if skills are enabled, None otherwise
 
         Raises:
             RuntimeError: If container creation fails
         """
         if agent_id in self.containers:
             logger.warning(f"⚠️ [Docker] Container for agent {agent_id} already exists")
-            return self.containers[agent_id].id
+            # Return existing skills directory if available
+            return self.temp_skills_dirs.get(agent_id)
+
+        # Track temp skills directory (None if skills not enabled)
+        temp_skills_dir_to_return = None
 
         # Ensure image exists
         self.ensure_image_exists()
@@ -535,6 +546,12 @@ class DockerManager:
             volumes[str(temp_workspace_path)] = {"bind": str(temp_workspace_path), "mode": "ro"}
             mount_info.append(f"      {temp_workspace_path} ← {temp_workspace_path} (ro)")
 
+        # Mount shared tools directory (read-only) at the SAME path as host
+        if shared_tools_directory:
+            shared_tools_directory = shared_tools_directory.resolve()
+            volumes[str(shared_tools_directory)] = {"bind": str(shared_tools_directory), "mode": "ro"}
+            mount_info.append(f"      {shared_tools_directory} ← {shared_tools_directory} (ro)")
+
         # Mount context paths at the SAME paths as host
         if context_paths:
             for ctx_path_config in context_paths:
@@ -544,6 +561,71 @@ class DockerManager:
 
                 volumes[str(ctx_path)] = {"bind": str(ctx_path), "mode": mode}
                 mount_info.append(f"      {ctx_path} ← {ctx_path} ({mode})")
+
+        # Create merged skills directory (user skills + massgen skills)
+        # openskills expects skills in ~/.agent/skills
+        if skills_directory or massgen_skills:
+            import shutil
+            import tempfile
+
+            # Create temp directory for merged skills
+            temp_skills_dir = Path(tempfile.mkdtemp(prefix="massgen-skills-"))
+            logger.info(f"[Docker] Creating temp merged skills directory: {temp_skills_dir}")
+
+            # Copy user's .agent/skills if it exists
+            if skills_directory:
+                skills_path = Path(skills_directory).resolve()
+                if skills_path.exists():
+                    logger.info(f"[Docker] Copying user skills from: {skills_path}")
+                    shutil.copytree(skills_path, temp_skills_dir, dirs_exist_ok=True)
+                else:
+                    logger.warning(f"[Docker] User skills directory does not exist: {skills_path}")
+
+            # Copy massgen built-in skills (flat structure in massgen/skills/)
+            massgen_skills_base = Path(__file__).parent.parent / "skills"
+
+            # Track which skills have been added to avoid duplicates
+            added_skills = set()
+
+            # If specific skills are requested, copy only those
+            if massgen_skills:
+                for skill_name in massgen_skills:
+                    skill_source = massgen_skills_base / skill_name
+                    if skill_source.exists() and skill_source.is_dir():
+                        skill_dest = temp_skills_dir / skill_name
+                        logger.info(f"[Docker] Adding MassGen skill: {skill_name}")
+                        shutil.copytree(skill_source, skill_dest, dirs_exist_ok=True)
+                        added_skills.add(skill_name)
+                    else:
+                        logger.warning(f"[Docker] MassGen skill not found: {skill_name} at {skill_source}")
+            else:
+                # If no specific skills requested, copy all built-in skills
+                if massgen_skills_base.exists():
+                    for skill_dir in massgen_skills_base.iterdir():
+                        if skill_dir.is_dir() and not skill_dir.name.startswith("."):
+                            skill_dest = temp_skills_dir / skill_dir.name
+                            logger.info(f"[Docker] Adding MassGen skill: {skill_dir.name}")
+                            shutil.copytree(skill_dir, skill_dest, dirs_exist_ok=True)
+                            added_skills.add(skill_dir.name)
+
+            # Mount the temp merged directory to ~/.agent/skills
+            container_skills_path = "/home/massgen/.agent/skills"
+            volumes[str(temp_skills_dir)] = {"bind": container_skills_path, "mode": "ro"}
+            mount_info.append(f"      {temp_skills_dir} → {container_skills_path} (ro, merged)")
+            logger.info(f"[Docker] Mounted merged skills directory: {temp_skills_dir} → {container_skills_path}")
+
+            # Scan and enumerate all skills in the merged directory
+            from .skills_manager import scan_skills
+
+            all_skills = scan_skills(temp_skills_dir)
+            logger.info(f"[Docker] Total skills loaded: {len(all_skills)}")
+            for skill in all_skills:
+                title = skill.get("title", skill.get("name", "Unknown"))
+                logger.info(f"[Docker]   - {skill['name']}: {title}")
+
+            # Store temp dir for cleanup and return
+            self.temp_skills_dirs[agent_id] = temp_skills_dir
+            temp_skills_dir_to_return = temp_skills_dir
 
         # Add credential file mounts
         credential_mounts = self._build_credential_mounts()
@@ -608,7 +690,8 @@ class DockerManager:
                     logger.warning(f"⚠️ [Docker] Failed to pre-install packages: {e}")
                     # Don't fail container creation if pre-install fails
 
-            return container.id
+            # Return temp skills directory path (None if skills not enabled)
+            return temp_skills_dir_to_return
 
         except DockerException as e:
             logger.error(f"❌ [Docker] Failed to create container for agent {agent_id}: {e}")
@@ -791,11 +874,13 @@ class DockerManager:
 
     def cleanup(self, agent_id: Optional[str] = None) -> None:
         """
-        Clean up containers.
+        Clean up containers and temp skills directories.
 
         Args:
             agent_id: If provided, cleanup specific agent. Otherwise cleanup all.
         """
+        import shutil
+
         if agent_id:
             # Cleanup specific agent
             if agent_id in self.containers:
@@ -805,6 +890,17 @@ class DockerManager:
                     self.remove_container(agent_id, force=True)
                 except Exception as e:
                     logger.error(f"❌ [Docker] Error cleaning up container for agent {agent_id}: {e}")
+
+            # Cleanup temp skills directory for this agent
+            if agent_id in self.temp_skills_dirs:
+                temp_dir = self.temp_skills_dirs[agent_id]
+                try:
+                    if temp_dir.exists():
+                        shutil.rmtree(temp_dir)
+                        logger.info(f"🧹 [Docker] Cleaned up temp skills directory: {temp_dir}")
+                    del self.temp_skills_dirs[agent_id]
+                except Exception as e:
+                    logger.error(f"❌ [Docker] Error cleaning up temp skills directory: {e}")
         else:
             # Cleanup all containers
             if self.containers:
@@ -815,6 +911,16 @@ class DockerManager:
                     self.remove_container(aid, force=True)
                 except Exception as e:
                     logger.error(f"❌ [Docker] Error cleaning up container for agent {aid}: {e}")
+
+            # Cleanup all temp skills directories
+            for aid, temp_dir in list(self.temp_skills_dirs.items()):
+                try:
+                    if temp_dir.exists():
+                        shutil.rmtree(temp_dir)
+                        logger.info(f"🧹 [Docker] Cleaned up temp skills directory: {temp_dir}")
+                except Exception as e:
+                    logger.error(f"❌ [Docker] Error cleaning up temp skills directory: {e}")
+            self.temp_skills_dirs.clear()
 
     def log_container_info(self, agent_id: str) -> None:
         """

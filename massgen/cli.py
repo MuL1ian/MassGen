@@ -587,6 +587,7 @@ def create_backend(backend_type: str, **kwargs) -> Any:
 def create_agents_from_config(
     config: Dict[str, Any],
     orchestrator_config: Optional[Dict[str, Any]] = None,
+    enable_rate_limit: bool = False,
     config_path: Optional[str] = None,
     memory_session_id: Optional[str] = None,
     debug: bool = False,
@@ -594,6 +595,10 @@ def create_agents_from_config(
     """Create agents from configuration.
 
     Args:
+        config: Configuration dictionary
+        orchestrator_config: Optional orchestrator configuration
+        enable_rate_limit: Whether to enable rate limiting (from CLI flag)
+        config_path: Optional path to the config file for error messages
         memory_session_id: Optional session ID to use for memory isolation.
                           If provided, overrides session_name from YAML config.
     """
@@ -643,6 +648,9 @@ def create_agents_from_config(
 
     for i, agent_data in enumerate(agent_entries, start=1):
         backend_config = agent_data.get("backend", {})
+
+        # Inject rate limiting flag from CLI
+        backend_config["enable_rate_limit"] = enable_rate_limit
 
         # Substitute variables like ${cwd} in backend config
         if "cwd" in backend_config:
@@ -771,6 +779,18 @@ def create_agents_from_config(
             logger.info(
                 f"📊 Context monitor created for {agent_config.agent_id}: " f"{context_monitor.context_window:,} tokens, " f"trigger={trigger_threshold*100:.0f}%, target={target_ratio*100:.0f}%",
             )
+
+        # Enable NLIP per-agent if configured in YAML
+        agent_nlip_section = agent_data.get("nlip") or {}
+        agent_enable_nlip = bool(agent_data.get("enable_nlip"))
+        if isinstance(agent_nlip_section, dict):
+            agent_enable_nlip = agent_enable_nlip or agent_nlip_section.get("enabled", False)
+
+        if agent_enable_nlip:
+            agent_config.enable_nlip = True
+            if isinstance(agent_nlip_section, dict) and agent_nlip_section:
+                agent_config.nlip_config = agent_nlip_section
+            logger.info(f"[CLI] NLIP enabled for agent {agent_config.agent_id} via config file")
 
         # Create per-agent memory objects if memory is enabled
         conversation_memory = None
@@ -1265,6 +1285,13 @@ async def run_question_with_history(
     # Get orchestrator parameters from config
     orchestrator_cfg = kwargs.get("orchestrator", {})
 
+    # Get orchestrator-level NLIP configuration
+    orchestrator_enable_nlip = orchestrator_cfg.get("enable_nlip", False)
+    orchestrator_nlip_config = orchestrator_cfg.get("nlip_config", {})
+
+    if orchestrator_enable_nlip:
+        logger.info("[CLI] Orchestrator-level NLIP enabled (will propagate to capable agents)")
+
     # Apply voting sensitivity if specified
     if "voting_sensitivity" in orchestrator_cfg:
         orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
@@ -1307,6 +1334,11 @@ async def run_question_with_history(
             broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
             broadcast_response_mode=coord_cfg.get("broadcast_response_mode", "inline"),
             max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
+            task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
+            enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
+            use_skills=coord_cfg.get("use_skills", False),
+            massgen_skills=coord_cfg.get("massgen_skills", []),
+            skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
         )
 
     # Get previous turns and winning agents history from session_info if already loaded,
@@ -1335,6 +1367,9 @@ async def run_question_with_history(
         previous_turns=previous_turns,
         winning_agents_history=winning_agents_history,  # Restore for memory sharing
         dspy_paraphraser=kwargs.get("dspy_paraphraser"),
+        enable_rate_limit=kwargs.get("enable_rate_limit", False),
+        enable_nlip=orchestrator_enable_nlip,
+        nlip_config=orchestrator_nlip_config,
     )
     # Create a fresh UI instance for each question to ensure clean state
     ui = CoordinationUI(
@@ -1351,7 +1386,8 @@ async def run_question_with_history(
         mode_text = "Multi-Agent"
 
         # Get coordination config from YAML (if present)
-        coordination_settings = kwargs.get("orchestrator", {}).get("coordination", {})
+        orchestrator_kwargs = kwargs.get("orchestrator", {})
+        coordination_settings = orchestrator_kwargs.get("coordination", {})
         if coordination_settings:
             from .agent_config import CoordinationConfig
 
@@ -1369,6 +1405,11 @@ async def run_question_with_history(
                 broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
                 broadcast_response_mode=coordination_settings.get("broadcast_response_mode", "inline"),
                 max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
+                task_planning_filesystem_mode=coordination_settings.get("task_planning_filesystem_mode", False),
+                enable_memory_filesystem_mode=coordination_settings.get("enable_memory_filesystem_mode", False),
+                use_skills=coordination_settings.get("use_skills", False),
+                massgen_skills=coordination_settings.get("massgen_skills", []),
+                skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
@@ -1587,7 +1628,8 @@ async def run_single_question(
             orchestrator_config.timeout_config = timeout_config
 
         # Get coordination config from YAML (if present)
-        coordination_settings = kwargs.get("orchestrator", {}).get("coordination", {})
+        orchestrator_kwargs = kwargs.get("orchestrator", {})
+        coordination_settings = orchestrator_kwargs.get("coordination", {})
         if coordination_settings:
             from .agent_config import CoordinationConfig
 
@@ -1605,10 +1647,22 @@ async def run_single_question(
                 broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
                 broadcast_response_mode=coordination_settings.get("broadcast_response_mode", "inline"),
                 max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
+                task_planning_filesystem_mode=coordination_settings.get("task_planning_filesystem_mode", False),
+                enable_memory_filesystem_mode=coordination_settings.get("enable_memory_filesystem_mode", False),
+                use_skills=coordination_settings.get("use_skills", False),
+                massgen_skills=coordination_settings.get("massgen_skills", []),
+                skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
             )
 
         # Get orchestrator parameters from config
         orchestrator_cfg = kwargs.get("orchestrator", {})
+
+        # Get orchestrator-level NLIP configuration
+        orchestrator_enable_nlip = orchestrator_cfg.get("enable_nlip", False)
+        orchestrator_nlip_config = orchestrator_cfg.get("nlip_config", {})
+
+        if orchestrator_enable_nlip:
+            logger.info("[CLI] Orchestrator-level NLIP enabled (will propagate to capable agents)")
 
         # Apply voting sensitivity if specified
         if "voting_sensitivity" in orchestrator_cfg:
@@ -1652,6 +1706,11 @@ async def run_single_question(
                 broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
                 broadcast_response_mode=coord_cfg.get("broadcast_response_mode", "inline"),
                 max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
+                task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
+                enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
+                use_skills=coord_cfg.get("use_skills", False),
+                massgen_skills=coord_cfg.get("massgen_skills", []),
+                skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
             )
 
         orchestrator = Orchestrator(
@@ -1660,6 +1719,9 @@ async def run_single_question(
             snapshot_storage=snapshot_storage,
             agent_temporary_workspace=agent_temporary_workspace,
             dspy_paraphraser=kwargs.get("dspy_paraphraser"),
+            enable_rate_limit=kwargs.get("enable_rate_limit", False),
+            enable_nlip=orchestrator_enable_nlip,
+            nlip_config=orchestrator_nlip_config,
         )
         # Create a fresh UI instance for each question to ensure clean state
         ui = CoordinationUI(
@@ -2552,10 +2614,12 @@ async def run_interactive_mode(
         config_modified = prompt_for_context_paths(original_config, orchestrator_cfg)
         if config_modified:
             # Recreate agents with updated context paths (use same session)
+            enable_rate_limit = kwargs.get("enable_rate_limit", False)
             agents = create_agents_from_config(
                 original_config,
                 orchestrator_cfg,
                 debug=debug,
+                enable_rate_limit=enable_rate_limit,
                 config_path=config_path,
                 memory_session_id=memory_session_id,
             )
@@ -2643,10 +2707,12 @@ async def run_interactive_mode(
                                 backend_config["context_paths"] = existing_context_paths + [new_turn_config]
 
                         # Recreate agents from modified config (use same session)
+                        enable_rate_limit = kwargs.get("enable_rate_limit", False)
                         agents = create_agents_from_config(
                             modified_config,
                             orchestrator_cfg,
                             debug=debug,
+                            enable_rate_limit=enable_rate_limit,
                             config_path=config_path,
                             memory_session_id=session_id,
                         )
@@ -2976,9 +3042,13 @@ async def main(args):
         # Update config with timeout settings
         config["timeout_settings"] = timeout_settings
 
+        # Get rate limiting flag from CLI
+        enable_rate_limit = args.rate_limit
+
         # Create agents
         if args.debug:
             logger.debug("Creating agents from config...")
+            logger.debug(f"Rate limiting enabled: {enable_rate_limit}")
         # Extract orchestrator config for agent setup
         orchestrator_cfg = config.get("orchestrator", {})
 
@@ -3066,6 +3136,7 @@ async def main(args):
         agents = create_agents_from_config(
             config,
             orchestrator_cfg,
+            enable_rate_limit=enable_rate_limit,
             config_path=str(resolved_path) if resolved_path else None,
             memory_session_id=memory_session_id,
             debug=args.debug,
@@ -3090,6 +3161,9 @@ async def main(args):
         # Add orchestrator configuration if present
         if "orchestrator" in config:
             kwargs["orchestrator"] = config["orchestrator"]
+
+        # Add rate limit flag to kwargs for interactive mode
+        kwargs["enable_rate_limit"] = enable_rate_limit
 
         # Optionally enable DSPy paraphrasing
         dspy_paraphraser = create_dspy_paraphraser_from_config(
@@ -3199,6 +3273,9 @@ Examples:
   # Timeout control examples
   massgen --config config.yaml --orchestrator-timeout 600 "Complex task"
 
+  # Enable rate limiting (uses limits from rate_limits.yaml)
+  massgen --config config.yaml --rate-limit "Your question"
+
   # Configuration management
   massgen --init          # Create new configuration interactively
   massgen --select        # Choose from available configurations
@@ -3294,6 +3371,11 @@ Environment Variables:
         help="Launch interactive API key setup wizard to configure credentials",
     )
     parser.add_argument(
+        "--setup-skills",
+        action="store_true",
+        help="Install skills (openskills CLI, Anthropic collection, Crawl4AI)",
+    )
+    parser.add_argument(
         "--list-examples",
         action="store_true",
         help="List available example configurations from package",
@@ -3377,6 +3459,13 @@ Environment Variables:
         "--orchestrator-timeout",
         type=int,
         help="Maximum time for orchestrator coordination in seconds (default: 1800)",
+    )
+
+    # Rate limit options
+    parser.add_argument(
+        "--rate-limit",
+        action="store_true",
+        help="Enable rate limiting (uses limits from rate_limits.yaml config)",
     )
 
     args = parser.parse_args()
@@ -3491,6 +3580,13 @@ Environment Variables:
         else:
             print(f"\n{BRIGHT_YELLOW}⚠️  No API keys configured{RESET}")
             print(f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to set them up{RESET}\n")
+        return
+
+    # Install skills if requested
+    if args.setup_skills:
+        from .utils.skills_installer import install_skills
+
+        install_skills()
         return
 
     # Launch interactive config selector if requested

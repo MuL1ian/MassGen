@@ -1,0 +1,37 @@
+# Test memory filesystem mode with minimal MCP tools (command-line only for file operations)
+# This demonstrates using exclude_file_operation_mcps to reduce tool overhead while maintaining full functionality
+# Run with: uv run massgen --config massgen/configs/tools/filesystem/exclude_mcps/test_minimal_mcps.yaml "Create a website about Bob Dylan"
+
+agents:
+  - id: "agent_a"
+    backend:
+      type: "openai"
+      model: "gpt-5-mini"
+      cwd: "workspace1"  # Required for filesystem mode
+
+      # Minimal MCP configuration
+      exclude_file_operation_mcps: true  # Use command-line tools (cat, ls, cp, etc.)
+      enable_mcp_command_line: true
+      command_line_execution_mode: "docker"
+
+  - id: "agent_b"
+    backend:
+      type: "gemini"
+      model: "gemini-2.5-pro"
+      cwd: "workspace2"  # Required for filesystem mode
+
+      # Minimal MCP configuration
+      exclude_file_operation_mcps: true  # Use command-line tools (cat, ls, cp, etc.)
+      enable_mcp_command_line: true
+      command_line_execution_mode: "docker"
+
+orchestrator:
+  snapshot_storage: "snapshots"
+  agent_temporary_workspace: "temp_workspaces"
+
+  coordination:
+    # Enable task planning
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+    # Enable memory filesystem mode
+    enable_memory_filesystem_mode: true

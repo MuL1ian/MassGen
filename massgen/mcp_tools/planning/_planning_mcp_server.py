@@ -18,7 +18,9 @@ Tools provided:
 """
 
 import argparse
+import json
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import fastmcp
@@ -28,10 +30,59 @@ from massgen.mcp_tools.planning.planning_dataclasses import TaskPlan
 # Global storage for task plans (keyed by agent_id)
 _task_plans: Dict[str, TaskPlan] = {}
 
+# Optional workspace path for filesystem-based task storage
+_workspace_path: Optional[Path] = None
+
+
+def _save_plan_to_filesystem(plan: TaskPlan) -> None:
+    """
+    Save task plan to filesystem if workspace path is configured.
+
+    Writes to tasks/plan.json in the workspace directory.
+
+    Args:
+        plan: TaskPlan to save
+    """
+    if _workspace_path is None:
+        return
+
+    tasks_dir = _workspace_path / "tasks"
+    tasks_dir.mkdir(exist_ok=True)
+
+    plan_file = tasks_dir / "plan.json"
+    plan_file.write_text(json.dumps(plan.to_dict(), indent=2))
+
+
+def _load_plan_from_filesystem(agent_id: str) -> Optional[TaskPlan]:
+    """
+    Load task plan from filesystem if it exists.
+
+    Args:
+        agent_id: Agent identifier
+
+    Returns:
+        TaskPlan if found on filesystem, None otherwise
+    """
+    if _workspace_path is None:
+        return None
+
+    plan_file = _workspace_path / "tasks" / "plan.json"
+    if not plan_file.exists():
+        return None
+
+    try:
+        plan_data = json.loads(plan_file.read_text())
+        return TaskPlan.from_dict(plan_data)
+    except Exception:
+        # If file is corrupted or invalid, return None
+        return None
+
 
 def _get_or_create_plan(agent_id: str, orchestrator_id: str) -> TaskPlan:
     """
     Get existing plan or create new one for agent.
+
+    If filesystem storage is enabled, attempts to load from tasks/plan.json first.
 
     Args:
         agent_id: Agent identifier
@@ -42,7 +93,12 @@ def _get_or_create_plan(agent_id: str, orchestrator_id: str) -> TaskPlan:
     """
     key = f"{orchestrator_id}:{agent_id}"
     if key not in _task_plans:
-        _task_plans[key] = TaskPlan(agent_id=key)
+        # Try loading from filesystem if configured
+        loaded_plan = _load_plan_from_filesystem(key)
+        if loaded_plan is not None:
+            _task_plans[key] = loaded_plan
+        else:
+            _task_plans[key] = TaskPlan(agent_id=key)
     return _task_plans[key]
 
 
@@ -109,6 +165,7 @@ def _resolve_dependency_references(
 
 async def create_server() -> fastmcp.FastMCP:
     """Factory function to create and configure the planning MCP server."""
+    global _workspace_path
 
     parser = argparse.ArgumentParser(description="Planning MCP Server")
     parser.add_argument(
@@ -123,7 +180,32 @@ async def create_server() -> fastmcp.FastMCP:
         required=True,
         help="ID of the orchestrator managing this agent",
     )
+    parser.add_argument(
+        "--workspace-path",
+        type=str,
+        required=False,
+        help="Optional path to agent workspace for filesystem-based task storage",
+    )
+    parser.add_argument(
+        "--skills-enabled",
+        action="store_true",
+        help="Enable skills discovery task reminder",
+    )
+    parser.add_argument(
+        "--auto-discovery-enabled",
+        action="store_true",
+        help="Enable custom tools/MCP discovery task reminder",
+    )
+    parser.add_argument(
+        "--memory-enabled",
+        action="store_true",
+        help="Enable memory discovery and saving task reminders",
+    )
     args = parser.parse_args()
+
+    # Set workspace path if provided
+    if args.workspace_path:
+        _workspace_path = Path(args.workspace_path)
 
     # Create the FastMCP server
     mcp = fastmcp.FastMCP("Agent Task Planning")
@@ -131,6 +213,11 @@ async def create_server() -> fastmcp.FastMCP:
     # Store agent and orchestrator IDs
     mcp.agent_id = args.agent_id
     mcp.orchestrator_id = args.orchestrator_id
+
+    # Store feature flags for auto-inserting discovery tasks
+    mcp.skills_enabled = args.skills_enabled
+    mcp.auto_discovery_enabled = args.auto_discovery_enabled
+    mcp.memory_enabled = args.memory_enabled
 
     @mcp.tool()
     def create_task_plan(tasks: List[Union[str, Dict[str, Any]]]) -> Dict[str, Any]:
@@ -199,8 +286,59 @@ async def create_server() -> fastmcp.FastMCP:
             plan.tasks.clear()
             plan._task_index.clear()
 
+            # Auto-insert discovery tasks based on enabled features
+            preparation_tasks = []
+            if mcp.skills_enabled:
+                preparation_tasks.append(
+                    {
+                        "id": "prep_skills",
+                        "description": (
+                            "Review available skills listed in your context and think creatively about which could help "
+                            "with this task. Consider both direct applications and creative uses. REQUIRED: When marking "
+                            "complete, provide completion_notes documenting which skills you considered and your decision "
+                            "(which to use OR why you're building from scratch)."
+                        ),
+                        "priority": "high",
+                    },
+                )
+            if mcp.auto_discovery_enabled:
+                preparation_tasks.append(
+                    {
+                        "id": "prep_tools",
+                        "description": (
+                            "List contents of custom_tools/ and servers/ directories to understand available capabilities. "
+                            "Search TOOL.md files for relevant functions. "
+                            "Think about both obvious and creative applications. REQUIRED: When marking complete, provide "
+                            "completion_notes documenting: (1) which tools you explored, (2) which you'll use and why, OR "
+                            "(3) why you're building manually."
+                        ),
+                        "priority": "high",
+                    },
+                )
+            if mcp.memory_enabled:
+                preparation_tasks.append(
+                    {
+                        "id": "prep_memory",
+                        "description": "Check long-term memories for relevant context from previous work. Consider patterns, decisions, or discoveries that could inform your approach to this task.",
+                        "priority": "high",
+                    },
+                )
+
+            cleanup_tasks = []
+            if mcp.memory_enabled:
+                cleanup_tasks.append(
+                    {
+                        "id": "save_memories",
+                        "description": "Save important findings and learnings to memory",
+                        "priority": "medium",
+                    },
+                )
+
+            # Combine: prep + user tasks + cleanup
+            all_tasks = preparation_tasks + tasks + cleanup_tasks
+
             # Validate and resolve dependencies
-            normalized_tasks = _resolve_dependency_references(tasks)
+            normalized_tasks = _resolve_dependency_references(all_tasks)
             plan.validate_dependencies(normalized_tasks)
 
             # Create tasks
@@ -212,6 +350,9 @@ async def create_server() -> fastmcp.FastMCP:
                     depends_on=task_spec.get("depends_on", []),
                 )
                 created_tasks.append(task.to_dict())
+
+            # Save to filesystem if configured
+            _save_plan_to_filesystem(plan)
 
             return {
                 "success": True,
@@ -265,6 +406,9 @@ async def create_server() -> fastmcp.FastMCP:
                 depends_on=depends_on or [],
             )
 
+            # Save to filesystem if configured
+            _save_plan_to_filesystem(plan)
+
             return {
                 "success": True,
                 "operation": "add_task",
@@ -282,6 +426,7 @@ async def create_server() -> fastmcp.FastMCP:
     def update_task_status(
         task_id: str,
         status: str,  # Will be validated as Literal in the function
+        completion_notes: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Update the status of a task.
@@ -289,12 +434,13 @@ async def create_server() -> fastmcp.FastMCP:
         Args:
             task_id: ID of task to update
             status: New status (pending/in_progress/completed/blocked)
+            completion_notes: Optional notes documenting how the task was completed (recommended for completed status)
 
         Returns:
             Dictionary with updated task details and newly ready tasks
 
         Example:
-            update_task_status("research_oauth", "completed")
+            update_task_status("research_oauth", "completed", "Reviewed OAuth 2.0 spec and compared providers")
         """
         try:
             # Validate status
@@ -305,7 +451,10 @@ async def create_server() -> fastmcp.FastMCP:
                 )
 
             plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id)
-            result = plan.update_task_status(task_id, status)
+            result = plan.update_task_status(task_id, status, completion_notes)
+
+            # Save to filesystem if configured
+            _save_plan_to_filesystem(plan)
 
             return {
                 "success": True,
@@ -341,6 +490,9 @@ async def create_server() -> fastmcp.FastMCP:
         try:
             plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id)
             task = plan.edit_task(task_id, description)
+
+            # Save to filesystem if configured
+            _save_plan_to_filesystem(plan)
 
             return {
                 "success": True,
@@ -414,6 +566,9 @@ async def create_server() -> fastmcp.FastMCP:
         try:
             plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id)
             plan.delete_task(task_id)
+
+            # Save to filesystem if configured
+            _save_plan_to_filesystem(plan)
 
             return {
                 "success": True,

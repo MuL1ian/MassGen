@@ -9,7 +9,7 @@ deprecated patterns. Update to reflect current backend architecture.
 
 import warnings
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from .message_templates import MessageTemplates
@@ -59,6 +59,21 @@ class CoordinationConfig:
                                 - "inline": Inject question into current conversation context
                                 - "background": Separate LLM call with context snapshot
         max_broadcasts_per_agent: Maximum number of active broadcasts per agent.
+        task_planning_filesystem_mode: If True, task planning MCP writes tasks to tasks/ directory
+                                       in agent workspace for transparency and cross-agent visibility.
+        enable_memory_filesystem_mode: If True, enables filesystem-based memory system with two-tier
+                                       hierarchy (short-term and long-term). Memory MCP tools are
+                                       provided for creating/updating/loading memories. Short-term
+                                       memories auto-inject into all agents' system prompts. Long-term
+                                       memories load on-demand. Inspired by Letta's context hierarchy.
+        use_skills: If True, enables skills system using openskills. Agents can invoke skills
+                   via bash commands (openskills read <skill-name>). Requires command line
+                   execution to be enabled.
+        massgen_skills: List of MassGen built-in skills to enable. Available skills:
+                       - "file_search": File search skill (no dir needed)
+                       When workspace/ is needed for file operations, it is created automatically.
+        skills_directory: Path to the skills directory. Default is .agent/skills which is where
+                         openskills installs skills. This directory is scanned for available skills.
     """
 
     enable_planning_mode: bool = False
@@ -74,6 +89,11 @@ class CoordinationConfig:
     broadcast_wait_by_default: bool = True
     broadcast_response_mode: str = "inline"  # "inline" | "background"
     max_broadcasts_per_agent: int = 10
+    task_planning_filesystem_mode: bool = False
+    enable_memory_filesystem_mode: bool = False
+    use_skills: bool = False
+    massgen_skills: List[str] = field(default_factory=list)
+    skills_directory: str = ".agent/skills"
 
 
 @dataclass
@@ -123,6 +143,11 @@ class AgentConfig:
     # Debug mode for restart feature - override final answer on attempt 1 only
     debug_final_answer: Optional[str] = None
 
+    # NLIP (Natural Language Interaction Protocol) Configuration
+    enable_nlip: bool = False
+    nlip_config: Optional[Dict[str, Any]] = None
+    _nlip_router: Any = field(default=None, init=False, repr=False)
+
     @property
     def custom_system_instruction(self) -> Optional[str]:
         """
@@ -148,6 +173,32 @@ class AgentConfig:
                 stacklevel=2,
             )
         self._custom_system_instruction = value
+
+    def init_nlip_router(
+        self,
+        tool_manager: Optional[Any] = None,
+        mcp_executor: Optional[Any] = None,
+    ) -> None:
+        """Initialize NLIP router if NLIP is enabled.
+
+        Args:
+            tool_manager: Optional tool manager instance to use with router
+            mcp_executor: Optional callable to execute MCP tools directly
+        """
+        if self.enable_nlip and self._nlip_router is None:
+            from .nlip.router import NLIPRouter
+
+            self._nlip_router = NLIPRouter(
+                tool_manager=tool_manager,
+                mcp_executor=mcp_executor,
+                enable_nlip=True,
+                config=self.nlip_config or {},
+            )
+
+    @property
+    def nlip_router(self) -> Optional[Any]:
+        """Get NLIP router instance."""
+        return self._nlip_router
 
     @classmethod
     def create_chatcompletion_config(

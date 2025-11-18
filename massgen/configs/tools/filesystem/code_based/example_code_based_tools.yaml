@@ -1,0 +1,153 @@
+# Example: Code-Based Tools (CodeAct Paradigm)
+#
+# This config demonstrates the code-based tools feature where MCP tools are
+# presented as Python code in the filesystem rather than as protocol tools.
+#
+# Benefits:
+# - 98% context reduction (import only needed tools)
+# - Transparent (agents see code & docstrings)
+# - Composable (create utils/ scripts combining multiple tools)
+# - Async-friendly (write async workflows in utils/)
+# - Data filtering (process large datasets before returning)
+# - Shared tools directory (tools generated once, not duplicated in snapshots)
+#
+# Prerequisites:
+# 1. Create .env file with API keys (see .env.example)
+# 2. Docker running (for docker execution mode)
+#
+# IMPORTANT: This example uses auto_discover_custom_tools which includes tools
+# requiring API keys. Ensure you have configured .env and command_line_docker_credentials
+# to pass keys to Docker, otherwise tools will fail with authentication errors.
+#
+# Run with:
+# uv run massgen --automation \
+#   --config massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml \
+#   "List all available tools by exploring the workspace filesystem. Show what MCP tools and custom tools are available."
+# or to show power of skills (e.g., anthropic's website creation skill):
+#   uv run massgen --config massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml "Create a website about Bob Dylan, ensuring that it is visually appealing and user friendly"
+
+agents:
+  - id: "agent_a"
+    backend:
+      # type: "gemini"
+      # model: "gemini-2.5-pro"
+      type: "openai"
+      model: "gpt-5-codex"
+      cwd: "workspace1"
+
+      # Enable code-based tools (CodeAct paradigm)
+      enable_code_based_tools: true          # MCP tools → Python code in servers/
+      exclude_file_operation_mcps: true      # Use command-line for file ops (write_file/edit_file kept for clean file creation)
+      enable_mcp_command_line: true          # Enable execute_command
+
+      # Command line execution (required for code-based tools)
+      command_line_execution_mode: "docker"
+      command_line_docker_network_mode: "bridge"
+
+      # IMPORTANT: Pass API keys to Docker (required for most custom tools)
+      # Most tools in massgen/tool/ need API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+      # Check requirements: rg "^requires_api_keys:" massgen/tool/*/TOOL.md
+      command_line_docker_credentials:
+        env_file: ".env"  # Load from .env file in project root
+        env_vars_from_file:
+          - "OPENAI_API_KEY"
+          - "GOOGLE_API_KEY"
+          - "GEMINI_API_KEY"
+
+      # Shared tools directory (optional) - tools generated once, shared across agents
+      # If not specified, tools are generated in each agent's workspace
+      shared_tools_directory: "shared_tools"
+
+      # Custom tools - choose one approach:
+      # Option 1: Auto-discover all tools from massgen/tool/ directory
+      auto_discover_custom_tools: true
+
+      # Option 2: Specify custom path (takes precedence over auto_discover)
+      # custom_tools_path: "massgen/tool/_code_based_example"
+
+      # Exclude specific custom tools (optional)
+      # NOTE: Tools requiring unavailable API keys are AUTOMATICALLY excluded
+      # This option is for manual exclusions (e.g., heavy dependencies, unwanted features)
+      exclude_custom_tools:
+        - "_claude_computer_use"  # Manual exclusion: Requires ANTHROPIC_API_KEY
+        - "_gemini_computer_use"   # Manual exclusion: Requires GOOGLE_API_KEY
+        - "_browser_automation"    # Manual exclusion: Better to just do via CLI else image gets passed
+        # - "_video_tools"           # Manual exclusion: Heavy FFmpeg dependencies
+
+      # MCP servers - these will be converted to Python wrappers in servers/
+      # mcp_servers:
+      #   - name: "weather"
+      #     type: "stdio"
+      #     command: "npx"
+      #     args: ["-y", "@fak111/weather-mcp"]
+
+  - id: "agent_b"
+    backend:
+      type: "claude_code"
+      model: "claude-sonnet-4-5-20250929"
+      cwd: "workspace2"
+
+      # Enable code-based tools (CodeAct paradigm)
+      enable_code_based_tools: true          # MCP tools → Python code in servers/
+      exclude_file_operation_mcps: true      # Use command-line for file ops (write_file/edit_file kept for clean file creation)
+      enable_mcp_command_line: true          # Enable execute_command
+
+      # Command line execution (required for code-based tools)
+      command_line_execution_mode: "docker"
+      command_line_docker_network_mode: "bridge"
+
+      # IMPORTANT: Pass API keys to Docker (required for most custom tools)
+      # Most tools in massgen/tool/ need API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+      # Check requirements: rg "^requires_api_keys:" massgen/tool/*/TOOL.md
+      command_line_docker_credentials:
+        env_file: ".env"  # Load from .env file in project root
+        env_vars_from_file:
+          - "OPENAI_API_KEY"
+          - "GOOGLE_API_KEY"
+          - "GEMINI_API_KEY"
+
+      # Shared tools directory (optional) - tools generated once, shared across agents
+      # If not specified, tools are generated in each agent's workspace
+      shared_tools_directory: "shared_tools"
+
+      # Custom tools - choose one approach:
+      # Option 1: Auto-discover all tools from massgen/tool/ directory
+      auto_discover_custom_tools: true
+
+      # Option 2: Specify custom path (takes precedence over auto_discover)
+      # custom_tools_path: "massgen/tool/_code_based_example"
+
+      # Exclude specific custom tools (optional)
+      # NOTE: Tools requiring unavailable API keys are AUTOMATICALLY excluded
+      # This option is for manual exclusions (e.g., heavy dependencies, unwanted features)
+      exclude_custom_tools:
+        - "_claude_computer_use"  # Manual exclusion: Requires ANTHROPIC_API_KEY
+        - "_gemini_computer_use"   # Manual exclusion: Requires GOOGLE_API_KEY
+        - "_browser_automation"    # Manual exclusion: Better to just do via CLI else image gets passed
+        # - "_video_tools"           # Manual exclusion: Heavy FFmpeg dependencies
+
+      # MCP servers - these will be converted to Python wrappers in servers/
+      # mcp_servers:
+      #   - name: "weather"
+      #     type: "stdio"
+      #     command: "npx"
+      #     args: ["-y", "@fak111/weather-mcp"]
+
+orchestrator:
+  snapshot_storage: "snapshots"
+  agent_temporary_workspace: "temp_workspaces"
+  coordination:
+    # Enable skills system
+    use_skills: true
+
+    # enable planning
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+
+    # enable filesystem memory mode
+    enable_memory_filesystem_mode: true
+
+# UI Configuration
+ui:
+  type: "rich_terminal"
+  logging_enabled: true

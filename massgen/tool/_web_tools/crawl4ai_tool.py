@@ -2,8 +2,12 @@
 """
 Crawl4AI Web Scraping Tools - Custom tool wrapper for crawl4ai REST API.
 
-This module provides MassGen custom tools that wrap the crawl4ai Docker container's
-REST API, providing powerful web scraping capabilities without MCP protocol overhead.
+This module provides MassGen custom tools that wrap the crawl4ai Docker container's REST API, providing powerful web scraping capabilities without MCP protocol overhead.
+
+This lets you easily scrape and extract content from webpages using crawl4ai's advanced features.
+Useful for agents needing to read, understand, and interact with large amounts of web content.
+This should not be used for analyzing local websites or for tasks where large amounts of browser
+automation or JavaScript execution is required - use browser automation tools instead.
 
 Available Tools:
 - crawl4ai_md: Extract clean markdown from webpages

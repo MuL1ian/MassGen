@@ -1010,6 +1010,32 @@ class ConfigurableAgent(SingleAgent):
 
         # ConfigurableAgent relies on backend_params for model configuration
 
+        # Initialize NLIP router if enabled
+        if hasattr(config, "enable_nlip") and config.enable_nlip:
+            # Get ToolManager from backend
+            tool_manager = None
+            if hasattr(self.backend, "custom_tool_manager"):
+                tool_manager = self.backend.custom_tool_manager
+            else:
+                logger.warning(
+                    f"Backend {self.backend.__class__.__name__} does not have " f"custom_tool_manager. NLIP will be disabled.",
+                )
+                config.enable_nlip = False
+
+            if tool_manager:
+                mcp_executor = getattr(self.backend, "_execute_mcp_function_with_retry", None)
+                config.init_nlip_router(
+                    tool_manager=tool_manager,
+                    mcp_executor=mcp_executor,
+                )
+
+                # Inject NLIP router into backend
+                if hasattr(self.backend, "set_nlip_router"):
+                    self.backend.set_nlip_router(
+                        nlip_router=config.nlip_router,
+                        enabled=True,
+                    )
+
     def _get_backend_params(self) -> Dict[str, Any]:
         """Get backend parameters from config."""
         return self.config.get_backend_params()
@@ -1061,12 +1087,13 @@ class ConfigurableAgent(SingleAgent):
 
 def create_simple_agent(backend: LLMBackend, system_message: str = None, agent_id: str = None) -> SingleAgent:
     """Create a simple single agent."""
-    # Use MassGen evaluation system message if no custom system message provided
+    # Use simple default system message if none provided
     if system_message is None:
-        from .message_templates import MessageTemplates
+        import time
 
-        templates = MessageTemplates()
-        system_message = templates.evaluation_system_message()
+        system_message = f"""You are a helpful AI assistant. Provide clear, accurate, and comprehensive responses.
+
+*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
     return SingleAgent(backend=backend, agent_id=agent_id, system_message=system_message)
 
 

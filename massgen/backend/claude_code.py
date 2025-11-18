@@ -14,7 +14,7 @@ Key Features:
 - ✅ MassGen workflow tool integration (new_answer, vote via system prompts)
 - ✅ Single persistent client with automatic session ID tracking
 - ✅ Cost tracking from server-side usage data
-- ✅ Docker execution mode: Bash tool disabled, execute_command MCP used instead
+- ✅ MCP command line mode: Bash tool disabled, execute_command MCP used instead (Docker or local)
 
 Architecture:
 - Uses ClaudeSDKClient with minimal functionality overlay
@@ -270,6 +270,46 @@ class ClaudeCodeBackend(LLMBackend):
             True - Claude Code maintains server-side session state
         """
         return True
+
+    async def _setup_code_based_tools_symlinks(self) -> None:
+        """Setup symlinks to shared code-based tools if they already exist.
+
+        This is called for ClaudeCodeBackend after client connection since it doesn't
+        directly manage MCP clients like OpenAI backend does. If another backend has
+        already generated the shared tools, this creates the necessary symlinks.
+        """
+        if not self.filesystem_manager.shared_tools_base:
+            # No shared tools configured - tools are per-agent
+            return
+
+        # Compute the hash of our MCP configuration to find the shared tools path
+        # We need to extract tool schemas to compute the hash, but we don't have direct
+        # MCP client access. Instead, check if shared tools directory already exists.
+        from pathlib import Path
+
+        shared_tools_base = Path(self.filesystem_manager.shared_tools_base)
+        if not shared_tools_base.exists():
+            # No shared tools generated yet
+            return
+
+        # Find hash subdirectories in shared_tools_base
+        # In a multi-agent setup, agent_a will have generated tools, so we look for existing hash dirs
+        hash_dirs = [d for d in shared_tools_base.iterdir() if d.is_dir()]
+
+        if not hash_dirs:
+            # No hash directories found
+            return
+
+        # Use the first (and typically only) hash directory
+        # In multi-agent setups with same MCP config, there should be exactly one hash dir
+        target_path = hash_dirs[0]
+
+        # Check if tools exist in this directory
+        if (target_path / "servers").exists() and (target_path / ".mcp").exists():
+            # Set shared_tools_directory and create symlinks
+            self.filesystem_manager.shared_tools_directory = target_path
+            self.filesystem_manager._add_shared_tools_to_allowed_paths(target_path)
+            logger.info(f"[ClaudeCodeBackend] Created symlinks to existing shared tools: {target_path}")
 
     async def clear_history(self) -> None:
         """
@@ -779,12 +819,15 @@ class ClaudeCodeBackend(LLMBackend):
         if base_system:
             system_parts.append(base_system)
 
-        # Add docker mode instruction if enabled
+        # Add MCP command line execution instruction if enabled
+        enable_mcp_command_line = self.config.get("enable_mcp_command_line", False)
         command_line_execution_mode = self.config.get("command_line_execution_mode", "local")
-        if command_line_execution_mode == "docker":
+        if enable_mcp_command_line:
             system_parts.append("\n--- Code Execution Environment ---")
             system_parts.append("- Use the execute_command MCP tool for all command execution")
-            system_parts.append("- The Bash tool is disabled in this mode")
+            system_parts.append("- The Bash tool is disabled - use execute_command instead")
+            if command_line_execution_mode == "docker":
+                system_parts.append("- Commands run in isolated Docker container")
             # Below is necessary bc Claude Code is automatically loaded with knowledge of the current git repo;
             # this prompt is a temporary workaround before running fully within docker
             system_parts.append(
@@ -1049,8 +1092,8 @@ class ClaudeCodeBackend(LLMBackend):
         v0.0.x behavior. In claude-agent-sdk v0.1.0+, system prompts default to empty,
         so we explicitly request the claude_code preset.
 
-        When command_line_execution_mode is set to "docker", the Bash tool is disabled
-        since execute_command provides all necessary command execution capabilities.
+        When enable_mcp_command_line is True, the native Bash tool is disabled
+        since execute_command MCP tool provides all command execution (Docker or local mode).
 
         Returns:
             ClaudeAgentOptions configured with provided parameters and
@@ -1067,6 +1110,8 @@ class ClaudeCodeBackend(LLMBackend):
             "allowed_tools",
             "permission_mode",
             "custom_tools",  # Handled separately via SDK MCP server conversion
+            "instance_id",  # Used for Docker container naming, not for ClaudeAgentOptions
+            "enable_rate_limit",  # Rate limiting parameter (handled at orchestrator level, not backend)
             # Note: system_prompt is NOT excluded - it's needed for internal workflow prompt injection
             # Validation prevents it from being set in YAML backend config
         }
@@ -1203,21 +1248,29 @@ class ClaudeCodeBackend(LLMBackend):
                     "Bash(chown*)",
                 ]
 
-            # Disable Bash tool entirely when docker mode is enabled
-            # In docker mode, execute_command MCP tool provides all command execution
-            command_line_execution_mode = all_params.get("command_line_execution_mode", "local")
-            if command_line_execution_mode == "docker":
+            # Disable Bash tool entirely when MCP command_line is enabled
+            # This ensures we use execute_command MCP tool for all command execution (Docker or local)
+            # Benefits: unified code path, skills support, environment setup
+            enable_mcp_command_line = all_params.get("enable_mcp_command_line", False)
+            if enable_mcp_command_line:
                 disallowed_tools = list(all_params.get("disallowed_tools", []))
                 bash_related_tools = ["Bash", "BashOutput", "KillShell"]
                 for tool in bash_related_tools:
                     if tool not in disallowed_tools:
                         disallowed_tools.append(tool)
                 all_params["disallowed_tools"] = disallowed_tools
+                logger.info("[ClaudeCodeBackend] Disabled native Bash tools, using MCP execute_command instead")
 
-            # Windows-specific handling: detect complex prompts that cause subprocess hang
-            if sys.platform == "win32" and len(workflow_system_prompt) > 200:
-                # Windows with complex prompt: use post-connection delivery to avoid hang
-                print("[ClaudeCodeBackend] Windows detected complex system prompt, using post-connection delivery")
+            # Windows-specific handling: detect long prompts that exceed CreateProcess limit
+            # Windows CreateProcess has ~8,191 char limit for entire command line
+            # Use conservative threshold of 4000 chars to account for other CLI arguments
+            WINDOWS_PROMPT_THRESHOLD = 4000
+            if sys.platform == "win32" and len(workflow_system_prompt) > WINDOWS_PROMPT_THRESHOLD:
+                # Windows with long prompt: delay system prompt delivery
+                # The prompt will be injected into the first user message (via stdin pipe) instead
+                logger.info(
+                    f"[ClaudeCodeBackend] Windows detected long system prompt " f"({len(workflow_system_prompt)} chars > {WINDOWS_PROMPT_THRESHOLD}), " "deferring delivery to first user message",
+                )
                 clean_params = {k: v for k, v in all_params.items() if k not in ["system_prompt"]}
                 client = self.create_client(**clean_params)
                 self._pending_system_prompt = workflow_system_prompt
@@ -1250,34 +1303,9 @@ class ClaudeCodeBackend(LLMBackend):
             try:
                 await client.connect()
 
-                # If we have a pending system prompt, deliver it at system level using /system command
-                if hasattr(self, "_pending_system_prompt") and self._pending_system_prompt:
-                    try:
-                        # Use Claude Code's native /system command for proper system-level delivery
-                        system_command = f"/system {self._pending_system_prompt}"
-                        await client.query(system_command)
-
-                        # Consume the system response
-                        async for response in client.receive_response():
-                            if hasattr(response, "subtype") and response.subtype == "init":
-                                # This is the system initialization response
-                                break
-
-                        yield StreamChunk(
-                            type="content",
-                            content="[SYSTEM] Applied system instructions at system level\n",
-                            source="claude_code",
-                        )
-
-                        # Clear the pending prompt
-                        self._pending_system_prompt = None
-
-                    except Exception as sys_e:
-                        yield StreamChunk(
-                            type="content",
-                            content=f"[SYSTEM] Warning: System-level delivery failed: {str(sys_e)}\n",
-                            source="claude_code",
-                        )
+                # Setup code-based tools after connection (creates symlinks to shared tools if they exist)
+                if self.filesystem_manager and self.filesystem_manager.enable_code_based_tools:
+                    await self._setup_code_based_tools_symlinks()
 
             except Exception as e:
                 yield StreamChunk(
@@ -1350,6 +1378,22 @@ class ClaudeCodeBackend(LLMBackend):
         if user_contents:
             # Join multiple user messages with newlines
             combined_query = "\n\n".join(user_contents)
+
+            # Windows workaround: Inject pending system prompt into first user message
+            # This avoids Windows CreateProcess command-line length limits
+            if hasattr(self, "_pending_system_prompt") and self._pending_system_prompt:
+                logger.info("[ClaudeCodeBackend] Injecting pending system prompt into first user message")
+                combined_query = f"""<system_instructions>
+
+                {self._pending_system_prompt}
+
+                </system_instructions>
+                ---
+                {combined_query}"""
+
+                # Clear the pending prompt after injection
+                self._pending_system_prompt = None
+
             log_backend_agent_message(
                 agent_id or "default",
                 "SEND",

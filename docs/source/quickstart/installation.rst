@@ -364,6 +364,48 @@ If you want to contribute to MassGen or customize the source code:
    pip install uv
    uv pip install -e .
 
+**Automated Development Setup** (Unix/Linux/macOS)
+
+For a complete development environment setup including dependencies, skills, and Docker images:
+
+.. code-block:: bash
+
+   # Full automated setup
+   ./scripts/init.sh
+
+   # Or just install skills (Anthropic + Crawl4AI)
+   ./scripts/init_skills.sh
+
+The ``init.sh`` script will:
+
+- ✓ Check system requirements (Python 3.11+, Node.js, Docker)
+- ✓ Install uv package manager
+- ✓ Install Python dependencies (``uv sync``)
+- ✓ Install npm global packages (openskills, semtools, Claude Code CLI, Gemini CLI)
+- ✓ Install skills (Anthropic collection + Crawl4AI)
+- ✓ Build Docker runtime images (standard + sudo variants)
+- ✓ Setup ``.env`` file from template
+- ✓ Verify installation
+
+**Script Options:**
+
+.. code-block:: bash
+
+   # Skip Docker builds (saves time)
+   ./scripts/init.sh --skip-docker
+
+   # Skip skills installation
+   ./scripts/init.sh --skip-skills
+
+   # Skip npm package installation
+   ./scripts/init.sh --skip-npm
+
+   # Show help
+   ./scripts/init.sh --help
+
+.. note::
+   **Windows Support:** Windows support for init scripts is planned for a future release. Windows users should follow the manual installation steps for each component listed above.
+
 Development installation gives you:
 
 - 🔄 **Live changes**: Edits are immediately reflected
@@ -516,6 +558,79 @@ If you want to use AG2 agents alongside native MassGen agents:
    pip install massgen[external]
 
 This is **only required** if you plan to use AG2 configuration files.
+
+Skills Installation
+===================
+
+Skills enhance MassGen with additional capabilities like semantic search, LSP-based code understanding, and web scraping. You can install skills after setting up MassGen.
+
+Install Skills via CLI (Recommended)
+-------------------------------------
+
+The easiest way to install skills is using the built-in command (works on all platforms):
+
+.. code-block:: bash
+
+   # Install skills automatically
+   massgen --setup-skills
+
+This will install:
+
+- **openskills CLI** - npm package for managing skills
+- **Anthropic skills collection** - Official Claude Code and Gemini CLI skills
+- **Crawl4AI skill** - Web scraping and content extraction
+
+The command works on **Windows, macOS, and Linux** and handles all dependencies automatically.
+
+Manual Skills Installation
+---------------------------
+
+If you prefer to install skills manually or need specific skills:
+
+.. code-block:: bash
+
+   # Install openskills CLI
+   npm install -g openskills
+
+   # Install Anthropic skills collection
+   openskills install anthropics/skills --universal -y
+
+   # Skills are installed to ~/.agent/skills/
+
+Development Scripts (Unix/macOS/Linux)
+---------------------------------------
+
+For development installations, bash scripts are available that provide additional setup:
+
+.. code-block:: bash
+
+   # Full development setup (dependencies, skills, Docker)
+   ./scripts/init.sh
+
+   # Just install skills
+   ./scripts/init_skills.sh
+
+   # With options
+   ./scripts/init.sh --skip-docker  # Skip Docker image builds
+   ./scripts/init.sh --help         # Show all options
+
+.. note::
+   The bash scripts are Unix-only. Windows users should use ``massgen --setup-skills`` instead.
+
+Verifying Skills Installation
+------------------------------
+
+Check that skills are installed correctly:
+
+.. code-block:: bash
+
+   # List installed skills
+   ls ~/.agent/skills/
+
+   # On Windows
+   dir %USERPROFILE%\.agent\skills\
+
+You should see directories for each installed skill (e.g., ``pdf``, ``xlsx``, ``crawl4ai``).
 
 Optional CLI Tools
 ==================

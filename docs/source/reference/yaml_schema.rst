@@ -288,6 +288,42 @@ Coordination Config
          PLANNING MODE: Describe intended actions.
          Do not execute during coordination phase.
 
+Skills System Config
+~~~~~~~~~~~~~~~~~~~~
+
+Enable the skills system for domain-specific guidance and workflows:
+
+.. code-block:: yaml
+
+   orchestrator:
+     coordination:
+       # Enable skills system
+       use_skills: true
+
+       # Optional: Skills discovery directory (default: .agent/skills)
+       skills_directory: ".agent/skills"
+
+       # Optional: Enable specific built-in MassGen skills
+       massgen_skills:
+         - "file_search"    # Always useful (ripgrep/ast-grep)
+         - "serena"         # Symbol-level code understanding (LSP)
+         - "semtools"       # Semantic search (embeddings)
+
+**Available Built-in Skills:**
+
+- ``file_search``: Fast text and structural code search (ripgrep/ast-grep)
+- ``serena``: Symbol-level code understanding using LSP (optional, requires installation)
+- ``semtools``: Semantic search using embeddings (optional, requires installation)
+
+**Notes:**
+
+- Skills require command line execution (``enable_mcp_command_line: true``)
+- Default skills (memory, file_search) are always available when ``use_skills: true``
+- Optional skills (serena, semtools) must be explicitly listed in ``massgen_skills``
+- External skills from ``openskills`` are discovered from ``skills_directory``
+
+See :ref:`user_guide_skills` for complete documentation.
+
 UI Configuration
 ----------------
 
@@ -501,6 +537,111 @@ Backend
      - No
      - ``claude_code``
      - Working directory for file operations
+   * - ``exclude_file_operation_mcps``
+     - boolean
+     - No
+     - All with MCP support
+     - Exclude file operation MCP tools (read/write/copy/delete). Agents use command-line tools instead. Keeps command execution, media generation, and planning MCPs. (default: false)
+   * - ``enable_image_generation``
+     - boolean
+     - No
+     - All with MCP support
+     - Enable image generation tools (default: false)
+   * - ``enable_audio_generation``
+     - boolean
+     - No
+     - All with MCP support
+     - Enable audio generation tools (default: false)
+   * - ``enable_file_generation``
+     - boolean
+     - No
+     - All with MCP support
+     - Enable file generation tools (default: false)
+   * - ``enable_video_generation``
+     - boolean
+     - No
+     - All with MCP support
+     - Enable video generation tools (default: false)
+   * - ``enable_code_based_tools``
+     - boolean
+     - No
+     - All with MCP support
+     - Enable code-based tools (CodeAct paradigm). MCP tools presented as Python code in workspace (default: false)
+   * - ``custom_tools_path``
+     - string
+     - No
+     - All with MCP support
+     - Path to custom tools directory to copy into workspace (for code-based tools)
+   * - ``auto_discover_custom_tools``
+     - boolean
+     - No
+     - All with MCP support
+     - Auto-discover custom tools from massgen/tool/ directory (default: false)
+   * - ``exclude_custom_tools``
+     - list
+     - No
+     - All with MCP support
+     - List of custom tool directories to exclude (e.g., ["_claude_computer_use"])
+   * - ``shared_tools_directory``
+     - string
+     - No
+     - All with MCP support
+     - Shared directory for code-based tools. Tools generated once and shared across agents (default: per-agent)
+   * - ``enable_mcp_command_line``
+     - boolean
+     - No
+     - All with MCP support
+     - Enable command-line execution tool (default: false)
+   * - ``command_line_execution_mode``
+     - string
+     - No
+     - All with MCP support
+     - Execution mode: "local" or "docker" (default: "local")
+   * - ``command_line_docker_image``
+     - string
+     - No
+     - All with MCP support
+     - Docker image for command execution (default: "massgen:runtime")
+   * - ``command_line_docker_memory_limit``
+     - string
+     - No
+     - All with MCP support
+     - Docker memory limit (e.g., "2g", default: "4g")
+   * - ``command_line_docker_cpu_limit``
+     - string
+     - No
+     - All with MCP support
+     - Docker CPU limit (e.g., "2.0", default: "4.0")
+   * - ``command_line_docker_network_mode``
+     - string
+     - No
+     - All with MCP support
+     - Docker network mode: "bridge", "host", "none" (default: "none")
+   * - ``command_line_docker_enable_sudo``
+     - boolean
+     - No
+     - All with MCP support
+     - Enable sudo in Docker containers (default: false)
+   * - ``command_line_docker_credentials``
+     - object
+     - No
+     - All with MCP support
+     - Docker credentials config (env_file, env_vars, env_vars_from_file, pass_all_env)
+   * - ``command_line_docker_packages``
+     - object
+     - No
+     - All with MCP support
+     - Docker packages to install (apt, pip, npm lists)
+   * - ``command_line_allowed_commands``
+     - list
+     - No
+     - All with MCP support
+     - Whitelist of allowed command patterns
+   * - ``command_line_blocked_commands``
+     - list
+     - No
+     - All with MCP support
+     - Blacklist of blocked command patterns
    * - ``mcp_servers``
      - list
      - No

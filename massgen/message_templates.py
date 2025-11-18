@@ -32,208 +32,6 @@ class MessageTemplates:
     # SYSTEM MESSAGE TEMPLATES
     # =============================================================================
 
-    def evaluation_system_message(self) -> str:
-        """Standard evaluation system message for all cases."""
-        if "evaluation_system_message" in self._template_overrides:
-            return str(self._template_overrides["evaluation_system_message"])
-
-        import time
-
-        #         return f"""You are evaluating answers from multiple agents for final response to a message.
-        # For every aspect, claim, and reasoning step in the CURRENT ANSWERS, verify correctness, factual accuracy, and completeness using your expertise, reasoning, and **available tools**.
-        # **You must use at least one tool in every evaluation round**—this is mandatory.
-        # - If the CURRENT ANSWERS fully address the ORIGINAL MESSAGE, use the `vote` tool to record your vote and skip the `new_answer` tool.
-        # - If the CURRENT ANSWERS are incomplete, incorrect, or do not fully address the ORIGINAL MESSAGE,
-        #   conduct any necessary reasoning or research using tools (such as `search`), and then use the
-        #   `new_answer` tool to submit a new response.
-        # Your new answer must be self-contained, process-complete, well-sourced, and compelling—ready to serve as the final reply.
-        # **Important**:
-        # - You must actually call at least one tool per round.
-        # - If no other tools are relevant or available, you must use either `new_answer` or `vote` to fulfill the tool-use requirement.
-        # *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**.
-        # For any time-sensitive requests, use the `search` tool (if available) rather than relying on prior knowledge.
-        # """
-        # return f"""You are evaluating answers from multiple agents for final response to a message.
-        # For every aspect, claim, reasoning steps in the CURRENT ANSWERS, verify correctness, factual accuracy, and completeness using your expertise, reasoning, and available tools.
-        # If the CURRENT ANSWERS fully address the ORIGINAL MESSAGE, use the `vote` tool to record your vote and skip the `new_answer` tool.
-        # If the CURRENT ANSWERS are incomplete, incorrect, or not fully address the ORIGINAL MESSAGE,
-        # conduct any necessary reasoning or research. Then, use the `new_answer` tool to submit a new response.
-        # Your new answer must be self-contained, process-complete, well-sourced, and compelling—ready to serve as the final reply.
-        # **Important**: Be sure to actually call the `new_answer` tool to submit your new answer (use native tool call format).
-        # *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**.
-        # For any time-sensitive requests, use the search tool (if available) rather than relying on prior knowledge."""
-        # BACKUP - Original evaluation message (pre-synthesis-encouragement update):
-        # return f"""You are evaluating answers from multiple agents for final response to a message. Does the best CURRENT ANSWER address the ORIGINAL MESSAGE?
-        #
-        # If YES, use the `vote` tool to record your vote and skip the `new_answer` tool.
-        # Otherwise, digest existing answers, combine their strengths, and do additional work to address their
-        # weaknesses, then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.
-        # Make sure you actually call `vote` or `new_answer` (in tool call format).
-        #
-        # *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
-        # Determine evaluation criteria based on voting sensitivity
-        if self._voting_sensitivity == "strict":
-            evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE exceptionally well? Consider:
-- Is it comprehensive, addressing ALL aspects and edge cases?
-- Is it technically accurate and well-reasoned?
-- Does it provide clear explanations and proper justification?
-- Is it complete with no significant gaps or weaknesses?
-- Could it serve as a reference-quality solution?
-
-Only use the `vote` tool if the best answer meets high standards of excellence."""
-        elif self._voting_sensitivity == "balanced":
-            evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well? Consider:
-- Is it comprehensive, accurate, and complete?
-- Could it be meaningfully improved, refined, or expanded?
-- Are there weaknesses, gaps, or better approaches?
-
-Only use the `vote` tool if the best answer is strong and complete."""
-        else:
-            # Default to lenient (including explicit "lenient" or any other value)
-            evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well?
-
-If YES, use the `vote` tool to record your vote and skip the `new_answer` tool."""
-
-        # Add novelty requirement instructions if not lenient
-        novelty_section = ""
-        if self._answer_novelty_requirement == "balanced":
-            novelty_section = """
-IMPORTANT: If you provide a new answer, it must be meaningfully different from existing answers.
-- Don't just rephrase or reword existing solutions
-- Introduce new insights, approaches, or tools
-- Make substantive improvements, not cosmetic changes"""
-        elif self._answer_novelty_requirement == "strict":
-            novelty_section = """
-CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
-- Use a fundamentally different approach or methodology
-- Employ different tools or techniques
-- Provide significantly more depth or novel perspectives
-- If you cannot provide a truly novel solution, vote instead"""
-
-        return f"""You are evaluating answers from multiple agents for final response to a message.
-Different agents may have different builtin tools and capabilities.
-{evaluation_section}
-Otherwise, digest existing answers, combine their strengths, and do additional work to address their weaknesses,
-then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.{novelty_section}
-Make sure you actually call `vote` or `new_answer` (in tool call format).
-
-*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
-
-    def get_planning_guidance(self) -> str:
-        """
-        Generate system message guidance for task planning tools.
-
-        This guidance is appended to the agent's system message when
-        agent task planning is enabled in the coordination config.
-
-        Returns:
-            Formatted planning guidance string
-        """
-        return """
-
-# Task Planning and Management
-
-You have access to task planning tools to organize complex work.
-
-**IMPORTANT WORKFLOW - Plan Before Executing:**
-
-When working on multi-step tasks:
-1. **Think first** - Understand the requirements (some initial research/analysis is fine)
-2. **Create your task plan EARLY** - Use `create_task_plan()` BEFORE executing file operations or major actions
-3. **Execute tasks** - Work through your plan systematically
-4. **Update as you go** - Use `add_task()` to capture new requirements you discover
-
-**DO NOT:**
-- ❌ Jump straight into creating files without planning first
-- ❌ Start executing complex work without a clear task breakdown
-- ❌ Ignore the planning tools for multi-step work
-
-**DO:**
-- ✅ Create a task plan early, even if it's just 3-4 high-level tasks
-- ✅ Refine your plan as you learn more (tasks can be added/edited/deleted)
-- ✅ Brief initial analysis is OK before planning (e.g., reading docs, checking existing code)
-
-**When to create a task plan:**
-- Multi-step tasks with dependencies (most common)
-- Multiple files or components to create
-- Complex features requiring coordination
-- Work that needs to be tracked or broken down
-- Any task where you'd benefit from a checklist
-
-**Skip task planning ONLY for:**
-- Trivial single-step tasks
-- Simple questions/analysis with no execution
-- Quick one-off operations
-
-**Tools available:**
-- `create_task_plan(tasks)` - Create a plan with tasks and dependencies
-- `get_ready_tasks()` - Get tasks ready to start (dependencies satisfied)
-- `get_blocked_tasks()` - See what's waiting on dependencies
-- `update_task_status(task_id, status)` - Mark progress (pending/in_progress/completed)
-- `add_task(description, depends_on)` - Add new tasks as you discover them
-- `get_task_plan()` - View your complete task plan
-- `edit_task(task_id, description)` - Update task descriptions
-- `delete_task(task_id)` - Remove tasks no longer needed
-
-**Recommended workflow:**
-```python
-# 1. Create plan FIRST (before major execution)
-plan = create_task_plan([
-    {"id": "research", "description": "Research OAuth providers"},
-    {"id": "design", "description": "Design auth flow", "depends_on": ["research"]},
-    {"id": "implement", "description": "Implement endpoints", "depends_on": ["design"]}
-])
-
-# 2. Work through tasks systematically
-update_task_status("research", "in_progress")
-# ... do research work ...
-update_task_status("research", "completed")
-
-# 3. Add tasks as you discover new requirements
-add_task("Write integration tests", depends_on=["implement"])
-
-# 4. Continue working
-ready = get_ready_tasks()  # ["design"]
-update_task_status("design", "in_progress")
-```
-
-**Dependency formats:**
-```python
-# By index (0-based)
-create_task_plan([
-    "Task 1",
-    {"description": "Task 2", "depends_on": [0]}  # Depends on Task 1
-])
-
-# By ID (recommended for clarity)
-create_task_plan([
-    {"id": "auth", "description": "Setup auth"},
-    {"id": "api", "description": "Build API", "depends_on": ["auth"]}
-])
-```
-
-**IMPORTANT - Including Task Plan in Your Answer:**
-If you created a task plan, include a summary at the end of your `new_answer` showing:
-1. Each task name
-2. Completion status (✓ or ✗)
-3. Brief description of what you did
-
-Example format:
-```
-[Your main answer content here]
-
----
-**Task Execution Summary:**
-✓ Research OAuth providers - Analyzed OAuth 2.0 spec and compared providers
-✓ Design auth flow - Created flow diagram with PKCE and token refresh
-✓ Implement endpoints - Built /auth/login, /auth/callback, /auth/refresh
-✓ Write tests - Added integration tests for auth flow
-
-Status: 4/4 tasks completed
-```
-
-This helps other agents understand your approach and makes voting more specific."""
-
     # =============================================================================
     # USER MESSAGE TEMPLATES
     # =============================================================================
@@ -648,68 +446,6 @@ Present the best possible coordinated answer by combining the strengths from all
         else:
             return presentation_instructions
 
-    def post_evaluation_system_message(
-        self,
-        original_system_message: Optional[str] = None,
-    ) -> str:
-        """System message for post-evaluation phase after final presentation.
-
-        The winning agent evaluates its own answer with a fresh perspective and decides
-        whether to submit or restart with specific improvement instructions.
-
-        Args:
-            original_system_message: The agent's original system message to preserve
-        """
-        if "post_evaluation_system_message" in self._template_overrides:
-            return str(self._template_overrides["post_evaluation_system_message"])
-
-        evaluation_instructions = """## Post-Presentation Evaluation
-
-You have just presented a final answer to the user. Now you must evaluate whether your answer fully addresses the original task.
-
-**Your Task:**
-Review the final answer that was presented and determine if it completely and accurately addresses the original task requirements.
-
-**Available Tools:**
-You have access to the same filesystem and MCP tools that were available during presentation. Use these tools to:
-- Verify that claimed files actually exist in the workspace
-- Check file contents to confirm they match what was described
-- Validate any technical claims or implementations
-
-**Decision:**
-You must call ONE of these tools:
-
-1. **submit(confirmed=True)** - Use this when:
-   - The answer fully addresses ALL parts of the original task
-   - All claims in the answer are accurate and verified
-   - The work is complete and ready for the user
-
-2. **restart_orchestration(reason, instructions)** - Use this when:
-   - The answer is incomplete (missing required elements)
-   - The answer contains errors or inaccuracies
-   - Important aspects of the task were not addressed
-
-   Provide:
-   - **reason**: Clear explanation of what's wrong (e.g., "The task required descriptions of two Beatles, but only John Lennon was described")
-   - **instructions**: Detailed, actionable guidance for the next attempt (e.g.,
-     "Provide two descriptions (John Lennon AND Paul McCartney). Each should include:
-     birth year, role in band, notable songs, impact on music. Use 4-6 sentences per person.")
-
-**Important Notes:**
-- Be honest and thorough in your evaluation
-- You are evaluating your own work with a fresh perspective
-- If you find problems, restarting with clear instructions will lead to a better result
-- The restart process gives you another opportunity to get it right
-"""
-
-        # Combine with original system message if provided
-        if original_system_message:
-            return f"""{original_system_message}
-
-{evaluation_instructions}"""
-        else:
-            return evaluation_instructions
-
     def format_restart_context(self, reason: str, instructions: str, previous_answer: Optional[str] = None) -> str:
         """Format restart context for subsequent orchestration attempts.
 
@@ -823,7 +559,13 @@ Please address these specific issues in your coordination and final answer.
         """Build complete initial conversation for MassGen evaluation."""
         # Use agent's custom system message if provided, otherwise use default evaluation message
         if base_system_message:
-            system_message = f"{self.evaluation_system_message()}\n\n#Special Requirement\n{base_system_message}"
+            # Check if this is a structured system prompt (contains <system_prompt> tag)
+            # Structured prompts already include evaluation message, so don't prepend it
+            if "<system_prompt>" in base_system_message:
+                system_message = base_system_message
+            else:
+                # Old-style: prepend evaluation message for backward compatibility
+                system_message = f"{self.evaluation_system_message()}\n\n#Special Requirement\n{base_system_message}"
         else:
             system_message = self.evaluation_system_message()
 
@@ -845,7 +587,13 @@ Please address these specific issues in your coordination and final answer.
         """Build complete conversation with conversation history context for MassGen evaluation."""
         # Use agent's custom system message if provided, otherwise use default context-aware message
         if base_system_message:
-            system_message = f"{base_system_message}\n\n{self.system_message_with_context(conversation_history)}"
+            # Check if this is a structured system prompt (contains <system_prompt> tag)
+            # Structured prompts already include evaluation message, so don't append it
+            if "<system_prompt>" in base_system_message:
+                system_message = base_system_message
+            else:
+                # Old-style: append evaluation message for backward compatibility
+                system_message = f"{base_system_message}\n\n{self.system_message_with_context(conversation_history)}"
         else:
             system_message = self.system_message_with_context(conversation_history)
 

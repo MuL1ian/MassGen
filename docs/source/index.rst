@@ -111,17 +111,17 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.10 (November 10, 2025)** - Framework Interoperability Streaming & Docker Enhancements
+**v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
 
-Real-time intermediate step streaming for LangGraph and SmoLAgent with log/output distinction, restructured Docker authentication with custom image support, parallel execution safety with universal instance IDs, and MassGen Contributor Handbook at https://massgen.github.io/Handbook/.
+Code-based tools system implementing CodeAct paradigm with significant token usage reduction through importable Python code instead of schema-based tools. MCP server registry with auto-discovery and intelligent tool routing. Comprehensive skills installation system with cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI. NLIP (Natural Language Interface Protocol) integration for advanced tool routing across all backends. TOOL.md documentation standard with YAML frontmatter for all custom tools.
 
-**v0.1.9 (November 7, 2025)** - Session Management & Computer Use Tools
+**v0.1.12 (November 14, 2025)** - System Prompt Refactoring, Semantic Search & Multi-Agent Computer Use
 
-Complete session management system with conversation restoration, Claude and Gemini computer use tools for browser and desktop automation, enhanced config builder with fuzzy model matching, and expanded backend support.
+Complete system prompt refactoring with hierarchical structure and XML-based formatting for improved LLM attention management. New Semtools skill for semantic search via embedding-based similarity and Serena skill for symbol-level code understanding via LSP integration. Enhanced multi-agent computer use with Docker integration for Linux desktop automation, VNC visualization, and coordinated Claude (Docker/Linux) + Gemini (Browser) workflows.
 
-**v0.1.8 (November 5, 2025)** - Automation Mode & DSPy Integration
+**v0.1.11 (November 12, 2025)** - Skills System, Memory MCP & Rate Limiting
 
-Automation Mode for LLM agents with silent execution and status monitoring, DSPy question paraphrasing integration with semantic validation, and comprehensive case study documentation.
+Modular skills framework with automatic discovery and file search capabilities, MCP-based memory management with persistent markdown storage and cross-agent sharing, multi-dimensional rate limiting (RPM, TPM, RPD) with model-specific thresholds, and memory-filesystem integration for advanced workflows.
 
 Quick Start
 -----------
@@ -252,6 +252,7 @@ Documentation Sections
       * :doc:`user_guide/backends`
       * :doc:`user_guide/diversity`
       * :doc:`user_guide/tools`
+      * :doc:`user_guide/code_based_tools`
       * :doc:`user_guide/file_operations`
       * :doc:`user_guide/multi_turn_mode`
       * :doc:`user_guide/general_interoperability`
@@ -263,6 +264,7 @@ Documentation Sections
       * :doc:`reference/python_api`
       * :doc:`reference/cli`
       * :doc:`reference/yaml_schema`
+      * :doc:`reference/mcp_server_registry`
       * :doc:`reference/configuration_examples`
       * :doc:`reference/supported_models`
       * :doc:`reference/timeouts`
@@ -302,9 +304,12 @@ Documentation Sections
    user_guide/diversity
    user_guide/validating_configs
    user_guide/tools
+   user_guide/code_based_tools
+   user_guide/skills
    user_guide/file_operations
    user_guide/multi_turn_mode
    user_guide/memory
+   user_guide/memory_filesystem_mode
    user_guide/orchestration_restart
    user_guide/agent_task_planning
    user_guide/multimodal
@@ -319,6 +324,7 @@ Documentation Sections
    reference/python_api
    reference/cli
    reference/yaml_schema
+   reference/mcp_server_registry
    reference/configuration_examples
    reference/timeouts
    reference/supported_models

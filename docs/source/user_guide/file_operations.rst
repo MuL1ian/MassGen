@@ -104,6 +104,50 @@ Configuration Parameters
    * - ``agent_temporary_workspace``
      - Yes
      - Parent directory for temporary workspaces
+   * - ``exclude_file_operation_mcps``
+     - No
+     - Exclude file operation MCP tools. Agents use command-line tools instead. (default: false)
+
+Minimal MCP Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When ``exclude_file_operation_mcps: true``, MassGen excludes redundant file operation MCP tools and relies on command-line tools instead:
+
+.. code-block:: yaml
+
+   agents:
+     - id: "efficient_agent"
+       backend:
+         type: "gemini"
+         model: "gemini-2.5-flash"
+         cwd: "workspace"
+         exclude_file_operation_mcps: true  # Use command-line tools
+         enable_mcp_command_line: true      # Enable command execution
+
+**What gets excluded:**
+
+* Filesystem MCP read operations (``read_file``, ``list_directory``, ``grep_search``)
+* File operation tools from Workspace Tools MCP (``copy_file``, ``delete_file``, ``compare_files``)
+
+**What is kept:**
+
+* File write operations (``write_file``, ``edit_file``) - Provides clean file creation without shell escaping issues
+* Command execution tools (``execute_command``, background shell management)
+* Media generation tools (image/audio generation, if enabled)
+* Planning tools (task management abstractions)
+
+**Agents use standard command-line tools for excluded operations:**
+
+* ``cat``, ``head``, ``tail`` instead of ``read_file``
+* ``ls``, ``find`` instead of ``list_directory``
+* ``grep``, ``rg`` instead of ``grep_search``
+* ``cp`` instead of ``copy_file``
+* ``rm`` instead of ``delete_file``
+* ``diff`` instead of ``compare_files``
+
+.. note::
+
+   This configuration reduces MCP tool overhead while maintaining full functionality through command-line tools. Recommended for models that are proficient with shell commands.
 
 Available File Operations
 -------------------------

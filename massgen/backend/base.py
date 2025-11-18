@@ -121,6 +121,12 @@ class LLMBackend(ABC):
                     "command_line_docker_credentials": kwargs.get("command_line_docker_credentials"),
                     "command_line_docker_packages": kwargs.get("command_line_docker_packages"),
                     "enable_audio_generation": kwargs.get("enable_audio_generation", False),
+                    "exclude_file_operation_mcps": kwargs.get("exclude_file_operation_mcps", False),
+                    "enable_code_based_tools": kwargs.get("enable_code_based_tools", False),
+                    "custom_tools_path": kwargs.get("custom_tools_path"),
+                    "auto_discover_custom_tools": kwargs.get("auto_discover_custom_tools", False),
+                    "exclude_custom_tools": kwargs.get("exclude_custom_tools"),
+                    "shared_tools_directory": kwargs.get("shared_tools_directory"),
                     # Instance ID for parallel execution (Docker container naming)
                     "instance_id": self._instance_id,
                 }
@@ -131,8 +137,8 @@ class LLMBackend(ABC):
                 # Inject MCP filesystem server for MCP backends only
                 if filesystem_support == FilesystemSupport.MCP:
                     self.config = self.filesystem_manager.inject_filesystem_mcp(kwargs)
-                # NATIVE backends handle filesystem tools themselves, but need command_line MCP for docker mode
-                elif filesystem_support == FilesystemSupport.NATIVE and execution_mode == "docker" and kwargs.get("enable_mcp_command_line", False):
+                # NATIVE backends handle filesystem tools themselves, but need command_line MCP for execution
+                elif filesystem_support == FilesystemSupport.NATIVE and kwargs.get("enable_mcp_command_line", False):
                     self.config = self.filesystem_manager.inject_command_line_mcp(kwargs)
 
             elif filesystem_support == FilesystemSupport.NONE:
@@ -203,6 +209,9 @@ class LLMBackend(ABC):
             "context_write_access_enabled",
             "enforce_read_before_delete",
             "enable_image_generation",
+            "enable_audio_generation",
+            "enable_file_generation",
+            "enable_video_generation",
             "enable_mcp_command_line",
             "command_line_allowed_commands",
             "command_line_blocked_commands",
@@ -215,6 +224,13 @@ class LLMBackend(ABC):
             # Docker credential and package management (nested dicts)
             "command_line_docker_credentials",
             "command_line_docker_packages",
+            "exclude_file_operation_mcps",
+            # Code-based tools (CodeAct paradigm)
+            "enable_code_based_tools",
+            "custom_tools_path",
+            "auto_discover_custom_tools",
+            "exclude_custom_tools",
+            "shared_tools_directory",
             # Backend identification (handled by orchestrator)
             "type",
             "agent_id",
