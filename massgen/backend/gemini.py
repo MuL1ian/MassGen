@@ -719,43 +719,6 @@ class GeminiBackend(CustomToolAndMCPBackend):
                 self._active_tool_result_store = tool_results
 
                 try:
-                    # Execute custom tools
-                    for call in custom_calls:
-                        if self._nlip_enabled and self._nlip_router:
-                            logger.info(f"[NLIP] Using NLIP routing for custom tool {call['name']}")
-                            try:
-                                async for chunk in self._stream_tool_execution_via_nlip(
-                                    call,
-                                    CUSTOM_TOOL_CONFIG,
-                                    updated_messages,
-                                    processed_call_ids,
-                                ):
-                                    yield chunk
-                            except Exception as exc:
-                                logger.warning(
-                                    f"[NLIP] Routing failed for {call['name']}: {exc}. " f"Falling back to direct execution.",
-                                )
-                                async for chunk in self._execute_tool_with_logging(
-                                    call,
-                                    CUSTOM_TOOL_CONFIG,
-                                    updated_messages,
-                                    processed_call_ids,
-                                ):
-                                    yield chunk
-                        else:
-                            reason = "disabled" if not self._nlip_enabled else "router unavailable"
-                            logger.info(
-                                f"[Custom Tool] Direct execution for {call['name']} (NLIP {reason})",
-                            )
-                            async for chunk in self._execute_tool_with_logging(
-                                call,
-                                CUSTOM_TOOL_CONFIG,
-                                updated_messages,
-                                processed_call_ids,
-                            ):
-                                yield chunk
-
-                    # Check circuit breaker before MCP tool execution
                     if mcp_calls and not await self._check_circuit_breaker_before_execution():
                         logger.warning("[Gemini] All MCP servers blocked by circuit breaker")
                         yield StreamChunk(
@@ -764,15 +727,53 @@ class GeminiBackend(CustomToolAndMCPBackend):
                             content="⚠️ [MCP] All servers blocked by circuit breaker",
                             source="circuit_breaker",
                         )
-                        # Clear mcp_calls to skip execution
                         mcp_calls = []
 
-                    # Execute MCP tools
-                    for call in mcp_calls:
-                        # Mark MCP as used when at least one MCP call is about to be executed
-                        mcp_used = True
+                    def chunk_adapter(chunk: StreamChunk) -> StreamChunk:
+                        return chunk
 
-                        if self._nlip_enabled and self._nlip_router:
+                    nlip_available = self._nlip_enabled and self._nlip_router
+
+                    pending_custom_calls: List[Dict[str, Any]] = []
+                    for call in custom_calls:
+                        handled_via_nlip = False
+                        if nlip_available:
+                            logger.info(f"[NLIP] Using NLIP routing for custom tool {call['name']}")
+                            try:
+                                async for chunk in self._stream_tool_execution_via_nlip(
+                                    call,
+                                    CUSTOM_TOOL_CONFIG,
+                                    updated_messages,
+                                    processed_call_ids,
+                                ):
+                                    yield chunk_adapter(chunk)
+                                handled_via_nlip = True
+                            except Exception as exc:
+                                logger.warning(
+                                    f"[NLIP] Routing failed for {call['name']}: {exc}. Falling back to direct execution.",
+                                )
+                                async for chunk in self._execute_tool_with_logging(
+                                    call,
+                                    CUSTOM_TOOL_CONFIG,
+                                    updated_messages,
+                                    processed_call_ids,
+                                ):
+                                    yield chunk_adapter(chunk)
+                                handled_via_nlip = True
+
+                        if handled_via_nlip:
+                            continue
+
+                        reason = "disabled" if not self._nlip_enabled else "router unavailable"
+                        logger.info(
+                            f"[Custom Tool] Direct execution for {call['name']} (NLIP {reason})",
+                        )
+                        pending_custom_calls.append(call)
+
+                    pending_mcp_calls: List[Dict[str, Any]] = []
+                    for call in mcp_calls:
+                        handled_via_nlip = False
+                        if nlip_available:
                             logger.info(f"[NLIP] Using NLIP routing for MCP tool {call['name']}")
                             try:
                                 async for chunk in self._stream_tool_execution_via_nlip(
@@ -781,10 +782,12 @@ class GeminiBackend(CustomToolAndMCPBackend):
                                     updated_messages,
                                     processed_call_ids,
                                 ):
-                                    yield chunk
+                                    mcp_used = True
+                                    yield chunk_adapter(chunk)
+                                handled_via_nlip = True
                             except Exception as exc:
                                 logger.warning(
-                                    f"[NLIP] Routing failed for {call['name']}: {exc}. " f"Falling back to direct execution.",
+                                    f"[NLIP] Routing failed for {call['name']}: {exc}. Falling back to direct execution.",
                                 )
                                 async for chunk in self._execute_tool_with_logging(
                                     call,
@@ -792,19 +795,39 @@ class GeminiBackend(CustomToolAndMCPBackend):
                                     updated_messages,
                                     processed_call_ids,
                                 ):
-                                    yield chunk
-                        else:
-                            reason = "disabled" if not self._nlip_enabled else "router unavailable"
-                            logger.info(
-                                f"[MCP Tool] Direct execution for {call['name']} (NLIP {reason})",
-                            )
-                            async for chunk in self._execute_tool_with_logging(
-                                call,
-                                MCP_TOOL_CONFIG,
-                                updated_messages,
-                                processed_call_ids,
-                            ):
-                                yield chunk
+                                    yield chunk_adapter(chunk)
+                                mcp_used = True
+                                handled_via_nlip = True
+
+                        if handled_via_nlip:
+                            continue
+
+                        reason = "disabled" if not self._nlip_enabled else "router unavailable"
+                        logger.info(
+                            f"[MCP Tool] Direct execution for {call['name']} (NLIP {reason})",
+                        )
+                        pending_mcp_calls.append(call)
+
+                    all_calls = pending_custom_calls + pending_mcp_calls
+
+                    def tool_config_for_call(call: Dict[str, Any]) -> ToolExecutionConfig:
+                        tool_name = call.get("name", "")
+                        return CUSTOM_TOOL_CONFIG if tool_name in (self._custom_tool_names or set()) else MCP_TOOL_CONFIG
+
+                    if all_calls:
+                        if pending_mcp_calls:
+                            mcp_used = True
+
+                        async for adapted_chunk in self._execute_tool_calls(
+                            all_calls=all_calls,
+                            tool_config_for_call=tool_config_for_call,
+                            all_params=all_params,
+                            updated_messages=updated_messages,
+                            processed_call_ids=processed_call_ids,
+                            log_prefix="[Gemini]",
+                            chunk_adapter=chunk_adapter,
+                        ):
+                            yield adapted_chunk
                 finally:
                     self._active_tool_result_store = None
 
@@ -1040,36 +1063,41 @@ class GeminiBackend(CustomToolAndMCPBackend):
                     new_tool_results: Dict[str, str] = {}
                     self._active_tool_result_store = new_tool_results
 
+                    # Check circuit breaker before MCP tool execution
+                    if next_mcp_calls and not await self._check_circuit_breaker_before_execution():
+                        logger.warning("[Gemini] All MCP servers blocked by circuit breaker during continuation")
+                        yield StreamChunk(
+                            type="mcp_status",
+                            status="mcp_blocked",
+                            content="⚠️ [MCP] All servers blocked by circuit breaker",
+                            source="circuit_breaker",
+                        )
+                        next_mcp_calls = []
+
+                    # Combine all continuation tool calls
+                    next_all_calls = next_custom_calls + next_mcp_calls
+
                     try:
-                        for call in next_custom_calls:
-                            async for chunk in self._execute_tool_with_logging(
-                                call,
-                                CUSTOM_TOOL_CONFIG,
-                                updated_messages,
-                                processed_call_ids,
-                            ):
-                                yield chunk
+                        # Execute tools based on configuration (same scheduler as initial execution)
+                        def tool_config_for_call(call: Dict[str, Any]) -> ToolExecutionConfig:
+                            tool_name = call.get("name", "")
+                            return CUSTOM_TOOL_CONFIG if tool_name in (self._custom_tool_names or set()) else MCP_TOOL_CONFIG
 
-                        if next_mcp_calls and not await self._check_circuit_breaker_before_execution():
-                            logger.warning("[Gemini] All MCP servers blocked by circuit breaker during continuation")
-                            yield StreamChunk(
-                                type="mcp_status",
-                                status="mcp_blocked",
-                                content="⚠️ [MCP] All servers blocked by circuit breaker",
-                                source="circuit_breaker",
-                            )
-                            next_mcp_calls = []
+                        def chunk_adapter(chunk: StreamChunk) -> StreamChunk:
+                            return chunk
 
-                        for call in next_mcp_calls:
-                            mcp_used = True
-
-                            async for chunk in self._execute_tool_with_logging(
-                                call,
-                                MCP_TOOL_CONFIG,
-                                updated_messages,
-                                processed_call_ids,
-                            ):
-                                yield chunk
+                        async for adapted_chunk in self._execute_tool_calls(
+                            all_calls=next_all_calls,
+                            tool_config_for_call=tool_config_for_call,
+                            all_params=all_params,
+                            updated_messages=updated_messages,
+                            processed_call_ids=processed_call_ids,
+                            log_prefix="[Gemini] Continuation:",
+                            chunk_adapter=chunk_adapter,
+                        ):
+                            if next_mcp_calls:
+                                mcp_used = True
+                            yield adapted_chunk
                     finally:
                         self._active_tool_result_store = None
 
