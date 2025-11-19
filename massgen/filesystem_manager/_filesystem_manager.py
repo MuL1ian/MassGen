@@ -434,6 +434,45 @@ class FilesystemManager:
         long_term_dir.mkdir(exist_ok=True)
         logger.info(f"[FilesystemManager] Created memory/long_term/ directory at {long_term_dir}")
 
+    def restore_memories_from_previous_turn(self, previous_turn_workspace: Path) -> None:
+        """
+        Restore memory files from a previous turn's workspace.
+
+        This enables memory persistence across turns by copying memory/ directory
+        from the previous turn's final workspace into the current workspace.
+
+        Args:
+            previous_turn_workspace: Path to previous turn's workspace (e.g., logs/turn_1/final/agent_a/workspace)
+        """
+        source_memory = previous_turn_workspace / "memory"
+        if not source_memory.exists():
+            logger.info(f"[FilesystemManager] No memory directory in previous turn workspace: {previous_turn_workspace}")
+            return
+
+        dest_memory = self.cwd / "memory"
+        dest_memory.mkdir(parents=True, exist_ok=True)
+
+        restored_count = 0
+        for tier in ["short_term", "long_term"]:
+            source_tier = source_memory / tier
+            if not source_tier.exists():
+                continue
+
+            dest_tier = dest_memory / tier
+            dest_tier.mkdir(parents=True, exist_ok=True)
+
+            # Copy all .md files from previous turn
+            for memory_file in source_tier.glob("*.md"):
+                try:
+                    dest_file = dest_tier / memory_file.name
+                    shutil.copy2(memory_file, dest_file)
+                    logger.info(f"[FilesystemManager] Restored {tier}/{memory_file.name} from previous turn")
+                    restored_count += 1
+                except Exception as e:
+                    logger.warning(f"[FilesystemManager] Failed to restore {memory_file.name}: {e}")
+
+        logger.info(f"[FilesystemManager] Restored {restored_count} memory files from previous turn")
+
     def _compute_tools_config_hash(self, servers_with_tools: List[Dict[str, Any]]) -> str:
         """Compute hash of tool configuration for shared_tools directory naming.
 

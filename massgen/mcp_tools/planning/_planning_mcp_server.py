@@ -288,30 +288,64 @@ async def create_server() -> fastmcp.FastMCP:
 
             # Auto-insert discovery tasks based on enabled features
             preparation_tasks = []
-            if mcp.skills_enabled:
+
+            # Capability identification should come first (before skills/tools search)
+            if mcp.auto_discovery_enabled:
                 preparation_tasks.append(
                     {
-                        "id": "prep_skills",
+                        "id": "identify_capabilities",
                         "description": (
-                            "Review available skills listed in your context and think creatively about which could help "
-                            "with this task. Consider both direct applications and creative uses. REQUIRED: When marking "
-                            "complete, provide completion_notes documenting which skills you considered and your decision "
-                            "(which to use OR why you're building from scratch)."
+                            "Before looking at available tools/skills, think: what technical capabilities would make this "
+                            "task easier? Focus on: AI capabilities you lack innate access to (web scraping, image "
+                            "understanding/generation, browser automation), packages/frameworks that would need installation, "
+                            "external API integrations, specialized processing (PDF, video, audio). These can be fulfilled by "
+                            "custom tools in your workspace, standard packages (pip install), or built-in libraries. For "
+                            "evaluation, consider: what outputs will you create that you cannot innately perceive? You cannot "
+                            "directly see rendered HTML, view images, or observe code execution results - you need technical "
+                            "capabilities to actually see and verify these outputs. REQUIRED: Create tasks/capability_plan.md "
+                            "with YAML frontmatter (created_at, task_context, status: discovery_pending, total_capabilities) "
+                            "and markdown body containing: Task Context section, Identified Capabilities section (for "
+                            "implementation), and Evaluation Capabilities section (for verification - focus on concrete "
+                            "technical capabilities to perceive outputs, NOT abstract concepts like 'accessibility'). Each "
+                            "capability lists Need, Category, and Priority. Leave Resolution subsections empty for now."
                         ),
                         "priority": "high",
                     },
                 )
-            if mcp.auto_discovery_enabled:
+
+            if mcp.skills_enabled:
+                depends = ["identify_capabilities"] if mcp.auto_discovery_enabled else []
                 preparation_tasks.append(
                     {
-                        "id": "prep_tools",
+                        "id": "prep_skills",
                         "description": (
-                            "List contents of custom_tools/ and servers/ directories to understand available capabilities. "
-                            "Search TOOL.md files for relevant functions. "
-                            "Think about both obvious and creative applications. REQUIRED: When marking complete, provide "
-                            "completion_notes documenting: (1) which tools you explored, (2) which you'll use and why, OR "
-                            "(3) why you're building manually."
+                            "Review available skills listed in your context for matches to your identified capabilities. "
+                            "REQUIRED: Read tasks/capability_plan.md, then update it: (1) Fill in Resolution subsections "
+                            "for any capabilities matched by skills (Status: fulfilled/partial, Fulfilled By: skill name/location), "
+                            "(2) Add a 'Skills Review Summary' section listing skills considered, selected skills with rationale, "
+                            "and gaps identified. Update frontmatter: status to 'skills_reviewed', updated_at, and fulfilled_count."
                         ),
+                        "depends_on": depends,
+                        "priority": "high",
+                    },
+                )
+            if mcp.auto_discovery_enabled:
+                depends = ["identify_capabilities"]
+                if mcp.skills_enabled:
+                    depends.append("prep_skills")
+                preparation_tasks.append(
+                    {
+                        "id": "find_matching_tools",
+                        "description": (
+                            "Search custom_tools/ and servers/ for tools matching remaining unfulfilled capabilities. "
+                            "Run `ls custom_tools/` and read TOOL.md files for promising matches. "
+                            "REQUIRED: Read tasks/capability_plan.md, then update it: (1) Fill in Resolution subsections "
+                            "for capabilities matched by tools (Status: fulfilled/partial/manual, Fulfilled By: tool name/location), "
+                            "(2) Add 'Tools Discovery Summary' section with tools searched, matching tools found, and integration plan, "
+                            "(3) Add 'Resolution Summary' section with counts and recommended approach. Update frontmatter: "
+                            "status to 'complete', updated_at, fulfilled_count, and manual_count."
+                        ),
+                        "depends_on": depends,
                         "priority": "high",
                     },
                 )
@@ -329,7 +363,7 @@ async def create_server() -> fastmcp.FastMCP:
                 cleanup_tasks.append(
                     {
                         "id": "save_memories",
-                        "description": "Save important findings and learnings to memory",
+                        "description": "Document decisions to optimize future work: skill/tool effectiveness, approach patterns, lessons learned, user preferences",
                         "priority": "medium",
                     },
                 )
@@ -348,6 +382,7 @@ async def create_server() -> fastmcp.FastMCP:
                     description=task_spec["description"],
                     task_id=task_spec["id"],
                     depends_on=task_spec.get("depends_on", []),
+                    priority=task_spec.get("priority", "medium"),
                 )
                 created_tasks.append(task.to_dict())
 
@@ -378,6 +413,7 @@ async def create_server() -> fastmcp.FastMCP:
         description: str,
         after_task_id: Optional[str] = None,
         depends_on: Optional[List[str]] = None,
+        priority: str = "medium",
     ) -> Dict[str, Any]:
         """
         Add a new task to the plan.
@@ -386,24 +422,36 @@ async def create_server() -> fastmcp.FastMCP:
             description: Task description
             after_task_id: Optional ID to insert after (otherwise appends)
             depends_on: Optional list of task IDs this task depends on
+            priority: Task priority (low/medium/high, defaults to medium)
 
         Returns:
             Dictionary with new task details
 
         Example:
-            # Add task with dependencies
+            # Add high-priority task with dependencies
             add_task(
                 "Deploy to production",
-                depends_on=["run_tests", "update_docs"]
+                depends_on=["run_tests", "update_docs"],
+                priority="high"
             )
         """
         try:
+            # Validate priority
+            valid_priorities = ["low", "medium", "high"]
+            if priority not in valid_priorities:
+                return {
+                    "success": False,
+                    "operation": "add_task",
+                    "error": f"Invalid priority '{priority}'. Must be one of: {', '.join(valid_priorities)}",
+                }
+
             plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id)
 
             task = plan.add_task(
                 description=description,
                 after_task_id=after_task_id,
                 depends_on=depends_on or [],
+                priority=priority,
             )
 
             # Save to filesystem if configured

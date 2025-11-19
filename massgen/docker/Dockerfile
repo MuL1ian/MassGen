@@ -80,8 +80,9 @@ RUN pip install --no-cache-dir \
     'playwright>=1.40.0' \
     'crawl4ai>=0.2.0'
 
-# Install Playwright browsers (chromium for browser automation tools)
-RUN python -m playwright install --with-deps chromium
+# Install Playwright system dependencies (requires root)
+# This installs fonts, libraries needed by browsers
+RUN python -m playwright install-deps
 
 # Create workspace and context directories
 # These will be mounted as volumes at runtime
@@ -97,6 +98,10 @@ RUN useradd -m -u 1000 -s /bin/bash massgen && \
 
 # Switch to non-root user
 USER massgen
+
+# Install Playwright browser binaries as massgen user
+# This puts browsers in /home/massgen/.cache/ms-playwright/ where the user can access them
+RUN python -m playwright install
 
 # Install uv (modern Python package installer for optional serena skill)
 # Enables uvx for running tools like serena on-demand without permanent installation

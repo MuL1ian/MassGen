@@ -112,6 +112,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         builtin_tools=["web_search", "code_interpreter"],
         filesystem_support="mcp",
         models=[
+            "gpt-5.1",
+            "gpt-5-codex",
             "gpt-5",
             "gpt-5-mini",
             "gpt-5-nano",
@@ -199,6 +201,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         builtin_tools=["google_search_retrieval", "code_execution"],
         filesystem_support="mcp",
         models=[
+            "gemini-3-pro-preview",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
             "gemini-2.0-flash-exp",

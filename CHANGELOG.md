@@ -7,16 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.14 (November 19, 2025)** - Parallel Tool Execution, Interactive Quickstart & Gemini 3 Pro
+Parallel tool execution with configurable concurrency controls across all backends, interactive config builder with guided quickstart workflow, MCP registry client enhancements, and Gemini 3 Pro model support.
+
 **v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
 Code-based tools system implementing CodeAct paradigm, MCP server registry with auto-discovery, comprehensive skills installation system, and TOOL.md documentation standard.
 
 **v0.1.12 (November 14, 2025)** - System Prompt Refactoring, Semantic Search & Multi-Agent Computer Use
 Major system prompt architecture redesign with new semantic search skills (semtools/serena), local skill execution support, and enhanced multi-agent computer use capabilities with Docker integration and visualization.
 
-**v0.1.11 (November 12, 2025)** - Skills System, Memory MCP & Rate Limiting
-Modular skills system for enhanced agent prompting, MCP-based memory management with filesystem integration for advanced workflows, and multi-dimensional rate limiting for Gemini API calls.
-
 ---
+
+## [0.1.14] - 2025-11-19
+
+### Added
+- **Parallel Tool Execution System**: Configurable concurrent tool execution across all backends with asyncio-based scheduling
+  - New `concurrent_tool_execution` configuration parameter for local parallel execution control
+  - New `parallel_tool_calls` parameter support for OpenAI Response API (controls model behavior)
+  - New `disable_parallel_tool_use` parameter for Claude backend (inverse toggle for tool parallelism)
+  - New `max_concurrent_tools` semaphore limit for execution speed control (default: 10)
+  - Enhanced `massgen/backend/response.py` with parallel execution infrastructure (+239 lines)
+  - Enhanced `massgen/backend/base_with_custom_tool_and_mcp.py` with `_execute_tool_calls` method (+186 lines)
+  - Enhanced `massgen/api_params_handler/_response_api_params_handler.py` with parameter handling (+20 lines)
+  - Unified handling of custom and MCP tool calls with optional concurrent execution
+  - Works with Response, ChatCompletions, Gemini, and Claude backends
+  - Model-level controls (parallel_tool_calls) separate from local execution controls (concurrent_tool_execution)
+
+- **Gemini 3 Pro Model Support**: Full integration for Google's Gemini 3 Pro model with function calling
+  - Enhanced `massgen/backend/gemini.py` with Gemini 3 Pro compatibility (60 lines modified)
+  - Fixed function calling behavior specific to Gemini 3 Pro model
+  - Native support for Gemini's parallel function calling capabilities
+
+### Changed
+- **Config Builder Enhancement**: Interactive quickstart workflow with guided configuration creation
+  - Enhanced `massgen/config_builder.py` with interactive prompts and improved UX (+394 lines)
+  - Enhanced `massgen/cli.py` with quickstart command integration and improved interface (+214 lines)
+  - Enhanced `massgen/backend/capabilities.py` with model metadata (+3 lines)
+  - Streamlined onboarding experience from setup to first run
+  - Improved provider selection and configuration validation
+  - Better integration with config selection workflow
+  - Better error messages and user guidance
+  - Previously introduced in v0.1.9, now significantly enhanced for user experience
+
+- **MCP Registry Client**: Enhanced MCP server metadata fetching with official registry integration
+  - New `massgen/mcp_tools/registry_client.py` for fetching server descriptions from official MCP registry (358 lines)
+  - New `massgen/tests/test_mcp_registry_client.py` comprehensive test suite (184 lines)
+  - Enhanced `massgen/mcp_tools/security.py` with registry integration (+49 lines)
+  - Fetches metadata from https://registry.modelcontextprotocol.io/v0/servers
+  - Enhances system prompts with server descriptions for better agent understanding
+  - Builds upon v0.1.13's MCP server registry (server_registry.py) with external registry support
+
+- **Planning System Enhancements**: Improved skill and tool search capabilities in planning mode
+  - Enhanced `massgen/mcp_tools/planning/_planning_mcp_server.py` with better search logic (+44 lines)
+  - Enhanced `massgen/system_prompt_sections.py` with refined planning prompts (+34 lines)
+  - Enhanced `massgen/orchestrator.py` with planning coordination (+21 lines)
+  - Enhanced `massgen/system_message_builder.py` with planning context (+12 lines)
+  - PR #534: Commit 98b1ec6f
+  - Better discovery of available skills and tools during planning phase
+  - Improved agent decision-making for tool selection
+  - More accurate task decomposition with tool awareness
+
+- **NLIP Routing Streamlining**: Simplified and unified NLIP execution flow across backends
+  - Refactored `massgen/backend/response.py` with streamlined routing (net -209 lines)
+  - Refactored `massgen/backend/claude.py` with unified handling (+98 lines modified)
+  - Refactored `massgen/backend/gemini.py` with consistent patterns (+178 lines modified)
+  - Unified custom and MCP tool call handling with improved NLIP routing
+  - Reduced code complexity while maintaining full NLIP functionality
+  - Better error handling and async management in NLIP message routing
+  - Builds upon v0.1.13's NLIP integration with cleaner implementation
+
+- **Coordination Tracking Enhancement**: Improved status monitoring for automation workflows
+  - Enhanced `massgen/coordination_tracker.py` with parallel tool execution tracking (+23 lines)
+  - Better visibility into concurrent tool execution status for automation mode
+
+### Documentations, Configurations and Resources
+
+- **Parallel Tool Execution Configuration Guide**: Comprehensive documentation for tool execution parallelism
+  - New `docs/parallel-tool-execution.md` complete configuration reference (179 lines)
+  - Explains model-level vs. local execution controls
+  - Backend-specific configuration examples for OpenAI, Claude, Gemini
+  - Quick reference for all parallelism-related parameters
+  - Execution flow diagrams and best practices
+
+- **Configuration Examples**: New YAML configurations demonstrating v0.1.14 features
+  - `massgen/configs/tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml`: Parallel tool execution example with configurable concurrency
+  - `massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml`: Updated with enhanced instructions for code-based tools (+52 lines)
+  - `massgen/configs/providers/gemini/gemini_3_pro.yaml`: Configuration template for Gemini 3 Pro model (30 lines)
+
+- **CI/CD Workflow Configuration**: Docker image publishing automation
+  - `.github/workflows/docker-publish.yml`: Automated Docker build and publish workflow for releases (60 lines)
+  - Integration with GitHub Container Registry for automated container deployment
+
+- **Docker Configuration Updates**: Enhanced Docker setup for development and deployment
+  - `massgen/docker/Dockerfile`: Improvements for standard Docker builds (+7 lines)
+  - `massgen/docker/Dockerfile.sudo`: Enhanced sudo mode support (+7 lines)
+
+### Technical Details
+- **Major Focus**: Parallel tool execution infrastructure, interactive quickstart experience, MCP registry client integration, Gemini 3 Pro support, NLIP routing optimization
+- **Contributors**: @praneeth999 @ncrispino and the MassGen team
 
 ## [0.1.13] - 2025-11-17
 

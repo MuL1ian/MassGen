@@ -124,6 +124,56 @@ MASSGEN_QUESTIONARY_STYLE = Style(
 )
 
 
+def read_multiline_input(prompt: str) -> str:
+    """Read user input with support for multi-line input using triple quotes.
+
+    If input starts with ''' or \""", continues reading until closing quotes.
+    Otherwise returns single line input.
+
+    Args:
+        prompt: The prompt to display to the user
+
+    Returns:
+        The complete user input (single or multi-line)
+    """
+    first_line = input(prompt).strip()
+
+    # Check for multi-line delimiters
+    if first_line.startswith('"""'):
+        delimiter = '"""'
+        content = first_line[3:]  # Remove opening delimiter
+    elif first_line.startswith("'''"):
+        delimiter = "'''"
+        content = first_line[3:]  # Remove opening delimiter
+    else:
+        # Single line input
+        return first_line
+
+    # Check if closing delimiter is on the same line
+    if delimiter in content:
+        return content[: content.index(delimiter)]
+
+    # Multi-line mode: read until closing delimiter
+    lines = [content] if content else []
+    print(f"   {BRIGHT_CYAN}(Multi-line mode: enter {delimiter} on a new line to finish){RESET}", flush=True)
+
+    while True:
+        try:
+            line = input("   ")
+            if delimiter in line:
+                # Found closing delimiter
+                before_delimiter = line[: line.index(delimiter)]
+                if before_delimiter:
+                    lines.append(before_delimiter)
+                break
+            lines.append(line)
+        except EOFError:
+            # Handle Ctrl+D
+            break
+
+    return "\n".join(lines)
+
+
 class ConfigurationError(Exception):
     """Configuration error for CLI."""
 
@@ -1822,6 +1872,11 @@ def prompt_for_context_paths(original_config: Dict[str, Any], orchestrator_cfg: 
     if not has_filesystem:
         return False
 
+    # Skip prompting if context_paths was explicitly configured (even if empty)
+    # This means user already made a decision during config creation (e.g., quickstart)
+    if "context_paths" in orchestrator_cfg:
+        return False
+
     # Show current context paths
     existing_paths = orchestrator_cfg.get("context_paths", [])
     cwd = Path.cwd()
@@ -2459,6 +2514,149 @@ def _select_package_example(examples: List[Tuple[str, Path]], console: Console) 
     return selected_config
 
 
+def check_docker_available() -> bool:
+    """Check if Docker is installed, running, and MassGen images are available.
+
+    Returns:
+        True if Docker is ready with MassGen images, False otherwise
+    """
+    import subprocess
+
+    # Check if Docker is installed and running
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+    # Check if MassGen sudo image exists
+    try:
+        result = subprocess.run(
+            ["docker", "images", "-q", "ghcr.io/massgen/mcp-runtime-sudo:latest"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    return False
+
+
+def setup_docker() -> None:
+    """Pull MassGen Docker executor images from GitHub Container Registry.
+
+    Pulls both standard and sudo variants for isolated code execution.
+    """
+    import subprocess
+
+    print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
+    print(f"{BRIGHT_CYAN}  🐳  MassGen Docker Setup{RESET}")
+    print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}\n")
+
+    # Check if Docker is installed
+    print(f"{BRIGHT_CYAN}Checking Docker installation...{RESET}", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            ["docker", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_RED}Error: Docker is not installed or not in PATH{RESET}")
+            print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
+            return
+        print(f"{BRIGHT_GREEN}✓{RESET}")
+    except FileNotFoundError:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: Docker is not installed{RESET}")
+        print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
+        return
+    except subprocess.TimeoutExpired:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: Docker command timed out{RESET}\n")
+        return
+
+    # Check if Docker daemon is running
+    print(f"{BRIGHT_CYAN}Checking Docker daemon...{RESET}", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_RED}Error: Docker daemon is not running{RESET}")
+            print(f"{BRIGHT_YELLOW}Please start Docker and try again{RESET}\n")
+            return
+        print(f"{BRIGHT_GREEN}✓{RESET}")
+    except subprocess.TimeoutExpired:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: Docker daemon check timed out{RESET}\n")
+        return
+
+    # Images to pull
+    images = [
+        ("ghcr.io/massgen/mcp-runtime:latest", "Standard image"),
+        ("ghcr.io/massgen/mcp-runtime-sudo:latest", "Sudo image (for package installation)"),
+    ]
+
+    print(f"\n{BRIGHT_CYAN}Pulling Docker images...{RESET}\n")
+
+    success_count = 0
+    for image, description in images:
+        print(f"  {BRIGHT_CYAN}Pulling {image}{RESET}")
+        print(f"  {BRIGHT_YELLOW}({description}){RESET}")
+
+        try:
+            result = subprocess.run(
+                ["docker", "pull", image],
+                capture_output=False,  # Show progress
+                timeout=600,  # 10 minutes max
+            )
+
+            if result.returncode == 0:
+                print(f"  {BRIGHT_GREEN}✓ Pulled successfully{RESET}\n")
+                success_count += 1
+            else:
+                print(f"  {BRIGHT_RED}✗ Failed to pull{RESET}\n")
+        except subprocess.TimeoutExpired:
+            print(f"  {BRIGHT_RED}✗ Timed out{RESET}\n")
+        except Exception as e:
+            print(f"  {BRIGHT_RED}✗ Error: {e}{RESET}\n")
+
+    # Summary
+    if success_count == len(images):
+        print(f"{BRIGHT_GREEN}{'=' * 60}{RESET}")
+        print(f"{BRIGHT_GREEN}  ✅ Docker setup complete!{RESET}")
+        print(f"{BRIGHT_GREEN}{'=' * 60}{RESET}")
+        print(f"\n{BRIGHT_CYAN}You can now use Docker execution mode in your configs.{RESET}")
+        print(f"{BRIGHT_CYAN}Run 'massgen --quickstart' to create a config with Docker enabled.{RESET}\n")
+    elif success_count > 0:
+        print(f"{BRIGHT_YELLOW}{'=' * 60}{RESET}")
+        print(f"{BRIGHT_YELLOW}  ⚠️  Partial success: {success_count}/{len(images)} images pulled{RESET}")
+        print(f"{BRIGHT_YELLOW}{'=' * 60}{RESET}\n")
+    else:
+        print(f"{BRIGHT_RED}{'=' * 60}{RESET}")
+        print(f"{BRIGHT_RED}  ❌ Docker setup failed{RESET}")
+        print(f"{BRIGHT_RED}{'=' * 60}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}The images may not be published yet.{RESET}")
+        print(f"{BRIGHT_YELLOW}You can build locally instead:{RESET}")
+        print("  bash massgen/docker/build.sh --sudo\n")
+
+
 def should_run_builder() -> bool:
     """Check if config builder should run automatically.
 
@@ -2475,6 +2673,7 @@ def print_help_messages():
 
     help_content = """[dim]💬  Type your questions below
 💡  Use slash commands: [cyan]/help[/cyan], [cyan]/quit[/cyan], [cyan]/reset[/cyan], [cyan]/status[/cyan], [cyan]/config[/cyan]
+📝  For multi-line input: start with [cyan]\"\"\"[/cyan] or [cyan]\'\'\'[/cyan]
 ⌨️   Press [cyan]Ctrl+C[/cyan] to exit[/dim]"""
 
     help_panel = Panel(
@@ -2699,7 +2898,7 @@ async def run_interactive_mode(
                     rich_console.print(f"\n[bold blue]👤 User:[/bold blue] {question}")
                     initial_question = None  # Clear so we prompt on subsequent turns
                 else:
-                    question = input(f"\n{BRIGHT_BLUE}👤 User:{RESET} ").strip()
+                    question = read_multiline_input(f"\n{BRIGHT_BLUE}👤 User:{RESET} ")
 
                 # Handle slash commands
                 if question.startswith("/"):
@@ -2731,6 +2930,12 @@ async def run_interactive_mode(
                         )
                         print("   /status              - Show current status", flush=True)
                         print("   /config              - Open config file in editor", flush=True)
+                        print(f"\n{BRIGHT_CYAN}💡 Multi-line Input:{RESET}", flush=True)
+                        print("   Start with \"\"\" or ''' and end with the same delimiter", flush=True)
+                        print('   Example: """', flush=True)
+                        print("            Your multi-line", flush=True)
+                        print("            input here", flush=True)
+                        print('            """', flush=True)
                         continue
                     elif command == "/status":
                         print(f"\n{BRIGHT_CYAN}📊 Current Status:{RESET}", flush=True)
@@ -3341,6 +3546,11 @@ Environment Variables:
         help="Launch interactive configuration builder to create config file",
     )
     parser.add_argument(
+        "--quickstart",
+        action="store_true",
+        help="Quick setup: specify number of agents and models, get a full-featured config with code tools, Docker, skills",
+    )
+    parser.add_argument(
         "--setup",
         action="store_true",
         help="Launch interactive API key setup wizard to configure credentials",
@@ -3349,6 +3559,11 @@ Environment Variables:
         "--setup-skills",
         action="store_true",
         help="Install skills (openskills CLI, Anthropic collection, Crawl4AI)",
+    )
+    parser.add_argument(
+        "--setup-docker",
+        action="store_true",
+        help="Pull MassGen Docker executor images for isolated code execution",
     )
     parser.add_argument(
         "--list-examples",
@@ -3555,6 +3770,27 @@ Environment Variables:
         else:
             print(f"\n{BRIGHT_YELLOW}⚠️  No API keys configured{RESET}")
             print(f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to set them up{RESET}\n")
+
+        # Offer to set up Docker
+        try:
+            docker_choice = input(f"{BRIGHT_CYAN}Would you also like to set up Docker images for code execution? [Y/n]: {RESET}").strip().lower()
+            if docker_choice in ["y", "yes", ""]:
+                setup_docker()
+        except (KeyboardInterrupt, EOFError):
+            print()
+
+        # Offer to install skills
+        try:
+            skills_choice = input(f"{BRIGHT_CYAN}Would you like to install skills (openskills, Anthropic collection)? [Y/n]: {RESET}").strip().lower()
+            if skills_choice in ["y", "yes", ""]:
+                from .utils.skills_installer import install_skills
+
+                install_skills()
+        except (KeyboardInterrupt, EOFError):
+            print()
+
+        print(f"\n{BRIGHT_GREEN}Setup complete!{RESET}")
+        print(f"{BRIGHT_CYAN}Run 'massgen --quickstart' to create a config and start.{RESET}\n")
         return
 
     # Install skills if requested
@@ -3562,6 +3798,11 @@ Environment Variables:
         from .utils.skills_installer import install_skills
 
         install_skills()
+        return
+
+    # Setup Docker images if requested
+    if args.setup_docker:
+        setup_docker()
         return
 
     # Launch interactive config selector if requested
@@ -3573,6 +3814,36 @@ Environment Variables:
             # Continue to main() with the selected config
         else:
             # User cancelled selection
+            return
+
+    # Launch quickstart if requested
+    if args.quickstart:
+        builder = ConfigBuilder()
+        result = builder.run_quickstart()
+
+        if result and len(result) == 2:
+            filepath, question = result
+            if filepath and question:
+                # Update args to use the newly created config and launch interactive mode with initial question
+                args.config = filepath
+                args.question = question
+                # Store initial question for interactive mode (don't run single-question mode)
+                args.interactive_with_initial_question = question
+                args.question = None  # Clear to trigger interactive mode instead of single-question
+            elif filepath and question == "":
+                # Empty string means auto-launch into interactive mode (no initial question)
+                args.config = filepath
+                args.question = None  # Trigger interactive mode
+            elif filepath:
+                # Config created but user chose not to run
+                print(f"\n✅ Configuration saved to: {filepath}")
+                print(f'Run with: massgen --config {filepath} "Your question"')
+                return
+            else:
+                # User cancelled
+                return
+        else:
+            # Builder returned None (cancelled or error)
             return
 
     # Launch interactive config builder if requested

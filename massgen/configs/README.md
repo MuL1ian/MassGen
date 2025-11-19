@@ -227,7 +227,52 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.13 - Latest
+### v0.1.14 - Latest
+**New Features:** Parallel Tool Execution, Interactive Quickstart, Gemini 3 Pro Support & MCP Registry Client
+
+**Configuration Files:**
+- `tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml` - Parallel tool execution example with configurable concurrency
+- `providers/gemini/gemini_3_pro.yaml` - Configuration for Gemini 3 Pro model with function calling
+- `tools/filesystem/code_based/example_code_based_tools.yaml` - Enhanced instructions for code-based tools
+- `.github/workflows/docker-publish.yml` - Automated Docker build and publish workflow
+
+**Key Features:**
+- **Parallel Tool Execution System**: Configurable concurrent tool execution across all backends with asyncio-based scheduling and semaphore limits
+- **Gemini 3 Pro Support**: Full integration for Google's Gemini 3 Pro model with native function calling capabilities
+- **Interactive Quickstart Workflow**: Streamlined onboarding experience with guided configuration creation and improved UX
+- **MCP Registry Client**: Enhanced server metadata fetching from official MCP registry for better agent understanding
+- **Planning System Enhancements**: Improved skill and tool search capabilities in planning mode for better agent decision-making
+- **NLIP Routing Streamlining**: Unified execution flow across backends with simplified routing implementation
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Interactive Quickstart - guided configuration creation
+uv run massgen --quickstart  # Walk through agent setup and start interactive mode
+
+# Parallel Tool Execution - concurrent tool execution with configurable limits
+# Prerequisites: .env with OPENAI_API_KEY, npx available for MCP weather server
+uv run python -m massgen.cli \
+  --config massgen/configs/tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml \
+  "whats the sum of 123 and 456? and whats the weather of Tokyo and london?"
+
+# Gemini 3 Pro - Google's latest model with function calling
+# Prerequisites: Docker running, GOOGLE_API_KEY in .env
+uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml \
+  "Create a website about Bob Dylan"
+
+# Enhanced Config Builder - interactive configuration wizard
+uv run massgen --init  # Full configuration wizard with use case selection
+
+# MCP Registry Client - automatic server description integration
+# Prerequisites: OPENAI_API_KEY in .env, npx for MCP server
+uv run massgen --config @examples/tools/mcp/gpt5_nano_mcp_example \
+  "whats the weather of Tokyo"
+```
+
+### v0.1.13
 **New Features:** Code-Based Tools, MCP Registry, Skills Installation & NLIP Integration
 
 **Configuration Files:**

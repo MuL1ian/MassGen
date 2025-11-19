@@ -1,0 +1,358 @@
+# -*- coding: utf-8 -*-
+"""
+MCP Registry Client
+
+Fetches server metadata (descriptions, versions) from the official
+MCP registry at https://registry.modelcontextprotocol.io/v0/servers.
+
+This client is used to enhance the system prompt with descriptions of
+MCP servers, helping agents understand what tools are available.
+"""
+
+import hashlib
+import json
+import logging
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+
+def extract_package_info_from_config(mcp_config: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+    """
+    Extract package name and registry type from MCP server config.
+
+    Parses common MCP server launch patterns to identify the package.
+
+    Args:
+        mcp_config: MCP server configuration dict with 'command' and 'args'
+
+    Returns:
+        Tuple of (package_name, registry_type) or None if cannot determine
+
+    Example:
+        >>> config = {"command": "npx", "args": ["-y", "@upstash/context7-mcp"]}
+        >>> extract_package_info_from_config(config)
+        ('@upstash/context7-mcp', 'npm')
+    """
+    command = mcp_config.get("command", "")
+    args = mcp_config.get("args", [])
+
+    if not command or not args:
+        return None
+
+    # npx: "npx -y @package/name" or "npx @package/name"
+    if command in ("npx", "npx.cmd"):
+        for i, arg in enumerate(args):
+            # Skip flags
+            if arg.startswith("-"):
+                continue
+            # First non-flag argument is the package
+            return (arg, "npm")
+
+    # uv: "uv tool run package-name" or "uv run package-name"
+    if command == "uv":
+        # Find package after "tool run" or "run"
+        for i, arg in enumerate(args):
+            if arg == "run" and i + 1 < len(args):
+                return (args[i + 1], "pypi")
+
+    # docker/podman: "docker run image:tag"
+    if command in ("docker", "podman"):
+        for i, arg in enumerate(args):
+            if arg == "run":
+                # Find image (skip flags after run)
+                for j in range(i + 1, len(args)):
+                    if not args[j].startswith("-"):
+                        # Docker image format
+                        image = args[j]
+                        return (image, "docker")
+
+    # node: "node path/to/script.js" - can't determine package
+    # python: "python -m package" - try to extract
+    if command in ("python", "python3"):
+        for i, arg in enumerate(args):
+            if arg == "-m" and i + 1 < len(args):
+                return (args[i + 1], "pypi")
+
+    return None
+
+
+def get_mcp_server_descriptions(
+    mcp_servers: List[Dict[str, Any]],
+    fallback_descriptions: Optional[Dict[str, str]] = None,
+    use_cache: bool = True,
+) -> Dict[str, str]:
+    """
+    Fetch descriptions for all MCP servers from the registry.
+
+    Args:
+        mcp_servers: List of MCP server configurations
+        fallback_descriptions: Dict of server_name -> description to use
+                              if registry lookup fails
+        use_cache: Whether to use cached results
+
+    Returns:
+        Dict mapping server name to description
+
+    Example:
+        >>> servers = [
+        ...     {"name": "context7", "command": "npx", "args": ["-y", "@upstash/context7-mcp"]},
+        ...     {"name": "brave", "command": "npx", "args": ["-y", "@brave/brave-search-mcp-server"]}
+        ... ]
+        >>> descriptions = get_mcp_server_descriptions(servers)
+        >>> print(descriptions)
+        {'context7': 'Up-to-date documentation for libraries...', 'brave': 'Web search...'}
+    """
+    if fallback_descriptions is None:
+        fallback_descriptions = {}
+
+    client = MCPRegistryClient()
+    descriptions = {}
+
+    for server in mcp_servers:
+        server_name = server.get("name", "unknown")
+
+        # First try to extract package info and query registry
+        package_info = extract_package_info_from_config(server)
+
+        if package_info:
+            package_name, registry_type = package_info
+            logger.debug(f"Looking up {server_name} -> {package_name} ({registry_type})")
+
+            server_info = client.find_server_by_package(
+                package_name,
+                registry_type,
+                use_cache=use_cache,
+            )
+
+            if server_info and server_info.get("description"):
+                descriptions[server_name] = server_info["description"]
+                continue
+
+        # Fall back to inline description from config
+        if server.get("description"):
+            descriptions[server_name] = server["description"]
+            continue
+
+        # Fall back to provided fallback descriptions
+        if server_name in fallback_descriptions:
+            descriptions[server_name] = fallback_descriptions[server_name]
+            continue
+
+        # Last resort: generate generic description
+        descriptions[server_name] = f"MCP server '{server_name}'"
+
+    return descriptions
+
+
+# Cache MCP registry lookups for 24 hours
+CACHE_DURATION_SECONDS = 24 * 60 * 60
+
+
+class MCPRegistryClient:
+    """
+    Client for querying the MCP registry.
+
+    Fetches server metadata from the official MCP registry and caches
+    results to minimize API calls.
+
+    Example:
+        >>> client = MCPRegistryClient()
+        >>> info = client.find_server_by_package("@upstash/context7-mcp", "npm")
+        >>> if info:
+        ...     print(info['description'])
+        'Up-to-date documentation for libraries and frameworks'
+    """
+
+    BASE_URL = "https://registry.modelcontextprotocol.io/v0"
+
+    def __init__(self, cache_dir: Optional[Path] = None):
+        """
+        Initialize MCP registry client.
+
+        Args:
+            cache_dir: Directory for caching registry responses.
+                      Defaults to ~/.massgen/mcp_cache/
+        """
+        if cache_dir is None:
+            cache_dir = Path.home() / ".massgen" / "mcp_cache"
+        self.cache_dir = cache_dir
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_cache_key(self, package_name: str, registry_type: str) -> str:
+        """Generate cache key for a package lookup."""
+        content = f"{package_name}:{registry_type}"
+        return hashlib.md5(content.encode()).hexdigest()
+
+    def _get_cache_path(self, cache_key: str) -> Path:
+        """Get path to cache file for a given key."""
+        return self.cache_dir / f"{cache_key}.json"
+
+    def _read_cache(self, package_name: str, registry_type: str) -> Optional[Dict[Any, Any]]:
+        """
+        Read cached server info if available and not expired.
+
+        Args:
+            package_name: Package identifier (e.g., "@upstash/context7-mcp")
+            registry_type: Registry type ("npm", "pypi", "docker")
+
+        Returns:
+            Cached server info dict, or None if cache miss/expired
+        """
+        cache_key = self._get_cache_key(package_name, registry_type)
+        cache_path = self._get_cache_path(cache_key)
+
+        if not cache_path.exists():
+            return None
+
+        try:
+            with open(cache_path) as f:
+                cached = json.load(f)
+
+            # Check expiration
+            if time.time() - cached.get("timestamp", 0) > CACHE_DURATION_SECONDS:
+                logger.debug(f"Cache expired for {package_name}")
+                return None
+
+            logger.debug(f"Cache hit for {package_name}")
+            return cached.get("data")
+
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Failed to read cache for {package_name}: {e}")
+            return None
+
+    def _write_cache(self, package_name: str, registry_type: str, data: Optional[Dict]) -> None:
+        """
+        Write server info to cache.
+
+        Args:
+            package_name: Package identifier
+            registry_type: Registry type
+            data: Server info dict to cache (or None if not found)
+        """
+        cache_key = self._get_cache_key(package_name, registry_type)
+        cache_path = self._get_cache_path(cache_key)
+
+        try:
+            with open(cache_path, "w") as f:
+                json.dump(
+                    {
+                        "timestamp": time.time(),
+                        "package": package_name,
+                        "registry_type": registry_type,
+                        "data": data,
+                    },
+                    f,
+                    indent=2,
+                )
+            logger.debug(f"Cached result for {package_name}")
+        except IOError as e:
+            logger.warning(f"Failed to write cache for {package_name}: {e}")
+
+    def find_server_by_package(
+        self,
+        package_name: str,
+        registry_type: str = "npm",
+        use_cache: bool = True,
+    ) -> Optional[Dict[Any, Any]]:
+        """
+        Find a server in the MCP registry by its package name.
+
+        Args:
+            package_name: Package identifier (e.g., "@upstash/context7-mcp")
+            registry_type: Registry type ("npm", "pypi", "docker", "oci")
+            use_cache: Whether to use cached results (default: True)
+
+        Returns:
+            Server metadata dict including name, description, version, packages.
+            Returns None if server not found or API error occurs.
+
+        Example:
+            >>> client = MCPRegistryClient()
+            >>> server = client.find_server_by_package("@brave/brave-search-mcp-server", "npm")
+            >>> print(server['description'])
+            'Web search via Brave API'
+        """
+        # Check cache first
+        if use_cache:
+            cached = self._read_cache(package_name, registry_type)
+            if cached is not None:
+                return cached
+
+        # Query registry
+        try:
+            result = self._find_in_listing(package_name, registry_type)
+            # Cache the result (even if None)
+            if use_cache:
+                self._write_cache(package_name, registry_type, result)
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to query MCP registry for {package_name}: {e}")
+            return None
+
+    def _find_in_listing(
+        self,
+        package_name: str,
+        registry_type: str,
+    ) -> Optional[Dict]:
+        """
+        List all servers and find by package identifier.
+
+        Args:
+            package_name: Package identifier to search for
+            registry_type: Registry type to match
+
+        Returns:
+            Server dict if found, None otherwise
+        """
+        url = f"{self.BASE_URL}/servers"
+        cursor = None
+        total_checked = 0
+        max_pages = 50  # Safety limit
+
+        for page_num in range(max_pages):
+            params = {"limit": 100}
+            if cursor:
+                params["cursor"] = cursor
+
+            try:
+                response = requests.get(url, params=params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+            except (requests.RequestException, ValueError) as e:
+                logger.error(f"Registry API error on page {page_num}: {e}")
+                return None
+
+            # API uses 'servers' not 'data'
+            servers = data.get("servers", [])
+
+            # Check each server's packages
+            for server_entry in servers:
+                server = server_entry.get("server", {})
+                total_checked += 1
+
+                # Check server name for match (case-insensitive)
+                if package_name.lower() in server.get("name", "").lower():
+                    logger.debug(f"Found by name match: {server.get('name')}")
+                    return server
+
+                # Check packages
+                packages = server.get("packages", [])
+                for pkg in packages:
+                    if pkg.get("registryType") == registry_type and pkg.get("identifier") == package_name:
+                        logger.debug(f"Found by package match: {server.get('name')}")
+                        return server
+
+            # Check for next page
+            cursor = data.get("metadata", {}).get("nextCursor")
+            if not cursor:
+                logger.debug(f"Searched all pages, total servers: {total_checked}")
+                break
+
+        logger.debug(f"Server not found for {package_name} ({registry_type})")
+        return None

@@ -97,6 +97,8 @@ class APIParamsHandlerBase(ABC):
             "instance_id",
             # Rate limiting (handled by rate_limiter.py)
             "enable_rate_limit",
+            "concurrent_tool_execution",  # Local execution control (not sent to API)
+            "max_concurrent_tools",  # Local execution control (not sent to API)
         }
 
     def build_base_api_params(

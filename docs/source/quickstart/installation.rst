@@ -32,40 +32,28 @@ The easiest way to get started with MassGen is via pip or uv:
 Getting Started - Complete First-Run Flow
 ------------------------------------------
 
-**The simplest way to start:** Just run ``massgen`` and you'll be guided through everything:
+**Quickstart Setup** (Fastest way to get running):
 
 .. code-block:: bash
 
-   massgen
+   # Step 1: Set up API keys, Docker, and skills
+   uv run massgen --setup
 
-**What happens next:**
+   # Step 2: Create a simple config and start
+   uv run massgen --quickstart
 
-1. **API Key Setup** (only if needed)
+**What ``--setup`` does:**
 
-   * MassGen detects if you have cloud provider API keys configured
-   * If not, shows an interactive wizard to configure OpenAI, Anthropic, Google, etc.
-   * Keys are saved to ``~/.config/massgen/.env`` for future use
-   * If you already have keys, this step is skipped automatically
+* Configures your API keys (OpenAI, Anthropic, Google, xAI)
+* Offers to set up Docker images for code execution
+* Offers to install skills (openskills, Anthropic collection)
 
-2. **Choose Your Configuration**
+**What ``--quickstart`` does:**
 
-   You'll see two options:
-
-   * **📦 Browse ready-to-use configs/examples** - Select from 100+ pre-built configurations
-   * **Build from template** - Create custom agents with guided setup (Simple Q&A, Research & Analysis, Code & Files, etc.)
-
-3. **Save as Default** (optional)
-
-   * When browsing existing configs or examples, you'll be asked: "Save this as your default config?"
-   * Choose **Yes** to use it automatically on future ``massgen`` runs
-   * Choose **No** to try it once without saving
-
-4. **Start Chatting Immediately**
-
-   * After selection, you're **launched directly into interactive mode**
-   * Multi-turn conversation with your chosen configuration
-   * Type your questions and get collaborative agent responses
-   * Session history is automatically saved
+* Asks how many agents you want (1-5, default 3)
+* Asks which backend/model for each agent (or same for all)
+* Auto-detects Docker availability and configures execution mode
+* Creates a ready-to-use config and launches into interactive mode
 
 **After first-run setup:**
 
@@ -79,6 +67,32 @@ Getting Started - Complete First-Run Flow
 
 .. tip::
    **The entire flow takes 1-2 minutes.** You'll be in an interactive conversation with your agents immediately after setup!
+
+**Alternative: Full Setup Wizard**
+
+For more control over configuration, use the full wizard:
+
+.. code-block:: bash
+
+   massgen --init
+
+This guides you through:
+
+1. **Choose Your Configuration**
+
+   * **📦 Browse ready-to-use configs/examples** - Select from 100+ pre-built configurations
+   * **Build from template** - Create custom agents with guided setup (Simple Q&A, Research & Analysis, Code & Files, etc.)
+
+2. **Save as Default** (optional)
+
+   * When browsing existing configs or examples, you'll be asked: "Save this as your default config?"
+   * Choose **Yes** to use it automatically on future ``massgen`` runs
+   * Choose **No** to try it once without saving
+
+3. **Start Chatting Immediately**
+
+   * After selection, you're **launched directly into interactive mode**
+   * Multi-turn conversation with your chosen configuration
 
 Supported API Key Providers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -558,6 +572,57 @@ If you want to use AG2 agents alongside native MassGen agents:
    pip install massgen[external]
 
 This is **only required** if you plan to use AG2 configuration files.
+
+Docker Image Setup
+==================
+
+MassGen uses Docker containers for secure code execution. The Docker images provide a sandboxed environment where agents can safely run code, install packages, and execute shell commands.
+
+Install Docker Images via CLI
+------------------------------
+
+The easiest way to set up Docker images is using the built-in command:
+
+.. code-block:: bash
+
+   # Pull Docker images from GitHub Container Registry
+   uv run massgen --setup-docker
+
+This will pull:
+
+- **ghcr.io/massgen/mcp-runtime:latest** - Standard runtime image
+- **ghcr.io/massgen/mcp-runtime-sudo:latest** - Runtime with sudo support
+
+.. note::
+   The ``--setup`` command will offer to run ``--setup-docker`` for you automatically.
+
+**Prerequisites:**
+
+- Docker Desktop or Docker Engine must be installed and running
+- On macOS/Linux: ``docker info`` should work without sudo
+- On Windows: Docker Desktop must be running
+
+**Verifying Docker Setup:**
+
+.. code-block:: bash
+
+   # Check Docker is running
+   docker info
+
+   # Check MassGen images are available
+   docker images | grep massgen
+
+You should see both ``mcp-runtime`` and ``mcp-runtime-sudo`` images listed.
+
+**When is Docker needed?**
+
+Docker is required when using:
+
+- ``command_line_execution_mode: docker`` in your config
+- Code-based tools with Docker isolation
+- The ``--quickstart`` command with Docker execution mode
+
+If Docker isn't available, ``--quickstart`` will automatically configure local execution mode (more restricted but still functional).
 
 Skills Installation
 ===================
