@@ -43,8 +43,8 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 |---------|--------|---------|-------|----------|
 | **v0.1.15** | 11/21/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
 | | | Git Worktrees for Multi-Agent | @ncrispino | Use Git worktrees for different agents to enable parallel development workflows |
-| **v0.1.16** | 11/24/25 | Parallel File Operations | @ncrispino | Increase parallelism and standard efficiency evaluation |
-| | | Launch Custom Tools in Docker | @ncrispino | Enable custom tools to run in isolated Docker containers for security and portability |
+| **v0.1.16** | 11/24/25 | Launch Custom Tools in Docker | @ncrispino | Enable custom tools to run in isolated Docker containers for security and portability |
+| | | Improve Consistency of Memory & Tool Reminders | @ncrispino | Enhance memory and tool reminder consistency across agents |
 | **v0.1.17** | 11/26/25 | MassGen Terminal Evaluation | @ncrispino | Self-evaluation and improvement of frontend/UI |
 | | | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
 
@@ -90,20 +90,11 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.16 - Performance Optimization & Docker Tools
+## 📋 v0.1.16 - Docker Tools & Expanded Integrations
 
 ### Features
 
-**1. Parallel File Operations & Performance** (@ncrispino)
-- Issue: [#441](https://github.com/massgen/MassGen/issues/441)
-- Increase parallelism of file read operations for improved performance
-- Standard methodology for efficiency evaluation and benchmarking
-- Optimized file I/O for multi-agent scenarios
-- Performance metrics and monitoring framework
-- Comprehensive efficiency evaluation with standard metrics
-- **Use Case**: Increase parallelism and efficiency with standard evaluation metrics, reducing file operation latency in multi-agent workflows
-
-**2. Launch Custom Tools in Docker** (@ncrispino)
+**1. Launch Custom Tools in Docker** (@ncrispino)
 - Issue: [#510](https://github.com/massgen/MassGen/issues/510)
 - Enable custom tools to run in isolated Docker containers
 - Automatic containerization of custom tool execution
@@ -113,16 +104,22 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Integration with existing Docker infrastructure
 - **Use Case**: Run custom tools in isolated Docker containers for enhanced security, enabling safe execution of untrusted code and ensuring consistent tool behavior across environments
 
+**2. Improve Consistency of Memory & Tool Reminders** (@ncrispino)
+- Issue: [#537](https://github.com/massgen/MassGen/issues/537)
+- Enhance consistency of memory retrieval across agents
+- Improve tool reminder system for better agent awareness
+- Standardize memory access patterns
+- Optimize tool suggestion timing and relevance
+- **Use Case**: Ensure agents have consistent access to shared memory and receive relevant tool reminders at appropriate times, improving coordination and task execution quality
+
 ### Success Criteria
-- ✅ Parallel file reads demonstrate measurable performance improvement
-- ✅ Efficiency evaluation framework established with clear metrics
-- ✅ Standard evaluation methodology implemented and documented
-- ✅ Benchmarking shows improvements in real-world scenarios
-- ✅ Feature maintains data consistency and safety
 - ✅ Custom tools successfully launch in Docker containers
 - ✅ Security isolation prevents tools from affecting host system
 - ✅ Automatic cleanup of Docker resources after tool execution
 - ✅ Tool execution performance comparable to native execution
+- ✅ Memory retrieval is consistent across all agents
+- ✅ Tool reminders appear at appropriate times with relevant suggestions
+- ✅ Memory access patterns are standardized and documented
 
 ---
 
@@ -282,12 +279,19 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#441](https://github.com/massgen/MassGen/issues/441)
 - Increase parallelism of file read operations
 - Standard efficiency evaluation and benchmarking methodology
-- **Target:** v0.1.16
+- **Status:** ✅ Completed in v0.1.14
 
 ### Track: Launch Custom Tools in Docker (@ncrispino, nickcrispino)
 - Issue: [#510](https://github.com/massgen/MassGen/issues/510)
 - Enable custom tools to run in isolated Docker containers
 - Security isolation and portability for custom tool execution
+- **Target:** v0.1.16
+
+### Track: Improve Consistency of Memory & Tool Reminders (@ncrispino, nickcrispino)
+- Issue: [#537](https://github.com/massgen/MassGen/issues/537)
+- Enhance consistency of memory retrieval across agents
+- Improve tool reminder system for better agent awareness
+- Standardize memory access patterns
 - **Target:** v0.1.16
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)

@@ -250,7 +250,7 @@ Most configurations use environment variables for API keys:so
 pip install --upgrade massgen
 
 # Interactive Quickstart - guided configuration creation
-massgen --quickstart  # Walk through agent setup and start interactive mode
+uv run massgen --quickstart  # Walk through agent setup and start interactive mode
 
 # Parallel Tool Execution - concurrent tool execution with configurable limits
 # Prerequisites: .env with OPENAI_API_KEY, npx available for MCP weather server
@@ -264,11 +264,11 @@ uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml \
   "Create a website about Bob Dylan"
 
 # Enhanced Config Builder - interactive configuration wizard
-massgen --init  # Full configuration wizard with use case selection
+uv run massgen --init  # Full configuration wizard with use case selection
 
 # MCP Registry Client - automatic server description integration
 # Prerequisites: OPENAI_API_KEY in .env, npx for MCP server
-massgen --config @examples/tools/mcp/gpt5_nano_mcp_example \
+uv run massgen --config @examples/tools/mcp/gpt5_nano_mcp_example \
   "whats the weather of Tokyo"
 ```
 

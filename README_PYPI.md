@@ -161,7 +161,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 **What's New in v0.1.14:**
 - **⚡ Parallel Tool Execution System** - Configurable concurrent tool execution across all backends
-- **🤖 Gemini 3 Pro Model Support** - Full integration for Google's latest Gemini 3 Pro with function calling
+- **🤖 Gemini 3 Pro Model Support** - Full integration for Google's latest Gemini 3 Pro
 - **🚀 Interactive Quickstart Workflow** - Streamlined onboarding from setup to first run
 - **🔍 MCP Registry Client** - Enhanced server metadata fetching from official MCP registry
 
@@ -182,7 +182,7 @@ pip install --upgrade massgen
 uv pip install massgen
 
 # Interactive Quickstart - guided configuration creation
-massgen --quickstart  # Walk through agent setup and start interactive mode
+uv run massgen --quickstart  # Walk through agent setup and start interactive mode
 
 # Parallel Tool Execution - concurrent tool execution with configurable limits
 uv run python -m massgen.cli \
@@ -194,10 +194,10 @@ uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml \
   "Create a website about Bob Dylan"
 
 # Enhanced Config Builder - interactive configuration wizard
-massgen --init  # Full configuration wizard with use case selection
+uv run massgen --init  # Full configuration wizard with use case selection
 
 # MCP Registry Client - automatic server description integration
-massgen --config @examples/tools/mcp/gpt5_nano_mcp_example \
+uv run massgen --config @examples/tools/mcp/gpt5_nano_mcp_example \
   "whats the weather of Tokyo"
 ```
 
