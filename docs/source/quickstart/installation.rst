@@ -60,10 +60,10 @@ Getting Started - Complete First-Run Flow
 .. code-block:: bash
 
    # Start conversation with your default config
-   massgen
+   uv run massgen
 
    # Or run a single query
-   massgen "Your question here"
+   uv run massgen "Your question here"
 
 .. tip::
    **The entire flow takes 1-2 minutes.** You'll be in an interactive conversation with your agents immediately after setup!
@@ -74,7 +74,7 @@ For more control over configuration, use the full wizard:
 
 .. code-block:: bash
 
-   massgen --init
+   uv run massgen --init
 
 This guides you through:
 
@@ -174,12 +174,12 @@ You can re-run the API key wizard anytime:
 .. code-block:: bash
 
    # Launch API key setup
-   massgen --setup
+   uv run massgen --setup
 
 First-Run Setup Flow Walkthrough
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When you run ``massgen`` for the first time, here's what you'll see:
+When you run ``uv run massgen`` for the first time, here's what you'll see:
 
 .. code-block:: text
 
@@ -236,7 +236,7 @@ After selecting, you'll be asked:
 
    Save this as your default config? [y/N]:
 
-* Choose **y** to save and use automatically on future runs
+* Choose **y** to save and use automatically on future ``uv run massgen`` runs
 * Choose **n** to try it once without saving
 
 Then immediately launches into interactive mode! 🚀
@@ -266,7 +266,7 @@ Select a template to create a custom configuration with guided setup:
 
    🚀 Launching interactive mode...
 
-Your configuration is saved to ``~/.config/massgen/config.yaml`` and will be used for all future runs.
+Your configuration is saved to ``~/.config/massgen/config.yaml`` and will be used for all future ``uv run massgen`` runs.
 
 Available Build Templates
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -330,16 +330,16 @@ After setup, using MassGen is simple:
 .. code-block:: bash
 
    # Use your default configuration
-   massgen "What is quantum computing?"
+   uv run massgen "What is quantum computing?"
 
    # Override with a specific model for this query
-   massgen --model gpt-5-mini "Quick question"
+   uv run massgen --model gpt-5-mini "Quick question"
 
    # Use a pre-built example configuration
-   massgen --config @examples/basic/multi/three_agents_default "Compare renewable energy sources"
+   uv run massgen --config @examples/basic/multi/three_agents_default "Compare renewable energy sources"
 
    # Start interactive multi-turn mode
-   massgen
+   uv run massgen
 
 Example Configurations
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -349,14 +349,14 @@ MassGen ships with ready-to-use example configurations:
 .. code-block:: bash
 
    # List all available examples
-   massgen --list-examples
+   uv run massgen --list-examples
 
    # Use an example configuration
-   massgen --config @examples/basic/single/single_gpt5nano "Your question"
-   massgen --config @examples/research_team "Research query"
+   uv run massgen --config @examples/basic/single/single_gpt5nano "Your question"
+   uv run massgen --config @examples/research_team "Research query"
 
    # Copy an example to customize
-   massgen --example basic_multi > my-config.yaml
+   uv run massgen --example basic_multi > my-config.yaml
 
 See :doc:`configuration` for more details on customizing configurations.
 
@@ -438,14 +438,14 @@ For the best experience with multi-turn conversations and working across differe
 
    # Now you can use massgen from anywhere
    cd ~/your-project
-   massgen  # Start interactive multi-turn session
+   uv run massgen  # Start interactive multi-turn session
 
    # Sessions are saved to .massgen/sessions/ in your current directory
    # Context is preserved across turns automatically
 
 **Benefits of uv tool for multi-turn:**
 
-- 🌍 **Global Access**: Run ``massgen`` from any directory
+- 🌍 **Global Access**: Run ``uv run massgen`` from any directory
 - 💬 **Session Isolation**: Each project gets its own ``.massgen/sessions/`` directory
 - 📁 **Clean Workspaces**: Sessions and workspaces stay organized per-project
 - 🔄 **Live Updates**: Changes to MassGen source are immediately available (editable mode)
@@ -463,19 +463,19 @@ Command Line Interface
 .. code-block:: bash
 
    # Single query with default config
-   massgen "Your question"
+   uv run massgen "Your question"
 
    # Interactive multi-turn mode
-   massgen
+   uv run massgen
 
    # Quick single-agent mode
-   massgen --model gemini-2.5-flash "Quick question"
+   uv run massgen --model gemini-2.5-flash "Quick question"
 
    # Use example configuration
-   massgen --config @examples/basic/multi/three_agents_default "Complex question"
+   uv run massgen --config @examples/basic/multi/three_agents_default "Complex question"
 
    # Use custom configuration file
-   massgen --config ./my-agents.yaml "Your question"
+   uv run massgen --config ./my-agents.yaml "Your question"
 
 Python API
 ----------
@@ -524,7 +524,7 @@ MassGen uses the following directory structure:
    │   └── coding-agents.yaml
    └── .env                     # API keys (optional)
 
-The ``config.yaml`` file is created by the setup wizard and used by default when you run ``massgen`` without specifying a config.
+The ``config.yaml`` file is created by the setup wizard and used by default when you run ``uv run massgen`` without specifying a config.
 
 Reconfiguring MassGen
 ----------------------
@@ -534,7 +534,7 @@ You can re-run the setup wizard anytime:
 .. code-block:: bash
 
    # Launch configuration wizard
-   massgen --init
+   uv run massgen --init
 
    # This will:
    # - Let you create a new default config (overwrites existing)
@@ -637,7 +637,7 @@ The easiest way to install skills is using the built-in command (works on all pl
 .. code-block:: bash
 
    # Install skills automatically
-   massgen --setup-skills
+   uv run massgen --setup-skills
 
 This will install:
 
@@ -646,6 +646,9 @@ This will install:
 - **Crawl4AI skill** - Web scraping and content extraction
 
 The command works on **Windows, macOS, and Linux** and handles all dependencies automatically.
+
+.. note::
+   The ``--setup`` command will offer to run ``--setup-skills`` for you automatically.
 
 Manual Skills Installation
 ---------------------------
@@ -739,7 +742,7 @@ After installation, verify MassGen is correctly installed:
 .. code-block:: bash
 
    # Check MassGen is available
-   massgen --help
+   uv run massgen --help
 
 You should see the MassGen CLI help message with all available options.
 
@@ -751,10 +754,10 @@ Try a simple query to verify everything works:
 .. code-block:: bash
 
    # Single agent mode (no config needed)
-   massgen --model gemini-2.5-flash "What is MassGen?"
+   uv run massgen --model gemini-2.5-flash "What is MassGen?"
 
    # Or run the wizard and try your default config
-   massgen "Tell me about multi-agent systems"
+   uv run massgen "Tell me about multi-agent systems"
 
 Next Steps
 ==========
@@ -782,7 +785,7 @@ If the wizard doesn't appear on first run:
 .. code-block:: bash
 
    # Manually trigger the setup wizard
-   massgen --init
+   uv run massgen --init
 
    # Or check if a config already exists (Unix/Mac)
    ls ~/.config/massgen/config.yaml
@@ -817,7 +820,7 @@ If ``--list-examples`` shows no results:
    pip install --force-reinstall massgen
 
    # Verify installation
-   massgen --list-examples
+   uv run massgen --list-examples
 
 API Key Errors
 --------------
@@ -830,7 +833,7 @@ If you see "API key not found" errors:
    * Windows: ``%USERPROFILE%\.config\massgen\.env``
 
 2. Verify the key is correctly named (e.g., ``OPENAI_API_KEY``)
-3. Re-run the wizard: ``massgen --init``
+3. Re-run the wizard: ``uv run massgen --init``
 
 For more help, visit our `GitHub Issues <https://github.com/Leezekun/MassGen/issues>`_ or join our community.
 

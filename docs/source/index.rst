@@ -126,25 +126,39 @@ Complete system prompt refactoring with hierarchical structure and XML-based for
 Quick Start
 -----------
 
-Get started with MassGen in minutes. First, ensure you have Python 3.11+ and pip installed, then create a virtual environment with uv:
-.. code-block:: bash
-
-   uv venv
+Get started with MassGen in minutes. First, ensure you have Python 3.11+ and uv installed, then create a virtual environment with uv and install MassGen via pip.
 
 **Install:**
 
 .. code-block:: bash
 
+   uv venv
    uv pip install massgen
 
-**Option 1: Use the setup wizard (recommended for first time):**
+**Step 1: Set up API keys, Docker, and skills:**
 
 .. code-block:: bash
 
-   # Run without arguments to launch the interactive setup wizard
-   uv run massgen
+   uv run massgen --setup
 
-The wizard will guide you through configuring your API keys and creating your first agent team.
+This will:
+
+* Configure your API keys (OpenAI, Anthropic, Google, xAI)
+* Offer to set up Docker images for code execution
+* Offer to install skills (openskills, Anthropic collection)
+
+**Step 2: Create a config and start:**
+
+.. code-block:: bash
+
+   uv run massgen --quickstart
+
+This will:
+
+* Ask how many agents you want (1-5, default 3)
+* Ask which backend/model for each agent
+* Auto-detect Docker and configure execution mode
+* Create a ready-to-use config and launch interactive mode
 
 After setup, you can:
 
@@ -153,7 +167,7 @@ After setup, you can:
    # Run a single query with your configured agents
    uv run massgen "Your question here"
 
-   # Or start an interactive conversation (no prompt needed)
+   # Or start an interactive conversation
    uv run massgen
 
 **Option 2: Quick single-agent test:**

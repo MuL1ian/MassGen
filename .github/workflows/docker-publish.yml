@@ -53,6 +53,11 @@ jobs:
             ${{ env.IMAGE_BASE }}/mcp-runtime:latest
             ${{ env.IMAGE_BASE }}/mcp-runtime:${{ steps.version.outputs.tag }}
 
+      - name: Clear Docker build cache
+        run: |
+          docker builder prune -af
+          df -h
+
       - name: Build and push sudo image
         uses: docker/build-push-action@v5
         with:
