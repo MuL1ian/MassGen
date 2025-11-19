@@ -3111,25 +3111,36 @@ class ConfigBuilder:
                         },
                     )
 
-            # Step 3: Ask about Docker execution
-            console.print("\n[bold cyan]Execution Mode[/bold cyan]")
-            console.print("[dim]Docker (recommended): Full 'code mode' with command-line tools, skills, package installation,[/dim]")
-            console.print("[dim]  and isolated execution. Agents can run any code safely in containers.[/dim]")
-            console.print("[dim]Local: More restricted - agents can create/edit files but no command execution.[/dim]")
-            console.print("[dim]  Use if you don't have Docker installed.[/dim]\n")
+            # Step 3: Check Docker availability and ask about execution mode
+            # Import check function from cli
+            from .cli import check_docker_available
 
-            use_docker = questionary.confirm(
-                "Use Docker for code execution?",
-                default=True,
-                style=questionary.Style(
-                    [
-                        ("question", "fg:cyan bold"),
-                    ],
-                ),
-            ).ask()
+            docker_available = check_docker_available()
 
-            if use_docker is None:
-                raise KeyboardInterrupt
+            if docker_available:
+                console.print("\n[bold cyan]Execution Mode[/bold cyan]")
+                console.print("[dim]Docker (recommended): Full 'code mode' with command-line tools, skills, package installation,[/dim]")
+                console.print("[dim]  and isolated execution. Agents can run any code safely in containers.[/dim]")
+                console.print("[dim]Local: More restricted - agents can create/edit files but no command execution.[/dim]\n")
+
+                use_docker = questionary.confirm(
+                    "Use Docker for code execution?",
+                    default=True,
+                    style=questionary.Style(
+                        [
+                            ("question", "fg:cyan bold"),
+                        ],
+                    ),
+                ).ask()
+
+                if use_docker is None:
+                    raise KeyboardInterrupt
+            else:
+                console.print("\n[bold cyan]Execution Mode[/bold cyan]")
+                console.print("[yellow]⚠️  Docker images not found. Using local mode.[/yellow]")
+                console.print("[dim]Local mode: Agents can create/edit files but no command execution.[/dim]")
+                console.print("[dim]To enable Docker mode, run: massgen --setup-docker[/dim]\n")
+                use_docker = False
 
             # Step 4: Ask about context path (to avoid runtime prompt)
             console.print("\n[bold cyan]Context Path[/bold cyan]")

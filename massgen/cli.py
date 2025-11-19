@@ -2514,6 +2514,43 @@ def _select_package_example(examples: List[Tuple[str, Path]], console: Console) 
     return selected_config
 
 
+def check_docker_available() -> bool:
+    """Check if Docker is installed, running, and MassGen images are available.
+
+    Returns:
+        True if Docker is ready with MassGen images, False otherwise
+    """
+    import subprocess
+
+    # Check if Docker is installed and running
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+    # Check if MassGen sudo image exists
+    try:
+        result = subprocess.run(
+            ["docker", "images", "-q", "ghcr.io/massgen/mcp-runtime-sudo:latest"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    return False
+
+
 def setup_docker() -> None:
     """Pull MassGen Docker executor images from GitHub Container Registry.
 
@@ -3733,6 +3770,27 @@ Environment Variables:
         else:
             print(f"\n{BRIGHT_YELLOW}⚠️  No API keys configured{RESET}")
             print(f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to set them up{RESET}\n")
+
+        # Offer to set up Docker
+        try:
+            docker_choice = input(f"{BRIGHT_CYAN}Would you also like to set up Docker images for code execution? [Y/n]: {RESET}").strip().lower()
+            if docker_choice in ["y", "yes", ""]:
+                setup_docker()
+        except (KeyboardInterrupt, EOFError):
+            print()
+
+        # Offer to install skills
+        try:
+            skills_choice = input(f"{BRIGHT_CYAN}Would you like to install skills (openskills, Anthropic collection)? [Y/n]: {RESET}").strip().lower()
+            if skills_choice in ["y", "yes", ""]:
+                from .utils.skills_installer import install_skills
+
+                install_skills()
+        except (KeyboardInterrupt, EOFError):
+            print()
+
+        print(f"\n{BRIGHT_GREEN}Setup complete!{RESET}")
+        print(f"{BRIGHT_CYAN}Run 'massgen --quickstart' to create a config and start.{RESET}\n")
         return
 
     # Install skills if requested

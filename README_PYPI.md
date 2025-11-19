@@ -266,21 +266,39 @@ pip install massgen
 
 # Or with uv (faster)
 uv pip install massgen
-
-# Optional: Install skills
-massgen --setup-skills
-
-# Run the interactive setup wizard
-massgen
 ```
 
-The wizard will guide you through:
-- Configuring API keys
-- Selecting your use case (Research, Code, Q&A, etc.)
-- Choosing AI models
-- Saving your configuration
+**Quickstart Setup** (Fastest way to get running):
 
-After setup, you can run MassGen with:
+```bash
+# Step 1: Set up API keys, Docker, and skills
+uv run massgen --setup
+
+# Step 2: Create a simple config and start
+uv run massgen --quickstart
+```
+
+The `--setup` command will:
+- Configure your API keys (OpenAI, Anthropic, Google, xAI)
+- Offer to set up Docker images for code execution
+- Offer to install skills (openskills, Anthropic collection)
+
+The `--quickstart` command will:
+- Ask how many agents you want (1-5, default 3)
+- Ask which backend/model for each agent
+- Auto-detect Docker availability and configure execution mode
+- Create a ready-to-use config and launch into interactive mode
+
+**Alternative: Full Setup Wizard**
+
+For more control, use the full configuration wizard:
+```bash
+massgen --init
+```
+
+This guides you through use case selection (Research, Code, Q&A, etc.) and advanced configuration options.
+
+**After setup:**
 ```bash
 # Interactive mode
 massgen
