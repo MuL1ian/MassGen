@@ -3110,6 +3110,11 @@ async def main(args):
             log_dir = get_log_session_root()
             log_dir_name = log_dir.name
 
+            # Print LOG_DIR for automation mode (LLM agents need this to monitor progress)
+            if args.automation:
+                print(f"LOG_DIR: {log_dir}")
+                print(f"STATUS: {log_dir / 'status.json'}")
+
             registry = SessionRegistry()
             registry.register_session(
                 session_id=memory_session_id,
