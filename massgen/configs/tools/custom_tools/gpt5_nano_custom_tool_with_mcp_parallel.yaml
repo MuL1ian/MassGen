@@ -1,0 +1,29 @@
+# MassGen Configuration: GPT-5 Nano with MCP Integration
+# Usage:
+#   uv run python -m massgen.cli --config massgen/configs/tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml "whats the sum of 123 and 456? and whats the weather of Tokyo and london?"
+agents:
+  - id: "gpt5_nano_custom_tool" # OpenAI GPT-5 Nano
+    backend:
+      type: "openai"
+      model: "gpt-5-nano"
+      parallel_tool_calls: true # openai api default value as true, no need to specify
+      concurrent_tool_execution: true
+      custom_tools:
+        - name: ["two_num_tool"]
+          category: "math"
+          path: "massgen/tool/_basic/_two_num_tool.py"
+          function: ["two_num_tool"]
+      mcp_servers:
+        - name: "weather"
+          type: "stdio"
+          command: "npx"
+          args: ["-y", "@fak111/weather-mcp"]
+    system_message: |
+      You have access to:
+      - two_num_tool: Adds two numbers
+      - Weather MCP: Provides weather information
+
+      Use these tools to answer questions. Do not speculate or invent tool capabilities.
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true

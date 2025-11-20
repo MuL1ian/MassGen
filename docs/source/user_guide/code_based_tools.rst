@@ -1,7 +1,7 @@
 Code-Based Tools
 ================
 
-MassGen supports code-based tool access following the [CodeAct](https://machinelearning.apple.com/research/codeact) paradigm and other blog posts by [Anthropic](https://www.anthropic.com/engineering/code-execution-with-mcp) and [Cloudflare](https://blog.cloudflare.com/code-mode/)). Instead of passing tool schemas to the model, MCP tools are presented as Python code in the workspace filesystem. Agents discover tools by reading files, import them like normal Python modules, and execute them via command-line.
+MassGen supports code-based tool access following the `CodeAct <https://machinelearning.apple.com/research/codeact>`_ paradigm and other blog posts by `Anthropic <https://www.anthropic.com/engineering/code-execution-with-mcp>`_ and `Cloudflare <https://blog.cloudflare.com/code-mode/>`_. Instead of passing tool schemas to the model, MCP tools are presented as Python code in the workspace filesystem. Agents discover tools by reading files, import them like normal Python modules, and execute them via command-line.
 
 This approach provides significant benefits:
 

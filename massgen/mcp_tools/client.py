@@ -567,7 +567,7 @@ class MCPClient:
 
         # Validate tool arguments
         try:
-            validated_arguments = validate_tool_arguments(arguments)
+            validated_arguments = validate_tool_arguments(arguments, tool_name=tool_name)
         except ValueError as e:
             raise MCPValidationError(
                 f"Invalid tool arguments: {e}",

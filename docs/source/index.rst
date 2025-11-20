@@ -111,6 +111,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.14 (November 19, 2025)** - Parallel Tool Execution, Interactive Quickstart & Gemini 3 Pro
+
+Parallel tool execution system with configurable concurrent tool execution across all backends using asyncio-based scheduling and semaphore limits. Full integration for Google's Gemini 3 Pro model with native function calling capabilities. Interactive quickstart workflow with streamlined onboarding experience and guided configuration creation. MCP registry client with enhanced server metadata fetching from official registry for better agent understanding. Planning system enhancements with improved skill and tool search capabilities. NLIP routing streamlining with unified execution flow across backends.
+
 **v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
 
 Code-based tools system implementing CodeAct paradigm with significant token usage reduction through importable Python code instead of schema-based tools. MCP server registry with auto-discovery and intelligent tool routing. Comprehensive skills installation system with cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI. NLIP (Natural Language Interface Protocol) integration for advanced tool routing across all backends. TOOL.md documentation standard with YAML frontmatter for all custom tools.
@@ -119,53 +123,66 @@ Code-based tools system implementing CodeAct paradigm with significant token usa
 
 Complete system prompt refactoring with hierarchical structure and XML-based formatting for improved LLM attention management. New Semtools skill for semantic search via embedding-based similarity and Serena skill for symbol-level code understanding via LSP integration. Enhanced multi-agent computer use with Docker integration for Linux desktop automation, VNC visualization, and coordinated Claude (Docker/Linux) + Gemini (Browser) workflows.
 
-**v0.1.11 (November 12, 2025)** - Skills System, Memory MCP & Rate Limiting
-
-Modular skills framework with automatic discovery and file search capabilities, MCP-based memory management with persistent markdown storage and cross-agent sharing, multi-dimensional rate limiting (RPM, TPM, RPD) with model-specific thresholds, and memory-filesystem integration for advanced workflows.
-
 Quick Start
 -----------
 
-Get started with MassGen in minutes:
+Get started with MassGen in minutes. First, ensure you have Python 3.11+ and uv installed, then create a virtual environment with uv and install MassGen via pip.
 
 **Install:**
 
 .. code-block:: bash
 
-   pip install massgen
+   uv venv
+   uv pip install massgen
 
-**Option 1: Use the setup wizard (recommended for first time):**
+**Step 1: Set up API keys, Docker, and skills:**
 
 .. code-block:: bash
 
-   # Run without arguments to launch the interactive setup wizard
-   massgen
+   uv run massgen --setup
 
-The wizard will guide you through configuring your API keys and creating your first agent team.
+This will:
+
+* Configure your API keys (OpenAI, Anthropic, Google, xAI)
+* Offer to set up Docker images for code execution
+* Offer to install skills (openskills, Anthropic collection)
+
+**Step 2: Create a config and start:**
+
+.. code-block:: bash
+
+   uv run massgen --quickstart
+
+This will:
+
+* Ask how many agents you want (1-5, default 3)
+* Ask which backend/model for each agent
+* Auto-detect Docker and configure execution mode
+* Create a ready-to-use config and launch interactive mode
 
 After setup, you can:
 
 .. code-block:: bash
 
    # Run a single query with your configured agents
-   massgen "Your question here"
+   uv run massgen "Your question here"
 
-   # Or start an interactive conversation (no prompt needed)
-   massgen
+   # Or start an interactive conversation
+   uv run massgen
 
 **Option 2: Quick single-agent test:**
 
 .. code-block:: bash
 
    # No config needed - specify model directly
-   massgen --model gemini-2.5-flash "What are LLM agents?"
+   uv run massgen --model gemini-2.5-flash "What are LLM agents?"
 
 **Option 3: Multi-agent collaboration:**
 
 .. code-block:: bash
 
    # Use a built-in configuration
-   massgen --config @examples/basic/multi/three_agents_default \
+   uv run massgen --config @examples/basic/multi/three_agents_default \
      "What are the pros and cons of renewable energy?"
 
 Watch agents discuss, vote, and converge on the best answer in real-time!

@@ -32,53 +32,67 @@ The easiest way to get started with MassGen is via pip or uv:
 Getting Started - Complete First-Run Flow
 ------------------------------------------
 
-**The simplest way to start:** Just run ``massgen`` and you'll be guided through everything:
+**Quickstart Setup** (Fastest way to get running):
 
 .. code-block:: bash
 
-   massgen
+   # Step 1: Set up API keys, Docker, and skills
+   uv run massgen --setup
 
-**What happens next:**
+   # Step 2: Create a simple config and start
+   uv run massgen --quickstart
 
-1. **API Key Setup** (only if needed)
+**What ``--setup`` does:**
 
-   * MassGen detects if you have cloud provider API keys configured
-   * If not, shows an interactive wizard to configure OpenAI, Anthropic, Google, etc.
-   * Keys are saved to ``~/.config/massgen/.env`` for future use
-   * If you already have keys, this step is skipped automatically
+* Configures your API keys (OpenAI, Anthropic, Google, xAI)
+* Offers to set up Docker images for code execution
+* Offers to install skills (openskills, Anthropic collection)
 
-2. **Choose Your Configuration**
+**What ``--quickstart`` does:**
 
-   You'll see two options:
-
-   * **📦 Browse ready-to-use configs/examples** - Select from 100+ pre-built configurations
-   * **Build from template** - Create custom agents with guided setup (Simple Q&A, Research & Analysis, Code & Files, etc.)
-
-3. **Save as Default** (optional)
-
-   * When browsing existing configs or examples, you'll be asked: "Save this as your default config?"
-   * Choose **Yes** to use it automatically on future ``massgen`` runs
-   * Choose **No** to try it once without saving
-
-4. **Start Chatting Immediately**
-
-   * After selection, you're **launched directly into interactive mode**
-   * Multi-turn conversation with your chosen configuration
-   * Type your questions and get collaborative agent responses
-   * Session history is automatically saved
+* Asks how many agents you want (1-5, default 3)
+* Asks which backend/model for each agent (or same for all)
+* Auto-detects Docker availability and configures execution mode
+* Creates a ready-to-use config and launches into interactive mode
 
 **After first-run setup:**
 
 .. code-block:: bash
 
    # Start conversation with your default config
-   massgen
+   uv run massgen
 
    # Or run a single query
-   massgen "Your question here"
+   uv run massgen "Your question here"
 
 .. tip::
    **The entire flow takes 1-2 minutes.** You'll be in an interactive conversation with your agents immediately after setup!
+
+**Alternative: Full Setup Wizard**
+
+For more control over configuration, use the full wizard:
+
+.. code-block:: bash
+
+   uv run massgen --init
+
+This guides you through:
+
+1. **Choose Your Configuration**
+
+   * **📦 Browse ready-to-use configs/examples** - Select from 100+ pre-built configurations
+   * **Build from template** - Create custom agents with guided setup (Simple Q&A, Research & Analysis, Code & Files, etc.)
+
+2. **Save as Default** (optional)
+
+   * When browsing existing configs or examples, you'll be asked: "Save this as your default config?"
+   * Choose **Yes** to use it automatically on future ``massgen`` runs
+   * Choose **No** to try it once without saving
+
+3. **Start Chatting Immediately**
+
+   * After selection, you're **launched directly into interactive mode**
+   * Multi-turn conversation with your chosen configuration
 
 Supported API Key Providers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -160,12 +174,12 @@ You can re-run the API key wizard anytime:
 .. code-block:: bash
 
    # Launch API key setup
-   massgen --setup
+   uv run massgen --setup
 
 First-Run Setup Flow Walkthrough
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When you run ``massgen`` for the first time, here's what you'll see:
+When you run ``uv run massgen`` for the first time, here's what you'll see:
 
 .. code-block:: text
 
@@ -222,7 +236,7 @@ After selecting, you'll be asked:
 
    Save this as your default config? [y/N]:
 
-* Choose **y** to save and use automatically on future runs
+* Choose **y** to save and use automatically on future ``uv run massgen`` runs
 * Choose **n** to try it once without saving
 
 Then immediately launches into interactive mode! 🚀
@@ -252,7 +266,7 @@ Select a template to create a custom configuration with guided setup:
 
    🚀 Launching interactive mode...
 
-Your configuration is saved to ``~/.config/massgen/config.yaml`` and will be used for all future runs.
+Your configuration is saved to ``~/.config/massgen/config.yaml`` and will be used for all future ``uv run massgen`` runs.
 
 Available Build Templates
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -316,16 +330,16 @@ After setup, using MassGen is simple:
 .. code-block:: bash
 
    # Use your default configuration
-   massgen "What is quantum computing?"
+   uv run massgen "What is quantum computing?"
 
    # Override with a specific model for this query
-   massgen --model gpt-5-mini "Quick question"
+   uv run massgen --model gpt-5-mini "Quick question"
 
    # Use a pre-built example configuration
-   massgen --config @examples/basic/multi/three_agents_default "Compare renewable energy sources"
+   uv run massgen --config @examples/basic/multi/three_agents_default "Compare renewable energy sources"
 
    # Start interactive multi-turn mode
-   massgen
+   uv run massgen
 
 Example Configurations
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -335,14 +349,14 @@ MassGen ships with ready-to-use example configurations:
 .. code-block:: bash
 
    # List all available examples
-   massgen --list-examples
+   uv run massgen --list-examples
 
    # Use an example configuration
-   massgen --config @examples/basic/single/single_gpt5nano "Your question"
-   massgen --config @examples/research_team "Research query"
+   uv run massgen --config @examples/basic/single/single_gpt5nano "Your question"
+   uv run massgen --config @examples/research_team "Research query"
 
    # Copy an example to customize
-   massgen --example basic_multi > my-config.yaml
+   uv run massgen --example basic_multi > my-config.yaml
 
 See :doc:`configuration` for more details on customizing configurations.
 
@@ -424,14 +438,14 @@ For the best experience with multi-turn conversations and working across differe
 
    # Now you can use massgen from anywhere
    cd ~/your-project
-   massgen  # Start interactive multi-turn session
+   uv run massgen  # Start interactive multi-turn session
 
    # Sessions are saved to .massgen/sessions/ in your current directory
    # Context is preserved across turns automatically
 
 **Benefits of uv tool for multi-turn:**
 
-- 🌍 **Global Access**: Run ``massgen`` from any directory
+- 🌍 **Global Access**: Run ``uv run massgen`` from any directory
 - 💬 **Session Isolation**: Each project gets its own ``.massgen/sessions/`` directory
 - 📁 **Clean Workspaces**: Sessions and workspaces stay organized per-project
 - 🔄 **Live Updates**: Changes to MassGen source are immediately available (editable mode)
@@ -449,19 +463,19 @@ Command Line Interface
 .. code-block:: bash
 
    # Single query with default config
-   massgen "Your question"
+   uv run massgen "Your question"
 
    # Interactive multi-turn mode
-   massgen
+   uv run massgen
 
    # Quick single-agent mode
-   massgen --model gemini-2.5-flash "Quick question"
+   uv run massgen --model gemini-2.5-flash "Quick question"
 
    # Use example configuration
-   massgen --config @examples/basic/multi/three_agents_default "Complex question"
+   uv run massgen --config @examples/basic/multi/three_agents_default "Complex question"
 
    # Use custom configuration file
-   massgen --config ./my-agents.yaml "Your question"
+   uv run massgen --config ./my-agents.yaml "Your question"
 
 Python API
 ----------
@@ -510,7 +524,7 @@ MassGen uses the following directory structure:
    │   └── coding-agents.yaml
    └── .env                     # API keys (optional)
 
-The ``config.yaml`` file is created by the setup wizard and used by default when you run ``massgen`` without specifying a config.
+The ``config.yaml`` file is created by the setup wizard and used by default when you run ``uv run massgen`` without specifying a config.
 
 Reconfiguring MassGen
 ----------------------
@@ -520,7 +534,7 @@ You can re-run the setup wizard anytime:
 .. code-block:: bash
 
    # Launch configuration wizard
-   massgen --init
+   uv run massgen --init
 
    # This will:
    # - Let you create a new default config (overwrites existing)
@@ -559,6 +573,57 @@ If you want to use AG2 agents alongside native MassGen agents:
 
 This is **only required** if you plan to use AG2 configuration files.
 
+Docker Image Setup
+==================
+
+MassGen uses Docker containers for secure code execution. The Docker images provide a sandboxed environment where agents can safely run code, install packages, and execute shell commands.
+
+Install Docker Images via CLI
+------------------------------
+
+The easiest way to set up Docker images is using the built-in command:
+
+.. code-block:: bash
+
+   # Pull Docker images from GitHub Container Registry
+   uv run massgen --setup-docker
+
+This will pull:
+
+- **ghcr.io/massgen/mcp-runtime:latest** - Standard runtime image
+- **ghcr.io/massgen/mcp-runtime-sudo:latest** - Runtime with sudo support
+
+.. note::
+   The ``--setup`` command will offer to run ``--setup-docker`` for you automatically.
+
+**Prerequisites:**
+
+- Docker Desktop or Docker Engine must be installed and running
+- On macOS/Linux: ``docker info`` should work without sudo
+- On Windows: Docker Desktop must be running
+
+**Verifying Docker Setup:**
+
+.. code-block:: bash
+
+   # Check Docker is running
+   docker info
+
+   # Check MassGen images are available
+   docker images | grep massgen
+
+You should see both ``mcp-runtime`` and ``mcp-runtime-sudo`` images listed.
+
+**When is Docker needed?**
+
+Docker is required when using:
+
+- ``command_line_execution_mode: docker`` in your config
+- Code-based tools with Docker isolation
+- The ``--quickstart`` command with Docker execution mode
+
+If Docker isn't available, ``--quickstart`` will automatically configure local execution mode (more restricted but still functional).
+
 Skills Installation
 ===================
 
@@ -572,7 +637,7 @@ The easiest way to install skills is using the built-in command (works on all pl
 .. code-block:: bash
 
    # Install skills automatically
-   massgen --setup-skills
+   uv run massgen --setup-skills
 
 This will install:
 
@@ -581,6 +646,9 @@ This will install:
 - **Crawl4AI skill** - Web scraping and content extraction
 
 The command works on **Windows, macOS, and Linux** and handles all dependencies automatically.
+
+.. note::
+   The ``--setup`` command will offer to run ``--setup-skills`` for you automatically.
 
 Manual Skills Installation
 ---------------------------
@@ -674,7 +742,7 @@ After installation, verify MassGen is correctly installed:
 .. code-block:: bash
 
    # Check MassGen is available
-   massgen --help
+   uv run massgen --help
 
 You should see the MassGen CLI help message with all available options.
 
@@ -686,10 +754,10 @@ Try a simple query to verify everything works:
 .. code-block:: bash
 
    # Single agent mode (no config needed)
-   massgen --model gemini-2.5-flash "What is MassGen?"
+   uv run massgen --model gemini-2.5-flash "What is MassGen?"
 
    # Or run the wizard and try your default config
-   massgen "Tell me about multi-agent systems"
+   uv run massgen "Tell me about multi-agent systems"
 
 Next Steps
 ==========
@@ -717,7 +785,7 @@ If the wizard doesn't appear on first run:
 .. code-block:: bash
 
    # Manually trigger the setup wizard
-   massgen --init
+   uv run massgen --init
 
    # Or check if a config already exists (Unix/Mac)
    ls ~/.config/massgen/config.yaml
@@ -752,7 +820,7 @@ If ``--list-examples`` shows no results:
    pip install --force-reinstall massgen
 
    # Verify installation
-   massgen --list-examples
+   uv run massgen --list-examples
 
 API Key Errors
 --------------
@@ -765,7 +833,7 @@ If you see "API key not found" errors:
    * Windows: ``%USERPROFILE%\.config\massgen\.env``
 
 2. Verify the key is correctly named (e.g., ``OPENAI_API_KEY``)
-3. Re-run the wizard: ``massgen --init``
+3. Re-run the wizard: ``uv run massgen --init``
 
 For more help, visit our `GitHub Issues <https://github.com/Leezekun/MassGen/issues>`_ or join our community.
 

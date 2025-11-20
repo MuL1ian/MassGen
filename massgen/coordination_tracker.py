@@ -738,6 +738,19 @@ class CoordinationTracker:
                             last_activity = vote.timestamp
                             break
 
+                # Get workspace paths from filesystem_manager if available
+                workspace_paths = None
+                if orchestrator and hasattr(orchestrator, "agents"):
+                    agent = orchestrator.agents.get(agent_id)
+                    if agent and hasattr(agent, "backend") and agent.backend and hasattr(agent.backend, "filesystem_manager"):
+                        fm = agent.backend.filesystem_manager
+                        if fm:
+                            workspace_paths = {
+                                "workspace": str(fm.cwd) if fm.cwd else None,
+                                "snapshot_storage": str(fm.snapshot_storage) if fm.snapshot_storage else None,
+                                "temp_workspace": str(fm.agent_temporary_workspace) if fm.agent_temporary_workspace else None,
+                            }
+
                 agent_statuses[agent_id] = {
                     "status": status,
                     "answer_count": len(answers),
@@ -746,6 +759,7 @@ class CoordinationTracker:
                     "times_restarted": self.agent_rounds.get(agent_id, 0),
                     "last_activity": last_activity,
                     "error": error,
+                    "workspace_paths": workspace_paths,
                 }
 
             # Aggregate vote counts by answer label
@@ -766,6 +780,14 @@ class CoordinationTracker:
                 final_content = self.final_answers[self.final_winner].content
                 final_answer_preview = final_content[:200] if final_content else None
 
+            # Get orchestrator-level paths for debugging
+            orchestrator_paths = None
+            if orchestrator:
+                orchestrator_paths = {
+                    "snapshot_storage": orchestrator._snapshot_storage if hasattr(orchestrator, "_snapshot_storage") else None,
+                    "temp_workspace_parent": orchestrator._agent_temporary_workspace if hasattr(orchestrator, "_agent_temporary_workspace") else None,
+                }
+
             # Build complete status data structure
             status_data = {
                 "meta": {
@@ -775,6 +797,7 @@ class CoordinationTracker:
                     "question": self.user_prompt,
                     "start_time": self.start_time,
                     "elapsed_seconds": round(elapsed, 3),
+                    "orchestrator_paths": orchestrator_paths,
                 },
                 "coordination": {
                     "phase": phase,

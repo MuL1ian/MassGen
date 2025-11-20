@@ -40,7 +40,7 @@ class DockerManager:
 
     def __init__(
         self,
-        image: str = "massgen/mcp-runtime:latest",
+        image: str = "ghcr.io/massgen/mcp-runtime:latest",
         network_mode: str = "none",
         memory_limit: Optional[str] = None,
         cpu_limit: Optional[float] = None,
@@ -79,12 +79,13 @@ class DockerManager:
 
         # If sudo is enabled and user is using default image, switch to sudo variant
         self.enable_sudo = enable_sudo
-        if enable_sudo and image == "massgen/mcp-runtime:latest":
-            self.image = "massgen/mcp-runtime-sudo:latest"
+        if enable_sudo and image == "ghcr.io/massgen/mcp-runtime:latest":
+            self.image = "ghcr.io/massgen/mcp-runtime-sudo:latest"
             logger.info(
-                "ℹ️ [Docker] Sudo access enabled in container (isolated from host) - using 'massgen/mcp-runtime-sudo:latest' image.",
+                "ℹ️ [Docker] Sudo access enabled in container (isolated from host) - using 'ghcr.io/massgen/mcp-runtime-sudo:latest' image.",
             )
         elif enable_sudo:
+            self.image = image
             logger.info(
                 "ℹ️ [Docker] Sudo access enabled in container (isolated from host) with custom image.",
             )

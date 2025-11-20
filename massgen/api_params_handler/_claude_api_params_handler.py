@@ -121,4 +121,22 @@ class ClaudeAPIParamsHandler(APIParamsHandlerBase):
         if combined_tools:
             api_params["tools"] = combined_tools
 
+        # Handle disable_parallel_tool_use parameter
+        # This controls whether Claude API can call multiple tools in parallel
+        if all_params.get("disable_parallel_tool_use", False):
+            # Get existing tool_choice or default to "auto"
+            existing_tool_choice = api_params.get("tool_choice", {"type": "auto"})
+
+            # Convert to dict format if needed
+            if isinstance(existing_tool_choice, str):
+                existing_tool_choice = {"type": existing_tool_choice}
+            elif isinstance(existing_tool_choice, dict):
+                existing_tool_choice = existing_tool_choice.copy()
+            else:
+                existing_tool_choice = {"type": "auto"}
+
+            # Add disable_parallel_tool_use flag to tool_choice
+            existing_tool_choice["disable_parallel_tool_use"] = True
+            api_params["tool_choice"] = existing_tool_choice
+
         return api_params

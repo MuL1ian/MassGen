@@ -1,0 +1,28 @@
+# Minimal config to test memory filesystem mode
+# Run with: uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml "Create a website about Bob Dylan"
+
+agents:
+  - id: "agent_a"
+    backend:
+      type: "gemini"
+      model: "gemini-3-pro-preview"
+      cwd: "workspace1"  # Required for filesystem mode
+      enable_mcp_command_line: true
+      command_line_execution_mode: "docker"
+
+  - id: "agent_b"
+    backend:
+      type: "gemini"
+      model: "gemini-3-pro-preview"
+      cwd: "workspace2"  # Required for filesystem mode
+      enable_mcp_command_line: true
+      command_line_execution_mode: "docker"
+
+orchestrator:
+  snapshot_storage: "snapshots"
+  agent_temporary_workspace: "temp_workspaces"
+
+  coordination:
+    # Enable task planning
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true

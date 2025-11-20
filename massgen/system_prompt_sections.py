@@ -322,9 +322,19 @@ class CodeBasedToolsSection(SystemPromptSection):
     Agents discover tools by exploring servers/, read docstrings, and call via imports.
 
     MEDIUM priority - important for tool discovery and usage.
+
+    Args:
+        workspace_path: Path to agent's workspace
+        shared_tools_path: Optional path to shared tools directory
+        mcp_servers: List of MCP server configurations (for fetching descriptions)
     """
 
-    def __init__(self, workspace_path: str, shared_tools_path: str = None):
+    def __init__(
+        self,
+        workspace_path: str,
+        shared_tools_path: str = None,
+        mcp_servers: List[Dict[str, Any]] = None,
+    ):
         super().__init__(
             title="Code-Based Tools",
             priority=Priority.MEDIUM,
@@ -332,6 +342,7 @@ class CodeBasedToolsSection(SystemPromptSection):
         )
         self.workspace_path = workspace_path
         self.shared_tools_path = shared_tools_path
+        self.mcp_servers = mcp_servers or []
         # Use shared tools path if available, otherwise workspace
         self.tools_location = shared_tools_path if shared_tools_path else workspace_path
 
@@ -371,6 +382,27 @@ class CodeBasedToolsSection(SystemPromptSection):
             if tool_descriptions:
                 custom_tools_list = "\n\n**Available Custom Tools:**\n" + "\n".join(tool_descriptions)
 
+        # Fetch MCP server descriptions from registry
+        mcp_servers_list = ""
+        if self.mcp_servers:
+            try:
+                from massgen.mcp_tools.registry_client import (
+                    get_mcp_server_descriptions,
+                )
+
+                mcp_descriptions = get_mcp_server_descriptions(self.mcp_servers)
+                if mcp_descriptions:
+                    mcp_items = [f"- **{name}**: {desc}" for name, desc in mcp_descriptions.items()]
+                    mcp_servers_list = "\n\n**Available MCP Servers:**\n" + "\n".join(mcp_items)
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(f"Failed to fetch MCP descriptions: {e}")
+                # Fall back to just showing server names
+                server_names = [s.get("name", "unknown") for s in self.mcp_servers]
+                if server_names:
+                    mcp_servers_list = "\n\n**Available MCP Servers:** " + ", ".join(server_names)
+
         return f"""## Available Tools (Code-Based Access)
 
 Tools are available as **Python code** in your workspace filesystem. Discover and call them like regular Python modules (e.g., use normal search tools such as `rg` or `sg`){location_note}
@@ -393,7 +425,7 @@ Tools are available as **Python code** in your workspace filesystem. Discover an
 Your workspace/
 └── utils/               # CREATE THIS - for your scripts (workflows, async, filtering)
     └── [write your own scripts here as needed]
-```{custom_tools_list}
+```{mcp_servers_list}{custom_tools_list}
 
 **Important:** All tools and servers listed here are already configured and ready to use. If a tool requires API keys, they are already available - we only show tools you can actually use.
 
@@ -558,14 +590,17 @@ class MemorySection(SystemPromptSection):
 
         # Header - concise overview
         content_parts.append(
-            "## Memory System\n\n" "Persist important context across conversations using memory tools. " "Memories are automatically managed and stored in your workspace.\n",
+            "## Decision Documentation System\n\n"
+            "Document decisions and learnings to **optimize future work** and **prevent repeated mistakes**. "
+            "This isn't just memory - it's about capturing **why** decisions were made, **what worked/failed**, "
+            "and **what would help similar tasks succeed**.\n",
         )
 
         # Memory tiers - simplified
         content_parts.append(
-            "### Memory Tiers\n\n"
-            "**short_term**: Auto-loaded into context every turn. Use for frequently-needed info.\n"
-            "**long_term**: Load manually when needed. Use for reference material and history.\n",
+            "### Storage Tiers\n\n"
+            "**short_term**: Auto-loaded every turn. For user preferences and frequently-referenced guidance.\n"
+            "**long_term**: Load manually when needed. For effectiveness tracking, lessons learned, and decision rationale.\n",
         )
 
         # Show existing short-term memories (full content)
@@ -596,49 +631,75 @@ class MemorySection(SystemPromptSection):
             content_parts.append("")
             content_parts.append("</available_long_term_memories>")
 
-        # Tools - minimal, focused
+        # File operations - simple and direct
         content_parts.append(
-            "\n### Memory Tools\n\n"
-            '**create_memory(name, content, tier="short_term")**\n'
-            "- Create new memory (auto-adds metadata: created, updated, agent_id)\n"
-            '- name: Descriptive identifier (e.g., "user_preferences", "known_issues")\n'
-            '- tier: "short_term" (always in context) or "long_term" (load on demand)\n\n'
-            "**append_to_memory(name, content)**\n"
-            "- Add to existing memory (most common operation)\n"
-            "- Auto-updates timestamp\n\n"
-            "**load_memory(name)**\n"
-            "- Load long-term memory into context\n"
-            "- Returns full content + metadata\n\n"
-            "**remove_memory(name)**\n"
-            "- Delete memory\n",
+            "\n### Saving Memories\n\n"
+            "Save memories by writing markdown files to the memory directory:\n"
+            "- **Short-term** → `memory/short_term/{name}.md` (auto-loaded every turn)\n"
+            "- **Long-term** → `memory/long_term/{name}.md` (load manually when needed)\n\n"
+            "Use standard file operations (write_file, edit_file, etc.).\n",
         )
 
-        # When to use - critical triggers only
+        # Task completion reminders
         content_parts.append(
-            "\n### When to Save\n\n"
-            '**User preferences** → create_memory("user_prefs", ..., tier="short_term")\n'
-            "- Coding style, naming conventions, project constraints\n\n"
-            '**Important decisions** → create_memory("decisions", ..., tier="long_term")\n'
-            "- Architectural choices with rationale\n"
-            "- Technology selections and trade-offs\n\n"
-            '**Discoveries** → append_to_memory("findings", "## New pattern\\n...")\n'
-            "- Bug patterns, performance issues, code patterns\n"
-            "- Build/test procedures specific to this project\n",
+            "\n### Automatic Reminders\n\n"
+            "When you complete high-priority tasks, tool responses will include reminders to document decisions. "
+            "These help you optimize future work by capturing what worked, what didn't, and why.\n",
         )
 
-        # Examples - minimal, concrete
+        # When to document - reframed around optimization
+        content_parts.append(
+            "\n### What to Document\n\n"
+            "**Skill & Tool Effectiveness** → memory/long_term/skill_effectiveness.md\n"
+            "- Which skills/tools worked well (or poorly) for this task type?\n"
+            "- What capabilities were most valuable?\n"
+            "- What would you use differently next time?\n"
+            "- Example: 'frontend-design + webapp-testing combo effective for visual quality iteration'\n\n"
+            "**Approach Success/Failure** → memory/long_term/approach_patterns.md\n"
+            "- What strategy worked (or failed) and why?\n"
+            "- What order of operations was optimal?\n"
+            "- What shortcuts to avoid?\n"
+            "- Example: 'Screenshot analysis before finalizing prevents visual bugs; always test responsive layouts'\n\n"
+            "**Mistake Prevention** → memory/long_term/lessons_learned.md\n"
+            "- What almost went wrong and how you caught it?\n"
+            "- What assumptions were incorrect?\n"
+            "- What to verify before proceeding on similar tasks?\n"
+            "- Example: 'Don't assume mobile layout works - always test viewport sizes'\n\n"
+            "**User Preferences** → memory/short_term/user_prefs.md\n"
+            "- What does the user value (speed vs quality, iteration vs one-shot, etc.)?\n"
+            "- Coding style, naming conventions, workflow preferences\n"
+            "- Example: 'User prefers iterative refinement with visual feedback over single delivery'\n",
+        )
+
+        # Examples - emphasize decision rationale and effectiveness
         content_parts.append(
             "\n### Examples\n\n"
             "```python\n"
-            "# User shares preference\n"
-            'create_memory(\n    name="code_style",\n    content="- Uses snake_case\\n- Prefers functional style",\n    tier="short_term"\n)\n\n'
-            "# Record architectural decision\n"
-            'create_memory(\n    name="tech_decisions",\n    content="# Database\\n**Choice:** PostgreSQL\\n**Why:** JSONB support + team experience",\n    tier="long_term"\n)\n\n'
-            "# Add new finding\n"
-            'append_to_memory(\n    name="known_issues",\n    content="## Auth timeout bug\\n- Affects /login\\n- Fixed in PR #123"\n)\n\n'
-            "# Load reference material\n"
-            'result = load_memory("tech_decisions")\n'
-            'print(result["content"])\n'
+            "# Document skill effectiveness after completing a task\n"
+            "write_file(\n"
+            '    "memory/long_term/skill_effectiveness.md",\n'
+            '    "## Frontend Design Tasks\\n"\n'
+            '    "**What worked:** frontend-design + webapp-testing combo\\n"\n'
+            '    "**Why effective:** Produced visually polished UI, screenshot analysis caught layout issues\\n"\n'
+            '    "**For future:** Always use this combo for user-facing web interfaces"\n'
+            ")\n\n"
+            "# Document user workflow preference\n"
+            "write_file(\n"
+            '    "memory/short_term/user_prefs.md",\n'
+            '    "## Workflow\\n"\n'
+            '    "**Preference:** Iterative refinement with visual feedback\\n"\n'
+            '    "**Don\'t:** Single-shot delivery without showing progress\\n"\n'
+            '    "**Rationale:** User explicitly requested iterative improvement based on screenshots"\n'
+            ")\n\n"
+            "# Document lesson learned to prevent future mistakes\n"
+            'existing = read_file("memory/long_term/lessons_learned.md") if file_exists("memory/long_term/lessons_learned.md") else ""\n'
+            "write_file(\n"
+            '    "memory/long_term/lessons_learned.md",\n'
+            '    existing + "\\n\\n## Web Design: Visual Verification\\n"\n'
+            '    "**Mistake to avoid:** Assuming design looks good without visual check\\n"\n'
+            '    "**Prevention:** Always preview + screenshot before finalizing\\n"\n'
+            '    "**Impact:** Caught responsive layout issues that would have looked broken"\n'
+            ")\n"
             "```\n",
         )
 
@@ -825,11 +886,10 @@ class FilesystemOperationsSection(SystemPromptSection):
 
             workspace_tree += (
                 "   **Building on Others' Work:**\n"
-                "   - **Inspect First**: Use `read_file`, `read_multiple_files`, or other command "
-                "line tools to examine files before copying. Understand what you're working with.\n"
+                "   - **Inspect First**: Examine files before copying to understand what you're "
+                "working with.\n"
                 "   - **Selective Copying**: Only copy specific files you'll actually modify or "
-                "use. Use `copy_file` for individual files, not `copy_directory` for wholesale "
-                "copying.\n"
+                "use, not entire directories wholesale.\n"
                 "   - **Merging Approaches**: If combining work from multiple agents, consider "
                 "merging complementary parts (e.g., agent1's data model + agent2's API layer) "
                 "rather than picking one entire solution.\n"
@@ -931,14 +991,18 @@ class FilesystemBestPracticesSection(SystemPromptSection):
     Optional filesystem best practices and tips.
 
     Lower priority guidance about workspace cleanup, comparison tools, and evaluation.
+
+    Args:
+        enable_code_based_tools: Whether code-based tools mode is enabled
     """
 
-    def __init__(self):
+    def __init__(self, enable_code_based_tools: bool = False):
         super().__init__(
             title="Filesystem Best Practices",
             priority=Priority.AUXILIARY,
             xml_tag="filesystem_best_practices",
         )
+        self.enable_code_based_tools = enable_code_based_tools
 
     def build_content(self) -> str:
         parts = []
@@ -959,20 +1023,31 @@ class FilesystemBestPracticesSection(SystemPromptSection):
             "multiple agents, structure the result clearly.\n",
         )
 
-        # Comparison tools
-        parts.append(
-            "**Comparison Tools**: Use `compare_directories` to see differences between two "
-            "directories (e.g., comparing your workspace to another agent's workspace or a previous "
-            "version), or `compare_files` to see line-by-line diffs between two files. These "
-            "read-only tools help you understand what changed, build upon existing work "
-            "effectively, or verify solutions before voting.\n",
-        )
+        # Comparison tools (conditional on mode)
+        if self.enable_code_based_tools:
+            parts.append(
+                "**Comparison Tools**: Use directory and file comparison operations to understand "
+                "differences between workspaces or versions. These read-only operations help you "
+                "understand what changed, build upon existing work effectively, or verify solutions "
+                "before voting.\n",
+            )
+        else:
+            parts.append(
+                "**Comparison Tools**: Use directory and file comparison tools to see differences "
+                "between workspaces or versions. These read-only tools help you understand what "
+                "changed, build upon existing work effectively, or verify solutions before voting.\n",
+            )
 
-        # Evaluation guidance
+        # Evaluation guidance - emphasize outcome-based evaluation
         parts.append(
-            "**Evaluation**: When evaluating agents' answers, do NOT base your decision solely on "
-            "the answer text. Instead, read and verify the actual files in their workspaces (via "
-            "Shared Reference) to ensure the work matches their claims.\n",
+            "**Evaluation**: When evaluating agents' answers, assess both implementation and results:\n"
+            "- **For code quality**: Verify key files or substantially different implementations in "
+            "their workspaces (via Shared Reference)\n"
+            "- **For functionality**: Evaluate outcomes by running tests, checking visualizations, "
+            "validating outputs, or testing the deliverables\n"
+            "- **Focus verification**: Prioritize critical functionality and substantial differences "
+            "rather than exhaustively reviewing every file\n"
+            "- **Don't rely solely on answer text**: Ensure the actual work matches their claims\n",
         )
 
         return "\n".join(parts)
@@ -999,6 +1074,7 @@ class FilesystemSection(SystemPromptSection):
         enable_command_execution: Whether command line execution is enabled
         docker_mode: Whether commands execute in Docker containers
         enable_sudo: Whether sudo is available in Docker containers
+        enable_code_based_tools: Whether code-based tools mode is enabled
     """
 
     def __init__(
@@ -1014,6 +1090,7 @@ class FilesystemSection(SystemPromptSection):
         enable_command_execution: bool = False,
         docker_mode: bool = False,
         enable_sudo: bool = False,
+        enable_code_based_tools: bool = False,
     ):
         super().__init__(
             title="Filesystem & Workspace",
@@ -1033,7 +1110,7 @@ class FilesystemSection(SystemPromptSection):
                 agent_answers=agent_answers,
                 enable_command_execution=enable_command_execution,
             ),
-            FilesystemBestPracticesSection(),
+            FilesystemBestPracticesSection(enable_code_based_tools=enable_code_based_tools),
         ]
 
         # Add command execution section if enabled
@@ -1108,10 +1185,14 @@ When working on multi-step tasks:
 - `get_ready_tasks()` - Get tasks ready to start (dependencies satisfied)
 - `get_blocked_tasks()` - See what's waiting on dependencies
 - `update_task_status(task_id, status)` - Mark progress (pending/in_progress/completed)
-- `add_task(description, depends_on)` - Add new tasks as you discover them
+- `add_task(description, depends_on, priority)` - Add new tasks (priority: low/medium/high)
 - `get_task_plan()` - View your complete task plan
 - `edit_task(task_id, description)` - Update task descriptions
 - `delete_task(task_id)` - Remove tasks no longer needed
+
+**Reading Tool Responses:**
+Tool responses may include important reminders and guidance (e.g., when completing high-priority tasks,
+you'll receive reminders to save learnings to memory). Always read tool response messages carefully.
 
 **Recommended workflow:**
 ```python

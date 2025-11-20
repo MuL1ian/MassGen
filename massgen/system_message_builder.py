@@ -192,7 +192,10 @@ class SystemMessageBuilder:
                 if agent.backend.filesystem_manager.shared_tools_directory:
                     shared_tools_path = str(agent.backend.filesystem_manager.shared_tools_directory)
 
-                builder.add_section(CodeBasedToolsSection(workspace_path, shared_tools_path))
+                # Get MCP servers from backend for description lookup
+                mcp_servers = getattr(agent.backend, "mcp_servers", []) or []
+
+                builder.add_section(CodeBasedToolsSection(workspace_path, shared_tools_path, mcp_servers))
                 logger.info(f"[SystemMessageBuilder] Added code-based tools section for {agent_id}")
 
         # PRIORITY 10 (MEDIUM): Task Planning
@@ -293,7 +296,10 @@ class SystemMessageBuilder:
                 if agent.backend.filesystem_manager.shared_tools_directory:
                     shared_tools_path = str(agent.backend.filesystem_manager.shared_tools_directory)
 
-                code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path)
+                # Get MCP servers from backend for description lookup
+                mcp_servers = getattr(agent.backend, "mcp_servers", []) or []
+
+                code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path, mcp_servers)
                 sections_content.append(code_based_tools_section.build_content())
                 logger.info("[SystemMessageBuilder] Added code-based tools section for presentation")
 
@@ -360,7 +366,10 @@ class SystemMessageBuilder:
                 if agent.backend.filesystem_manager.shared_tools_directory:
                     shared_tools_path = str(agent.backend.filesystem_manager.shared_tools_directory)
 
-                code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path)
+                # Get MCP servers from backend for description lookup
+                mcp_servers = getattr(agent.backend, "mcp_servers", []) or []
+
+                code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path, mcp_servers)
                 parts.append(code_based_tools_section.build_content())
                 logger.info("[SystemMessageBuilder] Added code-based tools section for post-evaluation")
 
@@ -411,6 +420,9 @@ class SystemMessageBuilder:
         turns_to_show = [t for t in previous_turns if t["turn"] < current_turn_num - 1]
         workspace_prepopulated = len(previous_turns) > 0
 
+        # Get code-based tools flag from agent
+        enable_code_based_tools = agent.backend.filesystem_manager.enable_code_based_tools
+
         # Build filesystem operations section
         fs_ops = FilesystemOperationsSection(
             main_workspace=main_workspace,
@@ -423,7 +435,7 @@ class SystemMessageBuilder:
         )
 
         # Build filesystem best practices section
-        fs_best = FilesystemBestPracticesSection()
+        fs_best = FilesystemBestPracticesSection(enable_code_based_tools=enable_code_based_tools)
 
         # Build command execution section if enabled
         cmd_exec = None
