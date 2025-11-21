@@ -2657,6 +2657,58 @@ def setup_docker() -> None:
         print("  bash massgen/docker/build.sh --sudo\n")
 
 
+def show_example_prompts() -> Optional[str]:
+    """Show example prompts that work with default quickstart config.
+
+    These prompts work out-of-the-box with code execution, multimodal tools,
+    and web scraping capabilities.
+
+    Returns:
+        Selected prompt text, or None if user skips/cancels
+    """
+    import questionary
+    from questionary import Style
+
+    example_prompts = [
+        "Create a vibrant, interactive website about famous AI researchers using HTML, CSS, and JavaScript",
+        "Write a Python script to analyze data from a CSV file, create visualizations, and generate a summary report",
+        "Research recent developments in AI multi-agent systems by searching the web and summarize key trends with citations",
+        "Generate 3 different logo concepts for a tech startup, then help me choose the best one based on design principles",
+        "Create a lesson plan for teaching Python programming to beginners, with structured activities and code examples",
+        "Build a web scraper to collect pricing data from e-commerce sites and analyze market trends",
+        "Generate a presentation-ready infographic about climate change using text-to-image generation",
+        "Research, plan, and write a technical blog post about multi-agent systems",
+    ]
+
+    # Custom style with highlighted autocomplete
+    custom_style = Style(
+        [
+            ("answer", "#4A90E2 bold"),
+            ("completion-menu.completion", "bg:#808080 fg:#ffffff"),  # Dimmed gray background
+            ("completion-menu.completion.current", "bg:#4A90E2 fg:#ffffff"),  # Highlight current selection
+        ],
+    )
+
+    try:
+        print()
+        # Show dimmed examples below the prompt
+        print("\033[2m" + "Example prompts (start typing to see autocomplete):" + "\033[0m")
+        for prompt in example_prompts[:3]:  # Show first 3 as hints
+            print("\033[2m" + f"  • {prompt[:70]}{'...' if len(prompt) > 70 else ''}" + "\033[0m")
+        print()
+
+        choice = questionary.autocomplete(
+            "Enter your prompt:",
+            choices=example_prompts,
+            style=custom_style,
+            match_middle=True,
+        ).ask()
+
+        return choice if choice else None
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+
 def should_run_builder() -> bool:
     """Check if config builder should run automatically.
 
@@ -3907,11 +3959,59 @@ Environment Variables:
                 print(f"{BRIGHT_GREEN}✅ API keys detected{RESET}")
                 print()
 
-            # Step 2: Launch config builder
+            # Step 2: Optional Docker and skills setup
+            # Offer to set up Docker
+            try:
+                docker_choice = input(f"  {BRIGHT_CYAN}Set up Docker images for code execution? [Y/n]: {RESET}").strip().lower()
+                if docker_choice in ["y", "yes", ""]:
+                    setup_docker()
+                    print()
+            except (KeyboardInterrupt, EOFError):
+                print()
+
+            # Offer to install skills
+            try:
+                skills_choice = input(f"  {BRIGHT_CYAN}Install skills (openskills, Anthropic collection)? [Y/n]: {RESET}").strip().lower()
+                if skills_choice in ["y", "yes", ""]:
+                    from .utils.skills_installer import install_skills
+
+                    install_skills()
+                    print()
+            except (KeyboardInterrupt, EOFError):
+                print()
+
+            # Step 3: Choose setup method
             print("  Let's set up your default configuration...")
             print()
 
-            result = builder.run()
+            import questionary
+
+            setup_choice = questionary.select(
+                "Choose setup method:",
+                choices=[
+                    questionary.Choice(
+                        title="Quickstart - Fast setup with smart defaults (recommended)",
+                        value="quickstart",
+                    ),
+                    questionary.Choice(
+                        title="Full - Advanced configuration with all options",
+                        value="full",
+                    ),
+                ],
+                default="quickstart",
+            ).ask()
+
+            if not setup_choice:
+                # User cancelled
+                print(f"\n{BRIGHT_YELLOW}Setup cancelled{RESET}\n")
+                return
+
+            if setup_choice == "quickstart":
+                print()
+                result = builder.run_quickstart()
+            else:
+                print()
+                result = builder.run()
 
             if result and len(result) == 2:
                 filepath, question = result
