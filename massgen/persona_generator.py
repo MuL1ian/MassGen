@@ -208,9 +208,10 @@ class PersonaGenerator:
 3. Include specific thinking styles, focuses, and communication patterns
 4. If an agent has an existing instruction, enhance it rather than replace it
 5. Make personas specific enough to influence behavior but general enough to apply to any subtask
-6. **CRITICAL**: All personas must still solve the task - personas add diversity in
-   approach/perspective, NOT divergence from the task goal. Every agent should ultimately
-   address the same task with their unique perspective.
+6. **CRITICAL**: All agents must solve the ENTIRE task completely. Do NOT create
+   specialized roles or divide the task into subtasks. Each agent should produce a
+   complete solution to the task with their unique perspective/approach. Personas add
+   diversity in HOW to solve the task, NOT which part to solve.
 
 ## Output Format
 Return a JSON object with this structure:
