@@ -149,7 +149,11 @@ massgen = [
     "configs/**/*.yaml",
     "configs/**/*.yml",
     "examples/*.yaml",
-    "backends/.env.example"
+    "backends/.env.example",
+    "tool/**/*.py",
+    "tool/**/*.yaml",
+    "tool/**/*.md",
+    "skills/**/*",
 ]
 "*" = ["*.json", "*.yaml", "*.yml", "*.md"]
 

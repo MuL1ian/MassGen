@@ -51,10 +51,44 @@ MassGen: Multi-Agent Scaling System for GenAI
      <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-dark">
    </a>
 
-MassGen is a cutting-edge multi-agent system that leverages the power of collaborative AI to solve complex tasks. It assigns a task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution to deliver a comprehensive and high-quality result. The power of this "parallel study group" approach is exemplified by advanced systems like xAI's Grok Heavy and Google DeepMind's Gemini Deep Think.
+Quick Start
+-----------
+
+Get started with MassGen in minutes:
+
+.. code-block:: bash
+
+   pip install uv
+   uv venv
+   uv pip install massgen
+   uv run massgen
+
+On first run, MassGen will guide you through:
+
+1. **API key setup** - Configure OpenAI, Anthropic, Google, or xAI
+2. **Optional enhancements** - Install Docker images and skills (~5 minutes with Docker, faster without)
+3. **Quickstart configuration** - Create your agent team with smart defaults
+4. **Start chatting** - Launch directly into an interactive conversation
+
+Your configuration is saved automatically. Future runs are simple:
+
+.. code-block:: bash
+
+   # Interactive multi-turn conversation
+   uv run massgen
+
+   # Single query
+   uv run massgen "Your question here"
+
+   # Use a different configuration
+   uv run massgen --config @examples/providers/gemini/gemini_3_pro
+
+**Want to dive deeper?** See :doc:`quickstart/installation` for detailed setup options and :doc:`quickstart/running-massgen` for all the ways to use MassGen.
 
 What is MassGen?
 -----------------
+
+MassGen is a cutting-edge multi-agent system that leverages the power of collaborative AI to solve complex tasks. It assigns a task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution to deliver a comprehensive and high-quality result. The power of this "parallel study group" approach is exemplified by advanced systems like xAI's Grok Heavy and Google DeepMind's Gemini Deep Think.
 
 MassGen assigns your task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution. The system delivers comprehensive, high-quality results by leveraging the collective intelligence of multiple AI models.
 

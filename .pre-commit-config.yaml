@@ -130,6 +130,12 @@ repos:
         language: system
         files: ^README\.md$
         pass_filenames: false
+      - id: check-package-name
+        name: Ensure package name is "massgen" in pyproject.toml
+        entry: python scripts/precommit_check_package_name.py
+        language: system
+        files: ^pyproject\.toml$
+        pass_filenames: false
   # - repo: local
   #   hooks:
   #     - id: check-massgen-python-file-length

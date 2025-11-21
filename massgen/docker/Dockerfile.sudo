@@ -70,6 +70,7 @@ WORKDIR /app
 # - Pillow: Image processing for _multimodal_tools
 # - opencv-python-headless: Video processing for _video_tools (headless = no GUI deps)
 # - playwright, crawl4ai: Browser automation and web scraping for _browser_automation/_web_tools
+# Note: fastmcp will be installed later with MassGen package
 RUN pip install --no-cache-dir \
     'pytest>=7.0.0' \
     'python-dotenv>=1.0.0' \
@@ -114,6 +115,18 @@ RUN python -m playwright install
 # Enables uvx for running tools like serena on-demand without permanent installation
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/massgen/.local/bin:${PATH}"
+
+# Install MassGen package from source
+# This provides MCP server modules and fastmcp CLI needed for agent operation
+# Installs from the git repository being built (not PyPI) to ensure version sync
+USER root
+COPY --chown=massgen:massgen . /tmp/massgen-build
+WORKDIR /tmp/massgen-build
+RUN pip install --no-cache-dir . && \
+    cd /workspace && \
+    rm -rf /tmp/massgen-build
+WORKDIR /workspace
+USER massgen
 
 # Default command: Keep container running (overridden at runtime)
 CMD ["tail", "-f", "/dev/null"]

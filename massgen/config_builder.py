@@ -3170,10 +3170,10 @@ class ConfigBuilder:
             config = self._generate_quickstart_config(agents_config, context_path, use_docker)
 
             # Step 4: Save the config
-            # Default location: ~/.config/massgen/quickstart_config.yaml
+            # Save to default config location so users can run `massgen` without flags
             config_dir = Path.home() / ".config" / "massgen"
             config_dir.mkdir(parents=True, exist_ok=True)
-            filepath = config_dir / "quickstart_config.yaml"
+            filepath = config_dir / "config.yaml"
 
             with open(filepath, "w") as f:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -3181,8 +3181,17 @@ class ConfigBuilder:
             console.print(f"\n[bold green]✅ Config saved to: {filepath}[/bold green]")
             console.print("[dim]Launching MassGen...[/dim]\n")
 
-            # Auto-launch into interactive mode (return empty string to signal interactive mode)
-            return (str(filepath), "")
+            # Offer example prompts to help users get started
+            from .cli import show_example_prompts
+
+            example_prompt = show_example_prompts()
+
+            if example_prompt:
+                # Return with the selected example prompt as initial question
+                return (str(filepath), example_prompt)
+            else:
+                # Auto-launch into interactive mode (return empty string to signal interactive mode)
+                return (str(filepath), "")
 
         except (KeyboardInterrupt, EOFError):
             console.print("\n\n[yellow]Quickstart cancelled[/yellow]\n")

@@ -115,7 +115,9 @@ class FilesystemManager:
             self.custom_tools_path = Path(custom_tools_path)
         elif auto_discover_custom_tools:
             # Auto-discover from default location (massgen/tool/)
-            default_path = Path("massgen/tool")
+            # Use package directory to find tools, not current working directory
+            package_dir = Path(__file__).parent.parent  # massgen/filesystem_manager -> massgen
+            default_path = package_dir / "tool"
             if default_path.exists():
                 self.custom_tools_path = default_path
                 logger.info(f"[FilesystemManager] Auto-discovered custom tools at {default_path}")
