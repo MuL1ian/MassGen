@@ -50,6 +50,7 @@ from .logger_config import (
 )
 from .memory import ConversationMemory, PersistentMemoryBase
 from .message_templates import MessageTemplates
+from .persona_generator import PersonaGenerator
 from .stream_chunk import ChunkType
 from .system_message_builder import SystemMessageBuilder
 from .tool import get_post_evaluation_tools, get_workflow_tools
@@ -230,6 +231,10 @@ class Orchestrator(ChatAgent):
         # DSPy paraphrase tracking
         self._agent_paraphrases: Dict[str, str] = {}
         self._paraphrase_generation_errors: int = 0
+
+        # Persona generation tracking
+        self._personas_generated: bool = False
+        self._generated_personas: Dict[str, Any] = {}  # agent_id -> GeneratedPersona
 
         # Multi-turn session tracking (loaded by CLI, not managed by orchestrator)
         self._previous_turns: List[Dict[str, Any]] = previous_turns or []
@@ -596,6 +601,120 @@ class Orchestrator(ChatAgent):
         }
 
         return config
+
+    async def _generate_and_inject_personas(self) -> None:
+        """
+        Generate diverse personas for all agents and inject into their system messages.
+
+        This method uses an LLM (specified in persona_generator config) to create
+        complementary personas for each agent, increasing response diversity.
+        The generated personas are prepended to existing system messages.
+        """
+        # Check if persona generation is enabled
+        if not hasattr(self.config, "coordination_config"):
+            return
+        if not hasattr(self.config.coordination_config, "persona_generator"):
+            return
+        if not self.config.coordination_config.persona_generator.enabled:
+            return
+
+        # Skip if already generated (for multi-turn scenarios)
+        if self._personas_generated:
+            logger.debug("[Orchestrator] Personas already generated, skipping")
+            return
+
+        logger.info(f"[Orchestrator] Generating personas for {len(self.agents)} agents")
+
+        try:
+            # Create backend for persona generation
+            from .cli import create_backend
+
+            pg_config = self.config.coordination_config.persona_generator
+            backend_config = pg_config.backend
+            persona_backend = create_backend(backend_type=backend_config["type"], **{k: v for k, v in backend_config.items() if k != "type"})
+
+            # Initialize generator
+            generator = PersonaGenerator(
+                backend=persona_backend,
+                strategy=pg_config.strategy,
+                guidelines=pg_config.persona_guidelines,
+            )
+
+            # Get existing system messages
+            existing_messages = {}
+            for agent_id, agent in self.agents.items():
+                if hasattr(agent, "get_configurable_system_message"):
+                    existing_messages[agent_id] = agent.get_configurable_system_message()
+                else:
+                    existing_messages[agent_id] = None
+
+            # Generate personas
+            personas = await generator.generate_personas(
+                agent_ids=list(self.agents.keys()),
+                task=self.current_task or "Complete the assigned task",
+                existing_system_messages=existing_messages,
+            )
+
+            # Inject personas into agents
+            for agent_id, agent in self.agents.items():
+                persona = personas.get(agent_id)
+                if persona:
+                    existing = existing_messages.get(agent_id) or ""
+                    # Prepend persona to existing system message
+                    new_message = f"{persona.persona_text}\n\n{existing}".strip()
+
+                    # Set the new system message
+                    if hasattr(agent, "set_system_message"):
+                        agent.set_system_message(new_message)
+                    elif hasattr(agent, "system_message"):
+                        agent.system_message = new_message
+
+                    logger.debug(f"[Orchestrator] Injected persona for {agent_id}: {persona.attributes.get('thinking_style', 'unknown')}")
+
+            # Store for logging/debugging
+            self._generated_personas = personas
+            self._personas_generated = True
+
+            # Save personas to log file
+            self._save_personas_to_log(personas)
+
+            logger.info(f"[Orchestrator] Successfully generated and injected {len(personas)} personas")
+
+        except Exception as e:
+            logger.error(f"[Orchestrator] Failed to generate personas: {e}")
+            logger.warning("[Orchestrator] Continuing without persona generation")
+            self._personas_generated = True  # Don't retry on failure
+
+    def _save_personas_to_log(self, personas: Dict[str, Any]) -> None:
+        """
+        Save generated personas to a YAML file in the log directory.
+
+        Args:
+            personas: Dictionary mapping agent_id to GeneratedPersona
+        """
+        try:
+            import yaml
+
+            from .logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir()
+            personas_file = log_dir / "generated_personas.yaml"
+
+            # Convert personas to serializable dict
+            personas_data = {}
+            for agent_id, persona in personas.items():
+                personas_data[agent_id] = {
+                    "persona_text": persona.persona_text,
+                    "attributes": persona.attributes,
+                }
+
+            with open(personas_file, "w") as f:
+                yaml.dump(personas_data, f, default_flow_style=False, sort_keys=False)
+
+            logger.info(f"[Orchestrator] Saved personas to {personas_file}")
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Failed to save personas to log: {e}")
 
     def _inject_memory_tools_for_all_agents(self) -> None:
         """
@@ -1352,6 +1471,9 @@ Your answer:"""
                 "has_context": conversation_context is not None,
             },
         )
+
+        # Generate and inject personas if enabled (happens once per session)
+        await self._generate_and_inject_personas()
 
         # Check if we should skip coordination rounds (debug/test mode)
         if self.config.skip_coordination_rounds:

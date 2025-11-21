@@ -1315,8 +1315,21 @@ async def run_question_with_history(
     # Parse coordination config if present
     if "coordination" in orchestrator_cfg:
         from .agent_config import CoordinationConfig
+        from .persona_generator import PersonaGeneratorConfig
 
         coord_cfg = orchestrator_cfg["coordination"]
+
+        # Parse persona_generator config if present
+        persona_generator_config = PersonaGeneratorConfig()
+        if "persona_generator" in coord_cfg:
+            pg_cfg = coord_cfg["persona_generator"]
+            persona_generator_config = PersonaGeneratorConfig(
+                enabled=pg_cfg.get("enabled", False),
+                backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
+                strategy=pg_cfg.get("strategy", "complementary"),
+                persona_guidelines=pg_cfg.get("persona_guidelines"),
+            )
+
         orchestrator_config.coordination_config = CoordinationConfig(
             enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
             planning_mode_instruction=coord_cfg.get(
@@ -1331,6 +1344,7 @@ async def run_question_with_history(
             use_skills=coord_cfg.get("use_skills", False),
             massgen_skills=coord_cfg.get("massgen_skills", []),
             skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+            persona_generator=persona_generator_config,
         )
 
     # Get previous turns and winning agents history from session_info if already loaded,
@@ -1381,6 +1395,18 @@ async def run_question_with_history(
         coordination_settings = orchestrator_kwargs.get("coordination", {})
         if coordination_settings:
             from .agent_config import CoordinationConfig
+            from .persona_generator import PersonaGeneratorConfig
+
+            # Parse persona_generator config if present
+            persona_generator_config = PersonaGeneratorConfig()
+            if "persona_generator" in coordination_settings:
+                pg_cfg = coordination_settings["persona_generator"]
+                persona_generator_config = PersonaGeneratorConfig(
+                    enabled=pg_cfg.get("enabled", False),
+                    backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
+                    strategy=pg_cfg.get("strategy", "complementary"),
+                    persona_guidelines=pg_cfg.get("persona_guidelines"),
+                )
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coordination_settings.get("enable_planning_mode", False),
@@ -1396,6 +1422,7 @@ async def run_question_with_history(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                persona_generator=persona_generator_config,
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
@@ -1617,6 +1644,18 @@ async def run_single_question(
         coordination_settings = orchestrator_kwargs.get("coordination", {})
         if coordination_settings:
             from .agent_config import CoordinationConfig
+            from .persona_generator import PersonaGeneratorConfig
+
+            # Parse persona_generator config if present
+            persona_generator_config = PersonaGeneratorConfig()
+            if "persona_generator" in coordination_settings:
+                pg_cfg = coordination_settings["persona_generator"]
+                persona_generator_config = PersonaGeneratorConfig(
+                    enabled=pg_cfg.get("enabled", False),
+                    backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
+                    strategy=pg_cfg.get("strategy", "complementary"),
+                    persona_guidelines=pg_cfg.get("persona_guidelines"),
+                )
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coordination_settings.get("enable_planning_mode", False),
@@ -1632,6 +1671,7 @@ async def run_single_question(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                persona_generator=persona_generator_config,
             )
 
         # Get orchestrator parameters from config
@@ -1670,8 +1710,21 @@ async def run_single_question(
         # Parse coordination config if present
         if "coordination" in orchestrator_cfg:
             from .agent_config import CoordinationConfig
+            from .persona_generator import PersonaGeneratorConfig
 
             coord_cfg = orchestrator_cfg["coordination"]
+
+            # Parse persona_generator config if present
+            persona_generator_config = PersonaGeneratorConfig()
+            if "persona_generator" in coord_cfg:
+                pg_cfg = coord_cfg["persona_generator"]
+                persona_generator_config = PersonaGeneratorConfig(
+                    enabled=pg_cfg.get("enabled", False),
+                    backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
+                    strategy=pg_cfg.get("strategy", "complementary"),
+                    persona_guidelines=pg_cfg.get("persona_guidelines"),
+                )
+
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
                 planning_mode_instruction=coord_cfg.get(
@@ -1686,6 +1739,7 @@ async def run_single_question(
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                persona_generator=persona_generator_config,
             )
 
         orchestrator = Orchestrator(

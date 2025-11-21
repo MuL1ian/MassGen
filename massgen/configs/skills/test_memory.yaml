@@ -28,3 +28,10 @@ orchestrator:
     task_planning_filesystem_mode: true
     # Enable memory filesystem mode
     enable_memory_filesystem_mode: true
+    # Enable automatic persona generation for agent diversity
+    persona_generator:
+      enabled: true
+      backend:
+        type: openai
+        model: gpt-4o-mini
+      strategy: complementary
