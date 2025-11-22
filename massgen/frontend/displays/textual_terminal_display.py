@@ -838,6 +838,7 @@ if TEXTUAL_AVAILABLE:
             self.current_agent_index = 0
             self._pending_flush = False
             self._resize_debounce_handle = None
+            self._thread_id: Optional[int] = None
 
             if not self._keyboard_interactive_mode:
                 self.BINDINGS = []
@@ -883,6 +884,8 @@ if TEXTUAL_AVAILABLE:
 
         async def on_mount(self):
             """Set up periodic buffer flushing when app starts."""
+            # Record the app's thread id so synchronous calls can short-circuit call_from_thread
+            self._thread_id = threading.get_ident()
             # Set up periodic buffer flushing
             self.set_interval(self.buffer_flush_interval, self._flush_buffers)
             # Render restart context if present
