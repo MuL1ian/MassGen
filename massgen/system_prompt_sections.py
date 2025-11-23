@@ -484,7 +484,10 @@ reversed_text = reverse_string("hello")
 image = await text_to_image_generation(prompt="sunset", output_path="sunset.png")
 ```
 
-**Important:** Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
+**Important:**
+- Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
+- **CRITICAL**: When running Python scripts that import from `servers/` or `custom_tools/`, always specify `work_dir="{self.workspace_path}"` in your
+  execute_command call. The symlinks to these directories only exist in your main workspace, not in temporary snapshot directories.
 
 **Custom Tools Return Type:**
 

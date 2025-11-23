@@ -48,6 +48,19 @@ RUN pip install --no-cache-dir ast-grep-cli
 # Anthropic skills are installed manually beforehand and added as a volume at runtime
 RUN npm install -g openskills
 
+# Fix MCP filesystem server schema issue
+# The latest @modelcontextprotocol/server-filesystem (2025.8.21) has a Zod version conflict:
+# - @modelcontextprotocol/sdk uses Zod 3.25.76
+# - zod-to-json-schema@3.25.0 expects Zod 4.x
+# This causes schemas to return only {"$schema": " "http://json-schema.org/draft-07/schema#"}
+# instead of full parameter definitions, so the agents cannot generate correct tool calls.
+# Fix: Downgrade zod-to-json-schema to 3.23.0 which works with Zod 3.
+# When in Docker, the filesystem npm is used instead of through npx.
+RUN npm install -g @modelcontextprotocol/server-filesystem && \
+    cd $(npm root -g)/@modelcontextprotocol/server-filesystem && \
+    npm uninstall zod-to-json-schema && \
+    npm install zod-to-json-schema@3.23.0
+
 # Install semtools for semantic search (optional semtools skills)
 RUN npm install -g @llamaindex/semtools
 

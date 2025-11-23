@@ -981,18 +981,35 @@ class FilesystemManager:
         # Get all managed paths
         paths = self.path_permission_manager.get_mcp_filesystem_paths()
 
+        # Check if we should use globally installed package (Docker) vs npx (local)
+        # In Docker, we pre-install with the zod-to-json-schema fix
+        import shutil
+
+        use_global = shutil.which("mcp-server-filesystem") is not None
+
         # Build MCP server configuration with all managed paths
-        config = {
-            "name": "filesystem",
-            "type": "stdio",
-            "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-filesystem",
-            ]
-            + paths,
-            "cwd": str(self.cwd),  # Set working directory for filesystem server (important for relative paths)
-        }
+        if use_global:
+            # Use globally installed package (Docker with fixed zod version)
+            config = {
+                "name": "filesystem",
+                "type": "stdio",
+                "command": "mcp-server-filesystem",
+                "args": paths,
+                "cwd": str(self.cwd),
+            }
+        else:
+            # Use npx for local development
+            config = {
+                "name": "filesystem",
+                "type": "stdio",
+                "command": "npx",
+                "args": [
+                    "-y",
+                    "@modelcontextprotocol/server-filesystem",
+                ]
+                + paths,
+                "cwd": str(self.cwd),  # Set working directory for filesystem server (important for relative paths)
+            }
 
         if include_only_write_tools:
             # Code-based tools mode: Only include write_file and edit_file

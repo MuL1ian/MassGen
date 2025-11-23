@@ -292,6 +292,111 @@ class TokenCostCalculator:
 
         return "\n".join(text_parts)
 
+    def calculate_cost_with_usage_object(
+        self,
+        model: str,
+        usage: Union[Dict[str, Any], Any],
+        provider: Optional[str] = None,
+    ) -> float:
+        """
+        Calculate cost from API usage object using litellm pricing data.
+
+        Automatically handles:
+        - Reasoning tokens (o1/o3 models)
+        - Cached tokens (prompt caching)
+        - Cache creation vs cache read pricing
+        - Provider-specific token structures
+
+        Args:
+            model: Model identifier (e.g., "gpt-4o", "claude-sonnet-4-5-20250929")
+            usage: Usage object/dict from API response
+            provider: Optional provider name for fallback
+
+        Returns:
+            Cost in USD
+        """
+        # Extract token counts from usage object
+        usage_dict = usage if isinstance(usage, dict) else vars(usage) if hasattr(usage, "__dict__") else {}
+
+        # Extract basic tokens (provider-agnostic)
+        input_tokens = usage_dict.get("prompt_tokens") or usage_dict.get("input_tokens", 0)
+        output_tokens = usage_dict.get("completion_tokens") or usage_dict.get("output_tokens", 0)
+
+        # Extract reasoning tokens
+        # Check top-level first (SGLang format)
+        reasoning_tokens = usage_dict.get("reasoning_tokens", 0) or 0
+
+        # Then check nested details (OpenAI/Grok format)
+        if not reasoning_tokens:
+            completion_details = usage_dict.get("completion_tokens_details") or usage_dict.get("output_tokens_details")
+            if completion_details:
+                details_dict = completion_details if isinstance(completion_details, dict) else vars(completion_details) if hasattr(completion_details, "__dict__") else {}
+                reasoning_tokens = details_dict.get("reasoning_tokens", 0) or 0
+
+        # Extract cached tokens (Anthropic, OpenAI)
+        cached_read_tokens = usage_dict.get("cache_read_input_tokens", 0)
+        cached_write_tokens = usage_dict.get("cache_creation_input_tokens", 0)
+
+        # OpenAI uses different field names
+        if not cached_read_tokens:
+            prompt_details = usage_dict.get("prompt_tokens_details") or usage_dict.get("input_tokens_details")
+            if prompt_details:
+                details_dict = prompt_details if isinstance(prompt_details, dict) else vars(prompt_details) if hasattr(prompt_details, "__dict__") else {}
+                cached_read_tokens = details_dict.get("cached_tokens", 0)
+
+        # Try to get pricing from litellm database
+        litellm_db = self._fetch_litellm_pricing()
+        if litellm_db and model in litellm_db:
+            model_pricing = litellm_db[model]
+
+            # For Anthropic: cache_read_input_tokens and cache_creation_input_tokens are SEPARATE from input_tokens
+            # For OpenAI: cached_tokens in prompt_tokens_details are PART OF prompt_tokens (subtract them)
+            non_cached_input = input_tokens
+            if cached_read_tokens > 0 and "cache_read_input_tokens" not in usage_dict:
+                # OpenAI format: cached tokens are included in prompt_tokens
+                non_cached_input = input_tokens - cached_read_tokens
+
+            # Calculate costs using litellm pricing
+            input_cost = (non_cached_input / 1_000_000) * model_pricing.get("input_cost_per_token", 0) * 1_000_000
+            output_cost = (output_tokens / 1_000_000) * model_pricing.get("output_cost_per_token", 0) * 1_000_000
+            reasoning_cost = (reasoning_tokens / 1_000_000) * model_pricing.get("output_cost_per_token", 0) * 1_000_000  # Reasoning uses output price
+
+            # Cached token costs
+            cache_read_cost = (cached_read_tokens / 1_000_000) * model_pricing.get("cache_read_input_token_cost", model_pricing.get("input_cost_per_token", 0) * 0.1) * 1_000_000
+            cache_write_cost = (cached_write_tokens / 1_000_000) * model_pricing.get("cache_creation_input_token_cost", model_pricing.get("input_cost_per_token", 0) * 1.25) * 1_000_000
+
+            total_cost = input_cost + output_cost + reasoning_cost + cache_read_cost + cache_write_cost
+
+            logger.debug(f"litellm pricing: {model} = ${total_cost:.6f} (input=${input_cost:.6f}, output=${output_cost:.6f}, reasoning=${reasoning_cost:.6f}, cache_read=${cache_read_cost:.6f})")
+            return total_cost
+
+        # Fallback to existing logic
+        logger.debug(f"Model {model} not in litellm database, using fallback")
+        return self._extract_and_calculate_basic_cost(usage, provider, model)
+
+    def _extract_and_calculate_basic_cost(
+        self,
+        usage: Union[Dict, Any],
+        provider: str,
+        model: str,
+    ) -> float:
+        """Extract basic token counts and calculate cost (fallback)."""
+        # Extract basic token counts (provider-agnostic)
+        # OpenAI format: prompt_tokens, completion_tokens
+        # Anthropic format: input_tokens, output_tokens
+
+        if isinstance(usage, dict):
+            input_tokens = usage.get("prompt_tokens") or usage.get("input_tokens", 0)
+            output_tokens = usage.get("completion_tokens") or usage.get("output_tokens", 0)
+        elif hasattr(usage, "prompt_tokens") or hasattr(usage, "input_tokens"):
+            input_tokens = getattr(usage, "prompt_tokens", None) or getattr(usage, "input_tokens", 0)
+            output_tokens = getattr(usage, "completion_tokens", None) or getattr(usage, "output_tokens", 0)
+        else:
+            logger.warning(f"Could not extract token counts from usage object: {usage}")
+            return 0.0
+
+        return self.calculate_cost(input_tokens, output_tokens, provider, model)
+
     def get_model_pricing(self, provider: str, model: str) -> Optional[ModelPricing]:
         """
         Get pricing information for a specific model.

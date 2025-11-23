@@ -4008,8 +4008,6 @@ Environment Variables:
             return
 
         try:
-            from .config_builder import ConfigBuilder
-
             builder = ConfigBuilder()
             success = builder.generate_config_programmatic(
                 output_path=args.generate_config,

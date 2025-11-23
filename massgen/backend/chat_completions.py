@@ -660,6 +660,22 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
 
                 # Optionally handle usage metadata
                 if hasattr(chunk, "usage") and chunk.usage:
+                    # Calculate cost with litellm (handles reasoning/cached tokens)
+                    cost = self.token_calculator.calculate_cost_with_usage_object(
+                        model=all_params.get("model"),
+                        usage=chunk.usage,
+                        provider=self.get_provider_name(),
+                    )
+
+                    # Track basic token counts
+                    input_tokens = getattr(chunk.usage, "prompt_tokens", 0) or getattr(chunk.usage, "input_tokens", 0)
+                    output_tokens = getattr(chunk.usage, "completion_tokens", 0) or getattr(chunk.usage, "output_tokens", 0)
+
+                    self.token_usage.input_tokens += input_tokens
+                    self.token_usage.output_tokens += output_tokens
+                    self.token_usage.estimated_cost += cost
+
+                    # Handle web search metadata
                     if getattr(chunk.usage, "num_sources_used", 0) > 0:
                         search_sources_used = chunk.usage.num_sources_used
                         if enable_web_search:
