@@ -1397,17 +1397,20 @@ async def run_question_with_history(
             persona_generator=persona_generator_config,
         )
 
+    # Get session_id from session_info (will be generated in save_final_state if not exists)
+    session_id = session_info.get("session_id")
+
     # Get previous turns and winning agents history from session_info if already loaded,
     # otherwise restore from session storage for multi-turn conversations
     previous_turns = session_info.get("previous_turns", [])
     winning_agents_history = session_info.get("winning_agents_history", [])
 
     # If not provided in session_info but session_id exists, restore from storage
-    if not previous_turns and not winning_agents_history and session_info.get("session_id"):
+    if not previous_turns and not winning_agents_history and session_id:
         from massgen.session import restore_session
 
         try:
-            session_state = restore_session(session_info["session_id"], SESSION_STORAGE)
+            session_state = restore_session(session_id, SESSION_STORAGE)
             if session_state:
                 previous_turns = session_state.previous_turns
                 winning_agents_history = session_state.winning_agents_history
@@ -1418,6 +1421,7 @@ async def run_question_with_history(
     orchestrator = Orchestrator(
         agents=agents,
         config=orchestrator_config,
+        session_id=session_id,  # Pass CLI session_id for memory archiving
         snapshot_storage=snapshot_storage,
         agent_temporary_workspace=agent_temporary_workspace,
         previous_turns=previous_turns,
@@ -1602,13 +1606,17 @@ async def run_single_question(
     Returns:
         The final response text
     """
+    # Generate session_id if not provided (needed for memory archiving)
+    if not session_id:
+        session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
     # Restore previous session ONLY if explicitly requested (not for new sessions)
     conversation_history = []
     previous_turns = []
     winning_agents_history = []
     current_turn = 0
 
-    if session_id and restore_session_if_exists:
+    if restore_session_if_exists:
         from massgen.logger_config import set_log_turn
         from massgen.session import restore_session
 
@@ -1795,6 +1803,7 @@ async def run_single_question(
         orchestrator = Orchestrator(
             agents=agents,
             config=orchestrator_config,
+            session_id=session_id,  # Pass CLI session_id for memory archiving
             snapshot_storage=snapshot_storage,
             agent_temporary_workspace=agent_temporary_workspace,
             dspy_paraphraser=kwargs.get("dspy_paraphraser"),

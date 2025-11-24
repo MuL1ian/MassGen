@@ -4442,6 +4442,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                 agents=self.agents,
                 snapshot_storage=self._snapshot_storage,
                 session_id=self.session_id,
+                agent_temporary_workspace=self._agent_temporary_workspace,
             )
         return self._system_message_builder
 
@@ -4505,12 +4506,14 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         # Get current answer count for this agent
         answer_num = self.agent_states[agent_id].answer_count
 
-        # Archive path: snapshot_storage/session_id/archived_memories/agent_id_answer_n/
-        if not self._snapshot_storage or not self.session_id:
-            logger.warning("[Orchestrator] Cannot archive memories: no snapshot_storage or session_id")
+        # Archive path: .massgen/sessions/{session_id}/archived_memories/agent_id_answer_n/
+        # Use hardcoded session storage path (not snapshot_storage which gets cleared)
+        if not self.session_id:
+            logger.warning("[Orchestrator] Cannot archive memories: no session_id")
             return
 
-        archive_base = Path(self._snapshot_storage) / self.session_id / "archived_memories"
+        # Archives must be in sessions/ directory for persistence, not snapshots/
+        archive_base = Path(".massgen/sessions") / self.session_id / "archived_memories"
         archive_path = archive_base / f"{agent_id}_answer_{answer_num}"
 
         # Copy entire memory/ directory to archive

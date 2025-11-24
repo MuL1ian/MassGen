@@ -5,7 +5,7 @@ agents:
   - id: "agent_a"
     backend:
       type: "openai"
-      model: "gpt-5-mini"
+      model: "gpt-5-codex"
       cwd: "workspace1"  # Required for filesystem mode
       enable_mcp_command_line: true
       command_line_execution_mode: "docker"
@@ -13,7 +13,7 @@ agents:
   - id: "agent_b"
     backend:
       type: "gemini"
-      model: "gemini-2.5-pro"  # "gemini-3-pro-preview"
+      model: "gemini-3-pro-preview"
       cwd: "workspace2"  # Required for filesystem mode
       enable_mcp_command_line: true
       command_line_execution_mode: "docker"
@@ -29,9 +29,9 @@ orchestrator:
     # Enable memory filesystem mode
     enable_memory_filesystem_mode: true
     # Enable automatic persona generation for agent diversity
-    persona_generator:
-      enabled: true
-      backend:
-        type: openai
-        model: gpt-4o-mini
-      strategy: complementary
+    # persona_generator:
+    #   enabled: true
+    #   backend:
+    #     type: openai
+    #     model: gpt-4o-mini
+    #   strategy: complementary
