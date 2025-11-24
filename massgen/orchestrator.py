@@ -68,6 +68,7 @@ class AgentState:
         restart_pending: Whether the agent should gracefully restart due to new answers
         is_killed: Whether this agent has been killed due to timeout/limits
         timeout_reason: Reason for timeout (if applicable)
+        answer_count: Number of answers this agent has created (increments on new_answer)
     """
 
     answer: Optional[str] = None
@@ -78,6 +79,7 @@ class AgentState:
     timeout_reason: Optional[str] = None
     last_context: Optional[Dict[str, Any]] = None  # Store the context sent to this agent
     paraphrase: Optional[str] = None
+    answer_count: int = 0  # Track number of answers for memory archiving
 
 
 class Orchestrator(ChatAgent):
@@ -2193,6 +2195,11 @@ Your answer:"""
                 # Vote only - skip workspace snapshot to preserve previous answer's workspace
                 logger.info("[Orchestrator._save_agent_snapshot] Skipping workspace snapshot for vote (preserving previous workspace)")
             else:
+                # Archive memories BEFORE clearing/snapshotting workspace
+                workspace_path = agent.backend.filesystem_manager.get_current_workspace()
+                if workspace_path:
+                    self._archive_agent_memories(agent_id, Path(workspace_path))
+
                 logger.info(f"[Orchestrator._save_agent_snapshot] Agent {agent_id} has filesystem_manager, calling save_snapshot with timestamp={timestamp if not is_final else None}")
                 await agent.backend.filesystem_manager.save_snapshot(timestamp=timestamp if not is_final else None, is_final=is_final)
 
@@ -4433,6 +4440,9 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                 config=self.config,
                 message_templates=self.message_templates,
                 agents=self.agents,
+                snapshot_storage=self._snapshot_storage,
+                session_id=self.session_id,
+                agent_temporary_workspace=self._agent_temporary_workspace,
             )
         return self._system_message_builder
 
@@ -4455,6 +4465,9 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             if agent.backend.filesystem_manager:
                 workspace_path = agent.backend.filesystem_manager.get_current_workspace()
                 if workspace_path and Path(workspace_path).exists():
+                    # Archive memories BEFORE clearing workspace
+                    self._archive_agent_memories(agent_id, Path(workspace_path))
+
                     # Clear workspace contents but keep the directory
                     for item in Path(workspace_path).iterdir():
                         if item.is_file():
@@ -4473,6 +4486,46 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                             elif item.is_dir():
                                 shutil.copytree(item, dest, dirs_exist_ok=True)
                         logger.info(f"[Orchestrator] Pre-populated {agent_id} workspace with writable copy of turn n-1")
+
+    def _archive_agent_memories(self, agent_id: str, workspace_path: Path) -> None:
+        """
+        Archive memories from agent workspace before clearing.
+
+        Copies all memory files from workspace/memory/ to archived_memories/{agent_id}_answer_{n}/
+        This preserves memories from discarded answers so they're not lost.
+
+        Args:
+            agent_id: ID of the agent whose memories to archive
+            workspace_path: Path to the agent's current workspace
+        """
+        memory_dir = workspace_path / "memory"
+        if not memory_dir.exists():
+            logger.info(f"[Orchestrator] No memory directory for {agent_id}, skipping archive")
+            return
+
+        # Get current answer count for this agent
+        answer_num = self.agent_states[agent_id].answer_count
+
+        # Archive path: .massgen/sessions/{session_id}/archived_memories/agent_id_answer_n/
+        # Use hardcoded session storage path (not snapshot_storage which gets cleared)
+        if not self.session_id:
+            logger.warning("[Orchestrator] Cannot archive memories: no session_id")
+            return
+
+        # Archives must be in sessions/ directory for persistence, not snapshots/
+        archive_base = Path(".massgen/sessions") / self.session_id / "archived_memories"
+        archive_path = archive_base / f"{agent_id}_answer_{answer_num}"
+
+        # Copy entire memory/ directory to archive
+        try:
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(memory_dir, archive_path, dirs_exist_ok=True)
+            logger.info(f"[Orchestrator] Archived memories for {agent_id} answer {answer_num} to {archive_path}")
+        except Exception as e:
+            logger.error(f"[Orchestrator] Failed to archive memories for {agent_id}: {e}")
+
+        # Increment answer count for next answer
+        self.agent_states[agent_id].answer_count += 1
 
     def _get_previous_turns_context_paths(self) -> List[Dict[str, Any]]:
         """
@@ -4499,6 +4552,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.restart_pending = False
             state.is_killed = False
             state.timeout_reason = None
+            state.answer_count = 0
 
         # Reset orchestrator timeout tracking
         self.total_tokens = 0

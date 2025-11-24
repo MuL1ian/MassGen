@@ -20,16 +20,19 @@ Overview
 The filesystem memory mode introduces a **two-tier hierarchy** inspired by `Letta's context hierarchy <https://docs.letta.com/guides/agents/context-hierarchy>`_:
 
 **Short-term Memory** (Tier 1)
-   Always injected into all agents' system prompts. Use for critical information that must be immediately available (user preferences, key facts, ongoing context). Recommended limit: <10 memories.
+   Always injected into all agents' system prompts. Use for tactical observations, user preferences, and quick reference information needed frequently. These are small (<100 lines), immediately useful notes. Auto-loaded every turn.
 
 **Long-term Memory** (Tier 2)
-   Summary table shown in system prompt, full content loaded on-demand via ``load_memory()``. Use for reference information, project history, and less urgent details. No practical limit.
+   Summary (name + description only) shown in system prompt, full content loaded on-demand via ``load_memory()``. Use for detailed analyses, comprehensive reports, and information that's useful but not needed every turn (>100 lines). Manual load when needed.
 
 Key Features
 ~~~~~~~~~~~~
 
 - **Filesystem Transparency**: All memories stored as Markdown files in agent workspaces
 - **Cross-Agent Visibility**: All agents see all memories from all agents
+- **Memory Archiving**: Memories automatically preserved when agents restart (``new_answer``)
+- **Stateless Agents**: Agents see aggregated context from current state + historical archives
+- **Smart Deduplication**: Historical archives show only latest version of each memory
 - **Automatic Injection**: Short-term memories always in-context, no action needed
 - **Two-Tier Design**: Balance between immediate availability and context window efficiency
 - **MCP Tools**: Create, update, remove, and load memories programmatically
@@ -94,47 +97,89 @@ Architecture
 Directory Structure
 ~~~~~~~~~~~~~~~~~~~
 
-Memories are stored in each agent's workspace:
+Memories are stored in multiple locations for different purposes:
+
+**Agent Workspaces** (Current work):
 
 .. code-block:: text
 
    workspace1/
      memory/
        short_term/
-         user_preferences.md
-         critical_facts.md
+         quick_notes.md
+         user_prefs.md
        long_term/
-         project_history.md
-         technical_decisions.md
+         comprehensive_analysis.md
 
    workspace2/
      memory/
        short_term/
-         agent2_notes.md
-       long_term/
-         research_findings.md
+         task_context.md
+
+**Temp Workspaces** (For cross-agent visibility):
+
+.. code-block:: text
+
+   .massgen/temp_workspaces/
+     agent1/
+       memory/
+         short_term/
+           quick_notes.md
+     agent2/
+       memory/
+         short_term/
+           task_context.md
+
+**Archived Memories** (Historical persistence):
+
+.. code-block:: text
+
+   .massgen/sessions/session_20251123_210304/
+     archived_memories/
+       agent_a_answer_0/
+         short_term/
+           quick_notes.md
+         long_term/
+           skill_effectiveness.md
+       agent_a_answer_1/
+         short_term/
+           quick_notes.md  # Updated version
+       agent_b_answer_0/
+         short_term/
+           task_context.md
+     turn_1/
+       workspace/
+       answer.txt
 
 File Format
 ~~~~~~~~~~~
 
-All memories use **Markdown with YAML frontmatter** (same format as skills):
+All memories **MUST** use **Markdown with YAML frontmatter**:
 
 .. code-block:: markdown
 
    ---
-   name: user_preferences
-   description: User's coding style preferences
-   tier: short_term
-   agent_id: agent_a
-   created: 2025-01-12T10:30:00Z
-   updated: 2025-01-12T10:35:00Z
+   name: quick_notes
+   description: Tactical observations from current work
+   created: 2025-11-23T20:00:00
+   updated: 2025-11-23T20:00:00
    ---
 
-   # User Preferences
+   ## Web Development
+   - CSS variables work well for theming
+   - create_directory fails on nested paths - create parent first
 
-   - Uses tabs over spaces
-   - Prefers functional programming
-   - Avoids global state
+**Required YAML fields:**
+
+- ``name``: Memory filename (without .md extension)
+- ``description``: Brief summary for display in long-term memory lists
+- ``created``: ISO timestamp when memory was created
+- ``updated``: ISO timestamp of last update
+
+**Optional fields:**
+
+- ``tier``: "short_term" or "long_term" (inferred from directory if missing)
+- ``agent_id``: Which agent created it (auto-populated by MCP tools)
 
 System Prompt Injection
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -189,48 +234,63 @@ Every agent receives the same memory section in their system prompt, containing:
 System Prompt Format
 ^^^^^^^^^^^^^^^^^^^^
 
-**Short-term Section** (full content):
+Agents see memories from two sources in their system prompts:
+
+**1. Current Agent Memories** (from temp workspaces):
 
 .. code-block:: text
 
-   ## Short-term Memory (Always Available)
+   ### Current Agent Memories (For Comparison)
 
-   ### user_preferences [Agent: agent_a]
-   *User's coding style preferences*
+   **agent1:**
+   *short_term:*
+   - `quick_notes.md`
+     ```
+     - CSS variables work well for theming
+     - create_directory needs parent to exist first
+     ```
 
-   # Preferences
-   - Uses tabs over spaces
-   - Prefers functional programming
+   *long_term:*
+   - `comprehensive_analysis.md`: Detailed skill effectiveness analysis
 
-   ---
+   **agent2:**
+   *short_term:*
+   - `task_context.md`
+     ```
+     Key findings about current task...
+     ```
 
-   ### project_constraints [Agent: agent_b]
-   *Technical constraints for the project*
-
-   - Must support Python 3.11+
-   - No external dependencies beyond stdlib
-
-   ---
-
-**Long-term Section** (summary table):
+**2. Archived Memories** (deduplicated historical context):
 
 .. code-block:: text
 
-   ## Long-term Memory (Load as Needed)
+   ### Archived Memories (Historical - Deduplicated)
 
-   | Agent   | Memory Name       | Description                     |
-   |---------|-------------------|---------------------------------|
-   | agent_a | project_history   | Project background and decisions|
-   | agent_b | research_findings | Literature review results       |
+   **Short-term (full content):**
 
-   **To load**: Use load_memory(name="memory_name")
+   - `quick_notes.md` (from Agent A Answer 1)
+     ```
+     - CSS variables work well
+     - Always test responsiveness
+     ```
+
+   **Long-term (summaries only):**
+   - `skill_effectiveness.md`: Tracking skills and tools (from Agent A Answer 2)
+   - `approach_patterns.md`: Strategy analysis (from Agent B Answer 0)
+
+**Key Differences:**
+
+- **Current**: Shows ALL memories from all agents (no deduplication) for comparison
+- **Archived**: Shows deduplicated memories (newest version only) from previous answers
+- **Short-term**: Full content always shown
+- **Long-term**: Only name + description shown (load with ``load_memory()`` to see full content)
 
 **Important Notes:**
 
-- **Automatic re-injection**: Changes to memory files are immediately visible on next turn
-- **No manual loading for short-term**: Short-term memories are always in-context
-- **Token cost**: Each short-term memory adds to every agent's context window
-- **Fresh reads**: Memory is always read from filesystem, never cached
+- **Stateless agents**: Agents have no persistent identity across ``new_answer`` calls
+- **Deduplication**: If same memory name appears multiple times in archives, only newest shown
+- **Automatic archiving**: Memories saved to ``.massgen/sessions/{session_id}/archived_memories/`` before workspace clearing
+- **Fresh reads**: Memory is always read from filesystem on every turn, never cached
 
 MCP Tools Reference
 -------------------
@@ -356,19 +416,24 @@ Best Practices
 Choosing Between Tiers
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-**Use Short-term** when:
+**Use Short-term** (PREFERRED for most things) when:
 
-- Information is needed **immediately** and **frequently**
-- Memory size is small (<1000 tokens per memory)
-- Total short-term memories stay under ~10 items
-- Examples: User preferences, critical constraints, ongoing context
+- Small, tactical observations (<100 lines)
+- Needed frequently across turns
+- Quick reference information
+- User preferences and workflow patterns
+- Tool tips and gotchas discovered
+- Examples: ``quick_notes.md``, ``user_prefs.md``, ``task_context.md``
 
-**Use Long-term** when:
+**Use Long-term** (only for detailed content) when:
 
-- Information is needed **occasionally** or **on-demand**
-- Memory size is large (documentation, logs, etc.)
-- Many memories that would clutter context
-- Examples: Project history, technical docs, research findings, past decisions
+- Comprehensive, detailed analysis (>100 lines)
+- Multi-task patterns with substantial evidence
+- Detailed post-mortems and architectural decisions
+- Content that would clutter auto-loaded context
+- Examples: ``comprehensive_analysis.md``, ``detailed_post_mortem.md``
+
+**Rule of thumb**: If it's small and useful every turn → short_term. If it's detailed and situationally useful → long_term. Most observations should be short-term.
 
 Memory Organization
 ~~~~~~~~~~~~~~~~~~~
@@ -708,20 +773,65 @@ Filesystem Mode vs. Skills System
 - Skills: Pre-existing knowledge (how to use tools, workflows)
 - Memory: Runtime discoveries (user prefs, findings, decisions)
 
+Memory Archiving & Persistence
+--------------------------------
+
+When agents call ``new_answer`` to restart with a fresh workspace, their memories are automatically archived.
+
+How It Works
+~~~~~~~~~~~~
+
+1. **Before clearing workspace**: Memories copied to ``.massgen/sessions/{session_id}/archived_memories/{agent_id}_answer_{n}/``
+2. **Workspace cleared**: Agent gets fresh workspace
+3. **Memories preserved**: Historical archives persist permanently in sessions/ directory
+4. **System prompt updated**: Next agent sees archived memories (deduplicated) + current memories
+
+Deduplication Strategy
+~~~~~~~~~~~~~~~~~~~~~~
+
+**Current Agent Memories** (from temp workspaces):
+   - Shows ALL memories from ALL agents
+   - NO deduplication (need all for comparison)
+   - Used for evaluating competing answers
+
+**Archived Memories** (from sessions/):
+   - Shows deduplicated historical memories
+   - For duplicate names: keeps only newest version (by file timestamp)
+   - Reduces noise from repeated memory names across answers
+
+**Example**:
+
+.. code-block:: text
+
+   Archives before deduplication:
+   - agent_a_answer_0/quick_notes.md (timestamp: 100)
+   - agent_a_answer_1/quick_notes.md (timestamp: 200) ← SHOWN
+   - agent_b_answer_0/quick_notes.md (timestamp: 150)
+
+   System prompt shows only: agent_a_answer_1/quick_notes.md (most recent)
+
+Stateless Architecture
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Agents are **stateless** - they have no persistent identity across ``new_answer`` calls. Each agent sees:
+
+1. All current memories from all agents' workspaces (for comparing approaches)
+2. Deduplicated historical memories from archives (for context)
+
+This design ensures agents see complete context without confusion about "my previous work" vs "other agents' work".
+
 Known Limitations
 -----------------
 
 This feature is experimental. Key limitations:
 
-1. **Multi-Turn Persistence**: Memories may not persist across turns in multi-turn mode. Use :doc:`memory` for cross-session persistence.
+1. **No Semantic Search**: Retrieval by exact name only. No similarity search or automatic relevance ranking.
 
-2. **Dynamic Updates**: Memory updates appear on the next turn, not immediately during conversation.
+2. **Token Management**: No automatic enforcement of memory size limits. Keep short-term memories small (<100 lines).
 
-3. **No Semantic Search**: Retrieval by exact name only. No similarity search or automatic relevance ranking.
+3. **Archive Growth**: Archives accumulate over time. Consider periodic cleanup of old session directories.
 
-4. **Token Management**: No automatic enforcement of memory size limits. Keep short-term memories under 1000 tokens each.
-
-5. **Conflict Resolution**: No versioning or conflict detection. Last write wins.
+4. **No Conflict Resolution**: If multiple agents update same memory name, deduplication keeps newest by timestamp (last write wins).
 
 Related Documentation
 ---------------------
