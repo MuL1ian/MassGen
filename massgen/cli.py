@@ -2730,24 +2730,14 @@ def setup_docker() -> None:
         print(f"\n{BRIGHT_YELLOW}Setup cancelled{RESET}\n")
         return
 
-    # Pull images in parallel with real-time progress display
-    print(f"\n{BRIGHT_CYAN}Pulling {len(selected_images)} image(s) in parallel...{RESET}\n")
+    # Pull images with real-time progress display
+    print(f"\n{BRIGHT_CYAN}Pulling {len(selected_images)} image(s)...{RESET}\n")
 
-    import concurrent.futures
-    import threading
-
-    # Thread-safe tracking of results
     success_count = 0
     failed_images = []
-    lock = threading.Lock()
 
-    def pull_image(image: str, index: int, total: int) -> tuple[bool, str]:
-        """Pull a Docker image and return (success, image_name)."""
-        nonlocal success_count
-
-        # Print start message (may interleave, but that's ok)
-        with lock:
-            print(f"{BRIGHT_CYAN}[{index}/{total}] Starting: {image}{RESET}\n")
+    for i, image in enumerate(selected_images, 1):
+        print(f"{BRIGHT_CYAN}[{i}/{len(selected_images)}] Pulling {image}...{RESET}\n")
 
         try:
             # Don't capture output so Docker's progress bars are visible
@@ -2756,34 +2746,21 @@ def setup_docker() -> None:
                 timeout=600,  # 10 minutes max per image
             )
 
-            with lock:
-                print()  # Add spacing after progress bars
-                if result.returncode == 0:
-                    print(f"{BRIGHT_GREEN}✓ [{index}/{total}] Completed: {image}{RESET}\n")
-                    success_count += 1
-                    return True, image
-                else:
-                    print(f"{BRIGHT_RED}✗ [{index}/{total}] Failed: {image}{RESET}\n")
-                    return False, image
+            print()  # Add spacing after progress bars
+
+            if result.returncode == 0:
+                print(f"{BRIGHT_GREEN}✓ [{i}/{len(selected_images)}] Completed: {image}{RESET}\n")
+                success_count += 1
+            else:
+                print(f"{BRIGHT_RED}✗ [{i}/{len(selected_images)}] Failed: {image}{RESET}\n")
+                failed_images.append(image)
 
         except subprocess.TimeoutExpired:
-            with lock:
-                print(f"\n{BRIGHT_RED}✗ [{index}/{total}] Timed out: {image}{RESET}\n")
-            return False, image
+            print(f"\n{BRIGHT_RED}✗ [{i}/{len(selected_images)}] Timed out: {image}{RESET}\n")
+            failed_images.append(image)
         except Exception as e:
-            with lock:
-                print(f"\n{BRIGHT_RED}✗ [{index}/{total}] Error: {image} - {e}{RESET}\n")
-            return False, image
-
-    # Execute pulls in parallel
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(selected_images)) as executor:
-        futures = {executor.submit(pull_image, img, i + 1, len(selected_images)): img for i, img in enumerate(selected_images)}
-
-        # Wait for all to complete and collect failures
-        for future in concurrent.futures.as_completed(futures):
-            success, image = future.result()
-            if not success:
-                failed_images.append(image)
+            print(f"\n{BRIGHT_RED}✗ [{i}/{len(selected_images)}] Error: {image} - {e}{RESET}\n")
+            failed_images.append(image)
 
     # Summary
     print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
