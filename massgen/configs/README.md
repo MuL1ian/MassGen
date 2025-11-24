@@ -227,7 +227,44 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.15 - Latest
+### v0.1.16 - Latest
+**New Features:** Terminal Evaluation System, LiteLLM Cost Tracking, Memory Archiving, Self-Evolution Skills
+
+**Configuration Files:**
+- `meta/massgen_evaluates_terminal.yaml` - MassGen evaluates its own terminal display with VHS recording
+- `tools/custom_tools/terminal_evaluation.yaml` - Terminal evaluation tool demonstration
+- `skills/test_memory.yaml` - Memory archiving with multi-turn session support
+
+**Key Features:**
+- **Terminal Evaluation System**: Record terminal sessions with VHS and analyze with multimodal AI (GPT-4.1, Claude) for UI/UX evaluation
+- **LiteLLM Cost Tracking**: Accurate pricing for 500+ models with automatic updates, reasoning token support (o1/o3), cached token handling
+- **Memory Archiving**: Persistent memory across conversation turns for session continuity
+- **Self-Evolution Skills**: Four new skills enabling MassGen to maintain configs, document releases, and develop features
+- **Docker Enhancements**: Parallel image pulling, VHS integration for terminal recording
+- **Model Updates**: Grok 4.1 family and GPT-4.1 models with accurate pricing metadata
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Terminal Evaluation - record and analyze MassGen's terminal display
+# Prerequisites: VHS installed (brew install vhs), OPENAI_API_KEY or GEMINI_API_KEY in .env
+uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
+  "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
+
+# Terminal Evaluation Tool Demo - demonstrates recording and analysis workflow
+# Prerequisites: VHS installed, OPENAI_API_KEY in .env
+uv run massgen --config massgen/configs/tools/custom_tools/terminal_evaluation.yaml \
+  "Record and evaluate the terminal display for the todo example config"
+
+# Memory Archiving - persistent memory across conversation turns
+# Prerequisites: Docker running, API keys in .env
+uv run massgen --config massgen/configs/skills/test_memory.yaml \
+  "Create a website about Bob Dylan"
+```
+
+### v0.1.15
 **New Features:** Persona Generation System, Docker Distribution & Custom Tools Enhancement
 
 **Configuration Files:**
@@ -243,9 +280,6 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Persona Generation - automatic diverse system messages for agents
 # Prerequisites: OPENAI_API_KEY in .env, Docker running for code execution
 uv run massgen --config massgen/configs/basic/multi/persona_diversity_example.yaml \

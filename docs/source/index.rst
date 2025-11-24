@@ -145,17 +145,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory Improvements
+
+Terminal evaluation system with VHS recording for automated session capture as GIF/MP4/WEBM, analyzed by multimodal models (GPT-4.1, Claude) for UI/UX quality, agent performance, and coordination visualization. LiteLLM integration for accurate cost tracking across 500+ models with reasoning tokens (o1/o3) and cached tokens (Claude, OpenAI) support, more accurate than manual pricing tables. Memory archiving system enables persistent multi-turn conversations with improved retrieval and context management. MassGen self-evolution skills (config creator, self-developer, release documenter, model registry maintainer) for autonomous system maintenance. Docker improvements with parallel image pulling and VHS integration.
+
 **v0.1.15 (November 21, 2025)** - Persona Generation System & Docker Distribution
 
-Automatic persona generation for multi-agent configurations with multiple strategies (complementary, diverse, specialized, adversarial) to increase response diversity. Enhanced Docker distribution via GitHub Container Registry with ARM architecture support. Custom tools now run in isolated Docker containers for security and portability (Issue #510). MassGen pre-installed in Docker images for immediate use. Improved config builder with better model selection and defaults.
+Automatic persona generation for multi-agent configurations with multiple strategies (complementary, diverse, specialized, adversarial) to increase response diversity. Enhanced Docker distribution via GitHub Container Registry with ARM architecture support. Custom tools now run in isolated Docker containers for security and portability. MassGen pre-installed in Docker images for immediate use. Improved config builder with better model selection and defaults.
 
 **v0.1.14 (November 19, 2025)** - Parallel Tool Execution, Interactive Quickstart & Gemini 3 Pro
 
 Parallel tool execution system with configurable concurrent tool execution across all backends using asyncio-based scheduling and semaphore limits. Full integration for Google's Gemini 3 Pro model with native function calling capabilities. Interactive quickstart workflow with streamlined onboarding experience and guided configuration creation. MCP registry client with enhanced server metadata fetching from official registry for better agent understanding.
-
-**v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
-
-Code-based tools system implementing CodeAct paradigm with significant token usage reduction through importable Python code instead of schema-based tools. MCP server registry with auto-discovery and intelligent tool routing. Comprehensive skills installation system with cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI. NLIP integration for advanced tool routing across all backends.
 
 Quick Start
 -----------

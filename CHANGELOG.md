@@ -7,16 +7,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory Improvements
+Terminal evaluation system with VHS recording support, LiteLLM integration for accurate cost tracking across 500+ models, memory archiving with session improvements, and MassGen self-evolution skills.
+
 **v0.1.15 (November 21, 2025)** - Persona Generation System & Docker Distribution
 Automatic persona generation for agent diversity with multiple strategies, enhanced Docker distribution via GitHub Container Registry with ARM support, and MassGen pre-installed in Docker images.
 
 **v0.1.14 (November 19, 2025)** - Parallel Tool Execution, Interactive Quickstart & Gemini 3 Pro
 Parallel tool execution with configurable concurrency controls across all backends, interactive config builder with guided quickstart workflow, MCP registry client enhancements, and Gemini 3 Pro model support.
 
-**v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
-Code-based tools system implementing CodeAct paradigm, MCP server registry with auto-discovery, comprehensive skills installation system, and TOOL.md documentation standard.
-
 ---
+
+## [0.1.16] - 2025-11-24
+
+### Added
+- **Terminal Evaluation System**: Automated terminal session recording and AI-powered evaluation using VHS
+  - New `docs/source/user_guide/terminal_evaluation.rst` comprehensive evaluation guide (450 lines)
+  - New `massgen/tests/test_terminal_evaluation.py` with test suite (336 lines)
+  - New `massgen/tests/demo_terminal_evaluation.py` demonstration script (210 lines)
+  - Records terminal sessions as GIFs using VHS (Video Home System)
+  - Analyzes session recordings with multimodal models (GPT-4.1, Claude)
+  - Evaluates agent performance, UI quality, and interaction patterns
+  - Automated testing workflows for continuous quality monitoring
+
+- **LiteLLM Cost Tracking Integration**: Accurate cost calculation using LiteLLM's pricing database
+  - New `calculate_cost_with_usage_object()` in `massgen/token_manager/token_manager.py` (+178 lines)
+  - New `docs/dev_notes/litellm_cost_tracking_integration.md` design documentation (581 lines)
+  - New `massgen/tests/test_litellm_integration.py` comprehensive test suite (331 lines)
+  - New `massgen/tests/test_backend_cost_tracking.py` integration tests (183 lines)
+  - Integrates LiteLLM pricing database covering 500+ models with auto-updates
+  - Handles reasoning tokens for o1/o3 models with separate pricing
+  - Handles cached tokens for Claude and OpenAI prompt caching
+  - Fallback to legacy calculation when LiteLLM unavailable
+  - More accurate cost estimates than manual price tables
+
+- **Memory Archiving System**: Persistent memory with multi-turn session support
+  - Enhanced `massgen/orchestrator.py` with memory archiving capabilities (+51 lines)
+  - Enhanced `massgen/system_message_builder.py` with archive management (+170 lines)
+  - Enhanced `massgen/system_prompt_sections.py` with archiving instructions (+201 lines)
+  - Enhanced `massgen/cli.py` with session continuation support (+15 lines)
+  - Enables archiving long-term memory for session persistence
+  - Supports multi-turn conversations with memory continuity
+  - Improved memory retrieval and context management
+
+- **MassGen Self-Evolution Skills**: Skills for MassGen to develop and maintain itself
+  - New `massgen/skills/massgen-config-creator/SKILL.md` for creating valid YAML configurations (183 lines)
+  - New `massgen/skills/massgen-develops-massgen/SKILL.md` for self-improvement and feature development (490 lines)
+  - New `massgen/skills/massgen-release-documenter/SKILL.md` for changelog and documentation updates (252 lines)
+  - New `massgen/skills/model-registry-maintainer/SKILL.md` for maintaining model registry (483 lines)
+  - Enables MassGen to maintain its own codebase and documentation
+  - Self-documenting release workflows
+  - Automated configuration validation and generation
+  - Model registry updates with pricing and capability tracking
+
+### Changed
+- **Docker Infrastructure Enhancement**: Parallel image pulling, VHS recording support, and improved container management
+  - Enhanced `massgen/cli.py` with parallel Docker image pulling (+242 lines)
+  - Enhanced `massgen/docker/Dockerfile` with VHS installation and improved build process (+44 lines total)
+  - Enhanced `massgen/docker/Dockerfile.sudo` with VHS support and enhanced permissions (+47 lines total)
+  - Enhanced `massgen/filesystem_manager/_filesystem_manager.py` with VHS utilities and better Docker integration (+50 lines)
+  - Parallel pulling of multiple Docker images for faster setup
+  - VHS (Video Home System) integration for terminal session recording in Docker containers
+  - Better error handling and progress reporting
+  - Improved Docker container lifecycle management
+
+- **Model Registry Updates**: Expanded model support with accurate pricing and metadata
+  - Enhanced `massgen/backend/capabilities.py` with new models and release dates (+45 lines)
+  - Added Grok 4.1 family models (grok-4.1, grok-4.1-mini) with pricing
+  - Added GPT-4.1 family models for terminal evaluation
+  - Added release dates to all models in BACKEND_CAPABILITIES
+  - Removed o4 models (don't exist in production)
+  - Removed unsupported Gemini experimental models
+  - Improved model metadata for better cost tracking
+
+- **Configuration Builder Enhancement**: Improved model selection and configuration workflow
+  - Enhanced `massgen/config_builder.py` with better model defaults (+73 lines)
+  - Enhanced `massgen/cli.py` with improved config selection interface (+65 lines)
+  - Better model recommendations based on use case
+  - Improved validation and error messages
+
+### Fixed
+- **Status Mode Log Directory**: Fixed missing log directory creation in status mode
+  - Fixed `massgen/cli.py` to create log directories before writing
+  - Prevents errors when running in status/automation mode
+
+- **Filesystem Docker Zod Schema**: Resolved MCP tool argument parsing in Docker
+  - Enhanced `massgen/backend/chat_completions.py` with schema validation (+16 lines)
+  - Enhanced `massgen/backend/claude_code.py` with improved MCP handling (+13 lines)
+  - Enhanced `massgen/mcp_tools/security.py` with schema fixes (+2 lines)
+  - Fixed Zod schema errors preventing proper tool call execution
+  - MCP tools now correctly parse arguments in Docker filesystem mode
+
+### Documentations, Configurations and Resources
+
+- **Terminal Evaluation Documentation**: Complete guide for automated terminal testing
+  - New `docs/source/user_guide/terminal_evaluation.rst` with setup and usage (450 lines)
+  - Covers VHS configuration, recording workflows, evaluation strategies
+  - Integration examples with GitHub Actions for CI/CD
+  - Best practices for multimodal session analysis
+
+- **Memory Filesystem Mode Enhancement**: Expanded documentation for memory integration
+  - Updated `docs/source/user_guide/memory_filesystem_mode.rst` with archiving workflows (+172 lines)
+  - Documents memory persistence across sessions
+  - Multi-turn conversation patterns with memory continuity
+  - Best practices for long-running agent interactions
+
+- **Skills Documentation Updates**: Enhanced skills guide with self-evolution examples
+  - Updated `docs/source/user_guide/skills.rst` with MassGen self-evolution skills (+178 lines)
+  - Documents the four new MassGen-specific skills
+  - Examples of self-maintaining systems
+  - Guidelines for creating meta-skills
+
+- **Custom Tools Documentation**: Improved custom tools integration guide
+  - Updated `docs/source/user_guide/custom_tools.rst` with terminal evaluation examples (+103 lines)
+  - Documents VHS integration patterns
+  - Best practices for recording and evaluation tools
+  - CI/CD integration strategies
+
+- **Configuration Examples**: New YAML configurations for v0.1.16 features
+  - New `massgen/configs/meta/massgen_evaluates_terminal.yaml` for terminal evaluation (72 lines)
+  - New `massgen/configs/tools/custom_tools/terminal_evaluation.yaml` example config (88 lines)
+  - Updated `massgen/configs/skills/test_memory.yaml` with memory archiving examples
+  - Updated `massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml` with Docker improvements
+
+### Technical Details
+- **Major Focus**: Terminal evaluation infrastructure, LiteLLM cost tracking integration, memory archiving system, MassGen self-evolution capabilities
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.15] - 2025-11-21
 

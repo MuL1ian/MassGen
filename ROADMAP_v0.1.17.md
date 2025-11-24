@@ -1,102 +1,102 @@
-# MassGen v0.1.16 Roadmap
+# MassGen v0.1.17 Roadmap
 
 ## Overview
 
-Version 0.1.16 focuses on quickstart improvements and accurate token/price counting, enhancing the onboarding experience and cost tracking capabilities.
+Version 0.1.17 focuses on broadcasting capabilities for agent collaboration and expanding model support with Grok 4.1 Fast.
 
-- **Make Quickstart More Intuitive** (Required): 🚀 Ensure tools and skills work through PyPI for better onboarding
-- **Integrate LiteLLM Registry** (Required): 💰 More accurate token and price counting across providers
+- **Broadcasting to Humans/Agents** (Required): 📢 Enable agents to broadcast questions when facing implementation uncertainties
+- **Grok 4.1 Fast Model Support** (Required): 🚀 Add support for xAI's Grok 4.1 Fast model
 
 ## Key Technical Priorities
 
-1. **Make Quickstart More Intuitive**: Ensure tools and skills work properly through PyPI installation
-   **Use Case**: Enable users to get started with MassGen quickly and easily, with tools and skills working out of the box via PyPI
+1. **Broadcasting to Humans/Agents for Implementation Questions**: Enable agents to broadcast questions during execution
+   **Use Case**: When agents encounter ambiguous requirements or implementation decisions, they can broadcast questions to humans or other agents for clarification, improving decision quality and reducing errors
 
-2. **Integrate LiteLLM Registry**: More accurate token counting across all providers
-   **Use Case**: Provide accurate token usage and cost information across all supported model providers
+2. **Grok 4.1 Fast Model Support**: Add support for xAI's latest high-speed model
+   **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses and cost-effective multi-agent workflows
 
 ## Key Milestones
 
-### 🎯 Milestone 1: Make Quickstart More Intuitive (REQUIRED)
+### 🎯 Milestone 1: Broadcasting to Humans/Agents for Implementation Questions (REQUIRED)
 
-**Goal**: Ensure tools and skills work properly through PyPI installation for better onboarding
+**Goal**: Enable agents to broadcast questions when facing implementation uncertainties
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#544](https://github.com/massgen/MassGen/issues/544)
+**Issue**: [#437](https://github.com/massgen/MassGen/issues/437)
 
-#### 1.1 PyPI Installation Improvements
-- [ ] Ensure all tools work correctly when installed via PyPI
-- [ ] Ensure all skills work correctly when installed via PyPI
-- [ ] Verify dependencies are properly bundled
-- [ ] Test installation on clean environments
-- [ ] Cross-platform installation testing (Windows, macOS, Linux)
+#### 1.1 Broadcasting Infrastructure
+- [ ] Design question broadcasting protocol
+- [ ] Implement message routing system for broadcasts
+- [ ] Support for human-in-the-loop question handling
+- [ ] Agent-to-agent question broadcasting
+- [ ] Context preservation for broadcast questions
 
-#### 1.2 Onboarding Experience
-- [ ] Improved first-run experience
-- [ ] Better documentation and guidance during initial setup
-- [ ] Streamlined configuration process
-- [ ] Clear error messages for common setup issues
-- [ ] Interactive setup wizard improvements
+#### 1.2 Question/Answer Workflow
+- [ ] Structured question format with context
+- [ ] Multiple response aggregation mechanisms
+- [ ] Timeout handling for unanswered questions
+- [ ] Response validation and integration
+- [ ] Fallback strategies when no answers received
 
-#### 1.3 Documentation Updates
-- [ ] Updated quickstart guide
-- [ ] Installation troubleshooting guide
-- [ ] Common issues and solutions
-- [ ] Video tutorials (optional)
-- [ ] Example configurations for new users
+#### 1.3 Integration with Orchestration
+- [ ] Integration with existing orchestrator
+- [ ] Agent coordination during broadcast sessions
+- [ ] State management during question-answer cycles
+- [ ] Logging and debugging support
+- [ ] Performance optimization for broadcast overhead
 
 **Success Criteria**:
-- ✅ Tools and skills work correctly when installed via PyPI
-- ✅ Quickstart process is streamlined and intuitive
-- ✅ New users can get started within 5 minutes
-- ✅ Clear error messages guide users through setup issues
-- ✅ Documentation covers all common scenarios
+- ✅ Agents can broadcast questions to humans during execution
+- ✅ Agent-to-agent question routing works seamlessly
+- ✅ Question context is preserved and responses are integrated
+- ✅ Timeout and fallback mechanisms work reliably
+- ✅ Broadcasting integrates smoothly with existing orchestration
 
 ---
 
-### 🎯 Milestone 2: Integrate LiteLLM Registry (REQUIRED)
+### 🎯 Milestone 2: Grok 4.1 Fast Model Support (REQUIRED)
 
-**Goal**: Integrate LiteLLM registry for more accurate token and price counting across all providers
+**Goal**: Add support for xAI's Grok 4.1 Fast model
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#543](https://github.com/massgen/MassGen/issues/543)
+**Issue**: [#540](https://github.com/massgen/MassGen/issues/540)
 
-#### 2.1 LiteLLM Integration
-- [ ] Integrate LiteLLM's model registry
-- [ ] Fetch up-to-date pricing information
-- [ ] Support for all major providers (OpenAI, Anthropic, Google, etc.)
-- [ ] Automatic registry updates
-- [ ] Fallback mechanisms for offline usage
+#### 2.1 Backend Integration
+- [ ] Add Grok 4.1 Fast to model registry
+- [ ] Configure API endpoint and authentication
+- [ ] Implement model-specific parameters
+- [ ] Test API connectivity and responses
+- [ ] Error handling for Grok-specific issues
 
-#### 2.2 Token Counting
-- [ ] Accurate token counting across all supported providers
-- [ ] Provider-specific tokenizer integration
-- [ ] Real-time token usage tracking
-- [ ] Token usage reporting and analytics
-- [ ] Token estimation before API calls
+#### 2.2 Token Counting & Pricing
+- [ ] Configure token counting for Grok 4.1 Fast
+- [ ] Set up pricing information (input/output tokens)
+- [ ] Integration with LiteLLM pricing database
+- [ ] Cost tracking for Grok 4.1 Fast usage
+- [ ] Validate token counts against xAI's specifications
 
-#### 2.3 Price Calculation
-- [ ] Precise price calculation for different models
-- [ ] Support for input/output token pricing differences
-- [ ] Currency conversion support (optional)
-- [ ] Cost tracking for multi-agent workflows
-- [ ] Cost estimation and budgeting features
+#### 2.3 Capability Registration
+- [ ] Register model capabilities (function calling, etc.)
+- [ ] Configure context window limits
+- [ ] Set up rate limiting parameters
+- [ ] Performance benchmarking
+- [ ] Comparison with other fast models
 
 #### 2.4 Integration & Testing
-- [ ] Integration with existing cost tracking system
-- [ ] Unit tests for token counting accuracy
-- [ ] Integration tests with various providers
-- [ ] Performance testing for overhead impact
-- [ ] Documentation and usage examples
+- [ ] Unit tests for Grok 4.1 Fast backend
+- [ ] Integration tests with multi-agent workflows
+- [ ] Performance testing for latency and throughput
+- [ ] Documentation and configuration examples
+- [ ] Migration guide from other Grok models
 
 **Success Criteria**:
-- ✅ Token counting is accurate across all supported providers
-- ✅ Price calculations match actual provider pricing
-- ✅ Cost tracking works for multi-agent workflows
-- ✅ Registry updates automatically with new model pricing
-- ✅ Minimal performance overhead from integration
+- ✅ Grok 4.1 Fast model is accessible via configuration
+- ✅ Token counting and pricing are accurate for Grok 4.1 Fast
+- ✅ Model performs with expected latency and cost characteristics
+- ✅ Function calling and tool use work correctly
+- ✅ Integration with multi-agent workflows is seamless
 
 ---
 
@@ -104,25 +104,25 @@ Version 0.1.16 focuses on quickstart improvements and accurate token/price count
 
 ### Functional Requirements
 
-**Make Quickstart More Intuitive:**
-- [ ] All tools work via PyPI installation
-- [ ] All skills work via PyPI installation
-- [ ] Quickstart documentation is clear and complete
-- [ ] Error messages are helpful and actionable
-- [ ] Setup process is streamlined
+**Broadcasting to Humans/Agents:**
+- [ ] Agents can broadcast questions during execution
+- [ ] Human-in-the-loop question handling works
+- [ ] Agent-to-agent question routing is functional
+- [ ] Question context is preserved
+- [ ] Responses are integrated back into agent execution
 
-**Integrate LiteLLM Registry:**
-- [ ] LiteLLM registry integrated
+**Grok 4.1 Fast Model Support:**
+- [ ] Grok 4.1 Fast model is accessible
 - [ ] Token counting is accurate
-- [ ] Price calculations are correct
-- [ ] Cost tracking functional
-- [ ] Registry updates automatically
+- [ ] Pricing calculations are correct
+- [ ] Function calling works properly
+- [ ] Performance meets expectations
 
 ### Performance Requirements
-- [ ] PyPI installation is fast
+- [ ] Broadcasting has minimal latency overhead
+- [ ] Question routing is efficient
+- [ ] Grok 4.1 Fast API calls are performant
 - [ ] Token counting has minimal overhead
-- [ ] Price lookups are cached efficiently
-- [ ] Startup time is not significantly impacted
 - [ ] Memory usage is reasonable
 
 ### Quality Requirements
@@ -137,26 +137,26 @@ Version 0.1.16 focuses on quickstart improvements and accurate token/price count
 ## Dependencies & Risks
 
 ### Dependencies
-- **Make Quickstart More Intuitive**: PyPI packaging, dependency management, cross-platform testing, documentation system
-- **Integrate LiteLLM Registry**: LiteLLM library, provider APIs, caching system, cost tracking infrastructure
+- **Broadcasting to Humans/Agents**: Orchestration system, message routing infrastructure, UI/CLI for human interaction
+- **Grok 4.1 Fast Model Support**: xAI API access, LiteLLM library, existing Grok backend infrastructure
 
 ### Risks & Mitigations
-1. **PyPI Packaging Issues**: *Mitigation*: Comprehensive testing on clean environments, CI/CD for package validation
-2. **Dependency Conflicts**: *Mitigation*: Careful dependency pinning, virtual environment testing
-3. **LiteLLM API Changes**: *Mitigation*: Version pinning, fallback mechanisms, monitoring for updates
-4. **Pricing Accuracy**: *Mitigation*: Regular validation against provider pricing pages, user feedback integration
-5. **Performance Overhead**: *Mitigation*: Caching, lazy loading, performance profiling
+1. **Question Routing Complexity**: *Mitigation*: Simple initial protocol, iterative complexity increase based on feedback
+2. **Human Response Latency**: *Mitigation*: Timeout mechanisms, fallback strategies, async execution
+3. **xAI API Availability**: *Mitigation*: API monitoring, graceful degradation, comprehensive error handling
+4. **Token Counting Accuracy**: *Mitigation*: Validation against xAI specifications, testing with known inputs
+5. **Performance Overhead**: *Mitigation*: Caching, efficient routing, performance profiling
 
 ---
 
-## Future Enhancements (Post-v0.1.16)
-
-### v0.1.17 Plans
-- **Improve Consistency of Memory & Tool Reminders** (@ncrispino): Enhance consistency of memory retrieval across agents
-- **MassGen Terminal Evaluation** (@ncrispino): Enable MassGen to evaluate and improve its own frontend/UI
+## Future Enhancements (Post-v0.1.17)
 
 ### v0.1.18 Plans
-- **Integrate RL into MassGen** (@qidanrui @praneeth999): Reinforcement learning integration for agent optimization
+- **Integrate RL into MassGen** (@qidanrui @praneeth999): Reinforcement learning integration for agent optimization and adaptive behavior
+- **Textual Terminal Display** (@praneeth999): Rich terminal UI with Textual framework for enhanced visualization
+
+### v0.1.19 Plans
+- **Filesystem-Based Memory Reliability** (@ncrispino): Ensure memory persistence across turns with filesystem backend
 - **Smithery MCP Tools Support** (@ncrispino): Integration with Smithery to expand available MCP tools
 
 ### Long-term Vision
@@ -171,10 +171,10 @@ Version 0.1.16 focuses on quickstart improvements and accurate token/price count
 
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
-| Phase 1 | Quickstart | PyPI installation, onboarding improvements, documentation | @ncrispino | **REQUIRED** |
-| Phase 2 | Token Counting | LiteLLM integration, accurate pricing, cost tracking | @ncrispino | **REQUIRED** |
+| Phase 1 | Broadcasting | Question broadcasting, human-in-the-loop, agent-to-agent communication | @ncrispino | **REQUIRED** |
+| Phase 2 | Model Support | Grok 4.1 Fast integration, token counting, capability registration | @ncrispino | **REQUIRED** |
 
-**Target Release**: November 24, 2025 (Monday @ 9am PT)
+**Target Release**: November 26, 2025 (Wednesday @ 9am PT)
 
 ---
 
@@ -182,39 +182,39 @@ Version 0.1.16 focuses on quickstart improvements and accurate token/price count
 
 ### For Contributors
 
-**Phase 1 - Make Quickstart More Intuitive:**
-1. Review current PyPI installation process (Issue #544)
-2. Identify tools/skills that don't work via PyPI
-3. Fix packaging and dependency issues
-4. Update documentation
-5. Test on clean environments
-6. Create troubleshooting guide
+**Phase 1 - Broadcasting to Humans/Agents:**
+1. Design question broadcasting protocol (Issue #437)
+2. Implement message routing infrastructure
+3. Add human-in-the-loop interaction support
+4. Implement agent-to-agent question routing
+5. Integrate with orchestration system
+6. Add comprehensive tests and documentation
 
-**Phase 2 - Integrate LiteLLM Registry:**
-1. Integrate LiteLLM library (Issue #543)
-2. Implement token counting for all providers
-3. Add price calculation logic
-4. Integrate with cost tracking system
-5. Add comprehensive tests
-6. Document usage and configuration
+**Phase 2 - Grok 4.1 Fast Model Support:**
+1. Add Grok 4.1 Fast to model registry (Issue #540)
+2. Configure API endpoints and authentication
+3. Implement token counting and pricing
+4. Register model capabilities
+5. Add integration tests
+6. Document configuration and usage
 
 ### For Users
 
-- v0.1.16 brings quickstart improvements and accurate cost tracking:
+- v0.1.17 brings broadcasting capabilities and expanded model support:
 
-  **Make Quickstart More Intuitive:**
-  - Tools and skills work out of the box via PyPI
-  - Improved onboarding experience
-  - Better documentation and guidance
-  - Streamlined configuration process
-  - Clear error messages for common issues
+  **Broadcasting to Humans/Agents:**
+  - Agents can ask questions when uncertain about implementation
+  - Human-in-the-loop clarification during task execution
+  - Agent-to-agent collaboration and question sharing
+  - Context-aware question/answer workflow
+  - Improved decision quality and reduced errors
 
-  **Integrate LiteLLM Registry:**
-  - Accurate token counting across all providers
-  - Precise cost calculations
-  - Up-to-date pricing information
-  - Better cost tracking for multi-agent workflows
-  - Cost estimation before running tasks
+  **Grok 4.1 Fast Model Support:**
+  - Access to xAI's latest high-speed model
+  - Fast inference for rapid agent responses
+  - Cost-effective multi-agent workflows
+  - Full function calling and tool use support
+  - Integrated pricing and cost tracking
 
 ---
 
@@ -227,11 +227,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 - Documentation guidelines
 
 **Contact Track Owners:**
-- Quickstart & LiteLLM: @ncrispino on Discord (nickcrispino)
+- Broadcasting & Grok 4.1 Fast: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.16 priorities focusing on quickstart improvements and accurate token/price counting.*
+*This roadmap reflects v0.1.17 priorities focusing on broadcasting capabilities and Grok 4.1 Fast model support.*
 
-**Last Updated:** November 21, 2025
+**Last Updated:** November 24, 2025
 **Maintained By:** MassGen Team
