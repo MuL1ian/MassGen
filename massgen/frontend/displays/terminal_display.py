@@ -71,18 +71,7 @@ class TerminalDisplay(BaseDisplay):
         # Show column headers with backend info if available
         headers = []
         for agent_id in self.agent_ids:
-            # Try to get backend info from orchestrator if available
-            backend_name = "Unknown"
-            if hasattr(self, "orchestrator") and self.orchestrator and hasattr(self.orchestrator, "agents"):
-                agent = self.orchestrator.agents.get(agent_id)
-                if agent and hasattr(agent, "backend") and hasattr(agent.backend, "get_provider_name"):
-                    try:
-                        backend_name = agent.backend.get_provider_name()
-                    except Exception:
-                        backend_name = "Unknown"
-
-            # Generic header format for any agent
-            header_text = f"{agent_id.upper()} ({backend_name})"
+            header_text = self._format_agent_header(agent_id)
             headers.append(f"{header_text:^{self.col_width}}")
 
         if self.num_agents == 1:
@@ -331,17 +320,7 @@ class TerminalDisplay(BaseDisplay):
         # Simple status line aligned with columns, matching header format
         status_lines = []
         for agent_id in self.agent_ids:
-            # Get backend info same as in header
-            backend_name = "Unknown"
-            if hasattr(self, "orchestrator") and self.orchestrator and hasattr(self.orchestrator, "agents"):
-                agent = self.orchestrator.agents.get(agent_id)
-                if agent and hasattr(agent, "backend") and hasattr(agent.backend, "get_provider_name"):
-                    try:
-                        backend_name = agent.backend.get_provider_name()
-                    except Exception:
-                        backend_name = "Unknown"
-
-            status_text = f"{agent_id.upper()} ({backend_name}): {self.agent_status[agent_id]}"
+            status_text = f"{self._format_agent_header(agent_id)}: {self.agent_status[agent_id]}"
             status_lines.append(f"{status_text:^{self.col_width}}")
 
         if self.num_agents == 1:
@@ -358,3 +337,23 @@ class TerminalDisplay(BaseDisplay):
             for event in recent_events:
                 print(f"   • {event}")
         print()
+
+    def _get_agent_backend_name(self, agent_id: str) -> str:
+        """Return provider/backend name for display purposes."""
+        backend_name = "Unknown"
+        orchestrator = getattr(self, "orchestrator", None)
+        if orchestrator and hasattr(orchestrator, "agents"):
+            agent = orchestrator.agents.get(agent_id)
+            backend = getattr(agent, "backend", None) if agent else None
+            provider_getter = getattr(backend, "get_provider_name", None) if backend else None
+            if callable(provider_getter):
+                try:
+                    backend_name = provider_getter()
+                except Exception:
+                    backend_name = "Unknown"
+        return backend_name
+
+    def _format_agent_header(self, agent_id: str) -> str:
+        """Format the agent header label with backend metadata."""
+        backend_name = self._get_agent_backend_name(agent_id)
+        return f"{agent_id.upper()} ({backend_name})"
