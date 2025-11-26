@@ -322,6 +322,9 @@ class Orchestrator(ChatAgent):
         if self.enable_nlip:
             self._init_nlip_routing()
 
+        # Initialize broadcast tools (independent of NLIP)
+        self._init_broadcast_tools()
+
     def _init_nlip_routing(self) -> None:
         """Initialize NLIP routing for all agents."""
         logger.info(f"[Orchestrator] Initializing NLIP routing for {len(self.agents)} agents")
@@ -369,9 +372,15 @@ class Orchestrator(ChatAgent):
 
         logger.info(f"[Orchestrator] NLIP initialization complete: {nlip_enabled_count} enabled, {nlip_skipped_count} skipped")
 
+    def _init_broadcast_tools(self) -> None:
+        """Initialize broadcast tools if enabled in coordination config."""
         # Update workflow tools with broadcast if enabled
+        has_coord = hasattr(self.config, "coordination_config")
+        has_broadcast = hasattr(self.config.coordination_config, "broadcast") if has_coord else False
+        logger.info(f"[Orchestrator] Checking broadcast config: has_coord={has_coord}, has_broadcast={has_broadcast}")
         if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "broadcast"):
             broadcast_mode = self.config.coordination_config.broadcast
+            logger.info(f"[Orchestrator] Broadcast mode value: {broadcast_mode}, type: {type(broadcast_mode)}")
             if broadcast_mode and broadcast_mode is not False:
                 logger.info(f"[Orchestrator] Broadcasting enabled (mode: {broadcast_mode}). Adding broadcast tools to workflow")
 
@@ -393,7 +402,8 @@ class Orchestrator(ChatAgent):
                     broadcast_mode=broadcast_mode,
                     broadcast_wait_by_default=wait_by_default,
                 )
-                logger.info(f"[Orchestrator] Broadcast tools added to workflow ({len(self.workflow_tools)} total tools)")
+                tool_names = [t.get("function", {}).get("name", "unknown") for t in self.workflow_tools]
+                logger.info(f"[Orchestrator] Broadcast tools added to workflow ({len(self.workflow_tools)} total tools): {tool_names}")
 
                 # Register broadcast tools as custom tools with backends for recursive execution
                 self._register_broadcast_custom_tools(broadcast_mode, wait_by_default, broadcast_sensitivity)
@@ -2992,6 +3002,7 @@ Your answer:"""
                         # Use the correct tool_calls field
                         chunk_tool_calls = getattr(chunk, "tool_calls", []) or []
                         tool_calls.extend(chunk_tool_calls)
+
                         # Stream tool calls to show agent actions
                         # Get backend name for logging
                         backend_name = None

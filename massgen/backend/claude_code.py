@@ -879,6 +879,13 @@ class ClaudeCodeBackend(LLMBackend):
                         system_parts.append(
                             '    Usage: {"tool_name": "restart_orchestration", ' '"arguments": {"reason": "The answer is incomplete because...", ' '"instructions": "In the next attempt, please..."}}',
                         )
+                    elif name == "ask_others":
+                        system_parts.append(
+                            '    Usage: {"tool_name": "ask_others", ' '"arguments": {"question": "Which framework should we use: Next.js or React?"}}',
+                        )
+                        system_parts.append(
+                            '    IMPORTANT: When user says "call ask_others" or "ask others", you MUST execute this tool call.',
+                        )
 
                 system_parts.append("\n--- MassGen Coordination Instructions ---")
                 system_parts.append("IMPORTANT: You must respond with a structured JSON decision at the end of your response.")

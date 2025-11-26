@@ -1387,7 +1387,7 @@ class BroadcastCommunicationSection(SystemPromptSection):
     ):
         super().__init__(
             title="Broadcast Communication",
-            priority=Priority.MEDIUM,  # Same as TaskPlanningSection
+            priority=Priority.HIGH,  # Elevated from MEDIUM for stronger emphasis
             xml_tag="broadcast_communication",
         )
         self.broadcast_mode = broadcast_mode
@@ -1400,52 +1400,48 @@ class BroadcastCommunicationSection(SystemPromptSection):
         lines = [
             "## Agent Communication",
             "",
-            "You have access to the `ask_others()` tool for collaborative problem-solving.",
+            "**CRITICAL TOOL: ask_others()**",
             "",
-            "**IMPORTANT: Call ask_others() when you need input, coordination, or collaboration from other agents",
+            "You MUST use the `ask_others()` tool to collaborate with other agents",
         ]
 
         if self.broadcast_mode == "human":
             lines[-1] += " and the human user"
-        lines[-1] += ". Use it strategically to work effectively as a team.**"
+        lines[-1] += "."
 
         lines.append("")
 
         # Add sensitivity-specific guidance
         if self.sensitivity == "high":
-            lines.append("**Collaboration frequency: HIGH - Use ask_others() frequently whenever you're considering options, proposing approaches, or could benefit from input.**")
+            lines.append("**Collaboration frequency: HIGH - You MUST use ask_others() frequently whenever you're considering options, proposing approaches, or making decisions.**")
         elif self.sensitivity == "low":
-            lines.append("**Collaboration frequency: LOW - Use ask_others() only when blocked or for critical architectural decisions.**")
+            lines.append("**Collaboration frequency: LOW - You MUST use ask_others() when blocked or for critical architectural decisions.**")
         else:  # medium
-            lines.append("**Collaboration frequency: MEDIUM - Use ask_others() for significant decisions, design choices, or when confirmation would be valuable.**")
+            lines.append("**Collaboration frequency: MEDIUM - You MUST use ask_others() for significant decisions, design choices, or when confirmation would be valuable.**")
 
         lines.extend(
             [
                 "",
-                "**When to use ask_others():**",
-                '- **When the user explicitly asks you to**: If the prompt says "ask_others for..." then CALL THE TOOL',
-                '- **Before making a key decision**: "Which framework should we use: Next.js or React?"',
-                '- **When you need clarification**: "What\'s our approach for authentication?"',
-                "- **After providing an answer**: Ask others for feedback on your approach",
-                "- **When reviewing existing answers**: Ask questions about others' implementations",
-                '- **When stuck on something specific**: "How should I handle [specific issue]?"',
+                "**When you MUST use ask_others():**",
+                '- **User explicitly requests collaboration**: If prompt says "ask_others for..." then CALL THE TOOL immediately',
+                "- **Before key decisions**: Architecture, framework, approach choices",
+                '- **When multiple options exist**: "Which framework: Next.js or React?"',
+                '- **Before significant implementation**: "Any concerns about refactoring User model?"',
                 "",
                 "**When NOT to use ask_others():**",
-                "- **For rhetorical questions**: Don't ask if you don't need actual responses",
-                "- **When the answer is obvious**: Use your judgment on what needs coordination",
-                "- **Repeatedly on the same topic**: One broadcast per decision is usually enough",
+                "- For rhetorical questions or obvious answers",
+                "- Repeatedly on the same topic (one broadcast per decision)",
+                "- For trivial implementation details",
                 "",
-                "**Best practices for timing:**",
-                '- **User says "ask_others"**: Call the tool immediately as requested',
-                "- **Need input before deciding**: Ask first, then provide your answer based on responses",
-                "- **Want feedback on your work**: Provide answer first, then ask for feedback",
-                "- **Use your judgment**: You can ask at any point when collaboration would help",
+                "**Timing:**",
+                '- **User says "ask_others"**: Call tool immediately',
+                "- **Before deciding**: Ask first, then provide answer with responses",
+                "- **For feedback**: Provide answer first, then ask for feedback",
                 "",
-                "**IMPORTANT: Include broadcast responses in your answer:**",
-                "When you receive responses from ask_others(), INCLUDE THEM in your new_answer() text file:",
-                '- Example: "I asked others about the framework choice. The response was: Vue. Based on this input, I will..."',
-                "- This ensures the information persists if your execution is restarted",
-                "- Check your answer file before calling ask_others() again - if you already documented the response, use it instead of asking again",
+                "**IMPORTANT: Include responses in your answer:**",
+                "When you receive responses from ask_others(), INCLUDE them in your new_answer():",
+                '- Example: "I asked about framework. Response: Use Vue. Based on this, I will..."',
+                "- Check your answer before asking again - reuse documented responses",
                 "",
                 "**How it works:**",
             ],
@@ -1570,7 +1566,8 @@ class SystemPromptBuilder:
         # Render each section
         rendered_sections = [s.render() for s in sorted_sections]
 
-        # Join with blank lines and wrap in root tag
+        # Join with blank lines
         content = "\n\n".join(rendered_sections)
 
+        # Wrap in root tag
         return f"<system_prompt>\n\n{content}\n\n</system_prompt>"
