@@ -68,7 +68,7 @@ from .chat_agent import (
 from .message_templates import MessageTemplates, get_templates
 from .orchestrator import Orchestrator, create_orchestrator
 
-__version__ = "0.1.16"
+__version__ = "0.1.17"
 __author__ = "MassGen Contributors"
 
 

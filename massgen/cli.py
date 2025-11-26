@@ -124,6 +124,21 @@ MASSGEN_QUESTIONARY_STYLE = Style(
 )
 
 
+def _build_coordination_ui(ui_config: Dict[str, Any]) -> CoordinationUI:
+    """Create a CoordinationUI with display_kwargs passthrough (incl. theme)."""
+    display_kwargs = dict(ui_config.get("display_kwargs", {}) or {})
+    theme = ui_config.get("theme")
+    if theme is not None and "theme" not in display_kwargs:
+        display_kwargs["theme"] = theme
+
+    return CoordinationUI(
+        display_type=ui_config.get("display_type", "rich_terminal"),
+        logging_enabled=ui_config.get("logging_enabled", True),
+        enable_final_presentation=True,  # Ensures final presentation is generated/saved
+        **display_kwargs,
+    )
+
+
 def read_multiline_input(prompt: str) -> str:
     """Read user input with support for multi-line input using triple quotes.
 
@@ -1432,12 +1447,7 @@ async def run_question_with_history(
         nlip_config=orchestrator_nlip_config,
     )
     # Create a fresh UI instance for each question to ensure clean state
-    ui = CoordinationUI(
-        display_type=ui_config.get("display_type", "rich_terminal"),
-        logging_enabled=ui_config.get("logging_enabled", True),
-        enable_final_presentation=True,  # Required for multi-turn: ensures final answer is saved
-        skip_agent_selector=ui_config.get("skip_agent_selector", False),
-    )
+    ui = _build_coordination_ui(ui_config)
 
     # Determine display mode text
     if len(agents) == 1:
@@ -1526,12 +1536,7 @@ async def run_question_with_history(
                         logger.warning(f"Failed to reset backend for {agent_id}: {e}")
 
             # Create fresh UI instance for next attempt
-            ui = CoordinationUI(
-                display_type=ui_config.get("display_type", "rich_terminal"),
-                logging_enabled=ui_config.get("logging_enabled", True),
-                enable_final_presentation=True,
-                skip_agent_selector=ui_config.get("skip_agent_selector", False),
-            )
+            ui = _build_coordination_ui(ui_config)
 
             # Continue to next attempt
             continue
@@ -1814,12 +1819,7 @@ async def run_single_question(
             nlip_config=orchestrator_nlip_config,
         )
         # Create a fresh UI instance for each question to ensure clean state
-        ui = CoordinationUI(
-            display_type=ui_config.get("display_type", "rich_terminal"),
-            logging_enabled=ui_config.get("logging_enabled", True),
-            enable_final_presentation=True,  # Ensures final presentation is generated
-            skip_agent_selector=ui_config.get("skip_agent_selector", False),
-        )
+        ui = _build_coordination_ui(ui_config)
 
         print(f"\n🤖 {BRIGHT_CYAN}Multi-Agent Mode{RESET}", flush=True)
         print(f"Agents: {', '.join(agents.keys())}", flush=True)
@@ -1855,12 +1855,7 @@ async def run_single_question(
                             logger.warning(f"Failed to reset backend for {agent_id}: {e}")
 
                 # Create fresh UI instance for next attempt
-                ui = CoordinationUI(
-                    display_type=ui_config.get("display_type", "rich_terminal"),
-                    logging_enabled=ui_config.get("logging_enabled", True),
-                    enable_final_presentation=True,
-                    skip_agent_selector=ui_config.get("skip_agent_selector", False),
-                )
+                ui = _build_coordination_ui(ui_config)
 
                 # Continue to next attempt
                 continue

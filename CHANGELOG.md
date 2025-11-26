@@ -7,16 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.17 (November 26, 2025)** - Textual Terminal Display
+Interactive terminal UI using the Textual library with dark/light theme support, enhanced CoordinationUI integration, and improved content filtering for better agent coordination visualization.
+
 **v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory Improvements
 Terminal evaluation system with VHS recording support, LiteLLM integration for accurate cost tracking across 500+ models, memory archiving with session improvements, and MassGen self-evolution skills.
 
 **v0.1.15 (November 21, 2025)** - Persona Generation System & Docker Distribution
 Automatic persona generation for agent diversity with multiple strategies, enhanced Docker distribution via GitHub Container Registry with ARM support, and MassGen pre-installed in Docker images.
 
-**v0.1.14 (November 19, 2025)** - Parallel Tool Execution, Interactive Quickstart & Gemini 3 Pro
-Parallel tool execution with configurable concurrency controls across all backends, interactive config builder with guided quickstart workflow, MCP registry client enhancements, and Gemini 3 Pro model support.
-
 ---
+
+## [0.1.17] - 2025-11-26
+
+### Added
+- **Textual Terminal Display System**: Interactive terminal UI using the Textual library for enhanced agent coordination visualization
+  - New `massgen/frontend/displays/textual_terminal_display.py` (1673 lines)
+  - Multi-panel layout with dedicated views for each agent and orchestrator status
+  - Real-time streaming content display with syntax highlighting support
+  - Emoji fallback mapping for terminals without Unicode support
+  - Content filtering for critical patterns (votes, status changes, tools, presentations)
+  - Keyboard shortcuts for display interaction and safe keyboard mode
+  - Automatic file output with session logging to agent-specific files
+  - Thread-safe display updates with buffered content batching
+
+- **Dark and Light Themes**: TCSS stylesheets for customizable terminal appearance
+  - New `massgen/frontend/displays/textual_themes/dark.tcss` (322 lines)
+  - New `massgen/frontend/displays/textual_themes/light.tcss` (322 lines)
+  - VS Code-inspired color schemes with styled containers for post-evaluation and final stream panels
+
+### Changed
+- **CoordinationUI Enhancement**: Extended display coordination with Textual Terminal support
+  - Enhanced `massgen/frontend/coordination_ui.py` with Textual display integration (+348 lines)
+  - New `textual_terminal` display type option alongside existing rich_terminal and simple displays
+  - Automatic fallback when Textual library is not available
+  - Unified reasoning content processing across all display types
+
+- **Display Module Restructuring**: Improved display initialization and base class architecture
+  - Enhanced `massgen/frontend/displays/__init__.py` with Textual display exports (+30 lines)
+  - Enhanced `massgen/frontend/displays/terminal_display.py` with shared base functionality (+45 lines)
+  - Better separation of concerns between display implementations
+
+### Documentations, Configurations and Resources
+
+- **Textual Configuration Example**: Reference configuration for Textual terminal display
+  - New `massgen/configs/basic/single_agent_textual.yaml` (17 lines)
+
+- **Dependencies**: Added Textual library for modern terminal UI
+  - Updated `pyproject.toml` and `requirements.txt` with `textual>=0.47.0`
+
+### Technical Details
+- **Major Focus**: Textual Terminal Display for enhanced agent coordination visualization with theme support
+- **Contributors**: @praneeth999 and the MassGen team
 
 ## [0.1.16] - 2025-11-24
 

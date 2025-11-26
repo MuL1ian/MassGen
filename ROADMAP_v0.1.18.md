@@ -1,57 +1,57 @@
-# MassGen v0.1.17 Roadmap
+# MassGen v0.1.18 Roadmap
 
 ## Overview
 
-Version 0.1.17 focuses on broadcasting capabilities for agent collaboration and expanding model support with Grok 4.1 Fast.
+Version 0.1.18 focuses on Computer Use Agent infrastructure and expanding model support with Grok 4.1 Fast.
 
-- **Broadcasting to Humans/Agents** (Required): 📢 Enable agents to broadcast questions when facing implementation uncertainties
+- **CUA Dockerfile for Optional Installation** (Required): 🐳 Provide optional Docker image for Computer Use Agent setup
 - **Grok 4.1 Fast Model Support** (Required): 🚀 Add support for xAI's Grok 4.1 Fast model
 
 ## Key Technical Priorities
 
-1. **Broadcasting to Humans/Agents for Implementation Questions**: Enable agents to broadcast questions during execution
-   **Use Case**: When agents encounter ambiguous requirements or implementation decisions, they can broadcast questions to humans or other agents for clarification, improving decision quality and reducing errors
+1. **CUA Dockerfile for Optional Installation**: New Dockerfile specifically for Computer Use Agent setup
+   **Use Case**: Provide an easy-to-use Docker image for users who want to run Computer Use Agent capabilities without manual environment configuration
 
 2. **Grok 4.1 Fast Model Support**: Add support for xAI's latest high-speed model
    **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses and cost-effective multi-agent workflows
 
 ## Key Milestones
 
-### 🎯 Milestone 1: Broadcasting to Humans/Agents for Implementation Questions (REQUIRED)
+### 🎯 Milestone 1: CUA Dockerfile for Optional Installation (REQUIRED)
 
-**Goal**: Enable agents to broadcast questions when facing implementation uncertainties
+**Goal**: Provide optional Docker image for Computer Use Agent setup
 
-**Owner**: @ncrispino (nickcrispino on Discord)
+**Owner**: @franklinnwren (zhichengren on Discord)
 
-**Issue**: [#437](https://github.com/massgen/MassGen/issues/437)
+**Issue**: [#552](https://github.com/massgen/MassGen/issues/552)
 
-#### 1.1 Broadcasting Infrastructure
-- [ ] Design question broadcasting protocol
-- [ ] Implement message routing system for broadcasts
-- [ ] Support for human-in-the-loop question handling
-- [ ] Agent-to-agent question broadcasting
-- [ ] Context preservation for broadcast questions
+#### 1.1 Dockerfile Development
+- [ ] Create new Dockerfile for CUA
+- [ ] Include all CUA dependencies (browser automation, desktop tools)
+- [ ] Configure X11/VNC support for visual feedback
+- [ ] Set up proper permissions and user configuration
+- [ ] Optimize image size and build time
 
-#### 1.2 Question/Answer Workflow
-- [ ] Structured question format with context
-- [ ] Multiple response aggregation mechanisms
-- [ ] Timeout handling for unanswered questions
-- [ ] Response validation and integration
-- [ ] Fallback strategies when no answers received
+#### 1.2 Environment Configuration
+- [ ] Pre-configure browser automation environment
+- [ ] Set up xdotool and desktop automation tools
+- [ ] Configure screenshot and visual feedback capabilities
+- [ ] Environment variable management for API keys
+- [ ] Default configuration for common use cases
 
-#### 1.3 Integration with Orchestration
-- [ ] Integration with existing orchestrator
-- [ ] Agent coordination during broadcast sessions
-- [ ] State management during question-answer cycles
-- [ ] Logging and debugging support
-- [ ] Performance optimization for broadcast overhead
+#### 1.3 Documentation & Distribution
+- [ ] Usage documentation for CUA Docker image
+- [ ] Docker Hub / GHCR publishing setup
+- [ ] Examples for common CUA workflows
+- [ ] Troubleshooting guide
+- [ ] Integration with existing MassGen Docker infrastructure
 
 **Success Criteria**:
-- ✅ Agents can broadcast questions to humans during execution
-- ✅ Agent-to-agent question routing works seamlessly
-- ✅ Question context is preserved and responses are integrated
-- ✅ Timeout and fallback mechanisms work reliably
-- ✅ Broadcasting integrates smoothly with existing orchestration
+- ✅ CUA Dockerfile builds successfully and includes all dependencies
+- ✅ Users can easily pull and run CUA Docker image
+- ✅ Computer use workflows function correctly in containerized environment
+- ✅ VNC/X11 visualization works for debugging
+- ✅ Documentation covers common use cases and troubleshooting
 
 ---
 
@@ -104,12 +104,12 @@ Version 0.1.17 focuses on broadcasting capabilities for agent collaboration and 
 
 ### Functional Requirements
 
-**Broadcasting to Humans/Agents:**
-- [ ] Agents can broadcast questions during execution
-- [ ] Human-in-the-loop question handling works
-- [ ] Agent-to-agent question routing is functional
-- [ ] Question context is preserved
-- [ ] Responses are integrated back into agent execution
+**CUA Dockerfile:**
+- [ ] Dockerfile builds without errors
+- [ ] All CUA dependencies are included
+- [ ] Browser automation works in container
+- [ ] Desktop automation tools function correctly
+- [ ] VNC visualization is accessible
 
 **Grok 4.1 Fast Model Support:**
 - [ ] Grok 4.1 Fast model is accessible
@@ -119,10 +119,10 @@ Version 0.1.17 focuses on broadcasting capabilities for agent collaboration and 
 - [ ] Performance meets expectations
 
 ### Performance Requirements
-- [ ] Broadcasting has minimal latency overhead
-- [ ] Question routing is efficient
+- [ ] Docker image size is reasonable
+- [ ] Container startup time is acceptable
+- [ ] CUA operations have minimal latency
 - [ ] Grok 4.1 Fast API calls are performant
-- [ ] Token counting has minimal overhead
 - [ ] Memory usage is reasonable
 
 ### Quality Requirements
@@ -137,25 +137,25 @@ Version 0.1.17 focuses on broadcasting capabilities for agent collaboration and 
 ## Dependencies & Risks
 
 ### Dependencies
-- **Broadcasting to Humans/Agents**: Orchestration system, message routing infrastructure, UI/CLI for human interaction
+- **CUA Dockerfile**: Docker infrastructure, VNC/X11 libraries, browser automation tools, existing computer use implementation
 - **Grok 4.1 Fast Model Support**: xAI API access, LiteLLM library, existing Grok backend infrastructure
 
 ### Risks & Mitigations
-1. **Question Routing Complexity**: *Mitigation*: Simple initial protocol, iterative complexity increase based on feedback
-2. **Human Response Latency**: *Mitigation*: Timeout mechanisms, fallback strategies, async execution
+1. **Docker Image Size**: *Mitigation*: Multi-stage builds, dependency optimization, selective inclusion
+2. **X11/VNC Compatibility**: *Mitigation*: Testing across different host systems, fallback options
 3. **xAI API Availability**: *Mitigation*: API monitoring, graceful degradation, comprehensive error handling
 4. **Token Counting Accuracy**: *Mitigation*: Validation against xAI specifications, testing with known inputs
-5. **Performance Overhead**: *Mitigation*: Caching, efficient routing, performance profiling
+5. **Container Resource Usage**: *Mitigation*: Resource limits, monitoring, documentation of requirements
 
 ---
 
-## Future Enhancements (Post-v0.1.17)
-
-### v0.1.18 Plans
-- **Integrate RL into MassGen** (@qidanrui @praneeth999): Reinforcement learning integration for agent optimization and adaptive behavior
-- **Textual Terminal Display** (@praneeth999): Rich terminal UI with Textual framework for enhanced visualization
+## Future Enhancements (Post-v0.1.18)
 
 ### v0.1.19 Plans
+- **Broadcasting to Humans/Agents for Implementation Questions** (@ncrispino): Enable agents to broadcast questions when facing implementation uncertainties
+- **Integrate RL into MassGen** (@qidanrui @praneeth999): Reinforcement learning integration for agent optimization and adaptive behavior
+
+### v0.1.20 Plans
 - **Filesystem-Based Memory Reliability** (@ncrispino): Ensure memory persistence across turns with filesystem backend
 - **Smithery MCP Tools Support** (@ncrispino): Integration with Smithery to expand available MCP tools
 
@@ -171,10 +171,10 @@ Version 0.1.17 focuses on broadcasting capabilities for agent collaboration and 
 
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
-| Phase 1 | Broadcasting | Question broadcasting, human-in-the-loop, agent-to-agent communication | @ncrispino | **REQUIRED** |
+| Phase 1 | CUA Infrastructure | Dockerfile, dependencies, VNC support, documentation | @franklinnwren | **REQUIRED** |
 | Phase 2 | Model Support | Grok 4.1 Fast integration, token counting, capability registration | @ncrispino | **REQUIRED** |
 
-**Target Release**: November 26, 2025 (Wednesday @ 9am PT)
+**Target Release**: November 28, 2025 (Friday @ 9am PT)
 
 ---
 
@@ -182,13 +182,13 @@ Version 0.1.17 focuses on broadcasting capabilities for agent collaboration and 
 
 ### For Contributors
 
-**Phase 1 - Broadcasting to Humans/Agents:**
-1. Design question broadcasting protocol (Issue #437)
-2. Implement message routing infrastructure
-3. Add human-in-the-loop interaction support
-4. Implement agent-to-agent question routing
-5. Integrate with orchestration system
-6. Add comprehensive tests and documentation
+**Phase 1 - CUA Dockerfile:**
+1. Create new Dockerfile for CUA (Issue #552)
+2. Configure browser and desktop automation dependencies
+3. Set up X11/VNC support
+4. Test container functionality
+5. Add documentation and examples
+6. Publish to container registry
 
 **Phase 2 - Grok 4.1 Fast Model Support:**
 1. Add Grok 4.1 Fast to model registry (Issue #540)
@@ -200,14 +200,14 @@ Version 0.1.17 focuses on broadcasting capabilities for agent collaboration and 
 
 ### For Users
 
-- v0.1.17 brings broadcasting capabilities and expanded model support:
+- v0.1.18 brings CUA Docker infrastructure and expanded model support:
 
-  **Broadcasting to Humans/Agents:**
-  - Agents can ask questions when uncertain about implementation
-  - Human-in-the-loop clarification during task execution
-  - Agent-to-agent collaboration and question sharing
-  - Context-aware question/answer workflow
-  - Improved decision quality and reduced errors
+  **CUA Dockerfile:**
+  - Easy setup for Computer Use Agent capabilities
+  - Pre-configured browser and desktop automation
+  - VNC support for visual debugging
+  - No manual environment configuration needed
+  - Works with existing MassGen workflows
 
   **Grok 4.1 Fast Model Support:**
   - Access to xAI's latest high-speed model
@@ -227,11 +227,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 - Documentation guidelines
 
 **Contact Track Owners:**
-- Broadcasting & Grok 4.1 Fast: @ncrispino on Discord (nickcrispino)
+- CUA Dockerfile: @franklinnwren on Discord (zhichengren)
+- Grok 4.1 Fast: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.17 priorities focusing on broadcasting capabilities and Grok 4.1 Fast model support.*
+*This roadmap reflects v0.1.18 priorities focusing on CUA Docker infrastructure and Grok 4.1 Fast model support.*
 
-**Last Updated:** November 24, 2025
+**Last Updated:** November 26, 2025
 **Maintained By:** MassGen Team
