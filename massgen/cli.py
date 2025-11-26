@@ -1380,8 +1380,21 @@ async def run_question_with_history(
     # Parse coordination config if present
     if "coordination" in orchestrator_cfg:
         from .agent_config import CoordinationConfig
+        from .persona_generator import PersonaGeneratorConfig
 
         coord_cfg = orchestrator_cfg["coordination"]
+
+        # Parse persona_generator config if present
+        persona_generator_config = PersonaGeneratorConfig()
+        if "persona_generator" in coord_cfg:
+            pg_cfg = coord_cfg["persona_generator"]
+            persona_generator_config = PersonaGeneratorConfig(
+                enabled=pg_cfg.get("enabled", False),
+                backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
+                strategy=pg_cfg.get("strategy", "complementary"),
+                persona_guidelines=pg_cfg.get("persona_guidelines"),
+            )
+
         orchestrator_config.coordination_config = CoordinationConfig(
             enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
             planning_mode_instruction=coord_cfg.get(
@@ -1396,7 +1409,11 @@ async def run_question_with_history(
             use_skills=coord_cfg.get("use_skills", False),
             massgen_skills=coord_cfg.get("massgen_skills", []),
             skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+            persona_generator=persona_generator_config,
         )
+
+    # Get session_id from session_info (will be generated in save_final_state if not exists)
+    session_id = session_info.get("session_id")
 
     # Get previous turns and winning agents history from session_info if already loaded,
     # otherwise restore from session storage for multi-turn conversations
@@ -1404,11 +1421,11 @@ async def run_question_with_history(
     winning_agents_history = session_info.get("winning_agents_history", [])
 
     # If not provided in session_info but session_id exists, restore from storage
-    if not previous_turns and not winning_agents_history and session_info.get("session_id"):
+    if not previous_turns and not winning_agents_history and session_id:
         from massgen.session import restore_session
 
         try:
-            session_state = restore_session(session_info["session_id"], SESSION_STORAGE)
+            session_state = restore_session(session_id, SESSION_STORAGE)
             if session_state:
                 previous_turns = session_state.previous_turns
                 winning_agents_history = session_state.winning_agents_history
@@ -1419,6 +1436,7 @@ async def run_question_with_history(
     orchestrator = Orchestrator(
         agents=agents,
         config=orchestrator_config,
+        session_id=session_id,  # Pass CLI session_id for memory archiving
         snapshot_storage=snapshot_storage,
         agent_temporary_workspace=agent_temporary_workspace,
         previous_turns=previous_turns,
@@ -1442,6 +1460,18 @@ async def run_question_with_history(
         coordination_settings = orchestrator_kwargs.get("coordination", {})
         if coordination_settings:
             from .agent_config import CoordinationConfig
+            from .persona_generator import PersonaGeneratorConfig
+
+            # Parse persona_generator config if present
+            persona_generator_config = PersonaGeneratorConfig()
+            if "persona_generator" in coordination_settings:
+                pg_cfg = coordination_settings["persona_generator"]
+                persona_generator_config = PersonaGeneratorConfig(
+                    enabled=pg_cfg.get("enabled", False),
+                    backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
+                    strategy=pg_cfg.get("strategy", "complementary"),
+                    persona_guidelines=pg_cfg.get("persona_guidelines"),
+                )
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coordination_settings.get("enable_planning_mode", False),
@@ -1457,6 +1487,7 @@ async def run_question_with_history(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                persona_generator=persona_generator_config,
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
@@ -1582,13 +1613,17 @@ async def run_single_question(
     Returns:
         The final response text
     """
+    # Generate session_id if not provided (needed for memory archiving)
+    if not session_id:
+        session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
     # Restore previous session ONLY if explicitly requested (not for new sessions)
     conversation_history = []
     previous_turns = []
     winning_agents_history = []
     current_turn = 0
 
-    if session_id and restore_session_if_exists:
+    if restore_session_if_exists:
         from massgen.logger_config import set_log_turn
         from massgen.session import restore_session
 
@@ -1674,6 +1709,18 @@ async def run_single_question(
         coordination_settings = orchestrator_kwargs.get("coordination", {})
         if coordination_settings:
             from .agent_config import CoordinationConfig
+            from .persona_generator import PersonaGeneratorConfig
+
+            # Parse persona_generator config if present
+            persona_generator_config = PersonaGeneratorConfig()
+            if "persona_generator" in coordination_settings:
+                pg_cfg = coordination_settings["persona_generator"]
+                persona_generator_config = PersonaGeneratorConfig(
+                    enabled=pg_cfg.get("enabled", False),
+                    backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
+                    strategy=pg_cfg.get("strategy", "complementary"),
+                    persona_guidelines=pg_cfg.get("persona_guidelines"),
+                )
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coordination_settings.get("enable_planning_mode", False),
@@ -1689,6 +1736,7 @@ async def run_single_question(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                persona_generator=persona_generator_config,
             )
 
         # Get orchestrator parameters from config
@@ -1727,8 +1775,21 @@ async def run_single_question(
         # Parse coordination config if present
         if "coordination" in orchestrator_cfg:
             from .agent_config import CoordinationConfig
+            from .persona_generator import PersonaGeneratorConfig
 
             coord_cfg = orchestrator_cfg["coordination"]
+
+            # Parse persona_generator config if present
+            persona_generator_config = PersonaGeneratorConfig()
+            if "persona_generator" in coord_cfg:
+                pg_cfg = coord_cfg["persona_generator"]
+                persona_generator_config = PersonaGeneratorConfig(
+                    enabled=pg_cfg.get("enabled", False),
+                    backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
+                    strategy=pg_cfg.get("strategy", "complementary"),
+                    persona_guidelines=pg_cfg.get("persona_guidelines"),
+                )
+
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
                 planning_mode_instruction=coord_cfg.get(
@@ -1743,11 +1804,13 @@ async def run_single_question(
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                persona_generator=persona_generator_config,
             )
 
         orchestrator = Orchestrator(
             agents=agents,
             config=orchestrator_config,
+            session_id=session_id,  # Pass CLI session_id for memory archiving
             snapshot_storage=snapshot_storage,
             agent_temporary_workspace=agent_temporary_workspace,
             dspy_paraphraser=kwargs.get("dspy_paraphraser"),
@@ -2553,9 +2616,13 @@ def check_docker_available() -> bool:
 def setup_docker() -> None:
     """Pull MassGen Docker executor images from GitHub Container Registry.
 
-    Pulls both standard and sudo variants for isolated code execution.
+    Allows interactive selection of which images to install.
+    Sudo image is recommended and selected by default.
     """
     import subprocess
+
+    import questionary
+    from questionary import Style
 
     print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
     print(f"{BRIGHT_CYAN}  🐳  MassGen Docker Setup{RESET}")
@@ -2606,54 +2673,173 @@ def setup_docker() -> None:
         print(f"\n{BRIGHT_RED}Error: Docker daemon check timed out{RESET}\n")
         return
 
-    # Images to pull
-    images = [
-        ("ghcr.io/massgen/mcp-runtime:latest", "Standard image"),
-        ("ghcr.io/massgen/mcp-runtime-sudo:latest", "Sudo image (for package installation)"),
+    # Define available images with metadata
+    # Future: Add more images here as needed
+    AVAILABLE_IMAGES = [
+        {
+            "name": "ghcr.io/massgen/mcp-runtime-sudo:latest",
+            "description": "Sudo image (recommended - allows package installation)",
+            "default": True,  # Pre-selected by default
+        },
+        {
+            "name": "ghcr.io/massgen/mcp-runtime:latest",
+            "description": "Standard image (no sudo access)",
+            "default": False,
+        },
     ]
 
-    print(f"\n{BRIGHT_CYAN}Pulling Docker images...{RESET}\n")
+    # Create questionary style matching the rest of the CLI
+    custom_style = Style(
+        [
+            ("qmark", "fg:#00CED1 bold"),
+            ("question", "fg:#00CED1 bold"),
+            ("answer", "fg:#32CD32 bold"),
+            ("pointer", "fg:#00CED1 bold"),
+            ("highlighted", "fg:#00CED1 bold"),
+            ("selected", "fg:#32CD32"),
+            ("separator", "fg:#6C6C6C"),
+            ("instruction", "fg:#A9A9A9"),
+        ],
+    )
+
+    # Let user select which images to install
+    print(f"{BRIGHT_CYAN}Select Docker images to install:{RESET}")
+    print(f"{BRIGHT_YELLOW}(Use Space to select/deselect, Enter to confirm){RESET}\n")
+
+    try:
+        choices = [
+            questionary.Choice(
+                title=f"{img['description']}",
+                value=img["name"],
+                checked=img["default"],
+            )
+            for img in AVAILABLE_IMAGES
+        ]
+
+        selected_images = questionary.checkbox(
+            "",
+            choices=choices,
+            style=custom_style,
+        ).ask()
+
+        if selected_images is None:  # User cancelled (Ctrl+C)
+            print(f"\n{BRIGHT_YELLOW}Setup cancelled{RESET}\n")
+            return
+
+        if not selected_images:
+            print(f"\n{BRIGHT_YELLOW}No images selected. Skipping Docker setup.{RESET}\n")
+            return
+
+    except (KeyboardInterrupt, EOFError):
+        print(f"\n{BRIGHT_YELLOW}Setup cancelled{RESET}\n")
+        return
+
+    # Pull images with real-time progress display
+    print(f"\n{BRIGHT_CYAN}Pulling {len(selected_images)} image(s)...{RESET}\n")
 
     success_count = 0
-    for image, description in images:
-        print(f"  {BRIGHT_CYAN}Pulling {image}{RESET}")
-        print(f"  {BRIGHT_YELLOW}({description}){RESET}")
+    failed_images = []
+
+    for i, image in enumerate(selected_images, 1):
+        print(f"{BRIGHT_CYAN}[{i}/{len(selected_images)}] Pulling {image}...{RESET}\n")
 
         try:
+            # Don't capture output so Docker's progress bars are visible
             result = subprocess.run(
                 ["docker", "pull", image],
-                capture_output=False,  # Show progress
-                timeout=600,  # 10 minutes max
+                timeout=600,  # 10 minutes max per image
             )
 
+            print()  # Add spacing after progress bars
+
             if result.returncode == 0:
-                print(f"  {BRIGHT_GREEN}✓ Pulled successfully{RESET}\n")
+                print(f"{BRIGHT_GREEN}✓ [{i}/{len(selected_images)}] Completed: {image}{RESET}\n")
                 success_count += 1
             else:
-                print(f"  {BRIGHT_RED}✗ Failed to pull{RESET}\n")
+                print(f"{BRIGHT_RED}✗ [{i}/{len(selected_images)}] Failed: {image}{RESET}\n")
+                failed_images.append(image)
+
         except subprocess.TimeoutExpired:
-            print(f"  {BRIGHT_RED}✗ Timed out{RESET}\n")
+            print(f"\n{BRIGHT_RED}✗ [{i}/{len(selected_images)}] Timed out: {image}{RESET}\n")
+            failed_images.append(image)
         except Exception as e:
-            print(f"  {BRIGHT_RED}✗ Error: {e}{RESET}\n")
+            print(f"\n{BRIGHT_RED}✗ [{i}/{len(selected_images)}] Error: {image} - {e}{RESET}\n")
+            failed_images.append(image)
 
     # Summary
-    if success_count == len(images):
-        print(f"{BRIGHT_GREEN}{'=' * 60}{RESET}")
+    print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
+    if success_count == len(selected_images):
         print(f"{BRIGHT_GREEN}  ✅ Docker setup complete!{RESET}")
-        print(f"{BRIGHT_GREEN}{'=' * 60}{RESET}")
+        print(f"{BRIGHT_GREEN}  Successfully pulled {success_count} image(s){RESET}")
+        print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
         print(f"\n{BRIGHT_CYAN}You can now use Docker execution mode in your configs.{RESET}")
         print(f"{BRIGHT_CYAN}Run 'massgen --quickstart' to create a config with Docker enabled.{RESET}\n")
     elif success_count > 0:
+        print(f"{BRIGHT_YELLOW}  ⚠️  Partial success: {success_count}/{len(selected_images)} images pulled{RESET}")
         print(f"{BRIGHT_YELLOW}{'=' * 60}{RESET}")
-        print(f"{BRIGHT_YELLOW}  ⚠️  Partial success: {success_count}/{len(images)} images pulled{RESET}")
-        print(f"{BRIGHT_YELLOW}{'=' * 60}{RESET}\n")
+        if failed_images:
+            print(f"\n{BRIGHT_YELLOW}Failed images:{RESET}")
+            for img in failed_images:
+                print(f"  - {img}")
+        print()
     else:
-        print(f"{BRIGHT_RED}{'=' * 60}{RESET}")
         print(f"{BRIGHT_RED}  ❌ Docker setup failed{RESET}")
         print(f"{BRIGHT_RED}{'=' * 60}{RESET}")
         print(f"\n{BRIGHT_YELLOW}The images may not be published yet.{RESET}")
         print(f"{BRIGHT_YELLOW}You can build locally instead:{RESET}")
         print("  bash massgen/docker/build.sh --sudo\n")
+
+
+def show_example_prompts() -> Optional[str]:
+    """Show example prompts that work with default quickstart config.
+
+    These prompts work out-of-the-box with code execution, multimodal tools,
+    and web scraping capabilities.
+
+    Returns:
+        Selected prompt text, or None if user skips/cancels
+    """
+    import questionary
+    from questionary import Style
+
+    example_prompts = [
+        "Create a vibrant, interactive website about famous AI researchers using HTML, CSS, and JavaScript",
+        "Write a Python script to analyze data from a CSV file, create visualizations, and generate a summary report",
+        "Research recent developments in AI multi-agent systems by searching the web and summarize key trends with citations",
+        "Generate 3 different logo concepts for a tech startup, then help me choose the best one based on design principles",
+        "Create a lesson plan for teaching Python programming to beginners, with structured activities and code examples",
+        "Build a web scraper to collect pricing data from e-commerce sites and analyze market trends",
+        "Generate a presentation-ready infographic about climate change using text-to-image generation",
+        "Research, plan, and write a technical blog post about multi-agent systems",
+    ]
+
+    # Custom style with highlighted autocomplete
+    custom_style = Style(
+        [
+            ("answer", "#4A90E2 bold"),
+            ("completion-menu.completion", "bg:#808080 fg:#ffffff"),  # Dimmed gray background
+            ("completion-menu.completion.current", "bg:#4A90E2 fg:#ffffff"),  # Highlight current selection
+        ],
+    )
+
+    try:
+        print()
+        # Show dimmed examples below the prompt
+        print("\033[2m" + "Example prompts (start typing to see autocomplete):" + "\033[0m")
+        for prompt in example_prompts[:3]:  # Show first 3 as hints
+            print("\033[2m" + f"  • {prompt[:70]}{'...' if len(prompt) > 70 else ''}" + "\033[0m")
+        print()
+
+        choice = questionary.autocomplete(
+            "Enter your prompt:",
+            choices=example_prompts,
+            style=custom_style,
+            match_middle=True,
+        ).ask()
+
+        return choice if choice else None
+    except (KeyboardInterrupt, EOFError):
+        return None
 
 
 def should_run_builder() -> bool:
@@ -3202,6 +3388,8 @@ async def main(args):
             ui_config["display_type"] = "silent"
             ui_config["logging_enabled"] = True
             ui_config["automation_mode"] = True
+        if args.skip_agent_selector:
+            ui_config["skip_agent_selector"] = True
         if args.no_display:
             ui_config["display_type"] = "simple"
         if args.no_logs:
@@ -3220,6 +3408,11 @@ async def main(args):
 
         # Update config with timeout settings
         config["timeout_settings"] = timeout_settings
+
+        # Check for prompt in config if not provided via CLI
+        if not args.question and "prompt" in config:
+            args.question = config["prompt"]
+            logger.info(f"Using prompt from config file: {args.question}")
 
         # Get rate limiting flag from CLI
         enable_rate_limit = args.rate_limit
@@ -3302,6 +3495,11 @@ async def main(args):
 
             log_dir = get_log_session_root()
             log_dir_name = log_dir.name
+
+            # Print LOG_DIR for automation mode (LLM agents need this to monitor progress)
+            if args.automation:
+                print(f"LOG_DIR: {log_dir}")
+                print(f"STATUS: {log_dir / 'status.json'}")
 
             registry = SessionRegistry()
             registry.register_session(
@@ -3540,6 +3738,11 @@ Environment Variables:
         "REQUIRED for LLM agents and background execution. Automatically isolates workspaces for parallel runs.",
     )
     parser.add_argument(
+        "--skip-agent-selector",
+        action="store_true",
+        help="Skip the Agent Selector interface at the end (useful for terminal recordings/automation). " "MassGen will exit immediately after showing the final answer.",
+    )
+    parser.add_argument(
         "--init",
         action="store_true",
         help="Launch interactive configuration builder to create config file",
@@ -3548,6 +3751,38 @@ Environment Variables:
         "--quickstart",
         action="store_true",
         help="Quick setup: specify number of agents and models, get a full-featured config with code tools, Docker, skills",
+    )
+    parser.add_argument(
+        "--generate-config",
+        type=str,
+        metavar="PATH",
+        help="Generate config file at specified path (non-interactive, requires --config-backend and --config-model)",
+    )
+    parser.add_argument(
+        "--config-agents",
+        type=int,
+        default=2,
+        help="Number of agents for --generate-config (default: 2)",
+    )
+    parser.add_argument(
+        "--config-backend",
+        type=str,
+        help="Backend provider for --generate-config (e.g., 'openai', 'anthropic', 'gemini')",
+    )
+    parser.add_argument(
+        "--config-model",
+        type=str,
+        help="Model name for --generate-config (e.g., 'gpt-5', 'claude-sonnet-4', 'gemini-2.5-pro')",
+    )
+    parser.add_argument(
+        "--config-docker",
+        action="store_true",
+        help="Enable Docker execution mode in generated config",
+    )
+    parser.add_argument(
+        "--config-context-path",
+        type=str,
+        help="Add context path to generated config",
     )
     parser.add_argument(
         "--setup",
@@ -3562,7 +3797,7 @@ Environment Variables:
     parser.add_argument(
         "--setup-docker",
         action="store_true",
-        help="Pull MassGen Docker executor images for isolated code execution",
+        help="Interactively select and pull MassGen Docker executor images (sudo image recommended by default)",
     )
     parser.add_argument(
         "--list-examples",
@@ -3815,6 +4050,37 @@ Environment Variables:
             # User cancelled selection
             return
 
+    # Generate config programmatically if requested
+    if args.generate_config:
+        if not args.config_backend or not args.config_model:
+            print(f"{BRIGHT_RED}❌ Error: --config-backend and --config-model are required with --generate-config{RESET}")
+            print(f"{BRIGHT_CYAN}Example: massgen --generate-config ./config.yaml --config-backend gemini --config-model gemini-2.5-pro{RESET}")
+            return
+
+        try:
+            builder = ConfigBuilder()
+            success = builder.generate_config_programmatic(
+                output_path=args.generate_config,
+                num_agents=args.config_agents,
+                backend_type=args.config_backend,
+                model=args.config_model,
+                use_docker=args.config_docker,
+                context_path=args.config_context_path,
+            )
+            if success:
+                print(f"{BRIGHT_GREEN}✅ Configuration saved to: {args.generate_config}{RESET}")
+                print(f'{BRIGHT_CYAN}Run with: massgen --config {args.generate_config} "Your question"{RESET}')
+            return
+        except ValueError as e:
+            print(f"{BRIGHT_RED}❌ Error: {e}{RESET}")
+            return
+        except Exception as e:
+            print(f"{BRIGHT_RED}❌ Unexpected error: {e}{RESET}")
+            import traceback
+
+            traceback.print_exc()
+            return
+
     # Launch quickstart if requested
     if args.quickstart:
         builder = ConfigBuilder()
@@ -3872,6 +4138,7 @@ Environment Variables:
             return
 
     # First-run detection: auto-trigger setup wizard and config builder if no config specified
+    # Note: If config has a 'prompt' key, it will be used (set above), so args.question will be set
     if not args.question and not args.config and not args.model and not args.backend:
         if should_run_builder():
             print()
@@ -3906,11 +4173,59 @@ Environment Variables:
                 print(f"{BRIGHT_GREEN}✅ API keys detected{RESET}")
                 print()
 
-            # Step 2: Launch config builder
+            # Step 2: Optional Docker and skills setup
+            # Offer to set up Docker
+            try:
+                docker_choice = input(f"  {BRIGHT_CYAN}Set up Docker images for code execution? [Y/n]: {RESET}").strip().lower()
+                if docker_choice in ["y", "yes", ""]:
+                    setup_docker()
+                    print()
+            except (KeyboardInterrupt, EOFError):
+                print()
+
+            # Offer to install skills
+            try:
+                skills_choice = input(f"  {BRIGHT_CYAN}Install skills (openskills, Anthropic collection)? [Y/n]: {RESET}").strip().lower()
+                if skills_choice in ["y", "yes", ""]:
+                    from .utils.skills_installer import install_skills
+
+                    install_skills()
+                    print()
+            except (KeyboardInterrupt, EOFError):
+                print()
+
+            # Step 3: Choose setup method
             print("  Let's set up your default configuration...")
             print()
 
-            result = builder.run()
+            import questionary
+
+            setup_choice = questionary.select(
+                "Choose setup method:",
+                choices=[
+                    questionary.Choice(
+                        title="Quickstart - Fast setup with smart defaults (recommended)",
+                        value="quickstart",
+                    ),
+                    questionary.Choice(
+                        title="Full - Advanced configuration with all options",
+                        value="full",
+                    ),
+                ],
+                default="quickstart",
+            ).ask()
+
+            if not setup_choice:
+                # User cancelled
+                print(f"\n{BRIGHT_YELLOW}Setup cancelled{RESET}\n")
+                return
+
+            if setup_choice == "quickstart":
+                print()
+                result = builder.run_quickstart()
+            else:
+                print()
+                result = builder.run()
 
             if result and len(result) == 2:
                 filepath, question = result

@@ -147,9 +147,18 @@ Built-in Skills
 
 MassGen includes built-in skills bundled in ``massgen/skills/``:
 
+**Code Search & Understanding:**
+
 * ``file-search`` - Fast text and structural code search (ripgrep/ast-grep)
 * ``serena`` - Symbol-level code understanding using LSP
 * ``semtools`` - Semantic search using embeddings
+
+**Meta-Development (MassGen develops MassGen):**
+
+* ``massgen-config-creator`` - Config creation guidance and best practices
+* ``massgen-develops-massgen`` - Self-development workflows (automation + visual evaluation)
+* ``massgen-release-documenter`` - Release documentation process
+* ``model-registry-maintainer`` - Model registry maintenance
 
 All skills are invoked the same way using ``openskills read <skill-name>``.
 
@@ -307,6 +316,175 @@ Semantic search using embedding-based similarity matching. Find code by meaning,
 * Semantic search works **locally** without API keys
 * Document parsing (PDF/DOCX) requires LlamaIndex Cloud API key
 * Embeddings are computed locally using model2vec
+
+Meta-Development Skills
+------------------------
+
+MassGen includes four skills that enable agents to develop and improve MassGen itself. These skills provide structured workflows and best practices for common development tasks.
+
+MassGen Config Creator
+~~~~~~~~~~~~~~~~~~~~~~
+
+Guides agents in creating properly structured YAML configuration files.
+
+**Invocation:**
+
+.. code-block:: bash
+
+   openskills read massgen-config-creator
+
+**Key Features:**
+
+* Enforces "read existing configs first, never invent properties" rule
+* References authoritative documentation (``docs/source/development/writing_configs.rst``)
+* Property placement reference (backend-level vs orchestrator-level)
+* File naming and location conventions
+* Common pattern templates (single agent, multi-agent, with filesystem)
+
+**Use Cases:**
+
+* Creating example configs for new features
+* Writing configs for case studies
+* Building reusable multi-agent workflows
+* Testing backend/tool integrations
+
+**Example:**
+
+.. code-block:: bash
+
+   # Agent uses skill to create a config
+   openskills read massgen-config-creator
+   # Follows guidance to create properly structured config
+
+MassGen Develops MassGen
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Guides agents in using MassGen to develop itself through two distinct workflows.
+
+**Invocation:**
+
+.. code-block:: bash
+
+   openskills read massgen-develops-massgen
+
+**Workflow 1: Automation Mode** (Functional Testing)
+
+* Run MassGen in ``--automation`` mode for clean, parseable output
+* Monitor progress via ``status.json`` file
+* Parse log directory and results programmatically
+* Create background monitoring tasks (token usage, errors, progress, coordination)
+* Test backend functionality, coordination logic, agent responses
+
+**Workflow 2: Visual Evaluation** (UX Testing)
+
+* Pre-test with ``--automation`` to validate config (REQUIRED)
+* Record rich terminal display with VHS (without ``--automation``)
+* Analyze videos with ``understand_video`` tool
+* Evaluate terminal UX: clarity, layout, status indicators, user experience
+
+**Additional Guidance:**
+
+* Model selection guidelines (prefer recent mid-tier models)
+* Config generation patterns
+* Docker considerations (automatic detection and mode switching)
+* Timing expectations and monitoring best practices
+
+**Use Cases:**
+
+* Testing new features programmatically
+* Evaluating terminal UI/UX quality
+* Creating case study demos with recordings
+* Running experiments with MassGen configs
+
+MassGen Release Documenter
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Guides agents through the complete release documentation workflow.
+
+**Invocation:**
+
+.. code-block:: bash
+
+   openskills read massgen-release-documenter
+
+**Documentation Order (CRITICAL):**
+
+1. CHANGELOG.md (START HERE)
+2. Sphinx Documentation (docs/source/)
+3. Config Documentation (massgen/configs/README.md)
+4. Case Studies (docs/source/examples/case_studies/)
+5. README.md
+6. README_PYPI.md (auto-synced via pre-commit)
+7. Roadmap (ROADMAP.md)
+
+**Key Features:**
+
+* Phase-by-phase release checklist
+* Commit message templates
+* PR creation workflow
+* Tag release instructions
+* Validation checklist
+* Backend update guidance (config_builder.py, capabilities.py)
+
+**Use Cases:**
+
+* Preparing documentation for new releases
+* Updating CHANGELOG.md
+* Writing case studies
+* Following release checklist process
+
+**References:** Primary source of truth is ``docs/dev_notes/release_checklist.md``
+
+Model Registry Maintainer
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Guides agents in maintaining MassGen's model and backend registry.
+
+**Invocation:**
+
+.. code-block:: bash
+
+   openskills read model-registry-maintainer
+
+**Two Files to Maintain:**
+
+1. ``massgen/backend/capabilities.py`` - Models, capabilities, release dates
+2. ``massgen/token_manager/token_manager.py`` - Pricing, context windows
+
+**Pricing Resolution Order:**
+
+1. LiteLLM database (500+ models, fetched on-demand, cached 1 hour)
+2. Hardcoded PROVIDER_PRICING (fallback only)
+3. Pattern matching heuristics
+
+**Information Gathered for New Models:**
+
+* Release date (format: "YYYY-MM")
+* Context window and max output tokens
+* Pricing (input/output per 1K tokens)
+* Capabilities (web search, code execution, vision, etc.)
+* Exact API identifier
+
+**Programmatic Updates:**
+
+* LiteLLM pricing database integration
+* OpenRouter API for real-time data
+* Provider-specific API guidance
+* Automation script template
+
+**Current Coverage:**
+
+* OpenAI: GPT-5 family, GPT-4.1 family, o4-mini
+* Claude: Sonnet 4.5, Haiku 4.5, Opus 4.1
+* Gemini: 3-pro-preview, 2.5-pro, 2.5-flash
+* Grok: 4.1 family, 4 family, 3 family
+
+**Use Cases:**
+
+* Adding new models from providers
+* Updating model pricing
+* Maintaining context window information
+* Keeping registry current with provider releases
 
 Choosing Between Search Tools
 ------------------------------

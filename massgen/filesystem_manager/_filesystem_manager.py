@@ -115,7 +115,9 @@ class FilesystemManager:
             self.custom_tools_path = Path(custom_tools_path)
         elif auto_discover_custom_tools:
             # Auto-discover from default location (massgen/tool/)
-            default_path = Path("massgen/tool")
+            # Use package directory to find tools, not current working directory
+            package_dir = Path(__file__).parent.parent  # massgen/filesystem_manager -> massgen
+            default_path = package_dir / "tool"
             if default_path.exists():
                 self.custom_tools_path = default_path
                 logger.info(f"[FilesystemManager] Auto-discovered custom tools at {default_path}")
@@ -138,6 +140,17 @@ class FilesystemManager:
             self.shared_tools_directory = None
         self.command_line_allowed_commands = command_line_allowed_commands
         self.command_line_blocked_commands = command_line_blocked_commands
+
+        # Auto-detect if running inside Docker and switch to local execution
+        # The outer container already provides isolation, so local execution is safe
+        import os
+
+        if command_line_execution_mode == "docker" and os.path.exists("/.dockerenv"):
+            logger.info(
+                "[FilesystemManager] Already running inside Docker container - " "switching to local execution mode. The container provides isolation.",
+            )
+            command_line_execution_mode = "local"
+
         self.command_line_execution_mode = command_line_execution_mode
         self.command_line_docker_image = command_line_docker_image
         self.command_line_docker_memory_limit = command_line_docker_memory_limit
@@ -968,18 +981,35 @@ class FilesystemManager:
         # Get all managed paths
         paths = self.path_permission_manager.get_mcp_filesystem_paths()
 
+        # Check if we should use globally installed package (Docker) vs npx (local)
+        # In Docker, we pre-install with the zod-to-json-schema fix
+        import shutil
+
+        use_global = shutil.which("mcp-server-filesystem") is not None
+
         # Build MCP server configuration with all managed paths
-        config = {
-            "name": "filesystem",
-            "type": "stdio",
-            "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-filesystem",
-            ]
-            + paths,
-            "cwd": str(self.cwd),  # Set working directory for filesystem server (important for relative paths)
-        }
+        if use_global:
+            # Use globally installed package (Docker with fixed zod version)
+            config = {
+                "name": "filesystem",
+                "type": "stdio",
+                "command": "mcp-server-filesystem",
+                "args": paths,
+                "cwd": str(self.cwd),
+            }
+        else:
+            # Use npx for local development
+            config = {
+                "name": "filesystem",
+                "type": "stdio",
+                "command": "npx",
+                "args": [
+                    "-y",
+                    "@modelcontextprotocol/server-filesystem",
+                ]
+                + paths,
+                "cwd": str(self.cwd),  # Set working directory for filesystem server (important for relative paths)
+            }
 
         if include_only_write_tools:
             # Code-based tools mode: Only include write_file and edit_file

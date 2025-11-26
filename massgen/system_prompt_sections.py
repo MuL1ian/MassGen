@@ -484,7 +484,10 @@ reversed_text = reverse_string("hello")
 image = await text_to_image_generation(prompt="sunset", output_path="sunset.png")
 ```
 
-**Important:** Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
+**Important:**
+- Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
+- **CRITICAL**: When running Python scripts that import from `servers/` or `custom_tools/`, always specify `work_dir="{self.workspace_path}"` in your
+  execute_command call. The symlinks to these directories only exist in your main workspace, not in temporary snapshot directories.
 
 **Custom Tools Return Type:**
 
@@ -596,11 +599,23 @@ class MemorySection(SystemPromptSection):
             "and **what would help similar tasks succeed**.\n",
         )
 
-        # Memory tiers - simplified
+        # Memory tiers - clarified with usage guidance
         content_parts.append(
             "### Storage Tiers\n\n"
-            "**short_term**: Auto-loaded every turn. For user preferences and frequently-referenced guidance.\n"
-            "**long_term**: Load manually when needed. For effectiveness tracking, lessons learned, and decision rationale.\n",
+            "**short_term** (auto-loaded every turn):\n"
+            "- User preferences and workflow patterns\n"
+            "- Quick reference info needed frequently\n"
+            "- Current task context and findings\n"
+            "- Small, tactical observations (<100 lines)\n"
+            "- Examples: user_prefs.md, current_findings.md\n\n"
+            "**long_term** (load manually when needed):\n"
+            "- Detailed post-mortems and analyses\n"
+            "- Comprehensive skill effectiveness reports\n"
+            "- Complex lessons with context (>100 lines)\n"
+            "- Knowledge that's useful but not needed every turn\n"
+            "- Examples: detailed_analysis.md, comprehensive_guide.md\n\n"
+            "**Rule of thumb**: If it's small and useful every turn → short_term. "
+            "If it's detailed and situationally useful → long_term.\n",
         )
 
         # Show existing short-term memories (full content)
@@ -631,13 +646,98 @@ class MemorySection(SystemPromptSection):
             content_parts.append("")
             content_parts.append("</available_long_term_memories>")
 
+        # Show current memories from temp workspaces (all agents' current work)
+        temp_workspace_memories = self.memory_config.get("temp_workspace_memories", [])
+        if temp_workspace_memories:
+            content_parts.append("\n### Current Agent Memories (For Comparison)\n")
+            content_parts.append(
+                "These are the current memories from all agents working on this task. " "Review to compare approaches and avoid duplicating work.\n",
+            )
+
+            for agent_mem in temp_workspace_memories:
+                agent_label = agent_mem.get("agent_label", "unknown")
+                memories = agent_mem.get("memories", {})
+
+                content_parts.append(f"\n**{agent_label}:**")
+
+                # Show short_term memories (full content)
+                if memories.get("short_term"):
+                    content_parts.append("\n*short_term:*")
+                    for mem_name, mem_data in memories["short_term"].items():
+                        content = mem_data.get("content", mem_data) if isinstance(mem_data, dict) else mem_data
+                        content_parts.append(f"- `{mem_name}.md`")
+                        content_parts.append(f"  ```\n  {content.strip()}\n  ```")
+
+                # Show long_term memories (name + description only)
+                if memories.get("long_term"):
+                    content_parts.append("\n*long_term:*")
+                    for mem_name, mem_data in memories["long_term"].items():
+                        if isinstance(mem_data, dict):
+                            description = mem_data.get("description", "No description")
+                            content_parts.append(f"- `{mem_name}.md`: {description}")
+                        else:
+                            # Fallback if not parsed
+                            content_parts.append(f"- `{mem_name}.md`")
+
+                if not memories.get("short_term") and not memories.get("long_term"):
+                    content_parts.append("  *No memories*")
+
+        # Show archived memories (deduplicated historical context)
+        archived = self.memory_config.get("archived_memories", {})
+        if archived and (archived.get("short_term") or archived.get("long_term")):
+            content_parts.append("\n### Archived Memories (Historical - Deduplicated)\n")
+            content_parts.append(
+                "These are historical memories from previous answers. Duplicate names have been resolved " "(showing only the most recent version of each memory). This is read-only context.\n",
+            )
+
+            # Show short_term archived memories (full content)
+            if archived.get("short_term"):
+                content_parts.append("\n**Short-term (full content):**")
+                for mem_name, mem_data in archived["short_term"].items():
+                    content = mem_data.get("content", "")
+                    content_parts.append(f"\n- `{mem_name}.md`")
+                    content_parts.append(f"  ```\n  {content.strip()}\n  ```")
+
+            # Show long_term archived memories (name + description only)
+            if archived.get("long_term"):
+                content_parts.append("\n**Long-term (summaries only):**")
+                for mem_name, mem_data in archived["long_term"].items():
+                    content = mem_data.get("content", "")
+                    # Try to extract description from YAML frontmatter
+                    description = "No description"
+                    if "description:" in content:
+                        try:
+                            # Simple extraction of description line
+                            for line in content.split("\n"):
+                                if line.strip().startswith("description:"):
+                                    description = line.split("description:", 1)[1].strip()
+                                    break
+                        except Exception:
+                            pass
+                    content_parts.append(f"- `{mem_name}.md`: {description}")
+
         # File operations - simple and direct
         content_parts.append(
             "\n### Saving Memories\n\n"
             "Save memories by writing markdown files to the memory directory:\n"
             "- **Short-term** → `memory/short_term/{name}.md` (auto-loaded every turn)\n"
             "- **Long-term** → `memory/long_term/{name}.md` (load manually when needed)\n\n"
-            "Use standard file operations (write_file, edit_file, etc.).\n",
+            "**File Format (REQUIRED YAML Frontmatter):**\n"
+            "```markdown\n"
+            "---\n"
+            "name: skill_effectiveness\n"
+            "description: Tracking which skills and tools work well for different task types\n"
+            "created: 2025-11-23T20:00:00\n"
+            "updated: 2025-11-23T20:00:00\n"
+            "---\n\n"
+            "## Your Content Here\n"
+            "Document your findings...\n"
+            "```\n\n"
+            "**Important:** You are stateless - you don't have a persistent identity across restarts. "
+            "When you call `new_answer`, your workspace is cleared and archived. The system shows you:\n"
+            "1. Current memories from all agents (for comparing approaches)\n"
+            "2. Historical archived memories (deduplicated - newest version of each name)\n\n"
+            "If the same memory name appears multiple times, only the most recent version is shown.\n",
         )
 
         # Task completion reminders
@@ -647,58 +747,77 @@ class MemorySection(SystemPromptSection):
             "These help you optimize future work by capturing what worked, what didn't, and why.\n",
         )
 
-        # When to document - reframed around optimization
+        # When to document - with clear tier guidance
         content_parts.append(
             "\n### What to Document\n\n"
-            "**Skill & Tool Effectiveness** → memory/long_term/skill_effectiveness.md\n"
-            "- Which skills/tools worked well (or poorly) for this task type?\n"
-            "- What capabilities were most valuable?\n"
-            "- What would you use differently next time?\n"
-            "- Example: 'frontend-design + webapp-testing combo effective for visual quality iteration'\n\n"
-            "**Approach Success/Failure** → memory/long_term/approach_patterns.md\n"
-            "- What strategy worked (or failed) and why?\n"
-            "- What order of operations was optimal?\n"
-            "- What shortcuts to avoid?\n"
-            "- Example: 'Screenshot analysis before finalizing prevents visual bugs; always test responsive layouts'\n\n"
-            "**Mistake Prevention** → memory/long_term/lessons_learned.md\n"
-            "- What almost went wrong and how you caught it?\n"
-            "- What assumptions were incorrect?\n"
-            "- What to verify before proceeding on similar tasks?\n"
-            "- Example: 'Don't assume mobile layout works - always test viewport sizes'\n\n"
+            "**SHORT-TERM (use for most things):**\n\n"
             "**User Preferences** → memory/short_term/user_prefs.md\n"
             "- What does the user value (speed vs quality, iteration vs one-shot, etc.)?\n"
             "- Coding style, naming conventions, workflow preferences\n"
-            "- Example: 'User prefers iterative refinement with visual feedback over single delivery'\n",
+            "- Example: 'User prefers iterative refinement with visual feedback'\n\n"
+            "**Quick Observations** → memory/short_term/quick_notes.md\n"
+            "- Tactical findings from current work\n"
+            "- What worked/failed in this specific task\n"
+            "- Tool tips and gotchas discovered\n"
+            "- Example: 'create_directory fails on nested paths - create parent first'\n\n"
+            "**Current Context** → memory/short_term/task_context.md\n"
+            "- Key findings about the current task\n"
+            "- Important decisions made\n"
+            "- State of work in progress\n\n"
+            "**LONG-TERM (only if detailed/comprehensive):**\n\n"
+            "**Comprehensive Skill Analysis** → memory/long_term/skill_effectiveness.md\n"
+            "- Detailed comparison of multiple skills/approaches\n"
+            "- Cross-task patterns (>3 examples)\n"
+            "- Only save if you have substantial evidence (100+ lines)\n\n"
+            "**Detailed Post-Mortems** → memory/long_term/approach_patterns.md\n"
+            "- In-depth analysis of complex approaches\n"
+            "- Multi-step strategies with rationale\n"
+            "- Only for significant architectural decisions\n\n"
+            "**Note**: Most observations should go in **short_term**. Reserve long_term for truly "
+            "detailed analyses that would clutter the auto-loaded context.\n",
         )
 
-        # Examples - emphasize decision rationale and effectiveness
+        # Examples - emphasize short-term for most uses
         content_parts.append(
             "\n### Examples\n\n"
             "```python\n"
-            "# Document skill effectiveness after completing a task\n"
+            "# SHORT-TERM: Quick tactical observation (PREFERRED for most things)\n"
             "write_file(\n"
-            '    "memory/long_term/skill_effectiveness.md",\n'
-            '    "## Frontend Design Tasks\\n"\n'
-            '    "**What worked:** frontend-design + webapp-testing combo\\n"\n'
-            '    "**Why effective:** Produced visually polished UI, screenshot analysis caught layout issues\\n"\n'
-            '    "**For future:** Always use this combo for user-facing web interfaces"\n'
+            '    "memory/short_term/quick_notes.md",\n'
+            '    "---\\n"\n'
+            '    "name: quick_notes\\n"\n'
+            '    "description: Tactical observations from current work\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "## Web Development\\n"\n'
+            '    "- create_directory fails on nested paths - create parent first\\n"\n'
+            '    "- CSS variables work well for theming\\n"\n'
+            '    "- Always test with `printf` for CLI stdin validation"\n'
             ")\n\n"
-            "# Document user workflow preference\n"
+            "# SHORT-TERM: User preferences\n"
             "write_file(\n"
             '    "memory/short_term/user_prefs.md",\n'
-            '    "## Workflow\\n"\n'
-            '    "**Preference:** Iterative refinement with visual feedback\\n"\n'
-            '    "**Don\'t:** Single-shot delivery without showing progress\\n"\n'
-            '    "**Rationale:** User explicitly requested iterative improvement based on screenshots"\n'
+            '    "---\\n"\n'
+            '    "name: user_prefs\\n"\n'
+            '    "description: User workflow and style preferences\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "## Preferences\\n"\n'
+            '    "- Prefers clean, minimal code\\n"\n'
+            '    "- Wants explanations with examples"\n'
             ")\n\n"
-            "# Document lesson learned to prevent future mistakes\n"
-            'existing = read_file("memory/long_term/lessons_learned.md") if file_exists("memory/long_term/lessons_learned.md") else ""\n'
+            "# LONG-TERM: Only for detailed analysis (>100 lines)\n"
             "write_file(\n"
-            '    "memory/long_term/lessons_learned.md",\n'
-            '    existing + "\\n\\n## Web Design: Visual Verification\\n"\n'
-            '    "**Mistake to avoid:** Assuming design looks good without visual check\\n"\n'
-            '    "**Prevention:** Always preview + screenshot before finalizing\\n"\n'
-            '    "**Impact:** Caught responsive layout issues that would have looked broken"\n'
+            '    "memory/long_term/comprehensive_analysis.md",\n'
+            '    "---\\n"\n'
+            '    "name: comprehensive_analysis\\n"\n'
+            '    "description: Detailed multi-task skill effectiveness analysis\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "[100+ lines of detailed analysis comparing approaches across multiple tasks...]"\n'
             ")\n"
             "```\n",
         )

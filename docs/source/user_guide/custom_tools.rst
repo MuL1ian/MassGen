@@ -688,6 +688,105 @@ MassGen offers three computer use tools optimized for different providers:
 
    See :doc:`computer_use` - Complete Computer Use Tools guide
 
+Example 7: Terminal Evaluation Tools
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+MassGen can evaluate its own terminal display and frontend UX by recording sessions with VHS and analyzing them using AI vision models.
+
+MassGen provides terminal evaluation tools for assessing display quality and user experience:
+
+* ``run_massgen_with_recording`` - Record MassGen terminal sessions as video (MP4/GIF/WebM)
+* ``understand_video`` - Analyze video recordings using GPT-4.1 vision
+* ``understand_image`` - Analyze screenshots and frames
+
+**Quick Example:**
+
+.. code-block:: bash
+
+   # Record and evaluate a MassGen session
+   massgen \
+     --config massgen/configs/tools/custom_tools/terminal_evaluation.yaml \
+     "Record and evaluate the terminal display for the todo example config"
+
+**Config Example:** ``terminal_evaluation.yaml``
+
+.. code-block:: yaml
+
+   agents:
+     - id: "terminal_evaluator"
+       backend:
+         type: "openai"
+         model: "gpt-5-nano"
+         cwd: "workspace1"
+
+         # Terminal evaluation tools
+         custom_tools:
+           - name: ["run_massgen_with_recording"]
+             category: "terminal_recording"
+             path: "massgen/tool/_multimodal_tools/run_massgen_with_recording.py"
+             function: ["run_massgen_with_recording"]
+
+           - name: ["understand_video"]
+             category: "multimodal"
+             path: "massgen/tool/_multimodal_tools/understand_video.py"
+             function: ["understand_video"]
+
+           - name: ["understand_image"]
+             category: "multimodal"
+             path: "massgen/tool/_multimodal_tools/understand_image.py"
+             function: ["understand_image"]
+
+   ui:
+     display_type: "rich_terminal"
+     logging_enabled: true
+
+**Available Terminal Evaluation Tools:**
+
+* ``run_massgen_with_recording`` - Records MassGen sessions as MP4/GIF/WebM videos using VHS
+* ``understand_video`` - Extracts frames and analyzes videos with GPT-4.1
+* ``understand_image`` - Analyzes individual frames or screenshots
+
+**Key Features:**
+
+* VHS integration for high-quality terminal recording
+* Video frame extraction (configurable frame count)
+* AI-powered UX evaluation using GPT-4.1 vision
+* Automatic workspace management for recordings
+* Support for multiple output formats (MP4, GIF, WebM)
+
+**Prerequisites:**
+
+* VHS terminal recorder: ``brew install vhs`` (macOS) or ``go install github.com/charmbracelet/vhs@latest``
+* OpenAI API key configured in ``.env``
+
+**Workflow:**
+
+1. Agent creates VHS tape script to record terminal session
+2. Runs MassGen command (without ``--automation`` to capture rich display)
+3. VHS records the session as video
+4. Extracts key frames from video
+5. Analyzes frames using GPT-4.1 vision model
+6. Returns detailed UX evaluation with recommendations
+
+**Use Cases:**
+
+* Frontend development - Evaluate UI/UX changes to terminal display
+* Quality assurance - Verify status indicators and agent outputs
+* Case study creation - Record demos and generate video content
+* User testing - Analyze how well terminal communicates progress
+
+.. seealso::
+
+   For complete documentation on terminal evaluation including:
+
+   * Detailed recording workflow and VHS configuration
+   * Frame extraction and analysis techniques
+   * Evaluation criteria and best practices
+   * Integration with case study creation
+   * Troubleshooting and monitoring
+
+   See :doc:`terminal_evaluation` - Complete Terminal Evaluation guide
+
 Available Example Configs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -719,6 +818,10 @@ The ``massgen/configs/tools/custom_tools/`` directory contains examples for all 
 * ``gemini_computer_use_example.yaml`` - Google Gemini computer use automation
 * ``claude_computer_use_docker_example.yaml`` - Anthropic Claude computer use automation
 * ``simple_browser_automation_example.yaml`` - Simple browser automation for any model
+
+**Terminal Evaluation Tools:**
+
+* ``terminal_evaluation.yaml`` - Record and evaluate MassGen terminal sessions with VHS and GPT-4.1
 
 Backend Support
 ---------------

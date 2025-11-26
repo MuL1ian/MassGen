@@ -106,6 +106,7 @@ class RichTerminalDisplay(TerminalDisplay):
                 - enable_flush_output: Enable flush output for final answer display (default: True)
                 - flush_char_delay: Delay between characters in flush output (default: 0.03)
                 - flush_word_delay: Extra delay after punctuation in flush output (default: 0.08)
+                - skip_agent_selector: Skip the Agent Selector interface at the end (default: False)
         """
         if not RICH_AVAILABLE:
             raise ImportError(
@@ -113,6 +114,9 @@ class RichTerminalDisplay(TerminalDisplay):
             )
 
         super().__init__(agent_ids, **kwargs)
+
+        # Extract skip_agent_selector flag
+        self._skip_agent_selector = kwargs.get("skip_agent_selector", False)
 
         # Terminal performance detection and adaptive refresh rate
         self._terminal_performance = self._detect_terminal_performance()
@@ -1668,6 +1672,10 @@ class RichTerminalDisplay(TerminalDisplay):
 
     def show_agent_selector(self) -> None:
         """Show agent selector and handle user input."""
+
+        # Skip agent selector if flag is set (for recording/automation)
+        if self._skip_agent_selector:
+            return
 
         if not self._keyboard_interactive_mode or not hasattr(
             self,

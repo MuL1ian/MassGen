@@ -227,49 +227,93 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.14 - Latest
-**New Features:** Parallel Tool Execution, Interactive Quickstart, Gemini 3 Pro Support & MCP Registry Client
+### v0.1.16 - Latest
+**New Features:** Terminal Evaluation System, LiteLLM Cost Tracking, Memory Archiving, Self-Evolution Skills
 
 **Configuration Files:**
-- `tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml` - Parallel tool execution example with configurable concurrency
-- `providers/gemini/gemini_3_pro.yaml` - Configuration for Gemini 3 Pro model with function calling
-- `tools/filesystem/code_based/example_code_based_tools.yaml` - Enhanced instructions for code-based tools
-- `.github/workflows/docker-publish.yml` - Automated Docker build and publish workflow
+- `meta/massgen_evaluates_terminal.yaml` - MassGen evaluates its own terminal display with VHS recording
+- `tools/custom_tools/terminal_evaluation.yaml` - Terminal evaluation tool demonstration
+- `skills/test_memory.yaml` - Memory archiving with multi-turn session support
 
 **Key Features:**
-- **Parallel Tool Execution System**: Configurable concurrent tool execution across all backends with asyncio-based scheduling and semaphore limits
-- **Gemini 3 Pro Support**: Full integration for Google's Gemini 3 Pro model with native function calling capabilities
-- **Interactive Quickstart Workflow**: Streamlined onboarding experience with guided configuration creation and improved UX
-- **MCP Registry Client**: Enhanced server metadata fetching from official MCP registry for better agent understanding
-- **Planning System Enhancements**: Improved skill and tool search capabilities in planning mode for better agent decision-making
-- **NLIP Routing Streamlining**: Unified execution flow across backends with simplified routing implementation
+- **Terminal Evaluation System**: Record terminal sessions with VHS and analyze with multimodal AI (GPT-4.1, Claude) for UI/UX evaluation
+- **LiteLLM Cost Tracking**: Accurate pricing for 500+ models with automatic updates, reasoning token support (o1/o3), cached token handling
+- **Memory Archiving**: Persistent memory across conversation turns for session continuity
+- **Self-Evolution Skills**: Four new skills enabling MassGen to maintain configs, document releases, and develop features
+- **Docker Enhancements**: Parallel image pulling, VHS integration for terminal recording
+- **Model Updates**: Grok 4.1 family and GPT-4.1 models with accurate pricing metadata
 
 **Try It:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Interactive Quickstart - guided configuration creation
-uv run massgen --quickstart  # Walk through agent setup and start interactive mode
+# Terminal Evaluation - record and analyze MassGen's terminal display
+# Prerequisites: VHS installed (brew install vhs), OPENAI_API_KEY or GEMINI_API_KEY in .env
+uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
+  "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
 
-# Parallel Tool Execution - concurrent tool execution with configurable limits
-# Prerequisites: .env with OPENAI_API_KEY, npx available for MCP weather server
-uv run python -m massgen.cli \
-  --config massgen/configs/tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml \
+# Terminal Evaluation Tool Demo - demonstrates recording and analysis workflow
+# Prerequisites: VHS installed, OPENAI_API_KEY in .env
+uv run massgen --config massgen/configs/tools/custom_tools/terminal_evaluation.yaml \
+  "Record and evaluate the terminal display for the todo example config"
+
+# Memory Archiving - persistent memory across conversation turns
+# Prerequisites: Docker running, API keys in .env
+uv run massgen --config massgen/configs/skills/test_memory.yaml \
+  "Create a website about Bob Dylan"
+```
+
+### v0.1.15
+**New Features:** Persona Generation System, Docker Distribution & Custom Tools Enhancement
+
+**Configuration Files:**
+- `basic/multi/persona_diversity_example.yaml` - Persona generation with strategy and backend configuration
+- `.github/workflows/docker-publish.yml` - Enhanced CI/CD pipeline for GitHub Container Registry
+
+**Key Features:**
+- **Persona Generation System**: Automatic generation of diverse system messages for multi-agent configurations with multiple strategies (complementary, diverse, specialized, adversarial)
+- **Docker Distribution Enhancement**: GitHub Container Registry integration with ARM architecture support
+- **Custom Tools in Docker**: Isolated Docker containers for security and portability (Issue #510)
+- **MassGen Pre-installed**: Docker images include MassGen for immediate use with custom tools
+- **Config Builder Enhancement**: Improved interactive configuration with better model selection and defaults
+
+**Try It:**
+```bash
+# Persona Generation - automatic diverse system messages for agents
+# Prerequisites: OPENAI_API_KEY in .env, Docker running for code execution
+uv run massgen --config massgen/configs/basic/multi/persona_diversity_example.yaml \
+  "Create a website about Bob Dylan"
+
+# Enhanced Config Builder - improved model selection
+uv run massgen --init  # Interactive wizard with better defaults
+```
+
+### v0.1.14
+**New Features:** Parallel Tool Execution, Interactive Quickstart, Gemini 3 Pro Support & MCP Registry Client
+
+**Configuration Files:**
+- `tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml` - Parallel tool execution example with configurable concurrency
+- `providers/gemini/gemini_3_pro.yaml` - Configuration for Gemini 3 Pro model with function calling
+
+**Key Features:**
+- **Parallel Tool Execution System**: Configurable concurrent tool execution across all backends with asyncio-based scheduling
+- **Gemini 3 Pro Support**: Full integration for Google's Gemini 3 Pro model with native function calling
+- **Interactive Quickstart Workflow**: Streamlined onboarding experience with guided configuration creation
+- **MCP Registry Client**: Enhanced server metadata fetching from official MCP registry
+
+**Try It:**
+```bash
+# Interactive Quickstart - guided configuration creation
+uv run massgen --quickstart
+
+# Parallel Tool Execution - concurrent tool execution
+uv run massgen --config massgen/configs/tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml \
   "whats the sum of 123 and 456? and whats the weather of Tokyo and london?"
 
 # Gemini 3 Pro - Google's latest model with function calling
-# Prerequisites: Docker running, GOOGLE_API_KEY in .env
 uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml \
   "Create a website about Bob Dylan"
-
-# Enhanced Config Builder - interactive configuration wizard
-uv run massgen --init  # Full configuration wizard with use case selection
-
-# MCP Registry Client - automatic server description integration
-# Prerequisites: OPENAI_API_KEY in .env, npx for MCP server
-uv run massgen --config @examples/tools/mcp/gpt5_nano_mcp_example \
-  "whats the weather of Tokyo"
 ```
 
 ### v0.1.13

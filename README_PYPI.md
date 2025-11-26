@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.14 Features](#-latest-features-v0114)
+- [v0.1.16 Features](#-latest-features-v0116)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <summary><h3>🗺️ Roadmap</h3></summary>
 
 - Recent Achievements
-  - [v0.1.14](#recent-achievements-v0114)
-  - [v0.0.3 - v0.1.13](#previous-achievements-v003---v0113)
+  - [v0.1.16](#recent-achievements-v0116)
+  - [v0.0.3 - v0.1.15](#previous-achievements-v003---v0115)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.15 Roadmap](#v0115-roadmap)
+- [v0.1.17 Roadmap](#v0117-roadmap)
 </details>
 
 <details open>
@@ -155,25 +155,25 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.14)
+## 🆕 Latest Features (v0.1.16)
 
-**🎉 Released: November 19, 2025**
+**🎉 Released: November 24, 2025**
 
-**What's New in v0.1.14:**
-- **⚡ Parallel Tool Execution System** - Configurable concurrent tool execution across all backends
-- **🤖 Gemini 3 Pro Model Support** - Full integration for Google's latest Gemini 3 Pro
-- **🚀 Interactive Quickstart Workflow** - Streamlined onboarding from setup to first run
-- **🔍 MCP Registry Client** - Enhanced server metadata fetching from official MCP registry
+**What's New in v0.1.16:**
+- **🎬 Terminal Evaluation System** - Automated VHS recording and AI-powered terminal display evaluation
+- **💰 LiteLLM Cost Tracking** - Accurate pricing for 500+ models with automatic updates
+- **🧠 Memory Archiving** - Multi-turn session persistence with long-term memory storage
+- **🔧 Self-Evolution Skills** - MassGen now has specific agent skills to help with development
 
 **Key Improvements:**
-- Parallel tool execution with asyncio-based scheduling and configurable concurrency controls
-- Gemini 3 Pro native support for Google's latest model with parallel function calling
-- Interactive config builder with improved UX for provider selection and validation
-- MCP registry client fetches server descriptions from official registry for better agent understanding
-- Planning system enhancements with improved skill and tool search capabilities
-- NLIP routing streamlining with unified execution flow across backends
+- Record and analyze terminal sessions with VHS for UI/UX evaluation using multimodal AI
+- Precise cost tracking with LiteLLM's pricing database (reasoning tokens, cached tokens support)
+- Archive memory across conversation turns for session continuity
+- Four new skills enabling MassGen to document releases, maintain configs, and develop features
+- Parallel Docker image pulling for faster setup
+- Grok 4.1 and GPT-4.1 model family support with accurate pricing metadata
 
-**Try v0.1.14 Features:**
+**Try v0.1.16 Features:**
 ```bash
 # Install or upgrade from PyPI
 pip install --upgrade massgen
@@ -181,23 +181,15 @@ pip install --upgrade massgen
 # Or with uv (faster)
 uv pip install massgen
 
-# Interactive Quickstart - guided configuration creation
-uv run massgen --quickstart  # Walk through agent setup and start interactive mode
+# Terminal Evaluation - record and analyze MassGen's terminal display
+# Prerequisites: VHS installed (brew install vhs or go install github.com/charmbracelet/vhs@latest), OPENAI_API_KEY or GEMINI_API_KEY in .env
+uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
+  "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
 
-# Parallel Tool Execution - concurrent tool execution with configurable limits
-uv run massgen --config massgen/configs/tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml \
-  "whats the sum of 123 and 456? and whats the weather of Tokyo and london?"
-
-# Gemini 3 Pro - Google's latest model with function calling
-uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml \
+# Memory Archiving - persistent memory across conversation turns
+# Prerequisites: Docker running, API keys in .env
+uv run massgen --config massgen/configs/skills/test_memory.yaml \
   "Create a website about Bob Dylan"
-
-# Enhanced Config Builder - interactive configuration wizard
-uv run massgen --init  # Full configuration wizard with use case selection
-
-# MCP Registry Client - automatic server description integration
-uv run massgen --config @examples/tools/mcp/gpt5_nano_mcp_example \
-  "whats the weather of Tokyo"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1098,24 +1090,38 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.14)
+### Recent Achievements (v0.1.16)
 
-**🎉 Released: November 19, 2025**
+**🎉 Released: November 24, 2025**
 
-#### Parallel Tool Execution & Gemini 3 Pro
-- **Parallel Tool Execution System**: Configurable concurrent tool execution across all backends with asyncio-based scheduling (`massgen/backend/response.py`, `massgen/backend/base_with_custom_tool_and_mcp.py`)
-- **Configuration Controls**: `concurrent_tool_execution` for local parallel execution, `parallel_tool_calls` for OpenAI Response API, `disable_parallel_tool_use` for Claude backend, `max_concurrent_tools` semaphore limit
-- **Gemini 3 Pro Support**: Full integration for Google's Gemini 3 Pro model with function calling capabilities (`massgen/backend/gemini.py`)
-- **Configuration Example**: `massgen/configs/tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml`, `massgen/configs/providers/gemini/gemini_3_pro.yaml`
+#### Terminal Evaluation System
+- **VHS Recording & AI Analysis**: Record terminal sessions as GIF/MP4/WEBM using VHS, analyze with GPT-4.1/Claude for UI/UX quality, agent performance, and coordination visualization
 
-#### Interactive Quickstart & MCP Registry Client
-- **Interactive Config Builder**: Enhanced quickstart workflow with guided configuration creation and improved UX (`massgen/config_builder.py`, `massgen/cli.py`)
-- **MCP Registry Client**: Enhanced server metadata fetching from official MCP registry with automatic description integration (`massgen/mcp_tools/registry_client.py`)
-- **Planning System Enhancements**: Improved skill and tool search in planning mode for better agent decision-making (`massgen/mcp_tools/planning/_planning_mcp_server.py`)
-- **NLIP Routing Streamlining**: Unified execution flow across backends with simplified routing implementation (`massgen/backend/response.py`, `claude.py`, `gemini.py`)
-- **Documentation**: `docs/parallel-tool-execution.md`, `.github/workflows/docker-publish.yml`
+#### LiteLLM Cost Tracking Integration
+- **500+ Model Support**: Auto-updating pricing database with reasoning tokens (o1/o3) and cached tokens (Claude, OpenAI) support, more accurate than manual tables
+- **Robust Fallback**: Graceful degradation to legacy calculation when unavailable
 
-### Previous Achievements (v0.0.3 - v0.1.13)
+#### Memory Archiving System
+- **Persistent Multi-Turn Memory**: Archive memory across conversation turns with improved retrieval and context management for continuous agent interactions
+
+#### MassGen Self-Evolution Skills
+- **Four Development Skills**: Config creator, self-developer, release documenter, and model registry maintainer to assist with MassGen development and maintenance
+
+#### Infrastructure Enhancements
+- **Docker Improvements**: Parallel image pulling for faster setup, VHS integration for terminal recording in containers
+- **Model Updates**: Grok 4.1 family (grok-4.1, grok-4.1-mini) and GPT-4.1 models with release dates and improved pricing metadata for accurate cost tracking
+
+#### Documentation
+- **Terminal Evaluation System**: `docs/source/user_guide/terminal_evaluation.rst`, `massgen/configs/meta/massgen_evaluates_terminal.yaml`, `massgen/configs/tools/custom_tools/terminal_evaluation.yaml`
+- **LiteLLM Cost Tracking Integration**: `docs/dev_notes/litellm_cost_tracking_integration.md`
+- **Memory Archiving System**: `docs/source/user_guide/memory_filesystem_mode.rst` with archiving workflows
+- **MassGen Self-Evolution Skills**: `massgen-config-creator/SKILL.md`, `massgen-develops-massgen/SKILL.md`, `massgen-release-documenter/SKILL.md`, `model-registry-maintainer/SKILL.md`
+
+### Previous Achievements (v0.0.3 - v0.1.15)
+
+✅ **Persona Generation & Docker Distribution (v0.1.15)**: Automatic persona generation for agent diversity with multiple strategies (complementary, diverse, specialized, adversarial), GitHub Container Registry integration with ARM support, custom tools in isolated Docker containers for security, MassGen pre-installed in Docker images
+
+✅ **Parallel Tool Execution & Gemini 3 Pro (v0.1.14)**: Configurable concurrent tool execution across all backends with asyncio-based scheduling, Gemini 3 Pro integration with function calling, interactive quickstart workflow, MCP registry client for server metadata
 
 ✅ **Code-Based Tools & MCP Registry (v0.1.13)**: CodeAct paradigm implementation with tool integration via importable Python code reducing token usage by 98%, MCP server registry with auto-discovery and on-demand loading, TOOL.md documentation standard
 
@@ -1285,21 +1291,21 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.15 Roadmap
+### v0.1.17 Roadmap
 
-Version 0.1.15 focuses on reinforcement learning integration and multi-agent Git workflows:
+Version 0.1.17 focuses on broadcasting capabilities and expanding model support:
 
 #### Planned Features
-- **Integrate RL into MassGen**: Reinforcement learning integration for agent optimization and adaptive behavior through reward modeling, policy optimization, and learning from past interactions
-- **Git Worktrees for Multi-Agent**: Enable multiple agents to work on different Git worktrees simultaneously for parallel development workflows
+- **Broadcasting to Humans/Agents**: Enable agents to broadcast questions when facing implementation uncertainties for improved decision quality
+- **Grok 4.1 Fast Model Support**: Add support for xAI's latest high-speed model for rapid agent responses and cost-effective workflows
 
 Key technical approach:
-- **RL Integration**: RL framework integration, reward modeling for agent coordination, policy optimization algorithms (PPO, A3C), adaptive agent behavior with learning persistence
-- **Git Worktrees**: Worktree management, branch synchronization, conflict resolution support, improved parallelism for multi-agent development
+- **Broadcasting Infrastructure**: Question routing protocol, human-in-the-loop interaction, agent-to-agent coordination
+- **Grok 4.1 Fast Integration**: Backend integration, token counting, pricing configuration, capability registration
 
-**Target Release**: November 21, 2025 (Friday @ 9am PT)
+**Target Release**: November 26, 2025 (Wednesday @ 9am PT)
 
-For detailed milestones and technical specifications, see the [full v0.1.15 roadmap](ROADMAP_v0.1.15.md).
+For detailed milestones and technical specifications, see the [full v0.1.17 roadmap](ROADMAP_v0.1.17.md).
 
 ---
 

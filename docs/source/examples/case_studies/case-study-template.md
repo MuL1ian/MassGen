@@ -119,7 +119,37 @@ Describe the agents used and any relevant information about them.
 
 Each case study should be accompanied by a recording demonstrating the new functionalities obtained by running MassGen with the described command.
 
+### Recording Your Demo
+
+You can record terminal sessions automatically using the `run_massgen_with_recording` tool:
+
+```bash
+# Using the terminal evaluation config
+massgen --config massgen/configs/tools/custom_tools/terminal_evaluation.yaml \
+  "Record a demo of the case study config running: '<your case study prompt>'"
+```
+
+The tool will:
+1. Record the MassGen session as MP4/GIF/WebM
+2. Save the video to the workspace
+3. Optionally evaluate the terminal display quality
+
+**Prerequisites:**
+- Install VHS: `brew install vhs` (macOS) or `go install github.com/charmbracelet/vhs@latest`
+- OpenAI API key configured in `.env`
+
+**Recommended Settings:**
+- Format: MP4 for high quality, GIF for easy embedding
+- Frames: 8-12 for evaluation feedback
+- Timeout: Adjust based on task complexity (60-600 seconds)
+
+See the [Terminal Evaluation User Guide](../../user_guide/terminal_evaluation.rst) for detailed instructions.
+
+### Demo Link
+
 [![MassGen Case Study](link)](link)
+
+*Replace with your actual recording. If using the recording tool, the video will be saved as `workspace/massgen_terminal.{format}`*
 
 ---
 
@@ -157,6 +187,7 @@ Explain why the new features resulted in an improvement in performance after the
 - [ ] Planning phase completed
 - [ ] Features implemented
 - [ ] Testing completed
-- [ ] Demo recorded
+- [ ] Demo recorded (consider using `run_massgen_with_recording` tool)
+- [ ] Terminal display evaluated (optional - use terminal evaluation tool for UX feedback)
 - [ ] Results analyzed
 - [ ] Case study reviewed

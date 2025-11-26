@@ -16,61 +16,70 @@ If you need to install or upgrade Python, visit `python.org/downloads <https://w
 Quick Start Installation
 ========================
 
-**Method 1: PyPI Installation** (Recommended)
-----------------------------------------------
+**Install and Run** (Recommended)
+----------------------------------
 
-The easiest way to get started with MassGen is via pip or uv:
+The easiest way to get started with MassGen:
 
 .. code-block:: bash
 
-   # Install MassGen with uv (recommended - faster)
+   # Install uv (if you don't have it)
+   pip install uv
+
+   # Create a virtual environment
+   uv venv
+
+   # Install MassGen
    uv pip install massgen
 
-   # Or with pip
-   pip install massgen
+   # Run MassGen
+   uv run massgen
 
-Getting Started - Complete First-Run Flow
-------------------------------------------
+**First-Run Setup Flow**
 
-**Quickstart Setup** (Fastest way to get running):
+On your first run, MassGen will automatically guide you through:
 
-.. code-block:: bash
+1. **API key setup** - Configure OpenAI, Anthropic, Google, or xAI
+2. **Optional enhancements** - Install Docker images and skills (~5 minutes with Docker, faster without)
+3. **Quickstart configuration** - Create your agent team with smart defaults
+4. **Start chatting** - Launch directly into an interactive conversation
 
-   # Step 1: Set up API keys, Docker, and skills
-   uv run massgen --setup
-
-   # Step 2: Create a simple config and start
-   uv run massgen --quickstart
-
-**What ``--setup`` does:**
-
-* Configures your API keys (OpenAI, Anthropic, Google, xAI)
-* Offers to set up Docker images for code execution
-* Offers to install skills (openskills, Anthropic collection)
-
-**What ``--quickstart`` does:**
-
-* Asks how many agents you want (1-5, default 3)
-* Asks which backend/model for each agent (or same for all)
-* Auto-detects Docker availability and configures execution mode
-* Creates a ready-to-use config and launches into interactive mode
+Your configuration is saved to ``~/.config/massgen/config.yaml`` (Windows: ``%USERPROFILE%\.config\massgen\config.yaml``) and will be used automatically on future runs.
 
 **After first-run setup:**
 
 .. code-block:: bash
 
-   # Start conversation with your default config
+   # Interactive multi-turn conversation
    uv run massgen
 
-   # Or run a single query
+   # Single query
    uv run massgen "Your question here"
 
+   # Use a different configuration
+   uv run massgen --config @examples/providers/gemini/gemini_3_pro
+
 .. tip::
-   **The entire flow takes 1-2 minutes.** You'll be in an interactive conversation with your agents immediately after setup!
+   **The entire first-run flow takes just a few minutes** - faster without Docker. You'll be chatting with your agents immediately after setup!
 
-**Alternative: Full Setup Wizard**
+Advanced Setup Options
+-----------------------
 
-For more control over configuration, use the full wizard:
+For more control over the setup process, MassGen provides individual setup commands:
+
+**Setup API Keys and Optional Components** (``--setup``)
+
+.. code-block:: bash
+
+   uv run massgen --setup
+
+This walks you through:
+
+* API key configuration (OpenAI, Anthropic, Google, xAI)
+* Optional Docker image installation
+* Optional skills installation
+
+**Full Configuration Wizard** (``--init``)
 
 .. code-block:: bash
 
@@ -93,6 +102,22 @@ This guides you through:
 
    * After selection, you're **launched directly into interactive mode**
    * Multi-turn conversation with your chosen configuration
+
+**Quick Configuration Creator** (``--quickstart``)
+
+.. code-block:: bash
+
+   uv run massgen --quickstart
+
+This is the fastest way to create a configuration:
+
+* Asks how many agents you want (1-5, default 3)
+* Asks which backend/model for each agent (or same for all)
+* Auto-detects Docker availability and configures execution mode
+* Creates a ready-to-use config and launches into interactive mode
+
+.. note::
+   ``uv run massgen`` automatically runs ``--quickstart`` on first run if no configuration exists. You typically only need to use ``--quickstart`` explicitly if you want to create a new configuration.
 
 Supported API Key Providers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

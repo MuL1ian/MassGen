@@ -37,9 +37,14 @@ agents:
   - id: "agent_a"
     backend:
       # type: "gemini"
-      # model: "gemini-3-pro-preview"
-      type: "openai"
-      model: "gpt-5-codex"
+      # model: "gemini-2.5-pro"
+      # type: "openai"
+      # model: "gpt-5-codex"
+      type: "chatcompletion"
+      base_url: "https://openrouter.ai/api/v1"
+      model: "x-ai/grok-4.1-fast"
+      # type: "grok"
+      # model: "grok-4-1-fast-reasoning"
       cwd: "workspace1"
 
       # Enable code-based tools (CodeAct paradigm)
@@ -92,10 +97,13 @@ agents:
 
   - id: "agent_b"
     backend:
-      type: "claude_code"
-      model: "claude-sonnet-4-5-20250929"
-      # type: "gemini"
-      # model: "gemini-3-pro-preview"
+      # type: "claude_code"
+      # model: "claude-sonnet-4-5-20250929"
+      type: "chatcompletion"
+      base_url: "https://openrouter.ai/api/v1"
+      model: "x-ai/grok-4.1-fast"
+      # type: "grok"
+      # model: "grok-4-1-fast-reasoning"
       cwd: "workspace2"
 
       # Enable code-based tools (CodeAct paradigm)

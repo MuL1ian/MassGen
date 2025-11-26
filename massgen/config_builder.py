@@ -2915,6 +2915,79 @@ class ConfigBuilder:
             console.print("[info]Please report this issue if it persists.[/info]")
             return None
 
+    def generate_config_programmatic(
+        self,
+        output_path: str,
+        num_agents: int = 2,
+        backend_type: str = None,
+        model: str = None,
+        use_docker: bool = False,
+        context_path: Optional[str] = None,
+    ) -> bool:
+        """Generate config file programmatically without user interaction.
+
+        Args:
+            output_path: Where to save the config file
+            num_agents: Number of agents (1-10)
+            backend_type: Backend provider (must have API key)
+            model: Model name
+            use_docker: Whether to enable Docker execution
+            context_path: Optional path to add as context
+
+        Returns:
+            True if successful
+
+        Raises:
+            ValueError: If backend_type/model missing or API key unavailable
+        """
+        if not backend_type or not model:
+            raise ValueError("backend_type and model are required")
+
+        # Validate num_agents
+        if num_agents < 1 or num_agents > 10:
+            raise ValueError("Number of agents must be between 1 and 10")
+
+        # Check API key availability
+        api_keys = self.detect_api_keys()
+        if not api_keys.get(backend_type, False):
+            available = [p for p, has_key in api_keys.items() if has_key]
+            raise ValueError(
+                f"Backend '{backend_type}' not available (no API key found). " f"Available backends: {', '.join(available) if available else 'none'}",
+            )
+
+        # Build agents config
+        provider_info = self.PROVIDERS.get(backend_type, {})
+        agents_config = []
+        for i in range(num_agents):
+            chr(ord("a") + i) if i < 26 else str(i)
+            agents_config.append(
+                {
+                    "id": f"{backend_type.split('.')[-1]}-{model.split('-')[-1]}{i + 1}",
+                    "type": provider_info.get("type", backend_type),
+                    "model": model,
+                },
+            )
+
+        # Generate full config using existing quickstart logic
+        config = self._generate_quickstart_config(
+            agents_config,
+            context_path=context_path,
+            use_docker=use_docker,
+        )
+
+        # Save to file
+        from pathlib import Path
+
+        import yaml
+
+        output_file = Path(output_path).expanduser().resolve()
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+        return True
+
     def run_quickstart(self) -> Optional[tuple]:
         """Run simplified quickstart flow - just agents count and backend/model for each.
 
@@ -3170,10 +3243,10 @@ class ConfigBuilder:
             config = self._generate_quickstart_config(agents_config, context_path, use_docker)
 
             # Step 4: Save the config
-            # Default location: ~/.config/massgen/quickstart_config.yaml
+            # Save to default config location so users can run `massgen` without flags
             config_dir = Path.home() / ".config" / "massgen"
             config_dir.mkdir(parents=True, exist_ok=True)
-            filepath = config_dir / "quickstart_config.yaml"
+            filepath = config_dir / "config.yaml"
 
             with open(filepath, "w") as f:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -3181,8 +3254,17 @@ class ConfigBuilder:
             console.print(f"\n[bold green]✅ Config saved to: {filepath}[/bold green]")
             console.print("[dim]Launching MassGen...[/dim]\n")
 
-            # Auto-launch into interactive mode (return empty string to signal interactive mode)
-            return (str(filepath), "")
+            # Offer example prompts to help users get started
+            from .cli import show_example_prompts
+
+            example_prompt = show_example_prompts()
+
+            if example_prompt:
+                # Return with the selected example prompt as initial question
+                return (str(filepath), example_prompt)
+            else:
+                # Auto-launch into interactive mode (return empty string to signal interactive mode)
+                return (str(filepath), "")
 
         except (KeyboardInterrupt, EOFError):
             console.print("\n\n[yellow]Quickstart cancelled[/yellow]\n")

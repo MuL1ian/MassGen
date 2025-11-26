@@ -51,10 +51,44 @@ MassGen: Multi-Agent Scaling System for GenAI
      <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-dark">
    </a>
 
-MassGen is a cutting-edge multi-agent system that leverages the power of collaborative AI to solve complex tasks. It assigns a task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution to deliver a comprehensive and high-quality result. The power of this "parallel study group" approach is exemplified by advanced systems like xAI's Grok Heavy and Google DeepMind's Gemini Deep Think.
+Quick Start
+-----------
+
+Get started with MassGen in minutes:
+
+.. code-block:: bash
+
+   pip install uv
+   uv venv
+   uv pip install massgen
+   uv run massgen
+
+On first run, MassGen will guide you through:
+
+1. **API key setup** - Configure OpenAI, Anthropic, Google, or xAI
+2. **Optional enhancements** - Install Docker images and skills (~5 minutes with Docker, faster without)
+3. **Quickstart configuration** - Create your agent team with smart defaults
+4. **Start chatting** - Launch directly into an interactive conversation
+
+Your configuration is saved automatically. Future runs are simple:
+
+.. code-block:: bash
+
+   # Interactive multi-turn conversation
+   uv run massgen
+
+   # Single query
+   uv run massgen "Your question here"
+
+   # Use a different configuration
+   uv run massgen --config @examples/providers/gemini/gemini_3_pro
+
+**Want to dive deeper?** See :doc:`quickstart/installation` for detailed setup options and :doc:`quickstart/running-massgen` for all the ways to use MassGen.
 
 What is MassGen?
 -----------------
+
+MassGen is a cutting-edge multi-agent system that leverages the power of collaborative AI to solve complex tasks. It assigns a task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution to deliver a comprehensive and high-quality result. The power of this "parallel study group" approach is exemplified by advanced systems like xAI's Grok Heavy and Google DeepMind's Gemini Deep Think.
 
 MassGen assigns your task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution. The system delivers comprehensive, high-quality results by leveraging the collective intelligence of multiple AI models.
 
@@ -111,17 +145,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory Improvements
+
+Terminal evaluation system with VHS recording for automated session capture as GIF/MP4/WEBM, analyzed by multimodal models (GPT-4.1, Claude) for UI/UX quality, agent performance, and coordination visualization. LiteLLM integration for accurate cost tracking across 500+ models with reasoning tokens (o1/o3) and cached tokens (Claude, OpenAI) support, more accurate than manual pricing tables. Memory archiving system enables persistent multi-turn conversations with improved retrieval and context management. MassGen self-evolution skills (config creator, self-developer, release documenter, model registry maintainer) for autonomous system maintenance. Docker improvements with parallel image pulling and VHS integration.
+
+**v0.1.15 (November 21, 2025)** - Persona Generation System & Docker Distribution
+
+Automatic persona generation for multi-agent configurations with multiple strategies (complementary, diverse, specialized, adversarial) to increase response diversity. Enhanced Docker distribution via GitHub Container Registry with ARM architecture support. Custom tools now run in isolated Docker containers for security and portability. MassGen pre-installed in Docker images for immediate use. Improved config builder with better model selection and defaults.
+
 **v0.1.14 (November 19, 2025)** - Parallel Tool Execution, Interactive Quickstart & Gemini 3 Pro
 
-Parallel tool execution system with configurable concurrent tool execution across all backends using asyncio-based scheduling and semaphore limits. Full integration for Google's Gemini 3 Pro model with native function calling capabilities. Interactive quickstart workflow with streamlined onboarding experience and guided configuration creation. MCP registry client with enhanced server metadata fetching from official registry for better agent understanding. Planning system enhancements with improved skill and tool search capabilities. NLIP routing streamlining with unified execution flow across backends.
-
-**v0.1.13 (November 17, 2025)** - Code-Based Tools, MCP Registry & Skills Installation
-
-Code-based tools system implementing CodeAct paradigm with significant token usage reduction through importable Python code instead of schema-based tools. MCP server registry with auto-discovery and intelligent tool routing. Comprehensive skills installation system with cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI. NLIP (Natural Language Interface Protocol) integration for advanced tool routing across all backends. TOOL.md documentation standard with YAML frontmatter for all custom tools.
-
-**v0.1.12 (November 14, 2025)** - System Prompt Refactoring, Semantic Search & Multi-Agent Computer Use
-
-Complete system prompt refactoring with hierarchical structure and XML-based formatting for improved LLM attention management. New Semtools skill for semantic search via embedding-based similarity and Serena skill for symbol-level code understanding via LSP integration. Enhanced multi-agent computer use with Docker integration for Linux desktop automation, VNC visualization, and coordinated Claude (Docker/Linux) + Gemini (Browser) workflows.
+Parallel tool execution system with configurable concurrent tool execution across all backends using asyncio-based scheduling and semaphore limits. Full integration for Google's Gemini 3 Pro model with native function calling capabilities. Interactive quickstart workflow with streamlined onboarding experience and guided configuration creation. MCP registry client with enhanced server metadata fetching from official registry for better agent understanding.
 
 Quick Start
 -----------
@@ -330,6 +364,7 @@ Documentation Sections
    user_guide/orchestration_restart
    user_guide/agent_task_planning
    user_guide/multimodal
+   user_guide/terminal_evaluation
    user_guide/general_interoperability
    user_guide/logging
 
