@@ -50,6 +50,7 @@ from .logger_config import (
 )
 from .memory import ConversationMemory, PersistentMemoryBase
 from .message_templates import MessageTemplates
+from .persona_generator import PersonaGenerator
 from .stream_chunk import ChunkType
 from .system_message_builder import SystemMessageBuilder
 from .tool import get_post_evaluation_tools, get_workflow_tools
@@ -67,6 +68,7 @@ class AgentState:
         restart_pending: Whether the agent should gracefully restart due to new answers
         is_killed: Whether this agent has been killed due to timeout/limits
         timeout_reason: Reason for timeout (if applicable)
+        answer_count: Number of answers this agent has created (increments on new_answer)
     """
 
     answer: Optional[str] = None
@@ -77,6 +79,7 @@ class AgentState:
     timeout_reason: Optional[str] = None
     last_context: Optional[Dict[str, Any]] = None  # Store the context sent to this agent
     paraphrase: Optional[str] = None
+    answer_count: int = 0  # Track number of answers for memory archiving
 
 
 class Orchestrator(ChatAgent):
@@ -231,6 +234,10 @@ class Orchestrator(ChatAgent):
         self._agent_paraphrases: Dict[str, str] = {}
         self._paraphrase_generation_errors: int = 0
 
+        # Persona generation tracking
+        self._personas_generated: bool = False
+        self._generated_personas: Dict[str, Any] = {}  # agent_id -> GeneratedPersona
+
         # Multi-turn session tracking (loaded by CLI, not managed by orchestrator)
         self._previous_turns: List[Dict[str, Any]] = previous_turns or []
 
@@ -275,6 +282,26 @@ class Orchestrator(ChatAgent):
                 if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "enable_memory_filesystem_mode"):
                     if self.config.coordination_config.enable_memory_filesystem_mode:
                         agent.backend.filesystem_manager.setup_memory_directories()
+
+                        # Restore memories from previous turn if available
+                        if self._previous_turns:
+                            previous_turn = self._previous_turns[-1]  # Get most recent turn
+                            if "log_dir" in previous_turn:
+                                from pathlib import Path as PathlibPath
+
+                                prev_log_dir = PathlibPath(previous_turn["log_dir"])
+                                # Look for final workspace from previous turn
+                                prev_final_workspace = prev_log_dir / "final"
+                                if prev_final_workspace.exists():
+                                    # Find the winning agent's workspace from previous turn
+                                    for agent_dir in prev_final_workspace.iterdir():
+                                        if agent_dir.is_dir():
+                                            prev_workspace = agent_dir / "workspace"
+                                            if prev_workspace.exists():
+                                                logger.info(f"[Orchestrator] Restoring memories from previous turn: {prev_workspace}")
+                                                agent.backend.filesystem_manager.restore_memories_from_previous_turn(prev_workspace)
+                                                break  # Only restore from one agent (the winner)
+
                 # Update MCP config with agent_id for Docker mode (must be after setup_orchestration_paths)
                 agent.backend.filesystem_manager.update_backend_mcp_config(agent.backend.config)
 
@@ -292,12 +319,17 @@ class Orchestrator(ChatAgent):
                 self._inject_planning_tools_for_all_agents()
                 logger.info("[Orchestrator] Planning tools injection complete")
 
-        # Inject memory tools if enabled
-        if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "enable_memory_filesystem_mode"):
-            if self.config.coordination_config.enable_memory_filesystem_mode:
-                logger.info(f"[Orchestrator] Injecting memory tools for {len(self.agents)} agents")
-                self._inject_memory_tools_for_all_agents()
-                logger.info("[Orchestrator] Memory tools injection complete")
+        # NOTE: Memory MCP tools are disabled - using file-based approach with task completion reminders
+        # Agents use standard file tools to manage memory files in workspace/memory/
+        # Reminders to save memory are triggered automatically when completing high-priority tasks
+        # See planning_dataclasses.py update_task_status() for reminder logic
+        #
+        # # Inject memory tools if enabled
+        # if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "enable_memory_filesystem_mode"):
+        #     if self.config.coordination_config.enable_memory_filesystem_mode:
+        #         logger.info(f"[Orchestrator] Injecting memory tools for {len(self.agents)} agents")
+        #         self._inject_memory_tools_for_all_agents()
+        #         logger.info("[Orchestrator] Memory tools injection complete")
 
         # NLIP Configuration
         self.enable_nlip = enable_nlip
@@ -392,7 +424,9 @@ class Orchestrator(ChatAgent):
             self.agent_states[agent_id].paraphrase = paraphrase
 
         # Log at INFO level so users know paraphrasing is active
-        logger.info(f" DSPy paraphrasing enabled: {len(variants)} variant(s) generated and assigned to {len(agent_ids)} agent(s)")
+        logger.info(f"DSPy paraphrasing enabled: {len(variants)} variant(s) generated and assigned to {len(agent_ids)} agent(s)")
+        for agent_id, paraphrase in self._agent_paraphrases.items():
+            logger.info(f"  {agent_id}: {paraphrase}")
 
         log_coordination_step(
             "DSPy paraphrases prepared",
@@ -596,6 +630,120 @@ class Orchestrator(ChatAgent):
         }
 
         return config
+
+    async def _generate_and_inject_personas(self) -> None:
+        """
+        Generate diverse personas for all agents and inject into their system messages.
+
+        This method uses an LLM (specified in persona_generator config) to create
+        complementary personas for each agent, increasing response diversity.
+        The generated personas are prepended to existing system messages.
+        """
+        # Check if persona generation is enabled
+        if not hasattr(self.config, "coordination_config"):
+            return
+        if not hasattr(self.config.coordination_config, "persona_generator"):
+            return
+        if not self.config.coordination_config.persona_generator.enabled:
+            return
+
+        # Skip if already generated (for multi-turn scenarios)
+        if self._personas_generated:
+            logger.debug("[Orchestrator] Personas already generated, skipping")
+            return
+
+        logger.info(f"[Orchestrator] Generating personas for {len(self.agents)} agents")
+
+        try:
+            # Create backend for persona generation
+            from .cli import create_backend
+
+            pg_config = self.config.coordination_config.persona_generator
+            backend_config = pg_config.backend
+            persona_backend = create_backend(backend_type=backend_config["type"], **{k: v for k, v in backend_config.items() if k != "type"})
+
+            # Initialize generator
+            generator = PersonaGenerator(
+                backend=persona_backend,
+                strategy=pg_config.strategy,
+                guidelines=pg_config.persona_guidelines,
+            )
+
+            # Get existing system messages
+            existing_messages = {}
+            for agent_id, agent in self.agents.items():
+                if hasattr(agent, "get_configurable_system_message"):
+                    existing_messages[agent_id] = agent.get_configurable_system_message()
+                else:
+                    existing_messages[agent_id] = None
+
+            # Generate personas
+            personas = await generator.generate_personas(
+                agent_ids=list(self.agents.keys()),
+                task=self.current_task or "Complete the assigned task",
+                existing_system_messages=existing_messages,
+            )
+
+            # Inject personas into agents
+            for agent_id, agent in self.agents.items():
+                persona = personas.get(agent_id)
+                if persona:
+                    existing = existing_messages.get(agent_id) or ""
+                    # Prepend persona to existing system message
+                    new_message = f"{persona.persona_text}\n\n{existing}".strip()
+
+                    # Set the new system message
+                    if hasattr(agent, "set_system_message"):
+                        agent.set_system_message(new_message)
+                    elif hasattr(agent, "system_message"):
+                        agent.system_message = new_message
+
+                    logger.debug(f"[Orchestrator] Injected persona for {agent_id}: {persona.attributes.get('thinking_style', 'unknown')}")
+
+            # Store for logging/debugging
+            self._generated_personas = personas
+            self._personas_generated = True
+
+            # Save personas to log file
+            self._save_personas_to_log(personas)
+
+            logger.info(f"[Orchestrator] Successfully generated and injected {len(personas)} personas")
+
+        except Exception as e:
+            logger.error(f"[Orchestrator] Failed to generate personas: {e}")
+            logger.warning("[Orchestrator] Continuing without persona generation")
+            self._personas_generated = True  # Don't retry on failure
+
+    def _save_personas_to_log(self, personas: Dict[str, Any]) -> None:
+        """
+        Save generated personas to a YAML file in the log directory.
+
+        Args:
+            personas: Dictionary mapping agent_id to GeneratedPersona
+        """
+        try:
+            import yaml
+
+            from .logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir()
+            personas_file = log_dir / "generated_personas.yaml"
+
+            # Convert personas to serializable dict
+            personas_data = {}
+            for agent_id, persona in personas.items():
+                personas_data[agent_id] = {
+                    "persona_text": persona.persona_text,
+                    "attributes": persona.attributes,
+                }
+
+            with open(personas_file, "w") as f:
+                yaml.dump(personas_data, f, default_flow_style=False, sort_keys=False)
+
+            logger.info(f"[Orchestrator] Saved personas to {personas_file}")
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Failed to save personas to log: {e}")
 
     def _inject_memory_tools_for_all_agents(self) -> None:
         """
@@ -926,6 +1074,109 @@ class Orchestrator(ChatAgent):
             return modified_messages
 
         return messages
+
+    def _extract_tool_reminder(self, tool_result_content: str) -> Optional[str]:
+        """
+        Extract reminder message from tool result if present.
+
+        Tools can include a "reminder" field in their JSON response to trigger
+        contextual reminders for agents (e.g., "save learnings to memory after
+        completing high-priority tasks").
+
+        Args:
+            tool_result_content: JSON string from tool execution result
+
+        Returns:
+            Reminder message if present, None otherwise
+        """
+        try:
+            import json
+
+            result_data = json.loads(tool_result_content)
+            if isinstance(result_data, dict) and "reminder" in result_data:
+                reminder = result_data["reminder"]
+                if reminder and isinstance(reminder, str):
+                    return reminder
+        except (json.JSONDecodeError, TypeError, ValueError):
+            # Tool result is not valid JSON or doesn't contain reminder
+            pass
+        return None
+
+    def _merge_agent_memories_to_winner(self, winning_agent_id: str) -> None:
+        """
+        Merge memory directories from all agents into the winning agent's workspace.
+
+        This ensures memories created by any agent during coordination are preserved
+        in the final snapshot, regardless of which agent won.
+
+        Args:
+            winning_agent_id: ID of the agent selected as final presenter
+        """
+        if not hasattr(self.config, "coordination_config") or not hasattr(self.config.coordination_config, "enable_memory_filesystem_mode"):
+            return
+
+        if not self.config.coordination_config.enable_memory_filesystem_mode:
+            logger.debug("[Orchestrator] Memory filesystem mode not enabled, skipping memory merge")
+            return
+
+        winning_agent = self.agents.get(winning_agent_id)
+        if not winning_agent or not hasattr(winning_agent, "backend") or not winning_agent.backend.filesystem_manager:
+            logger.warning(f"[Orchestrator] Cannot merge memories - winning agent {winning_agent_id} has no filesystem manager")
+            return
+
+        winner_memory_base = Path(winning_agent.backend.filesystem_manager.cwd) / "memory"
+        winner_memory_base.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"[Orchestrator] Merging memories from all agents into {winning_agent_id}'s workspace")
+
+        merged_count = 0
+        for agent_id, agent in self.agents.items():
+            if agent_id == winning_agent_id:
+                continue  # Skip winner's own memories
+
+            if not hasattr(agent, "backend") or not agent.backend.filesystem_manager:
+                continue
+
+            agent_memory_base = Path(agent.backend.filesystem_manager.cwd) / "memory"
+            if not agent_memory_base.exists():
+                continue
+
+            # Merge short_term and long_term directories
+            for tier in ["short_term", "long_term"]:
+                source_tier_dir = agent_memory_base / tier
+                if not source_tier_dir.exists():
+                    continue
+
+                dest_tier_dir = winner_memory_base / tier
+                dest_tier_dir.mkdir(parents=True, exist_ok=True)
+
+                # Copy all .md files from this agent's tier
+                for memory_file in source_tier_dir.glob("*.md"):
+                    dest_file = dest_tier_dir / memory_file.name
+
+                    # If file already exists in winner's workspace, append with agent attribution
+                    if dest_file.exists():
+                        try:
+                            existing_content = dest_file.read_text()
+                            new_content = memory_file.read_text()
+                            combined = f"{existing_content}\n\n---\n\n# From Agent {agent_id}\n\n{new_content}"
+                            dest_file.write_text(combined)
+                            logger.info(f"[Orchestrator] Merged {memory_file.name} from {agent_id} (appended)")
+                            merged_count += 1
+                        except Exception as e:
+                            logger.warning(f"[Orchestrator] Failed to merge {memory_file.name} from {agent_id}: {e}")
+                    else:
+                        # File doesn't exist in winner's workspace, copy it
+                        try:
+                            import shutil
+
+                            shutil.copy2(memory_file, dest_file)
+                            logger.info(f"[Orchestrator] Copied {memory_file.name} from {agent_id}")
+                            merged_count += 1
+                        except Exception as e:
+                            logger.warning(f"[Orchestrator] Failed to copy {memory_file.name} from {agent_id}: {e}")
+
+        logger.info(f"[Orchestrator] Memory merge complete: {merged_count} files merged from other agents into {winning_agent_id}'s workspace")
 
     async def _record_to_shared_memory(
         self,
@@ -1353,6 +1604,9 @@ Your answer:"""
             },
         )
 
+        # Generate and inject personas if enabled (happens once per session)
+        await self._generate_and_inject_personas()
+
         # Check if we should skip coordination rounds (debug/test mode)
         if self.config.skip_coordination_rounds:
             log_stream_chunk(
@@ -1437,6 +1691,10 @@ Your answer:"""
             "Final agent selected",
             {"selected_agent": self._selected_agent, "votes": votes},
         )
+
+        # Merge all agents' memories into winner's workspace before final presentation
+        if self._selected_agent:
+            self._merge_agent_memories_to_winner(self._selected_agent)
 
         # Cancel background status update task
         status_update_task.cancel()
@@ -1821,6 +2079,13 @@ Your answer:"""
         - agent_id/timestamp/vote.json - Contains the vote data (if provided)
         - agent_id/timestamp/context.txt - Contains the context used (if provided)
 
+        Note on vote-only snapshots:
+            When saving a vote without an answer (vote_data only), workspace snapshots are
+            intentionally skipped. During voting, agents may create temporary verification
+            files (e.g., check.py, test scripts) to help evaluate answers. Saving these would
+            overwrite the actual deliverable files from the previous answer snapshot. The
+            vote.json and context.txt are still saved for tracking purposes.
+
         Args:
             agent_id: ID of the agent
             answer_content: The answer content to save (if provided)
@@ -1924,14 +2189,24 @@ Your answer:"""
                 logger.error(f"[Orchestrator._save_agent_snapshot] Traceback: {traceback.format_exc()}")
 
         # Save workspace snapshot with the same timestamp
+        # Skip workspace saving for votes - workspace should be preserved from previous answer
         if agent.backend.filesystem_manager:
-            logger.info(f"[Orchestrator._save_agent_snapshot] Agent {agent_id} has filesystem_manager, calling save_snapshot with timestamp={timestamp if not is_final else None}")
-            await agent.backend.filesystem_manager.save_snapshot(timestamp=timestamp if not is_final else None, is_final=is_final)
+            if vote_data and not answer_content and not is_final:
+                # Vote only - skip workspace snapshot to preserve previous answer's workspace
+                logger.info("[Orchestrator._save_agent_snapshot] Skipping workspace snapshot for vote (preserving previous workspace)")
+            else:
+                # Archive memories BEFORE clearing/snapshotting workspace
+                workspace_path = agent.backend.filesystem_manager.get_current_workspace()
+                if workspace_path:
+                    self._archive_agent_memories(agent_id, Path(workspace_path))
 
-            # Clear workspace after saving snapshot (but not for final snapshots)
-            if not is_final:
-                agent.backend.filesystem_manager.clear_workspace()
-                logger.info(f"[Orchestrator._save_agent_snapshot] Cleared workspace for {agent_id} after saving snapshot")
+                logger.info(f"[Orchestrator._save_agent_snapshot] Agent {agent_id} has filesystem_manager, calling save_snapshot with timestamp={timestamp if not is_final else None}")
+                await agent.backend.filesystem_manager.save_snapshot(timestamp=timestamp if not is_final else None, is_final=is_final)
+
+                # Clear workspace after saving snapshot (but not for final snapshots)
+                if not is_final:
+                    agent.backend.filesystem_manager.clear_workspace()
+                    logger.info(f"[Orchestrator._save_agent_snapshot] Cleared workspace for {agent_id} after saving snapshot")
         else:
             logger.info(f"[Orchestrator._save_agent_snapshot] Agent {agent_id} does not have filesystem_manager")
 
@@ -4165,6 +4440,9 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                 config=self.config,
                 message_templates=self.message_templates,
                 agents=self.agents,
+                snapshot_storage=self._snapshot_storage,
+                session_id=self.session_id,
+                agent_temporary_workspace=self._agent_temporary_workspace,
             )
         return self._system_message_builder
 
@@ -4187,6 +4465,9 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             if agent.backend.filesystem_manager:
                 workspace_path = agent.backend.filesystem_manager.get_current_workspace()
                 if workspace_path and Path(workspace_path).exists():
+                    # Archive memories BEFORE clearing workspace
+                    self._archive_agent_memories(agent_id, Path(workspace_path))
+
                     # Clear workspace contents but keep the directory
                     for item in Path(workspace_path).iterdir():
                         if item.is_file():
@@ -4205,6 +4486,46 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                             elif item.is_dir():
                                 shutil.copytree(item, dest, dirs_exist_ok=True)
                         logger.info(f"[Orchestrator] Pre-populated {agent_id} workspace with writable copy of turn n-1")
+
+    def _archive_agent_memories(self, agent_id: str, workspace_path: Path) -> None:
+        """
+        Archive memories from agent workspace before clearing.
+
+        Copies all memory files from workspace/memory/ to archived_memories/{agent_id}_answer_{n}/
+        This preserves memories from discarded answers so they're not lost.
+
+        Args:
+            agent_id: ID of the agent whose memories to archive
+            workspace_path: Path to the agent's current workspace
+        """
+        memory_dir = workspace_path / "memory"
+        if not memory_dir.exists():
+            logger.info(f"[Orchestrator] No memory directory for {agent_id}, skipping archive")
+            return
+
+        # Get current answer count for this agent
+        answer_num = self.agent_states[agent_id].answer_count
+
+        # Archive path: .massgen/sessions/{session_id}/archived_memories/agent_id_answer_n/
+        # Use hardcoded session storage path (not snapshot_storage which gets cleared)
+        if not self.session_id:
+            logger.warning("[Orchestrator] Cannot archive memories: no session_id")
+            return
+
+        # Archives must be in sessions/ directory for persistence, not snapshots/
+        archive_base = Path(".massgen/sessions") / self.session_id / "archived_memories"
+        archive_path = archive_base / f"{agent_id}_answer_{answer_num}"
+
+        # Copy entire memory/ directory to archive
+        try:
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(memory_dir, archive_path, dirs_exist_ok=True)
+            logger.info(f"[Orchestrator] Archived memories for {agent_id} answer {answer_num} to {archive_path}")
+        except Exception as e:
+            logger.error(f"[Orchestrator] Failed to archive memories for {agent_id}: {e}")
+
+        # Increment answer count for next answer
+        self.agent_states[agent_id].answer_count += 1
 
     def _get_previous_turns_context_paths(self) -> List[Dict[str, Any]]:
         """
@@ -4231,6 +4552,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.restart_pending = False
             state.is_killed = False
             state.timeout_reason = None
+            state.answer_count = 0
 
         # Reset orchestrator timeout tracking
         self.total_tokens = 0

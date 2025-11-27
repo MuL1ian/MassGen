@@ -384,11 +384,14 @@ class ClaudeCodeBackend(LLMBackend):
         if result_message.total_cost_usd is not None:
             self.token_usage.estimated_cost += result_message.total_cost_usd
         else:
-            # Fallback: calculate cost if not provided
-            input_tokens = result_message.usage.get("input_tokens", 0) if result_message.usage else 0
-            output_tokens = result_message.usage.get("output_tokens", 0) if result_message.usage else 0
-            cost = self.calculate_cost(input_tokens, output_tokens, "", result_message)
-            self.token_usage.estimated_cost += cost
+            # Fallback: calculate cost with litellm if not provided
+            if result_message.usage:
+                cost = self.token_calculator.calculate_cost_with_usage_object(
+                    model=self.model,
+                    usage=result_message.usage,
+                    provider=self.get_provider_name(),
+                )
+                self.token_usage.estimated_cost += cost
 
     def update_token_usage(self, messages: List[Dict[str, Any]], response_content: str, model: str):
         """Update token usage tracking (fallback method).

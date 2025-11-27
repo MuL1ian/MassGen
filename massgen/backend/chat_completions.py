@@ -28,6 +28,7 @@ from openai import AsyncOpenAI
 from ..api_params_handler import ChatCompletionsAPIParamsHandler
 from ..formatter import ChatCompletionsFormatter
 from ..logger_config import log_backend_agent_message, log_stream_chunk, logger
+from ..stream_chunk import ChunkType
 
 # Local imports
 from .base import FilesystemSupport, StreamChunk
@@ -359,9 +360,30 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                 execution_callback=self._execute_mcp_function_with_retry,
             )
 
-            # Execute custom tools using unified method
+            chunk_type_map = {
+                "custom_tool_status": ChunkType.CUSTOM_TOOL_STATUS,
+                "mcp_status": ChunkType.MCP_STATUS,
+            }
+
+            # Get provider name for logging
+            provider_name = self.get_provider_name()
+
+            def tool_config_for_call(call: Dict[str, Any]) -> ToolExecutionConfig:
+                return custom_tool_config if call["name"] in self._custom_tool_names else mcp_tool_config
+
+            def chunk_adapter(chunk: StreamChunk) -> StreamChunk:
+                return StreamChunk(
+                    type=chunk_type_map.get(chunk.type, chunk.type),
+                    status=getattr(chunk, "status", None),
+                    content=getattr(chunk, "content", None),
+                    source=getattr(chunk, "source", None),
+                )
+
+            nlip_available = self._nlip_enabled and self._nlip_router
+
+            pending_custom_calls: List[Dict[str, Any]] = []
             for call in custom_calls:
-                if self._nlip_enabled and self._nlip_router:
+                if nlip_available:
                     logger.info(f"[NLIP] Using NLIP routing for custom tool {call['name']}")
                     try:
                         async for chunk in self._stream_tool_execution_via_nlip(
@@ -370,11 +392,12 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                             updated_messages,
                             processed_call_ids,
                         ):
-                            yield chunk
-                        functions_executed = True
+                            functions_executed = True
+                            yield chunk_adapter(chunk)
+                        continue
                     except Exception as exc:
                         logger.warning(
-                            f"[NLIP] Routing failed for {call['name']}: {exc}. " f"Falling back to direct execution.",
+                            f"[NLIP] Routing failed for {call['name']}: {exc}. Falling back to direct execution.",
                         )
                         async for chunk in self._execute_tool_with_logging(
                             call,
@@ -382,25 +405,19 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                             updated_messages,
                             processed_call_ids,
                         ):
-                            yield chunk
-                        functions_executed = True
-                else:
-                    reason = "disabled" if not self._nlip_enabled else "router unavailable"
-                    logger.info(
-                        f"[Custom Tool] Direct execution for {call['name']} (NLIP {reason})",
-                    )
-                    async for chunk in self._execute_tool_with_logging(
-                        call,
-                        custom_tool_config,
-                        updated_messages,
-                        processed_call_ids,
-                    ):
-                        yield chunk
-                    functions_executed = True
+                            functions_executed = True
+                            yield chunk_adapter(chunk)
+                        continue
 
-            # Execute MCP tools using unified method
+                reason = "disabled" if not self._nlip_enabled else "router unavailable"
+                logger.info(
+                    f"[Custom Tool] Direct execution for {call['name']} (NLIP {reason})",
+                )
+                pending_custom_calls.append(call)
+
+            pending_mcp_calls: List[Dict[str, Any]] = []
             for call in mcp_calls:
-                if self._nlip_enabled and self._nlip_router:
+                if nlip_available:
                     logger.info(f"[NLIP] Using NLIP routing for MCP tool {call['name']}")
                     try:
                         async for chunk in self._stream_tool_execution_via_nlip(
@@ -409,11 +426,12 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                             updated_messages,
                             processed_call_ids,
                         ):
-                            yield chunk
-                        functions_executed = True
+                            functions_executed = True
+                            yield chunk_adapter(chunk)
+                        continue
                     except Exception as exc:
                         logger.warning(
-                            f"[NLIP] Routing failed for {call['name']}: {exc}. " f"Falling back to direct execution.",
+                            f"[NLIP] Routing failed for {call['name']}: {exc}. Falling back to direct execution.",
                         )
                         async for chunk in self._execute_tool_with_logging(
                             call,
@@ -421,23 +439,31 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                             updated_messages,
                             processed_call_ids,
                         ):
-                            yield chunk
-                        functions_executed = True
-                else:
-                    reason = "disabled" if not self._nlip_enabled else "router unavailable"
-                    logger.info(
-                        f"[MCP Tool] Direct execution for {call['name']} (NLIP {reason})",
-                    )
-                    async for chunk in self._execute_tool_with_logging(
-                        call,
-                        mcp_tool_config,
-                        updated_messages,
-                        processed_call_ids,
-                    ):
-                        yield chunk
-                    functions_executed = True
+                            functions_executed = True
+                            yield chunk_adapter(chunk)
+                        continue
 
-            # Ensure all captured function calls have results to prevent hanging
+                reason = "disabled" if not self._nlip_enabled else "router unavailable"
+                logger.info(
+                    f"[MCP Tool] Direct execution for {call['name']} (NLIP {reason})",
+                )
+                pending_mcp_calls.append(call)
+
+            remaining_calls = pending_custom_calls + pending_mcp_calls
+
+            if remaining_calls:
+                async for adapted_chunk in self._execute_tool_calls(
+                    all_calls=remaining_calls,
+                    tool_config_for_call=tool_config_for_call,
+                    all_params=all_params,
+                    updated_messages=updated_messages,
+                    processed_call_ids=processed_call_ids,
+                    log_prefix=f"[{provider_name}]",
+                    chunk_adapter=chunk_adapter,
+                ):
+                    functions_executed = True
+                    yield adapted_chunk
+
             for call in captured_function_calls:
                 if call["call_id"] not in processed_call_ids:
                     logger.warning(f"Tool call {call['call_id']} for function {call['name']} was not processed - adding error result")
@@ -634,6 +660,22 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
 
                 # Optionally handle usage metadata
                 if hasattr(chunk, "usage") and chunk.usage:
+                    # Calculate cost with litellm (handles reasoning/cached tokens)
+                    cost = self.token_calculator.calculate_cost_with_usage_object(
+                        model=all_params.get("model"),
+                        usage=chunk.usage,
+                        provider=self.get_provider_name(),
+                    )
+
+                    # Track basic token counts
+                    input_tokens = getattr(chunk.usage, "prompt_tokens", 0) or getattr(chunk.usage, "input_tokens", 0)
+                    output_tokens = getattr(chunk.usage, "completion_tokens", 0) or getattr(chunk.usage, "output_tokens", 0)
+
+                    self.token_usage.input_tokens += input_tokens
+                    self.token_usage.output_tokens += output_tokens
+                    self.token_usage.estimated_cost += cost
+
+                    # Handle web search metadata
                     if getattr(chunk.usage, "num_sources_used", 0) > 0:
                         search_sources_used = chunk.usage.num_sources_used
                         if enable_web_search:

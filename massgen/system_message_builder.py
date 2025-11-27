@@ -36,6 +36,9 @@ class SystemMessageBuilder:
         config,  # CoordinationConfig type
         message_templates,  # MessageTemplates type
         agents: Dict[str, Any],  # Dict[str, ChatAgent]
+        snapshot_storage: Optional[str] = None,
+        session_id: Optional[str] = None,
+        agent_temporary_workspace: Optional[str] = None,
     ):
         """Initialize the system message builder.
 
@@ -43,10 +46,16 @@ class SystemMessageBuilder:
             config: Orchestrator coordination configuration
             message_templates: MessageTemplates instance
             agents: Dictionary of agents for memory scanning
+            snapshot_storage: Path to snapshot storage directory (for archived memories)
+            session_id: Session ID (for archived memories)
+            agent_temporary_workspace: Path to temp workspace directory (for current agent memories)
         """
         self.config = config
         self.message_templates = message_templates
         self.agents = agents
+        self.snapshot_storage = snapshot_storage
+        self.session_id = session_id
+        self.agent_temporary_workspace = agent_temporary_workspace
 
     def build_coordination_message(
         self,
@@ -131,15 +140,25 @@ class SystemMessageBuilder:
         # PRIORITY 5 (HIGH): Memory - Proactive usage
         if enable_memory:
             short_term_memories, long_term_memories = self._get_all_memories()
+            temp_workspace_memories = self._load_temp_workspace_memories()
+            archived_memories = self._load_archived_memories()
+
             # Always add memory section to show usage instructions, even if empty
             memory_config = {
                 "short_term": {
                     "content": "\n".join([f"- {m}" for m in short_term_memories]) if short_term_memories else "",
                 },
                 "long_term": [{"id": f"mem_{i}", "summary": mem, "created_at": "N/A"} for i, mem in enumerate(long_term_memories)] if long_term_memories else [],
+                "temp_workspace_memories": temp_workspace_memories,
+                "archived_memories": archived_memories,
             }
             builder.add_section(MemorySection(memory_config))
-            logger.info(f"[SystemMessageBuilder] Added memory section ({len(short_term_memories)} short-term, {len(long_term_memories)} long-term memories)")
+            archived_count = len(archived_memories.get("short_term", {})) + len(archived_memories.get("long_term", {}))
+            logger.info(
+                f"[SystemMessageBuilder] Added memory section "
+                f"({len(short_term_memories)} short-term, {len(long_term_memories)} long-term, "
+                f"{len(temp_workspace_memories)} temp workspace, {archived_count} archived)",
+            )
 
         # PRIORITY 5 (HIGH): Filesystem - Essential context
         if agent.backend.filesystem_manager:
@@ -192,7 +211,10 @@ class SystemMessageBuilder:
                 if agent.backend.filesystem_manager.shared_tools_directory:
                     shared_tools_path = str(agent.backend.filesystem_manager.shared_tools_directory)
 
-                builder.add_section(CodeBasedToolsSection(workspace_path, shared_tools_path))
+                # Get MCP servers from backend for description lookup
+                mcp_servers = getattr(agent.backend, "mcp_servers", []) or []
+
+                builder.add_section(CodeBasedToolsSection(workspace_path, shared_tools_path, mcp_servers))
                 logger.info(f"[SystemMessageBuilder] Added code-based tools section for {agent_id}")
 
         # PRIORITY 10 (MEDIUM): Task Planning
@@ -293,7 +315,10 @@ class SystemMessageBuilder:
                 if agent.backend.filesystem_manager.shared_tools_directory:
                     shared_tools_path = str(agent.backend.filesystem_manager.shared_tools_directory)
 
-                code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path)
+                # Get MCP servers from backend for description lookup
+                mcp_servers = getattr(agent.backend, "mcp_servers", []) or []
+
+                code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path, mcp_servers)
                 sections_content.append(code_based_tools_section.build_content())
                 logger.info("[SystemMessageBuilder] Added code-based tools section for presentation")
 
@@ -360,7 +385,10 @@ class SystemMessageBuilder:
                 if agent.backend.filesystem_manager.shared_tools_directory:
                     shared_tools_path = str(agent.backend.filesystem_manager.shared_tools_directory)
 
-                code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path)
+                # Get MCP servers from backend for description lookup
+                mcp_servers = getattr(agent.backend, "mcp_servers", []) or []
+
+                code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path, mcp_servers)
                 parts.append(code_based_tools_section.build_content())
                 logger.info("[SystemMessageBuilder] Added code-based tools section for post-evaluation")
 
@@ -411,6 +439,9 @@ class SystemMessageBuilder:
         turns_to_show = [t for t in previous_turns if t["turn"] < current_turn_num - 1]
         workspace_prepopulated = len(previous_turns) > 0
 
+        # Get code-based tools flag from agent
+        enable_code_based_tools = agent.backend.filesystem_manager.enable_code_based_tools
+
         # Build filesystem operations section
         fs_ops = FilesystemOperationsSection(
             main_workspace=main_workspace,
@@ -423,7 +454,7 @@ class SystemMessageBuilder:
         )
 
         # Build filesystem best practices section
-        fs_best = FilesystemBestPracticesSection()
+        fs_best = FilesystemBestPracticesSection(enable_code_based_tools=enable_code_based_tools)
 
         # Build command execution section if enabled
         cmd_exec = None
@@ -479,6 +510,155 @@ class SystemMessageBuilder:
                         logger.warning(f"[SystemMessageBuilder] Failed to parse memory file {mem_file}: {e}")
 
         return short_term_memories, long_term_memories
+
+    def _load_archived_memories(self) -> Dict[str, Dict[str, Any]]:
+        """Load all archived memories from sessions directory with deduplication.
+
+        Deduplicate by filename - for memories with the same name across multiple archives,
+        only keep the most recent version by file modification timestamp.
+
+        Returns:
+            Dictionary mapping tier ("short_term", "long_term") to memory dictionaries:
+            - Each memory dict maps filename to {"content": str, "source": str, "timestamp": float}
+        """
+        if not self.session_id:
+            return {"short_term": {}, "long_term": {}}
+
+        # Load from sessions/ directory (persistent), not snapshots/ (gets cleared)
+        archive_base = Path(".massgen/sessions") / self.session_id / "archived_memories"
+        if not archive_base.exists():
+            return {"short_term": {}, "long_term": {}}
+
+        # Track all memories by filename with metadata for deduplication
+        # Format: {tier: {filename: [{"content": str, "source": str, "timestamp": float, "path": Path}, ...]}}
+        all_memories: Dict[str, Dict[str, list]] = {"short_term": {}, "long_term": {}}
+
+        # Scan all archived answer directories
+        for archive_dir in sorted(archive_base.iterdir()):
+            if not archive_dir.is_dir():
+                continue
+
+            # Parse source label from directory name
+            dir_name = archive_dir.name
+            source_label = dir_name.replace("_", " ").title()  # "Agent A Answer 0"
+
+            # Process both tiers
+            for tier in ["short_term", "long_term"]:
+                tier_dir = archive_dir / tier
+                if not tier_dir.exists():
+                    continue
+
+                for mem_file in tier_dir.glob("*.md"):
+                    try:
+                        filename = mem_file.stem
+                        content = mem_file.read_text()
+                        timestamp = mem_file.stat().st_mtime
+
+                        # Initialize list for this filename if needed
+                        if filename not in all_memories[tier]:
+                            all_memories[tier][filename] = []
+
+                        # Add this version
+                        all_memories[tier][filename].append(
+                            {
+                                "content": content,
+                                "source": source_label,
+                                "timestamp": timestamp,
+                                "path": mem_file,
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning(f"[SystemMessageBuilder] Failed to read archived memory {mem_file}: {e}")
+
+        # Deduplicate: for each filename, keep only the most recent version
+        deduplicated = {"short_term": {}, "long_term": {}}
+        for tier in ["short_term", "long_term"]:
+            for filename, versions in all_memories[tier].items():
+                # Sort by timestamp descending and take the most recent
+                latest = max(versions, key=lambda v: v["timestamp"])
+                deduplicated[tier][filename] = {
+                    "content": latest["content"],
+                    "source": latest["source"],
+                    "timestamp": latest["timestamp"],
+                }
+
+        return deduplicated
+
+    def _load_temp_workspace_memories(self) -> List[Dict[str, Any]]:
+        """Load all memories from temp workspace directories.
+
+        Returns:
+            List of temp workspace memory dictionaries with keys:
+            - agent_label: Anonymous agent label (e.g., "agent1", "agent2")
+            - memories: Dict with short_term and long_term subdicts
+                Each subdict maps memory filename to full memory data (including metadata)
+        """
+        if not self.agent_temporary_workspace:
+            return []
+
+        temp_workspace_base = Path(self.agent_temporary_workspace)
+        if not temp_workspace_base.exists():
+            return []
+
+        temp_memories = []
+
+        # Scan all agent directories in temp workspace
+        for agent_dir in sorted(temp_workspace_base.iterdir()):
+            if not agent_dir.is_dir():
+                continue
+
+            agent_label = agent_dir.name  # e.g., "agent1", "agent2"
+            memory_dir = agent_dir / "memory"
+
+            if not memory_dir.exists():
+                continue
+
+            memories = {"short_term": {}, "long_term": {}}
+
+            # Load short_term memories
+            short_term_dir = memory_dir / "short_term"
+            if short_term_dir.exists():
+                for mem_file in short_term_dir.glob("*.md"):
+                    try:
+                        memory_data = self._parse_memory_file(mem_file)
+                        if memory_data:
+                            memories["short_term"][mem_file.stem] = memory_data
+                        else:
+                            # Fallback to raw content if parsing fails
+                            memories["short_term"][mem_file.stem] = {
+                                "name": mem_file.stem,
+                                "content": mem_file.read_text(),
+                            }
+                    except Exception as e:
+                        logger.warning(f"[SystemMessageBuilder] Failed to read temp workspace memory {mem_file}: {e}")
+
+            # Load long_term memories
+            long_term_dir = memory_dir / "long_term"
+            if long_term_dir.exists():
+                for mem_file in long_term_dir.glob("*.md"):
+                    try:
+                        memory_data = self._parse_memory_file(mem_file)
+                        if memory_data:
+                            memories["long_term"][mem_file.stem] = memory_data
+                        else:
+                            # Fallback to raw content if parsing fails
+                            memories["long_term"][mem_file.stem] = {
+                                "name": mem_file.stem,
+                                "content": mem_file.read_text(),
+                            }
+                    except Exception as e:
+                        logger.warning(f"[SystemMessageBuilder] Failed to read temp workspace memory {mem_file}: {e}")
+
+            # Only add if there are actual memories
+            if memories["short_term"] or memories["long_term"]:
+                temp_memories.append(
+                    {
+                        "agent_label": agent_label,
+                        "memories": memories,
+                    },
+                )
+
+        return temp_memories
 
     @staticmethod
     def _parse_memory_file(file_path: Path) -> Optional[Dict[str, Any]]:

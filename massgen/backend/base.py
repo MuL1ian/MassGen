@@ -112,7 +112,7 @@ class LLMBackend(ABC):
                     "command_line_allowed_commands": kwargs.get("command_line_allowed_commands"),
                     "command_line_blocked_commands": kwargs.get("command_line_blocked_commands"),
                     "command_line_execution_mode": execution_mode,
-                    "command_line_docker_image": kwargs.get("command_line_docker_image", "massgen/mcp-runtime:latest"),
+                    "command_line_docker_image": kwargs.get("command_line_docker_image", "ghcr.io/massgen/mcp-runtime:latest"),
                     "command_line_docker_memory_limit": kwargs.get("command_line_docker_memory_limit"),
                     "command_line_docker_cpu_limit": kwargs.get("command_line_docker_cpu_limit"),
                     "command_line_docker_network_mode": network_mode,

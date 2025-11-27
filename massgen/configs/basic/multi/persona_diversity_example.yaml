@@ -1,0 +1,113 @@
+# Example: Persona Generation for Agent Diversity
+#
+# This config demonstrates automatic persona generation to increase agent diversity.
+# When persona_generator is enabled, an LLM creates complementary personas for each
+# agent before coordination, increasing response diversity without manual crafting.
+#
+# The generated personas are saved to generated_personas.yaml in the log directory.
+#
+# Run with:
+# uv run massgen --config massgen/configs/basic/multi/persona_diversity_example.yaml "Create a website about Bob Dylan."
+
+agents:
+  - id: "agent_a"
+    backend:
+      type: "openai"
+      model: "gpt-5-codex"
+      cwd: "workspace1"
+
+      # Enable code-based tools (CodeAct paradigm)
+      enable_code_based_tools: true
+      exclude_file_operation_mcps: true
+      enable_mcp_command_line: true
+
+      # Command line execution
+      command_line_execution_mode: "docker"
+      command_line_docker_network_mode: "bridge"
+
+      # Shared tools directory
+      shared_tools_directory: "shared_tools"
+
+  - id: "agent_b"
+    backend:
+      type: "claude_code"
+      model: "claude-sonnet-4-5-20250929"
+      cwd: "workspace2"
+
+      # Enable code-based tools (CodeAct paradigm)
+      enable_code_based_tools: true
+      exclude_file_operation_mcps: true
+      enable_mcp_command_line: true
+
+      # Command line execution
+      command_line_execution_mode: "docker"
+      command_line_docker_network_mode: "bridge"
+
+      # Shared tools directory
+      shared_tools_directory: "shared_tools"
+
+  - id: "agent_c"
+    backend:
+      type: "gemini"
+      model: "gemini-3-pro-preview"
+      cwd: "workspace3"
+
+      # Enable code-based tools (CodeAct paradigm)
+      enable_code_based_tools: true
+      exclude_file_operation_mcps: true
+      enable_mcp_command_line: true
+
+      # Command line execution
+      command_line_execution_mode: "docker"
+      command_line_docker_network_mode: "bridge"
+
+      # Shared tools directory
+      shared_tools_directory: "shared_tools"
+
+orchestrator:
+  snapshot_storage: "snapshots"
+  agent_temporary_workspace: "temp_workspaces"
+
+  coordination:
+    # Enable skills system
+    use_skills: true
+
+    # Enable planning
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+
+    # Allow up to 2 restarts (3 total attempts)
+    max_orchestration_restarts: 2
+
+    # Enable filesystem memory mode
+    enable_memory_filesystem_mode: true
+
+    # Enable automatic persona generation
+    persona_generator:
+      enabled: true
+
+      # Backend LLM to use for generating personas
+      # Use a fast, inexpensive model since this only runs once
+      backend:
+        type: "openai"
+        model: "gpt-5"
+        # model: "gpt-4.1-mini"
+
+      # Generation strategy options:
+      # - complementary: Personas designed to complement each other (default)
+      # - diverse: Maximum diversity in perspectives
+      # - specialized: Task-specific expertise areas
+      # - adversarial: Contrarian viewpoints to challenge ideas
+      strategy: "complementary"
+
+      # # Optional custom guidelines for persona generation
+      # persona_guidelines: |
+      #   Create personas that bring different analytical approaches:
+      #   - One should focus on edge cases and potential issues
+      #   - One should focus on practical implementation
+      #   - One should focus on best practices and patterns
+
+# UI Configuration
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true

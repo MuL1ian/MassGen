@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.11 Features](#-latest-features-v0111)
+- [v0.1.17 Features](#-latest-features-v0117)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <summary><h3>🗺️ Roadmap</h3></summary>
 
 - Recent Achievements
-  - [v0.1.12](#recent-achievements-v0111)
-  - [v0.0.3 - v0.1.11](#previous-achievements-v003---v0110)
+  - [v0.1.17](#recent-achievements-v0117)
+  - [v0.0.3 - v0.1.16](#previous-achievements-v003---v0116)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.13 Roadmap](#v0112-roadmap)
+- [v0.1.18 Roadmap](#v0118-roadmap)
 </details>
 
 <details open>
@@ -155,52 +155,35 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.12)
+## 🆕 Latest Features (v0.1.17)
 
-**🎉 Released: November 14, 2025**
+**🎉 Released: November 26, 2025**
 
-**What's New in v0.1.12:**
-- **🏗️ System Prompt Architecture Refactoring** - Complete redesign with hierarchical structure and XML-based formatting for better LLM attention
-- **🔍 Semtools & Serena Skills** - Semantic search via embeddings and symbol-level code understanding via LSP integration
-- **🤖 Multi-Agent Computer Use** - Enhanced Docker integration with VNC visualization and multi-agent coordination
+**What's New in v0.1.17:**
+- **🖥️ Textual Terminal Display** - Modern interactive terminal UI with the Textual library
+- **🎨 Dark & Light Themes** - Professional VS Code-inspired color schemes for better visualization
 
 **Key Improvements:**
-- Hierarchical system prompt construction with improved modularity and attention management
-- Semtools skill for embedding-based semantic file search and code discovery
-- Serena skill for LSP-based symbol-level code navigation and analysis
-- Skills system local execution mode supporting non-Docker environments
-- Enhanced Gemini computer use tool with Docker integration, VNC visualization, and X11 display
-- Multi-agent computer automation combining Claude (Docker/Linux) and Gemini (Browser)
-- Browser automation tool with screenshot file saving to workspace directories
+- Multi-panel layout with dedicated views for each agent and orchestrator status
+- Real-time streaming with syntax highlighting and content filtering
+- Keyboard shortcuts and safe keyboard mode for display interaction
+- Automatic file output with session logging to agent-specific files
+- Thread-safe display updates with buffered content batching
 
-**Try v0.1.12 Features:**
+> **Note:** The Textual Terminal Display is an early release. The default display remains `rich_terminal` for stability, but we'll be iterating on the Textual version with more features and refinements in upcoming releases.
+
+**Try v0.1.17 Features:**
 ```bash
 # Install or upgrade from PyPI
 pip install --upgrade massgen
 
-# Enhanced Skills System - semantic search and code understanding
-# Prerequisites:
-# - Docker daemon running (call `massgen/docker/build.sh [--sudo]` for updated containers)
-# - openskills installed: `npm i -g openskills` then `openskills install anthropics/skills --universal -y`
-uv run massgen --config massgen/configs/skills/skills_basic.yaml \
-  "Create cool algorithmic art we can use in GitHub repo"
+# Or with uv (faster)
+uv pip install massgen
 
-# Multi-Agent Computer Use - Claude (Docker) + Gemini (Browser) coordination
-# Prerequisites:
-# - Set ANTHROPIC_API_KEY and GEMINI_API_KEY in .env
-# - Docker installed and running
-# - Run ./scripts/setup_docker_cua.sh for Claude Docker setup
-# - Install Playwright: pip install playwright && playwright install chromium
-uv run massgen --config massgen/configs/tools/custom_tools/multi_agent_computer_use_example.yaml \
-  "Search for latest Python releases online and create a summary document"
-
-# Gemini Computer Use with Docker - Linux desktop automation
-# Prerequisites:
-# - Set GEMINI_API_KEY in .env
-# - Docker running, run ./scripts/setup_docker_cua.sh
-# - pip install google-genai docker
-massgen --config massgen/configs/tools/custom_tools/gemini_computer_use_docker_example.yaml \
-  "Browse GitHub and find popular AI projects"
+# Textual Terminal Display - enhanced interactive UI with dark/light themes
+# Prerequisites: OPENAI_API_KEY in .env
+uv run massgen --config massgen/configs/basic/single_agent_textual.yaml \
+  "What is the transformers in deep learning?"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -266,21 +249,39 @@ pip install massgen
 
 # Or with uv (faster)
 uv pip install massgen
-
-# Optional: Install skills
-massgen --setup-skills
-
-# Run the interactive setup wizard
-massgen
 ```
 
-The wizard will guide you through:
-- Configuring API keys
-- Selecting your use case (Research, Code, Q&A, etc.)
-- Choosing AI models
-- Saving your configuration
+**Quickstart Setup** (Fastest way to get running):
 
-After setup, you can run MassGen with:
+```bash
+# Step 1: Set up API keys, Docker, and skills
+uv run massgen --setup
+
+# Step 2: Create a simple config and start
+uv run massgen --quickstart
+```
+
+The `--setup` command will:
+- Configure your API keys (OpenAI, Anthropic, Google, xAI)
+- Offer to set up Docker images for code execution
+- Offer to install skills (openskills, Anthropic collection)
+
+The `--quickstart` command will:
+- Ask how many agents you want (1-5, default 3)
+- Ask which backend/model for each agent
+- Auto-detect Docker availability and configure execution mode
+- Create a ready-to-use config and launch into interactive mode
+
+**Alternative: Full Setup Wizard**
+
+For more control, use the full configuration wizard:
+```bash
+massgen --init
+```
+
+This guides you through use case selection (Research, Code, Q&A, etc.) and advanced configuration options.
+
+**After setup:**
 ```bash
 # Interactive mode
 massgen
@@ -1083,25 +1084,40 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.12)
+### Recent Achievements (v0.1.17)
 
-**🎉 Released: November 14, 2025**
+**🎉 Released: November 26, 2025**
 
-#### System Prompt Architecture & Semantic Skills
-- **Complete Refactoring**: Hierarchical system prompt structure with improved LLM attention management and XML-based formatting for Claude (`massgen/system_messages/system_message_builder.py`)
-- **Semtools Skill**: Semantic search capabilities using embedding-based similarity for intelligent file and code discovery (`massgen/skills/optional/semtools/`)
-- **Serena Skill**: Symbol-level code understanding via LSP integration for precise code navigation and analysis (`massgen/skills/optional/serena/`)
-- **Skills System Enhancements**: Local execution mode support enabling skills to run outside Docker environments with improved module loading
-- **Documentation**: `system_prompt_architecture_redesign.md`, `semtools_skill_integration.md`, `serena_skill_integration.md`
+#### Textual Terminal Display System (Early Release)
+- **Interactive Terminal UI**: Modern multi-panel display using the Textual library with dedicated views for each agent and orchestrator status
+- **Dark & Light Themes**: VS Code-inspired TCSS stylesheets (`dark.tcss`, `light.tcss`) for customizable terminal appearance
+- **Enhanced Features**: Real-time streaming with syntax highlighting, emoji fallback for terminals without Unicode, content filtering for critical patterns (votes, status changes, tools)
+- *Note: Default display remains `rich_terminal`; Textual version will continue to evolve*
 
-#### Multi-Agent Computer Use with Docker
-- **Enhanced Gemini Tool**: Docker integration for Linux desktop automation with VNC visualization and X11 display support (`massgen/tool/_gemini_computer_use/gemini_computer_use_tool.py`)
-- **Multi-Agent Coordination**: Combined Claude (Docker/Linux) and Gemini (Browser) computer use for complex automation workflows
-- **Configuration Examples**: `multi_agent_computer_use_example.yaml`, `gemini_computer_use_docker_example.yaml`, `claude_computer_use_docker_example.yaml`
-- **Visualization Tools**: VNC viewer support and real-time browser monitoring for debugging automation tasks
-- **Browser Automation**: Screenshot file saving with automatic persistence to workspace directories
+#### Infrastructure Enhancements
+- **CoordinationUI Integration**: Extended display coordination with `textual_terminal` display type alongside existing rich_terminal and simple displays
+- **Display Module Restructuring**: Improved base class architecture with better separation of concerns between display implementations
 
-### Previous Achievements (v0.0.3 - v0.1.11)
+#### Configuration
+- **Textual Config Example**: `massgen/configs/basic/single_agent_textual.yaml`
+
+### Previous Achievements (v0.0.3 - v0.1.16)
+
+✅ **Terminal Evaluation & Cost Tracking (v0.1.16)**: Automated VHS recording with AI-powered terminal display evaluation, LiteLLM integration for accurate pricing across 500+ models with reasoning/cached tokens support, memory archiving for multi-turn session persistence, four self-evolution skills for MassGen development
+
+✅ **Persona Generation & Docker Distribution (v0.1.15)**: Automatic persona generation for agent diversity with multiple strategies (complementary, diverse, specialized, adversarial), GitHub Container Registry integration with ARM support, custom tools in isolated Docker containers for security, MassGen pre-installed in Docker images
+
+✅ **Parallel Tool Execution & Gemini 3 Pro (v0.1.14)**: Configurable concurrent tool execution across all backends with asyncio-based scheduling, Gemini 3 Pro integration with function calling, interactive quickstart workflow, MCP registry client for server metadata
+
+✅ **Code-Based Tools & MCP Registry (v0.1.13)**: CodeAct paradigm implementation with tool integration via importable Python code reducing token usage by 98%, MCP server registry with auto-discovery and on-demand loading, TOOL.md documentation standard
+
+✅ **NLIP Integration & Skills System (v0.1.13)**: Advanced tool routing with Natural Language Interface Protocol across Claude, Gemini, and OpenAI backends, cross-platform automated skills installer for openskills CLI, Anthropic skills, and Crawl4AI
+
+✅ **System Prompt Architecture Refactoring (v0.1.12)**: Hierarchical system prompt structure with XML-based formatting for Claude, improved LLM attention management
+
+✅ **Semtools & Serena Skills (v0.1.12)**: Semantic search via embedding-based similarity, symbol-level code understanding via LSP integration, local execution mode for non-Docker environments
+
+✅ **Multi-Agent Computer Use (v0.1.12)**: Enhanced Gemini computer use with Docker integration, VNC visualization, multi-agent coordination combining Claude (Docker/Linux) and Gemini (Browser)
 
 ✅ **Skills System (v0.1.11)**: Modular prompting framework with SkillsManager for dynamic skill loading, automatic discovery with always/optional categories, file search skill, Docker-compatible mounting
 
@@ -1261,21 +1277,21 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.12 Roadmap
+### v0.1.18 Roadmap
 
-Version 0.1.12 focuses on intelligent tool selection and semantic search capabilities:
+Version 0.1.18 focuses on CUA Docker infrastructure and expanding model support:
 
 #### Planned Features
-- **Automatic MCP Tool Selection**: Intelligent selection of MCP tools based on task requirements to improve performance
-- **Semtools/Serena Semantic Search Skill**: Advanced semantic search capabilities as a reusable skill
+- **CUA Dockerfile for Optional Installation**: Provide optional Docker image for Computer Use Agent setup with pre-configured environment
+- **Grok 4.1 Fast Model Support**: Add support for xAI's latest high-speed model for rapid agent responses and cost-effective workflows
 
 Key technical approach:
-- **Tool Selection**: Pre-execution tool selection based on prompts, dynamic tool refinement during execution, filesystem-first approach to reduce context pollution
-- **Semantic Search**: Implement semtools and serena for semantic code discovery, multiple embedding models support, skills framework integration
+- **CUA Dockerfile**: Browser/desktop automation dependencies, X11/VNC support, simplified setup for computer use workflows
+- **Grok 4.1 Fast Integration**: Backend integration, token counting, pricing configuration, capability registration
 
-**Target Release**: November 14, 2025 (Friday @ 9am PT)
+**Target Release**: November 28, 2025 (Friday @ 9am PT)
 
-For detailed milestones and technical specifications, see the [full v0.1.12 roadmap](ROADMAP_v0.1.12.md).
+For detailed milestones and technical specifications, see the [full v0.1.18 roadmap](ROADMAP_v0.1.18.md).
 
 ---
 

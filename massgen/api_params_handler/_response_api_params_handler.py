@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Set
 
+from ..logger_config import logger
 from ._api_params_handler_base import APIParamsHandlerBase
 
 
@@ -75,9 +76,26 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
             "stream": True,
         }
 
+        # Handle parallel_tool_calls with built-in tools constraint
+        builtin_flags = ("enable_web_search", "enable_code_interpreter", "_has_file_search_files")
+        if any(all_params.get(f, False) for f in builtin_flags):
+            # Built-in tools present - MUST disable parallel calling
+            if all_params.get("parallel_tool_calls") is True:
+                logger.warning(
+                    "parallel_tool_calls=true is not supported with built-in tools " "(web_search, code_interpreter, file_search). " "Setting parallel_tool_calls=false.",
+                )
+            api_params["parallel_tool_calls"] = False
+        elif "parallel_tool_calls" in all_params:
+            # User explicitly set it
+            api_params["parallel_tool_calls"] = all_params["parallel_tool_calls"]
+        # else: Don't send - Response API defaults to true
+
         # Add filtered parameters with parameter mapping
         excluded = self.get_excluded_params()
         for key, value in all_params.items():
+            # Skip parallel_tool_calls - already handled above
+            if key == "parallel_tool_calls":
+                continue
             if key not in excluded and value is not None:
                 # Handle Response API parameter name differences
                 if key == "max_tokens":

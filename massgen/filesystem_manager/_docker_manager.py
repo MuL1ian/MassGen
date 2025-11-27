@@ -40,7 +40,7 @@ class DockerManager:
 
     def __init__(
         self,
-        image: str = "massgen/mcp-runtime:latest",
+        image: str = "ghcr.io/massgen/mcp-runtime:latest",
         network_mode: str = "none",
         memory_limit: Optional[str] = None,
         cpu_limit: Optional[float] = None,
@@ -79,12 +79,13 @@ class DockerManager:
 
         # If sudo is enabled and user is using default image, switch to sudo variant
         self.enable_sudo = enable_sudo
-        if enable_sudo and image == "massgen/mcp-runtime:latest":
-            self.image = "massgen/mcp-runtime-sudo:latest"
+        if enable_sudo and image == "ghcr.io/massgen/mcp-runtime:latest":
+            self.image = "ghcr.io/massgen/mcp-runtime-sudo:latest"
             logger.info(
-                "ℹ️ [Docker] Sudo access enabled in container (isolated from host) - using 'massgen/mcp-runtime-sudo:latest' image.",
+                "ℹ️ [Docker] Sudo access enabled in container (isolated from host) - using 'ghcr.io/massgen/mcp-runtime-sudo:latest' image.",
             )
         elif enable_sudo:
+            self.image = image
             logger.info(
                 "ℹ️ [Docker] Sudo access enabled in container (isolated from host) with custom image.",
             )
@@ -169,6 +170,11 @@ class DockerManager:
         """
         Load environment variables from a .env file.
 
+        Automatically checks common locations in order:
+        1. ~/.massgen/.env (recommended global location)
+        2. The provided env_file_path (expanded)
+        3. ./.env (current directory fallback)
+
         Args:
             env_file_path: Path to .env file
 
@@ -179,10 +185,27 @@ class DockerManager:
             RuntimeError: If file cannot be read or parsed
         """
         env_vars = {}
-        env_path = Path(env_file_path).expanduser().resolve()
 
-        if not env_path.exists():
-            raise RuntimeError(f"Environment file not found: {env_file_path}")
+        # Check common locations in priority order
+        home_env = Path.home() / ".massgen" / ".env"
+        provided_path = Path(env_file_path).expanduser().resolve()
+        local_env = Path(".env").resolve()
+
+        # Determine which path to use
+        if home_env.exists():
+            env_path = home_env
+        elif provided_path.exists():
+            env_path = provided_path
+        elif local_env.exists():
+            env_path = local_env
+        else:
+            # Provide helpful error message with all checked locations
+            checked_locations = [str(home_env), str(provided_path)]
+            if local_env != provided_path:
+                checked_locations.append(str(local_env))
+            raise RuntimeError(
+                "Environment file not found. Checked locations:\n" + "\n".join(f"  - {loc}" for loc in checked_locations),
+            )
 
         logger.info(f"📄 [Docker] Loading environment variables from: {env_path}")
 

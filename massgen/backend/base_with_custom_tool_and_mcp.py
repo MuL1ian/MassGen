@@ -31,6 +31,7 @@ import httpx
 from pydantic import BaseModel
 
 from ..logger_config import log_backend_activity, logger
+from ..mcp_tools.server_registry import get_auto_discovery_servers, get_registry_info
 from ..nlip.schema import (
     NLIPControlField,
     NLIPFormatField,
@@ -39,7 +40,6 @@ from ..nlip.schema import (
     NLIPTokenField,
     NLIPToolCall,
 )
-from ..mcp_tools.server_registry import get_auto_discovery_servers, get_registry_info
 from ..tool import ToolManager
 from ..utils import CoordinationStage
 from .base import LLMBackend, StreamChunk
@@ -63,6 +63,20 @@ class ToolExecutionConfig:
     status_response: str  # "custom_tool_response" or "mcp_tool_response"
     status_error: str  # "custom_tool_error" or "mcp_tool_error"
     execution_callback: Callable  # reference to _execute_custom_tool or _execute_mcp_function_with_retry
+
+
+@dataclass
+class ToolExecutionResult:
+    """Container for the outcome of a single tool execution.
+
+    Used by the unified scheduler to keep per-call chunks and message mutations
+    isolated from shared state until we're ready to merge them.
+    """
+
+    call: Dict[str, Any]
+    chunks: List[StreamChunk]
+    messages: List[Dict[str, Any]]
+    exception: Optional[BaseException] = None
 
 
 class UploadFileError(Exception):
@@ -959,6 +973,39 @@ class CustomToolAndMCPBackend(LLMBackend):
             # Append result to messages
             self._append_tool_result_message(updated_messages, call, result, config.tool_type)
 
+            # Check for reminder in tool result and inject as separate user message
+            reminder_text = None
+            if config.tool_type == "mcp" and result_obj:
+                # MCP results are CallToolResult objects - need to parse JSON from content
+                try:
+                    import json
+
+                    json_str = None
+                    if hasattr(result_obj, "content") and isinstance(result_obj.content, list):
+                        if len(result_obj.content) > 0 and hasattr(result_obj.content[0], "text"):
+                            json_str = result_obj.content[0].text
+                    elif isinstance(result_obj, dict):
+                        # Already a dict (some MCP servers return dicts directly)
+                        reminder_text = result_obj.get("reminder")
+
+                    if json_str:
+                        result_dict = json.loads(json_str)
+                        if isinstance(result_dict, dict):
+                            reminder_text = result_dict.get("reminder")
+                except (json.JSONDecodeError, AttributeError, IndexError, TypeError) as e:
+                    logger.debug(f"Could not parse MCP result for reminder: {e}")
+            elif config.tool_type == "custom" and isinstance(result, dict):
+                reminder_text = result.get("reminder")
+
+            if reminder_text and isinstance(reminder_text, str):
+                # Inject reminder as a user message (appears prominently, not buried in JSON)
+                reminder_message = {
+                    "role": "user",
+                    "content": f"\n{'='*60}\n⚠️  SYSTEM REMINDER\n{'='*60}\n\n{reminder_text}\n\n{'='*60}\n",
+                }
+                updated_messages.append(reminder_message)
+                logger.info(f"[Tool Reminder] Injected reminder from {tool_name}: {reminder_text[:100]}...")
+
             # Yield results chunk
             # For MCP tools, try to extract text from result_obj if available
             display_result = result_str
@@ -1016,6 +1063,178 @@ class CustomToolAndMCPBackend(LLMBackend):
             self._append_tool_error_message(updated_messages, call, error_msg, config.tool_type)
 
             processed_call_ids.add(call.get("call_id", ""))
+
+    async def _run_tool_call(
+        self,
+        call: Dict[str, Any],
+        config: ToolExecutionConfig,
+        semaphore: Optional[asyncio.Semaphore] = None,
+    ) -> ToolExecutionResult:
+        """Run a single tool call and collect its chunks/messages.
+
+        This wraps _execute_tool_with_logging so parallel execution can keep
+        per-call side effects isolated until we're ready to merge them into
+        shared message history.
+        """
+        per_call_messages: List[Dict[str, Any]] = []
+        per_call_processed_ids: Set[str] = set()
+        chunks: List[StreamChunk] = []
+        exc: Optional[BaseException] = None
+
+        async def _inner() -> None:
+            nonlocal exc
+            try:
+                async for chunk in self._execute_tool_with_logging(
+                    call,
+                    config,
+                    per_call_messages,
+                    per_call_processed_ids,
+                ):
+                    chunks.append(chunk)
+            except Exception as e:  # noqa: BLE001
+                # Most execution errors are handled inside _execute_tool_with_logging.
+                # This is a safety net for unexpected failures.
+                tool_name = call.get("name", "")
+                logger.error(
+                    f"Unexpected error while executing tool {tool_name}: {e}",
+                    exc_info=True,
+                )
+                exc = e
+
+        if semaphore:
+            async with semaphore:
+                await _inner()
+        else:
+            await _inner()
+
+        return ToolExecutionResult(
+            call=call,
+            chunks=chunks,
+            messages=per_call_messages,
+            exception=exc,
+        )
+
+    async def _execute_tool_calls(
+        self,
+        all_calls: List[Dict[str, Any]],
+        tool_config_for_call: Callable[[Dict[str, Any]], ToolExecutionConfig],
+        all_params: Dict[str, Any],
+        updated_messages: List[Dict[str, Any]],
+        processed_call_ids: Set[str],
+        log_prefix: str,
+        chunk_adapter: Callable[[StreamChunk], Any],
+    ) -> AsyncGenerator[Any, None]:
+        """Execute a batch of tool calls with optional parallelism.
+
+        This centralizes the parallel/sequential scheduling logic so all
+        backends share the same behavior and formatting for tool execution.
+        """
+        if not all_calls:
+            return
+
+        concurrent_execution = all_params.get("concurrent_tool_execution")
+
+        # SEQUENTIAL EXECUTION
+        if not concurrent_execution or len(all_calls) <= 1:
+            reason = "disabled by config" if not concurrent_execution else "single tool"
+            logger.info(f"{log_prefix} Executing {len(all_calls)} tools sequentially ({reason})")
+
+            for call in all_calls:
+                config = tool_config_for_call(call)
+                async for chunk in self._execute_tool_with_logging(
+                    call,
+                    config,
+                    updated_messages,
+                    processed_call_ids,
+                ):
+                    yield chunk_adapter(chunk)
+            return
+
+        # PARALLEL EXECUTION WITH CONCURRENCY CONTROL
+        max_concurrent = all_params.get("max_concurrent_tools", 10)
+        semaphore = asyncio.Semaphore(max_concurrent) if max_concurrent else None
+        logger.info(
+            f"{log_prefix} Executing {len(all_calls)} tools in parallel (max concurrent: {max_concurrent or 'unlimited'})",
+        )
+
+        # Wrap each call so we know its index when it completes.
+        async def _runner(
+            idx: int,
+            call: Dict[str, Any],
+            config: ToolExecutionConfig,
+        ) -> Tuple[int, ToolExecutionResult]:
+            result = await self._run_tool_call(call, config, semaphore)
+            return idx, result
+
+        tasks: List[asyncio.Task[Tuple[int, ToolExecutionResult]]] = []
+        for idx, call in enumerate(all_calls):
+            config = tool_config_for_call(call)
+            task = asyncio.create_task(_runner(idx, call, config))
+            tasks.append(task)
+
+        results_by_index: Dict[int, ToolExecutionResult] = {}
+
+        # Stream each tool's output as soon as it finishes, then clear its chunk buffer.
+        for fut in asyncio.as_completed(tasks):
+            try:
+                idx, result = await fut
+            except Exception as e:  # noqa: BLE001
+                # Extremely defensive: _run_tool_call already catches most errors.
+                error_msg = f"Tool execution task failed: {e}"
+                logger.error(
+                    f"{log_prefix} {error_msg}",
+                    exc_info=True,
+                )
+                continue
+
+            results_by_index[idx] = result
+
+            # If _execute_tool_with_logging surfaced an unexpected exception, emit a summary chunk.
+            if result.exception is not None:
+                call = result.call
+                tool_name = call.get("name", "")
+                config = tool_config_for_call(call)
+                error_msg = f"Tool execution failed: {result.exception}"
+                logger.error(
+                    f"{log_prefix} {error_msg}",
+                    exc_info=True,
+                )
+                error_chunk = StreamChunk(
+                    type=config.chunk_type,
+                    status=config.status_error,
+                    content=f"{config.error_emoji} {error_msg}",
+                    source=f"{config.source_prefix}{tool_name}",
+                )
+                yield chunk_adapter(error_chunk)
+
+                # Ensure error is reflected in conversation history as well.
+                self._append_tool_error_message(
+                    updated_messages,
+                    call,
+                    error_msg,
+                    config.tool_type,
+                )
+                call_id = call.get("call_id", "")
+                if call_id:
+                    processed_call_ids.add(call_id)
+            else:
+                # Normal case: stream all collected chunks for this tool, then clear.
+                for chunk in result.chunks:
+                    yield chunk_adapter(chunk)
+                result.chunks.clear()
+
+        # After all tools complete, merge buffered messages into history in API order.
+        for idx, call in enumerate(all_calls):
+            result = results_by_index.get(idx)
+            if not result:
+                continue
+
+            if result.messages:
+                updated_messages.extend(result.messages)
+
+            call_id = call.get("call_id", "")
+            if call_id:
+                processed_call_ids.add(call_id)
 
     async def _stream_tool_execution_via_nlip(
         self,
@@ -1462,6 +1681,8 @@ class CustomToolAndMCPBackend(LLMBackend):
         # Convert result to string for compatibility and return tuple
         if isinstance(result, dict) and "error" in result:
             return f"Error: {result['error']}", result
+
+        # Note: Reminder injection happens in _execute_tool_with_logging, not here
         return str(result), result
 
     async def _process_upload_files(

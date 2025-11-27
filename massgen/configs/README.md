@@ -227,7 +227,164 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.12 - Latest
+### v0.1.17 - Latest
+**New Features:** Textual Terminal Display System with Dark/Light Themes (Early Release)
+
+**Configuration Files:**
+- `basic/single_agent_textual.yaml` - Single agent with Textual terminal display
+
+**Key Features:**
+- **Textual Terminal Display**: Modern interactive terminal UI using the Textual library with multi-panel layout for agents and orchestrator
+- **Dark & Light Themes**: VS Code-inspired TCSS stylesheets for customizable appearance
+- **Enhanced Visualization**: Real-time streaming with syntax highlighting, emoji fallback, and content filtering for critical patterns
+
+> **Note:** This is an early release of the Textual display. The default remains `rich_terminal` for stability, but we'll continue iterating on the Textual version.
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Textual Terminal Display - enhanced interactive UI with dark/light themes
+# Prerequisites: OPENAI_API_KEY in .env
+uv run massgen --config massgen/configs/basic/single_agent_textual.yaml \
+  "What is the transformers in deep learning?"
+```
+
+### v0.1.16
+**New Features:** Terminal Evaluation System, LiteLLM Cost Tracking, Memory Archiving, Self-Evolution Skills
+
+**Configuration Files:**
+- `meta/massgen_evaluates_terminal.yaml` - MassGen evaluates its own terminal display with VHS recording
+- `tools/custom_tools/terminal_evaluation.yaml` - Terminal evaluation tool demonstration
+- `skills/test_memory.yaml` - Memory archiving with multi-turn session support
+
+**Key Features:**
+- **Terminal Evaluation System**: Record terminal sessions with VHS and analyze with multimodal AI for UI/UX evaluation
+- **LiteLLM Cost Tracking**: Accurate pricing for 500+ models with automatic updates, reasoning token support
+- **Memory Archiving**: Persistent memory across conversation turns for session continuity
+- **Self-Evolution Skills**: Four new skills for MassGen self-development and maintenance
+
+**Try It:**
+```bash
+# Terminal Evaluation - record and analyze MassGen's terminal display
+# Prerequisites: VHS installed (brew install vhs), OPENAI_API_KEY or GEMINI_API_KEY in .env
+uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
+  "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
+
+# Memory Archiving - persistent memory across conversation turns
+# Prerequisites: Docker running, API keys in .env
+uv run massgen --config massgen/configs/skills/test_memory.yaml \
+  "Create a website about Bob Dylan"
+```
+
+### v0.1.15
+**New Features:** Persona Generation System, Docker Distribution & Custom Tools Enhancement
+
+**Configuration Files:**
+- `basic/multi/persona_diversity_example.yaml` - Persona generation with strategy and backend configuration
+- `.github/workflows/docker-publish.yml` - Enhanced CI/CD pipeline for GitHub Container Registry
+
+**Key Features:**
+- **Persona Generation System**: Automatic generation of diverse system messages for multi-agent configurations with multiple strategies (complementary, diverse, specialized, adversarial)
+- **Docker Distribution Enhancement**: GitHub Container Registry integration with ARM architecture support
+- **Custom Tools in Docker**: Isolated Docker containers for security and portability (Issue #510)
+- **MassGen Pre-installed**: Docker images include MassGen for immediate use with custom tools
+- **Config Builder Enhancement**: Improved interactive configuration with better model selection and defaults
+
+**Try It:**
+```bash
+# Persona Generation - automatic diverse system messages for agents
+# Prerequisites: OPENAI_API_KEY in .env, Docker running for code execution
+uv run massgen --config massgen/configs/basic/multi/persona_diversity_example.yaml \
+  "Create a website about Bob Dylan"
+
+# Enhanced Config Builder - improved model selection
+uv run massgen --init  # Interactive wizard with better defaults
+```
+
+### v0.1.14
+**New Features:** Parallel Tool Execution, Interactive Quickstart, Gemini 3 Pro Support & MCP Registry Client
+
+**Configuration Files:**
+- `tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml` - Parallel tool execution example with configurable concurrency
+- `providers/gemini/gemini_3_pro.yaml` - Configuration for Gemini 3 Pro model with function calling
+
+**Key Features:**
+- **Parallel Tool Execution System**: Configurable concurrent tool execution across all backends with asyncio-based scheduling
+- **Gemini 3 Pro Support**: Full integration for Google's Gemini 3 Pro model with native function calling
+- **Interactive Quickstart Workflow**: Streamlined onboarding experience with guided configuration creation
+- **MCP Registry Client**: Enhanced server metadata fetching from official MCP registry
+
+**Try It:**
+```bash
+# Interactive Quickstart - guided configuration creation
+uv run massgen --quickstart
+
+# Parallel Tool Execution - concurrent tool execution
+uv run massgen --config massgen/configs/tools/custom_tools/gpt5_nano_custom_tool_with_mcp_parallel.yaml \
+  "whats the sum of 123 and 456? and whats the weather of Tokyo and london?"
+
+# Gemini 3 Pro - Google's latest model with function calling
+uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml \
+  "Create a website about Bob Dylan"
+```
+
+### v0.1.13
+**New Features:** Code-Based Tools, MCP Registry, Skills Installation & NLIP Integration
+
+**Configuration Files:**
+- `tools/filesystem/code_based/example_code_based_tools.yaml` - Code-based tools with auto-discovery and shared tools directory
+- `tools/filesystem/exclude_mcps/test_minimal_mcps.yaml` - Minimal MCPs with command-line file operations
+- `examples/nlip_basic.yaml` - Basic NLIP protocol support with router and translation settings
+- `examples/nlip_openai_weather_test.yaml` - OpenAI with NLIP integration for custom tools and MCP servers
+- `examples/nlip_orchestrator_test.yaml` - Orchestrator-level NLIP configuration for multi-agent coordination
+
+**Key Features:**
+- **Code-Based Tools (CodeAct Paradigm)**: Revolutionary tool integration via importable Python code, reducing token usage by 98%
+- **MCP Server Registry**: Auto-discovery and intelligent tool routing with on-demand loading
+- **Skills Installation System**: Cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI
+- **NLIP Integration**: Advanced tool routing with Natural Language Interface Protocol across all backends
+- **Shared Tools Directory**: Tools generated once and shared across all agents to avoid duplication
+- **Auto-Discover Custom Tools**: Automatically discover and load all tools from `massgen/tool/` directory
+- **Exclude File Operation MCPs**: Use command-line tools for file operations to reduce MCP overhead
+- **TOOL.md Documentation Standard**: Standardized documentation format for all custom tools
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Automated Skills Installation - cross-platform setup
+massgen --setup-skills  # Installs openskills CLI, Anthropic skills, and Crawl4AI
+
+# Code-Based Tools with Auto-Discovery - demonstrates 98% context reduction
+# Prerequisites: Docker running, .env file with API keys (OPENAI_API_KEY, GOOGLE_API_KEY, etc.)
+uv run massgen --automation \
+  --config massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml \
+  "List all available tools by exploring the workspace filesystem. Show what MCP tools and custom tools are available."
+
+# Or use with skills for advanced features (e.g., website creation):
+uv run massgen --config massgen/configs/tools/filesystem/code_based/example_code_based_tools.yaml \
+  "Create a website about Bob Dylan, ensuring that it is visually appealing and user friendly"
+
+# Minimal MCPs - test memory and task planning with reduced tool overhead
+# Prerequisites: Docker running
+uv run massgen --config massgen/configs/tools/filesystem/exclude_mcps/test_minimal_mcps.yaml \
+  "Create a website about Bob Dylan"
+
+# NLIP Integration - natural language tool routing with OpenAI
+# Prerequisites: OPENAI_API_KEY in .env, weather MCP (npx -y @fak111/weather-mcp)
+massgen --config massgen/configs/examples/nlip_openai_weather_test.yaml \
+  "What's the sum of 123 and 456? And what's the weather in Tokyo?"
+
+# Orchestrator-level NLIP - multi-agent coordination with NLIP routing
+# Prerequisites: OPENAI_API_KEY, CEREBRAS_API_KEY in .env
+massgen --config massgen/configs/examples/nlip_orchestrator_test.yaml \
+  "What's the sum of 123 and 456? And what's the weather in Tokyo?"
+```
+
+### v0.1.12
 **New Features:** System Prompt Architecture Refactoring, Semantic Skills & Multi-Agent Computer Use
 
 **Configuration Files:**

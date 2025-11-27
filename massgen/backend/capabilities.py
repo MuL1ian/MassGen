@@ -91,6 +91,7 @@ class BackendCapabilities:
     default_model: str  # Default model for this backend
     env_var: Optional[str] = None  # Required environment variable (e.g., "OPENAI_API_KEY")
     notes: str = ""  # Additional notes about the backend
+    model_release_dates: Optional[Dict[str, str]] = None  # Model -> "YYYY-MM" release date mapping
 
 
 # THE REGISTRY - Single source of truth for all backend capabilities
@@ -112,17 +113,34 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         builtin_tools=["web_search", "code_interpreter"],
         filesystem_support="mcp",
         models=[
+            "gpt-5.1",
+            "gpt-5-codex",
             "gpt-5",
             "gpt-5-mini",
             "gpt-5-nano",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
             "gpt-4o",
             "gpt-4o-mini",
-            "o4",
             "o4-mini",
         ],
         default_model="gpt-4o",
         env_var="OPENAI_API_KEY",
         notes="Reasoning support in GPT-5 and o-series models. Audio/video generation (v0.0.30+). Video generation via Sora-2 API (v0.0.31).",
+        model_release_dates={
+            "gpt-5.1": "2025-11",
+            "gpt-5-codex": "2025-09",
+            "gpt-5": "2025-08",
+            "gpt-5-mini": "2025-08",
+            "gpt-5-nano": "2025-08",
+            "gpt-4.1": "2025-04",
+            "gpt-4.1-mini": "2025-04",
+            "gpt-4.1-nano": "2025-04",
+            "gpt-4o": "2024-05",
+            "gpt-4o-mini": "2024-07",
+            "o4-mini": "2025-04",
+        },
     ),
     "claude": BackendCapabilities(
         backend_type="claude",
@@ -144,12 +162,16 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "claude-sonnet-4-5-20250929",
             "claude-opus-4-1-20250805",
             "claude-sonnet-4-20250514",
-            "claude-3-5-sonnet-latest",
-            "claude-3-5-haiku-latest",
         ],
         default_model="claude-sonnet-4-5-20250929",
         env_var="ANTHROPIC_API_KEY",
-        notes="Web search and code execution are built-in tools. Programmatic tool calling and tool search require 4.5 models. Audio/video understanding support (v0.0.30+).",
+        notes="Web search and code execution are built-in tools.Programmatic tool calling and tool search require 4.5 models, Audio/video understanding support (v0.0.30+).",
+        model_release_dates={
+            "claude-haiku-4-5-20251001": "2025-10",
+            "claude-sonnet-4-5-20250929": "2025-09",
+            "claude-opus-4-1-20250805": "2025-08",
+            "claude-sonnet-4-20250514": "2025-05",
+        },
     ),
     "claude_code": BackendCapabilities(
         backend_type="claude_code",
@@ -202,14 +224,18 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         builtin_tools=["google_search_retrieval", "code_execution"],
         filesystem_support="mcp",
         models=[
+            "gemini-3-pro-preview",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
-            "gemini-2.0-flash-exp",
-            "gemini-exp-1206",
         ],
         default_model="gemini-2.5-flash",
         env_var="GEMINI_API_KEY",
         notes="Google Search Retrieval provides web search. Image understanding capabilities.",
+        model_release_dates={
+            "gemini-3-pro-preview": "2025-11",
+            "gemini-2.5-flash": "2025-06",
+            "gemini-2.5-pro": "2025-06",
+        },
     ),
     "grok": BackendCapabilities(
         backend_type="grok",
@@ -221,6 +247,9 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         builtin_tools=["web_search"],
         filesystem_support="mcp",
         models=[
+            "grok-4-1-fast-reasoning",
+            "grok-4-1-fast-non-reasoning",
+            "grok-code-fast-1",
             "grok-4",
             "grok-4-fast",
             "grok-3",
@@ -229,6 +258,15 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         default_model="grok-4",
         env_var="XAI_API_KEY",
         notes="Web search includes real-time data access.",
+        model_release_dates={
+            "grok-4-1-fast-reasoning": "2025-11",
+            "grok-4-1-fast-non-reasoning": "2025-11",
+            "grok-code-fast-1": "2025-08",
+            "grok-4": "2025-07",
+            "grok-4-fast": "2025-09",
+            "grok-3": "2025-02",
+            "grok-3-mini": "2025-05",
+        },
     ),
     "azure_openai": BackendCapabilities(
         backend_type="azure_openai",

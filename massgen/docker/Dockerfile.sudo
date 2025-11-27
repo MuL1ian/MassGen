@@ -25,6 +25,9 @@ ENV PYTHONUNBUFFERED=1 \
 # - sudo: For runtime package installation
 # - ripgrep: Fast text search (REQUIRED for filesystem-first mode)
 # - unzip: For extracting ast-grep binary
+# - ffmpeg: Video encoding (for VHS terminal recording)
+# - golang-go: Go runtime (for VHS installation)
+# - wget: For downloading ttyd binary
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -33,6 +36,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     ripgrep \
     unzip \
+    ffmpeg \
+    golang-go \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20.x (LTS) for JavaScript execution
@@ -47,6 +53,19 @@ RUN pip install --no-cache-dir ast-grep-cli
 # Install openskills CLI for skills management
 # Anthropic skills are installed manually beforehand and added as a volume at runtime
 RUN npm install -g openskills
+
+# Fix MCP filesystem server schema issue
+# The latest @modelcontextprotocol/server-filesystem (2025.8.21) has a Zod version conflict:
+# - @modelcontextprotocol/sdk uses Zod 3.25.76
+# - zod-to-json-schema@3.25.0 expects Zod 4.x
+# This causes schemas to return only {"$schema": " "http://json-schema.org/draft-07/schema#"}
+# instead of full parameter definitions, so the agents cannot generate correct tool calls.
+# Fix: Downgrade zod-to-json-schema to 3.23.0 which works with Zod 3.
+# When in Docker, the filesystem npm is used instead of through npx.
+RUN npm install -g @modelcontextprotocol/server-filesystem && \
+    cd $(npm root -g)/@modelcontextprotocol/server-filesystem && \
+    npm uninstall zod-to-json-schema && \
+    npm install zod-to-json-schema@3.23.0
 
 # Install semtools for semantic search (optional semtools skills)
 RUN npm install -g @llamaindex/semtools
@@ -70,6 +89,7 @@ WORKDIR /app
 # - Pillow: Image processing for _multimodal_tools
 # - opencv-python-headless: Video processing for _video_tools (headless = no GUI deps)
 # - playwright, crawl4ai: Browser automation and web scraping for _browser_automation/_web_tools
+# Note: fastmcp will be installed later with MassGen package
 RUN pip install --no-cache-dir \
     'pytest>=7.0.0' \
     'python-dotenv>=1.0.0' \
@@ -84,8 +104,9 @@ RUN pip install --no-cache-dir \
     'playwright>=1.40.0' \
     'crawl4ai>=0.2.0'
 
-# Install Playwright browsers (chromium for browser automation tools)
-RUN python -m playwright install --with-deps chromium
+# Install Playwright system dependencies (requires root)
+# This installs fonts, libraries needed by browsers
+RUN python -m playwright install-deps
 
 # Create workspace and context directories
 # These will be mounted as volumes at runtime
@@ -105,10 +126,54 @@ RUN useradd -m -u 1000 -s /bin/bash massgen && \
 # Switch to non-root user
 USER massgen
 
+# Install Playwright browser binaries as massgen user
+# This puts browsers in /home/massgen/.cache/ms-playwright/ where the user can access them
+RUN python -m playwright install
+
 # Install uv (modern Python package installer for optional serena skill)
 # Enables uvx for running tools like serena on-demand without permanent installation
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/massgen/.local/bin:${PATH}"
+
+# Install VHS terminal recorder (for terminal evaluation/recording)
+# https://github.com/charmbracelet/vhs
+RUN go install github.com/charmbracelet/vhs@latest
+ENV PATH="/home/massgen/go/bin:${PATH}"
+
+# Install ttyd for VHS SSH mode (VHS's preferred recording mode)
+# https://github.com/tsl0922/ttyd/releases/tag/1.7.7
+# ttyd is lightweight (~1.3MB) and more reliable than browser mode for VHS
+USER root
+RUN ARCH=$(uname -m) && \
+    TTYD_VERSION="1.7.7" && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        TTYD_ARCH="x86_64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        TTYD_ARCH="aarch64"; \
+    elif [ "$ARCH" = "armv7l" ]; then \
+        TTYD_ARCH="armhf"; \
+    elif [ "$ARCH" = "i686" ]; then \
+        TTYD_ARCH="i686"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    wget -q "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${TTYD_ARCH}" -O /usr/local/bin/ttyd && \
+    chmod +x /usr/local/bin/ttyd
+USER massgen
+
+# Disable Chromium sandbox for VHS (safe in Docker container environment)
+ENV VHS_NO_SANDBOX=1
+# Install MassGen package from source
+# This provides MCP server modules and fastmcp CLI needed for agent operation
+# Installs from the git repository being built (not PyPI) to ensure version sync
+USER root
+COPY --chown=massgen:massgen . /tmp/massgen-build
+WORKDIR /tmp/massgen-build
+RUN pip install --no-cache-dir . && \
+    cd /workspace && \
+    rm -rf /tmp/massgen-build
+WORKDIR /workspace
+USER massgen
 
 # Default command: Keep container running (overridden at runtime)
 CMD ["tail", "-f", "/dev/null"]

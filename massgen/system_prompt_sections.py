@@ -322,9 +322,19 @@ class CodeBasedToolsSection(SystemPromptSection):
     Agents discover tools by exploring servers/, read docstrings, and call via imports.
 
     MEDIUM priority - important for tool discovery and usage.
+
+    Args:
+        workspace_path: Path to agent's workspace
+        shared_tools_path: Optional path to shared tools directory
+        mcp_servers: List of MCP server configurations (for fetching descriptions)
     """
 
-    def __init__(self, workspace_path: str, shared_tools_path: str = None):
+    def __init__(
+        self,
+        workspace_path: str,
+        shared_tools_path: str = None,
+        mcp_servers: List[Dict[str, Any]] = None,
+    ):
         super().__init__(
             title="Code-Based Tools",
             priority=Priority.MEDIUM,
@@ -332,6 +342,7 @@ class CodeBasedToolsSection(SystemPromptSection):
         )
         self.workspace_path = workspace_path
         self.shared_tools_path = shared_tools_path
+        self.mcp_servers = mcp_servers or []
         # Use shared tools path if available, otherwise workspace
         self.tools_location = shared_tools_path if shared_tools_path else workspace_path
 
@@ -371,6 +382,27 @@ class CodeBasedToolsSection(SystemPromptSection):
             if tool_descriptions:
                 custom_tools_list = "\n\n**Available Custom Tools:**\n" + "\n".join(tool_descriptions)
 
+        # Fetch MCP server descriptions from registry
+        mcp_servers_list = ""
+        if self.mcp_servers:
+            try:
+                from massgen.mcp_tools.registry_client import (
+                    get_mcp_server_descriptions,
+                )
+
+                mcp_descriptions = get_mcp_server_descriptions(self.mcp_servers)
+                if mcp_descriptions:
+                    mcp_items = [f"- **{name}**: {desc}" for name, desc in mcp_descriptions.items()]
+                    mcp_servers_list = "\n\n**Available MCP Servers:**\n" + "\n".join(mcp_items)
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(f"Failed to fetch MCP descriptions: {e}")
+                # Fall back to just showing server names
+                server_names = [s.get("name", "unknown") for s in self.mcp_servers]
+                if server_names:
+                    mcp_servers_list = "\n\n**Available MCP Servers:** " + ", ".join(server_names)
+
         return f"""## Available Tools (Code-Based Access)
 
 Tools are available as **Python code** in your workspace filesystem. Discover and call them like regular Python modules (e.g., use normal search tools such as `rg` or `sg`){location_note}
@@ -393,7 +425,7 @@ Tools are available as **Python code** in your workspace filesystem. Discover an
 Your workspace/
 └── utils/               # CREATE THIS - for your scripts (workflows, async, filtering)
     └── [write your own scripts here as needed]
-```{custom_tools_list}
+```{mcp_servers_list}{custom_tools_list}
 
 **Important:** All tools and servers listed here are already configured and ready to use. If a tool requires API keys, they are already available - we only show tools you can actually use.
 
@@ -452,7 +484,10 @@ reversed_text = reverse_string("hello")
 image = await text_to_image_generation(prompt="sunset", output_path="sunset.png")
 ```
 
-**Important:** Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
+**Important:**
+- Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
+- **CRITICAL**: When running Python scripts that import from `servers/` or `custom_tools/`, always specify `work_dir="{self.workspace_path}"` in your
+  execute_command call. The symlinks to these directories only exist in your main workspace, not in temporary snapshot directories.
 
 **Custom Tools Return Type:**
 
@@ -558,14 +593,29 @@ class MemorySection(SystemPromptSection):
 
         # Header - concise overview
         content_parts.append(
-            "## Memory System\n\n" "Persist important context across conversations using memory tools. " "Memories are automatically managed and stored in your workspace.\n",
+            "## Decision Documentation System\n\n"
+            "Document decisions and learnings to **optimize future work** and **prevent repeated mistakes**. "
+            "This isn't just memory - it's about capturing **why** decisions were made, **what worked/failed**, "
+            "and **what would help similar tasks succeed**.\n",
         )
 
-        # Memory tiers - simplified
+        # Memory tiers - clarified with usage guidance
         content_parts.append(
-            "### Memory Tiers\n\n"
-            "**short_term**: Auto-loaded into context every turn. Use for frequently-needed info.\n"
-            "**long_term**: Load manually when needed. Use for reference material and history.\n",
+            "### Storage Tiers\n\n"
+            "**short_term** (auto-loaded every turn):\n"
+            "- User preferences and workflow patterns\n"
+            "- Quick reference info needed frequently\n"
+            "- Current task context and findings\n"
+            "- Small, tactical observations (<100 lines)\n"
+            "- Examples: user_prefs.md, current_findings.md\n\n"
+            "**long_term** (load manually when needed):\n"
+            "- Detailed post-mortems and analyses\n"
+            "- Comprehensive skill effectiveness reports\n"
+            "- Complex lessons with context (>100 lines)\n"
+            "- Knowledge that's useful but not needed every turn\n"
+            "- Examples: detailed_analysis.md, comprehensive_guide.md\n\n"
+            "**Rule of thumb**: If it's small and useful every turn → short_term. "
+            "If it's detailed and situationally useful → long_term.\n",
         )
 
         # Show existing short-term memories (full content)
@@ -596,49 +646,179 @@ class MemorySection(SystemPromptSection):
             content_parts.append("")
             content_parts.append("</available_long_term_memories>")
 
-        # Tools - minimal, focused
+        # Show current memories from temp workspaces (all agents' current work)
+        temp_workspace_memories = self.memory_config.get("temp_workspace_memories", [])
+        if temp_workspace_memories:
+            content_parts.append("\n### Current Agent Memories (For Comparison)\n")
+            content_parts.append(
+                "These are the current memories from all agents working on this task. " "Review to compare approaches and avoid duplicating work.\n",
+            )
+
+            for agent_mem in temp_workspace_memories:
+                agent_label = agent_mem.get("agent_label", "unknown")
+                memories = agent_mem.get("memories", {})
+
+                content_parts.append(f"\n**{agent_label}:**")
+
+                # Show short_term memories (full content)
+                if memories.get("short_term"):
+                    content_parts.append("\n*short_term:*")
+                    for mem_name, mem_data in memories["short_term"].items():
+                        content = mem_data.get("content", mem_data) if isinstance(mem_data, dict) else mem_data
+                        content_parts.append(f"- `{mem_name}.md`")
+                        content_parts.append(f"  ```\n  {content.strip()}\n  ```")
+
+                # Show long_term memories (name + description only)
+                if memories.get("long_term"):
+                    content_parts.append("\n*long_term:*")
+                    for mem_name, mem_data in memories["long_term"].items():
+                        if isinstance(mem_data, dict):
+                            description = mem_data.get("description", "No description")
+                            content_parts.append(f"- `{mem_name}.md`: {description}")
+                        else:
+                            # Fallback if not parsed
+                            content_parts.append(f"- `{mem_name}.md`")
+
+                if not memories.get("short_term") and not memories.get("long_term"):
+                    content_parts.append("  *No memories*")
+
+        # Show archived memories (deduplicated historical context)
+        archived = self.memory_config.get("archived_memories", {})
+        if archived and (archived.get("short_term") or archived.get("long_term")):
+            content_parts.append("\n### Archived Memories (Historical - Deduplicated)\n")
+            content_parts.append(
+                "These are historical memories from previous answers. Duplicate names have been resolved " "(showing only the most recent version of each memory). This is read-only context.\n",
+            )
+
+            # Show short_term archived memories (full content)
+            if archived.get("short_term"):
+                content_parts.append("\n**Short-term (full content):**")
+                for mem_name, mem_data in archived["short_term"].items():
+                    content = mem_data.get("content", "")
+                    content_parts.append(f"\n- `{mem_name}.md`")
+                    content_parts.append(f"  ```\n  {content.strip()}\n  ```")
+
+            # Show long_term archived memories (name + description only)
+            if archived.get("long_term"):
+                content_parts.append("\n**Long-term (summaries only):**")
+                for mem_name, mem_data in archived["long_term"].items():
+                    content = mem_data.get("content", "")
+                    # Try to extract description from YAML frontmatter
+                    description = "No description"
+                    if "description:" in content:
+                        try:
+                            # Simple extraction of description line
+                            for line in content.split("\n"):
+                                if line.strip().startswith("description:"):
+                                    description = line.split("description:", 1)[1].strip()
+                                    break
+                        except Exception:
+                            pass
+                    content_parts.append(f"- `{mem_name}.md`: {description}")
+
+        # File operations - simple and direct
         content_parts.append(
-            "\n### Memory Tools\n\n"
-            '**create_memory(name, content, tier="short_term")**\n'
-            "- Create new memory (auto-adds metadata: created, updated, agent_id)\n"
-            '- name: Descriptive identifier (e.g., "user_preferences", "known_issues")\n'
-            '- tier: "short_term" (always in context) or "long_term" (load on demand)\n\n'
-            "**append_to_memory(name, content)**\n"
-            "- Add to existing memory (most common operation)\n"
-            "- Auto-updates timestamp\n\n"
-            "**load_memory(name)**\n"
-            "- Load long-term memory into context\n"
-            "- Returns full content + metadata\n\n"
-            "**remove_memory(name)**\n"
-            "- Delete memory\n",
+            "\n### Saving Memories\n\n"
+            "Save memories by writing markdown files to the memory directory:\n"
+            "- **Short-term** → `memory/short_term/{name}.md` (auto-loaded every turn)\n"
+            "- **Long-term** → `memory/long_term/{name}.md` (load manually when needed)\n\n"
+            "**File Format (REQUIRED YAML Frontmatter):**\n"
+            "```markdown\n"
+            "---\n"
+            "name: skill_effectiveness\n"
+            "description: Tracking which skills and tools work well for different task types\n"
+            "created: 2025-11-23T20:00:00\n"
+            "updated: 2025-11-23T20:00:00\n"
+            "---\n\n"
+            "## Your Content Here\n"
+            "Document your findings...\n"
+            "```\n\n"
+            "**Important:** You are stateless - you don't have a persistent identity across restarts. "
+            "When you call `new_answer`, your workspace is cleared and archived. The system shows you:\n"
+            "1. Current memories from all agents (for comparing approaches)\n"
+            "2. Historical archived memories (deduplicated - newest version of each name)\n\n"
+            "If the same memory name appears multiple times, only the most recent version is shown.\n",
         )
 
-        # When to use - critical triggers only
+        # Task completion reminders
         content_parts.append(
-            "\n### When to Save\n\n"
-            '**User preferences** → create_memory("user_prefs", ..., tier="short_term")\n'
-            "- Coding style, naming conventions, project constraints\n\n"
-            '**Important decisions** → create_memory("decisions", ..., tier="long_term")\n'
-            "- Architectural choices with rationale\n"
-            "- Technology selections and trade-offs\n\n"
-            '**Discoveries** → append_to_memory("findings", "## New pattern\\n...")\n'
-            "- Bug patterns, performance issues, code patterns\n"
-            "- Build/test procedures specific to this project\n",
+            "\n### Automatic Reminders\n\n"
+            "When you complete high-priority tasks, tool responses will include reminders to document decisions. "
+            "These help you optimize future work by capturing what worked, what didn't, and why.\n",
         )
 
-        # Examples - minimal, concrete
+        # When to document - with clear tier guidance
+        content_parts.append(
+            "\n### What to Document\n\n"
+            "**SHORT-TERM (use for most things):**\n\n"
+            "**User Preferences** → memory/short_term/user_prefs.md\n"
+            "- What does the user value (speed vs quality, iteration vs one-shot, etc.)?\n"
+            "- Coding style, naming conventions, workflow preferences\n"
+            "- Example: 'User prefers iterative refinement with visual feedback'\n\n"
+            "**Quick Observations** → memory/short_term/quick_notes.md\n"
+            "- Tactical findings from current work\n"
+            "- What worked/failed in this specific task\n"
+            "- Tool tips and gotchas discovered\n"
+            "- Example: 'create_directory fails on nested paths - create parent first'\n\n"
+            "**Current Context** → memory/short_term/task_context.md\n"
+            "- Key findings about the current task\n"
+            "- Important decisions made\n"
+            "- State of work in progress\n\n"
+            "**LONG-TERM (only if detailed/comprehensive):**\n\n"
+            "**Comprehensive Skill Analysis** → memory/long_term/skill_effectiveness.md\n"
+            "- Detailed comparison of multiple skills/approaches\n"
+            "- Cross-task patterns (>3 examples)\n"
+            "- Only save if you have substantial evidence (100+ lines)\n\n"
+            "**Detailed Post-Mortems** → memory/long_term/approach_patterns.md\n"
+            "- In-depth analysis of complex approaches\n"
+            "- Multi-step strategies with rationale\n"
+            "- Only for significant architectural decisions\n\n"
+            "**Note**: Most observations should go in **short_term**. Reserve long_term for truly "
+            "detailed analyses that would clutter the auto-loaded context.\n",
+        )
+
+        # Examples - emphasize short-term for most uses
         content_parts.append(
             "\n### Examples\n\n"
             "```python\n"
-            "# User shares preference\n"
-            'create_memory(\n    name="code_style",\n    content="- Uses snake_case\\n- Prefers functional style",\n    tier="short_term"\n)\n\n'
-            "# Record architectural decision\n"
-            'create_memory(\n    name="tech_decisions",\n    content="# Database\\n**Choice:** PostgreSQL\\n**Why:** JSONB support + team experience",\n    tier="long_term"\n)\n\n'
-            "# Add new finding\n"
-            'append_to_memory(\n    name="known_issues",\n    content="## Auth timeout bug\\n- Affects /login\\n- Fixed in PR #123"\n)\n\n'
-            "# Load reference material\n"
-            'result = load_memory("tech_decisions")\n'
-            'print(result["content"])\n'
+            "# SHORT-TERM: Quick tactical observation (PREFERRED for most things)\n"
+            "write_file(\n"
+            '    "memory/short_term/quick_notes.md",\n'
+            '    "---\\n"\n'
+            '    "name: quick_notes\\n"\n'
+            '    "description: Tactical observations from current work\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "## Web Development\\n"\n'
+            '    "- create_directory fails on nested paths - create parent first\\n"\n'
+            '    "- CSS variables work well for theming\\n"\n'
+            '    "- Always test with `printf` for CLI stdin validation"\n'
+            ")\n\n"
+            "# SHORT-TERM: User preferences\n"
+            "write_file(\n"
+            '    "memory/short_term/user_prefs.md",\n'
+            '    "---\\n"\n'
+            '    "name: user_prefs\\n"\n'
+            '    "description: User workflow and style preferences\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "## Preferences\\n"\n'
+            '    "- Prefers clean, minimal code\\n"\n'
+            '    "- Wants explanations with examples"\n'
+            ")\n\n"
+            "# LONG-TERM: Only for detailed analysis (>100 lines)\n"
+            "write_file(\n"
+            '    "memory/long_term/comprehensive_analysis.md",\n'
+            '    "---\\n"\n'
+            '    "name: comprehensive_analysis\\n"\n'
+            '    "description: Detailed multi-task skill effectiveness analysis\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "[100+ lines of detailed analysis comparing approaches across multiple tasks...]"\n'
+            ")\n"
             "```\n",
         )
 
@@ -825,11 +1005,10 @@ class FilesystemOperationsSection(SystemPromptSection):
 
             workspace_tree += (
                 "   **Building on Others' Work:**\n"
-                "   - **Inspect First**: Use `read_file`, `read_multiple_files`, or other command "
-                "line tools to examine files before copying. Understand what you're working with.\n"
+                "   - **Inspect First**: Examine files before copying to understand what you're "
+                "working with.\n"
                 "   - **Selective Copying**: Only copy specific files you'll actually modify or "
-                "use. Use `copy_file` for individual files, not `copy_directory` for wholesale "
-                "copying.\n"
+                "use, not entire directories wholesale.\n"
                 "   - **Merging Approaches**: If combining work from multiple agents, consider "
                 "merging complementary parts (e.g., agent1's data model + agent2's API layer) "
                 "rather than picking one entire solution.\n"
@@ -931,14 +1110,18 @@ class FilesystemBestPracticesSection(SystemPromptSection):
     Optional filesystem best practices and tips.
 
     Lower priority guidance about workspace cleanup, comparison tools, and evaluation.
+
+    Args:
+        enable_code_based_tools: Whether code-based tools mode is enabled
     """
 
-    def __init__(self):
+    def __init__(self, enable_code_based_tools: bool = False):
         super().__init__(
             title="Filesystem Best Practices",
             priority=Priority.AUXILIARY,
             xml_tag="filesystem_best_practices",
         )
+        self.enable_code_based_tools = enable_code_based_tools
 
     def build_content(self) -> str:
         parts = []
@@ -959,20 +1142,31 @@ class FilesystemBestPracticesSection(SystemPromptSection):
             "multiple agents, structure the result clearly.\n",
         )
 
-        # Comparison tools
-        parts.append(
-            "**Comparison Tools**: Use `compare_directories` to see differences between two "
-            "directories (e.g., comparing your workspace to another agent's workspace or a previous "
-            "version), or `compare_files` to see line-by-line diffs between two files. These "
-            "read-only tools help you understand what changed, build upon existing work "
-            "effectively, or verify solutions before voting.\n",
-        )
+        # Comparison tools (conditional on mode)
+        if self.enable_code_based_tools:
+            parts.append(
+                "**Comparison Tools**: Use directory and file comparison operations to understand "
+                "differences between workspaces or versions. These read-only operations help you "
+                "understand what changed, build upon existing work effectively, or verify solutions "
+                "before voting.\n",
+            )
+        else:
+            parts.append(
+                "**Comparison Tools**: Use directory and file comparison tools to see differences "
+                "between workspaces or versions. These read-only tools help you understand what "
+                "changed, build upon existing work effectively, or verify solutions before voting.\n",
+            )
 
-        # Evaluation guidance
+        # Evaluation guidance - emphasize outcome-based evaluation
         parts.append(
-            "**Evaluation**: When evaluating agents' answers, do NOT base your decision solely on "
-            "the answer text. Instead, read and verify the actual files in their workspaces (via "
-            "Shared Reference) to ensure the work matches their claims.\n",
+            "**Evaluation**: When evaluating agents' answers, assess both implementation and results:\n"
+            "- **For code quality**: Verify key files or substantially different implementations in "
+            "their workspaces (via Shared Reference)\n"
+            "- **For functionality**: Evaluate outcomes by running tests, checking visualizations, "
+            "validating outputs, or testing the deliverables\n"
+            "- **Focus verification**: Prioritize critical functionality and substantial differences "
+            "rather than exhaustively reviewing every file\n"
+            "- **Don't rely solely on answer text**: Ensure the actual work matches their claims\n",
         )
 
         return "\n".join(parts)
@@ -999,6 +1193,7 @@ class FilesystemSection(SystemPromptSection):
         enable_command_execution: Whether command line execution is enabled
         docker_mode: Whether commands execute in Docker containers
         enable_sudo: Whether sudo is available in Docker containers
+        enable_code_based_tools: Whether code-based tools mode is enabled
     """
 
     def __init__(
@@ -1014,6 +1209,7 @@ class FilesystemSection(SystemPromptSection):
         enable_command_execution: bool = False,
         docker_mode: bool = False,
         enable_sudo: bool = False,
+        enable_code_based_tools: bool = False,
     ):
         super().__init__(
             title="Filesystem & Workspace",
@@ -1033,7 +1229,7 @@ class FilesystemSection(SystemPromptSection):
                 agent_answers=agent_answers,
                 enable_command_execution=enable_command_execution,
             ),
-            FilesystemBestPracticesSection(),
+            FilesystemBestPracticesSection(enable_code_based_tools=enable_code_based_tools),
         ]
 
         # Add command execution section if enabled
@@ -1108,10 +1304,14 @@ When working on multi-step tasks:
 - `get_ready_tasks()` - Get tasks ready to start (dependencies satisfied)
 - `get_blocked_tasks()` - See what's waiting on dependencies
 - `update_task_status(task_id, status)` - Mark progress (pending/in_progress/completed)
-- `add_task(description, depends_on)` - Add new tasks as you discover them
+- `add_task(description, depends_on, priority)` - Add new tasks (priority: low/medium/high)
 - `get_task_plan()` - View your complete task plan
 - `edit_task(task_id, description)` - Update task descriptions
 - `delete_task(task_id)` - Remove tasks no longer needed
+
+**Reading Tool Responses:**
+Tool responses may include important reminders and guidance (e.g., when completing high-priority tasks,
+you'll receive reminders to save learnings to memory). Always read tool response messages carefully.
 
 **Recommended workflow:**
 ```python

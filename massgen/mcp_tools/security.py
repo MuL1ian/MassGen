@@ -33,6 +33,17 @@ MAX_STRING_LENGTH = 15000
 MAX_TOOL_ARG_DEPTH = 5
 MAX_TOOL_ARG_SIZE = 15000
 
+# Higher limits for file operation tools (write_file, edit_file)
+# These legitimately need large content for code files, HTML, etc.
+MAX_FILE_CONTENT_LENGTH = 50000
+MAX_FILE_TOOL_ARG_SIZE = 50000
+
+# Tools that are allowed higher string limits
+FILE_OPERATION_TOOLS = {
+    "write_file",
+    "edit_file",
+}
+
 
 def _normalize_security_level(level: str) -> str:
     """
@@ -134,6 +145,8 @@ def _get_default_allowed_executables(level: str) -> Set[str]:
         "rust",
         "cargo",
         "fastmcp",
+        # MCP servers (when globally installed)
+        "mcp-server-filesystem",
         # System utilities (limited set)
         "sh",
         "bash",
@@ -690,7 +703,32 @@ def sanitize_tool_name(tool_name: str, server_name: str) -> str:
     return final_name
 
 
-def validate_tool_arguments(arguments: Dict[str, Any], max_depth: int = MAX_TOOL_ARG_DEPTH, max_size: int = MAX_TOOL_ARG_SIZE) -> Dict[str, Any]:
+def _is_file_operation_tool(tool_name: Optional[str]) -> bool:
+    """Check if a tool name corresponds to a file operation tool that needs higher limits.
+
+    Args:
+        tool_name: Full tool name (e.g., 'mcp__filesystem__write_file')
+
+    Returns:
+        True if this is a file operation tool
+    """
+    if not tool_name:
+        return False
+
+    # Extract the base tool name from the full MCP tool name
+    # e.g., 'mcp__filesystem__write_file' -> 'write_file'
+    parts = tool_name.split("__")
+    base_name = parts[-1] if parts else tool_name
+
+    return base_name in FILE_OPERATION_TOOLS
+
+
+def validate_tool_arguments(
+    arguments: Dict[str, Any],
+    max_depth: int = MAX_TOOL_ARG_DEPTH,
+    max_size: int = MAX_TOOL_ARG_SIZE,
+    tool_name: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Validate tool arguments for security and size limits.
 
@@ -698,6 +736,7 @@ def validate_tool_arguments(arguments: Dict[str, Any], max_depth: int = MAX_TOOL
         arguments: Tool arguments dictionary
         max_depth: Maximum nesting depth allowed
         max_size: Maximum total size of arguments (rough estimate)
+        tool_name: Optional tool name for tool-specific limit adjustments
 
     Returns:
         Validated arguments dictionary
@@ -708,13 +747,18 @@ def validate_tool_arguments(arguments: Dict[str, Any], max_depth: int = MAX_TOOL
     if not isinstance(arguments, dict):
         raise ValueError("Tool arguments must be a dictionary")
 
+    # Use higher limits for file operation tools
+    is_file_tool = _is_file_operation_tool(tool_name)
+    effective_max_size = MAX_FILE_TOOL_ARG_SIZE if is_file_tool else max_size
+    effective_max_string = MAX_FILE_CONTENT_LENGTH if is_file_tool else MAX_STRING_LENGTH
+
     current_size = 0
 
     def _add_size(amount: int) -> None:
         nonlocal current_size
         current_size += amount
-        if current_size > max_size:
-            raise ValueError(f"Tool arguments too large: ~{current_size} > {max_size} bytes")
+        if current_size > effective_max_size:
+            raise ValueError(f"Tool arguments too large: ~{current_size} > {effective_max_size} bytes")
 
     def _size_for_primitive(value: Any) -> int:
         # Rough JSON-like size estimation for preventing extremely large payloads
@@ -761,8 +805,8 @@ def validate_tool_arguments(arguments: Dict[str, Any], max_depth: int = MAX_TOOL
             return validated_list
 
         elif isinstance(value, str):
-            if len(value) > MAX_STRING_LENGTH:
-                raise ValueError(f"String too long: {len(value)} > {MAX_STRING_LENGTH} characters")
+            if len(value) > effective_max_string:
+                raise ValueError(f"String too long: {len(value)} > {effective_max_string} characters")
             _add_size(_size_for_primitive(value))
             return value
 
@@ -772,8 +816,8 @@ def validate_tool_arguments(arguments: Dict[str, Any], max_depth: int = MAX_TOOL
 
         else:
             str_value = str(value)
-            if len(str_value) > MAX_STRING_LENGTH:
-                raise ValueError(f"Value too large when converted to string: {len(str_value)} > {MAX_STRING_LENGTH}")
+            if len(str_value) > effective_max_string:
+                raise ValueError(f"Value too large when converted to string: {len(str_value)} > {effective_max_string}")
             _add_size(_size_for_primitive(str_value))
             return str_value
 

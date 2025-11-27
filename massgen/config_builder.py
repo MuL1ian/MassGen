@@ -2915,6 +2915,493 @@ class ConfigBuilder:
             console.print("[info]Please report this issue if it persists.[/info]")
             return None
 
+    def generate_config_programmatic(
+        self,
+        output_path: str,
+        num_agents: int = 2,
+        backend_type: str = None,
+        model: str = None,
+        use_docker: bool = False,
+        context_path: Optional[str] = None,
+    ) -> bool:
+        """Generate config file programmatically without user interaction.
+
+        Args:
+            output_path: Where to save the config file
+            num_agents: Number of agents (1-10)
+            backend_type: Backend provider (must have API key)
+            model: Model name
+            use_docker: Whether to enable Docker execution
+            context_path: Optional path to add as context
+
+        Returns:
+            True if successful
+
+        Raises:
+            ValueError: If backend_type/model missing or API key unavailable
+        """
+        if not backend_type or not model:
+            raise ValueError("backend_type and model are required")
+
+        # Validate num_agents
+        if num_agents < 1 or num_agents > 10:
+            raise ValueError("Number of agents must be between 1 and 10")
+
+        # Check API key availability
+        api_keys = self.detect_api_keys()
+        if not api_keys.get(backend_type, False):
+            available = [p for p, has_key in api_keys.items() if has_key]
+            raise ValueError(
+                f"Backend '{backend_type}' not available (no API key found). " f"Available backends: {', '.join(available) if available else 'none'}",
+            )
+
+        # Build agents config
+        provider_info = self.PROVIDERS.get(backend_type, {})
+        agents_config = []
+        for i in range(num_agents):
+            chr(ord("a") + i) if i < 26 else str(i)
+            agents_config.append(
+                {
+                    "id": f"{backend_type.split('.')[-1]}-{model.split('-')[-1]}{i + 1}",
+                    "type": provider_info.get("type", backend_type),
+                    "model": model,
+                },
+            )
+
+        # Generate full config using existing quickstart logic
+        config = self._generate_quickstart_config(
+            agents_config,
+            context_path=context_path,
+            use_docker=use_docker,
+        )
+
+        # Save to file
+        from pathlib import Path
+
+        import yaml
+
+        output_file = Path(output_path).expanduser().resolve()
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+        return True
+
+    def run_quickstart(self) -> Optional[tuple]:
+        """Run simplified quickstart flow - just agents count and backend/model for each.
+
+        This creates a full-featured config with code-based tools, Docker execution,
+        orchestration, skills, etc. - all the good defaults. User only needs to specify
+        their models.
+
+        Returns:
+            Tuple of (filepath, question) or None if cancelled
+        """
+        try:
+            # Simple banner
+            console.clear()
+            banner = """[bold cyan]
+     ███╗   ███╗ █████╗ ███████╗███████╗ ██████╗ ███████╗███╗   ██╗
+     ████╗ ████║██╔══██╗██╔════╝██╔════╝██╔════╝ ██╔════╝████╗  ██║
+     ██╔████╔██║███████║███████╗███████╗██║  ███╗█████╗  ██╔██╗ ██║
+     ██║╚██╔╝██║██╔══██║╚════██║╚════██║██║   ██║██╔══╝  ██║╚██╗██║
+     ██║ ╚═╝ ██║██║  ██║███████║███████║╚██████╔╝███████╗██║ ╚████║
+     ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝[/bold cyan]
+"""
+            console.print(banner)
+            console.print("[bold cyan]Quickstart[/bold cyan] - Get running in 30 seconds\n")
+            console.print("[dim]Creates a full-featured config with code-based tools, Docker, skills, etc.[/dim]")
+            console.print("[dim]You just need to specify your models.[/dim]\n")
+
+            # Step 1: How many agents?
+            num_choices = [
+                questionary.Choice("1 agent", value=1),
+                questionary.Choice("2 agents", value=2),
+                questionary.Choice("3 agents (recommended)", value=3),
+                questionary.Choice("4 agents", value=4),
+                questionary.Choice("5 agents", value=5),
+            ]
+
+            num_agents = questionary.select(
+                "How many agents?",
+                choices=num_choices,
+                default=3,
+                style=questionary.Style(
+                    [
+                        ("selected", "fg:cyan bold"),
+                        ("pointer", "fg:cyan bold"),
+                        ("highlighted", "fg:cyan"),
+                    ],
+                ),
+                use_arrow_keys=True,
+            ).ask()
+
+            if num_agents is None:
+                raise KeyboardInterrupt
+
+            # Step 2: Configure each agent's backend and model
+            agents_config = []
+
+            # Get available providers (exclude generic backends)
+            api_keys = self.detect_api_keys()
+            excluded_generic_backends = ["chatcompletion", "inference"]
+            available_providers = [p for p, has_key in api_keys.items() if has_key and p not in excluded_generic_backends]
+
+            if not available_providers:
+                console.print("\n[error]❌ No providers with API keys found.[/error]")
+                console.print("[dim]Set API keys in ~/.massgen/.env or run 'massgen --setup'[/dim]\n")
+                return None
+
+            # For multiple agents, ask if same or different providers
+            use_same_provider = False
+            if num_agents > 1:
+                setup_mode = questionary.select(
+                    "Setup mode:",
+                    choices=[
+                        questionary.Choice("Same backend/model for all agents", value="same"),
+                        questionary.Choice("Different backends per agent", value="different"),
+                    ],
+                    style=questionary.Style(
+                        [
+                            ("selected", "fg:cyan bold"),
+                            ("pointer", "fg:cyan bold"),
+                            ("highlighted", "fg:cyan"),
+                        ],
+                    ),
+                    use_arrow_keys=True,
+                ).ask()
+
+                if setup_mode is None:
+                    raise KeyboardInterrupt
+
+                use_same_provider = setup_mode == "same"
+
+            if use_same_provider:
+                # Configure once, apply to all agents
+                console.print(f"\n[bold cyan]All {num_agents} agents[/bold cyan]")
+
+                # Select provider
+                provider_choices = [
+                    questionary.Choice(
+                        self.PROVIDERS.get(pid, {}).get("name", pid),
+                        value=pid,
+                    )
+                    for pid in available_providers
+                ]
+
+                provider_id = questionary.select(
+                    "  Backend:",
+                    choices=provider_choices,
+                    style=questionary.Style(
+                        [
+                            ("selected", "fg:cyan bold"),
+                            ("pointer", "fg:cyan bold"),
+                            ("highlighted", "fg:cyan"),
+                        ],
+                    ),
+                    use_arrow_keys=True,
+                ).ask()
+
+                if provider_id is None:
+                    raise KeyboardInterrupt
+
+                # Select model
+                provider_info = self.PROVIDERS.get(provider_id, {})
+                models = provider_info.get("models", ["default"])
+
+                model = self.select_model_smart(
+                    provider_id,
+                    models,
+                    current_model=models[0] if models else None,
+                    prompt="  Model:",
+                )
+
+                if model is None:
+                    raise KeyboardInterrupt
+
+                # Create all agents with same config
+                for i in range(num_agents):
+                    agent_letter = chr(ord("a") + i)
+                    agents_config.append(
+                        {
+                            "id": f"agent_{agent_letter}",
+                            "type": provider_info.get("type", provider_id),
+                            "model": model,
+                        },
+                    )
+
+            else:
+                # Configure each agent individually
+                for i in range(num_agents):
+                    agent_letter = chr(ord("a") + i)
+                    console.print(f"\n[bold cyan]Agent {i + 1} ({agent_letter})[/bold cyan]")
+
+                    # Select provider
+                    provider_choices = [
+                        questionary.Choice(
+                            self.PROVIDERS.get(pid, {}).get("name", pid),
+                            value=pid,
+                        )
+                        for pid in available_providers
+                    ]
+
+                    provider_id = questionary.select(
+                        "  Backend:",
+                        choices=provider_choices,
+                        style=questionary.Style(
+                            [
+                                ("selected", "fg:cyan bold"),
+                                ("pointer", "fg:cyan bold"),
+                                ("highlighted", "fg:cyan"),
+                            ],
+                        ),
+                        use_arrow_keys=True,
+                    ).ask()
+
+                    if provider_id is None:
+                        raise KeyboardInterrupt
+
+                    # Select model
+                    provider_info = self.PROVIDERS.get(provider_id, {})
+                    models = provider_info.get("models", ["default"])
+
+                    model = self.select_model_smart(
+                        provider_id,
+                        models,
+                        current_model=models[0] if models else None,
+                        prompt="  Model:",
+                    )
+
+                    if model is None:
+                        raise KeyboardInterrupt
+
+                    agents_config.append(
+                        {
+                            "id": f"agent_{agent_letter}",
+                            "type": provider_info.get("type", provider_id),
+                            "model": model,
+                        },
+                    )
+
+            # Step 3: Check Docker availability and ask about execution mode
+            # Import check function from cli
+            from .cli import check_docker_available
+
+            docker_available = check_docker_available()
+
+            if docker_available:
+                console.print("\n[bold cyan]Execution Mode[/bold cyan]")
+                console.print("[dim]Docker (recommended): Full 'code mode' with command-line tools, skills, package installation,[/dim]")
+                console.print("[dim]  and isolated execution. Agents can run any code safely in containers.[/dim]")
+                console.print("[dim]Local: More restricted - agents can create/edit files but no command execution.[/dim]\n")
+
+                use_docker = questionary.confirm(
+                    "Use Docker for code execution?",
+                    default=True,
+                    style=questionary.Style(
+                        [
+                            ("question", "fg:cyan bold"),
+                        ],
+                    ),
+                ).ask()
+
+                if use_docker is None:
+                    raise KeyboardInterrupt
+            else:
+                console.print("\n[bold cyan]Execution Mode[/bold cyan]")
+                console.print("[yellow]⚠️  Docker images not found. Using local mode.[/yellow]")
+                console.print("[dim]Local mode: Agents can create/edit files but no command execution.[/dim]")
+                console.print("[dim]To enable Docker mode, run: massgen --setup-docker[/dim]\n")
+                use_docker = False
+
+            # Step 4: Ask about context path (to avoid runtime prompt)
+            console.print("\n[bold cyan]Context Path[/bold cyan]")
+            console.print("[dim]Context paths give agents read/write access to your project files.[/dim]")
+            console.print("[dim]Without one, agents can only work in their isolated workspaces.[/dim]\n")
+            cwd = str(Path.cwd())
+            console.print(f"[dim]Current directory: {cwd}[/dim]")
+
+            add_context = questionary.confirm(
+                "Add current directory as context path?",
+                default=True,
+                style=questionary.Style(
+                    [
+                        ("question", "fg:cyan bold"),
+                    ],
+                ),
+            ).ask()
+
+            if add_context is None:
+                raise KeyboardInterrupt
+
+            context_path = cwd if add_context else None
+
+            # Step 5: Generate the full config
+            console.print("\n[dim]Generating configuration...[/dim]")
+
+            config = self._generate_quickstart_config(agents_config, context_path, use_docker)
+
+            # Step 4: Save the config
+            # Save to default config location so users can run `massgen` without flags
+            config_dir = Path.home() / ".config" / "massgen"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            filepath = config_dir / "config.yaml"
+
+            with open(filepath, "w") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+            console.print(f"\n[bold green]✅ Config saved to: {filepath}[/bold green]")
+            console.print("[dim]Launching MassGen...[/dim]\n")
+
+            # Offer example prompts to help users get started
+            from .cli import show_example_prompts
+
+            example_prompt = show_example_prompts()
+
+            if example_prompt:
+                # Return with the selected example prompt as initial question
+                return (str(filepath), example_prompt)
+            else:
+                # Auto-launch into interactive mode (return empty string to signal interactive mode)
+                return (str(filepath), "")
+
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n\n[yellow]Quickstart cancelled[/yellow]\n")
+            return None
+        except Exception as e:
+            console.print(f"\n[error]❌ Error: {e}[/error]")
+            return None
+
+    def _generate_quickstart_config(self, agents_config: List[Dict], context_path: Optional[str] = None, use_docker: bool = True) -> Dict:
+        """Generate a full-featured config from the quickstart agent specifications.
+
+        Args:
+            agents_config: List of dicts with 'id', 'type', 'model' for each agent
+            context_path: Optional path to add as context path (avoids runtime prompt)
+            use_docker: Whether to use Docker for code execution (True) or local mode (False)
+
+        Returns:
+            Complete configuration dict
+        """
+
+        # Base agent template with all the good defaults
+        def create_agent_backend(agent_type: str, model: str, workspace_num: int) -> Dict:
+            if use_docker:
+                # Full Docker mode with code-based tools, command execution, skills
+                backend = {
+                    "type": agent_type,
+                    "model": model,
+                    "cwd": f"workspace{workspace_num}",
+                    # Code-based tools (CodeAct paradigm)
+                    "enable_code_based_tools": True,
+                    "exclude_file_operation_mcps": True,
+                    "enable_mcp_command_line": True,
+                    # Docker execution
+                    "command_line_execution_mode": "docker",
+                    "command_line_docker_image": "ghcr.io/massgen/mcp-runtime-sudo:latest",
+                    "command_line_docker_network_mode": "bridge",
+                    "command_line_docker_enable_sudo": True,
+                    # Docker credentials for API keys
+                    "command_line_docker_credentials": {
+                        "env_file": ".env",
+                        "env_vars_from_file": [
+                            "OPENAI_API_KEY",
+                            "ANTHROPIC_API_KEY",
+                            "GOOGLE_API_KEY",
+                            "GEMINI_API_KEY",
+                        ],
+                    },
+                    # Shared tools directory
+                    "shared_tools_directory": "shared_tools",
+                    # Auto-discover custom tools
+                    "auto_discover_custom_tools": True,
+                    # Exclude heavy/problematic tools
+                    "exclude_custom_tools": [
+                        "_computer_use",
+                        "_claude_computer_use",
+                        "_gemini_computer_use",
+                        "_browser_automation",
+                    ],
+                }
+            else:
+                # Local mode - file operations only, no command execution
+                backend = {
+                    "type": agent_type,
+                    "model": model,
+                    "cwd": f"workspace{workspace_num}",
+                    # File operations via MCP (no code execution)
+                    "exclude_file_operation_mcps": False,  # Keep file MCPs
+                }
+            return backend
+
+        # Build agents list
+        agents = []
+        for i, agent_spec in enumerate(agents_config):
+            agent = {
+                "id": agent_spec["id"],
+                "backend": create_agent_backend(
+                    agent_spec["type"],
+                    agent_spec["model"],
+                    i + 1,
+                ),
+            }
+            agents.append(agent)
+
+        # Build orchestrator config
+        if use_docker:
+            # Full orchestrator config with skills and task planning
+            orchestrator_config = {
+                "snapshot_storage": "snapshots",
+                "agent_temporary_workspace": "temp_workspaces",
+                "max_new_answers_per_agent": 5,
+                "coordination": {
+                    "max_orchestration_restarts": 2,
+                    "use_skills": True,
+                    "skills_directory": ".agent/skills",
+                    "enable_agent_task_planning": True,
+                    "task_planning_filesystem_mode": True,
+                    "enable_memory_filesystem_mode": True,
+                },
+            }
+        else:
+            # Simplified orchestrator config for local mode (no skills)
+            orchestrator_config = {
+                "snapshot_storage": "snapshots",
+                "agent_temporary_workspace": "temp_workspaces",
+                "max_new_answers_per_agent": 5,
+                "coordination": {
+                    "max_orchestration_restarts": 2,
+                    "enable_agent_task_planning": True,
+                    "task_planning_filesystem_mode": True,
+                    "enable_memory_filesystem_mode": True,
+                },
+            }
+
+        # Always set context_paths to avoid runtime prompt
+        # If user said yes, add their path; if no, set empty list
+        if context_path:
+            orchestrator_config["context_paths"] = [
+                {"path": context_path, "permission": "write"},
+            ]
+        else:
+            orchestrator_config["context_paths"] = []
+
+        # Build full config
+        config = {
+            "agents": agents,
+            "orchestrator": orchestrator_config,
+            "timeout_settings": {
+                "orchestrator_timeout_seconds": 1800,
+            },
+            "ui": {
+                "type": "rich_terminal",
+                "logging_enabled": True,
+            },
+        }
+
+        return config
+
 
 def main() -> None:
     """Main entry point for the config builder."""

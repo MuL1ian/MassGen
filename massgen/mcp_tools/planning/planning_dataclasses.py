@@ -21,6 +21,7 @@ class Task:
         id: Unique task identifier (UUID or custom string)
         description: Human-readable task description
         status: Current task status (pending/in_progress/completed/blocked)
+        priority: Task priority level (low/medium/high, defaults to medium)
         created_at: Timestamp when task was created
         completed_at: Timestamp when task was completed (if applicable)
         dependencies: List of task IDs this task depends on
@@ -30,6 +31,7 @@ class Task:
     id: str
     description: str
     status: Literal["pending", "in_progress", "completed", "blocked"] = "pending"
+    priority: Literal["low", "medium", "high"] = "medium"
     created_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
     dependencies: List[str] = field(default_factory=list)
@@ -41,6 +43,7 @@ class Task:
             "id": self.id,
             "description": self.description,
             "status": self.status,
+            "priority": self.priority,
             "created_at": self.created_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "dependencies": self.dependencies.copy(),
@@ -54,6 +57,7 @@ class Task:
             id=data["id"],
             description=data["description"],
             status=data["status"],
+            priority=data.get("priority", "medium"),
             created_at=datetime.fromisoformat(data["created_at"]),
             completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
             dependencies=data.get("dependencies", []),
@@ -166,6 +170,7 @@ class TaskPlan:
         task_id: Optional[str] = None,
         after_task_id: Optional[str] = None,
         depends_on: Optional[List[str]] = None,
+        priority: Literal["low", "medium", "high"] = "medium",
     ) -> Task:
         """
         Add a new task to the plan.
@@ -175,6 +180,7 @@ class TaskPlan:
             task_id: Optional custom task ID (generates UUID if not provided)
             after_task_id: Optional ID to insert after (otherwise appends)
             depends_on: Optional list of task IDs this task depends on
+            priority: Task priority level (low/medium/high, defaults to medium)
 
         Returns:
             The newly created task
@@ -201,6 +207,7 @@ class TaskPlan:
             id=task_id,
             description=description,
             dependencies=depends_on or [],
+            priority=priority,
         )
 
         # Check for circular dependencies before adding
@@ -267,10 +274,22 @@ class TaskPlan:
                 if other_task.status == "pending" and task_id in other_task.dependencies and self.can_start_task(other_task.id):
                     newly_ready.append(other_task)
 
-            return {
+            # Add memory reminder for high-priority completed tasks
+            result = {
                 "task": task.to_dict(),
                 "newly_ready_tasks": [t.to_dict() for t in newly_ready],
             }
+
+            if task.priority == "high":
+                result["reminder"] = (
+                    "✓ High-priority task completed! Document decisions to optimize future work:\n"
+                    "  • Which skills/tools were effective (or not)? → memory/long_term/skill_effectiveness.md\n"
+                    "  • What approach worked (or failed) and why? → memory/long_term/approach_patterns.md\n"
+                    "  • What would prevent mistakes on similar tasks? → memory/long_term/lessons_learned.md\n"
+                    "  • User preferences revealed? → memory/short_term/user_prefs.md"
+                )
+
+            return result
 
         return {"task": task.to_dict()}
 

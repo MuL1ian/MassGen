@@ -11,6 +11,8 @@ import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from .persona_generator import PersonaGeneratorConfig
+
 if TYPE_CHECKING:
     from .message_templates import MessageTemplates
 
@@ -59,6 +61,8 @@ class CoordinationConfig:
                        When workspace/ is needed for file operations, it is created automatically.
         skills_directory: Path to the skills directory. Default is .agent/skills which is where
                          openskills installs skills. This directory is scanned for available skills.
+        persona_generator: Configuration for automatic persona generation to increase agent diversity.
+                          When enabled, an LLM generates diverse system message personas for each agent.
     """
 
     enable_planning_mode: bool = False
@@ -73,6 +77,7 @@ class CoordinationConfig:
     use_skills: bool = False
     massgen_skills: List[str] = field(default_factory=list)
     skills_directory: str = ".agent/skills"
+    persona_generator: PersonaGeneratorConfig = field(default_factory=PersonaGeneratorConfig)
 
 
 @dataclass

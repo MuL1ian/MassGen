@@ -1,9 +1,15 @@
-# Example: Code-Based Tools (CodeAct Paradigm)
+# Example: Code-Based Tools with Full MassGen Features
 #
-# This config demonstrates the code-based tools feature where MCP tools are
-# presented as Python code in the filesystem rather than as protocol tools.
+# This config demonstrates a comprehensive MassGen setup with:
+# - Code-based tools (CodeAct paradigm)
+# - DSPy question paraphrasing for answer diversity
+# - Orchestration restart for quality validation
+# - Agent task planning with filesystem mode
+# - Filesystem memory mode
+# - Skills system
+# - Advanced voting and answer control
 #
-# Benefits:
+# Benefits of Code-Based Tools:
 # - 98% context reduction (import only needed tools)
 # - Transparent (agents see code & docstrings)
 # - Composable (create utils/ scripts combining multiple tools)
@@ -12,6 +18,7 @@
 # - Shared tools directory (tools generated once, not duplicated in snapshots)
 #
 # Prerequisites:
+# 0. Run `./scripts/init.sh`
 # 1. Create .env file with API keys (see .env.example)
 # 2. Docker running (for docker execution mode)
 #
@@ -31,8 +38,13 @@ agents:
     backend:
       # type: "gemini"
       # model: "gemini-2.5-pro"
-      type: "openai"
-      model: "gpt-5-codex"
+      # type: "openai"
+      # model: "gpt-5-codex"
+      type: "chatcompletion"
+      base_url: "https://openrouter.ai/api/v1"
+      model: "x-ai/grok-4.1-fast"
+      # type: "grok"
+      # model: "grok-4-1-fast-reasoning"
       cwd: "workspace1"
 
       # Enable code-based tools (CodeAct paradigm)
@@ -43,6 +55,7 @@ agents:
       # Command line execution (required for code-based tools)
       command_line_execution_mode: "docker"
       command_line_docker_network_mode: "bridge"
+      command_line_docker_enable_sudo: true
 
       # IMPORTANT: Pass API keys to Docker (required for most custom tools)
       # Most tools in massgen/tool/ need API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
@@ -69,6 +82,7 @@ agents:
       # NOTE: Tools requiring unavailable API keys are AUTOMATICALLY excluded
       # This option is for manual exclusions (e.g., heavy dependencies, unwanted features)
       exclude_custom_tools:
+        - "_computer_use"  # Manual exclusion: Requires OPENAI_API_KEY
         - "_claude_computer_use"  # Manual exclusion: Requires ANTHROPIC_API_KEY
         - "_gemini_computer_use"   # Manual exclusion: Requires GOOGLE_API_KEY
         - "_browser_automation"    # Manual exclusion: Better to just do via CLI else image gets passed
@@ -83,8 +97,13 @@ agents:
 
   - id: "agent_b"
     backend:
-      type: "claude_code"
-      model: "claude-sonnet-4-5-20250929"
+      # type: "claude_code"
+      # model: "claude-sonnet-4-5-20250929"
+      type: "chatcompletion"
+      base_url: "https://openrouter.ai/api/v1"
+      model: "x-ai/grok-4.1-fast"
+      # type: "grok"
+      # model: "grok-4-1-fast-reasoning"
       cwd: "workspace2"
 
       # Enable code-based tools (CodeAct paradigm)
@@ -95,6 +114,7 @@ agents:
       # Command line execution (required for code-based tools)
       command_line_execution_mode: "docker"
       command_line_docker_network_mode: "bridge"
+      command_line_docker_enable_sudo: true
 
       # IMPORTANT: Pass API keys to Docker (required for most custom tools)
       # Most tools in massgen/tool/ need API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
@@ -121,6 +141,7 @@ agents:
       # NOTE: Tools requiring unavailable API keys are AUTOMATICALLY excluded
       # This option is for manual exclusions (e.g., heavy dependencies, unwanted features)
       exclude_custom_tools:
+        - "_computer_use"  # Manual exclusion: Requires OPENAI_API_KEY
         - "_claude_computer_use"  # Manual exclusion: Requires ANTHROPIC_API_KEY
         - "_gemini_computer_use"   # Manual exclusion: Requires GOOGLE_API_KEY
         - "_browser_automation"    # Manual exclusion: Better to just do via CLI else image gets passed
@@ -136,18 +157,49 @@ agents:
 orchestrator:
   snapshot_storage: "snapshots"
   agent_temporary_workspace: "temp_workspaces"
-  coordination:
-    # Enable skills system
-    use_skills: true
 
-    # enable planning
+  # ============ DSPy Question Paraphrasing ============
+  # Generates diverse question variants to increase answer diversity
+  # dspy:
+  #   enabled: true
+  #   backend:
+  #     type: "gemini"
+  #     model: "gemini-3-pro-preview"
+  #   num_variants: 2                            # Number of question paraphrases (1-10)
+  #   strategy: "balanced"                       # balanced, diverse, conservative, adaptive
+  #   cache_enabled: true                        # Cache paraphrases for efficiency
+  #   semantic_threshold: 0.85                   # Validation strictness (0.0-1.0)
+  #   validate_semantics: true                   # Verify paraphrases preserve meaning
+  #   use_chain_of_thought: false                # Better reasoning (higher cost)
+
+  # ============ Voting & Answer Control ============
+  # voting_sensitivity: "balanced"               # lenient, balanced, strict
+  max_new_answers_per_agent: 5                 # Limit answers per agent (null=unlimited)
+  # answer_novelty_requirement: "balanced"       # lenient, balanced, strict
+
+  # ============ Coordination Settings ============
+  coordination:
+    # Orchestration Restart - retry if quality check fails
+    max_orchestration_restarts: 2              # Allows 3 total attempts: initial + 2 restarts
+
+    # Skills System
+    use_skills: true
+    skills_directory: ".agent/skills"
+
+    # Agent Task Planning
     enable_agent_task_planning: true
     task_planning_filesystem_mode: true
+    # max_tasks_per_plan: 10
 
-    # enable filesystem memory mode
+    # Filesystem Memory Mode
     enable_memory_filesystem_mode: true
 
-# UI Configuration
+
+# ============ Timeout Configuration ============
+timeout_settings:
+  orchestrator_timeout_seconds: 1800           # 30 minutes
+
+# ============ UI Configuration ============
 ui:
   type: "rich_terminal"
   logging_enabled: true

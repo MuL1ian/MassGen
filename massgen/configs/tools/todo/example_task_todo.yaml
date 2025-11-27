@@ -6,8 +6,9 @@
  agents:
   - id: "agent_a"
     backend:
-      type: "gemini"
-      model: "gemini-2.5-pro"
+      type: "chatcompletion"
+      base_url: "https://openrouter.ai/api/v1"
+      model: "x-ai/grok-4.1-fast"
       cwd: "workspace1"
 
   - id: "agent_b"
