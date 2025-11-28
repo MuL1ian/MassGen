@@ -1,0 +1,16 @@
+# Basic single-agent configuration optimized for the textual terminal display.
+# Usage: uv run python -m massgen.cli --config massgen/configs/basic/single_agent_textual.yaml "<your question>"
+# uv run massgen --config massgen/configs/basic/single_agent_textual.yaml "What is the transformers in deep learning?"
+agent:
+  id: "textual_agent"
+  backend:
+    type: "openai"
+    model: "gpt-5-nano"
+   #enable_web_search: true
+    #enable_code_execution: true
+  system_message: "You are a concise assistant focused on textual reasoning and clarity."
+ui:
+  display_type: "textual_terminal"
+  logging_enabled: true
+  display_kwargs:
+    theme: "dark" # or "light"

@@ -227,7 +227,31 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.16 - Latest
+### v0.1.17 - Latest
+**New Features:** Textual Terminal Display System with Dark/Light Themes (Early Release)
+
+**Configuration Files:**
+- `basic/single_agent_textual.yaml` - Single agent with Textual terminal display
+
+**Key Features:**
+- **Textual Terminal Display**: Modern interactive terminal UI using the Textual library with multi-panel layout for agents and orchestrator
+- **Dark & Light Themes**: VS Code-inspired TCSS stylesheets for customizable appearance
+- **Enhanced Visualization**: Real-time streaming with syntax highlighting, emoji fallback, and content filtering for critical patterns
+
+> **Note:** This is an early release of the Textual display. The default remains `rich_terminal` for stability, but we'll continue iterating on the Textual version.
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Textual Terminal Display - enhanced interactive UI with dark/light themes
+# Prerequisites: OPENAI_API_KEY in .env
+uv run massgen --config massgen/configs/basic/single_agent_textual.yaml \
+  "What is the transformers in deep learning?"
+```
+
+### v0.1.16
 **New Features:** Terminal Evaluation System, LiteLLM Cost Tracking, Memory Archiving, Self-Evolution Skills
 
 **Configuration Files:**
@@ -236,27 +260,17 @@ Most configurations use environment variables for API keys:so
 - `skills/test_memory.yaml` - Memory archiving with multi-turn session support
 
 **Key Features:**
-- **Terminal Evaluation System**: Record terminal sessions with VHS and analyze with multimodal AI (GPT-4.1, Claude) for UI/UX evaluation
-- **LiteLLM Cost Tracking**: Accurate pricing for 500+ models with automatic updates, reasoning token support (o1/o3), cached token handling
+- **Terminal Evaluation System**: Record terminal sessions with VHS and analyze with multimodal AI for UI/UX evaluation
+- **LiteLLM Cost Tracking**: Accurate pricing for 500+ models with automatic updates, reasoning token support
 - **Memory Archiving**: Persistent memory across conversation turns for session continuity
-- **Self-Evolution Skills**: Four new skills enabling MassGen to maintain configs, document releases, and develop features
-- **Docker Enhancements**: Parallel image pulling, VHS integration for terminal recording
-- **Model Updates**: Grok 4.1 family and GPT-4.1 models with accurate pricing metadata
+- **Self-Evolution Skills**: Four new skills for MassGen self-development and maintenance
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Terminal Evaluation - record and analyze MassGen's terminal display
 # Prerequisites: VHS installed (brew install vhs), OPENAI_API_KEY or GEMINI_API_KEY in .env
 uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
   "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
-
-# Terminal Evaluation Tool Demo - demonstrates recording and analysis workflow
-# Prerequisites: VHS installed, OPENAI_API_KEY in .env
-uv run massgen --config massgen/configs/tools/custom_tools/terminal_evaluation.yaml \
-  "Record and evaluate the terminal display for the todo example config"
 
 # Memory Archiving - persistent memory across conversation turns
 # Prerequisites: Docker running, API keys in .env
