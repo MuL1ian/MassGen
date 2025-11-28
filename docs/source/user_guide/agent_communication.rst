@@ -476,4 +476,3 @@ See Also
 
 - :doc:`agent_task_planning` - Task planning system for organizing work
 - :doc:`../reference/yaml_schema` - Complete YAML configuration reference
-- :doc:`../examples/case_studies/coordination_example` - Real-world usage examples
