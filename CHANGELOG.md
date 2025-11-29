@@ -5,7 +5,12 @@ All notable changes to MassGen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
 ## Recent Releases
+
+**v0.1.18 (November 28, 2025)** - Agent Communication & Claude Advanced Tooling
+Agent-to-agent and human broadcast communication via `ask_others()` tool, Claude programmatic tool calling from code execution, and deferred tool discovery with server-side tool search.
 
 **v0.1.17 (November 26, 2025)** - Textual Terminal Display
 Interactive terminal UI using the Textual library with dark/light theme support, enhanced CoordinationUI integration, and improved content filtering for better agent coordination visualization.
@@ -13,10 +18,45 @@ Interactive terminal UI using the Textual library with dark/light theme support,
 **v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory Improvements
 Terminal evaluation system with VHS recording support, LiteLLM integration for accurate cost tracking across 500+ models, memory archiving with session improvements, and MassGen self-evolution skills.
 
-**v0.1.15 (November 21, 2025)** - Persona Generation System & Docker Distribution
-Automatic persona generation for agent diversity with multiple strategies, enhanced Docker distribution via GitHub Container Registry with ARM support, and MassGen pre-installed in Docker images.
-
 ---
+
+## [0.1.18] - 2025-11-28
+
+### Added
+- **Agent Communication System**: Agents can now ask questions to other agents and optionally humans via the `ask_others()` tool
+  - Three modes: disabled (default), agent-to-agent only (`broadcast: "agents"`), or human-only (`broadcast: "human"`)
+  - Blocking execution with inline response delivery into agent context
+  - Human interaction UI with timeout, skip options, and session-persistent Q&A history
+  - Rate limiting and serialized calls to prevent spam and duplicate prompts
+  - Comprehensive event tracking in coordination logs
+
+- **Claude Programmatic Tool Calling**: Code execution can now invoke custom and MCP tools programmatically
+  - New `enable_programmatic_flow` backend flag that automatically enables code execution sandbox
+  - Custom and MCP tools callable from Claude's code sandbox via `allowed_callers` marking
+  - Requires claude-opus-4-5 or claude-sonnet-4-5 models with streaming indicators for invocations
+
+- **Claude Tool Search (Deferred Loading)**: Server-side tool discovery for large tool sets
+  - New `enable_tool_search` flag with `tool_search_variant` option (`"regex"` or `"bm25"`)
+  - Tools with `defer_loading: true` discovered on-demand, reducing initial context size
+  - Per-tool and per-MCP-server override support with streaming indicators
+
+### Changed
+- **Backend Capabilities Enhancement**: Added tool search and programmatic flow capability flags to `massgen/backend/capabilities.py` (+17 lines)
+- **ConfigValidator Enhancement**: Added `enable_programmatic_flow` and `enable_tool_search` boolean field validation (+2 lines)
+
+### Documentations, Configurations and Resources
+
+- **Claude Advanced Tooling Guide**: New `docs/claude-advanced-tooling.md` covering model requirements, API betas, configuration examples, and streaming cues
+- **Agent Communication Documentation**: New `docs/source/user_guide/agent_communication.rst` with broadcast modes, serialization, Q&A history, and examples
+- **Configuration Examples**:
+  - `massgen/configs/providers/claude/programmatic_with_two_tools.yaml` - Programmatic tool calling with custom and MCP tools
+  - `massgen/configs/providers/claude/tool_search_example.yaml` - Tool search with visible and deferred tools
+  - `massgen/configs/broadcast/test_broadcast_agents.yaml` - Agent-to-agent broadcast communication
+  - `massgen/configs/broadcast/test_broadcast_human.yaml` - Human broadcast communication with Q&A prompts
+
+### Technical Details
+- **Major Focus**: Agent communication system with human broadcast support, Claude programmatic tool calling from code execution, Claude tool search for deferred tool discovery
+- **Contributors**: @ncrispino @praneeth999 and the MassGen team
 
 ## [0.1.17] - 2025-11-26
 

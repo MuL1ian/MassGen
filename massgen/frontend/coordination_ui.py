@@ -395,6 +395,8 @@ class CoordinationUI:
         self.display = None
 
         self.orchestrator = orchestrator
+        # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
+        orchestrator.coordination_ui = self
 
         # Auto-detect agent IDs if not provided
         if agent_ids is None:
@@ -796,6 +798,8 @@ class CoordinationUI:
         self.display = None
 
         self.orchestrator = orchestrator
+        # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
+        orchestrator.coordination_ui = self
 
         # Auto-detect agent IDs if not provided
         if agent_ids is None:
@@ -1337,6 +1341,64 @@ class CoordinationUI:
         except Exception:
             # On any error, fallback to immediate display
             print(content, end="", flush=True)
+
+    async def prompt_for_broadcast_response(self, broadcast_request: Any) -> Optional[str]:
+        """Prompt human for response to a broadcast question.
+
+        Args:
+            broadcast_request: BroadcastRequest object with question details
+
+        Returns:
+            Human's response string, or None if skipped/timeout
+        """
+
+        # Skip human input in automation mode
+        if self.config.get("automation_mode", False):
+            print(f"\n📢 [Automation Mode] Skipping human input for broadcast from {broadcast_request.sender_agent_id}")
+            print(f"   Question: {broadcast_request.question[:100]}{'...' if len(broadcast_request.question) > 100 else ''}\n")
+            return None
+
+        # Delegate to display if it supports broadcast prompts
+        if self.display and hasattr(self.display, "prompt_for_broadcast_response"):
+            return await self.display.prompt_for_broadcast_response(broadcast_request)
+
+        # Fallback: Basic terminal implementation
+        print("\n" + "=" * 70)
+        print(f"📢 BROADCAST FROM {broadcast_request.sender_agent_id.upper()}")
+        print("=" * 70)
+        print(f"\n{broadcast_request.question}\n")
+        print("─" * 70)
+        print("Options:")
+        print("  • Type your response and press Enter")
+        print("  • Press Enter alone to skip")
+        print(f"  • You have {broadcast_request.timeout} seconds to respond")
+        print("=" * 70)
+
+        try:
+            # Use asyncio to read input with timeout
+            response = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    input,
+                    "Your response (or Enter to skip): ",
+                ),
+                timeout=float(broadcast_request.timeout),
+            )
+
+            response = response.strip()
+            if response:
+                print(f"\n✓ Response submitted: {response[:50]}{'...' if len(response) > 50 else ''}\n")
+                return response
+            else:
+                print("\n⏭️  Skipped (no response)\n")
+                return None
+
+        except asyncio.TimeoutError:
+            print("\n⏱️  Timeout - no response submitted\n")
+            return None
+        except Exception as e:
+            print(f"\n❌ Error getting response: {e}\n")
+            return None
 
 
 # Convenience functions for common use cases

@@ -13,6 +13,25 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from massgen.system_prompt_sections import (
+    AgentIdentitySection,
+    BroadcastCommunicationSection,
+    CodeBasedToolsSection,
+    CommandExecutionSection,
+    CoreBehaviorsSection,
+    EvaluationSection,
+    FileSearchSection,
+    FilesystemBestPracticesSection,
+    FilesystemOperationsSection,
+    MemorySection,
+    PlanningModeSection,
+    PostEvaluationSection,
+    SkillsSection,
+    SystemPromptBuilder,
+    TaskPlanningSection,
+    WorkspaceStructureSection,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,6 +86,7 @@ class SystemMessageBuilder:
         enable_memory: bool,
         enable_task_planning: bool,
         previous_turns: List[Dict[str, Any]],
+        human_qa_history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -82,22 +102,11 @@ class SystemMessageBuilder:
             enable_memory: Whether to include memory section
             enable_task_planning: Whether to include task planning guidance
             previous_turns: List of previous turn data for filesystem context
+            human_qa_history: List of human Q&A pairs from broadcast channel (human mode only)
 
         Returns:
             Complete system prompt string with XML structure
         """
-        from massgen.system_prompt_sections import (
-            AgentIdentitySection,
-            CoreBehaviorsSection,
-            EvaluationSection,
-            MemorySection,
-            PlanningModeSection,
-            SkillsSection,
-            SystemPromptBuilder,
-            TaskPlanningSection,
-            WorkspaceStructureSection,
-        )
-
         builder = SystemPromptBuilder()
 
         # PRIORITY 1 (CRITICAL): Agent Identity - WHO they are
@@ -198,14 +207,10 @@ class SystemMessageBuilder:
 
             # Add lightweight file search guidance if command execution is available
             # (rg and sg are pre-installed in Docker and commonly available in local mode)
-            from massgen.system_prompt_sections import FileSearchSection
-
             builder.add_section(FileSearchSection())
 
             # Add code-based tools section if enabled (CodeAct paradigm)
             if agent.backend.filesystem_manager.enable_code_based_tools:
-                from massgen.system_prompt_sections import CodeBasedToolsSection
-
                 workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
                 shared_tools_path = None
                 if agent.backend.filesystem_manager.shared_tools_directory:
@@ -228,6 +233,22 @@ class SystemMessageBuilder:
                 and agent.backend.filesystem_manager.cwd
             )
             builder.add_section(TaskPlanningSection(filesystem_mode=filesystem_mode))
+
+        # PRIORITY 10 (MEDIUM): Broadcast Communication (conditional)
+        if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "broadcast"):
+            broadcast_mode = self.config.coordination_config.broadcast
+            if broadcast_mode and broadcast_mode is not False:
+                builder.add_section(
+                    BroadcastCommunicationSection(
+                        broadcast_mode=broadcast_mode,
+                        wait_by_default=getattr(self.config.coordination_config, "broadcast_wait_by_default", True),
+                        sensitivity=getattr(self.config.coordination_config, "broadcast_sensitivity", "medium"),
+                        human_qa_history=human_qa_history,
+                    ),
+                )
+                sensitivity = getattr(self.config.coordination_config, "broadcast_sensitivity", "medium")
+                qa_count = len(human_qa_history) if human_qa_history else 0
+                logger.info(f"[SystemMessageBuilder] Added broadcast section (mode: {broadcast_mode}, sensitivity: {sensitivity}, human_qa: {qa_count})")
 
         # PRIORITY 10 (MEDIUM): Planning Mode (conditional)
         if planning_mode_enabled and self.config and hasattr(self.config, "coordination_config") and self.config.coordination_config and self.config.coordination_config.planning_mode_instruction:
@@ -308,8 +329,6 @@ class SystemMessageBuilder:
 
             # Add code-based tools section if enabled (CodeAct paradigm)
             if agent.backend.filesystem_manager.enable_code_based_tools:
-                from massgen.system_prompt_sections import CodeBasedToolsSection
-
                 workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
                 shared_tools_path = None
                 if agent.backend.filesystem_manager.shared_tools_directory:
@@ -348,8 +367,6 @@ class SystemMessageBuilder:
         Returns:
             Complete system message string
         """
-        from massgen.system_prompt_sections import PostEvaluationSection
-
         # Get agent's configurable system message
         agent_system_message = agent.get_configurable_system_message()
         if agent_system_message is None:
@@ -378,8 +395,6 @@ class SystemMessageBuilder:
 
             # Add code-based tools section if enabled (CodeAct paradigm)
             if agent.backend.filesystem_manager.enable_code_based_tools:
-                from massgen.system_prompt_sections import CodeBasedToolsSection
-
                 workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
                 shared_tools_path = None
                 if agent.backend.filesystem_manager.shared_tools_directory:
@@ -423,12 +438,6 @@ class SystemMessageBuilder:
         Returns:
             Tuple of (FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection])
         """
-        from massgen.system_prompt_sections import (
-            CommandExecutionSection,
-            FilesystemBestPracticesSection,
-            FilesystemOperationsSection,
-        )
-
         # Extract filesystem paths from agent
         main_workspace = str(agent.backend.filesystem_manager.get_current_workspace())
         temp_workspace = str(agent.backend.filesystem_manager.agent_temporary_workspace) if agent.backend.filesystem_manager.agent_temporary_workspace else None

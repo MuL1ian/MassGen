@@ -7,6 +7,7 @@ Enhanced terminal interface using Rich library with live updates,
 beautiful formatting, code highlighting, and responsive layout.
 """
 
+import asyncio
 import os
 import re
 import signal
@@ -200,6 +201,7 @@ class RichTerminalDisplay(TerminalDisplay):
         self._user_quit_requested = False  # Flag to signal user wants to quit
         self._original_settings = None
         self._agent_selector_active = False  # Flag to prevent duplicate agent selector calls
+        self._human_input_in_progress = False  # Flag to prevent display auto-restart during human input
 
         # Store final presentation for re-display
         self._stored_final_presentation = None
@@ -896,6 +898,10 @@ class RichTerminalDisplay(TerminalDisplay):
     def _update_live_display(self) -> None:
         """Update Live display mode."""
         try:
+            # Don't update display if human input is in progress
+            if self._human_input_in_progress:
+                return
+
             if self.live:
                 self.live.update(self._create_layout())
         except Exception:
@@ -905,6 +911,10 @@ class RichTerminalDisplay(TerminalDisplay):
     def _update_live_display_safe(self) -> None:
         """Update Live display mode with extra safety for macOS terminals."""
         try:
+            # Don't update or restart display if human input is in progress
+            if self._human_input_in_progress:
+                return
+
             if self.live and self.live.is_started:
                 # For macOS terminals, add a small delay to prevent flickering
                 import time
@@ -913,6 +923,7 @@ class RichTerminalDisplay(TerminalDisplay):
                 self.live.update(self._create_layout())
             elif self.live:
                 # If live display exists but isn't started, try to restart it
+                # (but only if human input is not in progress)
                 try:
                     self.live.start()
                     self.live.update(self._create_layout())
@@ -3758,7 +3769,6 @@ class RichTerminalDisplay(TerminalDisplay):
 
             # Get the final presentation from the orchestrator
             if hasattr(self.orchestrator, "get_final_presentation"):
-                import asyncio
 
                 async def _get_and_display_presentation() -> None:
                     """Helper to get and display presentation asynchronously."""
@@ -4266,6 +4276,205 @@ class RichTerminalDisplay(TerminalDisplay):
             self._enable_flush_output = enabled
             self._flush_char_delay = char_delay
             self._flush_word_delay = word_delay
+
+    async def prompt_for_broadcast_response(self, broadcast_request: Any) -> Optional[str]:
+        """Prompt human for response to a broadcast question using Rich formatting.
+
+        Args:
+            broadcast_request: BroadcastRequest object with question details
+
+        Returns:
+            Human's response string, or None if skipped/timeout
+        """
+        import sys
+        import termios
+
+        from loguru import logger
+
+        logger.info(f"📢 [Human Input] Starting broadcast prompt from {broadcast_request.sender_agent_id}")
+
+        # CRITICAL: Set flag to prevent display auto-restart during human input
+        self._human_input_in_progress = True
+        logger.info("📢 [Human Input] Set flag to prevent display auto-restart")
+
+        # Step 1: Stop keyboard monitoring thread FIRST
+        keyboard_was_active = False
+        if hasattr(self, "_input_thread") and self._input_thread and self._input_thread.is_alive():
+            keyboard_was_active = True
+            logger.info("📢 [Human Input] Stopping keyboard monitoring thread")
+            self._stop_input_thread = True
+            try:
+                # Wait for thread to stop (with timeout)
+                self._input_thread.join(timeout=1.0)
+                logger.info(f"📢 [Human Input] Keyboard thread stopped: {not self._input_thread.is_alive()}")
+            except Exception as e:
+                logger.warning(f"📢 [Human Input] Error stopping keyboard thread: {e}")
+
+        # Step 2: Pause live display to show prompt
+        live_was_active = False
+        if hasattr(self, "live") and self.live and self.live.is_started:
+            live_was_active = True
+            logger.info("📢 [Human Input] Stopping Live display")
+            self.live.stop()
+            # Longer delay to ensure display has fully stopped and stdin is released
+            await asyncio.sleep(0.5)
+            logger.info("📢 [Human Input] Live display stopped")
+
+        # Save current terminal settings and restore to canonical mode for input
+        # This is crucial because keyboard monitoring may have set non-blocking mode
+        saved_terminal_settings = None
+        try:
+            if sys.stdin.isatty():
+                saved_terminal_settings = termios.tcgetattr(sys.stdin.fileno())
+                # Flush any pending input before restoring canonical mode
+                # This prevents stray characters from keyboard monitoring from being read
+                termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+                # Restore canonical mode (blocking, line-buffered input)
+                new_settings = termios.tcgetattr(sys.stdin.fileno())
+                new_settings[3] = new_settings[3] | termios.ICANON | termios.ECHO
+                new_settings[6][termios.VMIN] = 1  # Blocking read
+                new_settings[6][termios.VTIME] = 0  # No timeout
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, new_settings)
+        except Exception as e:
+            from loguru import logger
+
+            logger.warning(f"📢 [Human Input] Could not save/restore terminal settings: {e}")
+
+        try:
+            # Clear screen for modal effect - make the prompt very prominent
+            self.console.clear()
+
+            # Display modal-style broadcast notification
+            # Create a large, prominent banner
+            banner = Panel(
+                Text("⏸  ALL AGENTS PAUSED - HUMAN INPUT NEEDED  ⏸", justify="center", style="bold yellow on red"),
+                border_style="red bold",
+                box=DOUBLE,
+            )
+            self.console.print("\n" * 2)
+            self.console.print(banner)
+            self.console.print("\n")
+
+            # Display the actual question in a cyan panel
+            panel_content = Text()
+            panel_content.append("QUESTION:\n", style="bold yellow")
+            panel_content.append(f"{broadcast_request.question}\n\n", style="bold cyan")
+            panel_content.append("HOW TO RESPOND:\n", style="bold yellow")
+            panel_content.append("  • Type your answer and press Enter\n", style="white")
+            panel_content.append("  • Press Enter alone to skip\n", style="white")
+            panel_content.append(f"  • Timeout: {broadcast_request.timeout} seconds\n\n", style="dim")
+
+            panel = Panel(
+                panel_content,
+                title=f"📢 FROM: {broadcast_request.sender_agent_id.upper()}",
+                border_style="cyan bold",
+                box=DOUBLE,
+                padding=(1, 2),
+            )
+
+            self.console.print(panel)
+            self.console.print("\n")
+
+            logger.info("📢 [Human Input] Modal prompt displayed, waiting for user input")
+
+            # Ensure all output is flushed before waiting for input
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            # Use asyncio to read input with timeout
+            try:
+                logger.info("📢 [Human Input] Waiting for user input (blocking)...")
+                logger.info(f"📢 [Human Input] stdin.isatty()={sys.stdin.isatty()}, timeout={broadcast_request.timeout}s")
+
+                # Use a synchronous approach - input() in executor sometimes has issues
+                import sys
+                from concurrent.futures import ThreadPoolExecutor
+
+                self.console.print("\n💬 [bold cyan]Your response (or Enter to skip):[/bold cyan] ", end="")
+                sys.stdout.flush()
+
+                # Create dedicated executor for blocking I/O
+                executor = ThreadPoolExecutor(max_workers=1)
+                try:
+                    response = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            executor,
+                            sys.stdin.readline,
+                        ),
+                        timeout=float(broadcast_request.timeout),
+                    )
+                    logger.info(f"📢 [Human Input] Input received: {len(response)} chars")
+                finally:
+                    executor.shutdown(wait=False)
+
+                response = response.strip()
+                if response:
+                    logger.info(f"📢 [Human Input] User provided response: {response[:50]}...")
+                    self.console.print(f"\n✅ Response submitted: [green bold]{response[:80]}{'...' if len(response) > 80 else ''}[/green bold]\n")
+                    await asyncio.sleep(1.5)  # Show confirmation briefly
+                    return response
+                else:
+                    logger.info("📢 [Human Input] User skipped (empty response)")
+                    self.console.print("\n⏭️  [yellow]Skipped (no response provided)[/yellow]\n")
+                    await asyncio.sleep(1.0)
+                    return None
+
+            except asyncio.TimeoutError:
+                logger.warning(f"📢 [Human Input] Timeout after {broadcast_request.timeout} seconds")
+                self.console.print("\n⏱️  [red bold]Timeout - no response submitted[/red bold]\n")
+                await asyncio.sleep(1.0)
+                return None
+            except EOFError as eof_err:
+                logger.error(f"📢 [Human Input] EOFError - stdin.isatty()={sys.stdin.isatty()}, stdin.closed={sys.stdin.closed}")
+                self.console.print("\n❌ [red]Error: stdin not available (EOF)[/red]\n")
+                self.console.print(f"[dim]Details: {eof_err}[/dim]\n")
+                self.console.print("[dim]This happens when the terminal is not interactive or stdin is redirected[/dim]\n")
+                await asyncio.sleep(2.0)
+                return None
+            except Exception as e:
+                import traceback
+
+                logger.error(f"📢 [Human Input] Unexpected error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+                self.console.print(f"\n❌ [red]Error getting response: {type(e).__name__}: {e}[/red]\n")
+                self.console.print(f"[dim]{traceback.format_exc()}[/dim]\n")
+                await asyncio.sleep(2.0)
+                return None
+
+        finally:
+            logger.info("📢 [Human Input] Cleaning up and restoring display")
+
+            # CRITICAL: Clear the flag to allow display updates to resume
+            self._human_input_in_progress = False
+            logger.info("📢 [Human Input] Cleared flag - display updates can resume")
+
+            # Restore original terminal settings if we changed them
+            if saved_terminal_settings is not None:
+                try:
+                    termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, saved_terminal_settings)
+                    logger.info("📢 [Human Input] Terminal settings restored")
+                except Exception as e:
+                    logger.warning(f"📢 [Human Input] Could not restore terminal settings: {e}")
+
+            # Clear the modal screen before resuming
+            self.console.clear()
+
+            # Resume live display if it was active before
+            if live_was_active and hasattr(self, "live") and self.live:
+                logger.info("📢 [Human Input] Restarting Live display")
+                await asyncio.sleep(0.2)  # Small delay before restart
+                self.live.start()
+                logger.info("📢 [Human Input] Live display restarted")
+
+            # Restart keyboard monitoring thread if it was active
+            if keyboard_was_active and self._keyboard_interactive_mode:
+                logger.info("📢 [Human Input] Restarting keyboard monitoring thread")
+                try:
+                    self._start_input_thread()
+                    logger.info("📢 [Human Input] Keyboard monitoring thread restarted")
+                except Exception as e:
+                    logger.warning(f"📢 [Human Input] Could not restart keyboard thread: {e}")
+
+            logger.info("📢 [Human Input] Broadcast prompt cleanup complete, resuming normal operation")
 
 
 # Convenience function to check Rich availability

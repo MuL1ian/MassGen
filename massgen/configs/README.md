@@ -227,7 +227,37 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.17 - Latest
+### v0.1.18 - Latest
+**New Features:** Agent Communication System (Human Broadcast Q&A), Claude Programmatic Tool Calling, Claude Tool Search
+
+**Configuration Files:**
+- `providers/claude/programmatic_with_two_tools.yaml` - Claude programmatic tool calling with custom and MCP tools
+- `providers/claude/tool_search_example.yaml` - Claude tool search with deferred loading
+- `broadcast/test_broadcast_agents.yaml` - Agent-to-agent broadcast communication
+- `broadcast/test_broadcast_human.yaml` - Human broadcast communication with Q&A prompts
+
+**Key Features:**
+- **Agent Communication System**: Agents broadcast questions to humans or other agents via `ask_others()` tool with three modes, blocking execution with inline response delivery, session-persistent Q&A history
+- **Claude Programmatic Tool Calling**: Code execution invokes tools via `enable_programmatic_flow` flag (requires claude-opus-4-5 or claude-sonnet-4-5)
+- **Claude Tool Search**: Server-side deferred tool discovery via `enable_tool_search` with regex or bm25 variants
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Claude Programmatic Tool Calling - call tools from code execution
+# Prerequisites: ANTHROPIC_API_KEY in .env
+massgen --config massgen/configs/providers/claude/programmatic_with_two_tools.yaml \
+  "Add 5 and 3, then get weather for Tokyo and New York"
+
+# Claude Tool Search - deferred tool discovery (visible + deferred tools)
+# Prerequisites: ANTHROPIC_API_KEY, BRAVE_API_KEY in .env
+massgen --config massgen/configs/providers/claude/tool_search_example.yaml \
+  "Check weather in tokyo, search for tourist attractions, and find me an Airbnb there for 3 nights in january 2026"
+```
+
+### v0.1.17
 **New Features:** Textual Terminal Display System with Dark/Light Themes (Early Release)
 
 **Configuration Files:**
@@ -247,7 +277,7 @@ pip install --upgrade massgen
 
 # Textual Terminal Display - enhanced interactive UI with dark/light themes
 # Prerequisites: OPENAI_API_KEY in .env
-uv run massgen --config massgen/configs/basic/single_agent_textual.yaml \
+massgen --config massgen/configs/basic/single_agent_textual.yaml \
   "What is the transformers in deep learning?"
 ```
 

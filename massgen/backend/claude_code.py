@@ -76,6 +76,7 @@ from ..logger_config import (
     logger,
 )
 from ..tool import ToolManager
+from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
 from .base import FilesystemSupport, LLMBackend, StreamChunk
 
 
@@ -841,7 +842,7 @@ class ClaudeCodeBackend(LLMBackend):
 
         # Add workflow tools information if present
         if tools:
-            workflow_tools = [t for t in tools if t.get("function", {}).get("name") in ["new_answer", "vote", "submit", "restart_orchestration"]]
+            workflow_tools = [t for t in tools if t.get("function", {}).get("name") in WORKFLOW_TOOL_NAMES]
             if workflow_tools:
                 system_parts.append("\n--- Coordination Actions ---")
                 for tool in workflow_tools:
@@ -876,6 +877,13 @@ class ClaudeCodeBackend(LLMBackend):
                     elif name == "restart_orchestration":
                         system_parts.append(
                             '    Usage: {"tool_name": "restart_orchestration", ' '"arguments": {"reason": "The answer is incomplete because...", ' '"instructions": "In the next attempt, please..."}}',
+                        )
+                    elif name == "ask_others":
+                        system_parts.append(
+                            '    Usage: {"tool_name": "ask_others", ' '"arguments": {"question": "Which framework should we use: Next.js or React?"}}',
+                        )
+                        system_parts.append(
+                            '    IMPORTANT: When user says "call ask_others" or "ask others", you MUST execute this tool call.',
                         )
 
                 system_parts.append("\n--- MassGen Coordination Instructions ---")

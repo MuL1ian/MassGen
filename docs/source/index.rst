@@ -145,17 +145,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.18 (November 28, 2025)** - Agent Communication & Claude Advanced Tooling
+
+Agent-to-agent and human broadcast communication via ``ask_others()`` tool with three modes (disabled, agents-only, human-only), blocking execution with inline response delivery, and session-persistent Q&A history. Claude programmatic tool calling from code execution via ``enable_programmatic_flow`` flag. Claude tool search for deferred tool discovery via ``enable_tool_search`` with regex or bm25 variants, reducing initial context size.
+
 **v0.1.17 (November 26, 2025)** - Textual Terminal Display
 
-Interactive terminal UI using the Textual library with dark/light theme support (early release). Multi-panel layout with dedicated views for each agent and orchestrator status. Real-time streaming with syntax highlighting, emoji fallback for terminals without Unicode, and content filtering for critical patterns. Enhanced CoordinationUI with ``textual_terminal`` display type alongside existing rich_terminal and simple displays. Default remains ``rich_terminal`` for stability while we iterate on the Textual version.
+Interactive terminal UI using the Textual library with dark/light theme support (early release). Multi-panel layout with dedicated views for each agent and orchestrator status. Real-time streaming with syntax highlighting, emoji fallback for terminals without Unicode, and content filtering for critical patterns. Enhanced CoordinationUI with ``textual_terminal`` display type alongside existing rich_terminal and simple displays.
 
 **v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory Improvements
 
-Terminal evaluation system with VHS recording for automated session capture as GIF/MP4/WEBM, analyzed by multimodal models (GPT-4.1, Claude) for UI/UX quality, agent performance, and coordination visualization. LiteLLM integration for accurate cost tracking across 500+ models with reasoning tokens (o1/o3) and cached tokens (Claude, OpenAI) support. Memory archiving system enables persistent multi-turn conversations. MassGen self-evolution skills for autonomous system maintenance.
-
-**v0.1.15 (November 21, 2025)** - Persona Generation System & Docker Distribution
-
-Automatic persona generation for multi-agent configurations with multiple strategies (complementary, diverse, specialized, adversarial) to increase response diversity. Enhanced Docker distribution via GitHub Container Registry with ARM architecture support. Custom tools now run in isolated Docker containers for security and portability. MassGen pre-installed in Docker images for immediate use.
+Terminal evaluation system with VHS recording for automated session capture as GIF/MP4/WEBM, analyzed by multimodal models (GPT-4.1, Claude) for UI/UX quality, agent performance, and coordination visualization. LiteLLM integration for accurate cost tracking across 500+ models with reasoning tokens (o1/o3) and cached tokens (Claude, OpenAI) support. Memory archiving system enables persistent multi-turn conversations.
 
 Quick Start
 -----------
@@ -363,6 +363,7 @@ Documentation Sections
    user_guide/memory_filesystem_mode
    user_guide/orchestration_restart
    user_guide/agent_task_planning
+   user_guide/agent_communication
    user_guide/multimodal
    user_guide/terminal_evaluation
    user_guide/general_interoperability
