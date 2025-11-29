@@ -136,7 +136,7 @@ class ConfigValidator:
     VALID_PERMISSION_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}
 
     # Valid display types for UI
-    VALID_DISPLAY_TYPES = {"rich_terminal", "simple"}
+    VALID_DISPLAY_TYPES = {"rich_terminal", "simple", "textual_terminal"}
 
     # Valid voting sensitivity levels
     VALID_VOTING_SENSITIVITY = {"lenient", "balanced", "strict"}
@@ -448,6 +448,8 @@ class ConfigValidator:
             "enable_web_search",
             "enable_code_execution",
             "enable_code_interpreter",
+            "enable_programmatic_flow",
+            "enable_tool_search",
         ]
         for field_name in boolean_fields:
             if field_name in backend_config:

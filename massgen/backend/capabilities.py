@@ -149,12 +149,15 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "web_search",
             "code_execution",
             "mcp",
+            "tool_search",
+            "programmatic_tool_calling",
             "audio_understanding",
             "video_understanding",
         },
         builtin_tools=["web_search", "code_execution"],
         filesystem_support="mcp",
         models=[
+            "claude-opus-4-5-20251101",
             "claude-haiku-4-5-20251001",
             "claude-sonnet-4-5-20250929",
             "claude-opus-4-1-20250805",
@@ -162,7 +165,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         default_model="claude-sonnet-4-5-20250929",
         env_var="ANTHROPIC_API_KEY",
-        notes="Web search and code execution are built-in tools. Audio/video understanding support (v0.0.30+).",
+        notes="Web search and code execution are built-in tools.Programmatic tool calling and tool search require 4.5 models, Audio/video understanding support (v0.0.30+).",
         model_release_dates={
             "claude-haiku-4-5-20251001": "2025-10",
             "claude-sonnet-4-5-20250929": "2025-09",
@@ -588,6 +591,19 @@ def validate_backend_config(backend_type: str, config: Dict) -> List[str]:
     if "enable_code_interpreter" in config and config["enable_code_interpreter"]:
         if "code_execution" not in caps.supported_capabilities:
             errors.append(f"{backend_type} does not support code_execution/interpreter")
+
+    # Programmatic tool calling is Claude-specific
+    # Note: code_execution is auto-enabled when programmatic flow is enabled (in api_params_handler)
+    if config.get("enable_programmatic_flow") and backend_type != "claude":
+        errors.append(
+            f"enable_programmatic_flow is only supported by Claude backend, not {backend_type}. " f"This setting will be ignored.",
+        )
+
+    # Tool search is Claude-specific
+    if config.get("enable_tool_search") and backend_type != "claude":
+        errors.append(
+            f"enable_tool_search is only supported by Claude backend, not {backend_type}. " f"This setting will be ignored.",
+        )
 
     # Check MCP configuration
     if "mcp_servers" in config and config["mcp_servers"]:

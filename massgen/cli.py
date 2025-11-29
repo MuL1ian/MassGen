@@ -124,6 +124,25 @@ MASSGEN_QUESTIONARY_STYLE = Style(
 )
 
 
+def _build_coordination_ui(ui_config: Dict[str, Any]) -> CoordinationUI:
+    """Create a CoordinationUI with display_kwargs passthrough (incl. theme)."""
+    display_kwargs = dict(ui_config.get("display_kwargs", {}) or {})
+    theme = ui_config.get("theme")
+    if theme is not None and "theme" not in display_kwargs:
+        display_kwargs["theme"] = theme
+    if ui_config.get("automation_mode"):
+        display_kwargs["automation_mode"] = True
+    if ui_config.get("skip_agent_selector"):
+        display_kwargs["skip_agent_selector"] = True
+
+    return CoordinationUI(
+        display_type=ui_config.get("display_type", "rich_terminal"),
+        logging_enabled=ui_config.get("logging_enabled", True),
+        enable_final_presentation=True,  # Ensures final presentation is generated/saved
+        **display_kwargs,
+    )
+
+
 def read_multiline_input(prompt: str) -> str:
     """Read user input with support for multi-line input using triple quotes.
 
@@ -736,6 +755,9 @@ def create_agents_from_config(
         if config_path:
             backend_config["_config_path"] = config_path
 
+        # Get agent_id for AgentConfig (but don't add to backend_config to avoid duplicate kwargs)
+        agent_id = agent_data.get("id", f"agent{i}")
+
         backend = create_backend(backend_type, **backend_config)
         backend_params = {k: v for k, v in backend_config.items() if k not in ("type", "_config_path")}
 
@@ -767,7 +789,7 @@ def create_agents_from_config(
         else:
             agent_config = AgentConfig(backend_params=backend_params)
 
-        agent_config.agent_id = agent_data.get("id", f"agent{i}")
+        agent_config.agent_id = agent_id
 
         # System message handling: all backends use system_message at agent level
         system_msg = agent_data.get("system_message")
@@ -1389,6 +1411,11 @@ async def run_question_with_history(
             max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
             enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
             max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
+            broadcast=coord_cfg.get("broadcast", False),
+            broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+            broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
+            broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+            max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
             task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
             enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
             use_skills=coord_cfg.get("use_skills", False),
@@ -1432,12 +1459,7 @@ async def run_question_with_history(
         nlip_config=orchestrator_nlip_config,
     )
     # Create a fresh UI instance for each question to ensure clean state
-    ui = CoordinationUI(
-        display_type=ui_config.get("display_type", "rich_terminal"),
-        logging_enabled=ui_config.get("logging_enabled", True),
-        enable_final_presentation=True,  # Required for multi-turn: ensures final answer is saved
-        skip_agent_selector=ui_config.get("skip_agent_selector", False),
-    )
+    ui = _build_coordination_ui(ui_config)
 
     # Determine display mode text
     if len(agents) == 1:
@@ -1472,6 +1494,11 @@ async def run_question_with_history(
                 ),
                 enable_agent_task_planning=coordination_settings.get("enable_agent_task_planning", False),
                 max_tasks_per_plan=coordination_settings.get("max_tasks_per_plan", 10),
+                broadcast=coordination_settings.get("broadcast", False),
+                broadcast_sensitivity=coordination_settings.get("broadcast_sensitivity", "medium"),
+                broadcast_timeout=coordination_settings.get("broadcast_timeout", 300),
+                broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
+                max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
                 task_planning_filesystem_mode=coordination_settings.get("task_planning_filesystem_mode", False),
                 enable_memory_filesystem_mode=coordination_settings.get("enable_memory_filesystem_mode", False),
                 use_skills=coordination_settings.get("use_skills", False),
@@ -1526,12 +1553,7 @@ async def run_question_with_history(
                         logger.warning(f"Failed to reset backend for {agent_id}: {e}")
 
             # Create fresh UI instance for next attempt
-            ui = CoordinationUI(
-                display_type=ui_config.get("display_type", "rich_terminal"),
-                logging_enabled=ui_config.get("logging_enabled", True),
-                enable_final_presentation=True,
-                skip_agent_selector=ui_config.get("skip_agent_selector", False),
-            )
+            ui = _build_coordination_ui(ui_config)
 
             # Continue to next attempt
             continue
@@ -1726,6 +1748,11 @@ async def run_single_question(
                 ),
                 enable_agent_task_planning=coordination_settings.get("enable_agent_task_planning", False),
                 max_tasks_per_plan=coordination_settings.get("max_tasks_per_plan", 10),
+                broadcast=coordination_settings.get("broadcast", False),
+                broadcast_sensitivity=coordination_settings.get("broadcast_sensitivity", "medium"),
+                broadcast_timeout=coordination_settings.get("broadcast_timeout", 300),
+                broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
+                max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
                 task_planning_filesystem_mode=coordination_settings.get("task_planning_filesystem_mode", False),
                 enable_memory_filesystem_mode=coordination_settings.get("enable_memory_filesystem_mode", False),
                 use_skills=coordination_settings.get("use_skills", False),
@@ -1794,6 +1821,11 @@ async def run_single_question(
                 max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
                 enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
                 max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
+                broadcast=coord_cfg.get("broadcast", False),
+                broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
+                broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+                max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
                 task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
                 enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
                 use_skills=coord_cfg.get("use_skills", False),
@@ -1814,12 +1846,7 @@ async def run_single_question(
             nlip_config=orchestrator_nlip_config,
         )
         # Create a fresh UI instance for each question to ensure clean state
-        ui = CoordinationUI(
-            display_type=ui_config.get("display_type", "rich_terminal"),
-            logging_enabled=ui_config.get("logging_enabled", True),
-            enable_final_presentation=True,  # Ensures final presentation is generated
-            skip_agent_selector=ui_config.get("skip_agent_selector", False),
-        )
+        ui = _build_coordination_ui(ui_config)
 
         print(f"\n🤖 {BRIGHT_CYAN}Multi-Agent Mode{RESET}", flush=True)
         print(f"Agents: {', '.join(agents.keys())}", flush=True)
@@ -1855,12 +1882,7 @@ async def run_single_question(
                             logger.warning(f"Failed to reset backend for {agent_id}: {e}")
 
                 # Create fresh UI instance for next attempt
-                ui = CoordinationUI(
-                    display_type=ui_config.get("display_type", "rich_terminal"),
-                    logging_enabled=ui_config.get("logging_enabled", True),
-                    enable_final_presentation=True,
-                    skip_agent_selector=ui_config.get("skip_agent_selector", False),
-                )
+                ui = _build_coordination_ui(ui_config)
 
                 # Continue to next attempt
                 continue

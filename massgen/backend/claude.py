@@ -460,7 +460,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
             logger.warning(f"[Agent {agent_id or 'default'}] Files API cleanup error: {e}")
         finally:
             if client and hasattr(client, "aclose"):
-                await client.aclose()
+                await client.aclose()  # type: ignore[attr-defined]
 
     def _ensure_no_pending_upload_markers(self, messages: List[Dict[str, Any]]) -> None:
         """Raise UploadFileError if any file_pending_upload markers remain."""
@@ -488,6 +488,37 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         """Override to integrate Files API uploads into non-MCP streaming."""
         agent_id = kwargs.get("agent_id", None)
         all_params = {**self.config, **kwargs}
+
+        # Validate advanced features compatibility with model
+        self._validate_advanced_features(all_params)
+
+        # Notify frontend about programmatic flow status
+        if all_params.get("enable_programmatic_flow"):
+            log_stream_chunk(
+                "backend.claude",
+                "programmatic_flow",
+                "Programmatic tool calling enabled - tools can be invoked from code execution",
+                agent_id,
+            )
+            yield StreamChunk(
+                type="content",
+                content="\n🔄 [Programmatic Flow] Enabled - Claude can call tools from code execution\n",
+            )
+
+        # Notify frontend about tool search status
+        if all_params.get("enable_tool_search"):
+            variant = all_params.get("tool_search_variant", "regex")
+            log_stream_chunk(
+                "backend.claude",
+                "tool_search",
+                f"Tool search enabled (variant: {variant}) - deferred tools discovered on-demand",
+                agent_id,
+            )
+            yield StreamChunk(
+                type="content",
+                content=f"\n🔍 [Tool Search] Enabled ({variant}) - Claude can discover deferred tools on-demand\n",
+            )
+
         processed_messages = await self._process_upload_files(messages, all_params)
 
         # Check if we need to upload files via Files API
@@ -623,6 +654,45 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         # Build API params for this iteration
         all_params = {**self.config, **kwargs}
 
+        # Track if this is the first iteration
+        is_first_iteration = not kwargs.get("_programmatic_flow_logged", False)
+        agent_id = kwargs.get("agent_id", None)
+
+        # Validate advanced features compatibility with model
+        if is_first_iteration:
+            self._validate_advanced_features(all_params)
+
+            # Notify frontend about programmatic flow status (only on first iteration)
+            if all_params.get("enable_programmatic_flow"):
+                log_stream_chunk(
+                    "backend.claude",
+                    "programmatic_flow",
+                    "Programmatic tool calling enabled - tools can be invoked from code execution",
+                    agent_id,
+                )
+                yield StreamChunk(
+                    type="content",
+                    content="\n🔄 [Programmatic Flow] Enabled - Claude can call tools from code execution\n",
+                )
+                # Mark that we've logged programmatic flow for recursive calls
+                kwargs["_programmatic_flow_logged"] = True
+
+            # Notify frontend about tool search status
+            if all_params.get("enable_tool_search") and not kwargs.get("_tool_search_logged", False):
+                variant = all_params.get("tool_search_variant", "regex")
+                log_stream_chunk(
+                    "backend.claude",
+                    "tool_search",
+                    f"Tool search enabled (variant: {variant}) - deferred tools discovered on-demand",
+                    agent_id,
+                )
+                yield StreamChunk(
+                    type="content",
+                    content=f"\n🔍 [Tool Search] Enabled ({variant}) - Claude can discover deferred tools on-demand\n",
+                )
+                # Mark that we've logged tool search for recursive calls
+                kwargs["_tool_search_logged"] = True
+
         # Check if we need to upload files via Files API
         if all_params.get("_has_file_search_files"):
             logger.info("Processing Files API uploads in MCP mode...")
@@ -634,8 +704,6 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         self._ensure_no_pending_upload_markers(current_messages)
 
         api_params = await self.api_params_handler.build_api_params(current_messages, tools, all_params)
-
-        agent_id = kwargs.get("agent_id", None)
 
         # Create stream (handle code execution beta)
         if "betas" in api_params:
@@ -658,12 +726,32 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                         if event.content_block.type == "tool_use":
                             tool_id = event.content_block.id
                             tool_name = event.content_block.name
+                            caller = getattr(event.content_block, "caller", None)
+                            is_programmatic = all_params.get("enable_programmatic_flow", False) and caller is not None and isinstance(caller, dict) and caller.get("type") not in (None, "direct")
+
+                            initial_input = ""
+                            if hasattr(event.content_block, "input") and event.content_block.input:
+                                if isinstance(event.content_block.input, dict):
+                                    initial_input = json.dumps(event.content_block.input)
+                                else:
+                                    initial_input = str(event.content_block.input)
+                                if is_programmatic:
+                                    logger.debug(f"[Programmatic Flow] Tool '{tool_name}' has direct input: {initial_input}")
+
                             current_tool_uses[tool_id] = {
                                 "id": tool_id,
                                 "name": tool_name,
-                                "input": "",
+                                "input": initial_input,
                                 "index": getattr(event, "index", None),
+                                "caller": caller,
+                                "is_programmatic": is_programmatic,
                             }
+                            if is_programmatic:
+                                logger.info(f"[Programmatic Flow] Tool '{tool_name}' called from code execution (caller: {caller})")
+                                yield StreamChunk(
+                                    type="content",
+                                    content=f"\n🔄 [Programmatic] Tool '{tool_name}' called from code execution\n",
+                                )
                         elif event.content_block.type == "server_tool_use":
                             tool_id = event.content_block.id
                             tool_name = event.content_block.name
@@ -683,6 +771,13 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                                 yield StreamChunk(
                                     type="content",
                                     content="\n🔍 [Web Search] Starting search...\n",
+                                )
+                            elif tool_name.startswith("tool_search_tool_"):
+                                variant = "regex" if "regex" in tool_name else "bm25"
+                                logger.debug(f"[Tool Search] Searching for tools (variant: {variant})")
+                                yield StreamChunk(
+                                    type="content",
+                                    content=f"\n🔎 [Tool Search] Searching for tools ({variant})...\n",
                                 )
                         elif event.content_block.type == "code_execution_tool_result":
                             result_block = event.content_block
@@ -744,6 +839,17 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                                     yield StreamChunk(
                                         type="content",
                                         content="✅ [Web Search] Completed\n",
+                                    )
+                                elif tool_name.startswith("tool_search_tool_"):
+                                    query = parsed_input.get("query", "")
+                                    if query:
+                                        yield StreamChunk(
+                                            type="content",
+                                            content=f"🔎 [Search Query] '{query}'\n",
+                                        )
+                                    yield StreamChunk(
+                                        type="content",
+                                        content="✅ [Tool Search] Completed - tools discovered\n",
                                     )
                                 tool_data["processed"] = True
                                 break
@@ -1069,12 +1175,32 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                         if chunk.content_block.type == "tool_use":
                             tool_id = chunk.content_block.id
                             tool_name = chunk.content_block.name
+                            caller = getattr(chunk.content_block, "caller", None)
+                            is_programmatic = all_params.get("enable_programmatic_flow", False) and caller is not None and isinstance(caller, dict) and caller.get("type") not in (None, "direct")
+
+                            initial_input = ""
+                            if hasattr(chunk.content_block, "input") and chunk.content_block.input:
+                                if isinstance(chunk.content_block.input, dict):
+                                    initial_input = json.dumps(chunk.content_block.input)
+                                else:
+                                    initial_input = str(chunk.content_block.input)
+                                if is_programmatic:
+                                    logger.debug(f"[Programmatic Flow] Tool '{tool_name}' has direct input: {initial_input}")
+
                             current_tool_uses_local[tool_id] = {
                                 "id": tool_id,
                                 "name": tool_name,
-                                "input": "",
+                                "input": initial_input,
                                 "index": getattr(chunk, "index", None),
+                                "caller": caller,
+                                "is_programmatic": is_programmatic,
                             }
+                            if is_programmatic:
+                                logger.info(f"[Programmatic Flow] Tool '{tool_name}' called from code execution (caller: {caller})")
+                                yield StreamChunk(
+                                    type="content",
+                                    content=f"\n🔄 [Programmatic] Tool '{tool_name}' called from code execution\n",
+                                )
                         elif chunk.content_block.type == "server_tool_use":
                             tool_id = chunk.content_block.id
                             tool_name = chunk.content_block.name
@@ -1094,6 +1220,13 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                                 yield StreamChunk(
                                     type="content",
                                     content="\n🔍 [Web Search] Starting search...\n",
+                                )
+                            elif tool_name.startswith("tool_search_tool_"):
+                                variant = "regex" if "regex" in tool_name else "bm25"
+                                logger.debug(f"[Tool Search] Searching for tools (variant: {variant})")
+                                yield StreamChunk(
+                                    type="content",
+                                    content=f"\n🔎 [Tool Search] Searching for tools ({variant})...\n",
                                 )
                         elif chunk.content_block.type == "code_execution_tool_result":
                             result_block = chunk.content_block
@@ -1176,6 +1309,17 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                                     yield StreamChunk(
                                         type="content",
                                         content="✅ [Web Search] Completed\n",
+                                    )
+                                elif tool_name.startswith("tool_search_tool_"):
+                                    query = parsed_input.get("query", "")
+                                    if query:
+                                        yield StreamChunk(
+                                            type="content",
+                                            content=f"🔎 [Search Query] '{query}'\n",
+                                        )
+                                    yield StreamChunk(
+                                        type="content",
+                                        content="✅ [Tool Search] Completed - tools discovered\n",
                                     )
                                 tool_data["processed"] = True
                                 break
@@ -1355,3 +1499,40 @@ class ClaudeBackend(CustomToolAndMCPBackend):
     def get_filesystem_support(self) -> FilesystemSupport:
         """Claude supports filesystem through MCP servers."""
         return FilesystemSupport.MCP
+
+    def _validate_advanced_features(self, all_params: Dict[str, Any]) -> None:
+        model = all_params.get("model", "")
+        compatible_patterns = [
+            "claude-opus-4-5",
+            "claude-sonnet-4-5",
+            "claude-opus-4.5",
+            "claude-sonnet-4.5",
+        ]
+        is_compatible = any(pattern in model for pattern in compatible_patterns)
+
+        # Validate programmatic flow
+        if all_params.get("enable_programmatic_flow"):
+            if is_compatible:
+                logger.info(
+                    f"[Claude] Programmatic tool calling enabled for model '{model}'. " "Tools can be called from within code execution sandbox.",
+                )
+            else:
+                logger.warning(
+                    f"[Claude] Auto-disabling programmatic flow - model '{model}' not supported. "
+                    f"Compatible models: Claude Opus 4.5, Claude Sonnet 4.5. "
+                    f"Workflow will continue with standard tool calling.",
+                )
+                all_params["enable_programmatic_flow"] = False
+
+        # Validate tool search
+        if all_params.get("enable_tool_search"):
+            if is_compatible:
+                variant = all_params.get("tool_search_variant", "regex")
+                logger.info(
+                    f"[Claude] Tool search enabled for model '{model}' (variant: {variant}). " "Deferred tools will be discovered on-demand.",
+                )
+            else:
+                logger.warning(
+                    f"[Claude] Auto-disabling tool search - model '{model}' not supported. " f"Compatible models: Claude Opus 4.5, Claude Sonnet 4.5. " f"All tools will be visible without search.",
+                )
+                all_params["enable_tool_search"] = False

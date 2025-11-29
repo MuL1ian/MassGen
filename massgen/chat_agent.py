@@ -9,15 +9,19 @@ or a coordinated multi-agent system.
 # TODO: Consider how to best handle stateful vs stateless backends in this interface.
 """
 
+import asyncio
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
 
 from .backend.base import LLMBackend, StreamChunk
 from .logger_config import logger
 from .memory import ConversationMemory, PersistentMemoryBase
 from .stream_chunk import ChunkType
 from .utils import CoordinationStage
+
+if TYPE_CHECKING:
+    from .broadcast.broadcast_dataclasses import BroadcastRequest
 
 
 class ChatAgent(ABC):
@@ -204,6 +208,10 @@ class SingleAgent(ChatAgent):
         # Add system message to history if provided
         if self.system_message:
             self.conversation_history.append({"role": "system", "content": self.system_message})
+
+        # Broadcast handling (for agent-to-agent communication)
+        self._broadcast_queue: asyncio.Queue = asyncio.Queue()
+        self._orchestrator = None  # Will be set by orchestrator during initialization
 
     @staticmethod
     def _get_chunk_type_value(chunk) -> str:
@@ -602,6 +610,47 @@ class SingleAgent(ChatAgent):
                     logger.warning(f"Failed to add messages to conversation memory: {e}")
             backend_messages = self.conversation_history.copy()
 
+        # Check for broadcast requests (at turn boundary)
+        broadcast_request = await self._check_broadcast_queue()
+        if broadcast_request and self._orchestrator:
+            try:
+                # Set tracking variables for respond_to_broadcast tool
+                self._current_broadcast_request_id = broadcast_request.id
+                self._broadcast_response_submitted = False
+
+                # Handle broadcast - agent may call respond_to_broadcast tool during execution
+                response = await self._handle_broadcast(broadcast_request)
+
+                # Check if response was already submitted via respond_to_broadcast tool
+                if not getattr(self, "_broadcast_response_submitted", False):
+                    # Fallback: submit accumulated response if tool wasn't called
+                    await self._orchestrator.broadcast_channel.collect_response(
+                        request_id=broadcast_request.id,
+                        responder_id=self.agent_id,
+                        content=response,
+                        is_human=False,
+                    )
+                    logger.info(f"📢 [{self.agent_id}] Submitted broadcast response (fallback)")
+                else:
+                    logger.info(f"📢 [{self.agent_id}] Broadcast response already submitted via tool")
+
+                # Clear tracking variables
+                self._current_broadcast_request_id = None
+                self._broadcast_response_submitted = False
+
+                # Track response event
+                if hasattr(self._orchestrator, "coordination_tracker"):
+                    self._orchestrator.coordination_tracker.add_broadcast_response(
+                        request_id=broadcast_request.id,
+                        responder_id=self.agent_id,
+                        is_human=False,
+                    )
+            except Exception as e:
+                logger.error(f"📢 [{self.agent_id}] Error handling broadcast: {e}")
+                # Clear tracking variables on error
+                self._current_broadcast_request_id = None
+                self._broadcast_response_submitted = False
+
         # Retrieve relevant persistent memories if available
         # ALWAYS retrieve on reset_chat (to restore recent context after restart)
         # Otherwise, only retrieve if compression has occurred (to avoid duplicating recent context)
@@ -743,6 +792,214 @@ class SingleAgent(ChatAgent):
 
         # Add new system message at the beginning
         self.conversation_history.insert(0, {"role": "system", "content": system_message})
+
+    async def inject_broadcast(self, broadcast_request: "BroadcastRequest") -> None:
+        """Inject a broadcast request into this agent's queue.
+
+        Args:
+            broadcast_request: The broadcast to respond to
+        """
+        await self._broadcast_queue.put(broadcast_request)
+        logger.debug(f"📢 [{self.agent_id}] Broadcast injected: {broadcast_request.question[:50]}...")
+
+    async def _check_broadcast_queue(self) -> Optional["BroadcastRequest"]:
+        """Check for pending broadcast requests.
+
+        Returns:
+            BroadcastRequest if one is pending, None otherwise
+        """
+        try:
+            return self._broadcast_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return None
+
+    def _peek_broadcast_queue(self) -> Optional["BroadcastRequest"]:
+        """Peek at pending broadcast without consuming it.
+
+        Returns:
+            BroadcastRequest if one is pending, None otherwise
+        """
+        if self._broadcast_queue.empty():
+            return None
+        # Peek at the front item without removing it
+        # Note: This is not perfectly thread-safe but sufficient for our use case
+        # where the queue is only accessed from the agent's own execution context
+        try:
+            items = list(self._broadcast_queue._queue)
+            return items[0] if items else None
+        except (AttributeError, IndexError):
+            return None
+
+    def _extract_tool_name(self, tool: dict) -> str:
+        """Extract tool name from tool definition (handles different formats)."""
+        if "function" in tool:
+            return tool["function"].get("name", "")
+        return tool.get("name", "")
+
+    async def _handle_broadcast(
+        self,
+        broadcast_request: "BroadcastRequest",
+    ) -> str:
+        """Handle a broadcast request and generate a response.
+
+        Args:
+            broadcast_request: The broadcast to respond to
+
+        Returns:
+            Response content
+        """
+
+        logger.info(
+            f"📢 [{self.agent_id}] Handling broadcast from {broadcast_request.sender_agent_id}: " f"{broadcast_request.question[:80]}...",
+        )
+
+        if broadcast_request.response_mode == "inline":
+            # Inline mode: inject into current conversation
+            return await self._handle_broadcast_inline(broadcast_request)
+        else:
+            # Future: could implement background mode here
+            # For now, fall back to inline mode for any non-inline mode
+            return await self._handle_broadcast_inline(broadcast_request)
+
+    async def _handle_broadcast_inline(
+        self,
+        broadcast_request: "BroadcastRequest",
+    ) -> str:
+        """Handle broadcast with a fresh, separate LLM call.
+
+        This makes a completely separate API call with ONLY the respond_to_broadcast tool,
+        avoiding any interference from MCP tools, ask_others, or conversation context.
+
+        Args:
+            broadcast_request: The broadcast to respond to
+
+        Returns:
+            Response content
+        """
+        # Check if we're in agents broadcast mode
+        has_respond_tool = hasattr(self._orchestrator, "config") and hasattr(self._orchestrator.config, "coordination_config") and self._orchestrator.config.coordination_config.broadcast == "agents"
+
+        # Create fresh message with ONLY the broadcast question
+        if has_respond_tool:
+            instruction = (
+                "Please think about the question, then call the respond_to_broadcast tool with your answer.\n"
+                "Example: respond_to_broadcast(answer='I recommend using Hugo because it is fast and generates static sites.')"
+            )
+        else:
+            instruction = "Please provide a brief, helpful response to this question."
+
+        # Fresh context - just the broadcast question, no conversation history
+        fresh_messages = [
+            {
+                "role": "user",
+                "content": (f"━━━ QUESTION FROM {broadcast_request.sender_agent_id.upper()} ━━━\n\n" f"{broadcast_request.question}\n\n" f"{instruction}"),
+            },
+        ]
+
+        response_content = ""
+        try:
+            # Get ONLY the respond_to_broadcast tool
+            tools = None
+            if has_respond_tool and hasattr(self.backend, "_broadcast_toolkit"):
+                all_tools = self.backend._broadcast_toolkit.get_tools(self.backend.config)
+                tools = [t for t in all_tools if self._extract_tool_name(t) == "respond_to_broadcast"]
+                logger.info(f"📢 [{self.agent_id}] Fresh broadcast call with ONLY respond_to_broadcast tool")
+
+            # Separate LLM call - fresh context, only respond tool
+            tool_calls = []
+            async for chunk in self.backend.stream_with_tools(
+                messages=fresh_messages,  # Fresh context, no history
+                tools=tools,  # ONLY respond_to_broadcast
+                agent_id=self.agent_id,
+                session_id=self.session_id,
+            ):
+                # Collect text content
+                if hasattr(chunk, "content") and chunk.content:
+                    response_content += chunk.content
+
+                # Collect tool calls
+                if hasattr(chunk, "tool_calls") and chunk.tool_calls:
+                    tool_calls.extend(chunk.tool_calls)
+
+            # Execute respond_to_broadcast if called
+            if tool_calls and has_respond_tool:
+                for tool_call in tool_calls:
+                    tool_name = None
+                    tool_args = None
+
+                    # Extract tool name and arguments
+                    if isinstance(tool_call, dict):
+                        if "function" in tool_call:
+                            tool_name = tool_call["function"].get("name")
+                            tool_args = tool_call["function"].get("arguments")
+                        else:
+                            tool_name = tool_call.get("name")
+                            tool_args = tool_call.get("arguments")
+
+                    # Execute respond_to_broadcast
+                    if tool_name == "respond_to_broadcast":
+                        logger.info(f"📢 [{self.agent_id}] Executing respond_to_broadcast tool")
+
+                        if hasattr(self.backend, "_broadcast_toolkit"):
+                            result = await self.backend._broadcast_toolkit.execute_respond_to_broadcast(
+                                tool_args,
+                                self.agent_id,
+                            )
+                            logger.debug(f"📢 [{self.agent_id}] Tool result: {result}")
+
+            logger.info(
+                f"📢 [{self.agent_id}] Generated broadcast response ({len(response_content)} chars)",
+            )
+            return response_content.strip()
+
+        except Exception as e:
+            logger.error(f"📢 [{self.agent_id}] Error generating broadcast response: {e}")
+            return f"[Error generating response: {str(e)}]"
+
+    async def _handle_broadcast_background(
+        self,
+        broadcast_request: "BroadcastRequest",
+    ) -> str:
+        """Handle broadcast in background with context snapshot.
+
+        Args:
+            broadcast_request: The broadcast to respond to
+
+        Returns:
+            Response content
+        """
+        # Create minimal context snapshot
+        recent_messages = self.conversation_history[-10:]  # Last 10 messages for context
+
+        # Create prompt for background response
+        background_prompt = {
+            "role": "user",
+            "content": (
+                f"Based on your current work context, please answer this question from "
+                f"{broadcast_request.sender_agent_id}:\n\n"
+                f"{broadcast_request.question}\n\n"
+                f"Provide a brief, helpful response."
+            ),
+        }
+
+        # Generate response in background
+        response_content = ""
+        try:
+            async for chunk in self.backend.stream_with_tools(
+                messages=recent_messages + [background_prompt],
+                tools=None,
+            ):
+                if hasattr(chunk, "content") and chunk.content:
+                    response_content += chunk.content
+
+            logger.info(
+                f"📢 [{self.agent_id}] Generated background response " f"({len(response_content)} chars)",
+            )
+            return response_content.strip()
+
+        except Exception as e:
+            logger.error(f"📢 [{self.agent_id}] Error generating broadcast response: {e}")
+            return f"[Error generating response: {str(e)}]"
 
 
 class ConfigurableAgent(SingleAgent):

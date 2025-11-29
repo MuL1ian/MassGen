@@ -7,6 +7,7 @@ TODO: This file is outdated - check claude_code config and
 deprecated patterns. Update to reflect current backend architecture.
 """
 
+import logging
 import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -46,6 +47,18 @@ class CoordinationConfig:
                                     to break down complex work, track progress, and coordinate
                                     based on dependencies.
         max_tasks_per_plan: Maximum number of tasks allowed in an agent's task plan.
+        broadcast: Broadcast mode for agent-to-agent communication.
+                  - False: Broadcasting disabled (default)
+                  - "agents": Agent-to-agent communication only
+                  - "human": Agents can ask agents + human (human gets prompted)
+        broadcast_sensitivity: How frequently agents should use ask_others() for collaboration.
+                             - "low": Only for critical decisions/when blocked
+                             - "medium": For significant decisions and design choices (default)
+                             - "high": Frequently - whenever considering options or proposing approaches
+        broadcast_timeout: Maximum time to wait for broadcast responses (seconds).
+        broadcast_wait_by_default: If True, ask_others() blocks until responses collected (blocking mode).
+                                   If False, ask_others() returns immediately for polling (polling mode).
+        max_broadcasts_per_agent: Maximum number of active broadcasts per agent.
         task_planning_filesystem_mode: If True, task planning MCP writes tasks to tasks/ directory
                                        in agent workspace for transparency and cross-agent visibility.
         enable_memory_filesystem_mode: If True, enables filesystem-based memory system with two-tier
@@ -72,12 +85,44 @@ class CoordinationConfig:
     max_orchestration_restarts: int = 0
     enable_agent_task_planning: bool = False
     max_tasks_per_plan: int = 10
+    broadcast: Any = False  # False | "agents" | "human"
+    broadcast_sensitivity: str = "medium"  # "low" | "medium" | "high" - Used in BroadcastCommunicationSection system prompts
+    broadcast_timeout: int = 300
+    broadcast_wait_by_default: bool = True
+    max_broadcasts_per_agent: int = 10
     task_planning_filesystem_mode: bool = False
     enable_memory_filesystem_mode: bool = False
     use_skills: bool = False
     massgen_skills: List[str] = field(default_factory=list)
     skills_directory: str = ".agent/skills"
     persona_generator: PersonaGeneratorConfig = field(default_factory=PersonaGeneratorConfig)
+
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        self._validate_broadcast_config()
+
+    def _validate_broadcast_config(self):
+        """Validate broadcast configuration settings."""
+        logger = logging.getLogger(__name__)
+
+        if self.broadcast:
+            # Validate broadcast mode
+            if self.broadcast not in [False, "agents", "human"]:
+                raise ValueError(f"Invalid broadcast mode: {self.broadcast}. Must be False, 'agents', or 'human'")
+
+            # Validate sensitivity
+            if self.broadcast_sensitivity not in ["low", "medium", "high"]:
+                raise ValueError(f"Invalid broadcast_sensitivity: {self.broadcast_sensitivity}. Must be 'low', 'medium', or 'high'")
+
+            # Warn if both task planning and high-sensitivity broadcasts enabled
+            if self.enable_agent_task_planning and self.broadcast_sensitivity == "high":
+                logger.warning(
+                    "Both task planning and high-sensitivity broadcasts are enabled. " "This may create extensive coordination overhead. " "Consider using 'medium' or 'low' broadcast sensitivity.",
+                )
+
+            # Warn if timeout is very low
+            if self.broadcast_timeout < 30:
+                logger.warning(f"Broadcast timeout is very low ({self.broadcast_timeout}s). Agents may not have enough time to respond.")
 
 
 @dataclass

@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.16 Features](#-latest-features-v0116)
+- [v0.1.18 Features](#-latest-features-v0118)
 </details>
 
 <details open>
@@ -123,15 +123,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <summary><h3>🗺️ Roadmap</h3></summary>
 
 - Recent Achievements
-  - [v0.1.16](#recent-achievements-v0116)
-  - [v0.0.3 - v0.1.15](#previous-achievements-v003---v0115)
+  - [v0.1.18](#recent-achievements-v0118)
+  - [v0.0.3 - v0.1.17](#previous-achievements-v003---v0117)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.17 Roadmap](#v0117-roadmap)
+- [v0.1.19 Roadmap](#v0119-roadmap)
 </details>
 
 <details open>
@@ -156,41 +156,45 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.16)
+## 🆕 Latest Features (v0.1.18)
 
-**🎉 Released: November 24, 2025**
+**🎉 Released: November 28, 2025**
 
-**What's New in v0.1.16:**
-- **🎬 Terminal Evaluation System** - Automated VHS recording and AI-powered terminal display evaluation
-- **💰 LiteLLM Cost Tracking** - Accurate pricing for 500+ models with automatic updates
-- **🧠 Memory Archiving** - Multi-turn session persistence with long-term memory storage
-- **🔧 Self-Evolution Skills** - MassGen now has specific agent skills to help with development
+**What's New in v0.1.18:**
+- **📡 Agent Communication System** - Agents can broadcast questions to humans or other agents via `ask_others()` tool
+- **🔧 Claude Programmatic Tool Calling** - Code execution can invoke custom and MCP tools programmatically
+- **🔍 Claude Tool Search** - Server-side deferred tool discovery for large tool sets
 
 **Key Improvements:**
-- Record and analyze terminal sessions with VHS for UI/UX evaluation using multimodal AI
-- Precise cost tracking with LiteLLM's pricing database (reasoning tokens, cached tokens support)
-- Archive memory across conversation turns for session continuity
-- Four new skills enabling MassGen to document releases, maintain configs, and develop features
-- Parallel Docker image pulling for faster setup
-- Grok 4.1 and GPT-4.1 model family support with accurate pricing metadata
+- Three broadcast modes: disabled, agent-to-agent (`broadcast: "agents"`), or human-only (`broadcast: "human"`)
+- Human interaction UI with timeout, skip options, and session-persistent Q&A history
+- `enable_programmatic_flow` flag for Claude models to call tools from code sandbox
+- `enable_tool_search` with regex or bm25 variants for on-demand tool discovery
 
-**Try v0.1.16 Features:**
+**Try v0.1.18 Features:**
 ```bash
 # Install or upgrade from PyPI
 pip install --upgrade massgen
 
-# Or with uv (faster)
-uv pip install massgen
+# Claude Programmatic Tool Calling - call tools from code execution
+# Prerequisites: ANTHROPIC_API_KEY in .env
+massgen --config massgen/configs/providers/claude/programmatic_with_two_tools.yaml \
+  "Add 5 and 3, then get weather for Tokyo and New York"
 
-# Terminal Evaluation - record and analyze MassGen's terminal display
-# Prerequisites: VHS installed (brew install vhs or go install github.com/charmbracelet/vhs@latest), OPENAI_API_KEY or GEMINI_API_KEY in .env
-uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
-  "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
+# Claude Tool Search - deferred tool discovery (visible + deferred tools)
+# Prerequisites: ANTHROPIC_API_KEY, BRAVE_API_KEY in .env
+massgen --config massgen/configs/providers/claude/tool_search_example.yaml \
+  "Check weather in tokyo, search for tourist attractions, and find me an Airbnb there for 3 nights in january 2026"
 
-# Memory Archiving - persistent memory across conversation turns
-# Prerequisites: Docker running, API keys in .env
-uv run massgen --config massgen/configs/skills/test_memory.yaml \
-  "Create a website about Bob Dylan"
+# Agent-to-Agent Broadcast - agents ask each other questions
+# Prerequisites: OPENAI_API_KEY, GOOGLE_API_KEY in .env, Docker running
+massgen --config massgen/configs/broadcast/test_broadcast_agents.yaml \
+  "Create a website about Bob Dylan. Please ask_others for what framework to use first"
+
+# Human Broadcast - agents ask YOU questions during execution
+# Prerequisites: OPENAI_API_KEY, GOOGLE_API_KEY in .env, Docker running
+massgen --config massgen/configs/broadcast/test_broadcast_human.yaml \
+  "Design and implement a web scraper"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1091,34 +1095,28 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.16)
+### Recent Achievements (v0.1.18)
 
-**🎉 Released: November 24, 2025**
+**🎉 Released: November 28, 2025**
 
-#### Terminal Evaluation System
-- **VHS Recording & AI Analysis**: Record terminal sessions as GIF/MP4/WEBM using VHS, analyze with GPT-4.1/Claude for UI/UX quality, agent performance, and coordination visualization
+#### Agent Communication System
+- **Human Broadcast Q&A**: Agents can ask questions to humans or other agents via `ask_others()` tool with three modes (disabled, agents-only, human-only)
+- **Execution & Persistence**: Blocking execution with inline response delivery, session-persistent Q&A history
+- **Safety Features**: Rate limiting and serialized calls to prevent spam and duplicate prompts
 
-#### LiteLLM Cost Tracking Integration
-- **500+ Model Support**: Auto-updating pricing database with reasoning tokens (o1/o3) and cached tokens (Claude, OpenAI) support, more accurate than manual tables
-- **Robust Fallback**: Graceful degradation to legacy calculation when unavailable
+#### Claude Advanced Tooling
+- **Programmatic Tool Calling**: Code execution can invoke custom and MCP tools via `enable_programmatic_flow` flag (requires claude-opus-4-5 or claude-sonnet-4-5)
+- **Tool Search (Deferred Loading)**: Server-side tool discovery via `enable_tool_search` with regex or bm25 variants, reducing initial context size
 
-#### Memory Archiving System
-- **Persistent Multi-Turn Memory**: Archive memory across conversation turns with improved retrieval and context management for continuous agent interactions
+#### Configuration
+- `providers/claude/programmatic_with_two_tools.yaml`, `providers/claude/tool_search_example.yaml`
+- `broadcast/test_broadcast_agents.yaml`, `broadcast/test_broadcast_human.yaml`
 
-#### MassGen Self-Evolution Skills
-- **Four Development Skills**: Config creator, self-developer, release documenter, and model registry maintainer to assist with MassGen development and maintenance
+### Previous Achievements (v0.0.3 - v0.1.17)
 
-#### Infrastructure Enhancements
-- **Docker Improvements**: Parallel image pulling for faster setup, VHS integration for terminal recording in containers
-- **Model Updates**: Grok 4.1 family (grok-4.1, grok-4.1-mini) and GPT-4.1 models with release dates and improved pricing metadata for accurate cost tracking
+✅ **Textual Terminal Display (v0.1.17)**: Interactive terminal UI using the Textual library with dark/light themes, multi-panel layout for agents and orchestrator, real-time streaming with syntax highlighting, content filtering for critical patterns
 
-#### Documentation
-- **Terminal Evaluation System**: `docs/source/user_guide/terminal_evaluation.rst`, `massgen/configs/meta/massgen_evaluates_terminal.yaml`, `massgen/configs/tools/custom_tools/terminal_evaluation.yaml`
-- **LiteLLM Cost Tracking Integration**: `docs/dev_notes/litellm_cost_tracking_integration.md`
-- **Memory Archiving System**: `docs/source/user_guide/memory_filesystem_mode.rst` with archiving workflows
-- **MassGen Self-Evolution Skills**: `massgen-config-creator/SKILL.md`, `massgen-develops-massgen/SKILL.md`, `massgen-release-documenter/SKILL.md`, `model-registry-maintainer/SKILL.md`
-
-### Previous Achievements (v0.0.3 - v0.1.15)
+✅ **Terminal Evaluation & Cost Tracking (v0.1.16)**: Automated VHS recording with AI-powered terminal display evaluation, LiteLLM integration for accurate pricing across 500+ models with reasoning/cached tokens support, memory archiving for multi-turn session persistence, four self-evolution skills for MassGen development
 
 ✅ **Persona Generation & Docker Distribution (v0.1.15)**: Automatic persona generation for agent diversity with multiple strategies (complementary, diverse, specialized, adversarial), GitHub Container Registry integration with ARM support, custom tools in isolated Docker containers for security, MassGen pre-installed in Docker images
 
@@ -1292,21 +1290,21 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.17 Roadmap
+### v0.1.19 Roadmap
 
-Version 0.1.17 focuses on broadcasting capabilities and expanding model support:
+Version 0.1.19 focuses on CUA Docker infrastructure and expanding model support:
 
 #### Planned Features
-- **Broadcasting to Humans/Agents**: Enable agents to broadcast questions when facing implementation uncertainties for improved decision quality
+- **CUA Dockerfile for Optional Installation**: Provide optional Docker image for Computer Use Agent setup with pre-configured environment
 - **Grok 4.1 Fast Model Support**: Add support for xAI's latest high-speed model for rapid agent responses and cost-effective workflows
 
 Key technical approach:
-- **Broadcasting Infrastructure**: Question routing protocol, human-in-the-loop interaction, agent-to-agent coordination
+- **CUA Dockerfile**: Browser/desktop automation dependencies, X11/VNC support, simplified setup for computer use workflows
 - **Grok 4.1 Fast Integration**: Backend integration, token counting, pricing configuration, capability registration
 
-**Target Release**: November 26, 2025 (Wednesday @ 9am PT)
+**Target Release**: December 1, 2025 (Monday @ 9am PT)
 
-For detailed milestones and technical specifications, see the [full v0.1.17 roadmap](ROADMAP_v0.1.17.md).
+For detailed milestones and technical specifications, see the [full v0.1.19 roadmap](ROADMAP_v0.1.19.md).
 
 ---
 

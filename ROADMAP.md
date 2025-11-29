@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.16
+**Current Version:** v0.1.18
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** November 24, 2025
+**Last Updated:** November 28, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,29 +42,28 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.17** | 11/26/25 | Broadcasting to Humans/Agents for Implementation Questions | @ncrispino | Enable agents to broadcast questions when facing implementation uncertainties |
+| **v0.1.19** | 12/01/25 | CUA Dockerfile for Optional Installation | @franklinnwren | Provide optional Docker image for Computer Use Agent setup |
 | | | Grok 4.1 Fast Model Support | @ncrispino | Add support for xAI's Grok 4.1 Fast model |
-| **v0.1.18** | 11/28/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
-| | | Textual Terminal Display | @praneeth999 | Rich terminal UI with Textual framework for enhanced visualization |
-| **v0.1.19** | 12/02/25 | Filesystem-Based Memory Reliability | @ncrispino | Ensure memory persistence across turns with filesystem backend |
+| **v0.1.20** | 12/03/25 | Update Computer Use Documentation | @franklinnwren | Comprehensive documentation for computer use workflows |
+| | | Filesystem-Based Memory Reliability | @ncrispino | Ensure memory persistence across turns with filesystem backend |
+| **v0.1.21** | 12/05/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
 | | | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.17 - Broadcasting & Model Support
+## 📋 v0.1.19 - CUA Dockerfile & Model Support
 
 ### Features
 
-**1. Broadcasting to Humans/Agents for Implementation Questions** (@ncrispino)
-- Issue: [#437](https://github.com/massgen/MassGen/issues/437)
-- Enable agents to broadcast questions when facing implementation uncertainties
-- Support for human-in-the-loop clarification during task execution
-- Agent-to-agent communication for collaborative problem solving
-- Structured question/answer workflow with context preservation
-- Integration with existing orchestration and coordination systems
-- **Use Case**: When agents encounter ambiguous requirements or implementation decisions, they can broadcast questions to humans or other agents for clarification, improving decision quality and reducing errors
+**1. CUA Dockerfile for Optional Installation** (@franklinnwren)
+- Issue: [#552](https://github.com/massgen/MassGen/issues/552)
+- New Dockerfile specifically for Computer Use Agent (CUA) setup
+- Optional installation for users who need browser/desktop automation
+- Pre-configured environment with all CUA dependencies
+- Simplified setup process for computer use workflows
+- **Use Case**: Provide an easy-to-use Docker image for users who want to run Computer Use Agent capabilities without manual environment configuration
 
 **2. Grok 4.1 Fast Model Support** (@ncrispino)
 - Issue: [#540](https://github.com/massgen/MassGen/issues/540)
@@ -76,16 +75,46 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses and cost-effective multi-agent workflows
 
 ### Success Criteria
-- ✅ Agents can broadcast questions to humans during execution
-- ✅ Agent-to-agent question routing works seamlessly
-- ✅ Question context is preserved and responses are integrated
+- ✅ CUA Dockerfile builds successfully and includes all dependencies
+- ✅ Users can easily pull and run CUA Docker image
+- ✅ Computer use workflows function correctly in containerized environment
 - ✅ Grok 4.1 Fast model is accessible via configuration
 - ✅ Token counting and pricing are accurate for Grok 4.1 Fast
 - ✅ Model performs with expected latency and cost characteristics
 
 ---
 
-## 📋 v0.1.18 - RL Integration & Enhanced UI
+## 📋 v0.1.20 - Computer Use Documentation & Memory Reliability
+
+### Features
+
+**1. Update Computer Use Documentation** (@franklinnwren)
+- Issue: [#562](https://github.com/massgen/MassGen/issues/562)
+- Comprehensive documentation for computer use workflows
+- Updated guides for CUA setup and configuration
+- Best practices for browser and desktop automation
+- Troubleshooting guides and common issues
+- **Use Case**: Provide clear, up-to-date documentation for users implementing computer use capabilities in their MassGen workflows
+
+**2. Filesystem-Based Memory Reliability** (@ncrispino)
+- Issue: [#499](https://github.com/massgen/MassGen/issues/499)
+- Ensure filesystem-based memory is reliable and can be used across turns
+- Persistent memory state with atomic write operations
+- Crash recovery and data consistency guarantees
+- Multi-turn conversation memory continuity
+- Performance optimization for large memory contexts
+- **Use Case**: Enable reliable long-term memory persistence using filesystem backend, ensuring agents can maintain context across multiple conversation turns and system restarts without data loss
+
+### Success Criteria
+- ✅ Computer use documentation is comprehensive and up-to-date
+- ✅ Users can follow guides to set up CUA successfully
+- ✅ Filesystem memory operations are atomic and crash-safe
+- ✅ Memory state persists reliably across conversation turns
+- ✅ Performance remains acceptable with large memory contexts
+
+---
+
+## 📋 v0.1.21 - RL Integration & MCP Ecosystem Expansion
 
 ### Features
 
@@ -98,38 +127,6 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Learning from past interactions to improve future performance
 - **Use Case**: Enable agents to learn and improve their performance over time through reinforcement learning, optimizing coordination strategies and task execution based on past successes and failures
 
-**2. Textual Terminal Display** (@praneeth999)
-- Issue: [#539](https://github.com/massgen/MassGen/issues/539)
-- Rich terminal UI using Textual framework
-- Enhanced visualization for multi-agent coordination
-- Interactive agent status displays with real-time updates
-- Improved logging and debugging interface
-- Modern TUI with responsive layout and themes
-- **Use Case**: Provide a more intuitive and visually appealing terminal interface for monitoring multi-agent workflows, improving user experience and debugging capabilities
-
-### Success Criteria
-- ✅ RL framework successfully integrates with MassGen architecture
-- ✅ Agents demonstrate learning and improvement over repeated tasks
-- ✅ Reward modeling accurately reflects task success metrics
-- ✅ Textual UI renders correctly across different terminal emulators
-- ✅ Real-time updates display agent activities without performance degradation
-- ✅ UI is intuitive and improves user experience over current display
-
----
-
-## 📋 v0.1.19 - Memory & MCP Ecosystem Expansion
-
-### Features
-
-**1. Filesystem-Based Memory Reliability** (@ncrispino)
-- Issue: [#499](https://github.com/massgen/MassGen/issues/499)
-- Ensure filesystem-based memory is reliable and can be used across turns
-- Persistent memory state with atomic write operations
-- Crash recovery and data consistency guarantees
-- Multi-turn conversation memory continuity
-- Performance optimization for large memory contexts
-- **Use Case**: Enable reliable long-term memory persistence using filesystem backend, ensuring agents can maintain context across multiple conversation turns and system restarts without data loss
-
 **2. Smithery MCP Tools Support** (@ncrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
@@ -140,9 +137,9 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - **Use Case**: Expand MassGen's tool ecosystem by integrating with Smithery, giving users access to a wider range of curated MCP tools without manual configuration
 
 ### Success Criteria
-- ✅ Filesystem memory operations are atomic and crash-safe
-- ✅ Memory state persists reliably across conversation turns
-- ✅ Performance remains acceptable with large memory contexts
+- ✅ RL framework successfully integrates with MassGen architecture
+- ✅ Agents demonstrate learning and improvement over repeated tasks
+- ✅ Reward modeling accurately reflects task success metrics
 - ✅ Smithery integration discovers and installs MCP tools automatically
 - ✅ Tool registry includes curated Smithery tools with proper metadata
 - ✅ Users can easily browse and install Smithery tools
@@ -323,42 +320,62 @@ These features are being actively developed on **separate parallel tracks** and 
 - Standardize memory access patterns
 - **Status:** ✅ Completed in v0.1.16
 
+### Track: Textual Terminal Display (@praneeth999, ram2561)
+- Issue: [#539](https://github.com/massgen/MassGen/issues/539)
+- PR: [#482](https://github.com/massgen/MassGen/pull/482)
+- Rich terminal UI using Textual framework with dark/light themes
+- Enhanced visualization for multi-agent coordination
+- **Status:** ✅ Completed in v0.1.17
+
 ### Track: Broadcasting to Humans/Agents (@ncrispino, nickcrispino)
 - Issue: [#437](https://github.com/massgen/MassGen/issues/437)
+- PR: [#569](https://github.com/massgen/MassGen/pull/569)
 - Enable agents to broadcast questions when facing implementation uncertainties
 - Human-in-the-loop and agent-to-agent communication for clarification
-- **Target:** v0.1.17
+- **Status:** ✅ Completed in v0.1.18
+
+### Track: Claude Advanced Tooling (@praneeth999, ram2561)
+- PR: [#568](https://github.com/massgen/MassGen/pull/568)
+- Programmatic tool calling from code execution sandbox
+- Server-side tool search with deferred loading
+- **Status:** ✅ Completed in v0.1.18
+
+### Track: CUA Dockerfile (@franklinnwren, zhichengren)
+- Issue: [#552](https://github.com/massgen/MassGen/issues/552)
+- New Dockerfile for Computer Use Agent optional installation
+- Pre-configured environment for browser/desktop automation
+- **Target:** v0.1.19
 
 ### Track: Grok 4.1 Fast Model Support (@ncrispino, nickcrispino)
 - Issue: [#540](https://github.com/massgen/MassGen/issues/540)
 - Add support for xAI's Grok 4.1 Fast model
 - Integration with existing Grok backend infrastructure
-- **Target:** v0.1.17
+- **Target:** v0.1.19
+
+### Track: Computer Use Documentation (@franklinnwren, zhichengren)
+- Issue: [#562](https://github.com/massgen/MassGen/issues/562)
+- Comprehensive documentation for computer use workflows
+- Updated guides for CUA setup, configuration, and troubleshooting
+- **Target:** v0.1.20
+
+### Track: Filesystem-Based Memory Reliability (@ncrispino, nickcrispino)
+- Issue: [#499](https://github.com/massgen/MassGen/issues/499)
+- Ensure filesystem-based memory is reliable across conversation turns
+- Persistent memory state with atomic operations
+- **Target:** v0.1.20
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.18
-
-### Track: Textual Terminal Display (@praneeth999, ram2561)
-- Issue: [#539](https://github.com/massgen/MassGen/issues/539)
-- Rich terminal UI using Textual framework
-- Enhanced visualization for multi-agent coordination
-- **Target:** v0.1.18
-
-### Track: Filesystem-Based Memory Reliability (@ncrispino, nickcrispino)
-- Issue: [#499](https://github.com/massgen/MassGen/issues/499)
-- Ensure filesystem-based memory is reliable across conversation turns
-- Persistent memory state with atomic operations
-- **Target:** v0.1.19
+- **Target:** v0.1.21
 
 ### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
-- **Target:** v0.1.19
+- **Target:** v0.1.21
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -440,5 +457,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** November 24, 2025
+**Last Updated:** November 28, 2025
 **Maintained By:** MassGen Team
