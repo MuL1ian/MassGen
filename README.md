@@ -974,10 +974,14 @@ uv run python -m massgen.cli \
 **Interactive Mode Features:**
 - **Multi-turn conversations**: Multiple agents collaborate to chat with you in an ongoing conversation
 - **Real-time coordination tracking**: Live visualization of agent interactions, votes, and decision-making processes
-- **Interactive coordination table**: Press `r` to view complete history of agent coordination events and state transitions
 - **Real-time feedback**: Displays real-time agent and system status with enhanced coordination visualization
-- **Clear conversation history**: Type `/clear` to reset the conversation and start fresh
-- **Easy exit**: Type `/quit`, `/exit`, `/q`, or press `Ctrl+C` to stop
+- **Multi-line input**: Use `"""` or `'''` to enter multi-line messages
+- **Slash commands**:
+  - `/help` or `/h` - Show available commands
+  - `/status` - Display current system status
+  - `/config` - Open the configuration file
+  - `/clear` or `/reset` - Clear conversation history and start fresh
+  - `/quit`, `/exit`, or `/q` - Exit the session (or press `Ctrl+C`)
 
 **Watch the recorded demo:**
 
