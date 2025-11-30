@@ -5,7 +5,7 @@ agents:
   - id: "claude_mcp_weather"
     backend:
       type: "claude"
-      model: "claude-sonnet-4-20250514"  # Model name
+      model: "claude-sonnet-4-5-20250929"  # Model name
       mcp_servers:
         - name: "weather"
           type: "stdio"

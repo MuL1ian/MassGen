@@ -486,8 +486,8 @@ MassGen agents can leverage various tools to enhance their problem-solving capab
 **Quick Start Commands:**
 ```bash
 # Quick test with any supported model - no configuration needed
-uv run python -m massgen.cli --model claude-3-5-sonnet-latest "What is machine learning?"
-uv run python -m massgen.cli --model gemini-2.5-flash "Explain quantum computing"
+uv run python -m massgen.cli --model claude-sonnet-4-5-20250929 "What is machine learning?"
+uv run python -m massgen.cli --model gemini-3-pro-preview "Explain quantum computing"
 uv run python -m massgen.cli --model gpt-5-nano "Summarize the latest AI developments"
 ```
 
@@ -523,9 +523,9 @@ massgen --config @examples/basic/multi/three_agents_default \
 ```
 
 **This showcases MassGen's core strength:**
-- **Gemini 2.5 Flash** - Fast research with web search
+- **Gemini 3 Pro** - Fast research with web search
 - **GPT-5 Nano** - Advanced reasoning with code execution
-- **Grok-3 Mini** - Real-time information and alternative perspectives
+- **Grok-4 Fast** - Real-time information and alternative perspectives
 
 ```yaml
 agents:  # Multiple agents (alternative to 'agent')
@@ -599,7 +599,7 @@ agents:
   # Multiple MCP Tools Example:
   backend:
     type: "gemini"
-    model: "gemini-2.5-flash"
+    model: "gemini-3.0-pro-preview"
     mcp_servers:
       # Web search
       search:
@@ -663,7 +663,6 @@ agents:
   - id: "file-agent"
     backend:
       type: "claude_code"          # Backend with file support
-      model: "claude-sonnet-4"     # Your model choice
       cwd: "workspace"             # Isolated workspace for file operations
 
 # Multi-Agent Workspace Isolation:
@@ -892,18 +891,18 @@ massgen --config @examples/providers/local/lmstudio \
 **Question Answering & Research:**
 ```bash
 # Complex research with multiple perspectives
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "What's best to do in Stockholm in October 2025"
 
 # Specific research requirements
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "Give me all the talks on agent frameworks in Berkeley Agentic AI Summit 2025"
 ```
 
 **Creative Writing:**
 ```bash
 # Story generation with multiple creative agents
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "Write a short story about a robot who discovers music"
 ```
 
