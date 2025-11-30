@@ -435,19 +435,15 @@ The system currently supports multiple model providers with advanced capabilitie
 - **Z AI / Zhipu**: GLM-4.5 and related models
 
 **Local Model Support:**
-- **vLLM** (port 8000): High-performance inference server
-  - OpenAI-compatible API with batch processing
-  - Guided generation and structured output support
-  - Thinking/reasoning mode with `separate_reasoning` parameter
-
-- **SGLang** (port 30000): Template-optimized inference server
-  - OpenAI-compatible API with structured output
-  - Separate reasoning support
-  - Mixed deployments with vLLM (see `two_qwen_vllm_sglang.yaml`)
+- **vLLM & SGLang**: Unified inference backend supporting both vLLM and SGLang servers
+  - vLLM (port 8000) and SGLang (port 30000) with OpenAI-compatible API
+  - Support for `top_k`, `repetition_penalty`, `chat_template_kwargs` parameters
+  - SGLang-specific `separate_reasoning` parameter for thinking models
+  - Mixed server deployments with configuration example: `two_qwen_vllm_sglang.yaml`
 
 - **LM Studio**: Run open-weight models locally with automatic server management
-  - Automatic CLI installation and model loading
-  - Zero-cost usage reporting
+  - Automatic LM Studio CLI installation
+  - Auto-download and loading of models
   - Support for LLaMA, Mistral, Qwen and other open-weight models
 
 → For complete model list and configuration details, see [Supported Models](https://docs.massgen.ai/en/latest/reference/supported_models.html)
