@@ -417,25 +417,35 @@ MassGen automatically loads API keys from `.env` in your current directory.
 The system currently supports multiple model providers with advanced capabilities:
 
 **API-based Models:**
-- **Azure OpenAI** (NEW in v0.0.10): GPT-4, GPT-4o, GPT-3.5-turbo, GPT-4.1, GPT-5-chat
-- **Cerebras AI**: GPT-OSS-120B...
-- **Claude**: Claude Haiku 3.5, Claude Sonnet 4, Claude Opus 4...
-- **Claude Code**: Native Claude Code SDK with comprehensive dev tools
-- **Gemini**: Gemini 2.5 Flash, Gemini 2.5 Pro...
-- **Grok**: Grok-4, Grok-3, Grok-3-mini...
-- **OpenAI**: GPT-5 series (GPT-5, GPT-5-mini, GPT-5-nano)...
-- **Together AI**, **Fireworks AI**, **Groq**, **Kimi/Moonshot**, **Nebius AI Studio**, **OpenRouter**, **POE**: LLaMA, Mistral, Qwen...
-- **Z AI**: GLM-4.5
+- **OpenAI**: GPT-5.1, GPT-5-codex, GPT-5 series (GPT-5, GPT-5-mini, GPT-5-nano), GPT-4.1 series, GPT-4o, o4-mini with reasoning, web search, code interpreter, and computer-use support
+- **Azure OpenAI**: Any Azure-deployed models (GPT-4, GPT-4o, GPT-35-turbo, etc.)
+- **Claude / Anthropic**: Claude Opus 4.5, Claude Haiku 4.5, Claude Sonnet 4.5, Claude Opus 4.5, Claude Opus 4.1, Claude Sonnet 4
+  - Advanced tooling: web search, code execution, Files API, programmatic tool calling, tool search with deferred loading
+- **Claude Code**: Native Claude Code SDK with server-side session persistence and built-in dev tools
+- **Gemini**: Gemini 3 Pro, Gemini 2.5 Flash, Gemini 2.5 Pro with code execution and grounding
+- **Grok / xAI**: Grok-4.1, Grok-4, Grok-3, Grok-3-mini with Grok Live Search
+- **Cerebras AI**: Ultra-fast inference for supported models
+- **Together AI**, **Fireworks AI**, **Groq**: Fast inference for LLaMA, Mistral, Qwen, and other open models
+- **OpenRouter**: Multi-model aggregator with dynamic model listing (500+ models)
+- **Kimi / Moonshot**: Chinese AI models via OpenAI-compatible API
+- **Nebius AI Studio**: Cloud inference platform
+- **POE**: Quora AI platform with dynamic model discovery
+- **Qwen / Alibaba**: DashScope API for Qwen models
+- **Z AI / Zhipu**: GLM-4.5 and related models
 
 **Local Model Support:**
-- **vLLM & SGLang** (ENHANCED in v0.0.25): Unified inference backend supporting both vLLM and SGLang servers
-  - Auto-detection between vLLM (port 8000) and SGLang (port 30000) servers
-  - Support for both vLLM and SGLang-specific parameters (top_k, repetition_penalty, separate_reasoning)
-  - Mixed server deployments with configuration example: `two_qwen_vllm_sglang.yaml`
+- **vLLM** (port 8000): High-performance inference server
+  - OpenAI-compatible API with batch processing
+  - Guided generation and structured output support
+  - Thinking/reasoning mode with `separate_reasoning` parameter
 
-- **LM Studio** (v0.0.7+): Run open-weight models locally with automatic server management
-  - Automatic LM Studio CLI installation
-  - Auto-download and loading of models
+- **SGLang** (port 30000): Template-optimized inference server
+  - OpenAI-compatible API with structured output
+  - Separate reasoning support
+  - Mixed deployments with vLLM (see `two_qwen_vllm_sglang.yaml`)
+
+- **LM Studio**: Run open-weight models locally with automatic server management
+  - Automatic CLI installation and model loading
   - Zero-cost usage reporting
   - Support for LLaMA, Mistral, Qwen and other open-weight models
 
