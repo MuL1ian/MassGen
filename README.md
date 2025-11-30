@@ -427,7 +427,7 @@ The system currently supports multiple model providers with advanced capabilitie
 - **Grok / xAI**: Grok-4.1, Grok-4, Grok-3, Grok-3-mini with Grok Live Search
 - **Cerebras AI**: Ultra-fast inference for supported models
 - **Together AI**, **Fireworks AI**, **Groq**: Fast inference for LLaMA, Mistral, Qwen, and other open models
-- **OpenRouter**: Multi-model aggregator with dynamic model listing (500+ models)
+- **OpenRouter**: Multi-model aggregator with dynamic model listing (400+ models)
 - **Kimi / Moonshot**: Chinese AI models via OpenAI-compatible API
 - **Nebius AI Studio**: Cloud inference platform
 - **POE**: Quora AI platform with dynamic model discovery
