@@ -417,52 +417,47 @@ MassGen automatically loads API keys from `.env` in your current directory.
 The system currently supports multiple model providers with advanced capabilities:
 
 **API-based Models:**
-- **Azure OpenAI** (NEW in v0.0.10): GPT-4, GPT-4o, GPT-3.5-turbo, GPT-4.1, GPT-5-chat
-- **Cerebras AI**: GPT-OSS-120B...
-- **Claude**: Claude Haiku 3.5, Claude Sonnet 4, Claude Opus 4...
-- **Claude Code**: Native Claude Code SDK with comprehensive dev tools
-- **Gemini**: Gemini 2.5 Flash, Gemini 2.5 Pro...
-- **Grok**: Grok-4, Grok-3, Grok-3-mini...
-- **OpenAI**: GPT-5 series (GPT-5, GPT-5-mini, GPT-5-nano)...
-- **Together AI**, **Fireworks AI**, **Groq**, **Kimi/Moonshot**, **Nebius AI Studio**, **OpenRouter**, **POE**: LLaMA, Mistral, Qwen...
-- **Z AI**: GLM-4.5
+- **OpenAI**: GPT-5.1, GPT-5-codex, GPT-5 series (GPT-5, GPT-5-mini, GPT-5-nano), GPT-4.1 series, GPT-4o, o4-mini with reasoning, web search, code interpreter, and computer-use support
+- **Azure OpenAI**: Any Azure-deployed models (GPT-4, GPT-4o, GPT-35-turbo, etc.)
+- **Claude / Anthropic**: Claude Opus 4.5, Claude Haiku 4.5, Claude Sonnet 4.5, Claude Opus 4.5, Claude Opus 4.1, Claude Sonnet 4
+  - Advanced tooling: web search, code execution, Files API, programmatic tool calling, tool search with deferred loading
+- **Claude Code**: Native Claude Code SDK with server-side session persistence and built-in dev tools
+- **Gemini**: Gemini 3 Pro, Gemini 2.5 Flash, Gemini 2.5 Pro with code execution and grounding
+- **Grok / xAI**: Grok-4.1, Grok-4, Grok-3, Grok-3-mini with Grok Live Search
+- **Cerebras AI**: Ultra-fast inference for supported models
+- **Together AI**, **Fireworks AI**, **Groq**: Fast inference for LLaMA, Mistral, Qwen, and other open models
+- **OpenRouter**: Multi-model aggregator with dynamic model listing (400+ models)
+- **Kimi / Moonshot**: Chinese AI models via OpenAI-compatible API
+- **Nebius AI Studio**: Cloud inference platform
+- **POE**: Quora AI platform with dynamic model discovery
+- **Qwen / Alibaba**: DashScope API for Qwen models
+- **Z AI / Zhipu**: GLM-4.5 and related models
 
 **Local Model Support:**
-- **vLLM & SGLang** (ENHANCED in v0.0.25): Unified inference backend supporting both vLLM and SGLang servers
-  - Auto-detection between vLLM (port 8000) and SGLang (port 30000) servers
-  - Support for both vLLM and SGLang-specific parameters (top_k, repetition_penalty, separate_reasoning)
+- **vLLM & SGLang**: Unified inference backend supporting both vLLM and SGLang servers
+  - vLLM (port 8000) and SGLang (port 30000) with OpenAI-compatible API
+  - Support for `top_k`, `repetition_penalty`, `chat_template_kwargs` parameters
+  - SGLang-specific `separate_reasoning` parameter for thinking models
   - Mixed server deployments with configuration example: `two_qwen_vllm_sglang.yaml`
 
-- **LM Studio** (v0.0.7+): Run open-weight models locally with automatic server management
+- **LM Studio**: Run open-weight models locally with automatic server management
   - Automatic LM Studio CLI installation
   - Auto-download and loading of models
-  - Zero-cost usage reporting
   - Support for LLaMA, Mistral, Qwen and other open-weight models
 
 → For complete model list and configuration details, see [Supported Models](https://docs.massgen.ai/en/latest/reference/supported_models.html)
 
 #### Tools
 
-MassGen agents can leverage various tools to enhance their problem-solving capabilities. Both API-based and CLI-based backends support different tool capabilities.
+MassGen agents can leverage various tools to enhance their problem-solving capabilities:
 
-**Supported Built-in Tools by Backend:**
+- **Built-in Tools**: Web search, code execution, bash/shell (provider-dependent)
+- **Filesystem**: Native file operations or via MCP
+- **MCP Integration**: Connect to any MCP server for extended capabilities
+- **Custom Tools**: Define your own tools via YAML configuration
+- **Multimodal**: Image, audio, video understanding and generation (native or via custom tools)
 
-| Backend | Live Search | Code Execution | File Operations | MCP Support | Multimodal Understanding | Multimodal Generation | Advanced Features |
-|---------|:-----------:|:--------------:|:---------------:|:-----------:|:------------------------:|:---------------------:|:-----------------|
-| **Azure OpenAI** (NEW in v0.0.10) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | Code interpreter, Azure deployment management |
-| **Claude API**  | ✅ | ✅ | ✅ | ✅ | ✅<br/>*via custom tools* | ✅<br/>*via custom tools* | Web search, code interpreter, **MCP integration** |
-| **Claude Code** | ✅ | ✅ | ✅ | ✅ | ✅<br/>*Image (native)*<br/>*Audio/Video/Docs (custom tools)* | ✅<br/>*via custom tools* | **Native Claude Code SDK, comprehensive dev tools, MCP integration** |
-| **Gemini API** | ✅ | ✅ | ✅ | ✅ | ✅<br/>*Image (native)*<br/>*Audio/Video/Docs (custom tools)* | ✅<br/>*via custom tools* | Web search, code execution, **MCP integration**|
-| **Grok API** | ✅ | ❌ | ✅ | ✅ | ✅<br/>*via custom tools* | ✅<br/>*via custom tools* | Web search, **MCP integration** |
-| **OpenAI API** | ✅ | ✅ | ✅ | ✅ | ✅<br/>*Image (native)*<br/>*Audio/Video/Docs (custom tools)* | ✅<br/>*via custom tools* | Web search, code interpreter, **MCP integration** |
-| **ZAI API** | ❌ | ❌ | ✅ | ✅ | ✅<br/>*via custom tools* | ✅<br/>*via custom tools* | **MCP integration** |
-
-**Notes:**
-- **Multimodal Understanding** (NEW in v0.1.3): Analyze images, audio, video, and documents via custom tools using OpenAI GPT-4.1 - works with any backend
-- **Multimodal Generation** (NEW in v0.1.4): Generate images, videos, audio, and documents via custom tools using OpenAI APIs - works with any backend
-- See custom tool configurations: [`understand_image.yaml`](massgen/configs/tools/custom_tools/multimodal_tools/understand_image.yaml), [`text_to_image_generation_single.yaml`](massgen/configs/tools/custom_tools/multimodal_tools/text_to_image_generation_single.yaml)
-
-→ For detailed backend capabilities and tool integration guides, see [User Guide - Backends](https://docs.massgen.ai/en/latest/user_guide/backends.html)
+→ For detailed backend capabilities and tool support matrix, see [User Guide - Backends](https://docs.massgen.ai/en/latest/user_guide/backends.html#backend-capabilities)
 
 ---
 
@@ -491,8 +486,8 @@ MassGen agents can leverage various tools to enhance their problem-solving capab
 **Quick Start Commands:**
 ```bash
 # Quick test with any supported model - no configuration needed
-uv run python -m massgen.cli --model claude-3-5-sonnet-latest "What is machine learning?"
-uv run python -m massgen.cli --model gemini-2.5-flash "Explain quantum computing"
+uv run python -m massgen.cli --model claude-sonnet-4-5-20250929 "What is machine learning?"
+uv run python -m massgen.cli --model gemini-3-pro-preview "Explain quantum computing"
 uv run python -m massgen.cli --model gpt-5-nano "Summarize the latest AI developments"
 ```
 
@@ -528,9 +523,9 @@ massgen --config @examples/basic/multi/three_agents_default \
 ```
 
 **This showcases MassGen's core strength:**
-- **Gemini 2.5 Flash** - Fast research with web search
+- **Gemini 3 Pro** - Fast research with web search
 - **GPT-5 Nano** - Advanced reasoning with code execution
-- **Grok-3 Mini** - Real-time information and alternative perspectives
+- **Grok-4 Fast** - Real-time information and alternative perspectives
 
 ```yaml
 agents:  # Multiple agents (alternative to 'agent')
@@ -604,7 +599,7 @@ agents:
   # Multiple MCP Tools Example:
   backend:
     type: "gemini"
-    model: "gemini-2.5-flash"
+    model: "gemini-3.0-pro-preview"
     mcp_servers:
       # Web search
       search:
@@ -668,7 +663,6 @@ agents:
   - id: "file-agent"
     backend:
       type: "claude_code"          # Backend with file support
-      model: "claude-sonnet-4"     # Your model choice
       cwd: "workspace"             # Isolated workspace for file operations
 
 # Multi-Agent Workspace Isolation:
@@ -897,18 +891,18 @@ massgen --config @examples/providers/local/lmstudio \
 **Question Answering & Research:**
 ```bash
 # Complex research with multiple perspectives
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "What's best to do in Stockholm in October 2025"
 
 # Specific research requirements
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "Give me all the talks on agent frameworks in Berkeley Agentic AI Summit 2025"
 ```
 
 **Creative Writing:**
 ```bash
 # Story generation with multiple creative agents
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "Write a short story about a robot who discovers music"
 ```
 
@@ -979,10 +973,14 @@ uv run python -m massgen.cli \
 **Interactive Mode Features:**
 - **Multi-turn conversations**: Multiple agents collaborate to chat with you in an ongoing conversation
 - **Real-time coordination tracking**: Live visualization of agent interactions, votes, and decision-making processes
-- **Interactive coordination table**: Press `r` to view complete history of agent coordination events and state transitions
 - **Real-time feedback**: Displays real-time agent and system status with enhanced coordination visualization
-- **Clear conversation history**: Type `/clear` to reset the conversation and start fresh
-- **Easy exit**: Type `/quit`, `/exit`, `/q`, or press `Ctrl+C` to stop
+- **Multi-line input**: Use `"""` or `'''` to enter multi-line messages
+- **Slash commands**:
+  - `/help` or `/h` - Show available commands
+  - `/status` - Display current system status
+  - `/config` - Open the configuration file
+  - `/clear` or `/reset` - Clear conversation history and start fresh
+  - `/quit`, `/exit`, or `/q` - Exit the session (or press `Ctrl+C`)
 
 **Watch the recorded demo:**
 
