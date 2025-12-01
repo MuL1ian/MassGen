@@ -227,6 +227,13 @@ export interface AnswerWorkspace {
 // - 'finalComplete': Shows full-screen final answer view when complete
 export type ViewMode = 'coordination' | 'finalStreaming' | 'finalComplete';
 
+// Conversation message for multi-turn
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  turn?: number;
+}
+
 // Full session state
 export interface SessionState {
   sessionId: string;
@@ -242,6 +249,9 @@ export interface SessionState {
   error?: string;
   theme: string;
   viewMode: ViewMode;  // 'coordination' shows all agents, 'winner' shows only winner
+  // Multi-turn conversation state
+  turnNumber: number;
+  conversationHistory: ConversationMessage[];
 }
 
 // Union type for all WebSocket events

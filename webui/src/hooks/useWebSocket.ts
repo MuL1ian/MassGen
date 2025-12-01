@@ -24,6 +24,7 @@ interface UseWebSocketReturn {
   disconnect: () => void;
   send: (data: Record<string, unknown>) => void;
   startCoordination: (question: string, configPath?: string) => void;
+  continueConversation: (question: string) => void;
   cancelCoordination: () => void;
   error: string | null;
 }
@@ -150,6 +151,17 @@ export function useWebSocket({
     [send]
   );
 
+  // Continue conversation with follow-up question
+  const continueConversation = useCallback(
+    (question: string) => {
+      send({
+        action: 'continue',
+        question,
+      });
+    },
+    [send]
+  );
+
   // Cancel coordination
   const cancelCoordination = useCallback(() => {
     send({
@@ -174,6 +186,7 @@ export function useWebSocket({
     disconnect,
     send,
     startCoordination,
+    continueConversation,
     cancelCoordination,
     error,
   };

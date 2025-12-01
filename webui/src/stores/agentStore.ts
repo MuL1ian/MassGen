@@ -43,6 +43,9 @@ interface AgentStore extends SessionState {
   setAgentRound: (agentId: string, roundId: string) => void;
   reset: () => void;
   processWSEvent: (event: WSEvent) => void;
+  // Multi-turn conversation actions
+  addToConversationHistory: (role: 'user' | 'assistant', content: string) => void;
+  startContinuation: (question: string) => void;
 }
 
 const initialState: SessionState = {
@@ -59,6 +62,9 @@ const initialState: SessionState = {
   error: undefined,
   theme: 'dark',
   viewMode: 'coordination',
+  // Multi-turn conversation state
+  turnNumber: 1,
+  conversationHistory: [],
 };
 
 const createAgentState = (id: string, modelName?: string): AgentState => {
@@ -90,9 +96,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   ...initialState,
 
   initSession: (sessionId, question, agents, theme, agentModels) => {
+    console.log(`[DEBUG] initSession called with agentModels:`, agentModels);
     const agentStates: Record<string, AgentState> = {};
     agents.forEach((id) => {
-      agentStates[id] = createAgentState(id, agentModels?.[id]);
+      const modelName = agentModels?.[id];
+      console.log(`[DEBUG] Creating agent ${id} with modelName: ${modelName}`);
+      agentStates[id] = createAgentState(id, modelName);
     });
 
     set({
@@ -568,6 +577,79 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     set(initialState);
   },
 
+  // Multi-turn conversation actions
+  addToConversationHistory: (role, content) => {
+    set((state) => ({
+      conversationHistory: [
+        ...state.conversationHistory,
+        { role, content, turn: state.turnNumber },
+      ],
+    }));
+  },
+
+  startContinuation: (question) => {
+    // Called when starting a follow-up question
+    // Reset agent states but preserve conversation history and increment turn
+    set((state) => {
+      // Add the previous final answer to history before starting new turn
+      const updatedHistory = state.finalAnswer
+        ? [
+            ...state.conversationHistory,
+            { role: 'assistant' as const, content: state.finalAnswer, turn: state.turnNumber },
+          ]
+        : state.conversationHistory;
+
+      // Add the new question to history
+      const historyWithQuestion = [
+        ...updatedHistory,
+        { role: 'user' as const, content: question, turn: state.turnNumber + 1 },
+      ];
+
+      // Reset agent states for new coordination
+      const resetAgents: Record<string, AgentState> = {};
+      state.agentOrder.forEach((id) => {
+        const agent = state.agents[id];
+        const initialRoundId = `${id}-round-0`;
+        resetAgents[id] = {
+          id,
+          modelName: agent?.modelName,
+          status: 'waiting',
+          content: [],
+          currentContent: '',
+          rounds: [{
+            id: initialRoundId,
+            roundNumber: 0,
+            type: 'answer',
+            label: 'current',
+            content: '',
+            startTimestamp: Date.now(),
+          }],
+          currentRoundId: initialRoundId,
+          displayRoundId: initialRoundId,
+          answerCount: 0,
+          voteCount: 0,
+          files: [],
+          toolCalls: [],
+        };
+      });
+
+      return {
+        question,
+        agents: resetAgents,
+        answers: [],
+        voteDistribution: {},
+        selectedAgent: undefined,
+        finalAnswer: undefined,
+        orchestratorEvents: [],
+        isComplete: false,
+        error: undefined,
+        viewMode: 'coordination',
+        turnNumber: state.turnNumber + 1,
+        conversationHistory: historyWithQuestion,
+      };
+    });
+  },
+
   // Process WebSocket events
   processWSEvent: (event) => {
     const store = get();
@@ -580,12 +662,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     switch (event.type) {
       case 'init':
         if ('agents' in event && 'question' in event) {
+          const agentModels = 'agent_models' in event ? (event as { agent_models: Record<string, string> }).agent_models : undefined;
+          console.log(`[DEBUG] init event - agent_models:`, agentModels);
           store.initSession(
             event.session_id,
             event.question,
             event.agents,
             'theme' in event ? event.theme : 'dark',
-            'agent_models' in event ? (event as { agent_models: Record<string, string> }).agent_models : undefined
+            agentModels
           );
         }
         break;
@@ -615,14 +699,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       case 'vote_cast':
         console.log(`[DEBUG] vote_cast event received:`, event);
         if ('voter_id' in event && 'target_id' in event) {
-          // Get the agent to calculate vote number
+          // Get the agent to calculate vote number and agent index for label
           const votingAgent = get().agents[event.voter_id];
           const voteNumber = votingAgent ? votingAgent.voteCount + 1 : 1;
+          const agentIndex = get().agentOrder.indexOf(event.voter_id) + 1;
 
-          console.log(`[DEBUG] Processing vote_cast for ${event.voter_id}, voteNumber=${voteNumber}`);
+          // Format vote label like answers: vote{agentIndex}.{voteNumber}
+          const voteLabel = `vote${agentIndex}.${voteNumber}`;
+
+          console.log(`[DEBUG] Processing vote_cast for ${event.voter_id}, label=${voteLabel}`);
 
           // Finalize current round as a vote round - don't create new round since voting is done
-          store.finalizeRoundWithLabel(event.voter_id, `vote${voteNumber}`, false);
+          store.finalizeRoundWithLabel(event.voter_id, voteLabel, false);
 
           store.recordVote(
             event.voter_id,

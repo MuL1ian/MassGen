@@ -35,6 +35,12 @@ class ConnectionManager:
         self.displays: Dict[str, WebDisplay] = {}
         # session_id -> orchestration task
         self.tasks: Dict[str, asyncio.Task] = {}
+        # session_id -> log session directory (for multi-turn continuation)
+        self.session_log_dirs: Dict[str, Path] = {}
+        # session_id -> current turn number
+        self.session_turns: Dict[str, int] = {}
+        # session_id -> config path used
+        self.session_configs: Dict[str, str] = {}
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
         """Accept and register a WebSocket connection."""
@@ -70,7 +76,7 @@ class ConnectionManager:
         """Get the WebDisplay for a session."""
         return self.displays.get(session_id)
 
-    def create_display(self, session_id: str, agent_ids: list) -> WebDisplay:
+    def create_display(self, session_id: str, agent_ids: list, agent_models: Optional[Dict[str, str]] = None) -> WebDisplay:
         """Create a new WebDisplay for a session."""
 
         async def broadcast_fn(message: Dict[str, Any]) -> None:
@@ -80,6 +86,7 @@ class ConnectionManager:
             agent_ids=agent_ids,
             broadcast=broadcast_fn,
             session_id=session_id,
+            agent_models=agent_models,
         )
         self.displays[session_id] = display
         return display
@@ -147,10 +154,65 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
         """Get current default config path."""
         return {"config_path": get_default_config()}
 
+    @app.get("/api/config/content")
+    async def get_config_content(path: str):
+        """Get the content of a config file."""
+        try:
+            config_path = Path(path)
+            if not config_path.exists():
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "Config file not found"},
+                )
+            if not config_path.is_file():
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Path is not a file"},
+                )
+            # Security: ensure path is within allowed locations
+            config_path = config_path.resolve()
+            allowed_paths = [
+                Path.home() / ".config" / "massgen",
+            ]
+            try:
+                import massgen
+
+                package_dir = Path(massgen.__file__).parent
+                allowed_paths.append(package_dir / "configs")
+            except Exception:
+                pass
+
+            is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+            if not is_allowed:
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "Access denied"},
+                )
+
+            content = config_path.read_text(encoding="utf-8")
+            return {"content": content, "path": str(config_path)}
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={"error": str(e)},
+            )
+
     @app.get("/api/configs")
     async def list_configs():
         """List all available config files."""
         configs = []
+        quickstart_config = None
+
+        # Check for user's default config at ~/.config/massgen/config.yaml
+        user_config_path = Path.home() / ".config" / "massgen" / "config.yaml"
+        if user_config_path.exists():
+            quickstart_config = {
+                "name": "Default Config",
+                "path": str(user_config_path),
+                "category": "user",
+                "relative": "config.yaml",
+            }
+            configs.append(quickstart_config)
 
         # Get configs from massgen package
         try:
@@ -174,13 +236,236 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
         except Exception:
             pass
 
-        # Sort by category then name
-        configs.sort(key=lambda x: (x["category"], x["name"]))
+        # Sort by category then name (user configs first)
+        def sort_key(x):
+            # Put 'user' category first, then sort alphabetically
+            if x["category"] == "user":
+                return ("0", x["name"])
+            return (x["category"], x["name"])
+
+        configs.sort(key=sort_key)
+
+        # Use quickstart config as default if it exists, otherwise CLI default
+        default = str(user_config_path) if user_config_path.exists() else get_default_config()
 
         return {
             "configs": configs,
-            "default": get_default_config(),
+            "default": default,
+            "quickstart_config": str(user_config_path) if user_config_path.exists() else None,
         }
+
+    # =========================================================================
+    # Quickstart Wizard API Routes
+    # =========================================================================
+
+    @app.get("/api/setup/status")
+    async def get_setup_status():
+        """Check if setup is needed (no config exists) and Docker availability."""
+        import subprocess
+        from pathlib import Path
+
+        # Check if default config exists
+        config_path = Path.home() / ".config" / "massgen" / "config.yaml"
+        has_config = config_path.exists()
+
+        # Check Docker availability
+        docker_available = False
+        try:
+            result = subprocess.run(
+                ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                images = result.stdout.strip().split("\n")
+                # Check for our runtime image
+                docker_available = any("mcp-runtime" in img for img in images)
+        except Exception:
+            docker_available = False
+
+        return {
+            "needs_setup": not has_config,
+            "has_config": has_config,
+            "config_path": str(config_path),
+            "docker_available": docker_available,
+        }
+
+    @app.get("/api/providers")
+    async def get_providers():
+        """Get available providers with their models and API key status."""
+        import os
+
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+
+        providers = []
+        for backend_type, caps in BACKEND_CAPABILITIES.items():
+            # Skip generic/advanced backends for quickstart
+            # Also skip ag2 as it's not a realistic standalone backend
+            if backend_type in ["chatcompletion", "inference", "lmstudio", "vllm", "sglang", "ag2"]:
+                continue
+
+            # Check if API key is available
+            has_api_key = False
+            if caps.env_var:
+                has_api_key = bool(os.getenv(caps.env_var))
+            elif backend_type == "claude_code":
+                # Claude Code works with CLI login or API key
+                has_api_key = True
+            else:
+                # Local backends don't need keys
+                has_api_key = True
+
+            providers.append(
+                {
+                    "id": backend_type,
+                    "name": caps.provider_name,
+                    "models": caps.models,
+                    "default_model": caps.default_model,
+                    "env_var": caps.env_var,
+                    "has_api_key": has_api_key,
+                    "capabilities": list(caps.supported_capabilities),
+                    "notes": caps.notes,
+                },
+            )
+
+        # Sort by has_api_key (available first), then by name
+        providers.sort(key=lambda p: (not p["has_api_key"], p["name"]))
+
+        return {"providers": providers}
+
+    @app.get("/api/providers/{provider_id}/models")
+    async def get_provider_models(provider_id: str):
+        """Get dynamic model list for a provider.
+
+        For providers like OpenRouter that have many models, this fetches
+        the full list from their API with caching.
+        """
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+        from massgen.utils.model_catalog import get_models_for_provider
+
+        # Get static models from capabilities
+        caps = BACKEND_CAPABILITIES.get(provider_id)
+        static_models = caps.models if caps else []
+
+        # For providers with dynamic model lists, fetch from API
+        dynamic_providers = ["openrouter", "groq", "together", "fireworks", "cerebras", "nebius", "moonshot", "qwen", "poe"]
+
+        if provider_id in dynamic_providers:
+            try:
+                dynamic_models = await get_models_for_provider(provider_id, use_cache=True)
+                if dynamic_models:
+                    return {
+                        "provider_id": provider_id,
+                        "models": dynamic_models,
+                        "source": "dynamic",
+                    }
+            except Exception:
+                pass  # Fall back to static models
+
+        return {
+            "provider_id": provider_id,
+            "models": static_models,
+            "source": "static",
+        }
+
+    @app.post("/api/config/generate")
+    async def generate_config(request_data: dict):
+        """Generate a config YAML from wizard selections.
+
+        Request body:
+        {
+            "agents": [
+                {"id": "agent_a", "provider": "openai", "model": "gpt-4o"},
+                {"id": "agent_b", "provider": "claude", "model": "claude-sonnet-4-5-20250929"}
+            ],
+            "use_docker": true,
+            "context_path": "/path/to/project"  // optional
+        }
+
+        Returns:
+            {"config": {...}, "yaml": "..."}
+        """
+        import yaml
+
+        from massgen.config_builder import ConfigBuilder
+
+        agents_config = request_data.get("agents", [])
+        use_docker = request_data.get("use_docker", True)
+        context_path = request_data.get("context_path")
+
+        if not agents_config:
+            return JSONResponse(
+                {"error": "At least one agent is required"},
+                status_code=400,
+            )
+
+        # Convert to format expected by _generate_quickstart_config
+        formatted_agents = []
+        for agent in agents_config:
+            formatted_agents.append(
+                {
+                    "id": agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}"),
+                    "type": agent.get("provider", "openai"),
+                    "model": agent.get("model", "gpt-4o"),
+                },
+            )
+
+        # Use ConfigBuilder to generate config
+        builder = ConfigBuilder()
+        config = builder._generate_quickstart_config(
+            formatted_agents,
+            context_path=context_path,
+            use_docker=use_docker,
+        )
+
+        # Convert to YAML string for preview
+        yaml_str = yaml.dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+        return {"config": config, "yaml": yaml_str}
+
+    @app.post("/api/config/save")
+    async def save_config(request_data: dict):
+        """Save the generated config to ~/.config/massgen/config.yaml.
+
+        Request body:
+        {
+            "config": {...}  // The config object from generate_config
+        }
+
+        Returns:
+            {"success": true, "path": "..."}
+        """
+        from pathlib import Path
+
+        import yaml
+
+        config = request_data.get("config")
+        if not config:
+            return JSONResponse(
+                {"error": "No config provided"},
+                status_code=400,
+            )
+
+        # Save to default config location
+        config_dir = Path.home() / ".config" / "massgen"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = config_dir / "config.yaml"
+
+        try:
+            with open(config_path, "w") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+            return {
+                "success": True,
+                "path": str(config_path),
+                "message": f"Config saved to {config_path}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to save config: {str(e)}"},
+                status_code=500,
+            )
 
     @app.get("/api/sessions")
     async def list_sessions():
@@ -606,6 +891,63 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
                     # TODO: Integrate with BroadcastChannel
                     pass
 
+                elif action == "continue":
+                    # Continue conversation with follow-up question
+                    followup_question = data.get("question", "")
+                    if not followup_question:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "Question is required for continuation",
+                            },
+                        )
+                        continue
+
+                    # Get session info from previous turn
+                    session_log_dir = manager.session_log_dirs.get(session_id)
+                    current_turn = manager.session_turns.get(session_id, 0)
+                    cfg_path = manager.session_configs.get(session_id) or get_default_config()
+
+                    if not session_log_dir:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "No active session to continue. Start a new coordination first.",
+                            },
+                        )
+                        continue
+
+                    if not cfg_path:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "No config available for continuation.",
+                            },
+                        )
+                        continue
+
+                    # Start continuation coordination
+                    next_turn = current_turn + 1
+                    task = asyncio.create_task(
+                        run_coordination_with_history(
+                            session_id=session_id,
+                            question=followup_question,
+                            config_path=cfg_path,
+                            session_log_dir=session_log_dir,
+                            turn_number=next_turn,
+                        ),
+                    )
+                    manager.tasks[session_id] = task
+                    await websocket.send_json(
+                        {
+                            "type": "coordination_started",
+                            "session_id": session_id,
+                            "config": cfg_path,
+                            "turn": next_turn,
+                            "is_continuation": True,
+                        },
+                    )
+
         except WebSocketDisconnect:
             manager.disconnect(websocket, session_id)
         except Exception as e:
@@ -663,6 +1005,293 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
     return app
 
 
+async def _save_session_metadata(
+    session_id: str,
+    question: str,
+    orchestrator: Any,
+    config_path: str,
+    log_session_dir: Optional[Path],
+    turn_number: int = 1,
+) -> None:
+    """Save CLI-compatible metadata for multi-turn session continuation.
+
+    This creates the same metadata structure as the CLI's save_final_state(),
+    enabling sessions started in WebUI to be continued with `--continue`.
+
+    Args:
+        session_id: WebSocket session identifier
+        question: The question/task that was asked
+        orchestrator: The orchestrator instance (to get winning agent info)
+        config_path: Path to the config file used
+        log_session_dir: The log session directory (e.g., .massgen/massgen_logs/log_xxx/turn_1)
+        turn_number: Current turn number (default 1 for first turn)
+    """
+    import json
+    from datetime import datetime
+
+    if not log_session_dir or not log_session_dir.exists():
+        print("[WebUI] Warning: log_session_dir not available, skipping metadata save")
+        return
+
+    try:
+        # Get orchestrator status for winning agent info
+        status = orchestrator.get_status()
+        winning_agent = status.get("selected_agent", "unknown")
+
+        # Get the final answer
+        final_answer = ""
+        if hasattr(orchestrator, "_final_presentation_content") and orchestrator._final_presentation_content:
+            final_answer = orchestrator._final_presentation_content.strip()
+        elif winning_agent and hasattr(orchestrator, "agent_states") and winning_agent in orchestrator.agent_states:
+            stored_answer = orchestrator.agent_states[winning_agent].answer
+            if stored_answer:
+                final_answer = stored_answer.strip()
+
+        # The log_session_dir is already the turn directory (e.g., .../log_xxx/turn_1)
+        turn_dir = log_session_dir
+
+        # Save metadata.json at turn level (CLI-compatible format)
+        metadata = {
+            "turn": turn_number,
+            "timestamp": datetime.now().isoformat(),
+            "winning_agent": winning_agent,
+            "task": question,
+            "session_id": log_session_dir.parent.name,  # Use log dir name as session ID
+        }
+        metadata_file = turn_dir / "metadata.json"
+        metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        # Save answer.txt at turn level (CLI-compatible format)
+        # Note: final/{agent}/answer.txt already exists, but CLI expects answer.txt at turn level too
+        answer_file = turn_dir / "answer.txt"
+        answer_file.write_text(final_answer, encoding="utf-8")
+
+        # Save winning_agents_history.json at session level (for multi-turn memory sharing)
+        session_dir = log_session_dir.parent
+        winning_agents_history = []
+
+        # Load existing history if present
+        history_file = session_dir / "winning_agents_history.json"
+        if history_file.exists():
+            try:
+                winning_agents_history = json.loads(history_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        # Add current turn's winner
+        winning_agents_history.append(
+            {
+                "agent_id": winning_agent,
+                "turn": turn_number,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+        history_file.write_text(json.dumps(winning_agents_history, indent=2), encoding="utf-8")
+
+        # Register session with SessionRegistry for `massgen --list-sessions` compatibility
+        try:
+            from massgen.session import SessionRegistry
+
+            registry = SessionRegistry()
+            # Use the log directory name as session_id (e.g., "log_20251130_211636_581944")
+            massgen_session_id = session_dir.name
+            registry.register_session(
+                session_id=massgen_session_id,
+                log_directory=str(session_dir),
+                config_path=config_path,
+            )
+            print(f"[WebUI] Registered session: {massgen_session_id}")
+        except Exception as e:
+            print(f"[WebUI] Warning: Could not register session: {e}")
+
+        # Store session info in ConnectionManager for continuation
+        manager.session_log_dirs[session_id] = session_dir
+        manager.session_turns[session_id] = turn_number
+        manager.session_configs[session_id] = config_path
+
+        print(f"[WebUI] Saved session metadata: turn={turn_number}, winner={winning_agent}")
+
+    except Exception as e:
+        print(f"[WebUI] Error saving session metadata: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
+async def run_coordination_with_history(
+    session_id: str,
+    question: str,
+    config_path: str,
+    session_log_dir: Path,
+    turn_number: int,
+) -> None:
+    """Run coordination with conversation history from previous turns.
+
+    This is similar to `run_coordination()` but:
+    1. Restores previous turn data using `restore_session()`
+    2. Passes `previous_turns` and `winning_agents_history` to Orchestrator
+    3. Sets the correct turn number in logger
+
+    Args:
+        session_id: WebSocket session identifier
+        question: The follow-up question
+        config_path: Path to the config file
+        session_log_dir: Path to the session log directory (e.g., .massgen/massgen_logs/log_xxx)
+        turn_number: The turn number for this coordination (2, 3, etc.)
+    """
+    import traceback
+
+    try:
+        # Import here to avoid circular imports
+        from massgen.agent_config import AgentConfig
+        from massgen.cli import (
+            create_agents_from_config,
+            load_config_file,
+            resolve_config_path,
+        )
+        from massgen.frontend.coordination_ui import CoordinationUI
+        from massgen.logger_config import get_log_session_dir, set_log_turn
+        from massgen.orchestrator import Orchestrator
+
+        # Restore session state from previous turns
+        previous_turns = []
+        winning_agents_history = []
+
+        try:
+            from massgen.session import restore_session
+
+            # The session_log_dir is the base log dir (e.g., .massgen/massgen_logs/log_xxx)
+            # We need to tell restore_session to look in the massgen_logs directory
+            session_state = restore_session(
+                session_log_dir.name,  # e.g., "log_20251130_211636_581944"
+                session_storage=str(session_log_dir.parent),  # e.g., ".massgen/massgen_logs"
+            )
+            if session_state:
+                previous_turns = session_state.previous_turns
+                winning_agents_history = session_state.winning_agents_history
+                print(f"[WebUI] Restored {len(previous_turns)} previous turns, {len(winning_agents_history)} winners")
+        except Exception as e:
+            print(f"[WebUI] Warning: Could not restore session state: {e}")
+            # Continue anyway - first follow-up might work without full history
+
+        # Set the turn number for logging
+        set_log_turn(turn_number)
+
+        # Resolve config path
+        resolved_path = resolve_config_path(config_path)
+        if resolved_path is None:
+            raise ValueError(f"Could not resolve config path: {config_path}")
+
+        config = load_config_file(str(resolved_path))
+
+        # Extract orchestrator config dict from YAML
+        orchestrator_cfg = config.get("orchestrator", {})
+
+        # Create agents from config
+        agents = create_agents_from_config(
+            config,
+            orchestrator_config=orchestrator_cfg,
+            config_path=str(resolved_path),
+            memory_session_id=session_id,
+        )
+
+        # Get agent IDs and model names
+        agent_ids = list(agents.keys())
+        agent_models = {}
+        for agent_id, agent in agents.items():
+            # Try to get model name from agent - check multiple sources
+            model_name = getattr(agent, "model", None)
+            # For ConfigurableAgent, model is in config.backend_params["model"]
+            if not model_name and hasattr(agent, "config") and agent.config:
+                backend_params = getattr(agent.config, "backend_params", None)
+                if backend_params:
+                    model_name = backend_params.get("model")
+            if model_name:
+                agent_models[agent_id] = model_name
+
+        # Create web display with agent_models
+        display = manager.create_display(session_id, agent_ids, agent_models)
+
+        # Build AgentConfig object for orchestrator
+        orchestrator_config = AgentConfig()
+
+        # Apply voting sensitivity if specified
+        if "voting_sensitivity" in orchestrator_cfg:
+            orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
+
+        # Apply answer count limit if specified
+        if "max_new_answers_per_agent" in orchestrator_cfg:
+            orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
+
+        # Apply answer novelty requirement if specified
+        if "answer_novelty_requirement" in orchestrator_cfg:
+            orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
+
+        # Get context sharing parameters
+        snapshot_storage = orchestrator_cfg.get("snapshot_storage")
+        agent_temporary_workspace = orchestrator_cfg.get("agent_temporary_workspace")
+
+        # Create orchestrator with history from previous turns
+        orchestrator = Orchestrator(
+            agents=agents,
+            config=orchestrator_config,
+            session_id=session_id,
+            snapshot_storage=snapshot_storage,
+            agent_temporary_workspace=agent_temporary_workspace,
+            previous_turns=previous_turns,
+            winning_agents_history=winning_agents_history,
+        )
+
+        # Store the log session directory in the display
+        display.log_session_dir = get_log_session_dir()
+        print(f"[WebUI] run_coordination_with_history: turn={turn_number}, log_dir={display.log_session_dir}")
+
+        # Create coordination UI with web display
+        ui = CoordinationUI(
+            display=display,
+            display_type="web",
+        )
+
+        # Run coordination
+        await ui.coordinate(orchestrator, question)
+
+        # Save CLI-compatible metadata for this turn
+        await _save_session_metadata(
+            session_id=session_id,
+            question=question,
+            orchestrator=orchestrator,
+            config_path=str(resolved_path),
+            log_session_dir=display.log_session_dir,
+            turn_number=turn_number,
+        )
+
+        # Broadcast completion
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "coordination_complete",
+                "session_id": session_id,
+                "turn": turn_number,
+            },
+        )
+
+    except Exception as e:
+        # Log the full traceback for debugging
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"[WebUI Error] {error_msg}")
+        traceback.print_exc()
+
+        # Broadcast error
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "error",
+                "message": error_msg,
+                "session_id": session_id,
+            },
+        )
+
+
 async def run_coordination(
     session_id: str,
     question: str,
@@ -710,25 +1339,22 @@ async def run_coordination(
             memory_session_id=session_id,
         )
 
-        # Get agent IDs
+        # Get agent IDs and model names
         agent_ids = list(agents.keys())
+        agent_models = {}
+        for agent_id, agent in agents.items():
+            # Try to get model name from agent - check multiple sources
+            model_name = getattr(agent, "model", None)
+            # For ConfigurableAgent, model is in config.backend_params["model"]
+            if not model_name and hasattr(agent, "config") and agent.config:
+                backend_params = getattr(agent.config, "backend_params", None)
+                if backend_params:
+                    model_name = backend_params.get("model")
+            if model_name:
+                agent_models[agent_id] = model_name
 
-        # Create web display
-        display = manager.create_display(session_id, agent_ids)
-
-        # Broadcast init event with agent info
-        await manager.broadcast(
-            session_id,
-            {
-                "type": "init",
-                "session_id": session_id,
-                "question": question,
-                "agents": agent_ids,
-                "theme": "default",
-                "timestamp": 0,
-                "sequence": 0,
-            },
-        )
+        # Create web display with agent_models
+        display = manager.create_display(session_id, agent_ids, agent_models)
 
         # Build AgentConfig object for orchestrator (required by Orchestrator)
         orchestrator_config = AgentConfig()
@@ -773,6 +1399,15 @@ async def run_coordination(
 
         # Run coordination
         await ui.coordinate(orchestrator, question)
+
+        # Save CLI-compatible metadata for multi-turn continuation
+        await _save_session_metadata(
+            session_id=session_id,
+            question=question,
+            orchestrator=orchestrator,
+            config_path=str(resolved_path),
+            log_session_dir=display.log_session_dir,
+        )
 
         # Broadcast completion
         await manager.broadcast(

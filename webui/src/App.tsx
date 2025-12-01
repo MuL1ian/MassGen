@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Wifi, WifiOff, AlertCircle, XCircle, ArrowLeft, Loader2, Trophy } from 'lucide-react';
+import { Send, Wifi, WifiOff, AlertCircle, XCircle, ArrowLeft, Loader2, Trophy, X, FileCode } from 'lucide-react';
 import { useWebSocket, ConnectionStatus } from './hooks/useWebSocket';
 import { useAgentStore, selectQuestion, selectIsComplete, selectAnswers, selectViewMode, selectSelectedAgent, selectAgents, selectFinalAnswer } from './stores/agentStore';
 import { useThemeStore } from './stores/themeStore';
@@ -17,6 +17,7 @@ import { ConvergenceAnimation } from './components/ConvergenceAnimation';
 import { HeaderControls } from './components/HeaderControls';
 import { AnswerBrowserModal } from './components/AnswerBrowserModal';
 import { FinalAnswerView } from './components/FinalAnswerView';
+import { QuickstartWizard } from './components/QuickstartWizard';
 
 function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
   const config: Record<ConnectionStatus, { icon: typeof Wifi; color: string; text: string }> = {
@@ -41,6 +42,7 @@ export function App() {
   const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
   const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
   const [inputQuestion, setInputQuestion] = useState('');
+  const [followUpQuestion, setFollowUpQuestion] = useState('');
 
   const question = useAgentStore(selectQuestion);
   const isComplete = useAgentStore(selectIsComplete);
@@ -52,6 +54,8 @@ export function App() {
   const reset = useAgentStore((s) => s.reset);
   const backToCoordination = useAgentStore((s) => s.backToCoordination);
   const setViewMode = useAgentStore((s) => s.setViewMode);
+  const startContinuation = useAgentStore((s) => s.startContinuation);
+  const turnNumber = useAgentStore((s) => s.turnNumber);
 
   // Get winner agent for finalStreaming view
   const winnerAgent = selectedAgent ? agents[selectedAgent] : null;
@@ -76,7 +80,12 @@ export function App() {
   // Answer browser modal state
   const [isAnswerBrowserOpen, setIsAnswerBrowserOpen] = useState(false);
 
-  const { status, startCoordination, cancelCoordination, error } = useWebSocket({
+  // Config viewer modal state
+  const [isConfigViewerOpen, setIsConfigViewerOpen] = useState(false);
+  const [configContent, setConfigContent] = useState<string>('');
+  const [configLoading, setConfigLoading] = useState(false);
+
+  const { status, startCoordination, continueConversation, cancelCoordination, error } = useWebSocket({
     sessionId,
     autoConnect: true,
   });
@@ -118,9 +127,47 @@ export function App() {
     setSessionId(crypto.randomUUID());
   }, [reset]);
 
+  // Handle follow-up question submission
+  const handleFollowUp = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (followUpQuestion.trim() && status === 'connected') {
+        // Update store state for new turn
+        startContinuation(followUpQuestion.trim());
+        // Send continue action to WebSocket
+        continueConversation(followUpQuestion.trim());
+        setFollowUpQuestion('');
+      }
+    },
+    [followUpQuestion, status, startContinuation, continueConversation]
+  );
+
   const handleConfigChange = useCallback((configPath: string) => {
     setSelectedConfig(configPath);
   }, []);
+
+  // Handle viewing config
+  const handleViewConfig = useCallback(async () => {
+    if (!selectedConfig) return;
+
+    setConfigLoading(true);
+    setIsConfigViewerOpen(true);
+
+    try {
+      const res = await fetch(`/api/config/content?path=${encodeURIComponent(selectedConfig)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setConfigContent(data.content || 'Unable to load config content');
+      } else {
+        setConfigContent('Failed to load config content');
+      }
+    } catch (err) {
+      setConfigContent('Error loading config content');
+      console.error('Failed to fetch config content:', err);
+    } finally {
+      setConfigLoading(false);
+    }
+  }, [selectedConfig]);
 
   const handleSessionChange = useCallback((newSessionId: string) => {
     if (newSessionId !== sessionId) {
@@ -153,6 +200,7 @@ export function App() {
             onSessionChange={handleSessionChange}
             onNewSession={handleNewSession}
             onOpenAnswerBrowser={() => setIsAnswerBrowserOpen(true)}
+            onViewConfig={handleViewConfig}
             answerCount={answers.length}
           />
         </div>
@@ -265,24 +313,54 @@ export function App() {
       <footer className="bg-gray-100/50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700 px-6 py-4">
         <div className="max-w-7xl mx-auto">
           {isComplete ? (
-            <div className="flex items-center justify-center gap-4">
-              <span className="text-green-500 dark:text-green-400">Coordination Complete!</span>
-              {/* Show "View Final Answer" button when we have a final answer and are in coordination view */}
-              {finalAnswer && viewMode === 'coordination' && (
+            <div className="flex flex-col gap-4">
+              {/* Status row with action buttons */}
+              <div className="flex items-center justify-center gap-4">
+                <span className="text-green-500 dark:text-green-400">
+                  Turn {turnNumber} Complete!
+                </span>
+                {/* Show "View Final Answer" button when we have a final answer and are in coordination view */}
+                {finalAnswer && viewMode === 'coordination' && (
+                  <button
+                    onClick={handleViewFinalAnswer}
+                    className="flex items-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-500 rounded-lg transition-colors text-white"
+                  >
+                    <Trophy className="w-4 h-4" />
+                    View Final Answer
+                  </button>
+                )}
                 <button
-                  onClick={handleViewFinalAnswer}
-                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-500 rounded-lg transition-colors text-white"
+                  onClick={handleNewSession}
+                  className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg transition-colors text-white"
                 >
-                  <Trophy className="w-4 h-4" />
-                  View Final Answer
+                  New Session
                 </button>
-              )}
-              <button
-                onClick={handleNewSession}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors text-white"
-              >
-                Start New Session
-              </button>
+              </div>
+
+              {/* Follow-up input row */}
+              <form onSubmit={handleFollowUp} className="flex gap-4">
+                <input
+                  type="text"
+                  value={followUpQuestion}
+                  onChange={(e) => setFollowUpQuestion(e.target.value)}
+                  placeholder="Ask a follow-up question..."
+                  disabled={status !== 'connected'}
+                  className="flex-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-3
+                           text-gray-900 dark:text-gray-100 placeholder-gray-500
+                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                           disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <button
+                  type="submit"
+                  disabled={!followUpQuestion.trim() || status !== 'connected'}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-600
+                           disabled:cursor-not-allowed rounded-lg transition-colors text-white
+                           flex items-center gap-2"
+                >
+                  <Send className="w-5 h-5" />
+                  <span>Continue</span>
+                </button>
+              </form>
             </div>
           ) : question ? (
             /* Cancel button during coordination */
@@ -342,6 +420,65 @@ export function App() {
         isOpen={isAnswerBrowserOpen}
         onClose={() => setIsAnswerBrowserOpen(false)}
       />
+
+      {/* Quickstart Wizard Modal */}
+      <QuickstartWizard onConfigSaved={handleConfigChange} />
+
+      {/* Config Viewer Modal */}
+      <AnimatePresence>
+        {isConfigViewerOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            onClick={() => setIsConfigViewerOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-3">
+                  <FileCode className="w-5 h-5 text-blue-500" />
+                  <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                    Config File
+                  </h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 truncate max-w-md" title={selectedConfig || ''}>
+                    {selectedConfig}
+                  </span>
+                  <button
+                    onClick={() => setIsConfigViewerOpen(false)}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-gray-500" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-auto p-4">
+                {configLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                    <span className="ml-2 text-gray-500">Loading config...</span>
+                  </div>
+                ) : (
+                  <pre className="text-sm text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-900 rounded-lg p-4 overflow-auto whitespace-pre font-mono">
+                    {configContent}
+                  </pre>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

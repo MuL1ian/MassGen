@@ -6,9 +6,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, FolderOpen, Users, ChevronDown, RefreshCw, Plus, FileText, Sun, Moon, Monitor, Search, X } from 'lucide-react';
+import { Settings, FolderOpen, Users, ChevronDown, RefreshCw, Plus, FileText, Sun, Moon, Monitor, Search, X, Wand2, Eye } from 'lucide-react';
 import type { ConfigInfo, SessionInfo } from '../types';
 import { useThemeStore, selectThemeMode, selectSetThemeMode, type ThemeMode } from '../stores/themeStore';
+import { useWizardStore } from '../stores/wizardStore';
 
 interface HeaderControlsProps {
   currentSessionId: string;
@@ -17,6 +18,7 @@ interface HeaderControlsProps {
   onSessionChange: (sessionId: string) => void;
   onNewSession: () => void;
   onOpenAnswerBrowser: () => void;
+  onViewConfig: () => void;
   answerCount: number;
 }
 
@@ -27,6 +29,7 @@ export function HeaderControls({
   onSessionChange,
   onNewSession,
   onOpenAnswerBrowser,
+  onViewConfig,
   answerCount,
 }: HeaderControlsProps) {
   const [configs, setConfigs] = useState<ConfigInfo[]>([]);
@@ -41,6 +44,11 @@ export function HeaderControls({
   const themeMode = useThemeStore(selectThemeMode);
   const setThemeMode = useThemeStore(selectSetThemeMode);
 
+  // Wizard state
+  const openWizard = useWizardStore((s) => s.openWizard);
+  const setupStatus = useWizardStore((s) => s.setupStatus);
+  const fetchSetupStatus = useWizardStore((s) => s.fetchSetupStatus);
+
   const cycleTheme = () => {
     const modes: ThemeMode[] = ['light', 'dark', 'system'];
     const currentIndex = modes.indexOf(themeMode);
@@ -49,6 +57,26 @@ export function HeaderControls({
   };
 
   const ThemeIcon = themeMode === 'light' ? Sun : themeMode === 'dark' ? Moon : Monitor;
+
+  // Check if setup is needed on first load
+  useEffect(() => {
+    fetchSetupStatus();
+  }, [fetchSetupStatus]);
+
+  // Auto-open wizard when no config is selected (either first-time or no selection)
+  useEffect(() => {
+    // Only auto-open after initial loading is complete
+    if (loading) return;
+
+    // Open wizard if:
+    // 1. First-time setup is needed (no user config exists), OR
+    // 2. No config is currently selected AND no default exists
+    const shouldOpenWizard = setupStatus?.needs_setup || (!selectedConfig && !defaultConfig);
+
+    if (shouldOpenWizard) {
+      openWizard();
+    }
+  }, [setupStatus?.needs_setup, loading, openWizard, selectedConfig, defaultConfig]);
 
   // Fetch available configs
   const fetchConfigs = useCallback(async () => {
@@ -86,14 +114,15 @@ export function HeaderControls({
     return () => clearInterval(interval);
   }, [fetchConfigs, fetchSessions]);
 
-  // Filter configs by search term
-  const filteredConfigs = configSearch.trim()
+  // Filter configs by search term and exclude AG2 configs
+  const filteredConfigs = (configSearch.trim()
     ? configs.filter(c =>
         c.name.toLowerCase().includes(configSearch.toLowerCase()) ||
         c.category.toLowerCase().includes(configSearch.toLowerCase()) ||
         c.path.toLowerCase().includes(configSearch.toLowerCase())
       )
-    : configs;
+    : configs
+  ).filter(c => c.category.toLowerCase() !== 'ag2' && !c.name.toLowerCase().startsWith('ag2'));
 
   // Group filtered configs by category
   const groupedConfigs = filteredConfigs.reduce<Record<string, ConfigInfo[]>>((acc, config) => {
@@ -102,6 +131,10 @@ export function HeaderControls({
     acc[cat].push(config);
     return acc;
   }, {});
+
+  // Order categories: user first, then alphabetically
+  const categoryOrder = ['user', ...Object.keys(groupedConfigs).filter(c => c !== 'user').sort()];
+  const orderedCategories = categoryOrder.filter(cat => groupedConfigs[cat]);
 
   const selectedConfigName = configs.find(c => c.path === selectedConfig)?.name || 'Select Config';
 
@@ -162,6 +195,22 @@ export function HeaderControls({
                     </button>
                   )}
                 </div>
+                {/* View Config Button - under search */}
+                {selectedConfig && (
+                  <button
+                    onClick={() => {
+                      onViewConfig();
+                      setShowConfigDropdown(false);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 mt-2 px-3 py-1.5 text-xs
+                             text-gray-500 hover:text-gray-700 dark:hover:text-gray-300
+                             bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600
+                             border border-gray-300 dark:border-gray-600 rounded-lg transition-colors"
+                  >
+                    <Eye className="w-3 h-3" />
+                    View Config File
+                  </button>
+                )}
               </div>
 
               {defaultConfig && !configSearch && (
@@ -182,12 +231,12 @@ export function HeaderControls({
                 </div>
               )}
 
-              {Object.entries(groupedConfigs).map(([category, categoryConfigs]) => (
+              {orderedCategories.map((category) => (
                 <div key={category} className="p-2 border-b border-gray-200 dark:border-gray-700 last:border-0">
                   <div className="text-xs text-gray-500 mb-1 uppercase tracking-wide">
-                    {category === 'root' ? 'General' : category}
+                    {category === 'root' ? 'General' : category === 'user' ? 'Your Config' : category}
                   </div>
-                  {categoryConfigs.map((config) => (
+                  {groupedConfigs[category].map((config) => (
                     <button
                       key={config.path}
                       onClick={() => {
@@ -338,6 +387,17 @@ export function HeaderControls({
       >
         <ThemeIcon className="w-4 h-4 text-amber-500 dark:text-yellow-400" />
         <span className="capitalize">{themeMode}</span>
+      </button>
+
+      {/* Quickstart Wizard */}
+      <button
+        onClick={openWizard}
+        className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-500 to-purple-500
+                 hover:from-blue-600 hover:to-purple-600 rounded-lg text-sm text-white transition-all"
+        title="Open Quickstart Wizard"
+      >
+        <Wand2 className="w-4 h-4" />
+        <span>Quickstart</span>
       </button>
 
       {/* Settings */}

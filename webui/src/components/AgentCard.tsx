@@ -131,7 +131,7 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
       className={`
         flex flex-col h-full w-full
         bg-white dark:bg-gray-800 rounded-lg border-2 overflow-hidden
-        ${isWinner ? 'border-yellow-500 shadow-lg shadow-yellow-500/20 animate-glow' : 'border-gray-200 dark:border-gray-700'}
+        ${isWinner ? 'border-yellow-500 shadow-lg shadow-yellow-500/20' : 'border-gray-200 dark:border-gray-700'}
       `}
     >
       {/* Header */}

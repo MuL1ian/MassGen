@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from .base_display import BaseDisplay
@@ -34,12 +35,14 @@ class WebDisplay(BaseDisplay):
         agent_ids: List[str],
         broadcast: Optional[Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]] = None,
         session_id: Optional[str] = None,
+        agent_models: Optional[Dict[str, str]] = None,
         **kwargs: Any,
     ):
         super().__init__(agent_ids, **kwargs)
         self._broadcast = broadcast
         self.session_id = session_id or "default"
         self.theme = kwargs.get("theme", "dark")
+        self.agent_models = agent_models or {}
 
         # Event queue for when broadcast is not set (testing/standalone mode)
         self._event_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
@@ -59,6 +62,9 @@ class WebDisplay(BaseDisplay):
 
         # Orchestrator reference (set by CoordinationUI)
         self.orchestrator: Optional[Any] = None
+
+        # Setup agent output files (same as terminal displays)
+        self._setup_agent_output_files()
 
     def _next_sequence(self) -> int:
         """Get next sequence number for event ordering."""
@@ -95,6 +101,61 @@ class WebDisplay(BaseDisplay):
             # Queue for later consumption (testing/standalone mode)
             self._event_queue.put_nowait(payload)
 
+    def _setup_agent_output_files(self) -> None:
+        """Setup individual txt files for each agent in the log directory."""
+        try:
+            from massgen.logger_config import get_log_session_dir
+
+            log_session_dir = get_log_session_dir()
+            if log_session_dir:
+                self._output_dir = log_session_dir / "agent_outputs"
+                self._output_dir.mkdir(parents=True, exist_ok=True)
+
+                # Initialize file paths for each agent
+                self._agent_output_files: Dict[str, Path] = {}
+                for agent_id in self.agent_ids:
+                    file_path = self._output_dir / f"{agent_id}.txt"
+                    self._agent_output_files[agent_id] = file_path
+                    # Clear existing file content
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(f"=== {agent_id.upper()} OUTPUT LOG ===\n\n")
+
+                # Initialize system status file
+                self._system_status_file = self._output_dir / "system_status.txt"
+                with open(self._system_status_file, "w", encoding="utf-8") as f:
+                    f.write("=== SYSTEM STATUS LOG ===\n\n")
+            else:
+                self._output_dir = None
+                self._agent_output_files = {}
+                self._system_status_file = None
+        except Exception:
+            # If logging setup fails, continue without file output
+            self._output_dir = None
+            self._agent_output_files = {}
+            self._system_status_file = None
+
+    def _write_to_agent_file(self, agent_id: str, content: str, content_type: str) -> None:
+        """Write content to agent's individual txt file."""
+        if not hasattr(self, "_agent_output_files") or agent_id not in self._agent_output_files:
+            return
+
+        # Skip debug content from txt files
+        if content_type == "debug":
+            return
+
+        try:
+            file_path = self._agent_output_files[agent_id]
+            timestamp = time.strftime("%H:%M:%S")
+
+            with open(file_path, "a", encoding="utf-8") as f:
+                # Format based on content type
+                if content_type in ("tool", "status"):
+                    f.write(f"[{timestamp}] {content}\n")
+                else:
+                    f.write(f"{content}\n")
+        except Exception:
+            pass  # Silently ignore file write errors
+
     # =========================================================================
     # BaseDisplay Interface Implementation
     # =========================================================================
@@ -112,6 +173,7 @@ class WebDisplay(BaseDisplay):
                 "question": question,
                 "log_filename": log_filename,
                 "agents": self.agent_ids,
+                "agent_models": self.agent_models,
                 "theme": self.theme,
             },
         )
@@ -134,6 +196,9 @@ class WebDisplay(BaseDisplay):
 
         # Track content in parent class
         self.agent_outputs.setdefault(agent_id, []).append(content)
+
+        # Write to agent output file
+        self._write_to_agent_file(agent_id, content, content_type)
 
         self._emit(
             "agent_content",
