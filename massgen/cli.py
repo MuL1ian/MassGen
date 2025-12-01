@@ -2845,6 +2845,261 @@ def setup_docker() -> None:
         print("  bash massgen/docker/build.sh --sudo\n")
 
 
+def setup_computer_use_docker() -> bool:
+    """Setup Docker container for Computer Use Agent (CUA) automation.
+    
+    Creates a Docker container with:
+    - Ubuntu 22.04 with Xfce desktop
+    - X11 virtual display (Xvfb) on :99
+    - xdotool for GUI automation
+    - Firefox and Chromium browsers
+    - scrot for screenshots
+    
+    This is required for computer_use_docker_example.yaml configs.
+    
+    Returns:
+        True if setup succeeded, False otherwise
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
+    print(f"{BRIGHT_CYAN}  🖥️  Computer Use Docker Container Setup{RESET}")
+    print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}\n")
+
+    # Check if Docker is available
+    print(f"{BRIGHT_CYAN}Checking Docker installation...{RESET}", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            ["docker", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_RED}Error: Docker is not installed{RESET}")
+            print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
+            return False
+        print(f"{BRIGHT_GREEN}✓{RESET}")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: Docker is not available{RESET}")
+        print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
+        return False
+
+    # Check if Docker daemon is running
+    print(f"{BRIGHT_CYAN}Checking Docker daemon...{RESET}", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_RED}Error: Docker daemon is not running{RESET}")
+            print(f"{BRIGHT_YELLOW}Please start Docker and try again{RESET}\n")
+            return False
+        print(f"{BRIGHT_GREEN}✓{RESET}")
+    except subprocess.TimeoutExpired:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: Docker daemon check timed out{RESET}\n")
+        return False
+
+    # Check if container already exists
+    print(f"{BRIGHT_CYAN}Checking for existing container...{RESET}", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=cua-container", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and "cua-container" in result.stdout:
+            print(f"{BRIGHT_YELLOW}⚠{RESET}")
+            print(f"\n{BRIGHT_YELLOW}Container 'cua-container' already exists{RESET}")
+            
+            # Check if it's running
+            result = subprocess.run(
+                ["docker", "ps", "--filter", "name=cua-container", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if "cua-container" in result.stdout:
+                print(f"{BRIGHT_GREEN}✓ Container is already running{RESET}\n")
+                return True
+            else:
+                print(f"{BRIGHT_CYAN}Starting existing container...{RESET}", end=" ", flush=True)
+                result = subprocess.run(
+                    ["docker", "start", "cua-container"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if result.returncode == 0:
+                    print(f"{BRIGHT_GREEN}✓{RESET}\n")
+                    return True
+                else:
+                    print(f"{BRIGHT_RED}✗{RESET}")
+                    print(f"{BRIGHT_YELLOW}Removing broken container and rebuilding...{RESET}")
+                    subprocess.run(["docker", "rm", "-f", "cua-container"], capture_output=True, timeout=30)
+        else:
+            print(f"{BRIGHT_GREEN}✓{RESET}")
+    except subprocess.TimeoutExpired:
+        print(f"{BRIGHT_RED}✗{RESET}")
+
+    # Create temporary directory for Dockerfile
+    print(f"\n{BRIGHT_CYAN}Building Computer Use Docker image...{RESET}")
+    print(f"{BRIGHT_YELLOW}This will download Ubuntu 22.04 and install desktop environment{RESET}")
+    print(f"{BRIGHT_YELLOW}Estimated time: 2-5 minutes (depending on internet speed){RESET}\n")
+
+    build_dir = tempfile.mkdtemp(prefix="massgen-cua-")
+    dockerfile_path = Path(build_dir) / "Dockerfile"
+
+    # Create Dockerfile (matching setup_docker_cua.sh)
+    dockerfile_content = """FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install prerequisites for adding PPAs
+RUN apt-get update && apt-get install -y \\
+    software-properties-common \\
+    wget \\
+    gnupg \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Mozilla PPA for real Firefox (not snap)
+RUN add-apt-repository -y ppa:mozillateam/ppa
+
+# Set up apt preferences to prioritize Mozilla PPA
+RUN echo 'Package: *' > /etc/apt/preferences.d/mozilla-firefox && \\
+    echo 'Pin: release o=LP-PPA-mozillateam' >> /etc/apt/preferences.d/mozilla-firefox && \\
+    echo 'Pin-Priority: 1001' >> /etc/apt/preferences.d/mozilla-firefox
+
+# Install desktop environment and tools
+RUN apt-get update && apt-get install -y \\
+    xvfb \\
+    x11vnc \\
+    xfce4 \\
+    xfce4-terminal \\
+    firefox \\
+    chromium-browser \\
+    scrot \\
+    xdotool \\
+    imagemagick \\
+    xdg-utils \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Firefox as the default browser
+RUN update-alternatives --set x-www-browser /usr/bin/firefox && \\
+    update-alternatives --set gnome-www-browser /usr/bin/firefox && \\
+    xdg-settings set default-web-browser firefox.desktop
+
+# Set up X11
+ENV DISPLAY=:99
+
+# Start script
+RUN echo '#!/bin/bash' > /start.sh && \\
+    echo 'Xvfb :99 -screen 0 1280x800x24 &' >> /start.sh && \\
+    echo 'sleep 2' >> /start.sh && \\
+    echo 'xfce4-session &' >> /start.sh && \\
+    echo 'tail -f /dev/null' >> /start.sh && \\
+    chmod +x /start.sh
+
+CMD ["/start.sh"]
+"""
+
+    try:
+        with open(dockerfile_path, "w") as f:
+            f.write(dockerfile_content)
+
+        # Build the image
+        print(f"{BRIGHT_CYAN}Step 1/2: Building Docker image 'cua-ubuntu'...{RESET}")
+        result = subprocess.run(
+            ["docker", "build", "-t", "cua-ubuntu", build_dir],
+            timeout=600,  # 10 minute timeout
+        )
+
+        if result.returncode != 0:
+            print(f"\n{BRIGHT_RED}❌ Docker build failed{RESET}\n")
+            return False
+
+        print(f"\n{BRIGHT_GREEN}✓ Image built successfully{RESET}\n")
+
+        # Remove existing container if it exists
+        subprocess.run(["docker", "rm", "-f", "cua-container"], capture_output=True, timeout=10)
+
+        # Run the container
+        print(f"{BRIGHT_CYAN}Step 2/2: Starting container 'cua-container'...{RESET}", end=" ", flush=True)
+        result = subprocess.run(
+            ["docker", "run", "-d", "--name", "cua-container", "cua-ubuntu"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_RED}❌ Failed to start container{RESET}")
+            print(f"{BRIGHT_YELLOW}Error: {result.stderr}{RESET}\n")
+            return False
+
+        print(f"{BRIGHT_GREEN}✓{RESET}")
+
+        # Wait for container to be ready
+        import time
+        time.sleep(3)
+
+        # Test the container
+        print(f"{BRIGHT_CYAN}Testing container...{RESET}", end=" ", flush=True)
+        result = subprocess.run(
+            ["docker", "exec", "-e", "DISPLAY=:99", "cua-container", "xdotool", "getmouselocation"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if result.returncode == 0:
+            print(f"{BRIGHT_GREEN}✓{RESET}")
+            print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
+            print(f"{BRIGHT_GREEN}  ✅ Computer Use Docker container ready!{RESET}")
+            print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
+            print(f"\n{BRIGHT_CYAN}Container details:{RESET}")
+            print(f"  Name: cua-container")
+            print(f"  Display: :99")
+            print(f"  Resolution: 1280x800")
+            print(f"  Desktop: Xfce4")
+            print(f"  Browsers: Firefox, Chromium")
+            print(f"\n{BRIGHT_CYAN}You can now run computer use examples:{RESET}")
+            print(f"  massgen --config @examples/tools/computer_use_docker_example.yaml \"Open Firefox\"")
+            print(f"  massgen --config massgen/configs/tools/custom_tools/qwen_computer_use_docker_example.yaml \"...\"")
+            print(f"  massgen --config massgen/configs/tools/custom_tools/ui_tars_docker_example.yaml \"...\"\n")
+            return True
+        else:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_YELLOW}⚠️  Container created but test failed{RESET}")
+            print(f"{BRIGHT_YELLOW}Please check container status: docker logs cua-container{RESET}\n")
+            return False
+
+    except subprocess.TimeoutExpired:
+        print(f"\n{BRIGHT_RED}❌ Setup timed out{RESET}\n")
+        return False
+    except Exception as e:
+        print(f"\n{BRIGHT_RED}❌ Setup failed: {e}{RESET}\n")
+        return False
+    finally:
+        # Cleanup temp directory
+        import shutil
+        try:
+            shutil.rmtree(build_dir)
+        except Exception:
+            pass
+
+
 def show_example_prompts() -> Optional[str]:
     """Show example prompts that work with default quickstart config.
 
@@ -3366,6 +3621,37 @@ async def main(args):
             if args.debug:
                 logger.debug(f"Resolved config path: {resolved_path}")
                 logger.debug(f"Config content: {json.dumps(config, indent=2)}")
+
+            # Check if this is a computer use docker example - setup required
+            config_filename = resolved_path.name if resolved_path else ""
+            if "computer_use_docker_example" in config_filename:
+                print(f"\n{BRIGHT_CYAN}🖥️  Computer Use Docker Configuration Detected{RESET}")
+                print(f"{BRIGHT_YELLOW}This configuration requires a special Docker container for GUI automation.{RESET}\n")
+                
+                # Check if container exists and is running
+                import subprocess
+                try:
+                    result = subprocess.run(
+                        ["docker", "ps", "--filter", "name=cua-container", "--format", "{{.Names}}"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    container_running = "cua-container" in result.stdout
+                except Exception:
+                    container_running = False
+
+                if not container_running:
+                    print(f"{BRIGHT_YELLOW}⚠️  Computer Use Docker container not found or not running{RESET}")
+                    print(f"{BRIGHT_CYAN}Starting automatic setup...{RESET}\n")
+                    
+                    if not setup_computer_use_docker():
+                        print(f"\n{BRIGHT_RED}❌ Failed to setup Computer Use Docker container{RESET}")
+                        print(f"{BRIGHT_YELLOW}Computer use features will not work without this container.{RESET}")
+                        print(f"{BRIGHT_YELLOW}You can try manual setup with: scripts/setup_docker_cua.sh{RESET}\n")
+                        sys.exit(EXIT_CONFIG_ERROR)
+                else:
+                    print(f"{BRIGHT_GREEN}✓ Computer Use Docker container is ready{RESET}\n")
 
             # Automatic config validation (unless --skip-validation flag is set)
             if not args.skip_validation:

@@ -1,0 +1,99 @@
+# MassGen Configuration: Qwen Computer Use (Docker/Linux)
+#
+# This configuration uses Qwen's qwen3-vl-235b-a22b-thinking vision-language model
+# for Docker/Linux desktop automation tasks.
+#
+# Usage:
+#   massgen --config qwen_computer_use_docker_example.yaml "Open Firefox and search for AI news"
+#
+# Prerequisites:
+#   1. Set QWEN_API_KEY in your .env file
+#   2. Have Docker installed and running
+#   3. Docker container will be automatically created on first run
+#      (or manually: ./scripts/setup_docker_cua.sh)
+#   4. Install dependencies: pip install docker openai
+#
+# Note: MassGen will automatically setup the Computer Use Docker container
+#       when you first run this config. The container includes:
+#       - Ubuntu 22.04 with Xfce desktop
+#       - X11 virtual display on :99
+#       - xdotool for GUI automation
+#       - Firefox and Chromium browsers
+#       - scrot for screenshots
+
+agents:
+  - id: "qwen_docker_agent"
+    backend:
+      type: "openai"  # Use a simple backend since tool calls API directly
+      model: "gpt-4.1"  # Orchestration model (not used for automation)
+      custom_tools:
+        - name: ["qwen_computer_use"]
+          category: "automation"
+          path: "massgen/tool/_qwen_computer_use/qwen_computer_use_tool.py"
+          function: ["qwen_computer_use"]
+          description: >
+            Automate Linux desktop tasks using Qwen's qwen3-vl-235b-a22b-thinking vision-language model.
+            This tool uses Qwen VL to analyze screenshots and control a Docker container with Ubuntu desktop.
+          preset_args:
+            environment: "linux"
+            display_width: 1280
+            display_height: 800
+            max_iterations: 30
+            model: "qwen3-vl-235b-a22b-thinking"
+            environment_config:
+              container_name: "cua-container"
+              display: ":99"
+        - name: ["understand_image"]
+          category: "multimodal"
+          path: "massgen/tool/_multimodal_tools/understand_image.py"
+          function: ["understand_image"]
+
+    system_message: |
+      You are a computer automation specialist with access to the qwen_computer_use tool
+      powered by Qwen's qwen3-vl-235b-a22b-thinking vision-language model.
+
+      You can control a virtual Ubuntu environment running in Docker to:
+      - Launch and use desktop applications
+      - Perform file operations
+      - Execute system-level tasks
+      - Automate GUI interactions
+
+      The environment includes:
+      - Ubuntu 22.04 desktop (Xfce)
+      - Firefox browser
+      - Standard desktop applications
+      - X11 display system
+
+      When using the qwen_computer_use tool:
+      1. Tasks are executed in a sandboxed Docker container
+      2. You have full desktop access via xdotool commands
+      3. Screenshots are captured and analyzed by Qwen VL model
+      4. Actions are generated based on visual understanding
+      5. Be specific about what you want to accomplish
+
+      The Qwen VL model will:
+      - Analyze each screenshot
+      - Understand the current state
+      - Generate appropriate actions
+      - Provide reasoning about decisions
+
+      Available actions include:
+      - Clicking at coordinates
+      - Typing text
+      - Scrolling
+      - Keyboard shortcuts
+      - Navigation
+      - And more
+
+      Example tasks:
+      - "Open Firefox and navigate to GitHub"
+      - "Launch the calculator and compute 123 * 456"
+      - "Open a text editor and write a Python hello world script"
+
+      **Important:**
+      - The Docker container must be running (use ./scripts/setup_docker_cua.sh)
+      - Display is set to :99 by default
+      - All actions are isolated in the container
+
+display:
+  type: "rich_terminal"

@@ -18,10 +18,17 @@
 #
 # Prerequisites:
 #   1. Set ANTHROPIC_API_KEY environment variable
-#   2. For Linux/Docker environment:
-#      a) Run: ./scripts/setup_docker_cua.sh
-#      b) This creates a container named "cua-container" with X11/desktop
-#      c) Verify with: docker ps | grep cua-container
+#   2. Docker installed and running
+#   3. Docker container will be automatically created on first run
+#      (or manually: ./scripts/setup_docker_cua.sh)
+#
+# Note: MassGen will automatically setup the Computer Use Docker container
+#       when you first run this config. The container includes:
+#       - Ubuntu 22.04 with Xfce desktop
+#       - X11 virtual display on :99
+#       - xdotool for GUI automation
+#       - Firefox and Chromium browsers
+#       - scrot for screenshots
 #
 # Supported Models:
 #   - claude-sonnet-4-5 (recommended)
