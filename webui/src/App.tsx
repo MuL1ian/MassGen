@@ -18,6 +18,7 @@ import { HeaderControls } from './components/HeaderControls';
 import { AnswerBrowserModal } from './components/AnswerBrowserModal';
 import { FinalAnswerView } from './components/FinalAnswerView';
 import { QuickstartWizard } from './components/QuickstartWizard';
+import { NotificationToast } from './components/NotificationToast';
 
 function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
   const config: Record<ConnectionStatus, { icon: typeof Wifi; color: string; text: string }> = {
@@ -540,6 +541,9 @@ export function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Notification Toast (bottom-right) */}
+      <NotificationToast />
     </div>
   );
 }

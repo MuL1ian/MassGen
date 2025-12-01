@@ -19,6 +19,7 @@ import type {
   VoteResults,
   WSEvent,
 } from '../types';
+import { useNotificationStore } from './notificationStore';
 
 interface AgentStore extends SessionState {
   // Actions
@@ -795,6 +796,20 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             event.target_id,
             'reason' in event ? event.reason : ''
           );
+
+          // Show notification for vote
+          const voterAgent = get().agents[event.voter_id];
+          const targetAgent = get().agents[event.target_id];
+          const targetName = targetAgent?.modelName
+            ? `${event.target_id} (${targetAgent.modelName})`
+            : event.target_id;
+          useNotificationStore.getState().addNotification({
+            type: 'vote',
+            title: `${event.voter_id} voted`,
+            message: `Voted for ${targetName}`,
+            agentId: event.voter_id,
+            modelName: voterAgent?.modelName,
+          });
         }
         break;
 
@@ -860,6 +875,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             content: newAnswerEvent.content,
             timestamp: newAnswerEvent.timestamp,
             votes: 0,
+          });
+
+          // Show notification for new answer
+          const agent = get().agents[newAnswerEvent.agent_id];
+          const contentPreview = newAnswerEvent.content.slice(0, 100) + (newAnswerEvent.content.length > 100 ? '...' : '');
+          useNotificationStore.getState().addNotification({
+            type: 'answer',
+            title: `New Answer from ${newAnswerEvent.agent_id}`,
+            message: contentPreview,
+            agentId: newAnswerEvent.agent_id,
+            modelName: agent?.modelName,
           });
         }
         break;
@@ -952,6 +978,38 @@ export const selectViewMode = (state: AgentStore) => state.viewMode;
 export const selectSelectingWinner = (state: AgentStore) => state.selectingWinner;
 
 /**
+ * Clean streaming content by removing tool/MCP noise that shouldn't appear in final answers.
+ * This handles cases where the streaming content includes status messages like:
+ * - MCP connection messages (✅ [MCP] Connected, 🔧 [MCP] 27 tools)
+ * - Tool call markers
+ * - Status emojis that indicate system messages
+ */
+function cleanStreamedContent(content: string): string {
+  if (!content) return content;
+
+  // Split into lines and filter out noise
+  const lines = content.split('\n');
+  const cleanedLines = lines.filter(line => {
+    const trimmed = line.trim();
+    // Filter out MCP connection/tool messages
+    if (trimmed.includes('[MCP]')) return false;
+    if (trimmed.startsWith('✅ [MCP]') || trimmed.startsWith('🔧 [MCP]')) return false;
+    // Filter out tool availability messages
+    if (trimmed.match(/^\d+ tools? available$/)) return false;
+    if (trimmed.match(/^Connected to \d+ servers?$/)) return false;
+    return true;
+  });
+
+  // Also clean inline MCP messages that might be on the same line as content
+  let result = cleanedLines.join('\n');
+  // Remove inline MCP messages like "...text✅ [MCP] Connected to 3 servers🔧 [MCP] 27 tools available"
+  result = result.replace(/✅\s*\[MCP\][^🔧\n]*(?:🔧\s*\[MCP\][^\n]*)?/g, '');
+  result = result.replace(/🔧\s*\[MCP\][^\n]*/g, '');
+
+  return result.trim();
+}
+
+/**
  * Get the RESOLVED final answer content.
  * The finalAnswer field may be '__PENDING__' because the final_answer event arrives
  * before streaming completes. This selector gets the actual content from the
@@ -960,20 +1018,25 @@ export const selectSelectingWinner = (state: AgentStore) => state.selectingWinne
  * NOTE: This returns a primitive string, so it's safe from infinite re-render loops.
  */
 export const selectResolvedFinalAnswer = (state: AgentStore): string | undefined => {
+  // If we have a clean finalAnswer from the API, use it
+  if (state.finalAnswer && state.finalAnswer !== '__PENDING__') {
+    return state.finalAnswer;
+  }
+
   if (!state.selectedAgent) return state.finalAnswer;
 
   const winner = state.agents[state.selectedAgent];
   if (!winner) return state.finalAnswer;
 
-  // Get content from the "final" round
+  // Get content from the "final" round and clean it
   const finalRound = winner.rounds.find(r => r.label === 'final');
   if (finalRound?.content) {
-    return finalRound.content;
+    return cleanStreamedContent(finalRound.content);
   }
 
   // Fall back to current content if no final round
   if (winner.currentContent) {
-    return winner.currentContent;
+    return cleanStreamedContent(winner.currentContent);
   }
 
   // Last resort: return whatever is in finalAnswer (might be __PENDING__)
