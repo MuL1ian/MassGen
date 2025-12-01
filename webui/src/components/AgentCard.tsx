@@ -79,6 +79,7 @@ interface AgentCardProps {
   agent: AgentState;
   isWinner?: boolean;
   isVisible?: boolean;
+  disableLayoutAnimation?: boolean;
 }
 
 // Status config - note: 'completed' only shows after final answer
@@ -90,7 +91,7 @@ const statusConfig: Record<AgentStatus, { color: string; icon: typeof Bot; label
   failed: { color: 'bg-red-500', icon: AlertCircle, label: 'Failed' },
 };
 
-export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCardProps) {
+export function AgentCard({ agent, isWinner = false, isVisible = true, disableLayoutAnimation = false }: AgentCardProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const setAgentRound = useAgentStore((s) => s.setAgentRound);
@@ -154,11 +155,11 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
 
   return (
     <motion.div
-      layout
+      layout={!disableLayoutAnimation}
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{
         opacity: isVisible ? 1 : 0.3,
-        scale: isWinner ? 1.02 : 1,
+        scale: isWinner && !disableLayoutAnimation ? 1.02 : 1,
       }}
       exit={{ opacity: 0, scale: 0.9 }}
       transition={{

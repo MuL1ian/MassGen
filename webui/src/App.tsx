@@ -349,7 +349,6 @@ export function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
-                className="flex flex-col h-full"
               >
                 {/* Header */}
                 <div className="flex items-center gap-4 mb-4">
@@ -375,9 +374,9 @@ export function App() {
                   )}
                 </div>
 
-                {/* Full-height AgentCard */}
-                <div className="flex-1 min-h-0">
-                  <AgentCard agent={winnerAgent} isWinner={true} />
+                {/* Fixed-height AgentCard container - matches carousel card height */}
+                <div className="h-[450px]">
+                  <AgentCard agent={winnerAgent} isWinner={true} disableLayoutAnimation={true} />
                 </div>
               </motion.section>
             )}
