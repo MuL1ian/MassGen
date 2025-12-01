@@ -1114,7 +1114,7 @@ import massgen
 
 result = asyncio.run(massgen.run(
     query="What is machine learning?",
-    models=["openai/gpt-5", "gemini/gemini-2.5-flash"]
+    models=["openai/gpt-5", "gemini/gemini-3-pro-preview"]
 ))
 print(result["final_answer"])  # Consensus answer from winning agent
 ```
