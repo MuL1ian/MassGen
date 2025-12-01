@@ -1,33 +1,29 @@
 # MassGen Three Agent Configuration
-# Gemini-3-Pro, GPT-5-nano, and Grok-4-fast with builtin tools enabled
-# uv run python -m massgen.cli --config massgen/configs/basic/multi/three_agents_default.yaml "What is 2+2?"
+# Gemini-3-Pro, GPT-5-nano, and Claude-Haiku-4.5 with builtin tools enabled
+
 agents:
   - id: "gemini3pro"
     backend:
       type: "gemini"
       model: "gemini-3-pro-preview"
       enable_web_search: true
-      # enable_code_execution: true
+      # enable_code_execution: true  # Disabled by default - can preempt web search, resulting in weaker search capability
     # system_message: "You are a helpful AI assistant with web search and code execution capabilities. For any question involving current events, recent information, or real-time data, ALWAYS use web search first."
 
   - id: "gpt5nano"
     backend:
       type: "openai"
       model: "gpt-5-nano"
-      text:
-        verbosity: "medium"
-      reasoning:
-        effort: "low"
-        summary: "auto"
       enable_web_search: true
       enable_code_interpreter: true
     # system_message: "You are a helpful AI assistant with web search and code execution capabilities. For any question involving current events, recent information, or real-time data, ALWAYS use web search first."
 
-  - id: "grok3mini"
+  - id: "claude-haiku-4-5"
     backend:
-      type: "grok"
-      model: "grok-4-fast"
+      type: "claude"
+      model: "claude-haiku-4-5-20251001"
       enable_web_search: true
+      enable_code_execution: true
     # system_message: "You are a helpful AI assistant with web search capabilities. For any question involving current events, recent information, or real-time data, ALWAYS use web search first."
 
 ui:

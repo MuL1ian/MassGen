@@ -24,7 +24,9 @@ import contextlib
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Dict, List, Optional
+import random
+from dataclasses import dataclass, field
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set
 
 from ..api_params_handler._gemini_api_params_handler import GeminiAPIParamsHandler
 from ..configs.rate_limits import get_rate_limit_config
@@ -57,6 +59,109 @@ class NoFunctionCallWarning(logging.Filter):
 
 
 logging.getLogger("google_genai.types").addFilter(NoFunctionCallWarning())
+
+
+@dataclass
+class BackoffConfig:
+    """Configuration for exponential backoff on rate limit errors (always enabled)."""
+
+    max_attempts: int = 5
+    initial_delay: float = 2.0
+    multiplier: float = 3.0
+    max_delay: float = 60.0
+    jitter: float = 0.2
+    retry_statuses: Set[int] = field(default_factory=lambda: {429, 503})
+
+
+def _is_retryable_gemini_error(exc: Exception, retry_statuses: Set[int]) -> tuple:
+    """
+    Check if exception is a retryable Gemini API error.
+
+    Returns:
+        (is_retryable, status_code, error_message)
+    """
+    status_code = None
+    error_msg = str(exc).lower()
+
+    # Check for status_code attribute
+    if hasattr(exc, "status_code"):
+        status_code = exc.status_code
+    elif hasattr(exc, "code"):
+        code = exc.code
+        if callable(code):
+            code = code()
+        if code == 8:
+            status_code = 429
+        elif code == 14:
+            status_code = 503
+
+    # Check exception type name
+    exc_type = type(exc).__name__
+    if exc_type in ("ResourceExhausted", "TooManyRequests"):
+        status_code = 429
+    elif exc_type == "ServiceUnavailable":
+        status_code = 503
+
+    # Check error message patterns
+    retryable_patterns = [
+        "resource exhausted",
+        "resource has been exhausted",
+        "quota exceeded",
+        "rate limit",
+        "too many requests",
+        "429",
+        "503",
+    ]
+    pattern_suggests_rate_limit = any(pattern in error_msg for pattern in retryable_patterns)
+
+    if status_code is not None:
+        is_retryable = status_code in retry_statuses
+    elif pattern_suggests_rate_limit and 429 in retry_statuses:
+        is_retryable = True
+    else:
+        is_retryable = False
+    return (is_retryable, status_code, str(exc))
+
+
+def _extract_retry_after(exc: Exception) -> Optional[float]:
+    """Extract Retry-After value from exception if available."""
+    # Check for response headers
+    if hasattr(exc, "response") and hasattr(exc.response, "headers"):
+        headers = exc.response.headers
+        if "retry-after-ms" in headers:
+            try:
+                return float(headers["retry-after-ms"]) / 1000.0
+            except (ValueError, TypeError):
+                pass
+        if "retry-after" in headers:
+            try:
+                return float(headers["retry-after"])
+            except (ValueError, TypeError):
+                pass
+
+    if hasattr(exc, "metadata") and exc.metadata is not None:
+        metadata = exc.metadata
+        try:
+            # Handle dict-like metadata
+            if hasattr(metadata, "items"):
+                items = metadata.items()
+            # Handle tuple/list of pairs
+            elif hasattr(metadata, "__iter__"):
+                items = metadata
+            else:
+                items = []
+
+            for key, value in items:
+                if str(key).lower() == "retry-after":
+                    try:
+                        return float(value)
+                    except (ValueError, TypeError):
+                        pass
+        except (ValueError, TypeError):
+            pass
+
+    return None
+
 
 # MCP integration imports
 try:
@@ -112,10 +217,14 @@ class GeminiBackend(CustomToolAndMCPBackend):
         # Store Gemini-specific API key before calling parent init
         gemini_api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
-        # Extract and remove enable_rate_limit BEFORE calling parent init
-        # This prevents it from being stored in self.config and passed to Gemini SDK
+        # Extract and remove enable_rate_limit and backoff config
         enable_rate_limit = kwargs.pop("enable_rate_limit", False)
         model_name = kwargs.get("model", "")
+        backoff_max_attempts = kwargs.pop("gemini_backoff_max_attempts", 5)
+        backoff_initial_delay = kwargs.pop("gemini_backoff_initial_delay", 2.0)  # Updated to match BackoffConfig default
+        backoff_multiplier = kwargs.pop("gemini_backoff_multiplier", 3.0)  # Updated to match BackoffConfig default
+        backoff_max_delay = kwargs.pop("gemini_backoff_max_delay", 60.0)  # Updated to match BackoffConfig default
+        backoff_jitter = kwargs.pop("gemini_backoff_jitter", 0.2)
 
         # Call parent class __init__ - this initializes custom_tool_manager and MCP-related attributes
         super().__init__(gemini_api_key, **kwargs)
@@ -137,6 +246,19 @@ class GeminiBackend(CustomToolAndMCPBackend):
 
         # Active tool result capture during manual tool execution
         self._active_tool_result_store: Optional[Dict[str, str]] = None
+
+        # Exponential backoff configuration
+        self.backoff_config = BackoffConfig(
+            max_attempts=int(backoff_max_attempts),
+            initial_delay=float(backoff_initial_delay),
+            multiplier=float(backoff_multiplier),
+            max_delay=float(backoff_max_delay),
+            jitter=float(backoff_jitter),
+        )
+
+        # Backoff telemetry counters
+        self.backoff_retry_count = 0
+        self.backoff_total_delay = 0.0
 
         # Initialize multi-dimensional rate limiter for Gemini API
         # Supports RPM (Requests Per Minute), TPM (Tokens Per Minute), RPD (Requests Per Day)
@@ -186,6 +308,76 @@ class GeminiBackend(CustomToolAndMCPBackend):
             return self.rate_limiter
         else:
             return contextlib.nullcontext()
+
+    async def _generate_with_backoff(
+        self,
+        make_stream_coro: Callable,
+        op_name: str,
+        model_name: str,
+        agent_id: Optional[str] = None,
+    ):
+        """
+        Execute generate_content_stream with exponential backoff on rate limit errors.
+        """
+        last_exc = None
+        cfg = self.backoff_config
+
+        for attempt in range(1, cfg.max_attempts + 1):
+            try:
+                async with self._get_rate_limiter_context():
+                    return await make_stream_coro()
+
+            except Exception as exc:
+                is_retryable, status_code, error_msg = _is_retryable_gemini_error(exc, cfg.retry_statuses)
+                last_exc = exc
+
+                if not is_retryable:
+                    logger.error(f"[Gemini] Non-retryable error in {op_name}: {error_msg}")
+                    raise
+
+                if attempt >= cfg.max_attempts:
+                    logger.error(
+                        f"[Gemini] Max retries ({cfg.max_attempts}) exhausted for {op_name}. " f"Last error: {error_msg}",
+                    )
+                    raise
+
+                retry_after = _extract_retry_after(exc)
+                if retry_after is not None:
+                    delay = min(retry_after, cfg.max_delay)
+                else:
+                    delay = min(cfg.initial_delay * (cfg.multiplier ** (attempt - 1)), cfg.max_delay)
+
+                # Apply jitter
+                if cfg.jitter > 0:
+                    delay *= random.uniform(1 - cfg.jitter, 1 + cfg.jitter)
+
+                # Update telemetry
+                self.backoff_retry_count += 1
+                self.backoff_total_delay += delay
+
+                log_backend_activity(
+                    "gemini",
+                    "Rate limited, backing off",
+                    {
+                        "op_name": op_name,
+                        "model": model_name,
+                        "attempt": attempt,
+                        "max_attempts": cfg.max_attempts,
+                        "delay_seconds": round(delay, 2),
+                        "status_code": status_code,
+                        "error": error_msg[:200],
+                    },
+                    agent_id=agent_id,
+                )
+
+                logger.warning(
+                    f"[Gemini] Rate limited (HTTP {status_code}) in {op_name}. " f"Retry {attempt}/{cfg.max_attempts} in {delay:.1f}s",
+                )
+
+                await asyncio.sleep(delay)
+
+        if last_exc:
+            raise last_exc
 
     def _setup_permission_hooks(self):
         """Override base class - Gemini uses session-based permissions, not function hooks."""
@@ -478,65 +670,105 @@ class GeminiBackend(CustomToolAndMCPBackend):
             # ====================================================================
             # Streaming Phase: Stream with simple function call detection
             # ====================================================================
-            # Use async streaming call with sessions/tools (with rate limiting if enabled)
-            async with self._get_rate_limiter_context():
-                stream = await client.aio.models.generate_content_stream(
-                    model=model_name,
-                    contents=full_content,
-                    config=config,
-                )
-
             # Simple list accumulation for function calls (no trackers)
             captured_function_calls = []
             full_content_text = ""
             last_response_with_candidates = None
 
-            # Stream chunks and capture function calls
-            async for chunk in stream:
-                # Detect function calls in candidates
-                if hasattr(chunk, "candidates") and chunk.candidates:
-                    for candidate in chunk.candidates:
-                        if hasattr(candidate, "content") and candidate.content:
-                            if hasattr(candidate.content, "parts") and candidate.content.parts:
-                                for part in candidate.content.parts:
-                                    # Check for function_call part
-                                    if hasattr(part, "function_call") and part.function_call:
-                                        # Extract call data
-                                        tool_name = part.function_call.name
-                                        tool_args = dict(part.function_call.args) if part.function_call.args else {}
+            cfg = self.backoff_config
+            for stream_attempt in range(1, cfg.max_attempts + 1):
+                try:
+                    # Use async streaming call with sessions/tools (with rate limiting)
+                    async with self._get_rate_limiter_context():
+                        stream = await client.aio.models.generate_content_stream(
+                            model=model_name,
+                            contents=full_content,
+                            config=config,
+                        )
 
-                                        # Create call record
-                                        call_id = f"call_{len(captured_function_calls)}"
-                                        call_record = {
-                                            "call_id": call_id,
-                                            "name": tool_name,
-                                            "arguments": json.dumps(tool_args),
-                                        }
+                    # Stream chunks and capture function calls
+                    async for chunk in stream:
+                        # Detect function calls in candidates
+                        if hasattr(chunk, "candidates") and chunk.candidates:
+                            for candidate in chunk.candidates:
+                                if hasattr(candidate, "content") and candidate.content:
+                                    if hasattr(candidate.content, "parts") and candidate.content.parts:
+                                        for part in candidate.content.parts:
+                                            # Check for function_call part
+                                            if hasattr(part, "function_call") and part.function_call:
+                                                # Extract call data
+                                                tool_name = part.function_call.name
+                                                tool_args = dict(part.function_call.args) if part.function_call.args else {}
 
-                                        # Capture thought_signature if present (required for Gemini 3.x models)
-                                        if hasattr(part, "thought_signature") and part.thought_signature:
-                                            call_record["thought_signature"] = part.thought_signature
+                                                # Create call record
+                                                call_id = f"call_{len(captured_function_calls)}"
+                                                call_record = {
+                                                    "call_id": call_id,
+                                                    "name": tool_name,
+                                                    "arguments": json.dumps(tool_args),
+                                                }
 
-                                        captured_function_calls.append(call_record)
+                                                # Capture thought_signature if present (required for Gemini 3.x models)
+                                                if hasattr(part, "thought_signature") and part.thought_signature:
+                                                    call_record["thought_signature"] = part.thought_signature
 
-                                        logger.info(f"[Gemini] Function call detected: {tool_name}")
+                                                captured_function_calls.append(call_record)
 
-                # Process text content
-                if hasattr(chunk, "text") and chunk.text:
-                    chunk_text = chunk.text
-                    full_content_text += chunk_text
-                    log_backend_agent_message(
-                        agent_id,
-                        "RECV",
-                        {"content": chunk_text},
-                        backend_name="gemini",
+                                                logger.info(f"[Gemini] Function call detected: {tool_name}")
+
+                        # Process text content
+                        if hasattr(chunk, "text") and chunk.text:
+                            chunk_text = chunk.text
+                            full_content_text += chunk_text
+                            log_backend_agent_message(
+                                agent_id,
+                                "RECV",
+                                {"content": chunk_text},
+                                backend_name="gemini",
+                            )
+                            log_stream_chunk("backend.gemini", "content", chunk_text, agent_id)
+                            yield StreamChunk(type="content", content=chunk_text)
+
+                        # Buffer last chunk with candidates
+                        if hasattr(chunk, "candidates") and chunk.candidates:
+                            last_response_with_candidates = chunk
+
+                    break
+
+                except Exception as stream_exc:
+                    is_retryable, status_code, error_msg = _is_retryable_gemini_error(stream_exc, cfg.retry_statuses)
+
+                    if not is_retryable or stream_attempt >= cfg.max_attempts:
+                        if is_retryable:
+                            yield StreamChunk(
+                                type="error",
+                                error=f"⚠️ Rate limit exceeded after {cfg.max_attempts} retries. Please try again later.",
+                            )
+                        raise
+
+                    retry_status_code = status_code or "unknown"
+                    retry_notice = f"⚠️ [Gemini] Rate limited (HTTP {retry_status_code}) " f"after partial output. Retrying attempt {stream_attempt + 1}/{cfg.max_attempts}..."
+                    log_stream_chunk("backend.gemini", "content", retry_notice, agent_id)
+                    yield StreamChunk(type="content", content=f"{retry_notice}\n")
+
+                    logger.warning(
+                        f"[Gemini] Rate limit (HTTP {status_code}) in initial_stream. " f"Retry {stream_attempt}/{cfg.max_attempts}, backing off...",
                     )
-                    log_stream_chunk("backend.gemini", "content", chunk_text, agent_id)
-                    yield StreamChunk(type="content", content=chunk_text)
+                    captured_function_calls = []
+                    full_content_text = ""
+                    last_response_with_candidates = None
 
-                # Buffer last chunk with candidates
-                if hasattr(chunk, "candidates") and chunk.candidates:
-                    last_response_with_candidates = chunk
+                    retry_after = _extract_retry_after(stream_exc)
+                    if retry_after is not None:
+                        delay = min(retry_after, cfg.max_delay)
+                    else:
+                        delay = min(cfg.initial_delay * (cfg.multiplier ** (stream_attempt - 1)), cfg.max_delay)
+                    if cfg.jitter > 0:
+                        delay *= random.uniform(1 - cfg.jitter, 1 + cfg.jitter)
+
+                    self.backoff_retry_count += 1
+                    self.backoff_total_delay += delay
+                    await asyncio.sleep(delay)
 
             # ====================================================================
             # Structured Coordination Output Parsing
@@ -880,52 +1112,96 @@ class GeminiBackend(CustomToolAndMCPBackend):
                 last_continuation_chunk = None
 
                 while True:
-                    # Use same config as before (with rate limiting if enabled)
-                    async with self._get_rate_limiter_context():
-                        continuation_stream = await client.aio.models.generate_content_stream(
-                            model=model_name,
-                            contents=conversation_history,
-                            config=config,
-                        )
-                    stream = continuation_stream
-
                     new_function_calls = []
                     continuation_text = ""
 
-                    async for chunk in continuation_stream:
-                        if hasattr(chunk, "candidates") and chunk.candidates:
-                            last_continuation_chunk = chunk
-                            for candidate in chunk.candidates:
-                                if hasattr(candidate, "content") and candidate.content:
-                                    if hasattr(candidate.content, "parts") and candidate.content.parts:
-                                        for part in candidate.content.parts:
-                                            if hasattr(part, "function_call") and part.function_call:
-                                                tool_name = part.function_call.name
-                                                tool_args = dict(part.function_call.args) if part.function_call.args else {}
-                                                call_id = f"call_{len(new_function_calls)}"
-                                                call_record = {
-                                                    "call_id": call_id,
-                                                    "name": tool_name,
-                                                    "arguments": json.dumps(tool_args),
-                                                }
+                    # Retry for continuation with backoff
+                    for cont_attempt in range(1, cfg.max_attempts + 1):
+                        try:
+                            # Use same config as before
+                            async with self._get_rate_limiter_context():
+                                continuation_stream = await client.aio.models.generate_content_stream(
+                                    model=model_name,
+                                    contents=conversation_history,
+                                    config=config,
+                                )
+                            stream = continuation_stream
 
-                                                # Capture thought_signature if present (required for Gemini 3.x models)
-                                                if hasattr(part, "thought_signature") and part.thought_signature:
-                                                    call_record["thought_signature"] = part.thought_signature
+                            async for chunk in continuation_stream:
+                                if hasattr(chunk, "candidates") and chunk.candidates:
+                                    last_continuation_chunk = chunk
+                                    for candidate in chunk.candidates:
+                                        if hasattr(candidate, "content") and candidate.content:
+                                            if hasattr(candidate.content, "parts") and candidate.content.parts:
+                                                for part in candidate.content.parts:
+                                                    if hasattr(part, "function_call") and part.function_call:
+                                                        tool_name = part.function_call.name
+                                                        tool_args = dict(part.function_call.args) if part.function_call.args else {}
+                                                        call_id = f"call_{len(new_function_calls)}"
+                                                        call_record = {
+                                                            "call_id": call_id,
+                                                            "name": tool_name,
+                                                            "arguments": json.dumps(tool_args),
+                                                        }
 
-                                                new_function_calls.append(call_record)
+                                                        # Capture thought_signature if present (required for Gemini 3.x models)
+                                                        if hasattr(part, "thought_signature") and part.thought_signature:
+                                                            call_record["thought_signature"] = part.thought_signature
 
-                        if hasattr(chunk, "text") and chunk.text:
-                            chunk_text = chunk.text
-                            continuation_text += chunk_text
-                            log_backend_agent_message(
-                                agent_id,
-                                "RECV",
-                                {"content": chunk_text},
-                                backend_name="gemini",
+                                                        new_function_calls.append(call_record)
+
+                                if hasattr(chunk, "text") and chunk.text:
+                                    chunk_text = chunk.text
+                                    continuation_text += chunk_text
+                                    log_backend_agent_message(
+                                        agent_id,
+                                        "RECV",
+                                        {"content": chunk_text},
+                                        backend_name="gemini",
+                                    )
+                                    log_stream_chunk("backend.gemini", "content", chunk_text, agent_id)
+                                    yield StreamChunk(type="content", content=chunk_text)
+
+                            # Stream completed successfully
+                            break
+
+                        except Exception as cont_exc:
+                            is_retryable, status_code, _ = _is_retryable_gemini_error(cont_exc, cfg.retry_statuses)
+
+                            if not is_retryable or cont_attempt >= cfg.max_attempts:
+                                # Yield user-friendly error before raising
+                                if is_retryable:
+                                    yield StreamChunk(
+                                        type="error",
+                                        error=f"⚠️ Rate limit exceeded after {cfg.max_attempts} retries. Please try again later.",
+                                    )
+                                raise
+
+                            retry_status_code = status_code or "unknown"
+                            retry_notice = (
+                                f"⚠️ [Gemini] Rate limited (HTTP {retry_status_code}) " f"during continuation after partial output. Retrying attempt " f"{cont_attempt + 1}/{cfg.max_attempts}..."
                             )
-                            log_stream_chunk("backend.gemini", "content", chunk_text, agent_id)
-                            yield StreamChunk(type="content", content=chunk_text)
+                            log_stream_chunk("backend.gemini", "content", retry_notice, agent_id)
+                            yield StreamChunk(type="content", content=f"{retry_notice}\n")
+
+                            logger.warning(
+                                f"[Gemini] Rate limit (HTTP {status_code}) in continuation_stream. " f"Retry {cont_attempt}/{cfg.max_attempts}, backing off...",
+                            )
+                            new_function_calls = []
+                            continuation_text = ""
+                            last_continuation_chunk = None
+
+                            retry_after = _extract_retry_after(cont_exc)
+                            if retry_after is not None:
+                                delay = min(retry_after, cfg.max_delay)
+                            else:
+                                delay = min(cfg.initial_delay * (cfg.multiplier ** (cont_attempt - 1)), cfg.max_delay)
+                            if cfg.jitter > 0:
+                                delay *= random.uniform(1 - cfg.jitter, 1 + cfg.jitter)
+
+                            self.backoff_retry_count += 1
+                            self.backoff_total_delay += delay
+                            await asyncio.sleep(delay)
 
                     if continuation_text:
                         conversation_history.append(
@@ -1531,6 +1807,9 @@ class GeminiBackend(CustomToolAndMCPBackend):
         """Reset tool usage tracking."""
         self.search_count = 0
         self.code_execution_count = 0
+        # Reset backoff telemetry
+        self.backoff_retry_count = 0
+        self.backoff_total_delay = 0.0
         # Reset MCP monitoring metrics when available
         for attr in (
             "_mcp_tool_calls_count",
