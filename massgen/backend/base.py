@@ -424,7 +424,11 @@ class LLMBackend(ABC):
         else:
             return ""
 
-    def create_tool_result_message(self, tool_call: Dict[str, Any], result_content: str) -> Dict[str, Any]:
+    def create_tool_result_message(
+        self,
+        tool_call: Dict[str, Any],
+        result_content: str,
+    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Create a tool result message in this backend's expected format.
 
@@ -433,7 +437,9 @@ class LLMBackend(ABC):
             result_content: The result content to send back
 
         Returns:
-            Tool result message in backend's expected format
+            Tool result message(s) in backend's expected format.
+            Most backends return a single dict, but Response API returns a list
+            of two dicts (function_call + function_call_output).
         """
         # Default implementation assumes Chat Completions format
         tool_call_id = self.extract_tool_call_id(tool_call)

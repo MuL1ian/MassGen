@@ -1210,7 +1210,9 @@ class CoordinationUI:
 
         else:
             # Thinking content
-            if self.orchestrator and self.display_type == "textual_terminal" and hasattr(self.display, "stream_final_answer_chunk"):
+            # For displays that support streaming final answer (textual_terminal and web),
+            # route content through stream_final_answer_chunk when the selected agent is streaming
+            if self.orchestrator and hasattr(self.display, "stream_final_answer_chunk"):
                 status = self.orchestrator.get_status()
                 if status:
                     selected_agent = status.get("selected_agent")
@@ -1291,6 +1293,9 @@ class CoordinationUI:
                 "**",
                 "result ignored",
                 "restart pending",
+                "🏆",  # Selected Agent banner
+                "🎤",  # presenting final answer
+                "🔍",  # Post-evaluation
             ]
         ):
             # Extract clean final answer content

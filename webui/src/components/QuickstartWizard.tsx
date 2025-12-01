@@ -113,7 +113,7 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
-            className="relative w-full max-w-3xl max-h-[90vh] bg-white dark:bg-gray-900
+            className="relative w-full max-w-4xl max-h-[90vh] bg-white dark:bg-gray-900
                        rounded-xl shadow-2xl flex flex-col"
           >
             {/* Header */}

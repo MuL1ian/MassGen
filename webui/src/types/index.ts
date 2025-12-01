@@ -227,6 +227,11 @@ export interface AnswerWorkspace {
 // - 'finalComplete': Shows full-screen final answer view when complete
 export type ViewMode = 'coordination' | 'finalStreaming' | 'finalComplete';
 
+// Per-agent UI state (stored in Zustand for persistence across re-renders)
+export interface AgentUIState {
+  dropdownOpen: boolean;
+}
+
 // Conversation message for multi-turn
 export interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -246,12 +251,15 @@ export interface SessionState {
   finalAnswer?: string;
   orchestratorEvents: string[];
   isComplete: boolean;
+  selectingWinner: boolean;  // True when all votes are in but winner not yet selected
   error?: string;
   theme: string;
   viewMode: ViewMode;  // 'coordination' shows all agents, 'winner' shows only winner
   // Multi-turn conversation state
   turnNumber: number;
   conversationHistory: ConversationMessage[];
+  // Per-agent UI state for dropdown tracking
+  agentUIState: Record<string, AgentUIState>;
 }
 
 // Union type for all WebSocket events

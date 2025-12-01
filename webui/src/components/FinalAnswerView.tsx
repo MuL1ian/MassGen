@@ -7,8 +7,8 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, FileText, Folder, Trophy, ChevronDown, ChevronRight, File, RefreshCw, History, Copy, Check } from 'lucide-react';
-import { useAgentStore, selectSelectedAgent, selectAgents, selectFinalAnswer, selectAgentOrder } from '../stores/agentStore';
+import { ArrowLeft, FileText, Folder, Trophy, ChevronDown, ChevronRight, File, RefreshCw, History, Copy, Check, Loader2 } from 'lucide-react';
+import { useAgentStore, selectSelectedAgent, selectAgents, selectResolvedFinalAnswer, selectAgentOrder } from '../stores/agentStore';
 import type { AnswerWorkspace } from '../types';
 
 // Types for workspace API responses
@@ -182,7 +182,7 @@ export function FinalAnswerView({ onBackToAgents }: FinalAnswerViewProps) {
   const [activeTab, setActiveTab] = useState<TabType>('answer');
   const [copied, setCopied] = useState(false);
 
-  const finalAnswer = useAgentStore(selectFinalAnswer);
+  const finalAnswer = useAgentStore(selectResolvedFinalAnswer);
   const selectedAgent = useAgentStore(selectSelectedAgent);
   const agents = useAgentStore(selectAgents);
   const agentOrder = useAgentStore(selectAgentOrder);
@@ -279,7 +279,7 @@ export function FinalAnswerView({ onBackToAgents }: FinalAnswerViewProps) {
 
   // Copy to clipboard
   const handleCopy = useCallback(async () => {
-    if (finalAnswer) {
+    if (finalAnswer && finalAnswer !== '__PENDING__') {
       await navigator.clipboard.writeText(finalAnswer);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -377,9 +377,16 @@ export function FinalAnswerView({ onBackToAgents }: FinalAnswerViewProps) {
             >
               <div className="max-w-4xl mx-auto">
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <pre className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-mono text-sm leading-relaxed">
-                    {finalAnswer || 'No final answer available.'}
-                  </pre>
+                  {!finalAnswer || finalAnswer === '__PENDING__' ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                      <Loader2 className="w-8 h-8 mb-4 animate-spin text-blue-500" />
+                      <p>Loading final answer...</p>
+                    </div>
+                  ) : (
+                    <pre className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-mono text-sm leading-relaxed">
+                      {finalAnswer}
+                    </pre>
+                  )}
                 </div>
               </div>
             </motion.div>

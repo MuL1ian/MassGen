@@ -728,16 +728,18 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
                 status_code=404,
             )
 
-        # log_session_dir is already the turn directory (e.g., .massgen/massgen_logs/log_xxx/turn_1)
-        # Look for final/<agent>/answer.txt directly
-        final_dir = log_session_dir / "final"
-        print(f"[DEBUG] get_final_answer: Looking for final_dir={final_dir}")
+        # log_session_dir could be:
+        # - .massgen/massgen_logs/log_xxx/turn_1 (old structure)
+        # - .massgen/massgen_logs/log_xxx/turn_1/attempt_N (new structure with attempts)
+        # We need to search for final/<agent>/answer.txt in multiple possible locations
 
-        if final_dir.exists():
+        # Helper to find answer in a final directory
+        def find_answer_in_final_dir(final_dir):
+            if not final_dir.exists():
+                return None
             for agent_dir in final_dir.iterdir():
                 if not agent_dir.is_dir():
                     continue
-
                 answer_file = agent_dir / "answer.txt"
                 print(f"[DEBUG] get_final_answer: Checking answer_file={answer_file}")
                 if answer_file.exists():
@@ -750,10 +752,30 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
                             "path": str(answer_file),
                         }
                     except Exception as e:
-                        return JSONResponse(
-                            {"error": f"Failed to read answer: {str(e)}", "answer": None},
-                            status_code=500,
-                        )
+                        return {"error": f"Failed to read answer: {str(e)}"}
+            return None
+
+        # Try 1: Direct final/ directory (log_session_dir/final)
+        final_dir = log_session_dir / "final"
+        print(f"[DEBUG] get_final_answer: Looking for final_dir={final_dir}")
+        result = find_answer_in_final_dir(final_dir)
+        if result:
+            if "error" in result:
+                return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+            return result
+
+        # Try 2: Check for attempt_N subdirectories (log_session_dir/attempt_N/final)
+        print("[DEBUG] get_final_answer: Checking attempt subdirectories")
+        for attempt_dir in sorted(log_session_dir.iterdir(), reverse=True):
+            if not attempt_dir.is_dir() or not attempt_dir.name.startswith("attempt_"):
+                continue
+            print(f"[DEBUG] get_final_answer: Checking attempt dir: {attempt_dir}")
+            final_dir = attempt_dir / "final"
+            result = find_answer_in_final_dir(final_dir)
+            if result:
+                if "error" in result:
+                    return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                return result
 
         # Fallback: search in turn subdirectories (for older log structure or if log_session_dir is base)
         print("[DEBUG] get_final_answer: No final dir, searching turn subdirs")
@@ -761,28 +783,22 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
             if not turn_dir.is_dir() or not turn_dir.name.startswith("turn_"):
                 continue
 
-            final_dir = turn_dir / "final"
-            if not final_dir.exists():
-                continue
+            # Check direct final/ in turn dir
+            result = find_answer_in_final_dir(turn_dir / "final")
+            if result:
+                if "error" in result:
+                    return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                return result
 
-            for agent_dir in final_dir.iterdir():
-                if not agent_dir.is_dir():
+            # Check attempt_N subdirectories within turn dir
+            for attempt_dir in sorted(turn_dir.iterdir(), reverse=True):
+                if not attempt_dir.is_dir() or not attempt_dir.name.startswith("attempt_"):
                     continue
-
-                answer_file = agent_dir / "answer.txt"
-                if answer_file.exists():
-                    try:
-                        answer_content = answer_file.read_text(encoding="utf-8")
-                        return {
-                            "answer": answer_content,
-                            "agent_id": agent_dir.name,
-                            "path": str(answer_file),
-                        }
-                    except Exception as e:
-                        return JSONResponse(
-                            {"error": f"Failed to read answer: {str(e)}", "answer": None},
-                            status_code=500,
-                        )
+                result = find_answer_in_final_dir(attempt_dir / "final")
+                if result:
+                    if "error" in result:
+                        return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                    return result
 
         return JSONResponse(
             {"error": "Final answer not found", "answer": None},

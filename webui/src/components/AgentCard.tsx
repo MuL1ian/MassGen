@@ -7,7 +7,7 @@
 
 import { motion } from 'framer-motion';
 import { Bot, CheckCircle, Clock, AlertCircle, Vote, Loader2, ChevronDown } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { AgentState, AgentStatus } from '../types';
 import { useAgentStore } from '../stores/agentStore';
 
@@ -92,8 +92,14 @@ const statusConfig: Record<AgentStatus, { color: string; icon: typeof Bot; label
 
 export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCardProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const setAgentRound = useAgentStore((s) => s.setAgentRound);
-  const [showRoundDropdown, setShowRoundDropdown] = useState(false);
+
+  // Store-based dropdown state for persistence across re-renders
+  const agentUIState = useAgentStore((s) => s.agentUIState[agent.id]);
+  const setAgentDropdownOpen = useAgentStore((s) => s.setAgentDropdownOpen);
+  const closeAllDropdowns = useAgentStore((s) => s.closeAllDropdowns);
+  const showRoundDropdown = agentUIState?.dropdownOpen ?? false;
 
   const { color, icon: StatusIcon, label } = statusConfig[agent.status];
 
@@ -107,12 +113,44 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
   const roundLabel = displayRound?.label || 'current';
   const hasMultipleRounds = (agent.rounds?.length || 0) > 1;
 
+  // Determine what content to display:
+  // - If viewing current round (displayRoundId === currentRoundId), use currentContent for live streaming
+  // - If viewing a different round, use that round's stored content
+  const isViewingCurrentRound = agent.displayRoundId === agent.currentRoundId;
+  const displayContent = isViewingCurrentRound
+    ? agent.currentContent
+    : displayRound?.content || '';
+
   // Auto-scroll to bottom on new content
   useEffect(() => {
     if (contentRef.current) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
     }
   }, [agent.currentContent]);
+
+  // Click-outside handler to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        if (showRoundDropdown) {
+          setAgentDropdownOpen(agent.id, false);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showRoundDropdown, agent.id, setAgentDropdownOpen]);
+
+  // Handler to toggle dropdown (close all others first)
+  const handleDropdownToggle = () => {
+    if (showRoundDropdown) {
+      setAgentDropdownOpen(agent.id, false);
+    } else {
+      closeAllDropdowns();
+      setAgentDropdownOpen(agent.id, true);
+    }
+  };
 
   return (
     <motion.div
@@ -153,9 +191,9 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
         <div className="flex items-center gap-2">
           {/* Round Selector Dropdown */}
           {hasMultipleRounds && (
-            <div className="relative">
+            <div className="relative" ref={dropdownRef}>
               <button
-                onClick={() => setShowRoundDropdown(!showRoundDropdown)}
+                onClick={handleDropdownToggle}
                 className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-200 dark:bg-gray-700
                          hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors"
               >
@@ -169,7 +207,7 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
                       key={round.id}
                       onClick={() => {
                         setAgentRound(agent.id, round.id);
-                        setShowRoundDropdown(false);
+                        setAgentDropdownOpen(agent.id, false);
                       }}
                       className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
                                ${round.id === agent.displayRoundId ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}
@@ -211,11 +249,11 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
         className="flex-1 p-3 overflow-y-auto custom-scrollbar text-sm font-mono"
       >
         <pre className="whitespace-pre-wrap text-gray-700 dark:text-gray-300 leading-relaxed">
-          {agent.currentContent ? (
+          {displayContent ? (
             <>
-              {renderHighlightedContent(agent.currentContent)}
-              {/* Pulsing ellipses when streaming */}
-              {agent.status === 'working' && (
+              {renderHighlightedContent(displayContent)}
+              {/* Pulsing ellipses when streaming - only for current round */}
+              {isViewingCurrentRound && agent.status === 'working' && (
                 <span className="text-blue-400">
                   <span className="streaming-dot">.</span>
                   <span className="streaming-dot">.</span>

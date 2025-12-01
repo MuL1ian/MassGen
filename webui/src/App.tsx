@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Wifi, WifiOff, AlertCircle, XCircle, ArrowLeft, Loader2, Trophy, X, FileCode } from 'lucide-react';
 import { useWebSocket, ConnectionStatus } from './hooks/useWebSocket';
-import { useAgentStore, selectQuestion, selectIsComplete, selectAnswers, selectViewMode, selectSelectedAgent, selectAgents, selectFinalAnswer } from './stores/agentStore';
+import { useAgentStore, selectQuestion, selectIsComplete, selectAnswers, selectViewMode, selectSelectedAgent, selectAgents, selectFinalAnswer, selectSelectingWinner, selectVoteDistribution } from './stores/agentStore';
 import { useThemeStore } from './stores/themeStore';
 import { AgentCarousel } from './components/AgentCarousel';
 import { AgentCard } from './components/AgentCard';
@@ -51,6 +51,8 @@ export function App() {
   const selectedAgent = useAgentStore(selectSelectedAgent);
   const agents = useAgentStore(selectAgents);
   const finalAnswer = useAgentStore(selectFinalAnswer);
+  const selectingWinner = useAgentStore(selectSelectingWinner);
+  const voteDistribution = useAgentStore(selectVoteDistribution);
   const reset = useAgentStore((s) => s.reset);
   const backToCoordination = useAgentStore((s) => s.backToCoordination);
   const setViewMode = useAgentStore((s) => s.setViewMode);
@@ -225,8 +227,8 @@ export function App() {
       <StatusToolbar />
 
       {/* Main Content */}
-      <main className="flex-1 p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <main className="flex-1 p-6 overflow-hidden">
+        <div className="max-w-7xl mx-auto space-y-6 h-full flex flex-col">
           {/* Error Display */}
           {error && (
             <motion.div
@@ -253,7 +255,8 @@ export function App() {
             </motion.div>
           )}
 
-          {/* View Mode Routing */}
+          {/* View Mode Routing - flex-1 for full height in finalStreaming */}
+          <div className="flex-1 min-h-0">
           <AnimatePresence mode="wait">
             {/* Coordination View - All Agents */}
             {viewMode === 'coordination' && (
@@ -263,12 +266,66 @@ export function App() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
+                className="relative"
               >
                 <AgentCarousel />
+
+                {/* Selecting Winner Overlay */}
+                <AnimatePresence>
+                  {selectingWinner && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 bg-gray-900/70 backdrop-blur-sm flex items-center justify-center z-20 rounded-lg"
+                    >
+                      <div className="flex flex-col items-center gap-4 text-white max-w-md">
+                        <Trophy className="w-12 h-12 text-yellow-500 animate-pulse" />
+                        <span className="text-xl font-semibold">Selecting Winner</span>
+
+                        {/* Vote Results */}
+                        <div className="flex flex-col gap-2 w-full px-4">
+                          {Object.entries(voteDistribution)
+                            .sort(([, a], [, b]) => b - a)
+                            .map(([agentId, votes], idx) => {
+                              const agent = agents[agentId];
+                              const displayName = agent?.modelName
+                                ? `${agentId} (${agent.modelName})`
+                                : agentId;
+                              const isLeading = idx === 0;
+                              return (
+                                <motion.div
+                                  key={agentId}
+                                  initial={{ opacity: 0, x: -20 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ delay: idx * 0.1 }}
+                                  className={`flex items-center justify-between px-3 py-2 rounded-lg ${
+                                    isLeading
+                                      ? 'bg-yellow-500/30 border border-yellow-500/50'
+                                      : 'bg-gray-700/50'
+                                  }`}
+                                >
+                                  <span className={isLeading ? 'font-medium' : ''}>{displayName}</span>
+                                  <span className={`font-bold ${isLeading ? 'text-yellow-400' : 'text-gray-400'}`}>
+                                    {votes} vote{votes !== 1 ? 's' : ''}
+                                  </span>
+                                </motion.div>
+                              );
+                            })}
+                        </div>
+
+                        <div className="flex items-center gap-2 text-sm text-gray-300">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Starting final answer generation...</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.section>
             )}
 
-            {/* Final Streaming View - Winner streaming final answer */}
+            {/* Final Streaming View - Winner streaming final answer (full-screen) */}
             {viewMode === 'finalStreaming' && winnerAgent && (
               <motion.section
                 key="finalStreaming"
@@ -276,36 +333,40 @@ export function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
+                className="flex flex-col h-full"
               >
+                {/* Header */}
                 <div className="flex items-center gap-4 mb-4">
                   <button
                     onClick={handleBackToCoordination}
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
                              rounded-lg text-sm transition-colors"
                   >
                     <ArrowLeft className="w-4 h-4" />
-                    Back to All Agents
+                    Back
                   </button>
                   <div className="flex items-center gap-2">
-                    <Trophy className="w-5 h-5 text-yellow-500" />
-                    <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                      {winnerAgent.modelName ? `${winnerAgent.id} (${winnerAgent.modelName})` : winnerAgent.id}
+                    <Trophy className="w-6 h-6 text-yellow-500" />
+                    <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">
+                      Winner: {winnerAgent.modelName ? `${winnerAgent.id} (${winnerAgent.modelName})` : winnerAgent.id}
                     </h2>
                   </div>
-                  <div className="flex items-center gap-2 text-blue-500 dark:text-blue-400 ml-auto">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-sm">Generating final answer...</span>
-                  </div>
+                  {!isComplete && (
+                    <div className="flex items-center gap-2 text-blue-500 dark:text-blue-400 ml-auto">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span className="text-sm">Generating final answer...</span>
+                    </div>
+                  )}
                 </div>
-                {/* Match the single-agent grid layout from AgentCarousel */}
-                <div className="grid grid-cols-1 gap-4 py-4">
-                  <div className="h-[450px] min-w-0">
-                    <AgentCard agent={winnerAgent} isWinner={true} />
-                  </div>
+
+                {/* Full-height AgentCard */}
+                <div className="flex-1 min-h-0">
+                  <AgentCard agent={winnerAgent} isWinner={true} />
                 </div>
               </motion.section>
             )}
           </AnimatePresence>
+          </div>
         </div>
       </main>
 

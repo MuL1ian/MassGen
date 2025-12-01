@@ -67,8 +67,32 @@ export function AgentCarousel() {
 
   if (totalAgents === 0) {
     return (
-      <div className="flex items-center justify-center h-[400px] text-gray-500">
-        Waiting for agents to initialize...
+      <div className="flex flex-col items-center justify-center h-[400px] gap-4">
+        {/* Pulsing dots animation */}
+        <div className="flex items-center gap-2">
+          <motion.div
+            className="w-3 h-3 bg-blue-500 rounded-full"
+            animate={{ scale: [1, 1.3, 1], opacity: [0.5, 1, 0.5] }}
+            transition={{ repeat: Infinity, duration: 1.2, delay: 0 }}
+          />
+          <motion.div
+            className="w-3 h-3 bg-purple-500 rounded-full"
+            animate={{ scale: [1, 1.3, 1], opacity: [0.5, 1, 0.5] }}
+            transition={{ repeat: Infinity, duration: 1.2, delay: 0.2 }}
+          />
+          <motion.div
+            className="w-3 h-3 bg-blue-500 rounded-full"
+            animate={{ scale: [1, 1.3, 1], opacity: [0.5, 1, 0.5] }}
+            transition={{ repeat: Infinity, duration: 1.2, delay: 0.4 }}
+          />
+        </div>
+        <motion.span
+          className="text-gray-500 dark:text-gray-400"
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{ repeat: Infinity, duration: 2 }}
+        >
+          Waiting for prompt...
+        </motion.span>
       </div>
     );
   }

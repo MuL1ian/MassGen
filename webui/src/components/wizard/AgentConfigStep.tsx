@@ -65,11 +65,13 @@ function AgentConfigRow({
     })),
   ];
 
-  // Build model options
-  const modelOptions = availableModels.map((m) => ({
-    value: m,
-    label: m === selectedProvider?.default_model ? `${m} (default)` : m,
-  }));
+  // Build model options - filter out "custom" placeholder and show all real models
+  const modelOptions = availableModels
+    .filter((m) => m !== 'custom')  // Don't show "custom" as an option
+    .map((m) => ({
+      value: m,
+      label: m === selectedProvider?.default_model ? `${m} (default)` : m,
+    }));
 
   return (
     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
@@ -109,13 +111,25 @@ function AgentConfigRow({
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Model
+            Model {modelOptions.length > 0 && (
+              <span className="text-xs text-gray-500 font-normal ml-1">
+                ({modelOptions.length} available)
+              </span>
+            )}
           </label>
           <SearchableCombobox
             options={modelOptions}
             value={model}
             onChange={onModelChange}
-            placeholder={provider ? 'Search models...' : 'Select provider first'}
+            placeholder={
+              !provider
+                ? 'Select provider first'
+                : loadingModels[provider]
+                ? 'Loading models...'
+                : modelOptions.length > 0
+                ? `Search ${modelOptions.length} models...`
+                : 'Type a model name...'
+            }
             disabled={!provider}
             loading={loadingModels[provider] || false}
             allowCustom={true}  // Allow custom model names

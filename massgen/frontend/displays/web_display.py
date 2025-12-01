@@ -63,6 +63,9 @@ class WebDisplay(BaseDisplay):
         # Orchestrator reference (set by CoordinationUI)
         self.orchestrator: Optional[Any] = None
 
+        # Log session directory (set by _setup_agent_output_files, used by server API)
+        self.log_session_dir: Optional[Path] = None
+
         # Setup agent output files (same as terminal displays)
         self._setup_agent_output_files()
 
@@ -107,6 +110,8 @@ class WebDisplay(BaseDisplay):
             from massgen.logger_config import get_log_session_dir
 
             log_session_dir = get_log_session_dir()
+            # Store for later access by the server API
+            self.log_session_dir = log_session_dir
             if log_session_dir:
                 self._output_dir = log_session_dir / "agent_outputs"
                 self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -245,6 +250,55 @@ class WebDisplay(BaseDisplay):
             },
         )
 
+    def stream_final_answer_chunk(
+        self,
+        chunk: str,
+        selected_agent: Optional[str],
+        vote_results: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Stream incoming final presentation content to the WebUI.
+
+        This method is called during the final agent's streaming.
+        On the FIRST chunk, it emits consensus_reached to trigger the
+        finalStreaming view transition immediately.
+
+        Args:
+            chunk: Content chunk from the streaming response
+            selected_agent: The agent selected as winner
+            vote_results: Dictionary containing vote counts and details
+        """
+        if not chunk:
+            return
+
+        # On first chunk, emit consensus_reached to switch to finalStreaming view
+        if not self._selected_agent and selected_agent:
+            self._selected_agent = selected_agent
+            if vote_results:
+                self._vote_distribution = vote_results.get("vote_counts", {})
+
+            # Update winner status to "working" since they're actively streaming
+            # This overrides the earlier "completed" status from answer submission
+            self._emit(
+                "agent_status",
+                {
+                    "agent_id": selected_agent,
+                    "status": "working",
+                },
+            )
+
+            # Emit consensus_reached IMMEDIATELY when winner starts streaming
+            self._emit(
+                "consensus_reached",
+                {
+                    "winner_id": selected_agent,
+                    "vote_distribution": self._vote_distribution,
+                },
+            )
+
+        # Stream the content to the winning agent
+        if selected_agent:
+            self.update_agent_content(selected_agent, chunk, "thinking")
+
     def show_final_answer(
         self,
         answer: str,
@@ -274,8 +328,9 @@ class WebDisplay(BaseDisplay):
             },
         )
 
-        # Trigger convergence animation
-        if selected_agent:
+        # Only emit consensus_reached here if it wasn't already emitted by stream_final_answer_chunk
+        # This handles the case where streaming didn't happen (e.g., cached answer)
+        if selected_agent and not self._selected_agent:
             self._emit(
                 "consensus_reached",
                 {

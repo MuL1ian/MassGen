@@ -10,6 +10,7 @@ import type {
   AgentRound,
   AgentState,
   AgentStatus,
+  AgentUIState,
   Answer,
   FileInfo,
   SessionState,
@@ -46,6 +47,9 @@ interface AgentStore extends SessionState {
   // Multi-turn conversation actions
   addToConversationHistory: (role: 'user' | 'assistant', content: string) => void;
   startContinuation: (question: string) => void;
+  // Per-agent UI state actions
+  setAgentDropdownOpen: (agentId: string, open: boolean) => void;
+  closeAllDropdowns: () => void;
 }
 
 const initialState: SessionState = {
@@ -59,13 +63,20 @@ const initialState: SessionState = {
   finalAnswer: undefined,
   orchestratorEvents: [],
   isComplete: false,
+  selectingWinner: false,
   error: undefined,
   theme: 'dark',
   viewMode: 'coordination',
   // Multi-turn conversation state
   turnNumber: 1,
   conversationHistory: [],
+  // Per-agent UI state
+  agentUIState: {},
 };
+
+const createAgentUIState = (): AgentUIState => ({
+  dropdownOpen: false,
+});
 
 const createAgentState = (id: string, modelName?: string): AgentState => {
   const initialRoundId = `${id}-round-0`;
@@ -97,8 +108,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   initSession: (sessionId, question, agents, theme, agentModels) => {
     const agentStates: Record<string, AgentState> = {};
+    const agentUIStates: Record<string, AgentUIState> = {};
     agents.forEach((id) => {
       agentStates[id] = createAgentState(id, agentModels?.[id]);
+      agentUIStates[id] = createAgentUIState();
     });
 
     set({
@@ -109,12 +122,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       answers: [],
       theme,
       isComplete: false,
+      selectingWinner: false,
       error: undefined,
       voteDistribution: {},
       selectedAgent: undefined,
       finalAnswer: undefined,
       orchestratorEvents: [],
       viewMode: 'coordination',
+      agentUIState: agentUIStates,
     });
   },
 
@@ -190,61 +205,74 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const newDistribution = { ...state.voteDistribution };
       newDistribution[targetId] = (newDistribution[targetId] || 0) + 1;
 
+      // Check if all agents have now voted
+      const updatedAgent = {
+        ...agent,
+        voteTarget: targetId,
+        voteReason: reason,
+        voteCount: agent.voteCount + 1,
+      };
+
+      const updatedAgents = {
+        ...state.agents,
+        [voterId]: updatedAgent,
+      };
+
+      // Count how many agents have voted
+      const agentCount = state.agentOrder.length;
+      const votedCount = Object.values(updatedAgents).filter(a => a.voteTarget).length;
+      const allVoted = votedCount >= agentCount;
+
       return {
-        agents: {
-          ...state.agents,
-          [voterId]: {
-            ...agent,
-            voteTarget: targetId,
-            voteReason: reason,
-            voteCount: agent.voteCount + 1,
-          },
-        },
+        agents: updatedAgents,
         voteDistribution: newDistribution,
+        // Set selectingWinner when all agents have voted
+        selectingWinner: allVoted,
       };
     });
   },
 
   setConsensus: (winnerId) => {
     const store = get();
-    const currentState = get();
+
+    // Close all dropdowns before transitioning to full-screen view
+    store.closeAllDropdowns();
+
+    // Clear the selectingWinner flag now that consensus is reached
+    set({ selectingWinner: false });
 
     // Always create the "final" round for the winner
     // This renames the previous "current" round to the proper answer label
     store.startNewRound(winnerId, 'final', 'final');
 
-    // Set selected agent but DON'T transition to finalComplete yet
-    // Wait until we have the actual answer (not __PENDING__)
-    // The transition will happen in setComplete after fetchCleanFinalAnswer succeeds
+    // Set selected agent
     set({ selectedAgent: winnerId });
 
-    // If NOT already complete, switch to finalStreaming view to show winner generating
-    if (!currentState.isComplete) {
-      console.log('[DEBUG] setConsensus: Switching to finalStreaming');
-      set({ viewMode: 'finalStreaming' });
-    } else {
-      console.log('[DEBUG] setConsensus: Already complete, staying in current view until answer fetched');
-    }
+    // ALWAYS switch to finalStreaming view to show winner generating their final answer
+    // The transition to finalComplete happens after fetchCleanFinalAnswer succeeds
+    console.log('[DEBUG] setConsensus: Switching to finalStreaming');
+    set({ viewMode: 'finalStreaming' });
   },
 
   setFinalAnswer: (_eventAnswer, _voteResults, selectedAgent) => {
     const now = Date.now();
+    const store = get();
 
-    // DON'T capture the answer content here - it's still being streamed!
-    // The _eventAnswer from the final_answer event is just the orchestrator status message.
-    // The real content is streamed to the agent's "final" round via agent_content events.
-    // We'll get the actual content dynamically when needed (in FinalAnswerView or when transitioning).
-
-    // Just mark that we have a final answer pending, but don't store the content yet
+    // NOTE: We intentionally ignore eventAnswer here because it may contain
+    // polluted orchestrator status messages (🏆 Selected Agent, 🎤 presenting, etc.)
+    // The clean final answer will be fetched from the API via fetchCleanFinalAnswer()
+    // which reads from the log file containing only the actual answer content.
+    //
+    // We use '__PENDING__' as a placeholder until the clean answer is fetched.
     set({
-      finalAnswer: '__PENDING__',  // Marker that final answer exists but content comes from agent's final round
+      finalAnswer: '__PENDING__',
       selectedAgent,
-      isComplete: true,
     });
 
-    // Add a placeholder answer entry - we'll update it when agent completes
-    // Check if we already have a "final" answer for this agent
-    const store = get();
+    // Don't update the agent's round content with the polluted eventAnswer.
+    // The agent's streaming content in their "final" round is the real content.
+
+    // Add answer entry for the final answer (with pending content)
     const existingFinalAnswer = store.answers.find(
       a => a.agentId === selectedAgent && a.id.includes('-final')
     );
@@ -254,15 +282,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         id: `${selectedAgent}-final-${now}`,
         agentId: selectedAgent,
         answerNumber: 0,  // Special: 0 indicates this is the final answer
-        content: '__PENDING__',  // Will be resolved dynamically
+        content: '__PENDING__',  // Will be updated by fetchCleanFinalAnswer
         timestamp: now,
         votes: 0,
         isWinner: true,
       });
     }
-
-    // Note: Transition to finalComplete is handled by fetchCleanFinalAnswer
-    // after the clean answer is retrieved from the API
   },
 
   addAnswer: (answer) => {
@@ -350,14 +375,26 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   setComplete: (isComplete) => {
     const currentState = get();
-    set({ isComplete });
 
-    // Fetch the clean final answer when coordination completes
-    // This is the right time because the answer file has been written to disk
-    // The transition to finalComplete will happen AFTER the answer is fetched
-    if (isComplete && currentState.selectedAgent) {
-      console.log('[DEBUG] setComplete: Fetching clean final answer');
-      get().fetchCleanFinalAnswer();
+    // When coordination completes, mark all agents as 'completed'
+    if (isComplete) {
+      const updatedAgents = Object.fromEntries(
+        Object.entries(currentState.agents).map(([id, agent]) => [
+          id,
+          { ...agent, status: 'completed' as AgentStatus },
+        ])
+      );
+      set({ isComplete, agents: updatedAgents });
+
+      // Fetch the clean final answer when coordination completes
+      // This is the right time because the answer file has been written to disk
+      // The transition to finalComplete will happen AFTER the answer is fetched
+      if (currentState.selectedAgent) {
+        console.log('[DEBUG] setComplete: Fetching clean final answer');
+        get().fetchCleanFinalAnswer();
+      }
+    } else {
+      set({ isComplete });
     }
   },
 
@@ -393,21 +430,33 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
               ),
             }));
           }
-
-          // NOW transition to finalComplete since we have the actual answer
-          console.log('[DEBUG] Transitioning to finalComplete');
-          set({ viewMode: 'finalComplete' });
         }
+      } else {
+        console.log('[DEBUG] API returned non-OK status, using streamed content');
       }
     } catch (err) {
       console.error('[DEBUG] Failed to fetch clean final answer:', err);
     }
+
+    // ALWAYS transition to finalComplete when coordination is done
+    // Even if the API call failed, we have the streamed content
+    console.log('[DEBUG] Transitioning to finalComplete');
+    set({ viewMode: 'finalComplete' });
   },
 
   startNewRound: (agentId, roundType, customLabel) => {
     set((state) => {
       const agent = state.agents[agentId];
       if (!agent) return state;
+
+      // DEBUG: Log the start of new round creation
+      console.log(`[DEBUG] startNewRound called:`, {
+        agentId,
+        roundType,
+        customLabel,
+        currentRoundId: agent.currentRoundId,
+        currentRounds: agent.rounds.map(r => ({ id: r.id, label: r.label, hasEndTimestamp: !!r.endTimestamp })),
+      });
 
       const agentIndex = state.agentOrder.indexOf(agentId) + 1;
 
@@ -428,7 +477,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       const updatedRounds = agent.rounds.map((round) => {
         if (round.id === agent.currentRoundId && !round.endTimestamp) {
-          // Rename the previous "current" round to the answer label (e.g., "answer2.1")
+          // Close/finalize the previous round
+          // - If it's labeled "current", rename to proper answer label (e.g., "answer2.1")
+          // - If it already has a label (e.g., "vote3.1"), keep that label
+          // - For final rounds, we're just closing the previous round, not renaming it
           const newLabel = round.label === 'current' ? previousRoundLabel : round.label;
           return { ...round, endTimestamp: now, label: newLabel };
         }
@@ -455,12 +507,16 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         startTimestamp: now,
       };
 
-      // Store the previous round ID before creating new round
-      const previousRoundId = agent.currentRoundId;
+      // Always display the new round - it's where new streaming content will go
+      // For "final" rounds: winner will stream their final answer here
+      // For other rounds: agent continues working, content streams here
 
-      // For "final" rounds, display the final round itself so user sees the final answer
-      // For other rounds, show the previous completed round
-      const newDisplayRoundId = customLabel === 'final' ? newRoundId : previousRoundId;
+      // DEBUG: Log what we're creating
+      console.log(`[DEBUG] startNewRound creating:`, {
+        newRoundId,
+        newRoundLabel,
+        totalRoundsAfter: updatedRounds.length + 1,
+      });
 
       return {
         agents: {
@@ -469,8 +525,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             ...agent,
             rounds: [...updatedRounds, newRound],
             currentRoundId: newRoundId,           // New streaming goes here
-            displayRoundId: newDisplayRoundId,    // For final: show final; otherwise: show completed
-            currentContent: '', // Reset current content for new round
+            displayRoundId: newRoundId,           // Always show the current/active round
+            currentContent: '',                   // Reset for new round
             voteCount: roundType === 'vote' ? agent.voteCount + 1 : agent.voteCount,
           },
         },
@@ -527,7 +583,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
               ...agent,
               rounds: [...updatedRounds, newRound],
               currentRoundId: newRoundId,
-              displayRoundId: previousRoundId,
+              displayRoundId: newRoundId,  // Show the NEW current round for live streaming
               currentContent: '',
             },
           },
@@ -604,6 +660,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       // Reset agent states for new coordination
       const resetAgents: Record<string, AgentState> = {};
+      const resetAgentUIState: Record<string, AgentUIState> = {};
       state.agentOrder.forEach((id) => {
         const agent = state.agents[id];
         const initialRoundId = `${id}-round-0`;
@@ -628,6 +685,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           files: [],
           toolCalls: [],
         };
+        resetAgentUIState[id] = createAgentUIState();
       });
 
       return {
@@ -639,11 +697,36 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         finalAnswer: undefined,
         orchestratorEvents: [],
         isComplete: false,
+        selectingWinner: false,
         error: undefined,
         viewMode: 'coordination',
         turnNumber: state.turnNumber + 1,
         conversationHistory: historyWithQuestion,
+        agentUIState: resetAgentUIState,
       };
+    });
+  },
+
+  // Per-agent UI state actions
+  setAgentDropdownOpen: (agentId, open) => {
+    set((state) => ({
+      agentUIState: {
+        ...state.agentUIState,
+        [agentId]: {
+          ...(state.agentUIState[agentId] || createAgentUIState()),
+          dropdownOpen: open,
+        },
+      },
+    }));
+  },
+
+  closeAllDropdowns: () => {
+    set((state) => {
+      const updated: Record<string, AgentUIState> = {};
+      Object.entries(state.agentUIState).forEach(([id, ui]) => {
+        updated[id] = { ...ui, dropdownOpen: false };
+      });
+      return { agentUIState: updated };
     });
   },
 
@@ -866,6 +949,7 @@ export const selectIsComplete = (state: AgentStore) => state.isComplete;
 export const selectQuestion = (state: AgentStore) => state.question;
 export const selectOrchestratorEvents = (state: AgentStore) => state.orchestratorEvents;
 export const selectViewMode = (state: AgentStore) => state.viewMode;
+export const selectSelectingWinner = (state: AgentStore) => state.selectingWinner;
 
 /**
  * Get the RESOLVED final answer content.

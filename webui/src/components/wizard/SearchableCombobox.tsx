@@ -36,16 +36,20 @@ export function SearchableCombobox({
 }: SearchableComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
+  const [isUserTyping, setIsUserTyping] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Sync input value with prop value
   useEffect(() => {
     setInputValue(value);
+    setIsUserTyping(false);
   }, [value]);
 
-  // Filter options based on input
-  const filteredOptions = inputValue.trim()
+  // Filter options based on input - only filter if user is actively typing something different
+  // When dropdown opens with existing selection, show all options
+  const shouldFilter = isUserTyping && inputValue.trim() && inputValue !== value;
+  const filteredOptions = shouldFilter
     ? options.filter(
         (opt) =>
           !opt.disabled &&
@@ -55,12 +59,13 @@ export function SearchableCombobox({
     : options.filter((opt) => !opt.disabled);
 
   // Limit displayed options for performance
-  const displayedOptions = filteredOptions.slice(0, 50);
+  const displayedOptions = filteredOptions.slice(0, 100);
 
   // Handle input change - update local state, only notify parent if allowCustom
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     setInputValue(newValue);
+    setIsUserTyping(true);
     // Only propagate value to parent if custom values are allowed
     if (allowCustom) {
       onChange(newValue);
@@ -71,6 +76,7 @@ export function SearchableCombobox({
   // Handle option click
   const handleOptionClick = (optionValue: string) => {
     setInputValue(optionValue);
+    setIsUserTyping(false);
     onChange(optionValue);
     setIsOpen(false);
     inputRef.current?.blur();
@@ -109,7 +115,7 @@ export function SearchableCombobox({
     <div ref={containerRef} className="relative">
       {/* Input */}
       <div
-        className={`flex items-center gap-2 px-3 py-2 rounded-lg border
+        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border
                    ${disabled ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : 'bg-white dark:bg-gray-700'}
                    ${isOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-gray-300 dark:border-gray-600'}
                    transition-all`}
@@ -146,7 +152,7 @@ export function SearchableCombobox({
       {/* Dropdown */}
       {isOpen && (
         <div
-          className="absolute z-[100] w-full mt-1 max-h-80 overflow-auto
+          className="absolute z-[100] w-full mt-1 max-h-[400px] overflow-auto
                      bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700
                      rounded-lg shadow-2xl"
         >
@@ -167,7 +173,7 @@ export function SearchableCombobox({
                       e.preventDefault(); // Prevent blur
                       handleOptionClick(option.value);
                     }}
-                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 cursor-pointer
+                    className={`w-full px-3 py-2.5 text-left text-sm flex items-center gap-2 cursor-pointer
                                text-gray-800 dark:text-gray-200
                                ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                   >
@@ -176,9 +182,9 @@ export function SearchableCombobox({
                   </div>
                 );
               })}
-              {filteredOptions.length > 50 && (
+              {filteredOptions.length > 100 && (
                 <div className="px-3 py-2 text-xs text-gray-500 border-t border-gray-200 dark:border-gray-700">
-                  Showing 50 of {filteredOptions.length} results. Type to filter.
+                  Showing 100 of {filteredOptions.length} results. Type to filter.
                 </div>
               )}
             </>

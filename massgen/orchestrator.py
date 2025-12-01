@@ -2801,12 +2801,20 @@ Your answer:"""
         # Send primary error for the first tool call
         first_tool_call = tool_calls[0]
         error_result_msg = agent.backend.create_tool_result_message(first_tool_call, primary_error_msg)
-        enforcement_msgs.append(error_result_msg)
+        # Handle both single dict (Chat Completions) and list (Response API) returns
+        if isinstance(error_result_msg, list):
+            enforcement_msgs.extend(error_result_msg)
+        else:
+            enforcement_msgs.append(error_result_msg)
 
         # Send secondary error messages for any additional tool calls (API requires response to ALL calls)
         for additional_tool_call in tool_calls[1:]:
             neutral_msg = agent.backend.create_tool_result_message(additional_tool_call, secondary_error_msg)
-            enforcement_msgs.append(neutral_msg)
+            # Handle both single dict (Chat Completions) and list (Response API) returns
+            if isinstance(neutral_msg, list):
+                enforcement_msgs.extend(neutral_msg)
+            else:
+                enforcement_msgs.append(neutral_msg)
 
         return enforcement_msgs
 
@@ -3677,8 +3685,14 @@ Your answer:"""
                         # else: No new answers, proceed with normal error handling
                     if attempt < max_attempts - 1:
                         yield ("content", "🔄 needs to use workflow tools...\n")
-                        # Reset to default enforcement message for this case
-                        enforcement_msg = self.message_templates.enforcement_message()
+                        # If there were tool calls, we must provide tool results before continuing
+                        # (Response API requires function_call + function_call_output pairs)
+                        if tool_calls:
+                            error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
+                            enforcement_msg = self._create_tool_error_messages(agent, tool_calls, error_msg)
+                        else:
+                            # No tool calls, just a plain text response - use default enforcement
+                            enforcement_msg = self.message_templates.enforcement_message()
                         continue  # Retry with updated conversation
                     else:
                         # Last attempt failed, agent did not provide proper workflow response
