@@ -2,7 +2,7 @@ Memory Filesystem Mode
 ======================
 
 .. warning::
-   **This feature is currently in development and experimental.** Multi-turn persistence and some advanced features may not work as expected. For production use, see :doc:`memory` for the stable persistent memory system with Qdrant.
+   **This feature is currently in development and experimental.** Multi-turn persistence and some advanced features may not work as expected.
 
 MassGen's filesystem-based memory mode provides a simple, transparent two-tier memory system for agents. Memories are automatically saved to the filesystem, visible across agents, and can be managed using MCP tools.
 

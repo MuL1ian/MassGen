@@ -63,16 +63,21 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional
 
+from massgen import run
+
 # Type hints for litellm - actual import happens at runtime
 try:
     from litellm import CustomLLM
-    from litellm.types.utils import ModelResponse
+    from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
     LITELLM_AVAILABLE = True
 except ImportError:
     LITELLM_AVAILABLE = False
     CustomLLM = object  # Fallback for type hints
     ModelResponse = dict
+    Choices = None
+    Message = None
+    Usage = None
 
 
 class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
@@ -143,9 +148,6 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
         Returns:
             ModelResponse: LiteLLM-compatible response object
         """
-        # Import here to avoid circular imports
-        from massgen import run
-
         # Parse model string to get config
         config, model_name, is_build_mode = self._parse_model(model)
 
@@ -161,6 +163,9 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
         output_file = opts.get("output_file")
         verbose = opts.get("verbose", False)  # Default to quiet mode for LiteLLM
 
+        # Extract conversation history (for multi-turn support)
+        conversation_history = self._extract_conversation_history(messages)
+
         # Build run() kwargs
         run_kwargs = {
             "query": query,
@@ -168,6 +173,10 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
             "output_file": output_file,
             "verbose": verbose,
         }
+
+        # Pass conversation history if available
+        if conversation_history:
+            run_kwargs["conversation_history"] = conversation_history
 
         if is_build_mode:
             # Dynamic config building from optional_params
@@ -238,9 +247,6 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
         Returns:
             ModelResponse: LiteLLM-compatible response object
         """
-        # Import here to avoid circular imports
-        from massgen import run
-
         # Parse model string to get config
         config, model_name, is_build_mode = self._parse_model(model)
 
@@ -256,6 +262,9 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
         output_file = opts.get("output_file")
         verbose = opts.get("verbose", False)  # Default to quiet mode for LiteLLM
 
+        # Extract conversation history (for multi-turn support)
+        conversation_history = self._extract_conversation_history(messages)
+
         # Build run() kwargs
         run_kwargs = {
             "query": query,
@@ -263,6 +272,10 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
             "output_file": output_file,
             "verbose": verbose,
         }
+
+        # Pass conversation history if available
+        if conversation_history:
+            run_kwargs["conversation_history"] = conversation_history
 
         if is_build_mode:
             # Dynamic config building from optional_params
@@ -326,7 +339,7 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
             return f"@examples/{spec}", None, False
 
     def _extract_query(self, messages: List[Dict[str, Any]]) -> str:
-        """Extract query from messages list.
+        """Extract query from messages list (last user message).
 
         Args:
             messages: List of message dicts with 'role' and 'content'
@@ -347,6 +360,40 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
                 return content
         return ""
 
+    def _extract_conversation_history(self, messages: List[Dict[str, Any]]) -> Optional[List[Dict[str, str]]]:
+        """Extract conversation history from messages (excluding last user message).
+
+        If there are prior messages in the conversation, return them as history
+        that can be preloaded into the MassGen session.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+
+        Returns:
+            List of prior messages if conversation has history, None otherwise
+        """
+        if len(messages) <= 1:
+            return None
+
+        history = []
+        # Process all messages except the last one (which is the current query)
+        for msg in messages[:-1]:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+
+            # Handle multimodal content
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                content = " ".join(text_parts)
+
+            if role in ("user", "assistant") and content:
+                history.append({"role": role, "content": content})
+
+        return history if history else None
+
     def _build_response(self, model: str, result: Dict[str, Any]) -> ModelResponse:
         """Build LiteLLM-compatible ModelResponse.
 
@@ -357,8 +404,6 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
         Returns:
             ModelResponse: LiteLLM-compatible response
         """
-        from litellm.types.utils import Choices, Message, ModelResponse, Usage
-
         # Create the response
         response = ModelResponse(
             id=f"massgen-{result.get('session_id', 'unknown')}",

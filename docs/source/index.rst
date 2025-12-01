@@ -25,11 +25,14 @@ MassGen: Multi-Agent Scaling System for GenAI
    </p>
 
    <p align="center">
-     <a href="https://discord.massgen.ai">
-       <img src="https://img.shields.io/badge/JOIN%20DISCORD-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join our Discord">
+     <a href="https://x.massgen.ai">
+       <img src="https://img.shields.io/badge/FOLLOW%20ON%20X-000000?style=for-the-badge&logo=x&logoColor=white" alt="Follow on X">
      </a>
-     <a href="https://github.com/Leezekun/MassGen">
-       <img src="https://img.shields.io/badge/VIEW%20ON%20GITHUB-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub">
+     <a href="https://www.linkedin.com/company/massgen-ai">
+       <img src="https://img.shields.io/badge/FOLLOW%20ON%20LINKEDIN-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="Follow on LinkedIn">
+     </a>
+     <a href="https://discord.massgen.ai">
+       <img src="https://img.shields.io/badge/JOIN%20OUR%20DISCORD-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join our Discord">
      </a>
    </p>
 
@@ -38,11 +41,24 @@ MassGen: Multi-Agent Scaling System for GenAI
 .. raw:: html
 
    <a href="https://www.youtube.com/watch?v=Dp2oldJJImw" style="display: block; text-align: center;">
-     <img src="_static/images/readme.gif" width="800" alt="MassGen Demo" class="theme-image-light">
-     <img src="_static/images/readme.gif" width="800" alt="MassGen Demo" class="theme-image-dark">
+     <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-light">
+     <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-dark">
    </a>
 
-MassGen assigns your task to multiple AI agents who work in parallel, observe each other's progress, and vote to converge on the best solution. Think of it as a "parallel study group" for AI.
+What is MassGen?
+----------------
+
+MassGen is a cutting-edge multi-agent system that leverages the power of collaborative AI to solve complex tasks. It assigns a task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution to deliver a comprehensive and high-quality result.
+
+**How It Works:**
+
+* **Work in Parallel** - Multiple agents tackle the problem simultaneously, each bringing unique capabilities
+* **See Recent Answers** - At each step, agents view the most recent answers from other agents
+* **Decide Next Action** - Each agent chooses to provide a new answer or vote for an existing answer
+* **Share Workspaces** - When agents provide answers, their workspace is captured so others can review their work
+* **Natural Consensus** - Coordination continues until all agents vote, then the agent with most votes presents the final answer
+
+Think of it as a "parallel study group" for AI - inspired by advanced systems like **xAI's Grok Heavy** and **Google DeepMind's Gemini Deep Think**. Agents learn from each other to produce better results than any single agent could achieve alone.
 
 Quick Start
 -----------
@@ -108,13 +124,30 @@ Key Features
 
       Interactive conversations with context preservation across turns.
 
-How It Works
-------------
+   .. grid-item-card:: 🔗 Framework Interoperability
 
-1. **Work in Parallel** - Multiple agents tackle the problem simultaneously
-2. **Observe Others** - Agents see recent answers from other agents
-3. **Vote or Answer** - Each agent provides a new answer or votes for an existing one
-4. **Reach Consensus** - Coordination continues until all agents vote, winner presents final answer
+      Integrate external frameworks (AG2, LangGraph, AgentScope, OpenAI, SmolAgent) as tools.
+
+   .. grid-item-card:: 📁 Project Integration
+
+      Work directly with your codebase using context paths with granular read/write permissions.
+
+Recent Releases
+---------------
+
+**v0.1.18 (November 28, 2025)** - Agent Communication & Claude Advanced Tooling
+
+Agent-to-agent and human broadcast communication via ``ask_others()`` tool with three modes (disabled, agents-only, human-only). Claude programmatic tool calling from code execution via ``enable_programmatic_flow`` flag. Claude tool search for deferred tool discovery via ``enable_tool_search``.
+
+**v0.1.17 (November 26, 2025)** - Textual Terminal Display
+
+Interactive terminal UI using the Textual library with dark/light theme support. Multi-panel layout with dedicated views for each agent and orchestrator status. Real-time streaming with syntax highlighting and emoji fallback.
+
+**v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory
+
+Terminal evaluation system with VHS recording for automated session capture. LiteLLM integration for accurate cost tracking across 500+ models. Memory archiving system enables persistent multi-turn conversations.
+
+:doc:`Full changelog → <changelog>`
 
 Supported Models
 ----------------

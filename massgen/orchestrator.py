@@ -4539,30 +4539,18 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
     def get_coordination_result(self) -> Dict[str, Any]:
         """Get comprehensive coordination result for API consumption.
 
-        Agent IDs are anonymized to agent_a, agent_b, etc. for cleaner output.
-
         Returns:
             Dict with all coordination metadata:
             - final_answer: The final presented answer
-            - selected_agent: Anonymous ID of the winning agent (e.g., "agent_a")
+            - selected_agent: ID of the winning agent
             - log_directory: Root log directory path
             - final_answer_path: Path to final/ directory
             - answers: List of answers with labels (answerX.Y), paths, and content
-            - vote_results: Full voting details with anonymous IDs
-            - agent_mapping: Dict mapping anonymous IDs to real agent IDs
+            - vote_results: Full voting details
         """
         from pathlib import Path
 
         from .logger_config import get_log_session_dir, get_log_session_root
-
-        # Create mapping from real agent IDs to anonymous names (agent_a, agent_b, etc.)
-        agent_ids = sorted(self.agents.keys())
-        id_to_anon = {}
-        anon_to_id = {}
-        for i, real_id in enumerate(agent_ids):
-            anon_name = f"agent_{chr(ord('a') + i)}"  # agent_a, agent_b, agent_c, ...
-            id_to_anon[real_id] = anon_name
-            anon_to_id[anon_name] = real_id
 
         # Get log paths
         log_root = None
@@ -4586,52 +4574,30 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                         answer_dir = str(log_session_dir / Path(mapping["path"]).parent)
 
                     # Get answer content from agent state
-                    real_agent_id = mapping.get("agent_id")
+                    agent_id = mapping.get("agent_id")
                     content = None
-                    if real_agent_id and real_agent_id in self.agent_states:
-                        content = self.agent_states[real_agent_id].answer
+                    if agent_id and agent_id in self.agent_states:
+                        content = self.agent_states[agent_id].answer
 
                     answers.append(
                         {
                             "label": label,  # e.g., "agent1.1"
-                            "agent_id": id_to_anon.get(real_agent_id, real_agent_id),
+                            "agent_id": agent_id,
                             "answer_path": answer_dir,
                             "content": content,
                         },
                     )
 
-        # Get vote results and anonymize
+        # Get vote results
         vote_results = self._get_vote_results()
-        anon_vote_results = None
-        if vote_results:
-            # Anonymize vote_counts
-            anon_vote_counts = {id_to_anon.get(aid, aid): count for aid, count in vote_results.get("vote_counts", {}).items()}
-            # Anonymize voter_details
-            anon_voter_details = {}
-            for voted_for, voters in vote_results.get("voter_details", {}).items():
-                anon_voted_for = id_to_anon.get(voted_for, voted_for)
-                anon_voter_details[anon_voted_for] = [{"voter": id_to_anon.get(v["voter"], v["voter"]), "reason": v["reason"]} for v in voters]
-            anon_vote_results = {
-                "vote_counts": anon_vote_counts,
-                "voter_details": anon_voter_details,
-                "winner": id_to_anon.get(vote_results.get("winner"), vote_results.get("winner")),
-                "is_tie": vote_results.get("is_tie", False),
-                "total_votes": vote_results.get("total_votes", 0),
-                "agents_with_answers": vote_results.get("agents_with_answers", 0),
-                "agents_voted": vote_results.get("agents_voted", 0),
-            }
-
-        # Anonymize selected agent
-        anon_selected = id_to_anon.get(self._selected_agent, self._selected_agent) if self._selected_agent else None
 
         return {
             "final_answer": self._final_presentation_content or "",
-            "selected_agent": anon_selected,
+            "selected_agent": self._selected_agent,
             "log_directory": str(log_root) if log_root else None,
             "final_answer_path": str(final_path) if final_path else None,
             "answers": answers,
-            "vote_results": anon_vote_results,
-            "agent_mapping": anon_to_id,  # Maps agent_a -> real_id for reference
+            "vote_results": vote_results,
         }
 
     def get_status(self) -> Dict[str, Any]:

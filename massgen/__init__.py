@@ -233,6 +233,7 @@ async def run(
     enable_logging: bool = False,
     output_file: str = None,
     verbose: bool = False,
+    conversation_history: list = None,
     **kwargs,
 ) -> dict:
     """Run MassGen query programmatically.
@@ -251,6 +252,8 @@ async def run(
         enable_logging: If True, enable logging and return log_directory (default: False)
         output_file: If provided, write final answer to this file path
         verbose: If True, show progress output to stdout (default: False for quiet mode)
+        conversation_history: List of prior messages for multi-turn context (optional)
+            Format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]
         **kwargs: Additional configuration options (system_message, base_url, context_path)
 
     Returns:
@@ -270,24 +273,24 @@ async def run(
         # Single agent with model
         >>> result = await massgen.run(
         ...     query="What is machine learning?",
-        ...     model="gpt-4o-mini"
+        ...     model="gpt-5"
         ... )
 
         # Multi-agent with same model
         >>> result = await massgen.run(
         ...     query="Compare approaches",
-        ...     model="gpt-4o",
+        ...     model="gpt-5",
         ...     num_agents=3
         ... )
 
         # Multi-agent with different models (auto-builds config)
         >>> result = await massgen.run(
         ...     query="Compare renewable energy sources",
-        ...     models=["gpt-4o", "claude-sonnet-4-20250514", "gemini-2.0-flash"]
+        ...     models=["gpt-5", "claude-sonnet-4-5-20250929", "gemini-2.5-pro"]
         ... )
 
         # With pre-built config dict
-        >>> config = massgen.build_config(models=["gpt-4o", "gemini-2.0-flash"])
+        >>> config = massgen.build_config(models=["gpt-5", "gemini-2.5-pro"])
         >>> result = await massgen.run(query="Your question", config_dict=config)
 
         # With config file
@@ -309,6 +312,7 @@ async def run(
         create_simple_config,
         load_config_file,
         resolve_config_path,
+        run_question_with_history,
         run_single_question,
     )
     from .utils import get_backend_type_from_model
@@ -404,15 +408,34 @@ async def run(
     if output_file:
         run_kwargs["output_file"] = output_file
 
-    # Run the query with metadata to get coordination results
-    response = await run_single_question(
-        query,
-        agents,
-        ui_config,
-        session_id=session_id,
-        return_metadata=True,
-        **run_kwargs,
-    )
+    # Run the query - use history-aware version if conversation history provided
+    if conversation_history:
+        # Use run_question_with_history for multi-turn context
+        session_info = {
+            "session_id": session_id,
+            "current_turn": len([m for m in conversation_history if m.get("role") == "user"]),
+            "previous_turns": [],
+            "winning_agents_history": [],
+        }
+        response_text, _, _ = await run_question_with_history(
+            query,
+            agents,
+            ui_config,
+            history=conversation_history,
+            session_info=session_info,
+            **run_kwargs,
+        )
+        response = {"answer": response_text, "coordination_result": None}
+    else:
+        # Standard single-turn query with metadata
+        response = await run_single_question(
+            query,
+            agents,
+            ui_config,
+            session_id=session_id,
+            return_metadata=True,
+            **run_kwargs,
+        )
 
     # Extract answer and coordination result
     answer = response.get("answer", "") if isinstance(response, dict) else response

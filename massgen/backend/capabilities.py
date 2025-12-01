@@ -458,10 +458,10 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         },
         builtin_tools=[],
         filesystem_support="mcp",
-        models=["custom"],  # OpenRouter supports 200+ models
+        models=["custom"],  # OpenRouter supports 300+ models
         default_model="custom",
         env_var="OPENROUTER_API_KEY",
-        notes="OpenAI-compatible API. Unified access to 200+ AI models. Audio/video understanding available on compatible models (v0.0.30+).",
+        notes="OpenAI-compatible API. Unified access to 300+ AI models.",
         base_url="https://openrouter.ai/api/v1",
     ),
     "moonshot": BackendCapabilities(
@@ -518,7 +518,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         models=["qwen-max", "qwen-plus", "qwen-turbo", "qwen3-vl-30b-a3b-thinking"],
         default_model="qwen-max",
         env_var="QWEN_API_KEY",
-        notes="OpenAI-compatible API. Qwen models from Alibaba Cloud. Audio/video understanding support (v0.0.30+).",
+        notes="OpenAI-compatible API. Qwen models from Alibaba Cloud.",
         base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     ),
 }
