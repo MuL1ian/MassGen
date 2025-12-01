@@ -412,6 +412,98 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
             )
         return JSONResponse(display.get_state_snapshot())
 
+    @app.get("/api/sessions/{session_id}/final-answer")
+    async def get_final_answer(session_id: str):
+        """Get the clean final answer from the saved log file.
+
+        The final answer is saved to:
+        .massgen/massgen_logs/log_<timestamp>/turn_<N>/final/<agent_id>/answer.txt
+
+        This returns the clean answer without any tool call noise.
+        """
+        # Get the log session dir from the display (stored after coordination completes)
+        display = manager.get_display(session_id)
+        log_session_dir = getattr(display, "log_session_dir", None) if display else None
+
+        print(f"[DEBUG] get_final_answer: session_id={session_id}")
+        print(f"[DEBUG] get_final_answer: display={display}")
+        print(f"[DEBUG] get_final_answer: log_session_dir from display={log_session_dir}")
+
+        # Fallback to global log session dir if display doesn't have it
+        if not log_session_dir:
+            from massgen.logger_config import get_log_session_dir
+
+            log_session_dir = get_log_session_dir()
+            print(f"[DEBUG] get_final_answer: log_session_dir from global={log_session_dir}")
+
+        if not log_session_dir or not log_session_dir.exists():
+            print("[DEBUG] get_final_answer: log_session_dir not found or doesn't exist")
+            return JSONResponse(
+                {"error": "Log directory not found", "answer": None},
+                status_code=404,
+            )
+
+        # log_session_dir is already the turn directory (e.g., .massgen/massgen_logs/log_xxx/turn_1)
+        # Look for final/<agent>/answer.txt directly
+        final_dir = log_session_dir / "final"
+        print(f"[DEBUG] get_final_answer: Looking for final_dir={final_dir}")
+
+        if final_dir.exists():
+            for agent_dir in final_dir.iterdir():
+                if not agent_dir.is_dir():
+                    continue
+
+                answer_file = agent_dir / "answer.txt"
+                print(f"[DEBUG] get_final_answer: Checking answer_file={answer_file}")
+                if answer_file.exists():
+                    try:
+                        answer_content = answer_file.read_text(encoding="utf-8")
+                        print(f"[DEBUG] get_final_answer: Found answer! Length={len(answer_content)}")
+                        return {
+                            "answer": answer_content,
+                            "agent_id": agent_dir.name,
+                            "path": str(answer_file),
+                        }
+                    except Exception as e:
+                        return JSONResponse(
+                            {"error": f"Failed to read answer: {str(e)}", "answer": None},
+                            status_code=500,
+                        )
+
+        # Fallback: search in turn subdirectories (for older log structure or if log_session_dir is base)
+        print("[DEBUG] get_final_answer: No final dir, searching turn subdirs")
+        for turn_dir in sorted(log_session_dir.iterdir(), reverse=True):
+            if not turn_dir.is_dir() or not turn_dir.name.startswith("turn_"):
+                continue
+
+            final_dir = turn_dir / "final"
+            if not final_dir.exists():
+                continue
+
+            for agent_dir in final_dir.iterdir():
+                if not agent_dir.is_dir():
+                    continue
+
+                answer_file = agent_dir / "answer.txt"
+                if answer_file.exists():
+                    try:
+                        answer_content = answer_file.read_text(encoding="utf-8")
+                        return {
+                            "answer": answer_content,
+                            "agent_id": agent_dir.name,
+                            "path": str(answer_file),
+                        }
+                    except Exception as e:
+                        return JSONResponse(
+                            {"error": f"Failed to read answer: {str(e)}", "answer": None},
+                            status_code=500,
+                        )
+
+        return JSONResponse(
+            {"error": "Final answer not found", "answer": None},
+            status_code=404,
+        )
+
     @app.post("/api/sessions/{session_id}/start")
     async def start_coordination(session_id: str, request: dict):
         """Start coordination for a session."""
@@ -665,6 +757,13 @@ async def run_coordination(
             snapshot_storage=snapshot_storage,
             agent_temporary_workspace=agent_temporary_workspace,
         )
+
+        # Store the log session directory in the display BEFORE coordination
+        # This ensures the API can find it when coordination_complete is sent
+        from massgen.logger_config import get_log_session_dir
+
+        display.log_session_dir = get_log_session_dir()
+        print(f"[DEBUG] run_coordination: Set display.log_session_dir = {display.log_session_dir}")
 
         # Create coordination UI with web display
         ui = CoordinationUI(

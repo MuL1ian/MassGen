@@ -8,7 +8,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History } from 'lucide-react';
-import { useAgentStore, selectAnswers, selectAgentOrder, selectSelectedAgent } from '../stores/agentStore';
+import { useAgentStore, selectAnswers, selectAgents, selectAgentOrder, selectSelectedAgent, selectFinalAnswer, resolveAnswerContent } from '../stores/agentStore';
 import type { Answer, AnswerWorkspace } from '../types';
 
 // Types for workspace API responses
@@ -194,8 +194,10 @@ function FileNode({ node, depth }: FileNodeProps) {
 
 export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps) {
   const answers = useAgentStore(selectAnswers);
+  const agents = useAgentStore(selectAgents);
   const agentOrder = useAgentStore(selectAgentOrder);
   const selectedAgent = useAgentStore(selectSelectedAgent);
+  const finalAnswer = useAgentStore(selectFinalAnswer);
 
   const [activeTab, setActiveTab] = useState<TabType>('answers');
   const [filterAgent, setFilterAgent] = useState<string | 'all'>('all');
@@ -488,8 +490,15 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <span className="font-medium text-gray-200">{answer.agentId}</span>
-                                    <span className="text-gray-500 text-sm">Answer #{answer.answerNumber}</span>
-                                    {isWinner && (
+                                    <span className="text-gray-500 text-sm">
+                                      {answer.answerNumber === 0 ? 'Final Answer' : `Answer #${answer.answerNumber}`}
+                                    </span>
+                                    {answer.answerNumber === 0 && (
+                                      <span className="px-2 py-0.5 bg-green-900/50 text-green-300 rounded-full text-xs">
+                                        Final
+                                      </span>
+                                    )}
+                                    {isWinner && answer.answerNumber !== 0 && (
                                       <span className="px-2 py-0.5 bg-yellow-900/50 text-yellow-300 rounded-full text-xs">
                                         Winner
                                       </span>
@@ -521,7 +530,7 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
                                 >
                                   <div className="p-4 bg-gray-800/50">
                                     <pre className="whitespace-pre-wrap text-sm text-gray-300 font-mono leading-relaxed max-h-96 overflow-y-auto custom-scrollbar">
-                                      {answer.content}
+                                      {resolveAnswerContent(answer, agents, finalAnswer)}
                                     </pre>
                                   </div>
                                 </motion.div>

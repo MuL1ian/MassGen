@@ -37,6 +37,7 @@ interface AgentStore extends SessionState {
   setComplete: (isComplete: boolean) => void;
   setViewMode: (mode: ViewMode) => void;
   backToCoordination: () => void;
+  fetchCleanFinalAnswer: () => Promise<void>;
   startNewRound: (agentId: string, roundType: 'answer' | 'vote' | 'final', customLabel?: string) => void;
   finalizeRoundWithLabel: (agentId: string, label: string, createNewRound?: boolean) => void;
   setAgentRound: (agentId: string, roundId: string) => void;
@@ -145,8 +146,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   },
 
   updateAgentStatus: (agentId, status) => {
-    const currentState = get();
-
     set((state) => {
       const agent = state.agents[agentId];
       if (!agent) return state;
@@ -162,16 +161,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       };
     });
 
-    // Check if this is the winner agent becoming 'completed' while we're in finalStreaming
-    // If so, transition to finalComplete view
-    if (
-      status === 'completed' &&
-      currentState.selectedAgent === agentId &&
-      currentState.viewMode === 'finalStreaming' &&
-      currentState.isComplete
-    ) {
-      set({ viewMode: 'finalComplete' });
-    }
+    // Note: Transition to finalComplete is handled by fetchCleanFinalAnswer
+    // after the clean answer is retrieved from the API
   },
 
   addOrchestratorEvent: (event) => {
@@ -212,68 +203,60 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const store = get();
     const currentState = get();
 
-    // If already complete (final_answer arrived first), don't change viewMode
-    if (currentState.isComplete) {
-      // Just set the selected agent if not already set
-      if (!currentState.selectedAgent) {
-        set({ selectedAgent: winnerId });
-      }
-      return;
-    }
-
-    // Start a "final" round for the winner to give their final answer
-    // This will automatically rename the previous "current" round to the proper answer label
+    // Always create the "final" round for the winner
+    // This renames the previous "current" round to the proper answer label
     store.startNewRound(winnerId, 'final', 'final');
-    // Auto-switch to finalStreaming view - winner is generating final answer
-    set({ selectedAgent: winnerId, viewMode: 'finalStreaming' });
+
+    // Set selected agent but DON'T transition to finalComplete yet
+    // Wait until we have the actual answer (not __PENDING__)
+    // The transition will happen in setComplete after fetchCleanFinalAnswer succeeds
+    set({ selectedAgent: winnerId });
+
+    // If NOT already complete, switch to finalStreaming view to show winner generating
+    if (!currentState.isComplete) {
+      console.log('[DEBUG] setConsensus: Switching to finalStreaming');
+      set({ viewMode: 'finalStreaming' });
+    } else {
+      console.log('[DEBUG] setConsensus: Already complete, staying in current view until answer fetched');
+    }
   },
 
-  setFinalAnswer: (answer, _voteResults, selectedAgent) => {
-    const store = get();
+  setFinalAnswer: (_eventAnswer, _voteResults, selectedAgent) => {
+    const now = Date.now();
 
-    // If we have a selected agent, ensure there's a "final" round with the answer content
-    if (selectedAgent && store.agents[selectedAgent]) {
-      const agent = store.agents[selectedAgent];
-      // Check if there's already a "final" round
-      const hasFinalRound = agent.rounds.some(r => r.label === 'final');
+    // DON'T capture the answer content here - it's still being streamed!
+    // The _eventAnswer from the final_answer event is just the orchestrator status message.
+    // The real content is streamed to the agent's "final" round via agent_content events.
+    // We'll get the actual content dynamically when needed (in FinalAnswerView or when transitioning).
 
-      if (!hasFinalRound) {
-        // Create a final round with the answer content
-        const now = Date.now();
-        const newRoundId = `${selectedAgent}-round-${agent.rounds.length}`;
-        const finalRound = {
-          id: newRoundId,
-          roundNumber: agent.rounds.length,
-          type: 'final' as const,
-          label: 'final',
-          content: answer,
-          startTimestamp: now,
-          endTimestamp: now,
-        };
-
-        set((state) => ({
-          agents: {
-            ...state.agents,
-            [selectedAgent]: {
-              ...state.agents[selectedAgent],
-              rounds: [...state.agents[selectedAgent].rounds, finalRound],
-              displayRoundId: newRoundId,
-              currentContent: answer,
-            },
-          },
-        }));
-      }
-    }
-
-    // Store the final answer but DON'T transition to finalComplete yet
-    // Wait for the agent to finish streaming (status = 'completed')
-    // The transition will happen in updateAgentStatus when winner's status becomes 'completed'
+    // Just mark that we have a final answer pending, but don't store the content yet
     set({
-      finalAnswer: answer,
+      finalAnswer: '__PENDING__',  // Marker that final answer exists but content comes from agent's final round
       selectedAgent,
       isComplete: true,
-      // Don't set viewMode here - let it stay in finalStreaming until agent is done
     });
+
+    // Add a placeholder answer entry - we'll update it when agent completes
+    // Check if we already have a "final" answer for this agent
+    const store = get();
+    const existingFinalAnswer = store.answers.find(
+      a => a.agentId === selectedAgent && a.id.includes('-final')
+    );
+
+    if (!existingFinalAnswer && selectedAgent) {
+      store.addAnswer({
+        id: `${selectedAgent}-final-${now}`,
+        agentId: selectedAgent,
+        answerNumber: 0,  // Special: 0 indicates this is the final answer
+        content: '__PENDING__',  // Will be resolved dynamically
+        timestamp: now,
+        votes: 0,
+        isWinner: true,
+      });
+    }
+
+    // Note: Transition to finalComplete is handled by fetchCleanFinalAnswer
+    // after the clean answer is retrieved from the API
   },
 
   addAnswer: (answer) => {
@@ -363,9 +346,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const currentState = get();
     set({ isComplete });
 
-    // If we're in finalStreaming and becoming complete, transition to finalComplete
-    if (isComplete && currentState.viewMode === 'finalStreaming' && currentState.selectedAgent) {
-      set({ viewMode: 'finalComplete' });
+    // Fetch the clean final answer when coordination completes
+    // This is the right time because the answer file has been written to disk
+    // The transition to finalComplete will happen AFTER the answer is fetched
+    if (isComplete && currentState.selectedAgent) {
+      console.log('[DEBUG] setComplete: Fetching clean final answer');
+      get().fetchCleanFinalAnswer();
     }
   },
 
@@ -375,6 +361,41 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   backToCoordination: () => {
     set({ viewMode: 'coordination' });
+  },
+
+  fetchCleanFinalAnswer: async () => {
+    const state = get();
+    if (!state.sessionId) return;
+
+    try {
+      const response = await fetch(`/api/sessions/${state.sessionId}/final-answer`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.answer) {
+          console.log('[DEBUG] Fetched clean final answer from API');
+          // Update the final answer with the clean version
+          set({ finalAnswer: data.answer });
+
+          // Also update the answer in the answers array
+          const selectedAgent = state.selectedAgent;
+          if (selectedAgent) {
+            set((s) => ({
+              answers: s.answers.map((a) =>
+                a.agentId === selectedAgent && a.answerNumber === 0
+                  ? { ...a, content: data.answer }
+                  : a
+              ),
+            }));
+          }
+
+          // NOW transition to finalComplete since we have the actual answer
+          console.log('[DEBUG] Transitioning to finalComplete');
+          set({ viewMode: 'finalComplete' });
+        }
+      }
+    } catch (err) {
+      console.error('[DEBUG] Failed to fetch clean final answer:', err);
+    }
   },
 
   startNewRound: (agentId, roundType, customLabel) => {
@@ -431,6 +452,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       // Store the previous round ID before creating new round
       const previousRoundId = agent.currentRoundId;
 
+      // For "final" rounds, display the final round itself so user sees the final answer
+      // For other rounds, show the previous completed round
+      const newDisplayRoundId = customLabel === 'final' ? newRoundId : previousRoundId;
+
       return {
         agents: {
           ...state.agents,
@@ -438,7 +463,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             ...agent,
             rounds: [...updatedRounds, newRound],
             currentRoundId: newRoundId,           // New streaming goes here
-            displayRoundId: previousRoundId,      // Show completed answer in UI
+            displayRoundId: newDisplayRoundId,    // For final: show final; otherwise: show completed
             currentContent: '', // Reset current content for new round
             voteCount: roundType === 'vote' ? agent.voteCount + 1 : agent.voteCount,
           },
@@ -758,3 +783,66 @@ export const selectIsComplete = (state: AgentStore) => state.isComplete;
 export const selectQuestion = (state: AgentStore) => state.question;
 export const selectOrchestratorEvents = (state: AgentStore) => state.orchestratorEvents;
 export const selectViewMode = (state: AgentStore) => state.viewMode;
+
+/**
+ * Get the RESOLVED final answer content.
+ * The finalAnswer field may be '__PENDING__' because the final_answer event arrives
+ * before streaming completes. This selector gets the actual content from the
+ * winner agent's "final" round.
+ *
+ * NOTE: This returns a primitive string, so it's safe from infinite re-render loops.
+ */
+export const selectResolvedFinalAnswer = (state: AgentStore): string | undefined => {
+  if (!state.selectedAgent) return state.finalAnswer;
+
+  const winner = state.agents[state.selectedAgent];
+  if (!winner) return state.finalAnswer;
+
+  // Get content from the "final" round
+  const finalRound = winner.rounds.find(r => r.label === 'final');
+  if (finalRound?.content) {
+    return finalRound.content;
+  }
+
+  // Fall back to current content if no final round
+  if (winner.currentContent) {
+    return winner.currentContent;
+  }
+
+  // Last resort: return whatever is in finalAnswer (might be __PENDING__)
+  return state.finalAnswer;
+};
+
+/**
+ * Helper to resolve a single answer's content if it's a pending final answer.
+ * Used by components to resolve content on-demand rather than in selectors.
+ *
+ * @param answer - The answer to resolve
+ * @param agents - Agent states (for fallback to round content)
+ * @param storeFinalAnswer - The finalAnswer from the store (fetched from API)
+ */
+export function resolveAnswerContent(
+  answer: Answer,
+  agents: Record<string, AgentState>,
+  storeFinalAnswer?: string
+): string {
+  if (answer.content === '__PENDING__' && answer.answerNumber === 0) {
+    // First try: use the clean final answer from the store (fetched from API)
+    if (storeFinalAnswer && storeFinalAnswer !== '__PENDING__') {
+      return storeFinalAnswer;
+    }
+
+    // Fallback: try to get from agent's final round
+    const agent = agents[answer.agentId];
+    if (agent) {
+      const finalRound = agent.rounds.find(r => r.label === 'final');
+      if (finalRound?.content) {
+        return finalRound.content;
+      }
+      if (agent.currentContent) {
+        return agent.currentContent;
+      }
+    }
+  }
+  return answer.content;
+}

@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Wifi, WifiOff, AlertCircle, XCircle, ArrowLeft, Loader2, Trophy } from 'lucide-react';
 import { useWebSocket, ConnectionStatus } from './hooks/useWebSocket';
-import { useAgentStore, selectQuestion, selectIsComplete, selectAnswers, selectViewMode, selectSelectedAgent, selectAgents } from './stores/agentStore';
+import { useAgentStore, selectQuestion, selectIsComplete, selectAnswers, selectViewMode, selectSelectedAgent, selectAgents, selectFinalAnswer } from './stores/agentStore';
 import { useThemeStore } from './stores/themeStore';
 import { AgentCarousel } from './components/AgentCarousel';
 import { AgentCard } from './components/AgentCard';
@@ -48,8 +48,10 @@ export function App() {
   const viewMode = useAgentStore(selectViewMode);
   const selectedAgent = useAgentStore(selectSelectedAgent);
   const agents = useAgentStore(selectAgents);
+  const finalAnswer = useAgentStore(selectFinalAnswer);
   const reset = useAgentStore((s) => s.reset);
   const backToCoordination = useAgentStore((s) => s.backToCoordination);
+  const setViewMode = useAgentStore((s) => s.setViewMode);
 
   // Get winner agent for finalStreaming view
   const winnerAgent = selectedAgent ? agents[selectedAgent] : null;
@@ -87,6 +89,11 @@ export function App() {
       window.scrollTo(0, coordinationScrollRef.current);
     });
   }, [backToCoordination]);
+
+  // Handle going to final answer view
+  const handleViewFinalAnswer = useCallback(() => {
+    setViewMode('finalComplete');
+  }, [setViewMode]);
 
   // Handle cancel
   const handleCancel = useCallback(() => {
@@ -260,6 +267,16 @@ export function App() {
           {isComplete ? (
             <div className="flex items-center justify-center gap-4">
               <span className="text-green-500 dark:text-green-400">Coordination Complete!</span>
+              {/* Show "View Final Answer" button when we have a final answer and are in coordination view */}
+              {finalAnswer && viewMode === 'coordination' && (
+                <button
+                  onClick={handleViewFinalAnswer}
+                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-500 rounded-lg transition-colors text-white"
+                >
+                  <Trophy className="w-4 h-4" />
+                  View Final Answer
+                </button>
+              )}
               <button
                 onClick={handleNewSession}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors text-white"

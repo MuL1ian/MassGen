@@ -77,8 +77,8 @@ export function StatusToolbar({ onAgentClick }: StatusToolbarProps) {
   }, [agents, agentOrder]);
 
   return (
-    <div className="bg-gray-100/50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
-      <div className="flex items-center justify-between">
+    <div className="bg-gray-100/50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
+      <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Agent Badges */}
         <div className="flex items-center gap-2 flex-wrap">
           {agentOrder.map((agentId) => {
@@ -134,7 +134,7 @@ export function StatusToolbar({ onAgentClick }: StatusToolbarProps) {
 
       {/* Vote Details */}
       {voteDetails.length > 0 && (
-        <div className="flex items-center gap-2 mt-2 flex-wrap">
+        <div className="max-w-7xl mx-auto flex items-center gap-2 mt-2 flex-wrap">
           {voteDetails.map((vote) => (
             <span
               key={vote.voter}
