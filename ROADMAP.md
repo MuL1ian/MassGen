@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.18
+**Current Version:** v0.1.19
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** November 28, 2025
+**Last Updated:** December 2, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,18 +42,18 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.19** | 12/01/25 | CUA Dockerfile for Optional Installation | @franklinnwren | Provide optional Docker image for Computer Use Agent setup |
+| **v0.1.20** | 12/03/25 | CUA Dockerfile for Optional Installation | @franklinnwren | Provide optional Docker image for Computer Use Agent setup |
 | | | Grok 4.1 Fast Model Support | @ncrispino | Add support for xAI's Grok 4.1 Fast model |
-| **v0.1.20** | 12/03/25 | Update Computer Use Documentation | @franklinnwren | Comprehensive documentation for computer use workflows |
+| **v0.1.21** | 12/05/25 | Update Computer Use Documentation | @franklinnwren | Comprehensive documentation for computer use workflows |
 | | | Filesystem-Based Memory Reliability | @ncrispino | Ensure memory persistence across turns with filesystem backend |
-| **v0.1.21** | 12/05/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
+| **v0.1.22** | 12/08/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
 | | | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.19 - CUA Dockerfile & Model Support
+## 📋 v0.1.20 - CUA Dockerfile & Model Support
 
 ### Features
 
@@ -84,7 +84,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.20 - Computer Use Documentation & Memory Reliability
+## 📋 v0.1.21 - Computer Use Documentation & Memory Reliability
 
 ### Features
 
@@ -114,7 +114,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.21 - RL Integration & MCP Ecosystem Expansion
+## 📋 v0.1.22 - RL Integration & MCP Ecosystem Expansion
 
 ### Features
 
@@ -340,42 +340,61 @@ These features are being actively developed on **separate parallel tracks** and 
 - Server-side tool search with deferred loading
 - **Status:** ✅ Completed in v0.1.18
 
+### Track: LiteLLM Integration & Programmatic API (@ncrispino, nickcrispino)
+- PR: [#580](https://github.com/massgen/MassGen/pull/580)
+- MassGen as a LiteLLM custom provider with `MassGenLLM` class
+- New `run()` and `build_config()` functions for programmatic execution
+- `NoneDisplay` for silent output in programmatic/LiteLLM use
+- **Status:** ✅ Completed in v0.1.19
+
+### Track: Claude Strict Tool Use & Structured Outputs (@praneeth999, ram2561)
+- PR: [#572](https://github.com/massgen/MassGen/pull/572)
+- `enable_strict_tool_use` config flag with recursive schema patching
+- `output_schema` parameter for structured JSON outputs
+- **Status:** ✅ Completed in v0.1.19
+
+### Track: Gemini Exponential Backoff (@praneeth999, ram2561)
+- PR: [#576](https://github.com/massgen/MassGen/pull/576)
+- Automatic retry mechanism for rate limit errors (429, 503)
+- Jittered exponential backoff with `Retry-After` header support
+- **Status:** ✅ Completed in v0.1.19
+
 ### Track: CUA Dockerfile (@franklinnwren, zhichengren)
 - Issue: [#552](https://github.com/massgen/MassGen/issues/552)
 - New Dockerfile for Computer Use Agent optional installation
 - Pre-configured environment for browser/desktop automation
-- **Target:** v0.1.19
+- **Target:** v0.1.20
 
 ### Track: Grok 4.1 Fast Model Support (@ncrispino, nickcrispino)
 - Issue: [#540](https://github.com/massgen/MassGen/issues/540)
 - Add support for xAI's Grok 4.1 Fast model
 - Integration with existing Grok backend infrastructure
-- **Target:** v0.1.19
+- **Target:** v0.1.20
 
 ### Track: Computer Use Documentation (@franklinnwren, zhichengren)
 - Issue: [#562](https://github.com/massgen/MassGen/issues/562)
 - Comprehensive documentation for computer use workflows
 - Updated guides for CUA setup, configuration, and troubleshooting
-- **Target:** v0.1.20
+- **Target:** v0.1.21
 
 ### Track: Filesystem-Based Memory Reliability (@ncrispino, nickcrispino)
 - Issue: [#499](https://github.com/massgen/MassGen/issues/499)
 - Ensure filesystem-based memory is reliable across conversation turns
 - Persistent memory state with atomic operations
-- **Target:** v0.1.20
+- **Target:** v0.1.21
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.21
+- **Target:** v0.1.22
 
 ### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
-- **Target:** v0.1.21
+- **Target:** v0.1.22
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -457,5 +476,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** November 28, 2025
+**Last Updated:** December 2, 2025
 **Maintained By:** MassGen Team

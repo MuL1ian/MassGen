@@ -135,6 +135,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.19 (December 2, 2025)** - LiteLLM Provider & Claude Strict Tool Use
+
+LiteLLM custom provider integration with programmatic API (``run()``, ``build_config()``). Claude strict tool use with structured outputs support via ``enable_strict_tool_use`` and ``output_schema``. Gemini exponential backoff for rate limit resilience.
+
 **v0.1.18 (November 28, 2025)** - Agent Communication & Claude Advanced Tooling
 
 Agent-to-agent and human broadcast communication via ``ask_others()`` tool with three modes (disabled, agents-only, human-only). Claude programmatic tool calling from code execution via ``enable_programmatic_flow`` flag. Claude tool search for deferred tool discovery via ``enable_tool_search``.
@@ -142,10 +146,6 @@ Agent-to-agent and human broadcast communication via ``ask_others()`` tool with 
 **v0.1.17 (November 26, 2025)** - Textual Terminal Display
 
 Interactive terminal UI using the Textual library with dark/light theme support. Multi-panel layout with dedicated views for each agent and orchestrator status. Real-time streaming with syntax highlighting and emoji fallback.
-
-**v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory
-
-Terminal evaluation system with VHS recording for automated session capture. LiteLLM integration for accurate cost tracking across 500+ models. Memory archiving system enables persistent multi-turn conversations.
 
 :doc:`Full changelog → <changelog>`
 

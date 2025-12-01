@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.18 Features](#-latest-features-v0118)
+- [v0.1.19 Features](#-latest-features-v0119)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <summary><h3>🗺️ Roadmap</h3></summary>
 
 - Recent Achievements
-  - [v0.1.18](#recent-achievements-v0118)
-  - [v0.0.3 - v0.1.17](#previous-achievements-v003---v0117)
+  - [v0.1.19](#recent-achievements-v0119)
+  - [v0.0.3 - v0.1.18](#previous-achievements-v003---v0118)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.19 Roadmap](#v0119-roadmap)
+- [v0.1.20 Roadmap](#v0120-roadmap)
 </details>
 
 <details open>
@@ -155,45 +155,56 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.18)
+## 🆕 Latest Features (v0.1.19)
 
-**🎉 Released: November 28, 2025**
+**🎉 Released: December 2, 2025**
 
-**What's New in v0.1.18:**
-- **📡 Agent Communication System** - Agents can broadcast questions to humans or other agents via `ask_others()` tool
-- **🔧 Claude Programmatic Tool Calling** - Code execution can invoke custom and MCP tools programmatically
-- **🔍 Claude Tool Search** - Server-side deferred tool discovery for large tool sets
+**What's New in v0.1.19:**
+- **🔗 LiteLLM Integration** - Use MassGen as a drop-in LiteLLM custom provider with programmatic Python API
+- **🔒 Claude Strict Tool Use** - Schema validation with structured JSON outputs for Claude models
+- **⏳ Gemini Exponential Backoff** - Automatic retry mechanism for rate limit resilience
 
 **Key Improvements:**
-- Three broadcast modes: disabled, agent-to-agent (`broadcast: "agents"`), or human-only (`broadcast: "human"`)
-- Human interaction UI with timeout, skip options, and session-persistent Q&A history
-- `enable_programmatic_flow` flag for Claude models to call tools from code sandbox
-- `enable_tool_search` with regex or bm25 variants for on-demand tool discovery
+- New `run()` and `build_config()` functions for programmatic execution without CLI
+- `MassGenLLM` custom provider class with `register_with_litellm()` one-line setup
+- `enable_strict_tool_use` config flag with recursive `additionalProperties: false` patching
+- `output_schema` parameter for structured JSON outputs (requires Sonnet 4.5 or Opus 4.1)
+- `BackoffConfig` with jittered exponential backoff and `Retry-After` header support
 
-**Try v0.1.18 Features:**
+**Try v0.1.19 Features:**
 ```bash
 # Install or upgrade from PyPI
 pip install --upgrade massgen
 
-# Claude Programmatic Tool Calling - call tools from code execution
+# Claude Strict Tool Use - schema validation with structured outputs
 # Prerequisites: ANTHROPIC_API_KEY in .env
-massgen --config massgen/configs/providers/claude/programmatic_with_two_tools.yaml \
-  "Add 5 and 3, then get weather for Tokyo and New York"
+uv run massgen --config massgen/configs/providers/claude/strict_tool_use_example.yaml \
+  "Add 42 and 58, then get weather for Tokyo"
 
-# Claude Tool Search - deferred tool discovery (visible + deferred tools)
-# Prerequisites: ANTHROPIC_API_KEY, BRAVE_API_KEY in .env
-massgen --config massgen/configs/providers/claude/tool_search_example.yaml \
-  "Check weather in tokyo, search for tourist attractions, and find me an Airbnb there for 3 nights in january 2026"
+# LiteLLM Integration - use MassGen as a custom provider
+# Prerequisites: API keys in .env
+python -c "
+from dotenv import load_dotenv; load_dotenv()
+import litellm
+from massgen import register_with_litellm
+register_with_litellm()
+response = litellm.completion(
+    model='massgen/build',
+    messages=[{'role': 'user', 'content': 'Compare AI approaches'}],
+    optional_params={'models': ['openai/gpt-5', 'gemini/gemini-2.5-flash']}
+)
+print(response.choices[0].message.content)
+"
 
-# Agent-to-Agent Broadcast - agents ask each other questions
-# Prerequisites: OPENAI_API_KEY, GOOGLE_API_KEY in .env, Docker running
-massgen --config massgen/configs/broadcast/test_broadcast_agents.yaml \
-  "Create a website about Bob Dylan. Please ask_others for what framework to use first"
-
-# Human Broadcast - agents ask YOU questions during execution
-# Prerequisites: OPENAI_API_KEY, GOOGLE_API_KEY in .env, Docker running
-massgen --config massgen/configs/broadcast/test_broadcast_human.yaml \
-  "Design and implement a web scraper"
+# Programmatic Python API - run MassGen without CLI
+# Prerequisites: API keys in .env
+python -c "
+from dotenv import load_dotenv; load_dotenv()
+from massgen import run, build_config
+config = build_config(models=['gpt-5-nano'], num_agents=1)
+result = run(config=config, question='What is 2+2?')
+print(result['final_answer'])
+"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1132,24 +1143,32 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.18)
+### Recent Achievements (v0.1.19)
 
-**🎉 Released: November 28, 2025**
+**🎉 Released: December 2, 2025**
 
-#### Agent Communication System
-- **Human Broadcast Q&A**: Agents can ask questions to humans or other agents via `ask_others()` tool with three modes (disabled, agents-only, human-only)
-- **Execution & Persistence**: Blocking execution with inline response delivery, session-persistent Q&A history
-- **Safety Features**: Rate limiting and serialized calls to prevent spam and duplicate prompts
+#### LiteLLM Integration & Programmatic API
+- **Custom Provider**: MassGen as a drop-in LiteLLM provider via `MassGenLLM` class with `register_with_litellm()` one-line setup
+- **Programmatic API**: New `run()` and `build_config()` functions for direct Python execution without CLI
+- **Silent Output**: `NoneDisplay` class for suppressing output in programmatic/LiteLLM use cases
 
-#### Claude Advanced Tooling
-- **Programmatic Tool Calling**: Code execution can invoke custom and MCP tools via `enable_programmatic_flow` flag (requires claude-opus-4-5 or claude-sonnet-4-5)
-- **Tool Search (Deferred Loading)**: Server-side tool discovery via `enable_tool_search` with regex or bm25 variants, reducing initial context size
+#### Claude Strict Tool Use & Structured Outputs
+- **Strict Tool Validation**: `enable_strict_tool_use` config flag with recursive `additionalProperties: false` schema patching
+- **Structured JSON Outputs**: `output_schema` parameter for enforced response structures (requires Sonnet 4.5 or Opus 4.1)
+- **ConfigValidator Updates**: Validation for strict tool use and output schema configuration
+
+#### Gemini Exponential Backoff
+- **Rate Limit Resilience**: Automatic retry for HTTP 429 (rate limit) and 503 (service unavailable) errors
+- **Backoff Configuration**: `BackoffConfig` dataclass with jittered exponential backoff and `Retry-After` header support
 
 #### Configuration
-- `providers/claude/programmatic_with_two_tools.yaml`, `providers/claude/tool_search_example.yaml`
-- `broadcast/test_broadcast_agents.yaml`, `broadcast/test_broadcast_human.yaml`
+- `providers/claude/strict_tool_use_example.yaml`
 
-### Previous Achievements (v0.0.3 - v0.1.17)
+### Previous Achievements (v0.0.3 - v0.1.18)
+
+✅ **Agent Communication System (v0.1.18)**: Human broadcast Q&A via `ask_others()` tool with three modes, blocking execution with inline response delivery, session-persistent Q&A history
+
+✅ **Claude Advanced Tooling (v0.1.18)**: Programmatic tool calling via `enable_programmatic_flow` flag, server-side tool discovery via `enable_tool_search` with regex or bm25 variants
 
 ✅ **Textual Terminal Display (v0.1.17)**: Interactive terminal UI using the Textual library with dark/light themes, multi-panel layout for agents and orchestrator, real-time streaming with syntax highlighting, content filtering for critical patterns
 
@@ -1327,9 +1346,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.19 Roadmap
+### v0.1.20 Roadmap
 
-Version 0.1.19 focuses on CUA Docker infrastructure and expanding model support:
+Version 0.1.20 focuses on CUA Docker infrastructure and expanding model support:
 
 #### Planned Features
 - **CUA Dockerfile for Optional Installation**: Provide optional Docker image for Computer Use Agent setup with pre-configured environment
@@ -1339,9 +1358,9 @@ Key technical approach:
 - **CUA Dockerfile**: Browser/desktop automation dependencies, X11/VNC support, simplified setup for computer use workflows
 - **Grok 4.1 Fast Integration**: Backend integration, token counting, pricing configuration, capability registration
 
-**Target Release**: December 1, 2025 (Monday @ 9am PT)
+**Target Release**: December 3, 2025 (Wednesday @ 9am PT)
 
-For detailed milestones and technical specifications, see the [full v0.1.19 roadmap](ROADMAP_v0.1.19.md).
+For detailed milestones and technical specifications, see the [full v0.1.20 roadmap](ROADMAP_v0.1.20.md).
 
 ---
 
