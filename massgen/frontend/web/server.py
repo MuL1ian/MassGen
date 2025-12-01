@@ -339,6 +339,68 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
 
         return {"files": files, "workspace_path": str(workspace_path)}
 
+    @app.get("/api/sessions/{session_id}/answer-workspaces")
+    async def get_answer_workspaces(session_id: str):
+        """Get workspaces linked to specific answer versions.
+
+        Scans the log directory structure to find workspace snapshots
+        associated with each answer.
+        """
+        from massgen.logger_config import get_log_session_dir
+
+        display = manager.get_display(session_id)
+        agent_ids = display.agent_ids if display else []
+
+        workspaces = []
+        log_session_dir = get_log_session_dir()
+
+        if not log_session_dir or not log_session_dir.exists():
+            return {"workspaces": [], "current": []}
+
+        # Scan for answer workspaces in log directory
+        for entry in log_session_dir.iterdir():
+            if not entry.is_dir():
+                continue
+
+            # Check for turn directories (turn_1, turn_2, etc.)
+            if entry.name.startswith("turn_"):
+                for agent_dir in entry.iterdir():
+                    if not agent_dir.is_dir():
+                        continue
+                    agent_id = agent_dir.name
+                    agent_index = (agent_ids.index(agent_id) + 1) if agent_id in agent_ids else 0
+
+                    # Find timestamp directories with workspaces
+                    answer_count = 0
+                    for ts_dir in sorted(agent_dir.iterdir(), key=lambda x: x.name):
+                        if ts_dir.is_dir() and (ts_dir / "workspace").exists():
+                            answer_count += 1
+                            workspaces.append(
+                                {
+                                    "answerId": f"{agent_id}-{ts_dir.name}",
+                                    "agentId": agent_id,
+                                    "answerNumber": answer_count,
+                                    "answerLabel": f"answer{agent_index}.{answer_count}",
+                                    "timestamp": ts_dir.name,
+                                    "workspacePath": str(ts_dir / "workspace"),
+                                },
+                            )
+
+        # Also include current workspaces from cwd
+        cwd = Path.cwd()
+        current = []
+        for path in cwd.iterdir():
+            if path.is_dir() and path.name.startswith("workspace"):
+                current.append(
+                    {
+                        "name": path.name,
+                        "path": str(path),
+                        "type": "current",
+                    },
+                )
+
+        return {"workspaces": workspaces, "current": current}
+
     @app.get("/api/sessions/{session_id}")
     async def get_session(session_id: str):
         """Get current state of a session."""

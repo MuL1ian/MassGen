@@ -9,7 +9,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History } from 'lucide-react';
 import { useAgentStore, selectAnswers, selectAgentOrder, selectSelectedAgent } from '../stores/agentStore';
-import type { Answer } from '../types';
+import type { Answer, AnswerWorkspace } from '../types';
 
 // Types for workspace API responses
 interface WorkspaceInfo {
@@ -17,11 +17,27 @@ interface WorkspaceInfo {
   path: string;
   type: 'current' | 'historical';
   date?: string;
+  agentId?: string;
 }
 
 interface WorkspacesResponse {
   current: WorkspaceInfo[];
   historical: WorkspaceInfo[];
+}
+
+interface AnswerWorkspacesResponse {
+  workspaces: AnswerWorkspace[];
+  current: WorkspaceInfo[];
+}
+
+// Map workspace name to agent ID (e.g., "workspace1" -> agent at index 0)
+function getAgentIdFromWorkspace(workspaceName: string, agentOrder: string[]): string | undefined {
+  const match = workspaceName.match(/workspace(\d+)/);
+  if (match) {
+    const index = parseInt(match[1], 10) - 1; // workspace1 = index 0
+    return agentOrder[index];
+  }
+  return undefined;
 }
 
 interface FileInfo {
@@ -187,11 +203,18 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
 
   // Workspace state - now fetched from API
   const [workspaces, setWorkspaces] = useState<WorkspacesResponse>({ current: [], historical: [] });
-  const [selectedWorkspace, setSelectedWorkspace] = useState<WorkspaceInfo | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<FileInfo[]>([]);
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+
+  // Per-agent workspace selection state
+  const [selectedAgentWorkspace, setSelectedAgentWorkspace] = useState<string | null>(null);
+  const [selectedHistoricalWorkspace, setSelectedHistoricalWorkspace] = useState<WorkspaceInfo | null>(null);
+
+  // Answer-linked workspace state
+  const [answerWorkspaces, setAnswerWorkspaces] = useState<AnswerWorkspace[]>([]);
+  const [selectedAnswerLabel, setSelectedAnswerLabel] = useState<string>('current');
 
   // Fetch available workspaces from API
   const fetchWorkspaces = useCallback(async () => {
@@ -205,16 +228,20 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
       const data: WorkspacesResponse = await response.json();
       setWorkspaces(data);
 
-      // Auto-select first current workspace if available
-      if (data.current.length > 0 && !selectedWorkspace) {
-        setSelectedWorkspace(data.current[0]);
+      // Auto-select first agent's workspace if available
+      if (data.current.length > 0 && !selectedAgentWorkspace) {
+        const firstWorkspace = data.current[0];
+        const agentId = getAgentIdFromWorkspace(firstWorkspace.name, agentOrder);
+        if (agentId) {
+          setSelectedAgentWorkspace(agentId);
+        }
       }
     } catch (err) {
       setWorkspaceError(err instanceof Error ? err.message : 'Failed to load workspaces');
     } finally {
       setIsLoadingWorkspaces(false);
     }
-  }, [selectedWorkspace]);
+  }, [selectedAgentWorkspace, agentOrder]);
 
   // Fetch files for selected workspace
   const fetchWorkspaceFiles = useCallback(async (workspace: WorkspaceInfo) => {
@@ -235,19 +262,70 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
     }
   }, []);
 
+  // Fetch answer-linked workspaces from API
+  const fetchAnswerWorkspaces = useCallback(async () => {
+    const sessionId = useAgentStore.getState().sessionId;
+    if (!sessionId) return;
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/answer-workspaces`);
+      if (response.ok) {
+        const data: AnswerWorkspacesResponse = await response.json();
+        setAnswerWorkspaces(data.workspaces || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch answer workspaces:', err);
+    }
+  }, []);
+
+  // Map workspaces to agents
+  const workspacesByAgent = useMemo(() => {
+    const map: Record<string, { current?: WorkspaceInfo; historical: WorkspaceInfo[] }> = {};
+
+    // Initialize for all agents
+    agentOrder.forEach((agentId) => {
+      map[agentId] = { historical: [] };
+    });
+
+    // Map current workspaces
+    workspaces.current.forEach((ws) => {
+      const agentId = getAgentIdFromWorkspace(ws.name, agentOrder);
+      if (agentId && map[agentId]) {
+        map[agentId].current = ws;
+      }
+    });
+
+    // Map historical workspaces
+    workspaces.historical.forEach((ws) => {
+      const agentId = getAgentIdFromWorkspace(ws.name, agentOrder);
+      if (agentId && map[agentId]) {
+        map[agentId].historical.push(ws);
+      }
+    });
+
+    return map;
+  }, [workspaces, agentOrder]);
+
+  // Compute active workspace to display
+  const activeWorkspace = useMemo(() => {
+    if (!selectedAgentWorkspace) return null;
+    if (selectedHistoricalWorkspace) return selectedHistoricalWorkspace;
+    return workspacesByAgent[selectedAgentWorkspace]?.current || null;
+  }, [selectedAgentWorkspace, selectedHistoricalWorkspace, workspacesByAgent]);
+
   // Fetch workspaces when modal opens or tab switches to workspace
   useEffect(() => {
     if (isOpen && activeTab === 'workspace') {
       fetchWorkspaces();
+      fetchAnswerWorkspaces();
     }
-  }, [isOpen, activeTab, fetchWorkspaces]);
+  }, [isOpen, activeTab, fetchWorkspaces, fetchAnswerWorkspaces]);
 
   // Fetch files when workspace is selected
   useEffect(() => {
-    if (selectedWorkspace) {
-      fetchWorkspaceFiles(selectedWorkspace);
+    if (activeWorkspace) {
+      fetchWorkspaceFiles(activeWorkspace);
     }
-  }, [selectedWorkspace, fetchWorkspaceFiles]);
+  }, [activeWorkspace, fetchWorkspaceFiles]);
 
   // Filter answers based on selected agent
   const filteredAnswers = useMemo(() => {
@@ -458,51 +536,77 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
               </>
             ) : (
               <>
-                {/* Workspace Selector Bar */}
+                {/* Per-Agent Workspace Selector Bar */}
                 <div className="px-6 py-3 border-b border-gray-700 bg-gray-800/50 flex items-center gap-4 flex-wrap">
-                  {/* Current Workspaces */}
-                  {workspaces.current.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <Folder className="w-4 h-4 text-blue-400" />
-                      <span className="text-sm text-gray-400">Current:</span>
-                      <div className="flex gap-1">
-                        {workspaces.current.map((ws) => (
+                  {/* Agent Buttons */}
+                  <div className="flex items-center gap-2">
+                    <Folder className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm text-gray-400">Agent:</span>
+                    <div className="flex gap-1">
+                      {agentOrder.map((agentId) => {
+                        const agentData = workspacesByAgent[agentId];
+                        const hasWorkspace = agentData?.current || agentData?.historical.length > 0;
+                        if (!hasWorkspace) return null;
+
+                        return (
                           <button
-                            key={ws.path}
-                            onClick={() => setSelectedWorkspace(ws)}
+                            key={agentId}
+                            onClick={() => {
+                              setSelectedAgentWorkspace(agentId);
+                              setSelectedHistoricalWorkspace(null);
+                            }}
                             className={`px-3 py-1 text-sm rounded transition-colors ${
-                              selectedWorkspace?.path === ws.path
+                              selectedAgentWorkspace === agentId
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             }`}
                           >
-                            {ws.name}
+                            {agentId}
                           </button>
-                        ))}
-                      </div>
+                        );
+                      })}
                     </div>
-                  )}
+                  </div>
 
-                  {/* Historical Workspaces Dropdown */}
-                  {workspaces.historical.length > 0 && (
+                  {/* Answer Version Dropdown */}
+                  {selectedAgentWorkspace && (
                     <div className="flex items-center gap-2">
                       <History className="w-4 h-4 text-amber-400" />
-                      <span className="text-sm text-gray-400">Historical:</span>
+                      <span className="text-sm text-gray-400">Version:</span>
                       <div className="relative">
                         <select
-                          value={selectedWorkspace?.type === 'historical' ? selectedWorkspace.path : ''}
+                          value={selectedAnswerLabel}
                           onChange={(e) => {
-                            const ws = workspaces.historical.find(w => w.path === e.target.value);
-                            if (ws) setSelectedWorkspace(ws);
+                            const label = e.target.value;
+                            setSelectedAnswerLabel(label);
+                            setSelectedHistoricalWorkspace(null);
+
+                            if (label === 'current') {
+                              // Use current workspace for this agent
+                              const ws = workspacesByAgent[selectedAgentWorkspace]?.current;
+                              if (ws) fetchWorkspaceFiles(ws);
+                            } else {
+                              // Find answer workspace by label
+                              const answerWs = answerWorkspaces.find(w => w.answerLabel === label);
+                              if (answerWs) {
+                                fetchWorkspaceFiles({
+                                  name: answerWs.answerLabel,
+                                  path: answerWs.workspacePath,
+                                  type: 'historical'
+                                });
+                              }
+                            }
                           }}
                           className="appearance-none bg-gray-700 border border-gray-600 rounded-lg px-3 py-1 pr-8 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
-                          <option value="">Select...</option>
-                          {workspaces.historical.map((ws) => (
-                            <option key={ws.path} value={ws.path}>
-                              {ws.name}
-                            </option>
-                          ))}
+                          <option value="current">Current</option>
+                          {answerWorkspaces
+                            .filter(w => w.agentId === selectedAgentWorkspace)
+                            .map((ws) => (
+                              <option key={ws.answerId} value={ws.answerLabel}>
+                                {ws.answerLabel}
+                              </option>
+                            ))}
                         </select>
                         <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
                       </div>
@@ -511,7 +615,7 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
 
                   {/* Refresh Button */}
                   <button
-                    onClick={fetchWorkspaces}
+                    onClick={() => { fetchWorkspaces(); fetchAnswerWorkspaces(); }}
                     disabled={isLoadingWorkspaces}
                     className="ml-auto p-2 hover:bg-gray-700 rounded-lg transition-colors text-gray-400 hover:text-gray-200"
                     title="Refresh workspaces"
@@ -540,10 +644,10 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
                       <p>No workspaces found</p>
                       <p className="text-sm mt-1">Workspaces will appear when agents create files</p>
                     </div>
-                  ) : !selectedWorkspace ? (
+                  ) : !activeWorkspace ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-500">
                       <Folder className="w-12 h-12 mb-4 opacity-50" />
-                      <p>Select a workspace to browse files</p>
+                      <p>Select an agent to browse their workspace</p>
                     </div>
                   ) : workspaceFiles.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -553,7 +657,10 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
                   ) : (
                     <div>
                       <div className="mb-3 text-sm text-gray-400">
-                        {selectedWorkspace.name} • {workspaceFiles.length} files
+                        {selectedAgentWorkspace} • {activeWorkspace.name} • {workspaceFiles.length} files
+                        {selectedHistoricalWorkspace && (
+                          <span className="ml-2 text-amber-400">(historical)</span>
+                        )}
                       </div>
                       {fileTree.map((node) => (
                         <FileNode key={node.path} node={node} depth={0} />
@@ -563,13 +670,13 @@ export function AnswerBrowserModal({ isOpen, onClose }: AnswerBrowserModalProps)
                 </div>
 
                 {/* Workspace Summary */}
-                {selectedWorkspace && workspaceFiles.length > 0 && (
+                {activeWorkspace && workspaceFiles.length > 0 && (
                   <div className="border-t border-gray-700 px-6 py-3 text-sm text-gray-400 flex items-center justify-between">
                     <span>
-                      {workspaceFiles.length} files in {selectedWorkspace.name}
+                      {workspaceFiles.length} files in {activeWorkspace.name}
                     </span>
                     <span className="text-xs text-gray-500">
-                      {selectedWorkspace.path}
+                      {activeWorkspace.path}
                     </span>
                   </div>
                 )}

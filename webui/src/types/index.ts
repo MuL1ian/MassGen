@@ -162,6 +162,7 @@ export interface AgentRound {
   content: string;
   startTimestamp: number;
   endTimestamp?: number;
+  workspacePath?: string;  // Path to workspace snapshot for this answer
 }
 
 // Agent state in store
@@ -172,7 +173,8 @@ export interface AgentState {
   content: string[];
   currentContent: string;
   rounds: AgentRound[];  // History of rounds for dropdown
-  currentRoundId: string;  // Currently displayed round
+  currentRoundId: string;  // Where NEW streaming content appends
+  displayRoundId: string;  // What the dropdown shows (user-selectable)
   voteTarget?: string;
   voteReason?: string;
   answerCount: number;
@@ -206,6 +208,17 @@ export interface Answer {
   timestamp: number;
   votes: number;
   isWinner?: boolean;
+  workspacePath?: string;  // Path to workspace snapshot for this answer
+}
+
+// Workspace linked to specific answer version
+export interface AnswerWorkspace {
+  answerId: string;
+  agentId: string;
+  answerNumber: number;
+  answerLabel: string;
+  timestamp: string;
+  workspacePath: string;
 }
 
 // View mode for UI

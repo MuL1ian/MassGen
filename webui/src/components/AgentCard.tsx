@@ -102,9 +102,9 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
     ? `${agent.id} (${agent.modelName})`
     : agent.id;
 
-  // Get current round info
-  const currentRound = agent.rounds?.find(r => r.id === agent.currentRoundId);
-  const roundLabel = currentRound?.label || 'current';
+  // Get current display round info (what user sees in dropdown)
+  const displayRound = agent.rounds?.find(r => r.id === agent.displayRoundId);
+  const roundLabel = displayRound?.label || 'current';
   const hasMultipleRounds = (agent.rounds?.length || 0) > 1;
 
   // Auto-scroll to bottom on new content
@@ -172,7 +172,7 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
                         setShowRoundDropdown(false);
                       }}
                       className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700
-                               ${round.id === agent.currentRoundId ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}
+                               ${round.id === agent.displayRoundId ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}
                     >
                       {round.label}
                     </button>
@@ -212,7 +212,17 @@ export function AgentCard({ agent, isWinner = false, isVisible = true }: AgentCa
       >
         <pre className="whitespace-pre-wrap text-gray-700 dark:text-gray-300 leading-relaxed">
           {agent.currentContent ? (
-            renderHighlightedContent(agent.currentContent)
+            <>
+              {renderHighlightedContent(agent.currentContent)}
+              {/* Pulsing ellipses when streaming */}
+              {agent.status === 'working' && (
+                <span className="text-blue-400">
+                  <span className="streaming-dot">.</span>
+                  <span className="streaming-dot">.</span>
+                  <span className="streaming-dot">.</span>
+                </span>
+              )}
+            </>
           ) : agent.status === 'waiting' ? (
             <span className="text-gray-500 italic">
               Waiting

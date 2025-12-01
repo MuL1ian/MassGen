@@ -37,6 +37,7 @@ interface AgentStore extends SessionState {
   setComplete: (isComplete: boolean) => void;
   setViewMode: (mode: ViewMode) => void;
   startNewRound: (agentId: string, roundType: 'answer' | 'vote' | 'final', customLabel?: string) => void;
+  finalizeRoundWithLabel: (agentId: string, label: string, createNewRound?: boolean) => void;
   setAgentRound: (agentId: string, roundId: string) => void;
   reset: () => void;
   processWSEvent: (event: WSEvent) => void;
@@ -75,6 +76,7 @@ const createAgentState = (id: string, modelName?: string): AgentState => {
       startTimestamp: Date.now(),
     }],
     currentRoundId: initialRoundId,
+    displayRoundId: initialRoundId,
     answerCount: 0,
     voteCount: 0,
     files: [],
@@ -184,6 +186,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             ...agent,
             voteTarget: targetId,
             voteReason: reason,
+            voteCount: agent.voteCount + 1,
           },
         },
         voteDistribution: newDistribution,
@@ -193,7 +196,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   setConsensus: (winnerId) => {
     const store = get();
+
     // Start a "final" round for the winner to give their final answer
+    // This will automatically rename the previous "current" round to the proper answer label
     store.startNewRound(winnerId, 'final', 'final');
     // Auto-switch to winner view
     set({ selectedAgent: winnerId, viewMode: 'winner' });
@@ -303,38 +308,54 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const agent = state.agents[agentId];
       if (!agent) return state;
 
-      // Calculate new round number - only count non-initial rounds of this type
-      // The initial "current" round has label "current" and shouldn't be counted
-      const existingRoundsOfType = agent.rounds.filter(
-        r => r.type === roundType && r.label !== 'current'
-      ).length;
       const agentIndex = state.agentOrder.indexOf(agentId) + 1;
-      const newRoundNumber = existingRoundsOfType + 1;
 
-      // Generate label like "answer1.1" or "vote1" or use custom label
-      const label = customLabel ?? (roundType === 'answer'
-        ? `answer${agentIndex}.${newRoundNumber}`
-        : `vote${newRoundNumber}`);
+      // Calculate the answer number for the PREVIOUS round (it's getting closed/completed)
+      // Count existing labeled answer rounds (not "current")
+      const existingAnswerRounds = agent.rounds.filter(
+        r => r.type === 'answer' && r.label !== 'current'
+      ).length;
+      const previousAnswerNumber = existingAnswerRounds + 1;
 
-      // Close previous round
+      // Generate label for the PREVIOUS round (the completed answer)
+      // Always use proper answer label format for the previous round
+      const previousRoundLabel = `answer${agentIndex}.${previousAnswerNumber}`;
+
+      // Close previous round and rename it from "current" to the proper label
       const now = Date.now();
       const newRoundId = `${agentId}-round-${agent.rounds.length}`;
 
-      const updatedRounds = agent.rounds.map((round) =>
-        round.id === agent.currentRoundId && !round.endTimestamp
-          ? { ...round, endTimestamp: now }
-          : round
-      );
+      const updatedRounds = agent.rounds.map((round) => {
+        if (round.id === agent.currentRoundId && !round.endTimestamp) {
+          // Rename the previous "current" round to the answer label (e.g., "answer2.1")
+          const newLabel = round.label === 'current' ? previousRoundLabel : round.label;
+          return { ...round, endTimestamp: now, label: newLabel };
+        }
+        return round;
+      });
+
+      // Determine the new round's label
+      // - If customLabel is 'final', this is the final round
+      // - Otherwise it's "current" (active/in-progress work)
+      const newRoundLabel = customLabel === 'final' ? 'final' : 'current';
+
+      // Calculate round number for the new round
+      const newRoundNumber = roundType === 'answer'
+        ? previousAnswerNumber + 1
+        : agent.rounds.filter(r => r.type === roundType && r.label !== 'current').length + 1;
 
       // Create new round
       const newRound: AgentRound = {
         id: newRoundId,
         roundNumber: newRoundNumber,
         type: roundType,
-        label,
+        label: newRoundLabel,
         content: '',
         startTimestamp: now,
       };
+
+      // Store the previous round ID before creating new round
+      const previousRoundId = agent.currentRoundId;
 
       return {
         agents: {
@@ -342,9 +363,81 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           [agentId]: {
             ...agent,
             rounds: [...updatedRounds, newRound],
-            currentRoundId: newRoundId,
+            currentRoundId: newRoundId,           // New streaming goes here
+            displayRoundId: previousRoundId,      // Show completed answer in UI
             currentContent: '', // Reset current content for new round
             voteCount: roundType === 'vote' ? agent.voteCount + 1 : agent.voteCount,
+          },
+        },
+      };
+    });
+  },
+
+  finalizeRoundWithLabel: (agentId, label, createNewRound = true) => {
+    set((state) => {
+      const agent = state.agents[agentId];
+      if (!agent) return state;
+
+      const now = Date.now();
+
+      // DEBUG: Log the finalization
+      const currentRound = agent.rounds.find(r => r.id === agent.currentRoundId);
+      console.log(`[DEBUG] finalizeRoundWithLabel called:`, {
+        agentId,
+        label,
+        createNewRound,
+        currentRoundId: agent.currentRoundId,
+        currentRoundLabel: currentRound?.label,
+        currentRoundContentPreview: currentRound?.content?.substring(0, 100),
+        allRounds: agent.rounds.map(r => ({ id: r.id, label: r.label, contentLen: r.content?.length })),
+      });
+
+      // Close current round with the provided label
+      const updatedRounds = agent.rounds.map((round) => {
+        if (round.id === agent.currentRoundId && round.label === 'current') {
+          return { ...round, endTimestamp: now, label: label };
+        }
+        return round;
+      });
+
+      // Store the previous round ID (the one we just labeled)
+      const previousRoundId = agent.currentRoundId;
+
+      // Optionally create new "current" round for future content
+      if (createNewRound) {
+        const newRoundId = `${agentId}-round-${agent.rounds.length}`;
+        const newRound: AgentRound = {
+          id: newRoundId,
+          roundNumber: agent.rounds.length,
+          type: 'answer',
+          label: 'current',
+          content: '',
+          startTimestamp: now,
+        };
+
+        return {
+          agents: {
+            ...state.agents,
+            [agentId]: {
+              ...agent,
+              rounds: [...updatedRounds, newRound],
+              currentRoundId: newRoundId,
+              displayRoundId: previousRoundId,
+              currentContent: '',
+            },
+          },
+        };
+      }
+
+      // Just finalize without creating new round
+      return {
+        agents: {
+          ...state.agents,
+          [agentId]: {
+            ...agent,
+            rounds: updatedRounds,
+            displayRoundId: previousRoundId,
+            currentContent: currentRound?.content || '',
           },
         },
       };
@@ -364,8 +457,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           ...state.agents,
           [agentId]: {
             ...agent,
-            currentRoundId: roundId,
-            currentContent: round.content,
+            displayRoundId: roundId,      // User selects display round
+            currentContent: round.content, // Show that round's content
           },
         },
       };
@@ -379,6 +472,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   // Process WebSocket events
   processWSEvent: (event) => {
     const store = get();
+
+    // DEBUG: Log all WebSocket events (except high-frequency ones)
+    if (event.type !== 'agent_content' && event.type !== 'keepalive') {
+      console.log(`[DEBUG] WebSocket event:`, event.type, event);
+    }
 
     switch (event.type) {
       case 'init':
@@ -416,7 +514,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         break;
 
       case 'vote_cast':
+        console.log(`[DEBUG] vote_cast event received:`, event);
         if ('voter_id' in event && 'target_id' in event) {
+          // Get the agent to calculate vote number
+          const votingAgent = get().agents[event.voter_id];
+          const voteNumber = votingAgent ? votingAgent.voteCount + 1 : 1;
+
+          console.log(`[DEBUG] Processing vote_cast for ${event.voter_id}, voteNumber=${voteNumber}`);
+
+          // Finalize current round as a vote round - don't create new round since voting is done
+          store.finalizeRoundWithLabel(event.voter_id, `vote${voteNumber}`, false);
+
           store.recordVote(
             event.voter_id,
             event.target_id,
@@ -448,20 +556,42 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         break;
 
       case 'new_answer':
+        console.log(`[DEBUG] new_answer event received:`, event);
         if ('agent_id' in event && 'content' in event) {
           const newAnswerEvent = event as {
             agent_id: string;
             content: string;
             answer_id?: string;
             answer_number?: number;
+            answer_label?: string;  // e.g., "agent2.1" from backend
             timestamp: number;
           };
-          // Start a new answer round for this agent
-          store.startNewRound(newAnswerEvent.agent_id, 'answer');
+
+          // Check if this agent has already voted - if so, this is the "final" answer
+          // which will be handled by consensus_reached, so skip creating a new round
+          const agentState = get().agents[newAnswerEvent.agent_id];
+          if (agentState && agentState.voteCount > 0) {
+            console.log(`[DEBUG] Skipping new_answer for ${newAnswerEvent.agent_id} - agent has already voted (voteCount=${agentState.voteCount}), final answer handled by consensus_reached`);
+            break;
+          }
+
+          // Get the agent index for generating label if not provided
+          const agentIndex = get().agentOrder.indexOf(newAnswerEvent.agent_id) + 1;
+          const answerNumber = newAnswerEvent.answer_number ?? 1;
+
+          // Use backend label if provided, otherwise generate one
+          const answerLabel = newAnswerEvent.answer_label
+            || `answer${agentIndex}.${answerNumber}`;
+
+          console.log(`[DEBUG] Processing new_answer for ${newAnswerEvent.agent_id}, label=${answerLabel}, answerNumber=${answerNumber}`);
+
+          // Finalize the current round with the proper answer label
+          store.finalizeRoundWithLabel(newAnswerEvent.agent_id, answerLabel);
+
           store.addAnswer({
             id: newAnswerEvent.answer_id ?? `${newAnswerEvent.agent_id}-${Date.now()}`,
             agentId: newAnswerEvent.agent_id,
-            answerNumber: newAnswerEvent.answer_number ?? 1,
+            answerNumber: answerNumber,
             content: newAnswerEvent.content,
             timestamp: newAnswerEvent.timestamp,
             votes: 0,
