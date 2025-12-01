@@ -25,7 +25,7 @@ MassGen provides powerful computer use tools that allow AI agents to autonomousl
    * ``browser`` - Launch computer use agents in a browser, suitable for web tasks.
    * ``linux docker`` - Launch computer use agents in a browser, suitable for all web and desktop tasks.
 
-   See `here <../../../../scripts/computer_use_setup.md>` for quick set-up guides for those two environments, and `here <../../../../massgen/backend/docs/COMPUTER_USE_VISUALIZATION.md>` for visualization guides
+   See `here <https://github.com/massgen/MassGen/blob/main/scripts/computer_use_setup.md>` for quick set-up guides for those two environments, and `here <https://github.com/massgen/MassGen/blob/main/massgen/backend/docs/COMPUTER_USE_VISUALIZATION.md>` for visualization guides
 
    **Naming:**
 
