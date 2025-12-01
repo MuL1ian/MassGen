@@ -1,8 +1,8 @@
-# MassGen v0.1.19 Roadmap
+# MassGen v0.1.20 Roadmap
 
 ## Overview
 
-Version 0.1.19 focuses on Computer Use Agent infrastructure and expanding model support with Grok 4.1 Fast.
+Version 0.1.20 focuses on Computer Use Agent infrastructure and expanding model support with Grok 4.1 Fast.
 
 - **CUA Dockerfile for Optional Installation** (Required): 🐳 Provide optional Docker image for Computer Use Agent setup
 - **Grok 4.1 Fast Model Support** (Required): 🚀 Add support for xAI's Grok 4.1 Fast model
@@ -138,7 +138,7 @@ Version 0.1.19 focuses on Computer Use Agent infrastructure and expanding model 
 
 ### Dependencies
 - **CUA Dockerfile**: Docker infrastructure, VNC/X11 libraries, browser automation tools, existing computer use implementation
-- **Grok 4.1 Fast Model Support**: xAI API access, LiteLLM library, existing Grok backend infrastructure
+- **Grok 4.1 Fast Model Support**: xAI API access, LiteLLM library (v0.1.19), existing Grok backend infrastructure
 
 ### Risks & Mitigations
 1. **Docker Image Size**: *Mitigation*: Multi-stage builds, dependency optimization, selective inclusion
@@ -149,13 +149,13 @@ Version 0.1.19 focuses on Computer Use Agent infrastructure and expanding model 
 
 ---
 
-## Future Enhancements (Post-v0.1.19)
+## Future Enhancements (Post-v0.1.20)
 
-### v0.1.20 Plans
+### v0.1.21 Plans
 - **Update Computer Use Documentation** (@franklinnwren): Comprehensive documentation for computer use workflows
 - **Filesystem-Based Memory Reliability** (@ncrispino): Ensure memory persistence across turns with filesystem backend
 
-### v0.1.21 Plans
+### v0.1.22 Plans
 - **Integrate RL into MassGen** (@qidanrui @praneeth999): Reinforcement learning integration for agent optimization and adaptive behavior
 - **Smithery MCP Tools Support** (@ncrispino): Integration with Smithery to expand available MCP tools
 
@@ -174,7 +174,7 @@ Version 0.1.19 focuses on Computer Use Agent infrastructure and expanding model 
 | Phase 1 | CUA Infrastructure | Dockerfile, dependencies, VNC support, documentation | @franklinnwren | **REQUIRED** |
 | Phase 2 | Model Support | Grok 4.1 Fast integration, token counting, capability registration | @ncrispino | **REQUIRED** |
 
-**Target Release**: December 1, 2025 (Monday @ 9am PT)
+**Target Release**: December 3, 2025 (Wednesday @ 9am PT)
 
 ---
 
@@ -200,7 +200,7 @@ Version 0.1.19 focuses on Computer Use Agent infrastructure and expanding model 
 
 ### For Users
 
-- v0.1.19 brings CUA Docker infrastructure and expanded model support:
+- v0.1.20 brings CUA Docker infrastructure and expanded model support:
 
   **CUA Dockerfile:**
   - Easy setup for Computer Use Agent capabilities
@@ -232,7 +232,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ---
 
-*This roadmap reflects v0.1.19 priorities focusing on CUA Docker infrastructure and Grok 4.1 Fast model support.*
+*This roadmap reflects v0.1.20 priorities focusing on CUA Docker infrastructure and Grok 4.1 Fast model support.*
 
-**Last Updated:** November 28, 2025
+**Last Updated:** December 2, 2025
 **Maintained By:** MassGen Team

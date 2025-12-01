@@ -227,7 +227,30 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.18 - Latest
+### v0.1.19 - Latest
+**New Features:** LiteLLM Integration & Programmatic API, Claude Strict Tool Use & Structured Outputs, Gemini Exponential Backoff
+
+**Configuration Files:**
+- `providers/claude/strict_tool_use_example.yaml` - Claude strict tool use with custom and MCP tools
+
+**Key Features:**
+- **LiteLLM Integration**: MassGen as a drop-in LiteLLM custom provider via `MassGenLLM` class with `register_with_litellm()` one-line setup
+- **Programmatic API**: New `run()` and `build_config()` functions for direct Python execution, `NoneDisplay` for silent output
+- **Claude Strict Tool Use**: `enable_strict_tool_use` config flag with recursive schema patching, `output_schema` for structured JSON outputs
+- **Gemini Exponential Backoff**: Automatic retry for rate limit errors (429, 503) with `BackoffConfig` and `Retry-After` header support
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Claude Strict Tool Use - schema validation with structured outputs
+# Prerequisites: ANTHROPIC_API_KEY in .env
+uv run massgen --config massgen/configs/providers/claude/strict_tool_use_example.yaml \
+  "Add 42 and 58, then get weather for Tokyo"
+```
+
+### v0.1.18
 **New Features:** Agent Communication System (Human Broadcast Q&A), Claude Programmatic Tool Calling, Claude Tool Search
 
 **Configuration Files:**
@@ -243,9 +266,6 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Claude Programmatic Tool Calling - call tools from code execution
 # Prerequisites: ANTHROPIC_API_KEY in .env
 massgen --config massgen/configs/providers/claude/programmatic_with_two_tools.yaml \
