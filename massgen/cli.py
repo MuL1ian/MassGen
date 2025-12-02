@@ -2847,16 +2847,16 @@ def setup_docker() -> None:
 
 def setup_computer_use_docker() -> bool:
     """Setup Docker container for Computer Use Agent (CUA) automation.
-    
+
     Creates a Docker container with:
     - Ubuntu 22.04 with Xfce desktop
     - X11 virtual display (Xvfb) on :99
     - xdotool for GUI automation
     - Firefox and Chromium browsers
     - scrot for screenshots
-    
+
     This is required for computer_use_docker_example.yaml configs.
-    
+
     Returns:
         True if setup succeeded, False otherwise
     """
@@ -2921,7 +2921,7 @@ def setup_computer_use_docker() -> bool:
         if result.returncode == 0 and "cua-container" in result.stdout:
             print(f"{BRIGHT_YELLOW}⚠{RESET}")
             print(f"\n{BRIGHT_YELLOW}Container 'cua-container' already exists{RESET}")
-            
+
             # Check if it's running
             result = subprocess.run(
                 ["docker", "ps", "--filter", "name=cua-container", "--format", "{{.Names}}"],
@@ -3052,6 +3052,7 @@ CMD ["/start.sh"]
 
         # Wait for container to be ready
         import time
+
         time.sleep(3)
 
         # Test the container
@@ -3075,9 +3076,9 @@ CMD ["/start.sh"]
             print(f"  Desktop: Xfce4")
             print(f"  Browsers: Firefox, Chromium")
             print(f"\n{BRIGHT_CYAN}You can now run computer use examples:{RESET}")
-            print(f"  massgen --config @examples/tools/computer_use_docker_example.yaml \"Open Firefox\"")
-            print(f"  massgen --config massgen/configs/tools/custom_tools/qwen_computer_use_docker_example.yaml \"...\"")
-            print(f"  massgen --config massgen/configs/tools/custom_tools/ui_tars_docker_example.yaml \"...\"\n")
+            print(f'  massgen --config @examples/tools/computer_use_docker_example.yaml "Open Firefox"')
+            print(f'  massgen --config massgen/configs/tools/custom_tools/qwen_computer_use_docker_example.yaml "..."')
+            print(f'  massgen --config massgen/configs/tools/custom_tools/ui_tars_docker_example.yaml "..."\n')
             return True
         else:
             print(f"{BRIGHT_RED}✗{RESET}")
@@ -3094,6 +3095,7 @@ CMD ["/start.sh"]
     finally:
         # Cleanup temp directory
         import shutil
+
         try:
             shutil.rmtree(build_dir)
         except Exception:
@@ -3627,9 +3629,10 @@ async def main(args):
             if "computer_use_docker_example" in config_filename:
                 print(f"\n{BRIGHT_CYAN}🖥️  Computer Use Docker Configuration Detected{RESET}")
                 print(f"{BRIGHT_YELLOW}This configuration requires a special Docker container for GUI automation.{RESET}\n")
-                
+
                 # Check if container exists and is running
                 import subprocess
+
                 try:
                     result = subprocess.run(
                         ["docker", "ps", "--filter", "name=cua-container", "--format", "{{.Names}}"],
@@ -3644,7 +3647,7 @@ async def main(args):
                 if not container_running:
                     print(f"{BRIGHT_YELLOW}⚠️  Computer Use Docker container not found or not running{RESET}")
                     print(f"{BRIGHT_CYAN}Starting automatic setup...{RESET}\n")
-                    
+
                     if not setup_computer_use_docker():
                         print(f"\n{BRIGHT_RED}❌ Failed to setup Computer Use Docker container{RESET}")
                         print(f"{BRIGHT_YELLOW}Computer use features will not work without this container.{RESET}")
