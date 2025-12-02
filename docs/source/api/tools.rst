@@ -5,7 +5,7 @@ API documentation for MassGen's custom tool system. This section is for develope
 
 .. note::
 
-   **For Users:** See :doc:`../user_guide/custom_tools` for how to create and use custom tools with YAML configuration.
+   **For Users:** See :doc:`../user_guide/tools/custom_tools` for how to create and use custom tools with YAML configuration.
 
    **For Developers:** This section documents the internal APIs for programmatic tool management.
 
@@ -292,7 +292,7 @@ Streaming Tool Results
 See Also
 --------
 
-* :doc:`../user_guide/custom_tools` - User guide for creating custom tools
-* :doc:`../user_guide/tools` - Tools and capabilities overview
+* :doc:`../user_guide/tools/custom_tools` - User guide for creating custom tools
+* :doc:`../user_guide/tools/index` - Tools and capabilities overview
 * :doc:`backends` - Backend implementations that use tools
 * :doc:`formatter` - Tool formatting utilities

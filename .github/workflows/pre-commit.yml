@@ -26,11 +26,21 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Get pre-commit config hash
+      id: pre-commit-hash
+      run: |
+        if [ -f .pre-commit-config.yaml ]; then
+          echo "hash=$(shasum .pre-commit-config.yaml | awk '{print $1}')" >> $GITHUB_OUTPUT
+        else
+          echo "hash=none" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
+
     - name: Cache pre-commit environment
       uses: actions/cache@v3
       with:
         path: ~/.cache/pre-commit
-        key: pre-commit-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+        key: pre-commit-${{ matrix.os }}-${{ matrix.python-version }}-${{ steps.pre-commit-hash.outputs.hash }}
         restore-keys: |
           pre-commit-${{ matrix.os }}-${{ matrix.python-version }}-
           pre-commit-${{ matrix.os }}-

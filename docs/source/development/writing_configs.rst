@@ -518,5 +518,5 @@ See Also
 * :doc:`../reference/yaml_schema` - Complete YAML schema reference
 * :doc:`../reference/supported_models` - Supported backends and models
 * :doc:`../user_guide/backends` - Backend configuration details
-* :doc:`../user_guide/mcp_integration` - MCP tool configuration
+* :doc:`../user_guide/tools/mcp_integration` - MCP tool configuration
 * :doc:`../quickstart/configuration` - Configuration basics

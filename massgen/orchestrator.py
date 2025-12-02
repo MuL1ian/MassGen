@@ -29,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
 
+from ._broadcast_channel import BroadcastChannel
 from .agent_config import AgentConfig
 from .backend.base import StreamChunk
 from .chat_agent import ChatAgent
@@ -68,6 +69,7 @@ class AgentState:
         restart_pending: Whether the agent should gracefully restart due to new answers
         is_killed: Whether this agent has been killed due to timeout/limits
         timeout_reason: Reason for timeout (if applicable)
+        answer_count: Number of answers this agent has created (increments on new_answer)
     """
 
     answer: Optional[str] = None
@@ -78,6 +80,7 @@ class AgentState:
     timeout_reason: Optional[str] = None
     last_context: Optional[Dict[str, Any]] = None  # Store the context sent to this agent
     paraphrase: Optional[str] = None
+    answer_count: int = 0  # Track number of answers for memory archiving
 
 
 class Orchestrator(ChatAgent):
@@ -175,11 +178,15 @@ class Orchestrator(ChatAgent):
         )
         # Create system message builder for all phases (coordination, presentation, post-evaluation)
         self._system_message_builder: Optional[SystemMessageBuilder] = None  # Lazy initialization
-        # Create workflow tools for agents (vote and new_answer) using new toolkit system
+        # Create workflow tools for agents (vote, new_answer, and optionally broadcast)
+        # Will be updated with broadcast tools after coordination config is set
         self.workflow_tools = get_workflow_tools(
             valid_agent_ids=list(agents.keys()),
             template_overrides=getattr(self.message_templates, "_template_overrides", {}),
             api_format="chat_completions",  # Default format, will be overridden per backend
+            orchestrator=self,  # Pass self for broadcast tools
+            broadcast_mode=False,  # Will be updated if broadcasts enabled
+            broadcast_wait_by_default=True,
         )
 
         # MassGen-specific state
@@ -303,6 +310,16 @@ class Orchestrator(ChatAgent):
                 # Update MCP config with agent_id for Docker mode (must be after setup_orchestration_paths)
                 agent.backend.filesystem_manager.update_backend_mcp_config(agent.backend.config)
 
+        # Initialize broadcast channel for agent-to-agent communication
+        self.broadcast_channel = BroadcastChannel(self)
+        logger.info("[Orchestrator] Broadcast channel initialized")
+
+        # Set orchestrator reference on all agents
+        for agent_id, agent in self.agents.items():
+            if hasattr(agent, "_orchestrator"):
+                agent._orchestrator = self
+                logger.debug(f"[Orchestrator] Set orchestrator reference on agent: {agent_id}")
+
         # Validate and setup skills if enabled
         if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "use_skills"):
             if self.config.coordination_config.use_skills:
@@ -336,6 +353,9 @@ class Orchestrator(ChatAgent):
         # Initialize NLIP routers for agents if enabled
         if self.enable_nlip:
             self._init_nlip_routing()
+
+        # Initialize broadcast tools (independent of NLIP)
+        self._init_broadcast_tools()
 
     def _init_nlip_routing(self) -> None:
         """Initialize NLIP routing for all agents."""
@@ -383,6 +403,94 @@ class Orchestrator(ChatAgent):
             nlip_enabled_count += 1
 
         logger.info(f"[Orchestrator] NLIP initialization complete: {nlip_enabled_count} enabled, {nlip_skipped_count} skipped")
+
+    def _init_broadcast_tools(self) -> None:
+        """Initialize broadcast tools if enabled in coordination config."""
+        # Update workflow tools with broadcast if enabled
+        has_coord = hasattr(self.config, "coordination_config")
+        has_broadcast = hasattr(self.config.coordination_config, "broadcast") if has_coord else False
+        logger.info(f"[Orchestrator] Checking broadcast config: has_coord={has_coord}, has_broadcast={has_broadcast}")
+        if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "broadcast"):
+            broadcast_mode = self.config.coordination_config.broadcast
+            logger.info(f"[Orchestrator] Broadcast mode value: {broadcast_mode}, type: {type(broadcast_mode)}")
+            if broadcast_mode and broadcast_mode is not False:
+                logger.info(f"[Orchestrator] Broadcasting enabled (mode: {broadcast_mode}). Adding broadcast tools to workflow")
+
+                # Use blocking mode (wait=True) for both agents and human
+                # Priority system prevents deadlocks by requiring agents to respond to pending broadcasts first
+                wait_by_default = True
+                logger.info("[Orchestrator] Using blocking broadcasts (wait=True) with priority system to prevent deadlocks")
+
+                # Get broadcast sensitivity setting
+                broadcast_sensitivity = getattr(self.config.coordination_config, "broadcast_sensitivity", "medium")
+                logger.info(f"[Orchestrator] Broadcast sensitivity: {broadcast_sensitivity}")
+
+                # Recreate workflow tools with broadcast enabled
+                self.workflow_tools = get_workflow_tools(
+                    valid_agent_ids=list(self.agents.keys()),
+                    template_overrides=getattr(self.message_templates, "_template_overrides", {}),
+                    api_format="chat_completions",  # Default, overridden per backend
+                    orchestrator=self,
+                    broadcast_mode=broadcast_mode,
+                    broadcast_wait_by_default=wait_by_default,
+                )
+                tool_names = [t.get("function", {}).get("name", "unknown") for t in self.workflow_tools]
+                logger.info(f"[Orchestrator] Broadcast tools added to workflow ({len(self.workflow_tools)} total tools): {tool_names}")
+
+                # Register broadcast tools as custom tools with backends for recursive execution
+                self._register_broadcast_custom_tools(broadcast_mode, wait_by_default, broadcast_sensitivity)
+            else:
+                logger.info("[Orchestrator] Broadcasting disabled")
+        else:
+            logger.info("[Orchestrator] Broadcast config not found")
+
+    def _register_broadcast_custom_tools(self, broadcast_mode: str, wait_by_default: bool, sensitivity: str = "medium") -> None:
+        """
+        Register broadcast tools as custom tools with all agent backends.
+
+        This allows broadcast tools to be executed recursively by the backend,
+        avoiding the need for orchestrator-level tool handling.
+
+        Args:
+            broadcast_mode: "agents" or "human"
+            wait_by_default: Default waiting behavior for broadcasts
+            sensitivity: How frequently to use ask_others() ("low", "medium", "high")
+        """
+        from .tool.workflow_toolkits.broadcast import BroadcastToolkit
+
+        # Create broadcast toolkit instance
+        broadcast_toolkit = BroadcastToolkit(
+            orchestrator=self,
+            broadcast_mode=broadcast_mode,
+            wait_by_default=wait_by_default,
+            sensitivity=sensitivity,
+        )
+
+        # Register with each agent's backend as custom tool functions
+        for agent_id, agent in self.agents.items():
+            backend = agent.backend
+
+            # Check if backend supports custom tool registration
+            if not hasattr(backend, "custom_tool_manager"):
+                logger.warning(f"[Orchestrator] Agent {agent_id} backend doesn't support custom tool manager - broadcast tools will use orchestrator handling")
+                continue
+
+            # Register ask_others as a custom tool
+            if not hasattr(backend, "_broadcast_toolkit"):
+                backend._broadcast_toolkit = broadcast_toolkit
+                backend._custom_tool_names.add("ask_others")
+                logger.info(f"[Orchestrator] Registered ask_others as custom tool for agent {agent_id}")
+
+            # Register respond_to_broadcast for agents mode
+            if broadcast_mode == "agents":
+                backend._custom_tool_names.add("respond_to_broadcast")
+                logger.info(f"[Orchestrator] Registered respond_to_broadcast as custom tool for agent {agent_id}")
+
+            # Register polling tools if needed
+            if not wait_by_default:
+                backend._custom_tool_names.add("check_broadcast_status")
+                backend._custom_tool_names.add("get_broadcast_responses")
+                logger.info(f"[Orchestrator] Registered polling broadcast tools for agent {agent_id}")
 
     async def _prepare_paraphrases_for_agents(self, question: str) -> None:
         """Generate and assign DSPy paraphrases for the current question."""
@@ -2193,6 +2301,11 @@ Your answer:"""
                 # Vote only - skip workspace snapshot to preserve previous answer's workspace
                 logger.info("[Orchestrator._save_agent_snapshot] Skipping workspace snapshot for vote (preserving previous workspace)")
             else:
+                # Archive memories BEFORE clearing/snapshotting workspace
+                workspace_path = agent.backend.filesystem_manager.get_current_workspace()
+                if workspace_path:
+                    self._archive_agent_memories(agent_id, Path(workspace_path))
+
                 logger.info(f"[Orchestrator._save_agent_snapshot] Agent {agent_id} has filesystem_manager, calling save_snapshot with timestamp={timestamp if not is_final else None}")
                 await agent.backend.filesystem_manager.save_snapshot(timestamp=timestamp if not is_final else None, is_final=is_final)
 
@@ -2929,6 +3042,11 @@ Your answer:"""
 
             # Build new structured system message FIRST (before conversation building)
             logger.info(f"[Orchestrator] Building structured system message for {agent_id}")
+            # Get human Q&A history for context injection (human broadcast mode only)
+            human_qa_history = None
+            if hasattr(self, "broadcast_channel") and self.broadcast_channel:
+                human_qa_history = self.broadcast_channel.get_human_qa_history()
+
             system_message = self._get_system_message_builder().build_coordination_message(
                 agent=agent,
                 agent_id=agent_id,
@@ -2938,8 +3056,12 @@ Your answer:"""
                 enable_memory=hasattr(self.config.coordination_config, "enable_memory_filesystem_mode") and self.config.coordination_config.enable_memory_filesystem_mode,
                 enable_task_planning=self.config.coordination_config.enable_agent_task_planning,
                 previous_turns=self._previous_turns,
+                human_qa_history=human_qa_history,
             )
             logger.info(f"[Orchestrator] Structured system message built for {agent_id} (length: {len(system_message)} chars)")
+
+            # Note: Broadcast communication section is now integrated in SystemMessageBuilder
+            # as BroadcastCommunicationSection when broadcast is enabled in coordination config
 
             # Build conversation with context support (for user message and conversation history)
             # We pass the NEW system_message so it gets tracked in context JSONs
@@ -3010,6 +3132,21 @@ Your answer:"""
 
             # Build proper conversation messages with system + user messages
             max_attempts = 3
+
+            # Add broadcast guidance if enabled
+            if self.config.coordination_config.broadcast and self.config.coordination_config.broadcast is not False:
+                # Use blocking mode for both agents and human (priority system prevents deadlocks)
+                broadcast_mode = self.config.coordination_config.broadcast
+                wait_by_default = True
+                broadcast_sensitivity = getattr(self.config.coordination_config, "broadcast_sensitivity", "medium")
+
+                broadcast_guidance = self.message_templates.get_broadcast_guidance(
+                    broadcast_mode=broadcast_mode,
+                    wait_by_default=wait_by_default,
+                    sensitivity=broadcast_sensitivity,
+                )
+                system_message = system_message + broadcast_guidance
+                logger.info(f"📢 [{agent_id}] Added broadcast guidance to system message")
 
             conversation_messages = [
                 {"role": "system", "content": system_message},
@@ -3145,6 +3282,7 @@ Your answer:"""
                         # Use the correct tool_calls field
                         chunk_tool_calls = getattr(chunk, "tool_calls", []) or []
                         tool_calls.extend(chunk_tool_calls)
+
                         # Stream tool calls to show agent actions
                         # Get backend name for logging
                         backend_name = None
@@ -3188,6 +3326,16 @@ Your answer:"""
                                     "content",
                                     f"🗳️ Voting for [{real_agent_id}] (options: {', '.join(sorted(answers.keys()))}) : {reason}",
                                 )
+                            elif tool_name == "ask_others":
+                                # Broadcast tool - handled as custom tool by backend
+                                question = tool_args.get("question", "")
+                                yield ("content", f"📢 Asking others: {question[:80]}...")
+                                log_tool_call(agent_id, "ask_others", tool_args, None, backend_name)
+                            elif tool_name in ["check_broadcast_status", "get_broadcast_responses"]:
+                                # Polling broadcast tools - handled as custom tools by backend
+                                request_id = tool_args.get("request_id", "")
+                                yield ("content", f"📢 Checking broadcast {request_id[:8]}...")
+                                log_tool_call(agent_id, tool_name, tool_args, None, backend_name)
                             else:
                                 yield ("content", f"🔧 Using {tool_name}")
                                 log_tool_call(agent_id, tool_name, tool_args, None, backend_name)
@@ -3471,6 +3619,10 @@ Your answer:"""
                             yield ("result", ("answer", content))
                             yield ("done", None)
                             return
+                        elif tool_name in ("ask_others", "check_broadcast_status", "get_broadcast_responses"):
+                            # Broadcast tools are now handled as custom tools by the backend
+                            # Backend will execute them recursively, no orchestrator handling needed
+                            pass
                         elif tool_name.startswith("mcp") or "__" in tool_name:
                             # MCP tools (with or without mcp__ prefix) and custom tools are handled by the backend
                             # Tool results are streamed separately via StreamChunks
@@ -4366,6 +4518,88 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             "winning_agents_history": self._winning_agents_history.copy(),  # For cross-turn memory sharing
         }
 
+    def get_all_agent_workspaces(self) -> Dict[str, Optional[str]]:
+        """Get workspace paths for all agents.
+
+        Returns:
+            Dict mapping agent_id to workspace path (or None if no workspace)
+        """
+        workspaces = {}
+        for agent_id, agent in self.agents.items():
+            if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
+                fm = agent.backend.filesystem_manager
+                if fm:
+                    workspaces[agent_id] = str(fm.get_current_workspace())
+                else:
+                    workspaces[agent_id] = None
+            else:
+                workspaces[agent_id] = None
+        return workspaces
+
+    def get_coordination_result(self) -> Dict[str, Any]:
+        """Get comprehensive coordination result for API consumption.
+
+        Returns:
+            Dict with all coordination metadata:
+            - final_answer: The final presented answer
+            - selected_agent: ID of the winning agent
+            - log_directory: Root log directory path
+            - final_answer_path: Path to final/ directory
+            - answers: List of answers with labels (answerX.Y), paths, and content
+            - vote_results: Full voting details
+        """
+        from pathlib import Path
+
+        from .logger_config import get_log_session_dir, get_log_session_root
+
+        # Get log paths
+        log_root = None
+        log_session_dir = None
+        final_path = None
+        try:
+            log_root = get_log_session_root()
+            log_session_dir = get_log_session_dir()
+            final_path = log_session_dir / "final"
+        except Exception:
+            pass  # Log paths not available
+
+        # Build answers list from snapshot_mappings with full log paths
+        answers = []
+        if self.coordination_tracker and self.coordination_tracker.snapshot_mappings:
+            for label, mapping in self.coordination_tracker.snapshot_mappings.items():
+                if mapping.get("type") == "answer":
+                    # Build full path from log_session_dir + relative path
+                    answer_dir = None
+                    if log_session_dir and mapping.get("path"):
+                        answer_dir = str(log_session_dir / Path(mapping["path"]).parent)
+
+                    # Get answer content from agent state
+                    agent_id = mapping.get("agent_id")
+                    content = None
+                    if agent_id and agent_id in self.agent_states:
+                        content = self.agent_states[agent_id].answer
+
+                    answers.append(
+                        {
+                            "label": label,  # e.g., "agent1.1"
+                            "agent_id": agent_id,
+                            "answer_path": answer_dir,
+                            "content": content,
+                        },
+                    )
+
+        # Get vote results
+        vote_results = self._get_vote_results()
+
+        return {
+            "final_answer": self._final_presentation_content or "",
+            "selected_agent": self._selected_agent,
+            "log_directory": str(log_root) if log_root else None,
+            "final_answer_path": str(final_path) if final_path else None,
+            "answers": answers,
+            "vote_results": vote_results,
+        }
+
     def get_status(self) -> Dict[str, Any]:
         """Get current orchestrator status."""
         # Calculate vote results
@@ -4433,6 +4667,9 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                 config=self.config,
                 message_templates=self.message_templates,
                 agents=self.agents,
+                snapshot_storage=self._snapshot_storage,
+                session_id=self.session_id,
+                agent_temporary_workspace=self._agent_temporary_workspace,
             )
         return self._system_message_builder
 
@@ -4455,6 +4692,9 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             if agent.backend.filesystem_manager:
                 workspace_path = agent.backend.filesystem_manager.get_current_workspace()
                 if workspace_path and Path(workspace_path).exists():
+                    # Archive memories BEFORE clearing workspace
+                    self._archive_agent_memories(agent_id, Path(workspace_path))
+
                     # Clear workspace contents but keep the directory
                     for item in Path(workspace_path).iterdir():
                         if item.is_file():
@@ -4473,6 +4713,46 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                             elif item.is_dir():
                                 shutil.copytree(item, dest, dirs_exist_ok=True)
                         logger.info(f"[Orchestrator] Pre-populated {agent_id} workspace with writable copy of turn n-1")
+
+    def _archive_agent_memories(self, agent_id: str, workspace_path: Path) -> None:
+        """
+        Archive memories from agent workspace before clearing.
+
+        Copies all memory files from workspace/memory/ to archived_memories/{agent_id}_answer_{n}/
+        This preserves memories from discarded answers so they're not lost.
+
+        Args:
+            agent_id: ID of the agent whose memories to archive
+            workspace_path: Path to the agent's current workspace
+        """
+        memory_dir = workspace_path / "memory"
+        if not memory_dir.exists():
+            logger.info(f"[Orchestrator] No memory directory for {agent_id}, skipping archive")
+            return
+
+        # Get current answer count for this agent
+        answer_num = self.agent_states[agent_id].answer_count
+
+        # Archive path: .massgen/sessions/{session_id}/archived_memories/agent_id_answer_n/
+        # Use hardcoded session storage path (not snapshot_storage which gets cleared)
+        if not self.session_id:
+            logger.warning("[Orchestrator] Cannot archive memories: no session_id")
+            return
+
+        # Archives must be in sessions/ directory for persistence, not snapshots/
+        archive_base = Path(".massgen/sessions") / self.session_id / "archived_memories"
+        archive_path = archive_base / f"{agent_id}_answer_{answer_num}"
+
+        # Copy entire memory/ directory to archive
+        try:
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(memory_dir, archive_path, dirs_exist_ok=True)
+            logger.info(f"[Orchestrator] Archived memories for {agent_id} answer {answer_num} to {archive_path}")
+        except Exception as e:
+            logger.error(f"[Orchestrator] Failed to archive memories for {agent_id}: {e}")
+
+        # Increment answer count for next answer
+        self.agent_states[agent_id].answer_count += 1
 
     def _get_previous_turns_context_paths(self) -> List[Dict[str, Any]]:
         """
@@ -4499,6 +4779,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.restart_pending = False
             state.is_killed = False
             state.timeout_reason = None
+            state.answer_count = 0
 
         # Reset orchestrator timeout tracking
         self.total_tokens = 0

@@ -1,0 +1,34 @@
+# uv run massgen --config test_broadcast_agents.yaml "Create a website about Bob Dylan. Please ask_others for what framework to use first"
+
+agents:
+  - id: agent_a
+    backend:
+      type: openai
+      model: gpt-5
+      cwd: workspace1
+      enable_mcp_command_line: true
+      command_line_execution_mode: docker
+
+  - id: agent_b
+    backend:
+      type: gemini
+      model: gemini-3-pro-preview
+      cwd: workspace2
+      enable_mcp_command_line: true
+      command_line_execution_mode: docker
+
+orchestrator:
+  # Workspace configuration
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+
+  # Enable agent-to-agent communication
+  coordination:
+    broadcast: "agents"  # Options: false | "agents" | "human"
+    broadcast_sensitivity: "high"  # Options: "low" | "medium" | "high" (how frequently agents use ask_others)
+    broadcast_timeout: 300
+    broadcast_wait_by_default: true  # Blocking mode by default
+    max_broadcasts_per_agent: 10
+
+    # # Also enable task planning so agents can organize their work
+    # enable_agent_task_planning: true

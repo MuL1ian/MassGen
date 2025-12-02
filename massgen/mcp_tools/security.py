@@ -145,6 +145,8 @@ def _get_default_allowed_executables(level: str) -> Set[str]:
         "rust",
         "cargo",
         "fastmcp",
+        # MCP servers (when globally installed)
+        "mcp-server-filesystem",
         # System utilities (limited set)
         "sh",
         "bash",

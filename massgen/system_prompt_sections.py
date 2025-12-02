@@ -484,7 +484,10 @@ reversed_text = reverse_string("hello")
 image = await text_to_image_generation(prompt="sunset", output_path="sunset.png")
 ```
 
-**Important:** Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
+**Important:**
+- Subdirectories under `custom_tools/` don't auto-import tools. Always import directly from the `.py` file using the path from TOOL.md.
+- **CRITICAL**: When running Python scripts that import from `servers/` or `custom_tools/`, always specify `work_dir="{self.workspace_path}"` in your
+  execute_command call. The symlinks to these directories only exist in your main workspace, not in temporary snapshot directories.
 
 **Custom Tools Return Type:**
 
@@ -596,11 +599,23 @@ class MemorySection(SystemPromptSection):
             "and **what would help similar tasks succeed**.\n",
         )
 
-        # Memory tiers - simplified
+        # Memory tiers - clarified with usage guidance
         content_parts.append(
             "### Storage Tiers\n\n"
-            "**short_term**: Auto-loaded every turn. For user preferences and frequently-referenced guidance.\n"
-            "**long_term**: Load manually when needed. For effectiveness tracking, lessons learned, and decision rationale.\n",
+            "**short_term** (auto-loaded every turn):\n"
+            "- User preferences and workflow patterns\n"
+            "- Quick reference info needed frequently\n"
+            "- Current task context and findings\n"
+            "- Small, tactical observations (<100 lines)\n"
+            "- Examples: user_prefs.md, current_findings.md\n\n"
+            "**long_term** (load manually when needed):\n"
+            "- Detailed post-mortems and analyses\n"
+            "- Comprehensive skill effectiveness reports\n"
+            "- Complex lessons with context (>100 lines)\n"
+            "- Knowledge that's useful but not needed every turn\n"
+            "- Examples: detailed_analysis.md, comprehensive_guide.md\n\n"
+            "**Rule of thumb**: If it's small and useful every turn → short_term. "
+            "If it's detailed and situationally useful → long_term.\n",
         )
 
         # Show existing short-term memories (full content)
@@ -631,13 +646,98 @@ class MemorySection(SystemPromptSection):
             content_parts.append("")
             content_parts.append("</available_long_term_memories>")
 
+        # Show current memories from temp workspaces (all agents' current work)
+        temp_workspace_memories = self.memory_config.get("temp_workspace_memories", [])
+        if temp_workspace_memories:
+            content_parts.append("\n### Current Agent Memories (For Comparison)\n")
+            content_parts.append(
+                "These are the current memories from all agents working on this task. " "Review to compare approaches and avoid duplicating work.\n",
+            )
+
+            for agent_mem in temp_workspace_memories:
+                agent_label = agent_mem.get("agent_label", "unknown")
+                memories = agent_mem.get("memories", {})
+
+                content_parts.append(f"\n**{agent_label}:**")
+
+                # Show short_term memories (full content)
+                if memories.get("short_term"):
+                    content_parts.append("\n*short_term:*")
+                    for mem_name, mem_data in memories["short_term"].items():
+                        content = mem_data.get("content", mem_data) if isinstance(mem_data, dict) else mem_data
+                        content_parts.append(f"- `{mem_name}.md`")
+                        content_parts.append(f"  ```\n  {content.strip()}\n  ```")
+
+                # Show long_term memories (name + description only)
+                if memories.get("long_term"):
+                    content_parts.append("\n*long_term:*")
+                    for mem_name, mem_data in memories["long_term"].items():
+                        if isinstance(mem_data, dict):
+                            description = mem_data.get("description", "No description")
+                            content_parts.append(f"- `{mem_name}.md`: {description}")
+                        else:
+                            # Fallback if not parsed
+                            content_parts.append(f"- `{mem_name}.md`")
+
+                if not memories.get("short_term") and not memories.get("long_term"):
+                    content_parts.append("  *No memories*")
+
+        # Show archived memories (deduplicated historical context)
+        archived = self.memory_config.get("archived_memories", {})
+        if archived and (archived.get("short_term") or archived.get("long_term")):
+            content_parts.append("\n### Archived Memories (Historical - Deduplicated)\n")
+            content_parts.append(
+                "These are historical memories from previous answers. Duplicate names have been resolved " "(showing only the most recent version of each memory). This is read-only context.\n",
+            )
+
+            # Show short_term archived memories (full content)
+            if archived.get("short_term"):
+                content_parts.append("\n**Short-term (full content):**")
+                for mem_name, mem_data in archived["short_term"].items():
+                    content = mem_data.get("content", "")
+                    content_parts.append(f"\n- `{mem_name}.md`")
+                    content_parts.append(f"  ```\n  {content.strip()}\n  ```")
+
+            # Show long_term archived memories (name + description only)
+            if archived.get("long_term"):
+                content_parts.append("\n**Long-term (summaries only):**")
+                for mem_name, mem_data in archived["long_term"].items():
+                    content = mem_data.get("content", "")
+                    # Try to extract description from YAML frontmatter
+                    description = "No description"
+                    if "description:" in content:
+                        try:
+                            # Simple extraction of description line
+                            for line in content.split("\n"):
+                                if line.strip().startswith("description:"):
+                                    description = line.split("description:", 1)[1].strip()
+                                    break
+                        except Exception:
+                            pass
+                    content_parts.append(f"- `{mem_name}.md`: {description}")
+
         # File operations - simple and direct
         content_parts.append(
             "\n### Saving Memories\n\n"
             "Save memories by writing markdown files to the memory directory:\n"
             "- **Short-term** → `memory/short_term/{name}.md` (auto-loaded every turn)\n"
             "- **Long-term** → `memory/long_term/{name}.md` (load manually when needed)\n\n"
-            "Use standard file operations (write_file, edit_file, etc.).\n",
+            "**File Format (REQUIRED YAML Frontmatter):**\n"
+            "```markdown\n"
+            "---\n"
+            "name: skill_effectiveness\n"
+            "description: Tracking which skills and tools work well for different task types\n"
+            "created: 2025-11-23T20:00:00\n"
+            "updated: 2025-11-23T20:00:00\n"
+            "---\n\n"
+            "## Your Content Here\n"
+            "Document your findings...\n"
+            "```\n\n"
+            "**Important:** You are stateless - you don't have a persistent identity across restarts. "
+            "When you call `new_answer`, your workspace is cleared and archived. The system shows you:\n"
+            "1. Current memories from all agents (for comparing approaches)\n"
+            "2. Historical archived memories (deduplicated - newest version of each name)\n\n"
+            "If the same memory name appears multiple times, only the most recent version is shown.\n",
         )
 
         # Task completion reminders
@@ -647,58 +747,77 @@ class MemorySection(SystemPromptSection):
             "These help you optimize future work by capturing what worked, what didn't, and why.\n",
         )
 
-        # When to document - reframed around optimization
+        # When to document - with clear tier guidance
         content_parts.append(
             "\n### What to Document\n\n"
-            "**Skill & Tool Effectiveness** → memory/long_term/skill_effectiveness.md\n"
-            "- Which skills/tools worked well (or poorly) for this task type?\n"
-            "- What capabilities were most valuable?\n"
-            "- What would you use differently next time?\n"
-            "- Example: 'frontend-design + webapp-testing combo effective for visual quality iteration'\n\n"
-            "**Approach Success/Failure** → memory/long_term/approach_patterns.md\n"
-            "- What strategy worked (or failed) and why?\n"
-            "- What order of operations was optimal?\n"
-            "- What shortcuts to avoid?\n"
-            "- Example: 'Screenshot analysis before finalizing prevents visual bugs; always test responsive layouts'\n\n"
-            "**Mistake Prevention** → memory/long_term/lessons_learned.md\n"
-            "- What almost went wrong and how you caught it?\n"
-            "- What assumptions were incorrect?\n"
-            "- What to verify before proceeding on similar tasks?\n"
-            "- Example: 'Don't assume mobile layout works - always test viewport sizes'\n\n"
+            "**SHORT-TERM (use for most things):**\n\n"
             "**User Preferences** → memory/short_term/user_prefs.md\n"
             "- What does the user value (speed vs quality, iteration vs one-shot, etc.)?\n"
             "- Coding style, naming conventions, workflow preferences\n"
-            "- Example: 'User prefers iterative refinement with visual feedback over single delivery'\n",
+            "- Example: 'User prefers iterative refinement with visual feedback'\n\n"
+            "**Quick Observations** → memory/short_term/quick_notes.md\n"
+            "- Tactical findings from current work\n"
+            "- What worked/failed in this specific task\n"
+            "- Tool tips and gotchas discovered\n"
+            "- Example: 'create_directory fails on nested paths - create parent first'\n\n"
+            "**Current Context** → memory/short_term/task_context.md\n"
+            "- Key findings about the current task\n"
+            "- Important decisions made\n"
+            "- State of work in progress\n\n"
+            "**LONG-TERM (only if detailed/comprehensive):**\n\n"
+            "**Comprehensive Skill Analysis** → memory/long_term/skill_effectiveness.md\n"
+            "- Detailed comparison of multiple skills/approaches\n"
+            "- Cross-task patterns (>3 examples)\n"
+            "- Only save if you have substantial evidence (100+ lines)\n\n"
+            "**Detailed Post-Mortems** → memory/long_term/approach_patterns.md\n"
+            "- In-depth analysis of complex approaches\n"
+            "- Multi-step strategies with rationale\n"
+            "- Only for significant architectural decisions\n\n"
+            "**Note**: Most observations should go in **short_term**. Reserve long_term for truly "
+            "detailed analyses that would clutter the auto-loaded context.\n",
         )
 
-        # Examples - emphasize decision rationale and effectiveness
+        # Examples - emphasize short-term for most uses
         content_parts.append(
             "\n### Examples\n\n"
             "```python\n"
-            "# Document skill effectiveness after completing a task\n"
+            "# SHORT-TERM: Quick tactical observation (PREFERRED for most things)\n"
             "write_file(\n"
-            '    "memory/long_term/skill_effectiveness.md",\n'
-            '    "## Frontend Design Tasks\\n"\n'
-            '    "**What worked:** frontend-design + webapp-testing combo\\n"\n'
-            '    "**Why effective:** Produced visually polished UI, screenshot analysis caught layout issues\\n"\n'
-            '    "**For future:** Always use this combo for user-facing web interfaces"\n'
+            '    "memory/short_term/quick_notes.md",\n'
+            '    "---\\n"\n'
+            '    "name: quick_notes\\n"\n'
+            '    "description: Tactical observations from current work\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "## Web Development\\n"\n'
+            '    "- create_directory fails on nested paths - create parent first\\n"\n'
+            '    "- CSS variables work well for theming\\n"\n'
+            '    "- Always test with `printf` for CLI stdin validation"\n'
             ")\n\n"
-            "# Document user workflow preference\n"
+            "# SHORT-TERM: User preferences\n"
             "write_file(\n"
             '    "memory/short_term/user_prefs.md",\n'
-            '    "## Workflow\\n"\n'
-            '    "**Preference:** Iterative refinement with visual feedback\\n"\n'
-            '    "**Don\'t:** Single-shot delivery without showing progress\\n"\n'
-            '    "**Rationale:** User explicitly requested iterative improvement based on screenshots"\n'
+            '    "---\\n"\n'
+            '    "name: user_prefs\\n"\n'
+            '    "description: User workflow and style preferences\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "## Preferences\\n"\n'
+            '    "- Prefers clean, minimal code\\n"\n'
+            '    "- Wants explanations with examples"\n'
             ")\n\n"
-            "# Document lesson learned to prevent future mistakes\n"
-            'existing = read_file("memory/long_term/lessons_learned.md") if file_exists("memory/long_term/lessons_learned.md") else ""\n'
+            "# LONG-TERM: Only for detailed analysis (>100 lines)\n"
             "write_file(\n"
-            '    "memory/long_term/lessons_learned.md",\n'
-            '    existing + "\\n\\n## Web Design: Visual Verification\\n"\n'
-            '    "**Mistake to avoid:** Assuming design looks good without visual check\\n"\n'
-            '    "**Prevention:** Always preview + screenshot before finalizing\\n"\n'
-            '    "**Impact:** Caught responsive layout issues that would have looked broken"\n'
+            '    "memory/long_term/comprehensive_analysis.md",\n'
+            '    "---\\n"\n'
+            '    "name: comprehensive_analysis\\n"\n'
+            '    "description: Detailed multi-task skill effectiveness analysis\\n"\n'
+            '    "created: 2025-11-23T20:00:00\\n"\n'
+            '    "updated: 2025-11-23T20:00:00\\n"\n'
+            '    "---\\n\\n"\n'
+            '    "[100+ lines of detailed analysis comparing approaches across multiple tasks...]"\n'
             ")\n"
             "```\n",
         )
@@ -1425,6 +1544,180 @@ class PlanningModeSection(SystemPromptSection):
         return self.planning_mode_instruction
 
 
+class BroadcastCommunicationSection(SystemPromptSection):
+    """
+    Agent-to-agent communication capabilities via broadcast tools.
+
+    Provides instructions for using ask_others() tool for collaborative
+    problem-solving between agents, with configurable sensitivity levels.
+
+    This section appears at HIGH priority to provide coordination guidance
+    after critical context but before auxiliary best practices.
+
+    Args:
+        broadcast_mode: Communication mode - "agents" (agent-to-agent only)
+                       or "human" (agents can ask agents + human)
+        wait_by_default: Whether ask_others() blocks by default (True)
+                        or returns immediately for polling (False)
+        sensitivity: How frequently to use ask_others():
+                    - "low": Only for critical decisions/when blocked
+                    - "medium": For significant decisions and design choices (default)
+                    - "high": Frequently - whenever considering options
+
+    Example:
+        >>> section = BroadcastCommunicationSection(
+        ...     broadcast_mode="agents",
+        ...     wait_by_default=True,
+        ...     sensitivity="medium"
+        ... )
+        >>> print(section.render())
+    """
+
+    def __init__(
+        self,
+        broadcast_mode: str,
+        wait_by_default: bool = True,
+        sensitivity: str = "medium",
+        human_qa_history: List[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            title="Broadcast Communication",
+            priority=Priority.HIGH,  # Elevated from MEDIUM for stronger emphasis
+            xml_tag="broadcast_communication",
+        )
+        self.broadcast_mode = broadcast_mode
+        self.wait_by_default = wait_by_default
+        self.sensitivity = sensitivity
+        self.human_qa_history = human_qa_history or []
+
+    def build_content(self) -> str:
+        """Build broadcast communication instructions."""
+        lines = [
+            "## Agent Communication",
+            "",
+            "**CRITICAL TOOL: ask_others()**",
+            "",
+        ]
+
+        if self.broadcast_mode == "human":
+            lines.append("You MUST use the `ask_others()` tool to ask questions to the human user.")
+        else:
+            lines.append("You MUST use the `ask_others()` tool to collaborate with other agents.")
+
+        lines.append("")
+
+        # Add sensitivity-specific guidance
+        if self.sensitivity == "high":
+            lines.append("**Collaboration frequency: HIGH - You MUST use ask_others() frequently whenever you're considering options, proposing approaches, or making decisions.**")
+        elif self.sensitivity == "low":
+            lines.append("**Collaboration frequency: LOW - You MUST use ask_others() when blocked or for critical architectural decisions.**")
+        else:  # medium
+            lines.append("**Collaboration frequency: MEDIUM - You MUST use ask_others() for significant decisions, design choices, or when confirmation would be valuable.**")
+
+        lines.extend(
+            [
+                "",
+                "**When you MUST use ask_others():**",
+                '- **User explicitly requests collaboration**: If prompt says "ask_others for..." then CALL THE TOOL immediately',
+                "- **Before key decisions**: Architecture, framework, approach choices",
+                '- **When multiple options exist**: "Which framework: Next.js or React?"',
+                '- **Before significant implementation**: "Any concerns about refactoring User model?"',
+                "",
+                "**When NOT to use ask_others():**",
+                "- For rhetorical questions or obvious answers",
+                "- Repeatedly on the same topic (one broadcast per decision)",
+                "- For trivial implementation details",
+                "",
+                "**Timing:**",
+                '- **User says "ask_others"**: Call tool immediately',
+                "- **Before deciding**: Ask first, then provide answer with responses",
+                "- **For feedback**: Provide answer first, then ask for feedback",
+                "",
+                "**IMPORTANT: Include responses in your answer:**",
+                "When you receive responses from ask_others(), INCLUDE them in your new_answer():",
+                '- Example: "I asked about framework. Response: Use Vue. Based on this, I will..."',
+                "- Check your answer before asking again - reuse documented responses",
+                "",
+                "**How it works:**",
+            ],
+        )
+
+        if self.wait_by_default:
+            if self.broadcast_mode == "human":
+                lines.extend(
+                    [
+                        "- Call `ask_others(question)` with your question",
+                        "- The tool blocks and waits for the human's response",
+                        "- Returns the human's response when ready",
+                        "- You can then continue with your task",
+                    ],
+                )
+            else:
+                lines.extend(
+                    [
+                        "- Call `ask_others(question)` with your question",
+                        "- The tool blocks and waits for responses from other agents",
+                        "- Returns all responses immediately when ready",
+                        "- You can then continue with your task",
+                    ],
+                )
+        else:
+            lines.extend(
+                [
+                    "- Call `ask_others(question, wait=False)` to send question without waiting",
+                    "- Continue working on other tasks",
+                    "- Later, check status with `check_broadcast_status(request_id)`",
+                    "- Get responses with `get_broadcast_responses(request_id)` when ready",
+                ],
+            )
+
+        lines.extend(
+            [
+                "",
+                "**Best practices:**",
+                "- Be specific and actionable in your questions",
+                "- Use when you genuinely need coordination or input",
+                "- Actually CALL THE TOOL (don't just mention it in your answer text)",
+                "- Respond helpfully when others ask you questions",
+                "",
+                "**Examples of good questions:**",
+                '- "Which framework should we use for this project: Next.js, Nuxt, or SvelteKit?"',
+                '- "I\'m about to refactor the User model. Any concerns or suggestions?"',
+                '- "Does anyone know which OAuth library we\'re using?"',
+                '- "I\'m stuck on this authentication bug. Ideas?"',
+                '- "Should I implement approach A (faster) or approach B (more maintainable)?"',
+            ],
+        )
+
+        if self.broadcast_mode == "human":
+            lines.extend(
+                [
+                    "",
+                    "**Note:** In human mode, only the human responds to your questions (other agents are not notified).",
+                ],
+            )
+
+        # Inject human Q&A history if available (human mode only)
+        if self.human_qa_history and self.broadcast_mode == "human":
+            lines.extend(
+                [
+                    "",
+                    "**Human has already answered these questions this turn:**",
+                ],
+            )
+            for i, qa in enumerate(self.human_qa_history, 1):
+                lines.append(f"- Q{i}: {qa['question']}")
+                lines.append(f"  A{i}: {qa['answer']}")
+            lines.extend(
+                [
+                    "",
+                    "Check if your question is already answered above before calling ask_others().",
+                ],
+            )
+
+        return "\n".join(lines)
+
+
 class SystemPromptBuilder:
     """
     Builder for assembling system prompts from sections.
@@ -1481,7 +1774,8 @@ class SystemPromptBuilder:
         # Render each section
         rendered_sections = [s.render() for s in sorted_sections]
 
-        # Join with blank lines and wrap in root tag
+        # Join with blank lines
         content = "\n\n".join(rendered_sections)
 
+        # Wrap in root tag
         return f"<system_prompt>\n\n{content}\n\n</system_prompt>"

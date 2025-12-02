@@ -2497,6 +2497,59 @@ class ConfigBuilder:
                 console.print()
                 console.print("  ✅ Agent task planning enabled - agents can create and manage task plans")
 
+            # Agent Communication / Broadcasts
+            console.print()
+            console.print("  [dim]Agent Communication: Agents can ask questions to each other and optionally humans[/dim]")
+            console.print("  [dim]• Agents can use ask_others() tool to request help or coordinate[/dim]")
+            console.print("  [dim]• Enables collaborative problem-solving during coordination[/dim]")
+            console.print("  [dim]• Human can optionally participate in agent discussions[/dim]")
+            console.print()
+
+            broadcast_input = Prompt.ask(
+                "  [prompt]Enable agent communication?[/prompt]",
+                choices=["n", "a", "h"],
+                default="n",
+                show_choices=False,
+            )
+
+            console.print("  [dim]Choices: (n) No / (a) Agent-to-agent only / (h) Include human prompts[/dim]")
+
+            if broadcast_input == "a":
+                if "coordination" not in orchestrator_config:
+                    orchestrator_config["coordination"] = {}
+                orchestrator_config["coordination"]["broadcast"] = "agents"
+                console.print()
+                console.print("  ✅ Agent-to-agent communication enabled - agents can coordinate with each other")
+            elif broadcast_input == "h":
+                if "coordination" not in orchestrator_config:
+                    orchestrator_config["coordination"] = {}
+                orchestrator_config["coordination"]["broadcast"] = "human"
+                console.print()
+                console.print("  ✅ Agent and human communication enabled - you'll be prompted when agents ask questions")
+
+            # Broadcast Sensitivity (if broadcasts enabled)
+            if broadcast_input in ["a", "h"]:
+                console.print()
+                console.print("  [dim]Broadcast Sensitivity: How frequently agents use ask_others()[/dim]")
+                console.print("  [dim]• Low: Only for critical decisions or when blocked[/dim]")
+                console.print("  [dim]• Medium: For significant decisions and design choices (recommended)[/dim]")
+                console.print("  [dim]• High: Frequently - whenever considering options or proposing approaches[/dim]")
+                console.print()
+
+                sensitivity_input = Prompt.ask(
+                    "  [prompt]Broadcast sensitivity level?[/prompt]",
+                    choices=["l", "m", "h"],
+                    default="m",
+                    show_choices=False,
+                )
+
+                console.print("  [dim]Choices: (l) Low / (m) Medium / (h) High[/dim]")
+
+                sensitivity_map = {"l": "low", "m": "medium", "h": "high"}
+                orchestrator_config["coordination"]["broadcast_sensitivity"] = sensitivity_map[sensitivity_input]
+                console.print()
+                console.print(f"  ✅ Broadcast sensitivity set to: {sensitivity_map[sensitivity_input]}")
+
             # Orchestration Restart Feature
             console.print()
             console.print("  [dim]Orchestration Restart: Automatic quality checks with self-correction[/dim]")
@@ -2915,6 +2968,79 @@ class ConfigBuilder:
             console.print("[info]Please report this issue if it persists.[/info]")
             return None
 
+    def generate_config_programmatic(
+        self,
+        output_path: str,
+        num_agents: int = 2,
+        backend_type: str = None,
+        model: str = None,
+        use_docker: bool = False,
+        context_path: Optional[str] = None,
+    ) -> bool:
+        """Generate config file programmatically without user interaction.
+
+        Args:
+            output_path: Where to save the config file
+            num_agents: Number of agents (1-10)
+            backend_type: Backend provider (must have API key)
+            model: Model name
+            use_docker: Whether to enable Docker execution
+            context_path: Optional path to add as context
+
+        Returns:
+            True if successful
+
+        Raises:
+            ValueError: If backend_type/model missing or API key unavailable
+        """
+        if not backend_type or not model:
+            raise ValueError("backend_type and model are required")
+
+        # Validate num_agents
+        if num_agents < 1 or num_agents > 10:
+            raise ValueError("Number of agents must be between 1 and 10")
+
+        # Check API key availability
+        api_keys = self.detect_api_keys()
+        if not api_keys.get(backend_type, False):
+            available = [p for p, has_key in api_keys.items() if has_key]
+            raise ValueError(
+                f"Backend '{backend_type}' not available (no API key found). " f"Available backends: {', '.join(available) if available else 'none'}",
+            )
+
+        # Build agents config
+        provider_info = self.PROVIDERS.get(backend_type, {})
+        agents_config = []
+        for i in range(num_agents):
+            chr(ord("a") + i) if i < 26 else str(i)
+            agents_config.append(
+                {
+                    "id": f"{backend_type.split('.')[-1]}-{model.split('-')[-1]}{i + 1}",
+                    "type": provider_info.get("type", backend_type),
+                    "model": model,
+                },
+            )
+
+        # Generate full config using existing quickstart logic
+        config = self._generate_quickstart_config(
+            agents_config,
+            context_path=context_path,
+            use_docker=use_docker,
+        )
+
+        # Save to file
+        from pathlib import Path
+
+        import yaml
+
+        output_file = Path(output_path).expanduser().resolve()
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+        return True
+
     def run_quickstart(self) -> Optional[tuple]:
         """Run simplified quickstart flow - just agents count and backend/model for each.
 
@@ -3260,6 +3386,12 @@ class ConfigBuilder:
                     # File operations via MCP (no code execution)
                     "exclude_file_operation_mcps": False,  # Keep file MCPs
                 }
+
+            # Add base_url for OpenAI-compatible providers (Groq, Cerebras, Together, etc.)
+            caps = get_capabilities(agent_type)
+            if caps and caps.base_url:
+                backend["base_url"] = caps.base_url
+
             return backend
 
         # Build agents list

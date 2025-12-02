@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.15
+**Current Version:** v0.1.19
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** November 21, 2025
+**Last Updated:** December 2, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -32,6 +32,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 | Automatic MCP Tool Selection | [@ncrispino](https://github.com/ncrispino) | nickcrispino |
 | Parallel File Operations | [@ncrispino](https://github.com/ncrispino) | nickcrispino |
 | MassGen Terminal Evaluation | [@ncrispino](https://github.com/ncrispino) | nickcrispino |
+| Textual Terminal Display | [@praneeth999](https://github.com/praneeth999) | ram2561 |
 | Web UI | [@voidcenter](https://github.com/voidcenter) | justin_zhang |
 
 *For general questions, join the #massgen channel on [Discord](https://discord.gg/VVrT2rQaz5)*
@@ -41,79 +42,79 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.16** | 11/24/25 | Make Quickstart More Intuitive | @ncrispino | Ensure tools/skills work through PyPI for better onboarding experience |
-| | | Integrate LiteLLM Registry | @ncrispino | More accurate token and price counting across providers |
-| **v0.1.17** | 11/26/25 | Improve Consistency of Memory & Tool Reminders | @ncrispino | Enhance memory and tool reminder consistency across agents |
-| | | MassGen Terminal Evaluation | @ncrispino | Self-evaluation and improvement of frontend/UI |
-| **v0.1.18** | 11/28/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
+| **v0.1.20** | 12/03/25 | CUA Dockerfile for Optional Installation | @franklinnwren | Provide optional Docker image for Computer Use Agent setup |
+| | | Grok 4.1 Fast Model Support | @ncrispino | Add support for xAI's Grok 4.1 Fast model |
+| **v0.1.21** | 12/05/25 | Update Computer Use Documentation | @franklinnwren | Comprehensive documentation for computer use workflows |
+| | | Filesystem-Based Memory Reliability | @ncrispino | Ensure memory persistence across turns with filesystem backend |
+| **v0.1.22** | 12/08/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
 | | | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.16 - Quickstart Improvements & Token Counting
+## 📋 v0.1.20 - CUA Dockerfile & Model Support
 
 ### Features
 
-**1. Make Quickstart More Intuitive** (@ncrispino)
-- Issue: [#543](https://github.com/massgen/MassGen/issues/544)
-- Ensure tools and skills work properly through PyPI installation
-- Improved onboarding experience for new users
-- Better documentation and guidance during initial setup
-- Streamlined configuration process
-- **Use Case**: Enable users to get started with MassGen quickly and easily, with tools and skills working out of the box via PyPI
+**1. CUA Dockerfile for Optional Installation** (@franklinnwren)
+- Issue: [#552](https://github.com/massgen/MassGen/issues/552)
+- New Dockerfile specifically for Computer Use Agent (CUA) setup
+- Optional installation for users who need browser/desktop automation
+- Pre-configured environment with all CUA dependencies
+- Simplified setup process for computer use workflows
+- **Use Case**: Provide an easy-to-use Docker image for users who want to run Computer Use Agent capabilities without manual environment configuration
 
-**2. Integrate LiteLLM Registry** (@ncrispino)
-- Issue: [#543](https://github.com/massgen/MassGen/issues/543)
-- More accurate token counting across all providers
-- Precise price calculation for different models
-- Integration with LiteLLM's model registry for up-to-date pricing
-- Better cost tracking and estimation for multi-agent workflows
-- **Use Case**: Provide accurate token usage and cost information across all supported model providers
+**2. Grok 4.1 Fast Model Support** (@ncrispino)
+- Issue: [#540](https://github.com/massgen/MassGen/issues/540)
+- Add support for xAI's Grok 4.1 Fast model
+- Integration with existing Grok backend infrastructure
+- Pricing and token counting configuration
+- Model capability registration in backend capabilities
+- Performance optimization for fast inference
+- **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses and cost-effective multi-agent workflows
 
 ### Success Criteria
-- ✅ Tools and skills work correctly when installed via PyPI
-- ✅ Quickstart process is streamlined and intuitive
-- ✅ Token counting is accurate across all supported providers
-- ✅ Price calculations match actual provider pricing
-- ✅ Cost tracking works for multi-agent workflows
+- ✅ CUA Dockerfile builds successfully and includes all dependencies
+- ✅ Users can easily pull and run CUA Docker image
+- ✅ Computer use workflows function correctly in containerized environment
+- ✅ Grok 4.1 Fast model is accessible via configuration
+- ✅ Token counting and pricing are accurate for Grok 4.1 Fast
+- ✅ Model performs with expected latency and cost characteristics
 
 ---
 
-## 📋 v0.1.17 - Memory Consistency & Frontend Evaluation
+## 📋 v0.1.21 - Computer Use Documentation & Memory Reliability
 
 ### Features
 
-**1. Improve Consistency of Memory & Tool Reminders** (@ncrispino)
-- Issue: [#537](https://github.com/massgen/MassGen/issues/537)
-- Enhance consistency of memory retrieval across agents
-- Improve tool reminder system for better agent awareness
-- Standardize memory access patterns
-- Optimize tool suggestion timing and relevance
-- **Use Case**: Ensure agents have consistent access to shared memory and receive relevant tool reminders at appropriate times, improving coordination and task execution quality
+**1. Update Computer Use Documentation** (@franklinnwren)
+- Issue: [#562](https://github.com/massgen/MassGen/issues/562)
+- Comprehensive documentation for computer use workflows
+- Updated guides for CUA setup and configuration
+- Best practices for browser and desktop automation
+- Troubleshooting guides and common issues
+- **Use Case**: Provide clear, up-to-date documentation for users implementing computer use capabilities in their MassGen workflows
 
-**2. MassGen Terminal Evaluation** (@ncrispino)
-- Issue: [#476](https://github.com/massgen/MassGen/issues/476)
-- Enable MassGen to evaluate and improve its own frontend/UI
-- Terminal session recording using asciinema for visual analysis
-- Automatic caption generation for recorded sessions
-- Video editing integration for demonstration materials
-- Comprehensive case study generation from terminal recordings
-- Self-improvement capabilities extended to frontend (currently backend-only via automation mode)
-- **Use Case**: Enable MassGen to analyze its own terminal interface, creating demonstration videos and documentation automatically, showcasing new features through automated workflows
+**2. Filesystem-Based Memory Reliability** (@ncrispino)
+- Issue: [#499](https://github.com/massgen/MassGen/issues/499)
+- Ensure filesystem-based memory is reliable and can be used across turns
+- Persistent memory state with atomic write operations
+- Crash recovery and data consistency guarantees
+- Multi-turn conversation memory continuity
+- Performance optimization for large memory contexts
+- **Use Case**: Enable reliable long-term memory persistence using filesystem backend, ensuring agents can maintain context across multiple conversation turns and system restarts without data loss
 
 ### Success Criteria
-- ✅ Memory retrieval is consistent across all agents
-- ✅ Tool reminders appear at appropriate times with relevant suggestions
-- ✅ Memory access patterns are standardized and documented
-- ✅ Terminal recording and playback system works reliably
-- ✅ Video understanding capabilities accurately analyze terminal sessions
-- ✅ Automated case study generation produces high-quality documentation
+- ✅ Computer use documentation is comprehensive and up-to-date
+- ✅ Users can follow guides to set up CUA successfully
+- ✅ Filesystem memory operations are atomic and crash-safe
+- ✅ Memory state persists reliably across conversation turns
+- ✅ Performance remains acceptable with large memory contexts
 
 ---
 
-## 📋 v0.1.18 - RL Integration & MCP Ecosystem Expansion
+## 📋 v0.1.22 - RL Integration & MCP Ecosystem Expansion
 
 ### Features
 
@@ -124,24 +125,9 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Reward modeling for multi-agent coordination
 - Policy optimization for task execution strategies
 - Learning from past interactions to improve future performance
-- **Use Case**: Enable agents to learn and improve their performance over time through reinforcement learning
+- **Use Case**: Enable agents to learn and improve their performance over time through reinforcement learning, optimizing coordination strategies and task execution based on past successes and failures
 
-### Success Criteria
-- ✅ Memory retrieval is consistent across all agents
-- ✅ Tool reminders appear at appropriate times with relevant suggestions
-- ✅ Memory access patterns are standardized and documented
-- ✅ Terminal recording and playback system works reliably
-- ✅ Video understanding capabilities accurately analyze terminal sessions
-- ✅ Automated case study generation produces high-quality documentation
-- ✅ MassGen successfully self-improves based on terminal analysis
-
----
-
-## 📋 v0.1.18 - MCP Ecosystem & RL Integration
-
-### Features
-
-**1. Smithery MCP Tools Support** (@ncrispino)
+**2. Smithery MCP Tools Support** (@ncrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
@@ -150,14 +136,6 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Enhanced tool discovery and recommendation system
 - **Use Case**: Expand MassGen's tool ecosystem by integrating with Smithery, giving users access to a wider range of curated MCP tools without manual configuration
 
-**2. Integrate RL into MassGen** (@qidanrui, @praneeth999)
-- Issue: [#527](https://github.com/massgen/MassGen/issues/527)
-- Reinforcement learning integration for agent optimization
-- Adaptive agent behavior based on feedback and outcomes
-- Reward modeling for multi-agent coordination
-- Policy optimization for task execution strategies
-- **Use Case**: Enable agents to learn and improve their performance over time through reinforcement learning, optimizing coordination strategies and task execution based on past successes and failures
-
 ### Success Criteria
 - ✅ RL framework successfully integrates with MassGen architecture
 - ✅ Agents demonstrate learning and improvement over repeated tasks
@@ -165,8 +143,6 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - ✅ Smithery integration discovers and installs MCP tools automatically
 - ✅ Tool registry includes curated Smithery tools with proper metadata
 - ✅ Users can easily browse and install Smithery tools
-- ✅ RL framework successfully integrates with MassGen architecture
-- ✅ Agents demonstrate learning and improvement over repeated tasks
 
 ---
 
@@ -311,42 +287,114 @@ These features are being actively developed on **separate parallel tracks** and 
 - Security isolation and portability for custom tool execution
 - **Status:** ✅ Completed in v0.1.15
 
+### Track: MassGen Terminal Evaluation (@ncrispino, nickcrispino)
+- Issue: [#476](https://github.com/massgen/MassGen/issues/476)
+- PR: [#553](https://github.com/massgen/MassGen/pull/553)
+- Self-evaluation and improvement of frontend/UI through terminal recording
+- Automated video generation and case study creation using VHS
+- **Status:** ✅ Completed in v0.1.16
+
+### Track: LiteLLM Cost Tracking Integration (@ncrispino, nickcrispino)
+- Issue: [#543](https://github.com/massgen/MassGen/issues/543)
+- PR: [#553](https://github.com/massgen/MassGen/pull/553)
+- Accurate cost calculation using LiteLLM's pricing database
+- Integration with LiteLLM pricing for 500+ models with auto-updates
+- **Status:** ✅ Completed in v0.1.16
+
+### Track: Memory Archiving System (@ncrispino, nickcrispino)
+- PR: [#555](https://github.com/massgen/MassGen/pull/555)
+- Persistent memory with multi-turn session support
+- Memory archiving for session persistence and continuity
+- **Status:** ✅ Completed in v0.1.16
+
+### Track: MassGen Self-Evolution Skills (@ncrispino, nickcrispino)
+- Issue: [#476](https://github.com/massgen/MassGen/issues/476)
+- Four new skills for MassGen to develop and maintain itself
+- Self-documenting release workflows and configuration generation
+- **Status:** ✅ Completed in v0.1.16
+
 ### Track: Improve Consistency of Memory & Tool Reminders (@ncrispino, nickcrispino)
 - Issue: [#537](https://github.com/massgen/MassGen/issues/537)
 - Enhance consistency of memory retrieval across agents
 - Improve tool reminder system for better agent awareness
 - Standardize memory access patterns
-- **Target:** v0.1.17
+- **Status:** ✅ Completed in v0.1.16
 
-### Track: MassGen Terminal Evaluation (@ncrispino, nickcrispino)
-- Issue: [#476](https://github.com/massgen/MassGen/issues/476)
-- Self-evaluation and improvement of frontend/UI through terminal recording
-- Automated video generation and case study creation
-- **Target:** v0.1.17
+### Track: Textual Terminal Display (@praneeth999, ram2561)
+- Issue: [#539](https://github.com/massgen/MassGen/issues/539)
+- PR: [#482](https://github.com/massgen/MassGen/pull/482)
+- Rich terminal UI using Textual framework with dark/light themes
+- Enhanced visualization for multi-agent coordination
+- **Status:** ✅ Completed in v0.1.17
 
-### Track: Make Quickstart More Intuitive (@ncrispino, nickcrispino)
-- Ensure tools and skills work properly through PyPI installation
-- Improved onboarding experience for new users
-- **Target:** v0.1.16
+### Track: Broadcasting to Humans/Agents (@ncrispino, nickcrispino)
+- Issue: [#437](https://github.com/massgen/MassGen/issues/437)
+- PR: [#569](https://github.com/massgen/MassGen/pull/569)
+- Enable agents to broadcast questions when facing implementation uncertainties
+- Human-in-the-loop and agent-to-agent communication for clarification
+- **Status:** ✅ Completed in v0.1.18
 
-### Track: LiteLLM Registry Integration (@ncrispino, nickcrispino)
-- Issue: [#543](https://github.com/massgen/MassGen/issues/543)
-- More accurate token counting across all providers
-- Precise price calculation for different models
-- **Target:** v0.1.16
+### Track: Claude Advanced Tooling (@praneeth999, ram2561)
+- PR: [#568](https://github.com/massgen/MassGen/pull/568)
+- Programmatic tool calling from code execution sandbox
+- Server-side tool search with deferred loading
+- **Status:** ✅ Completed in v0.1.18
+
+### Track: LiteLLM Integration & Programmatic API (@ncrispino, nickcrispino)
+- PR: [#580](https://github.com/massgen/MassGen/pull/580)
+- MassGen as a LiteLLM custom provider with `MassGenLLM` class
+- New `run()` and `build_config()` functions for programmatic execution
+- `NoneDisplay` for silent output in programmatic/LiteLLM use
+- **Status:** ✅ Completed in v0.1.19
+
+### Track: Claude Strict Tool Use & Structured Outputs (@praneeth999, ram2561)
+- PR: [#572](https://github.com/massgen/MassGen/pull/572)
+- `enable_strict_tool_use` config flag with recursive schema patching
+- `output_schema` parameter for structured JSON outputs
+- **Status:** ✅ Completed in v0.1.19
+
+### Track: Gemini Exponential Backoff (@praneeth999, ram2561)
+- PR: [#576](https://github.com/massgen/MassGen/pull/576)
+- Automatic retry mechanism for rate limit errors (429, 503)
+- Jittered exponential backoff with `Retry-After` header support
+- **Status:** ✅ Completed in v0.1.19
+
+### Track: CUA Dockerfile (@franklinnwren, zhichengren)
+- Issue: [#552](https://github.com/massgen/MassGen/issues/552)
+- New Dockerfile for Computer Use Agent optional installation
+- Pre-configured environment for browser/desktop automation
+- **Target:** v0.1.20
+
+### Track: Grok 4.1 Fast Model Support (@ncrispino, nickcrispino)
+- Issue: [#540](https://github.com/massgen/MassGen/issues/540)
+- Add support for xAI's Grok 4.1 Fast model
+- Integration with existing Grok backend infrastructure
+- **Target:** v0.1.20
+
+### Track: Computer Use Documentation (@franklinnwren, zhichengren)
+- Issue: [#562](https://github.com/massgen/MassGen/issues/562)
+- Comprehensive documentation for computer use workflows
+- Updated guides for CUA setup, configuration, and troubleshooting
+- **Target:** v0.1.21
+
+### Track: Filesystem-Based Memory Reliability (@ncrispino, nickcrispino)
+- Issue: [#499](https://github.com/massgen/MassGen/issues/499)
+- Ensure filesystem-based memory is reliable across conversation turns
+- Persistent memory state with atomic operations
+- **Target:** v0.1.21
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.18
+- **Target:** v0.1.22
 
 ### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
-- **Target:** v0.1.18
+- **Target:** v0.1.22
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -428,5 +476,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** November 21, 2025
+**Last Updated:** December 2, 2025
 **Maintained By:** MassGen Team

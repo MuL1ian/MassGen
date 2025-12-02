@@ -42,3 +42,58 @@ a:has(img[src*="img.shields.io"]) {
     text-decoration: none !important;
     border-bottom: none !important;
 }
+
+/* ============================================
+   Sphinx-tabs dark mode support
+   ============================================ */
+
+/* Dark mode tab styling */
+html[data-theme="dark"] .sphinx-tabs-tab {
+    background-color: #1a1a2e !important;
+    color: #e0e0e0 !important;
+    border-color: #3d3d5c !important;
+}
+
+html[data-theme="dark"] .sphinx-tabs-tab:hover {
+    background-color: #2d2d44 !important;
+}
+
+html[data-theme="dark"] .sphinx-tabs-tab[aria-selected="true"] {
+    background-color: #2d2d44 !important;
+    color: #ffffff !important;
+    border-bottom-color: #2d2d44 !important;
+}
+
+html[data-theme="dark"] .sphinx-tabs-panel {
+    background-color: #1e1e2e !important;
+    border-color: #3d3d5c !important;
+    color: #e0e0e0 !important;
+}
+
+/* Code blocks inside tabs - dark mode */
+html[data-theme="dark"] .sphinx-tabs-panel .highlight {
+    background-color: #0d1117 !important;
+}
+
+html[data-theme="dark"] .sphinx-tabs-panel .highlight pre {
+    background-color: #0d1117 !important;
+    color: #c9d1d9 !important;
+}
+
+/* Tab container border */
+html[data-theme="dark"] .sphinx-tabs {
+    border-color: #3d3d5c !important;
+}
+
+/* Ensure text inside panels is visible in dark mode */
+html[data-theme="dark"] .sphinx-tabs-panel p,
+html[data-theme="dark"] .sphinx-tabs-panel li,
+html[data-theme="dark"] .sphinx-tabs-panel code {
+    color: #e0e0e0 !important;
+}
+
+/* Inline code in tabs */
+html[data-theme="dark"] .sphinx-tabs-panel code.literal {
+    background-color: #2d2d44 !important;
+    color: #ff79c6 !important;
+}

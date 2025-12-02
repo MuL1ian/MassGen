@@ -227,7 +227,108 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.15 - Latest
+### v0.1.19 - Latest
+**New Features:** LiteLLM Integration & Programmatic API, Claude Strict Tool Use & Structured Outputs, Gemini Exponential Backoff
+
+**Configuration Files:**
+- `providers/claude/strict_tool_use_example.yaml` - Claude strict tool use with custom and MCP tools
+
+**Key Features:**
+- **LiteLLM Integration**: MassGen as a drop-in LiteLLM custom provider via `MassGenLLM` class with `register_with_litellm()` one-line setup
+- **Programmatic API**: New `run()` and `build_config()` functions for direct Python execution, `NoneDisplay` for silent output
+- **Claude Strict Tool Use**: `enable_strict_tool_use` config flag with recursive schema patching, `output_schema` for structured JSON outputs
+- **Gemini Exponential Backoff**: Automatic retry for rate limit errors (429, 503) with `BackoffConfig` and `Retry-After` header support
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Claude Strict Tool Use - schema validation with structured outputs
+# Prerequisites: ANTHROPIC_API_KEY in .env
+uv run massgen --config massgen/configs/providers/claude/strict_tool_use_example.yaml \
+  "Add 42 and 58, then get weather for Tokyo"
+```
+
+### v0.1.18
+**New Features:** Agent Communication System (Human Broadcast Q&A), Claude Programmatic Tool Calling, Claude Tool Search
+
+**Configuration Files:**
+- `providers/claude/programmatic_with_two_tools.yaml` - Claude programmatic tool calling with custom and MCP tools
+- `providers/claude/tool_search_example.yaml` - Claude tool search with deferred loading
+- `broadcast/test_broadcast_agents.yaml` - Agent-to-agent broadcast communication
+- `broadcast/test_broadcast_human.yaml` - Human broadcast communication with Q&A prompts
+
+**Key Features:**
+- **Agent Communication System**: Agents broadcast questions to humans or other agents via `ask_others()` tool with three modes, blocking execution with inline response delivery, session-persistent Q&A history
+- **Claude Programmatic Tool Calling**: Code execution invokes tools via `enable_programmatic_flow` flag (requires claude-opus-4-5 or claude-sonnet-4-5)
+- **Claude Tool Search**: Server-side deferred tool discovery via `enable_tool_search` with regex or bm25 variants
+
+**Try It:**
+```bash
+# Claude Programmatic Tool Calling - call tools from code execution
+# Prerequisites: ANTHROPIC_API_KEY in .env
+massgen --config massgen/configs/providers/claude/programmatic_with_two_tools.yaml \
+  "Add 5 and 3, then get weather for Tokyo and New York"
+
+# Claude Tool Search - deferred tool discovery (visible + deferred tools)
+# Prerequisites: ANTHROPIC_API_KEY, BRAVE_API_KEY in .env
+massgen --config massgen/configs/providers/claude/tool_search_example.yaml \
+  "Check weather in tokyo, search for tourist attractions, and find me an Airbnb there for 3 nights in january 2026"
+```
+
+### v0.1.17
+**New Features:** Textual Terminal Display System with Dark/Light Themes (Early Release)
+
+**Configuration Files:**
+- `basic/single_agent_textual.yaml` - Single agent with Textual terminal display
+
+**Key Features:**
+- **Textual Terminal Display**: Modern interactive terminal UI using the Textual library with multi-panel layout for agents and orchestrator
+- **Dark & Light Themes**: VS Code-inspired TCSS stylesheets for customizable appearance
+- **Enhanced Visualization**: Real-time streaming with syntax highlighting, emoji fallback, and content filtering for critical patterns
+
+> **Note:** This is an early release of the Textual display. The default remains `rich_terminal` for stability, but we'll continue iterating on the Textual version.
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Textual Terminal Display - enhanced interactive UI with dark/light themes
+# Prerequisites: OPENAI_API_KEY in .env
+massgen --config massgen/configs/basic/single_agent_textual.yaml \
+  "What is the transformers in deep learning?"
+```
+
+### v0.1.16
+**New Features:** Terminal Evaluation System, LiteLLM Cost Tracking, Memory Archiving, Self-Evolution Skills
+
+**Configuration Files:**
+- `meta/massgen_evaluates_terminal.yaml` - MassGen evaluates its own terminal display with VHS recording
+- `tools/custom_tools/terminal_evaluation.yaml` - Terminal evaluation tool demonstration
+- `skills/test_memory.yaml` - Memory archiving with multi-turn session support
+
+**Key Features:**
+- **Terminal Evaluation System**: Record terminal sessions with VHS and analyze with multimodal AI for UI/UX evaluation
+- **LiteLLM Cost Tracking**: Accurate pricing for 500+ models with automatic updates, reasoning token support
+- **Memory Archiving**: Persistent memory across conversation turns for session continuity
+- **Self-Evolution Skills**: Four new skills for MassGen self-development and maintenance
+
+**Try It:**
+```bash
+# Terminal Evaluation - record and analyze MassGen's terminal display
+# Prerequisites: VHS installed (brew install vhs), OPENAI_API_KEY or GEMINI_API_KEY in .env
+uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
+  "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
+
+# Memory Archiving - persistent memory across conversation turns
+# Prerequisites: Docker running, API keys in .env
+uv run massgen --config massgen/configs/skills/test_memory.yaml \
+  "Create a website about Bob Dylan"
+```
+
+### v0.1.15
 **New Features:** Persona Generation System, Docker Distribution & Custom Tools Enhancement
 
 **Configuration Files:**
@@ -243,9 +344,6 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Persona Generation - automatic diverse system messages for agents
 # Prerequisites: OPENAI_API_KEY in .env, Docker running for code execution
 uv run massgen --config massgen/configs/basic/multi/persona_diversity_example.yaml \

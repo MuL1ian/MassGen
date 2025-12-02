@@ -65,9 +65,12 @@ dependencies = [
     "mem0ai>=1.0.0",
     "reportlab>=4.0.0",
     "dspy>=2.4.0",
+    "textual>=0.47.0",
+    "litellm>=1.0.0",
 ]
 
 [project.optional-dependencies]
+
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -102,7 +105,11 @@ docker = [
 external = [
     "ag2>=0.9.10",
 ]
+litellm = [
+    "litellm>=1.0.0",
+]
 all = [
+    "litellm>=1.0.0",
 ]
 
 [project.scripts]
@@ -230,6 +237,7 @@ markers = [
     "unit: marks tests as unit tests",
     "asyncio: mark test as requiring asyncio",
     "docker: marks tests that require Docker to be installed and running",
+    "expensive: marks tests that cost money (API calls with >$0.01 cost, skip by default)",
 ]
 asyncio_mode = "auto"
 filterwarnings = [

@@ -1,0 +1,88 @@
+# MassGen Configuration: Terminal Evaluation Tool
+#
+# This config demonstrates how to use the run_massgen_with_recording tool to evaluate
+# MassGen's terminal display and frontend user experience.
+#
+# Prerequisites:
+#   - VHS terminal recorder: https://github.com/charmbracelet/vhs
+#     Install: brew install vhs (macOS) or go install github.com/charmbracelet/vhs@latest
+#   - OpenAI API key in .env file
+#
+# Usage:
+#   uv run massgen --config massgen/configs/tools/custom_tools/terminal_evaluation.yaml "Record and evaluate the terminal display for the todo example config"
+#
+agents:
+  - id: "terminal_evaluator"
+    backend:
+      type: "openai"
+      model: "gpt-5-mini"
+      cwd: "workspace_terminal_eval"
+      enable_mcp_command_line: true  # Required for VHS
+      custom_tools:
+        - name: ["run_massgen_with_recording"]
+          category: "terminal_evaluation"
+          path: "massgen/tool/_multimodal_tools/run_massgen_with_recording.py"
+          function: ["run_massgen_with_recording"]
+        - name: ["understand_video"]
+          category: "multimodal"
+          path: "massgen/tool/_multimodal_tools/understand_video.py"
+          function: ["understand_video"]
+    system_message: |
+      You are an AI assistant specialized in evaluating terminal user interfaces and user experience.
+
+      You have access to TWO tools for terminal evaluation:
+
+      1. **run_massgen_with_recording**: Records a MassGen session as video
+         - Input: config path, question, output format (mp4/gif/webm)
+         - Output: Video file saved to workspace + metadata
+         - Use this FIRST to capture the terminal session
+
+      2. **understand_video**: Analyzes video files with GPT-4.1 vision
+         - Input: video path, analysis prompt, number of frames
+         - Output: Detailed analysis based on video frames
+         - Use this AFTER recording to analyze the terminal display
+         - You can call this MULTIPLE TIMES with different prompts to focus on different aspects
+
+      Workflow:
+      1. Use run_massgen_with_recording to record a MassGen session
+      2. Use understand_video to analyze the recording (can call multiple times)
+      3. Provide comprehensive evaluation based on the analysis
+
+      When evaluating terminal displays, consider asking about:
+      - Visual clarity and readability
+      - Information density and organization
+      - Status indicators and their effectiveness
+      - Multi-agent coordination visualization
+      - Color scheme and contrast
+      - Overall user experience and flow
+      - Specific improvements needed
+
+      Example workflow:
+      User: "Record and evaluate the todo example config"
+
+      You:
+      1. Call run_massgen_with_recording(config="...", question="...", output_format="mp4")
+      2. Call understand_video(video_path="...", prompt="Evaluate overall UX quality")
+      3. Call understand_video(video_path="...", prompt="Focus on status indicators")
+      4. Call understand_video(video_path="...", prompt="Evaluate coordination display")
+      5. Synthesize all analyses into comprehensive report
+
+      The benefit: You can ask targeted questions about the video to get detailed insights!
+
+      Do not output tool call syntax. Focus on providing actionable UX insights.
+
+orchestrator:
+  snapshot_storage: "snapshots_terminal_eval"
+  agent_temporary_workspace: "temp_workspaces_terminal_eval"
+  context_paths:
+    # Example config files that can be used for terminal evaluation
+    - path: "massgen/configs/tools/todo/example_task_todo.yaml"
+      permission: "read"
+    - path: "massgen/configs/basic/multi/two_agents_gemini.yaml"
+      permission: "read"
+    - path: "massgen/configs/tools/custom_tools/multimodal_tools/understand_video.yaml"
+      permission: "read"
+
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true

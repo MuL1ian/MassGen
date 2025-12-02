@@ -119,7 +119,7 @@ Start interactive mode by omitting the question:
      --config @examples/basic/multi/three_agents_default.yaml
 
 .. seealso::
-   :doc:`../user_guide/multi_turn_mode` - Complete interactive mode guide with commands and session management
+   :doc:`../user_guide/sessions/multi_turn_mode` - Complete interactive mode guide with commands and session management
 
 Tool Usage Examples
 -------------------
@@ -333,9 +333,9 @@ Next Steps
 ----------
 
 * :doc:`advanced_patterns` - Advanced multi-agent patterns
-* :doc:`../user_guide/mcp_integration` - MCP integration guide
-* :doc:`../user_guide/file_operations` - File operations guide
-* :doc:`../user_guide/multi_turn_mode` - Interactive mode guide
+* :doc:`../user_guide/tools/mcp_integration` - MCP integration guide
+* :doc:`../user_guide/files/file_operations` - File operations guide
+* :doc:`../user_guide/sessions/multi_turn_mode` - Interactive mode guide
 * :doc:`../reference/yaml_schema` - Complete YAML reference
 
 Troubleshooting

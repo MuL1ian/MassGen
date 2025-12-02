@@ -1,11 +1,11 @@
 # MassGen Three Agent Configuration
-# Gemini-2.5-flash, GPT-5-nano, and Grok-3-mini with builtin tools enabled
+# Gemini-3-Pro, GPT-5-nano, and Grok-4-fast with builtin tools enabled
 # uv run python -m massgen.cli --config massgen/configs/basic/multi/three_agents_default.yaml "What is 2+2?"
 agents:
-  - id: "gemini2.5flash"
+  - id: "gemini3pro"
     backend:
       type: "gemini"
-      model: "gemini-2.5-flash"
+      model: "gemini-3-pro-preview"
       enable_web_search: true
       # enable_code_execution: true
     # system_message: "You are a helpful AI assistant with web search and code execution capabilities. For any question involving current events, recent information, or real-time data, ALWAYS use web search first."

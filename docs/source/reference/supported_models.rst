@@ -434,6 +434,6 @@ See Also
 --------
 
 * :doc:`../user_guide/backends` - Detailed backend configuration
-* :doc:`../user_guide/mcp_integration` - MCP tool setup
-* :doc:`../user_guide/general_interoperability` - Framework interoperability (including AG2)
+* :doc:`../user_guide/tools/mcp_integration` - MCP tool setup
+* :doc:`../user_guide/integration/general_interoperability` - Framework interoperability (including AG2)
 * :doc:`yaml_schema` - YAML configuration reference

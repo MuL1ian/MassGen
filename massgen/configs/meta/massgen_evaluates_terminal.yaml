@@ -1,0 +1,72 @@
+# Meta Configuration: MassGen Evaluates Its Own Terminal Display
+#
+# This config enables MassGen to record and evaluate its own terminal UI/UX.
+# The agent can record MassGen sessions as videos and analyze them with GPT-4.1 vision
+# to identify improvements to the terminal display.
+#
+# Prerequisites:
+# - VHS terminal recorder: brew install vhs (macOS)
+# - OpenAI API key in .env file
+#
+# Run with:
+#   uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
+
+agents:
+  - id: "terminal_evaluator"
+    backend:
+      # type: "openai"
+      # model: "gpt-5-codex"
+      type: "gemini"
+      model: "gemini-3-pro-preview"
+      cwd: "workspace_terminal_eval"
+
+      # Enable code-based tools for the multimodal tools
+      enable_code_based_tools: true
+      exclude_file_operation_mcps: true
+      enable_mcp_command_line: true
+
+      # Command line execution (Docker mode will auto-switch to local if already in container)
+      command_line_execution_mode: "docker"
+      command_line_docker_image: "massgen/mcp-runtime-sudo:latest"  # Local image with VHS
+      command_line_docker_network_mode: "bridge"
+      command_line_docker_enable_sudo: true
+
+      # Pass API keys to Docker for the vision analysis
+      command_line_docker_credentials:
+        env_file: ".env"
+        env_vars_from_file:
+          - "OPENAI_API_KEY"
+          - "GEMINI_API_KEY"
+
+      # Shared tools directory
+      shared_tools_directory: "shared_tools"
+
+      # Auto-discover custom tools (includes run_massgen_with_recording, understand_video)
+      auto_discover_custom_tools: true
+
+      # Exclude tools not needed for terminal evaluation
+      exclude_custom_tools:
+        - "_claude_computer_use"
+        - "_gemini_computer_use"
+        - "_browser_automation"
+        - "_extraframework_agents"
+
+orchestrator:
+  snapshot_storage: "snapshots_terminal_eval"
+  agent_temporary_workspace: "temp_workspaces_terminal_eval"
+
+  # Enable skills directory so agent can read massgen-develops-massgen skill
+  skills_directory: ".agent/skills"
+
+  context_paths:
+    # Full access to massgen directory for configs and code
+    - path: "massgen"
+      permission: "read"
+
+  coordination:
+    enable_agent_task_planning: true
+    use_skills: true
+
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true

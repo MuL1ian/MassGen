@@ -2,21 +2,22 @@
 # Run with: uv run massgen --config massgen/configs/skills/test_memory.yaml "Create a website about Bob Dylan"
 
 agents:
-  # - id: "agent_a"
-  #   backend:
-  #     type: "openai"
-  #     model: "gpt-5-mini"
-  #     cwd: "workspace1"  # Required for filesystem mode
-  #     enable_mcp_command_line: true
-  #     command_line_execution_mode: "docker"
-
-  - id: "agent_b"
+  - id: "agent_a"
     backend:
-      type: "gemini"
-      model: "gemini-2.5-pro"  # "gemini-3-pro-preview"
-      cwd: "workspace2"  # Required for filesystem mode
+      type: "chatcompletion"
+      base_url: "https://openrouter.ai/api/v1"
+      model: "x-ai/grok-4.1-fast"
+      cwd: "workspace1"  # Required for filesystem mode
       enable_mcp_command_line: true
       command_line_execution_mode: "docker"
+
+  # - id: "agent_b"
+  #   backend:
+  #     type: "gemini"
+  #     model: "gemini-2.5-pro"
+  #     cwd: "workspace2"  # Required for filesystem mode
+  #     enable_mcp_command_line: true
+  #     command_line_execution_mode: "docker"
 
 orchestrator:
   snapshot_storage: "snapshots"
@@ -29,9 +30,9 @@ orchestrator:
     # Enable memory filesystem mode
     enable_memory_filesystem_mode: true
     # Enable automatic persona generation for agent diversity
-    persona_generator:
-      enabled: true
-      backend:
-        type: openai
-        model: gpt-4o-mini
-      strategy: complementary
+    # persona_generator:
+    #   enabled: true
+    #   backend:
+    #     type: openai
+    #     model: gpt-4o-mini
+    #   strategy: complementary

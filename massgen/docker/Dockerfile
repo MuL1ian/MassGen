@@ -22,6 +22,9 @@ ENV PYTHONUNBUFFERED=1 \
 # - build-essential: Compiling Python packages with C extensions
 # - ripgrep: Fast text search (REQUIRED for filesystem-first mode)
 # - unzip: For extracting ast-grep binary
+# - ffmpeg: Video encoding (for VHS terminal recording)
+# - golang-go: Go runtime (for VHS installation)
+# - wget: For downloading ttyd binary
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -29,6 +32,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ripgrep \
     unzip \
+    ffmpeg \
+    golang-go \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20.x (LTS) for JavaScript execution
@@ -43,6 +49,19 @@ RUN pip install --no-cache-dir ast-grep-cli
 # Install openskills CLI for skills management
 # Anthropic skills are installed manually beforehand and added as a volume at runtime
 RUN npm install -g openskills
+
+# Fix MCP filesystem server schema issue
+# The latest @modelcontextprotocol/server-filesystem (2025.8.21) has a Zod version conflict:
+# - @modelcontextprotocol/sdk uses Zod 3.25.76
+# - zod-to-json-schema@3.25.0 expects Zod 4.x
+# This causes schemas to return only {"$schema": " "http://json-schema.org/draft-07/schema#"}
+# instead of full parameter definitions, so the agents cannot generate correct tool calls.
+# Fix: Downgrade zod-to-json-schema to 3.23.0 which works with Zod 3.
+# When in Docker, the filesystem npm is used instead of through npx.
+RUN npm install -g @modelcontextprotocol/server-filesystem && \
+    cd $(npm root -g)/@modelcontextprotocol/server-filesystem && \
+    npm uninstall zod-to-json-schema && \
+    npm install zod-to-json-schema@3.23.0
 
 # Install semtools for semantic search (optional semtools skills)
 RUN npm install -g @llamaindex/semtools
@@ -109,6 +128,31 @@ RUN python -m playwright install
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/massgen/.local/bin:${PATH}"
 
+# Install VHS terminal recorder (for terminal evaluation/recording)
+# https://github.com/charmbracelet/vhs
+RUN go install github.com/charmbracelet/vhs@latest
+ENV PATH="/home/massgen/go/bin:${PATH}"
+
+# Install ttyd for VHS SSH mode (VHS's preferred recording mode)
+# https://github.com/tsl0922/ttyd/releases/tag/1.7.7
+# ttyd is lightweight (~1.3MB) and more reliable than browser mode for VHS
+USER root
+RUN ARCH=$(uname -m) && \
+    TTYD_VERSION="1.7.7" && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        TTYD_ARCH="x86_64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        TTYD_ARCH="aarch64"; \
+    elif [ "$ARCH" = "armv7l" ]; then \
+        TTYD_ARCH="armhf"; \
+    elif [ "$ARCH" = "i686" ]; then \
+        TTYD_ARCH="i686"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    wget -q "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${TTYD_ARCH}" -O /usr/local/bin/ttyd && \
+    chmod +x /usr/local/bin/ttyd
+USER massgen
 # Install MassGen package from source
 # This provides MCP server modules and fastmcp CLI needed for agent operation
 # Installs from the git repository being built (not PyPI) to ensure version sync

@@ -1,0 +1,65 @@
+# MassGen Configuration: Claude with Tool Search (Deferred Loading)
+# Demonstrates tool search feature where some tools are deferred and discovered on-demand.
+# Claude will use tool_search to discover deferred tools when needed.
+# Usage Examples:
+#   # Test visible tools only (no tool search needed)
+#   uv run massgen --config massgen/configs/providers/claude/tool_search_example.yaml "What is 42 plus 58? Also check the weather in London"
+#   # Mix visible + deferred tools (weather + airbnb + brave search)
+#   uv run massgen --config massgen/configs/providers/claude/tool_search_example.yaml "Check weather in tokyo, search for tourist attractions, and find me an Airbnb there for 3 nights in january 2026(use best dates to go there)"
+
+agents:
+  - id: "claude-tool-search"
+    backend:
+      type: "claude"
+      model: "claude-sonnet-4-5-20250929"
+      enable_tool_search: true
+      tool_search_variant: "bm25"  # bm25 for semantic search, regex for pattern matching
+
+      # Custom tools - 2 tools, 1 visible + 1 deferred
+      custom_tools:
+        # VISIBLE: Math tool - always available (defer_loading: false)
+        - name: "two_num_tool"
+          category: "math"
+          path: "massgen/tool/_basic/_two_num_tool.py"
+          function: "two_num_tool"
+          defer_loading: false  # Explicitly visible
+
+        # DEFERRED: File operations - discovered via tool search
+        - name: "read_file_content"
+          category: "file_operations"
+          path: "massgen/tool/_file_handlers/_file_operations.py"
+          function: "read_file_content"
+          # defer_loading: true (default when tool_search enabled)
+
+      # MCP servers - 3 servers, 1 visible + 2 deferred
+      mcp_servers:
+        # VISIBLE: Weather MCP - always available
+        - name: "weather"
+          type: "stdio"
+          command: "npx"
+          args: ["-y", "@fak111/weather-mcp"]
+          defer_loading: false  # Explicitly visible
+
+        # DEFERRED: Brave Search MCP - discovered via tool search
+        - name: "brave_search"
+          type: "stdio"
+          command: "npx"
+          args: ["-y", "@modelcontextprotocol/server-brave-search"]
+          env:
+            BRAVE_API_KEY: "${BRAVE_API_KEY}"
+          # defer_loading: true (default when tool_search enabled)
+
+        # DEFERRED: Airbnb MCP - discovered via tool search
+        - name: "airbnb_search"
+          type: "stdio"
+          command: "npx"
+          args: ["-y", "@openbnb/mcp-server-airbnb", "--ignore-robots-txt"]
+          # defer_loading: true (default when tool_search enabled)
+
+    system_message: |
+      You are a helpful AI assistant. Use the available tools to complete tasks.
+      If you need a tool that isn't visible, use tool_search to discover it.
+
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true

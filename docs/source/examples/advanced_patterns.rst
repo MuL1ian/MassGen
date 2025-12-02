@@ -255,7 +255,7 @@ Agents working on real codebases with granular permissions:
 * **Final agent**: Gets configured permission (read or write)
 * **Read-before-delete**: Agents must read files before deleting them
 
-See :doc:`../user_guide/project_integration` for complete documentation.
+See :doc:`../user_guide/files/project_integration` for complete documentation.
 
 Multi-Turn Workflows
 --------------------
@@ -380,7 +380,7 @@ Combine MassGen orchestration with AG2 code execution:
      --config @examples/ag2/ag2_coder_case_study.yaml \
      "Build a data analysis pipeline with visualizations"
 
-See :doc:`../user_guide/general_interoperability` for complete AG2 documentation.
+See :doc:`../user_guide/integration/general_interoperability` for complete AG2 documentation.
 
 Performance Optimization Patterns
 ----------------------------------
@@ -517,9 +517,9 @@ Next Steps
 
 * :doc:`case_studies` - Real-world case studies with session logs
 * :doc:`basic_examples` - Fundamental usage examples
-* :doc:`../user_guide/mcp_integration` - MCP integration guide
-* :doc:`../user_guide/file_operations` - File operations guide
-* :doc:`../user_guide/multi_turn_mode` - Interactive mode guide
+* :doc:`../user_guide/tools/mcp_integration` - MCP integration guide
+* :doc:`../user_guide/files/file_operations` - File operations guide
+* :doc:`../user_guide/sessions/multi_turn_mode` - Interactive mode guide
 * :doc:`../reference/yaml_schema` - Complete YAML reference
 
 Troubleshooting

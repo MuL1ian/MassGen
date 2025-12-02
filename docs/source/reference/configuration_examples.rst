@@ -99,7 +99,7 @@ MCP enables agents to use external tools and services:
      --config @examples/tools/mcp/claude_code_discord_mcp_example.yaml \
      "Extract latest messages"
 
-See :doc:`../user_guide/mcp_integration` for complete MCP documentation.
+See :doc:`../user_guide/tools/mcp_integration` for complete MCP documentation.
 
 Planning Mode
 ~~~~~~~~~~~~~
@@ -113,7 +113,7 @@ Prevent irreversible actions during coordination:
      --config @examples/tools/planning/five_agents_filesystem_mcp_planning_mode.yaml \
      "Create a comprehensive project structure"
 
-See :doc:`../user_guide/planning_mode` for complete planning mode documentation.
+See :doc:`../user_guide/advanced/planning_mode` for complete planning mode documentation.
 
 Web Search
 ~~~~~~~~~~
@@ -154,7 +154,7 @@ For file manipulation, :term:`workspace` management, and :term:`context path` in
      --config @examples/tools/filesystem/claude_code_context_sharing.yaml \
      "Create shared workspace files"
 
-See :doc:`../user_guide/file_operations` for complete filesystem documentation.
+See :doc:`../user_guide/files/file_operations` for complete filesystem documentation.
 
 Provider-Specific Examples
 --------------------------
@@ -292,7 +292,7 @@ MCP Server Configuration
          env:
            KEY: "${ENV_VAR}"
 
-See :doc:`../user_guide/mcp_integration` for complete MCP configuration.
+See :doc:`../user_guide/tools/mcp_integration` for complete MCP configuration.
 
 Finding the Right Configuration
 --------------------------------
@@ -309,7 +309,7 @@ Release History & Examples
 v0.0.29 - Latest
 ~~~~~~~~~~~~~~~~
 
-**New Features:** :doc:`../user_guide/planning_mode`, File Operation Safety, Enhanced MCP Tool Filtering
+**New Features:** :doc:`../user_guide/advanced/planning_mode`, File Operation Safety, Enhanced MCP Tool Filtering
 
 **Key Configurations:**
 
@@ -335,7 +335,7 @@ v0.0.29 - Latest
 v0.0.28
 ~~~~~~~
 
-**New Features:** :doc:`../user_guide/general_interoperability`, External Agent Backend, Code Execution Support
+**New Features:** :doc:`../user_guide/integration/general_interoperability`, External Agent Backend, Code Execution Support
 
 **Key Configurations:**
 
@@ -385,7 +385,7 @@ v0.0.27
 v0.0.26
 ~~~~~~~
 
-**New Features:** File Deletion, :doc:`../user_guide/protected_paths`, File-Based Context Paths
+**New Features:** File Deletion, :doc:`../user_guide/files/protected_paths`, File-Based Context Paths
 
 **Key Configurations:**
 
@@ -405,7 +405,7 @@ v0.0.26
 v0.0.25
 ~~~~~~~
 
-**New Features:** :doc:`../user_guide/multi_turn_mode` Filesystem Support, SGLang Backend Integration
+**New Features:** :doc:`../user_guide/sessions/multi_turn_mode` Filesystem Support, SGLang Backend Integration
 
 **Key Configurations:**
 
@@ -506,6 +506,6 @@ Related Documentation
 * :doc:`yaml_schema` - Complete YAML schema reference
 * :doc:`supported_models` - All supported models and backends
 * :doc:`cli` - Command-line interface reference
-* :doc:`../user_guide/mcp_integration` - MCP tool integration guide
-* :doc:`../user_guide/planning_mode` - Planning mode documentation
-* :doc:`../user_guide/protected_paths` - Protected paths feature
+* :doc:`../user_guide/tools/mcp_integration` - MCP tool integration guide
+* :doc:`../user_guide/advanced/planning_mode` - Planning mode documentation
+* :doc:`../user_guide/files/protected_paths` - Protected paths feature

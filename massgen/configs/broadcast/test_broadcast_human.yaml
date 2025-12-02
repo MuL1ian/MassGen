@@ -1,0 +1,38 @@
+# uv run massgen --config test_broadcast_human.yaml "Design and implement a web scraper"
+
+task: |
+  Design and implement a simple web scraper that extracts article titles
+  and dates from a news website. The agents should coordinate on the approach
+  and you (the human) can provide input when they ask questions.
+
+agents:
+  - id: agent_a
+    backend:
+      type: openai
+      model: gpt-5
+      cwd: workspace1
+      enable_mcp_command_line: true
+      command_line_execution_mode: docker
+
+  - id: agent_b
+    backend:
+      type: gemini
+      model: gemini-3-pro-preview
+      cwd: workspace2
+      enable_mcp_command_line: true
+      command_line_execution_mode: docker
+
+orchestrator:
+  # Workspace configuration
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+
+  # Enable agent-to-agent AND human communication
+  coordination:
+    broadcast: "human"  # Human will be prompted for responses
+    broadcast_sensitivity: "high"  # Options: "low" | "medium" | "high" (how frequently agents use ask_others)
+    broadcast_timeout: 60  # Shorter timeout for testing
+    broadcast_wait_by_default: true
+    max_broadcasts_per_agent: 5
+
+    # enable_agent_task_planning: true

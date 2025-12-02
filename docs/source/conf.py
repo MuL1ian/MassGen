@@ -53,6 +53,11 @@ try:
 except ImportError:
     print("Warning: sphinx-hoverxref not installed. Glossary tooltips disabled.")
 
+try:
+    extensions.append("sphinx_tabs.tabs")
+except ImportError:
+    print("Warning: sphinx-tabs not installed. Tabbed content disabled.")
+
 # MyST parser configuration
 myst_enable_extensions = [
     "colon_fence",

@@ -14,13 +14,14 @@ from massgen.backend.capabilities import BACKEND_CAPABILITIES
 # Used for fuzzy matching when full model list is too large to enumerate
 COMMON_MODELS_BY_PROVIDER = {
     "openrouter": [
-        # Anthropic models
-        "anthropic/claude-sonnet-4-5-20250929",
-        "anthropic/claude-opus-4-1-20250805",
-        "anthropic/claude-sonnet-4-20250514",
-        "anthropic/claude-3-7-sonnet-20250219",
-        "anthropic/claude-3-5-sonnet-20241022",
-        "anthropic/claude-3-5-haiku-20241022",
+        # Anthropic models (OpenRouter uses dot notation, e.g., claude-sonnet-4.5)
+        "anthropic/claude-sonnet-4.5",
+        "anthropic/claude-opus-4.5",
+        "anthropic/claude-opus-4",
+        "anthropic/claude-sonnet-4",
+        "anthropic/claude-3.7-sonnet",
+        "anthropic/claude-3.5-sonnet",
+        "anthropic/claude-3.5-haiku",
         # OpenAI models
         "openai/gpt-5",
         "openai/gpt-5-mini",

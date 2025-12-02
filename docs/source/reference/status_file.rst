@@ -503,6 +503,6 @@ status.json evolves through these states during coordination:
 See Also
 ========
 
-- :doc:`../user_guide/automation` - Complete automation guide
+- :doc:`../user_guide/integration/automation` - Complete automation guide
 - :doc:`cli` - CLI reference including ``--automation`` flag
 - ``AI_USAGE.md`` - Quick reference for LLM agents
