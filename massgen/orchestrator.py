@@ -2053,8 +2053,11 @@ Your answer:"""
                                     # Record vote with context for timeline visualization
                                     if display and hasattr(display, "record_vote_with_context"):
                                         agent_num = self.coordination_tracker._get_agent_number(agent_id)
-                                        # Use format like "agent1.vote1"
-                                        vote_label = f"agent{agent_num}.vote1"
+                                        # Count previous votes by this agent to get vote number
+                                        votes_by_agent = [v for v in self.coordination_tracker.votes if v.voter_id == agent_id]
+                                        vote_number = len(votes_by_agent)  # Already recorded above, so this is the count
+                                        # Use format like "vote1.1" (matches answer format "agent1.1")
+                                        vote_label = f"vote{agent_num}.{vote_number}"
                                         available_answers = self.coordination_tracker.iteration_available_labels.copy()
                                         display.record_vote_with_context(
                                             voter_id=agent_id,

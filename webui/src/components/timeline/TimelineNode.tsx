@@ -129,48 +129,124 @@ export function TimelineNode({ node, x, y, size, onClick }: TimelineNodeProps) {
       {/* Tooltip on hover */}
       {isHovered && (
         <g>
-          <rect
-            x={x + radius + 10}
-            y={y - 30}
-            width={140}
-            height={60}
-            rx={6}
-            fill="rgba(31, 41, 55, 0.95)"
-            stroke="rgba(75, 85, 99, 0.5)"
-            strokeWidth={1}
-          />
-          <text
-            x={x + radius + 18}
-            y={y - 12}
-            className="fill-gray-200 text-xs font-medium"
-          >
-            {node.label}
-          </text>
-          <text
-            x={x + radius + 18}
-            y={y + 4}
-            className="fill-gray-400 text-xs"
-          >
-            {formatTime(node.timestamp)}
-          </text>
-          {node.type === 'vote' && node.votedFor && (
-            <text
-              x={x + radius + 18}
-              y={y + 20}
-              className="fill-amber-400 text-xs"
-            >
-              → {node.votedFor}
-            </text>
-          )}
-          {node.contextSources.length > 0 && (
-            <text
-              x={x + radius + 18}
-              y={y + 20}
-              className="fill-blue-400 text-xs"
-            >
-              ← {node.contextSources.join(', ')}
-            </text>
-          )}
+          {/* Calculate tooltip dimensions based on content */}
+          {(() => {
+            const tooltipX = x + radius + 10;
+            const tooltipY = y - 40;
+            const lineHeight = 14;
+            let currentY = tooltipY + 16;
+
+            // Calculate height based on content
+            let contentLines = 2; // label + timestamp
+            if (node.type === 'vote' && node.votedFor) contentLines += 1;
+            if (node.type === 'vote' && node.contextSources.length > 0) {
+              contentLines += 1; // "Options:" header
+              contentLines += node.contextSources.length; // Each option on its own line
+            } else if (node.contextSources.length > 0) {
+              contentLines += 1; // "Context:" header
+              contentLines += Math.min(node.contextSources.length, 4); // Limit displayed
+            }
+
+            const tooltipHeight = 20 + contentLines * lineHeight;
+            const tooltipWidth = 150;
+
+            return (
+              <>
+                <rect
+                  x={tooltipX}
+                  y={tooltipY}
+                  width={tooltipWidth}
+                  height={tooltipHeight}
+                  rx={6}
+                  fill="rgba(31, 41, 55, 0.95)"
+                  stroke="rgba(75, 85, 99, 0.5)"
+                  strokeWidth={1}
+                />
+                {/* Label */}
+                <text
+                  x={tooltipX + 8}
+                  y={currentY}
+                  className="fill-gray-200 text-xs font-medium"
+                >
+                  {node.label}
+                </text>
+                {/* Timestamp */}
+                <text
+                  x={tooltipX + 8}
+                  y={currentY += lineHeight}
+                  className="fill-gray-400 text-xs"
+                >
+                  {formatTime(node.timestamp)}
+                </text>
+                {/* Vote target (for vote nodes) */}
+                {node.type === 'vote' && node.votedFor && (
+                  <text
+                    x={tooltipX + 8}
+                    y={currentY += lineHeight}
+                    className="fill-amber-400 text-xs font-medium"
+                  >
+                    Voted: {node.votedFor}
+                  </text>
+                )}
+                {/* Vote options (context sources for vote nodes) */}
+                {node.type === 'vote' && node.contextSources.length > 0 && (
+                  <>
+                    <text
+                      x={tooltipX + 8}
+                      y={currentY += lineHeight}
+                      className="fill-gray-500 text-xs"
+                    >
+                      Options:
+                    </text>
+                    {node.contextSources.map((source) => {
+                      const isSelected = source === node.votedFor || source.includes(node.votedFor || '');
+                      return (
+                        <text
+                          key={source}
+                          x={tooltipX + 12}
+                          y={currentY += lineHeight}
+                          className={isSelected ? 'fill-amber-300 text-xs font-medium' : 'fill-gray-400 text-xs'}
+                        >
+                          {isSelected ? '● ' : '○ '}{source}
+                        </text>
+                      );
+                    })}
+                  </>
+                )}
+                {/* Context sources (for non-vote nodes) */}
+                {node.type !== 'vote' && node.contextSources.length > 0 && (
+                  <>
+                    <text
+                      x={tooltipX + 8}
+                      y={currentY += lineHeight}
+                      className="fill-gray-500 text-xs"
+                    >
+                      Context:
+                    </text>
+                    {node.contextSources.slice(0, 4).map((source) => (
+                      <text
+                        key={source}
+                        x={tooltipX + 12}
+                        y={currentY += lineHeight}
+                        className="fill-blue-400 text-xs"
+                      >
+                        ← {source}
+                      </text>
+                    ))}
+                    {node.contextSources.length > 4 && (
+                      <text
+                        x={tooltipX + 12}
+                        y={currentY += lineHeight}
+                        className="fill-gray-500 text-xs"
+                      >
+                        +{node.contextSources.length - 4} more...
+                      </text>
+                    )}
+                  </>
+                )}
+              </>
+            );
+          })()}
         </g>
       )}
     </g>

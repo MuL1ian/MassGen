@@ -8,7 +8,6 @@ and serves the React frontend.
 from __future__ import annotations
 
 import asyncio
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
@@ -629,9 +628,11 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
     async def get_answer_workspaces(session_id: str):
         """Get workspaces linked to specific answer versions.
 
-        Scans the log directory structure to find workspace snapshots
-        associated with each answer.
+        Uses snapshot_mappings.json from log directory if available,
+        otherwise scans the log directory structure.
         """
+        import json
+
         from massgen.logger_config import get_log_session_dir
 
         display = manager.get_display(session_id)
@@ -643,34 +644,67 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
         if not log_session_dir or not log_session_dir.exists():
             return {"workspaces": [], "current": []}
 
-        # Scan for answer workspaces in log directory
-        for entry in log_session_dir.iterdir():
-            if not entry.is_dir():
-                continue
+        # Try to use snapshot_mappings.json for accurate workspace info
+        snapshot_mappings_file = log_session_dir / "snapshot_mappings.json"
+        if snapshot_mappings_file.exists():
+            try:
+                with open(snapshot_mappings_file) as f:
+                    snapshot_mappings = json.load(f)
 
-            # Check for turn directories (turn_1, turn_2, etc.)
-            if entry.name.startswith("turn_"):
-                for agent_dir in entry.iterdir():
-                    if not agent_dir.is_dir():
+                for label, mapping in snapshot_mappings.items():
+                    # Only include answers (not votes or final)
+                    if mapping.get("type") != "answer":
                         continue
-                    agent_id = agent_dir.name
-                    agent_index = (agent_ids.index(agent_id) + 1) if agent_id in agent_ids else 0
 
-                    # Find timestamp directories with workspaces
-                    answer_count = 0
-                    for ts_dir in sorted(agent_dir.iterdir(), key=lambda x: x.name):
-                        if ts_dir.is_dir() and (ts_dir / "workspace").exists():
-                            answer_count += 1
-                            workspaces.append(
-                                {
-                                    "answerId": f"{agent_id}-{ts_dir.name}",
-                                    "agentId": agent_id,
-                                    "answerNumber": answer_count,
-                                    "answerLabel": f"answer{agent_index}.{answer_count}",
-                                    "timestamp": ts_dir.name,
-                                    "workspacePath": str(ts_dir / "workspace"),
-                                },
-                            )
+                    agent_id = mapping.get("agent_id", "")
+                    timestamp = mapping.get("timestamp", "")
+
+                    # Build workspace path from mapping
+                    workspace_path = log_session_dir / agent_id / timestamp / "workspace"
+                    if workspace_path.exists():
+                        workspaces.append(
+                            {
+                                "answerId": f"{agent_id}-{timestamp}",
+                                "agentId": agent_id,
+                                "answerNumber": mapping.get("round", 1),
+                                "answerLabel": label,  # Use the canonical label from mappings
+                                "timestamp": timestamp,
+                                "workspacePath": str(workspace_path),
+                            },
+                        )
+            except Exception as e:
+                print(f"[WARNING] Failed to load snapshot_mappings.json: {e}")
+                # Fall through to directory scanning
+
+        # Fallback: Scan log directory structure if no mappings found
+        if not workspaces:
+            for entry in log_session_dir.iterdir():
+                if not entry.is_dir():
+                    continue
+
+                # Check for turn directories (turn_1, turn_2, etc.)
+                if entry.name.startswith("turn_"):
+                    for agent_dir in entry.iterdir():
+                        if not agent_dir.is_dir():
+                            continue
+                        agent_id = agent_dir.name
+                        agent_index = (agent_ids.index(agent_id) + 1) if agent_id in agent_ids else 0
+
+                        # Find timestamp directories with workspaces
+                        answer_count = 0
+                        for ts_dir in sorted(agent_dir.iterdir(), key=lambda x: x.name):
+                            if ts_dir.is_dir() and (ts_dir / "workspace").exists():
+                                answer_count += 1
+                                workspaces.append(
+                                    {
+                                        "answerId": f"{agent_id}-{ts_dir.name}",
+                                        "agentId": agent_id,
+                                        "answerNumber": answer_count,
+                                        "answerLabel": f"agent{agent_index}.{answer_count}",
+                                        "timestamp": ts_dir.name,
+                                        "workspacePath": str(ts_dir / "workspace"),
+                                    },
+                                )
 
         # Also include current workspaces from cwd
         cwd = Path.cwd()
@@ -870,71 +904,10 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
             }
             nodes.append(node)
 
-        # If no timeline events tracked yet, build from current state
-        if not nodes and display:
-            # Reconstruct from display state
-            state = display.get_state_snapshot()
-            now = int(time.time() * 1000)  # Current time in ms
-
-            # Build nodes from agent_outputs (each agent with output = submitted answer)
-            agent_outputs = state.get("agent_outputs", {})
-            for agent_id, outputs in agent_outputs.items():
-                if not outputs:
-                    continue
-
-                agent_index = agent_ids.index(agent_id) + 1 if agent_id in agent_ids else 0
-
-                # Each agent that has outputs submitted an answer
-                nodes.append(
-                    {
-                        "id": f"{agent_id}-answer-1",
-                        "type": "answer",
-                        "agentId": agent_id,
-                        "label": f"answer{agent_index}.1",
-                        "timestamp": now - (len(agent_ids) - agent_index) * 1000,  # Stagger timestamps
-                        "round": 1,
-                        "contextSources": [],  # Not tracked in basic state
-                        "votedFor": None,
-                    },
-                )
-
-            # Build nodes from vote_targets (voter_id -> target_id)
-            vote_targets = state.get("vote_targets", {})
-            for voter_id, target_id in vote_targets.items():
-                voter_index = agent_ids.index(voter_id) + 1 if voter_id in agent_ids else 0
-
-                # Context sources: each vote saw all the answers
-                context_sources = [f"{aid}-answer-1" for aid in agent_ids if aid in agent_outputs and agent_outputs[aid]]
-
-                nodes.append(
-                    {
-                        "id": f"{voter_id}-vote",
-                        "type": "vote",
-                        "agentId": voter_id,
-                        "label": f"vote{voter_index}.1",
-                        "timestamp": now - 500 + voter_index * 100,  # Stagger vote timestamps
-                        "round": 1,
-                        "contextSources": context_sources,
-                        "votedFor": target_id,
-                    },
-                )
-
-            # Add final answer node if we have a winner
-            selected_agent = state.get("selected_agent")
-            if selected_agent:
-                agent_index = agent_ids.index(selected_agent) + 1 if selected_agent in agent_ids else 0
-                nodes.append(
-                    {
-                        "id": f"{selected_agent}-final",
-                        "type": "final",
-                        "agentId": selected_agent,
-                        "label": "final",
-                        "timestamp": now,
-                        "round": 1,
-                        "contextSources": [],
-                        "votedFor": None,
-                    },
-                )
+        # Timeline nodes are only populated from explicitly recorded events
+        # (record_answer_with_context, record_vote_with_context, record_final_with_context)
+        # No fallback reconstruction - prevents phantom nodes from appearing before
+        # agents have actually submitted answers
 
         # Sort by timestamp
         nodes.sort(key=lambda x: x.get("timestamp", 0))

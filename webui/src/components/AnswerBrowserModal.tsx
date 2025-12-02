@@ -9,7 +9,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History, Vote, ArrowRight, Eye, GitBranch } from 'lucide-react';
 import { useAgentStore, selectAnswers, selectAgents, selectAgentOrder, selectSelectedAgent, selectFinalAnswer, selectVoteDistribution, resolveAnswerContent } from '../stores/agentStore';
-import type { Answer, AnswerWorkspace } from '../types';
+import type { Answer, AnswerWorkspace, TimelineNode as TimelineNodeType } from '../types';
 import { FileViewerModal } from './FileViewerModal';
 import { TimelineView } from './timeline';
 
@@ -253,6 +253,29 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
     setSelectedFilePath(filePath);
     setFileViewerOpen(true);
   }, []);
+
+  // Handle timeline node click - navigate to appropriate tab
+  const handleTimelineNodeClick = useCallback((node: TimelineNodeType) => {
+    if (node.type === 'answer' || node.type === 'final') {
+      // Switch to answers tab and expand the matching answer
+      setActiveTab('answers');
+      // Find and expand the answer that matches this node's label
+      const matchingAnswer = answers.find(a => {
+        // Match by agent ID and answer number
+        const agentIdx = agentOrder.indexOf(a.agentId) + 1;
+        const expectedLabel = a.answerNumber === 0
+          ? 'final'
+          : `agent${agentIdx}.${a.answerNumber}`;
+        return node.label === expectedLabel || node.label === `answer${agentIdx}.${a.answerNumber}`;
+      });
+      if (matchingAnswer) {
+        setExpandedAnswerId(matchingAnswer.id);
+      }
+    } else if (node.type === 'vote') {
+      // Switch to votes tab
+      setActiveTab('votes');
+    }
+  }, [answers, agentOrder]);
 
   // Fetch available workspaces from API
   const fetchWorkspaces = useCallback(async () => {
@@ -934,7 +957,7 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
               </>
             ) : activeTab === 'timeline' ? (
               <div className="flex-1 overflow-hidden">
-                <TimelineView />
+                <TimelineView onNodeClick={handleTimelineNodeClick} />
               </div>
             ) : null}
 
