@@ -5,6 +5,7 @@ Screen {
     color: #333333;
 }
 
+/* Adaptive layout classes */
 #main_container {
     layout: horizontal;
     background: #ffffff;
@@ -14,50 +15,66 @@ Screen {
 
 #agents_container {
     layout: horizontal;
-    width: 3fr;
+    width: 100%;
     height: 100%;
 }
 
-#orchestrator_panel {
+#main_container.single-agent #agents_container {
+    layout: vertical;
+}
+
+.single-agent AgentPanel {
+    width: 100%;
+    height: 100%;
+}
+
+.two-agents AgentPanel {
     width: 1fr;
-    min-width: 25;
-    background: #f3f3f3;
-    border-left: solid #cccccc;
-    padding: 1;
 }
 
-#post_eval_container {
-    background: #f9f9f9;
-    border: solid #dddddd;
-    margin: 0 1 1 1;
-    padding: 1;
+.three-agents AgentPanel {
+    width: 1fr;
+}
+
+#main_container.many-agents #agents_container {
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 1;
+}
+
+.many-agents AgentPanel {
     width: 100%;
+    height: 1fr;
 }
 
-#post_eval_label {
-    color: #0066cc;
-    margin-bottom: 1;
-}
-
-#final_stream_container {
-    background: #f7f9ff;
-    border: solid #cccccc;
-    margin: 0 1 1 1;
-    padding: 1;
-    width: 100%;
-}
-
-#final_stream_label {
-    color: #9c27b0;
-    margin-bottom: 1;
-}
-
-#final_stream_log {
+/* Orchestrator events modal */
+#orchestrator_modal_container {
     background: #ffffff;
+    border: thick #0066cc;
+    padding: 2;
+    width: 80%;
+    height: 80%;
+}
+
+#orchestrator_modal_header {
+    color: #333333;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#orchestrator_hint {
+    color: #666666;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+#orchestrator_events_content {
+    background: #fafafa;
     color: #333333;
 }
 
 /* Agent panels */
+
 AgentPanel {
     background: #f9f9f9;
     border: solid #dddddd;
@@ -67,18 +84,42 @@ AgentPanel {
 }
 
 AgentPanel:hover {
-    border: solid #cccccc;
+    border: solid #bbbbbb;
 }
 
 /* Override Textual's default purple focus outline */
 AgentPanel:focus,
 AgentPanel:focus-within {
     border: solid #2196f3;
-    background: #f9f9f9;
+    background: #f5f9ff;
     outline: none;
 }
 
+AgentPanel.status-waiting {
+    border: solid #dddddd;
+}
+
+AgentPanel.status-working {
+    border: solid #2196f3;
+    background: #f5f9ff;
+}
+
+AgentPanel.status-streaming {
+    border: solid #4caf50;
+    background: #f5fff5;
+}
+
+AgentPanel.status-completed {
+    border: solid #4caf50;
+}
+
+AgentPanel.status-error {
+    border: solid #f44336;
+    background: #fff5f5;
+}
+
 /* Headers */
+
 HeaderWidget {
     background: #0066cc;
     color: #ffffff;
@@ -118,6 +159,7 @@ RichLog {
 }
 
 /* Status colors */
+
 .waiting {
     color: #9e9e9e;
 }
@@ -139,6 +181,7 @@ RichLog {
 }
 
 /* Content type colors */
+
 .tool {
     color: #03a9f4;
 }
@@ -155,7 +198,65 @@ RichLog {
     color: #9c27b0;
 }
 
+/* Streaming label */
+
+.streaming_label {
+    color: #4caf50;
+    text-style: italic bold;
+    height: 1;
+    width: 100%;
+    background: #f0fff0;
+    border-left: tall #4caf50;
+    padding-left: 1;
+}
+
+/* Post-evaluation panel */
+
+#post_eval_container {
+    background: #f9f9f9;
+    border: solid #dddddd;
+    margin: 0 1 1 1;
+    padding: 1;
+    width: 100%;
+}
+
+#post_eval_label {
+    color: #0066cc;
+    margin-bottom: 1;
+}
+
+/* Final stream panel */
+
+#final_stream_container {
+    background: #fffbf0;
+    border: solid #ff9800;
+    margin: 0 1 1 1;
+    padding: 1;
+    width: 100%;
+}
+
+#final_stream_container.streaming-active {
+    border: double #ff9800;
+}
+
+#final_stream_label {
+    color: #e65100;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#final_stream_log {
+    background: #ffffff;
+    color: #333333;
+}
+
+#final_stream_log,
+#post_eval_log {
+    scrollbar-size: 2 2;
+}
+
 /* Modals */
+
 ModalScreen {
     align: center middle;
 }
@@ -238,20 +339,8 @@ ModalScreen {
     margin-bottom: 1;
 }
 
-#final_stream_log,
-#post_eval_log {
-    scrollbar-size: 2 2;
-}
-
-.streaming_label {
-    color: #4caf50;
-    text-style: italic;
-    height: 1;
-    width: 100%;
-    background: #f9f9f9;
-}
-
 /* Buttons */
+
 Button {
     background: #0066cc;
     color: #ffffff;
@@ -269,6 +358,7 @@ Button:focus {
 }
 
 /* Lists */
+
 ListView {
     background: #f9f9f9;
     color: #333333;
@@ -292,6 +382,7 @@ ListItem:focus {
 }
 
 /* TextArea */
+
 TextArea {
     background: #ffffff;
     color: #333333;
@@ -302,6 +393,7 @@ TextArea:focus {
 }
 
 /* Scrollbars */
+
 Scrollbar {
     background: #e0e0e0;
 }
@@ -315,8 +407,18 @@ ScrollbarThumb:hover {
 }
 
 /* Footer */
+
 Footer {
     background: #0066cc;
     color: #ffffff;
     dock: bottom;
+}
+
+/* Safe mode indicator */
+#safe_indicator {
+    dock: bottom;
+    height: 1;
+    background: #f3f3f3;
+    color: #e65100;
+    padding: 0 1;
 }
