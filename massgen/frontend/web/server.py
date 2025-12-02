@@ -1410,6 +1410,7 @@ async def run_coordination_with_history(
         # Restore session state from previous turns
         previous_turns = []
         winning_agents_history = []
+        conversation_history = []  # For multi-turn context passing to agents
 
         try:
             from massgen.session import restore_session
@@ -1423,7 +1424,8 @@ async def run_coordination_with_history(
             if session_state:
                 previous_turns = session_state.previous_turns
                 winning_agents_history = session_state.winning_agents_history
-                print(f"[WebUI] Restored {len(previous_turns)} previous turns, {len(winning_agents_history)} winners")
+                conversation_history = session_state.conversation_history or []
+                print(f"[WebUI] Restored {len(previous_turns)} previous turns, {len(winning_agents_history)} winners, {len(conversation_history)} history messages")
         except Exception as e:
             print(f"[WebUI] Warning: Could not restore session state: {e}")
             # Continue anyway - first follow-up might work without full history
@@ -1530,8 +1532,18 @@ async def run_coordination_with_history(
             display_type="web",
         )
 
-        # Run coordination
-        await ui.coordinate(orchestrator, question)
+        # Run coordination with conversation history (like CLI does)
+        # Build messages list: previous Q&A pairs + current question
+        messages = conversation_history.copy() if conversation_history else []
+        messages.append({"role": "user", "content": question})
+
+        if len(messages) > 1:
+            # Multi-turn: use coordinate_with_context so agents see previous conversation
+            print(f"[WebUI] Running coordination with {len(conversation_history)} history messages")
+            await ui.coordinate_with_context(orchestrator, question, messages)
+        else:
+            # First turn: standard coordination
+            await ui.coordinate(orchestrator, question)
 
         # Save CLI-compatible metadata for this turn
         await _save_session_metadata(

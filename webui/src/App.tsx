@@ -20,6 +20,7 @@ import { FinalAnswerView } from './components/FinalAnswerView';
 import { QuickstartWizard } from './components/QuickstartWizard';
 import { NotificationToast } from './components/NotificationToast';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { ConversationHistory } from './components/ConversationHistory';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { Notification } from './stores/notificationStore';
 
@@ -313,6 +314,9 @@ export function App() {
                 transition={{ duration: 0.2 }}
                 className="relative"
               >
+                {/* Previous turns conversation history */}
+                {turnNumber > 1 && <ConversationHistory />}
+
                 <AgentCarousel />
 
                 {/* Selecting Winner Overlay */}
