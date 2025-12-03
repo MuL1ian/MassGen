@@ -1209,36 +1209,15 @@ class ResponseBackend(CustomToolAndMCPBackend):
         self,
         tool_call: Dict[str, Any],
         result_content: str,
-    ) -> List[Dict[str, Any]]:
-        """Create tool result messages for OpenAI Responses API format.
-
-        The Responses API requires BOTH:
-        1. The function_call message (echoing the original tool call)
-        2. The function_call_output message (with the result)
-
-        See: https://platform.openai.com/docs/guides/function-calling
-        """
+    ) -> Dict[str, Any]:
+        """Create tool result message for OpenAI Responses API format."""
         tool_call_id = self.extract_tool_call_id(tool_call)
-
-        # Extract tool call details for the function_call message
-        tool_name = tool_call.get("name", "")
-        tool_arguments = tool_call.get("arguments", "{}")
-
-        # The function_call message must precede the function_call_output
-        function_call_msg = {
-            "type": "function_call",
-            "call_id": tool_call_id,
-            "name": tool_name,
-            "arguments": tool_arguments,
-        }
-
-        function_output_msg = {
+        # Use Responses API format directly - no conversion needed
+        return {
             "type": "function_call_output",
             "call_id": tool_call_id,
             "output": result_content,
         }
-
-        return [function_call_msg, function_output_msg]
 
     def extract_tool_result_content(self, tool_result_message: Dict[str, Any]) -> str:
         """Extract content from OpenAI Responses API tool result message."""

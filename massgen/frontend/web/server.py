@@ -1221,8 +1221,8 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
     # Static File Serving (React build)
     # =========================================================================
 
-    # Path to React build directory
-    static_dir = Path(__file__).parent.parent.parent.parent / "webui" / "dist"
+    # Path to React build directory (packaged with massgen)
+    static_dir = Path(__file__).parent / "static"
 
     if static_dir.exists():
         # Serve static files from React build

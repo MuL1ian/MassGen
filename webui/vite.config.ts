@@ -24,7 +24,8 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'dist',
+    outDir: '../massgen/frontend/web/static',
     sourcemap: true,
+    emptyOutDir: true,
   },
 })

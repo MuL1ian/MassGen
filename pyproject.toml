@@ -165,6 +165,7 @@ massgen = [
     "tool/**/*.yaml",
     "tool/**/*.md",
     "skills/**/*",
+    "frontend/web/static/**/*",
 ]
 "*" = ["*.json", "*.yaml", "*.yml", "*.md"]
 
