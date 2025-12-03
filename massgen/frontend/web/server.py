@@ -1,0 +1,1808 @@
+# -*- coding: utf-8 -*-
+"""
+FastAPI Web Server for MassGen Web UI
+
+Provides WebSocket endpoints for real-time coordination updates
+and serves the React frontend.
+"""
+from __future__ import annotations
+
+import asyncio
+import uuid
+from pathlib import Path
+from typing import Any, Dict, Optional, Set
+
+try:
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import FileResponse, JSONResponse
+    from fastapi.staticfiles import StaticFiles
+
+    FASTAPI_AVAILABLE = True
+except ImportError:
+    FASTAPI_AVAILABLE = False
+
+from massgen.frontend.displays.web_display import WebDisplay
+
+
+class ConnectionManager:
+    """Manages WebSocket connections per session."""
+
+    def __init__(self):
+        # session_id -> set of WebSocket connections
+        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        # session_id -> WebDisplay instance
+        self.displays: Dict[str, WebDisplay] = {}
+        # session_id -> orchestration task
+        self.tasks: Dict[str, asyncio.Task] = {}
+        # session_id -> log session directory (for multi-turn continuation)
+        self.session_log_dirs: Dict[str, Path] = {}
+        # session_id -> current turn number
+        self.session_turns: Dict[str, int] = {}
+        # session_id -> config path used
+        self.session_configs: Dict[str, str] = {}
+
+    async def connect(self, websocket: WebSocket, session_id: str) -> None:
+        """Accept and register a WebSocket connection."""
+        await websocket.accept()
+        if session_id not in self.active_connections:
+            self.active_connections[session_id] = set()
+        self.active_connections[session_id].add(websocket)
+
+    def disconnect(self, websocket: WebSocket, session_id: str) -> None:
+        """Remove a WebSocket connection."""
+        if session_id in self.active_connections:
+            self.active_connections[session_id].discard(websocket)
+            # Clean up empty sessions
+            if not self.active_connections[session_id]:
+                del self.active_connections[session_id]
+
+    async def broadcast(self, session_id: str, message: Dict[str, Any]) -> None:
+        """Broadcast message to all clients in a session."""
+        if session_id not in self.active_connections:
+            return
+
+        disconnected = set()
+        for websocket in self.active_connections[session_id]:
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                disconnected.add(websocket)
+
+        # Clean up disconnected clients
+        self.active_connections[session_id] -= disconnected
+
+    def get_display(self, session_id: str) -> Optional[WebDisplay]:
+        """Get the WebDisplay for a session."""
+        return self.displays.get(session_id)
+
+    def create_display(self, session_id: str, agent_ids: list, agent_models: Optional[Dict[str, str]] = None) -> WebDisplay:
+        """Create a new WebDisplay for a session."""
+
+        async def broadcast_fn(message: Dict[str, Any]) -> None:
+            await self.broadcast(session_id, message)
+
+        display = WebDisplay(
+            agent_ids=agent_ids,
+            broadcast=broadcast_fn,
+            session_id=session_id,
+            agent_models=agent_models,
+        )
+        self.displays[session_id] = display
+        return display
+
+
+# Global connection manager
+manager = ConnectionManager()
+
+# Default config path (set from CLI)
+_default_config_path: Optional[str] = None
+
+
+def set_default_config(config_path: Optional[str]) -> None:
+    """Set the default config path for new sessions."""
+    global _default_config_path
+    _default_config_path = config_path
+
+
+def get_default_config() -> Optional[str]:
+    """Get the default config path."""
+    return _default_config_path
+
+
+def create_app(config_path: Optional[str] = None) -> "FastAPI":
+    """Create and configure the FastAPI application.
+
+    Args:
+        config_path: Default config path for coordination sessions
+    """
+    if not FASTAPI_AVAILABLE:
+        raise ImportError(
+            "FastAPI is not installed. Install with: pip install massgen",
+        )
+
+    # Store default config
+    if config_path:
+        set_default_config(config_path)
+
+    app = FastAPI(
+        title="MassGen Web UI",
+        description="Real-time multi-agent coordination visualization",
+        version="0.1.0",
+    )
+
+    # CORS for development
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # In production, restrict this
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # =========================================================================
+    # API Routes
+    # =========================================================================
+
+    @app.get("/api/health")
+    async def health_check():
+        """Health check endpoint."""
+        return {"status": "ok", "service": "massgen-web"}
+
+    @app.get("/api/config")
+    async def get_config():
+        """Get current default config path."""
+        return {"config_path": get_default_config()}
+
+    @app.get("/api/config/content")
+    async def get_config_content(path: str):
+        """Get the content of a config file."""
+        try:
+            config_path = Path(path)
+            if not config_path.exists():
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "Config file not found"},
+                )
+            if not config_path.is_file():
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Path is not a file"},
+                )
+            # Security: ensure path is within allowed locations
+            config_path = config_path.resolve()
+            allowed_paths = [
+                Path.home() / ".config" / "massgen",
+            ]
+            try:
+                import massgen
+
+                package_dir = Path(massgen.__file__).parent
+                allowed_paths.append(package_dir / "configs")
+            except Exception:
+                pass
+
+            is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+            if not is_allowed:
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "Access denied"},
+                )
+
+            content = config_path.read_text(encoding="utf-8")
+            return {"content": content, "path": str(config_path)}
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={"error": str(e)},
+            )
+
+    @app.get("/api/configs")
+    async def list_configs():
+        """List all available config files."""
+        configs = []
+        quickstart_config = None
+
+        # Check for user's default config at ~/.config/massgen/config.yaml
+        user_config_path = Path.home() / ".config" / "massgen" / "config.yaml"
+        if user_config_path.exists():
+            quickstart_config = {
+                "name": "Default Config",
+                "path": str(user_config_path),
+                "category": "user",
+                "relative": "config.yaml",
+            }
+            configs.append(quickstart_config)
+
+        # Get configs from massgen package
+        try:
+            import massgen
+
+            package_dir = Path(massgen.__file__).parent
+            configs_dir = package_dir / "configs"
+
+            if configs_dir.exists():
+                for yaml_file in configs_dir.rglob("*.yaml"):
+                    # Get relative path from configs dir
+                    rel_path = yaml_file.relative_to(configs_dir)
+                    configs.append(
+                        {
+                            "name": yaml_file.stem,
+                            "path": str(yaml_file),
+                            "category": str(rel_path.parent) if rel_path.parent != Path(".") else "root",
+                            "relative": str(rel_path),
+                        },
+                    )
+        except Exception:
+            pass
+
+        # Sort by category then name (user configs first)
+        def sort_key(x):
+            # Put 'user' category first, then sort alphabetically
+            if x["category"] == "user":
+                return ("0", x["name"])
+            return (x["category"], x["name"])
+
+        configs.sort(key=sort_key)
+
+        # Use quickstart config as default if it exists, otherwise CLI default
+        default = str(user_config_path) if user_config_path.exists() else get_default_config()
+
+        return {
+            "configs": configs,
+            "default": default,
+            "quickstart_config": str(user_config_path) if user_config_path.exists() else None,
+        }
+
+    # =========================================================================
+    # Quickstart Wizard API Routes
+    # =========================================================================
+
+    @app.get("/api/setup/status")
+    async def get_setup_status():
+        """Check if setup is needed (no config exists) and Docker availability."""
+        import subprocess
+        from pathlib import Path
+
+        # Check if default config exists
+        config_path = Path.home() / ".config" / "massgen" / "config.yaml"
+        has_config = config_path.exists()
+
+        # Check Docker availability
+        docker_available = False
+        try:
+            result = subprocess.run(
+                ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                images = result.stdout.strip().split("\n")
+                # Check for our runtime image
+                docker_available = any("mcp-runtime" in img for img in images)
+        except Exception:
+            docker_available = False
+
+        return {
+            "needs_setup": not has_config,
+            "has_config": has_config,
+            "config_path": str(config_path),
+            "docker_available": docker_available,
+        }
+
+    @app.get("/api/providers")
+    async def get_providers():
+        """Get available providers with their models and API key status."""
+        import os
+
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+
+        providers = []
+        for backend_type, caps in BACKEND_CAPABILITIES.items():
+            # Skip generic/advanced backends for quickstart
+            # Also skip ag2 as it's not a realistic standalone backend
+            if backend_type in ["chatcompletion", "inference", "lmstudio", "vllm", "sglang", "ag2"]:
+                continue
+
+            # Check if API key is available
+            has_api_key = False
+            if caps.env_var:
+                has_api_key = bool(os.getenv(caps.env_var))
+            elif backend_type == "claude_code":
+                # Claude Code works with CLI login or API key
+                has_api_key = True
+            else:
+                # Local backends don't need keys
+                has_api_key = True
+
+            providers.append(
+                {
+                    "id": backend_type,
+                    "name": caps.provider_name,
+                    "models": caps.models,
+                    "default_model": caps.default_model,
+                    "env_var": caps.env_var,
+                    "has_api_key": has_api_key,
+                    "capabilities": list(caps.supported_capabilities),
+                    "notes": caps.notes,
+                },
+            )
+
+        # Sort by has_api_key (available first), then by name
+        providers.sort(key=lambda p: (not p["has_api_key"], p["name"]))
+
+        return {"providers": providers}
+
+    @app.get("/api/providers/{provider_id}/models")
+    async def get_provider_models(provider_id: str):
+        """Get dynamic model list for a provider.
+
+        For providers like OpenRouter that have many models, this fetches
+        the full list from their API with caching.
+        """
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+        from massgen.utils.model_catalog import get_models_for_provider
+
+        # Get static models from capabilities
+        caps = BACKEND_CAPABILITIES.get(provider_id)
+        static_models = caps.models if caps else []
+
+        # For providers with dynamic model lists, fetch from API
+        dynamic_providers = ["openrouter", "groq", "together", "fireworks", "cerebras", "nebius", "moonshot", "qwen", "poe"]
+
+        if provider_id in dynamic_providers:
+            try:
+                dynamic_models = await get_models_for_provider(provider_id, use_cache=True)
+                if dynamic_models:
+                    return {
+                        "provider_id": provider_id,
+                        "models": dynamic_models,
+                        "source": "dynamic",
+                    }
+            except Exception:
+                pass  # Fall back to static models
+
+        return {
+            "provider_id": provider_id,
+            "models": static_models,
+            "source": "static",
+        }
+
+    @app.post("/api/config/generate")
+    async def generate_config(request_data: dict):
+        """Generate a config YAML from wizard selections.
+
+        Request body:
+        {
+            "agents": [
+                {"id": "agent_a", "provider": "openai", "model": "gpt-4o"},
+                {"id": "agent_b", "provider": "claude", "model": "claude-sonnet-4-5-20250929"}
+            ],
+            "use_docker": true,
+            "context_path": "/path/to/project"  // optional
+        }
+
+        Returns:
+            {"config": {...}, "yaml": "..."}
+        """
+        import yaml
+
+        from massgen.config_builder import ConfigBuilder
+
+        agents_config = request_data.get("agents", [])
+        use_docker = request_data.get("use_docker", True)
+        context_path = request_data.get("context_path")
+
+        if not agents_config:
+            return JSONResponse(
+                {"error": "At least one agent is required"},
+                status_code=400,
+            )
+
+        # Convert to format expected by _generate_quickstart_config
+        formatted_agents = []
+        for agent in agents_config:
+            formatted_agents.append(
+                {
+                    "id": agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}"),
+                    "type": agent.get("provider", "openai"),
+                    "model": agent.get("model", "gpt-4o"),
+                },
+            )
+
+        # Use ConfigBuilder to generate config
+        builder = ConfigBuilder()
+        config = builder._generate_quickstart_config(
+            formatted_agents,
+            context_path=context_path,
+            use_docker=use_docker,
+        )
+
+        # Convert to YAML string for preview
+        yaml_str = yaml.dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+        return {"config": config, "yaml": yaml_str}
+
+    @app.post("/api/config/save")
+    async def save_config(request_data: dict):
+        """Save the generated config to ~/.config/massgen/config.yaml.
+
+        Request body:
+        {
+            "config": {...}  // The config object from generate_config
+        }
+
+        Returns:
+            {"success": true, "path": "..."}
+        """
+        from pathlib import Path
+
+        import yaml
+
+        config = request_data.get("config")
+        if not config:
+            return JSONResponse(
+                {"error": "No config provided"},
+                status_code=400,
+            )
+
+        # Save to default config location
+        config_dir = Path.home() / ".config" / "massgen"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = config_dir / "config.yaml"
+
+        try:
+            with open(config_path, "w") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+            return {
+                "success": True,
+                "path": str(config_path),
+                "message": f"Config saved to {config_path}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to save config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.get("/api/sessions")
+    async def list_sessions():
+        """List all active sessions."""
+        sessions = []
+        for session_id in manager.active_connections.keys():
+            display = manager.get_display(session_id)
+            task = manager.tasks.get(session_id)
+
+            sessions.append(
+                {
+                    "session_id": session_id,
+                    "connections": len(manager.active_connections.get(session_id, set())),
+                    "has_display": display is not None,
+                    "is_running": task is not None and not task.done() if task else False,
+                    "question": display.question if display and hasattr(display, "question") else None,
+                },
+            )
+
+        return {"sessions": sessions}
+
+    @app.post("/api/sessions")
+    async def create_session():
+        """Create a new coordination session."""
+        session_id = str(uuid.uuid4())
+        return JSONResponse({"session_id": session_id})
+
+    @app.get("/api/workspace/{session_id}/{agent_id}")
+    async def get_workspace_files(session_id: str, agent_id: str):
+        """Get workspace files for an agent.
+
+        Returns files from the agent's current workspace directory.
+        """
+        display = manager.get_display(session_id)
+        if display is None:
+            return JSONResponse(
+                {"error": "Session not found", "files": []},
+                status_code=404,
+            )
+
+        # Get workspace path from display if available
+        workspace_path = getattr(display, "_workspace_path", None)
+        if workspace_path:
+            agent_workspace = Path(workspace_path) / agent_id
+        else:
+            # Fall back to default workspace pattern
+            agent_workspace = Path.cwd() / f"workspace_{agent_id}"
+
+        files = []
+        if agent_workspace.exists():
+            try:
+                for file_path in agent_workspace.rglob("*"):
+                    if file_path.is_file():
+                        rel_path = file_path.relative_to(agent_workspace)
+                        stat = file_path.stat()
+                        files.append(
+                            {
+                                "path": str(rel_path),
+                                "size": stat.st_size,
+                                "modified": stat.st_mtime,
+                                "operation": "create",  # For compatibility
+                            },
+                        )
+            except Exception as e:
+                return JSONResponse(
+                    {"error": str(e), "files": []},
+                    status_code=500,
+                )
+
+        return {"files": files, "workspace_path": str(agent_workspace)}
+
+    @app.get("/api/workspaces")
+    async def list_workspaces():
+        """List all available workspaces including current and historical.
+
+        Returns:
+        - current: Workspaces in cwd (workspace1, workspace2, etc.)
+        - historical: Dated workspaces from logs directory
+        """
+        workspaces = {
+            "current": [],
+            "historical": [],
+        }
+
+        # Find current workspaces in cwd
+        cwd = Path.cwd()
+        for path in cwd.iterdir():
+            if path.is_dir() and path.name.startswith("workspace"):
+                workspaces["current"].append(
+                    {
+                        "name": path.name,
+                        "path": str(path),
+                        "type": "current",
+                    },
+                )
+
+        # Find historical workspaces in logs directory
+        logs_dir = cwd / "logs"
+        if logs_dir.exists():
+            for date_dir in sorted(logs_dir.iterdir(), reverse=True):
+                if date_dir.is_dir():
+                    # Look for workspace directories within dated logs
+                    for ws_dir in date_dir.iterdir():
+                        if ws_dir.is_dir() and "workspace" in ws_dir.name.lower():
+                            workspaces["historical"].append(
+                                {
+                                    "name": f"{date_dir.name}/{ws_dir.name}",
+                                    "path": str(ws_dir),
+                                    "type": "historical",
+                                    "date": date_dir.name,
+                                },
+                            )
+
+        return workspaces
+
+    @app.get("/api/workspace/browse")
+    async def browse_workspace(path: str):
+        """Browse files in a specific workspace path.
+
+        Args:
+            path: Absolute path to workspace directory
+        """
+        workspace_path = Path(path)
+
+        if not workspace_path.exists():
+            return JSONResponse(
+                {"error": "Workspace not found", "files": []},
+                status_code=404,
+            )
+
+        if not workspace_path.is_dir():
+            return JSONResponse(
+                {"error": "Path is not a directory", "files": []},
+                status_code=400,
+            )
+
+        files = []
+        try:
+            for file_path in workspace_path.rglob("*"):
+                if file_path.is_file():
+                    rel_path = file_path.relative_to(workspace_path)
+                    stat = file_path.stat()
+                    files.append(
+                        {
+                            "path": str(rel_path),
+                            "size": stat.st_size,
+                            "modified": stat.st_mtime,
+                            "operation": "create",
+                        },
+                    )
+        except Exception as e:
+            return JSONResponse(
+                {"error": str(e), "files": []},
+                status_code=500,
+            )
+
+        return {"files": files, "workspace_path": str(workspace_path)}
+
+    @app.get("/api/sessions/{session_id}/answer-workspaces")
+    async def get_answer_workspaces(session_id: str):
+        """Get workspaces linked to specific answer versions.
+
+        Uses snapshot_mappings.json from log directory if available,
+        otherwise scans the log directory structure.
+        """
+        import json
+
+        from massgen.logger_config import get_log_session_dir
+
+        display = manager.get_display(session_id)
+        agent_ids = display.agent_ids if display else []
+
+        workspaces = []
+        log_session_dir = get_log_session_dir()
+
+        if not log_session_dir or not log_session_dir.exists():
+            return {"workspaces": [], "current": []}
+
+        # Try to use snapshot_mappings.json for accurate workspace info
+        snapshot_mappings_file = log_session_dir / "snapshot_mappings.json"
+        if snapshot_mappings_file.exists():
+            try:
+                with open(snapshot_mappings_file) as f:
+                    snapshot_mappings = json.load(f)
+
+                for label, mapping in snapshot_mappings.items():
+                    # Only include answers (not votes or final)
+                    if mapping.get("type") != "answer":
+                        continue
+
+                    agent_id = mapping.get("agent_id", "")
+                    timestamp = mapping.get("timestamp", "")
+
+                    # Build workspace path from mapping
+                    workspace_path = log_session_dir / agent_id / timestamp / "workspace"
+                    if workspace_path.exists():
+                        workspaces.append(
+                            {
+                                "answerId": f"{agent_id}-{timestamp}",
+                                "agentId": agent_id,
+                                "answerNumber": mapping.get("round", 1),
+                                "answerLabel": label,  # Use the canonical label from mappings
+                                "timestamp": timestamp,
+                                "workspacePath": str(workspace_path),
+                            },
+                        )
+            except Exception as e:
+                print(f"[WARNING] Failed to load snapshot_mappings.json: {e}")
+                # Fall through to directory scanning
+
+        # Fallback: Scan log directory structure if no mappings found
+        if not workspaces:
+            for entry in log_session_dir.iterdir():
+                if not entry.is_dir():
+                    continue
+
+                # Check for turn directories (turn_1, turn_2, etc.)
+                if entry.name.startswith("turn_"):
+                    for agent_dir in entry.iterdir():
+                        if not agent_dir.is_dir():
+                            continue
+                        agent_id = agent_dir.name
+                        agent_index = (agent_ids.index(agent_id) + 1) if agent_id in agent_ids else 0
+
+                        # Find timestamp directories with workspaces
+                        answer_count = 0
+                        for ts_dir in sorted(agent_dir.iterdir(), key=lambda x: x.name):
+                            if ts_dir.is_dir() and (ts_dir / "workspace").exists():
+                                answer_count += 1
+                                workspaces.append(
+                                    {
+                                        "answerId": f"{agent_id}-{ts_dir.name}",
+                                        "agentId": agent_id,
+                                        "answerNumber": answer_count,
+                                        "answerLabel": f"agent{agent_index}.{answer_count}",
+                                        "timestamp": ts_dir.name,
+                                        "workspacePath": str(ts_dir / "workspace"),
+                                    },
+                                )
+
+        # Also include current workspaces from cwd
+        cwd = Path.cwd()
+        current = []
+        for path in cwd.iterdir():
+            if path.is_dir() and path.name.startswith("workspace"):
+                current.append(
+                    {
+                        "name": path.name,
+                        "path": str(path),
+                        "type": "current",
+                    },
+                )
+
+        return {"workspaces": workspaces, "current": current}
+
+    @app.get("/api/workspace/file")
+    async def get_file_content(path: str, workspace: str):
+        """Get the content of a specific file from a workspace.
+
+        Args:
+            path: Relative path to file within workspace
+            workspace: Absolute path to workspace directory
+
+        Returns:
+            {
+                "content": str,           # File content (text files)
+                "binary": bool,           # True if binary file
+                "size": int,              # File size in bytes
+                "mimeType": str,          # Detected MIME type
+                "language": str,          # Programming language for syntax highlighting
+            }
+        """
+        import mimetypes
+
+        workspace_path = Path(workspace).resolve()
+        file_path = (workspace_path / path).resolve()
+
+        # Security: Ensure file is within workspace (prevent directory traversal)
+        try:
+            file_path.relative_to(workspace_path)
+        except ValueError:
+            return JSONResponse(
+                {"error": "Access denied: path outside workspace"},
+                status_code=403,
+            )
+
+        if not file_path.exists():
+            return JSONResponse(
+                {"error": "File not found"},
+                status_code=404,
+            )
+
+        if not file_path.is_file():
+            return JSONResponse(
+                {"error": "Path is not a file"},
+                status_code=400,
+            )
+
+        # Get file stats
+        stat = file_path.stat()
+        size = stat.st_size
+
+        # Detect MIME type
+        mime_type, _ = mimetypes.guess_type(str(file_path))
+        mime_type = mime_type or "application/octet-stream"
+
+        # Map extensions to syntax highlighting languages
+        extension_to_language = {
+            ".py": "python",
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".json": "json",
+            ".yaml": "yaml",
+            ".yml": "yaml",
+            ".md": "markdown",
+            ".html": "html",
+            ".htm": "html",
+            ".css": "css",
+            ".scss": "scss",
+            ".less": "less",
+            ".sh": "bash",
+            ".bash": "bash",
+            ".zsh": "bash",
+            ".sql": "sql",
+            ".rs": "rust",
+            ".go": "go",
+            ".java": "java",
+            ".c": "c",
+            ".cpp": "cpp",
+            ".h": "c",
+            ".hpp": "cpp",
+            ".rb": "ruby",
+            ".php": "php",
+            ".swift": "swift",
+            ".kt": "kotlin",
+            ".scala": "scala",
+            ".r": "r",
+            ".R": "r",
+            ".lua": "lua",
+            ".pl": "perl",
+            ".xml": "xml",
+            ".toml": "toml",
+            ".ini": "ini",
+            ".cfg": "ini",
+            ".conf": "ini",
+            ".dockerfile": "dockerfile",
+            ".gitignore": "gitignore",
+            ".env": "dotenv",
+            ".txt": "plaintext",
+            ".log": "plaintext",
+        }
+
+        suffix = file_path.suffix.lower()
+        language = extension_to_language.get(suffix, "plaintext")
+
+        # Special case for Dockerfile without extension
+        if file_path.name.lower() == "dockerfile":
+            language = "dockerfile"
+
+        # Check if binary by reading first chunk
+        try:
+            with open(file_path, "rb") as f:
+                chunk = f.read(8192)
+
+            # Check for null bytes (binary indicator)
+            is_binary = b"\x00" in chunk
+
+            if is_binary:
+                return {
+                    "content": "",
+                    "binary": True,
+                    "size": size,
+                    "mimeType": mime_type,
+                    "language": language,
+                }
+
+            # Read full content for text files (limit to 1MB)
+            max_size = 1024 * 1024  # 1MB
+            if size > max_size:
+                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read(max_size)
+                content += f"\n\n... (truncated, file is {size} bytes)"
+            else:
+                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+
+            return {
+                "content": content,
+                "binary": False,
+                "size": size,
+                "mimeType": mime_type,
+                "language": language,
+            }
+
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to read file: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.get("/api/sessions/{session_id}/timeline")
+    async def get_session_timeline(session_id: str):
+        """Get coordination timeline data for visualization.
+
+        Returns timeline nodes representing answers, votes, and final answer
+        with their context sources (which answers they saw).
+        """
+        display = manager.get_display(session_id)
+        if display is None:
+            return JSONResponse(
+                {"error": "Session not found"},
+                status_code=404,
+            )
+
+        # Get agents from display
+        agent_ids = display.agent_ids if display else []
+
+        # Build timeline from display's tracked events
+        nodes = []
+
+        # Get timeline data from display if available
+        timeline_events = getattr(display, "_timeline_events", [])
+
+        for event in timeline_events:
+            node = {
+                "id": event.get("id", ""),
+                "type": event.get("type", "answer"),
+                "agentId": event.get("agent_id", ""),
+                "label": event.get("label", ""),
+                "timestamp": event.get("timestamp", 0),
+                "round": event.get("round", 1),
+                "contextSources": event.get("context_sources", []),
+                "votedFor": event.get("voted_for"),
+            }
+            nodes.append(node)
+
+        # Timeline nodes are only populated from explicitly recorded events
+        # (record_answer_with_context, record_vote_with_context, record_final_with_context)
+        # No fallback reconstruction - prevents phantom nodes from appearing before
+        # agents have actually submitted answers
+
+        # Sort by timestamp
+        nodes.sort(key=lambda x: x.get("timestamp", 0))
+
+        # Calculate start/end times
+        timestamps = [n.get("timestamp", 0) for n in nodes if n.get("timestamp")]
+        start_time = min(timestamps) if timestamps else 0
+        end_time = max(timestamps) if timestamps else None
+
+        return {
+            "nodes": nodes,
+            "agents": agent_ids,
+            "startTime": start_time,
+            "endTime": end_time,
+        }
+
+    @app.get("/api/sessions/{session_id}")
+    async def get_session(session_id: str):
+        """Get current state of a session."""
+        display = manager.get_display(session_id)
+        if display is None:
+            return JSONResponse(
+                {"error": "Session not found"},
+                status_code=404,
+            )
+        return JSONResponse(display.get_state_snapshot())
+
+    @app.get("/api/sessions/{session_id}/final-answer")
+    async def get_final_answer(session_id: str):
+        """Get the clean final answer from the saved log file.
+
+        The final answer is saved to:
+        .massgen/massgen_logs/log_<timestamp>/turn_<N>/final/<agent_id>/answer.txt
+
+        This returns the clean answer without any tool call noise.
+        """
+        # Get the log session dir from the display (stored after coordination completes)
+        display = manager.get_display(session_id)
+        log_session_dir = getattr(display, "log_session_dir", None) if display else None
+
+        print(f"[DEBUG] get_final_answer: session_id={session_id}")
+        print(f"[DEBUG] get_final_answer: display={display}")
+        print(f"[DEBUG] get_final_answer: log_session_dir from display={log_session_dir}")
+
+        # Fallback to global log session dir if display doesn't have it
+        if not log_session_dir:
+            from massgen.logger_config import get_log_session_dir
+
+            log_session_dir = get_log_session_dir()
+            print(f"[DEBUG] get_final_answer: log_session_dir from global={log_session_dir}")
+
+        if not log_session_dir or not log_session_dir.exists():
+            print("[DEBUG] get_final_answer: log_session_dir not found or doesn't exist")
+            return JSONResponse(
+                {"error": "Log directory not found", "answer": None},
+                status_code=404,
+            )
+
+        # log_session_dir could be:
+        # - .massgen/massgen_logs/log_xxx/turn_1 (old structure)
+        # - .massgen/massgen_logs/log_xxx/turn_1/attempt_N (new structure with attempts)
+        # We need to search for final/<agent>/answer.txt in multiple possible locations
+
+        # Helper to find answer in a final directory
+        def find_answer_in_final_dir(final_dir):
+            if not final_dir.exists():
+                return None
+            for agent_dir in final_dir.iterdir():
+                if not agent_dir.is_dir():
+                    continue
+                answer_file = agent_dir / "answer.txt"
+                print(f"[DEBUG] get_final_answer: Checking answer_file={answer_file}")
+                if answer_file.exists():
+                    try:
+                        answer_content = answer_file.read_text(encoding="utf-8")
+                        print(f"[DEBUG] get_final_answer: Found answer! Length={len(answer_content)}")
+                        return {
+                            "answer": answer_content,
+                            "agent_id": agent_dir.name,
+                            "path": str(answer_file),
+                        }
+                    except Exception as e:
+                        return {"error": f"Failed to read answer: {str(e)}"}
+            return None
+
+        # Try 1: Direct final/ directory (log_session_dir/final)
+        final_dir = log_session_dir / "final"
+        print(f"[DEBUG] get_final_answer: Looking for final_dir={final_dir}")
+        result = find_answer_in_final_dir(final_dir)
+        if result:
+            if "error" in result:
+                return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+            return result
+
+        # Try 2: Check for attempt_N subdirectories (log_session_dir/attempt_N/final)
+        print("[DEBUG] get_final_answer: Checking attempt subdirectories")
+        for attempt_dir in sorted(log_session_dir.iterdir(), reverse=True):
+            if not attempt_dir.is_dir() or not attempt_dir.name.startswith("attempt_"):
+                continue
+            print(f"[DEBUG] get_final_answer: Checking attempt dir: {attempt_dir}")
+            final_dir = attempt_dir / "final"
+            result = find_answer_in_final_dir(final_dir)
+            if result:
+                if "error" in result:
+                    return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                return result
+
+        # Fallback: search in turn subdirectories (for older log structure or if log_session_dir is base)
+        print("[DEBUG] get_final_answer: No final dir, searching turn subdirs")
+        for turn_dir in sorted(log_session_dir.iterdir(), reverse=True):
+            if not turn_dir.is_dir() or not turn_dir.name.startswith("turn_"):
+                continue
+
+            # Check direct final/ in turn dir
+            result = find_answer_in_final_dir(turn_dir / "final")
+            if result:
+                if "error" in result:
+                    return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                return result
+
+            # Check attempt_N subdirectories within turn dir
+            for attempt_dir in sorted(turn_dir.iterdir(), reverse=True):
+                if not attempt_dir.is_dir() or not attempt_dir.name.startswith("attempt_"):
+                    continue
+                result = find_answer_in_final_dir(attempt_dir / "final")
+                if result:
+                    if "error" in result:
+                        return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                    return result
+
+        return JSONResponse(
+            {"error": "Final answer not found", "answer": None},
+            status_code=404,
+        )
+
+    @app.post("/api/sessions/{session_id}/start")
+    async def start_coordination(session_id: str, request: dict):
+        """Start coordination for a session."""
+        question = request.get("question", "")
+        # Use provided config or fall back to default
+        cfg_path = request.get("config") or get_default_config()
+
+        if not question:
+            return JSONResponse(
+                {"error": "Question is required"},
+                status_code=400,
+            )
+
+        if not cfg_path:
+            return JSONResponse(
+                {"error": "No config specified. Use --config flag or provide in request."},
+                status_code=400,
+            )
+
+        # Start orchestration in background
+        task = asyncio.create_task(
+            run_coordination(session_id, question, cfg_path),
+        )
+        manager.tasks[session_id] = task
+
+        return JSONResponse(
+            {
+                "status": "started",
+                "session_id": session_id,
+                "config": cfg_path,
+            },
+        )
+
+    # =========================================================================
+    # WebSocket Endpoint
+    # =========================================================================
+
+    @app.websocket("/ws/{session_id}")
+    async def websocket_endpoint(websocket: WebSocket, session_id: str):
+        """WebSocket endpoint for real-time coordination updates."""
+        await manager.connect(websocket, session_id)
+
+        try:
+            # Send current state if session exists
+            display = manager.get_display(session_id)
+            if display:
+                await websocket.send_json(
+                    {
+                        "type": "state_snapshot",
+                        **display.get_state_snapshot(),
+                    },
+                )
+
+            # Handle incoming messages
+            while True:
+                data = await websocket.receive_json()
+                action = data.get("action")
+
+                if action == "start":
+                    # Start new coordination
+                    question = data.get("question", "")
+                    # Use provided config or fall back to default
+                    cfg_path = data.get("config") or get_default_config()
+
+                    if not cfg_path:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "No config specified. Start server with --config flag.",
+                            },
+                        )
+                        continue
+
+                    if question:
+                        task = asyncio.create_task(
+                            run_coordination(session_id, question, cfg_path),
+                        )
+                        manager.tasks[session_id] = task
+                        await websocket.send_json(
+                            {
+                                "type": "coordination_started",
+                                "session_id": session_id,
+                                "config": cfg_path,
+                            },
+                        )
+
+                elif action == "get_state":
+                    # Request current state
+                    display = manager.get_display(session_id)
+                    if display:
+                        await websocket.send_json(
+                            {
+                                "type": "state_snapshot",
+                                **display.get_state_snapshot(),
+                            },
+                        )
+
+                elif action == "broadcast_response":
+                    # Human response to a broadcast question
+                    # TODO: Integrate with BroadcastChannel
+                    pass
+
+                elif action == "continue":
+                    # Continue conversation with follow-up question
+                    followup_question = data.get("question", "")
+                    if not followup_question:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "Question is required for continuation",
+                            },
+                        )
+                        continue
+
+                    # Get session info from previous turn
+                    session_log_dir = manager.session_log_dirs.get(session_id)
+                    current_turn = manager.session_turns.get(session_id, 0)
+                    cfg_path = manager.session_configs.get(session_id) or get_default_config()
+
+                    if not session_log_dir:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "No active session to continue. Start a new coordination first.",
+                            },
+                        )
+                        continue
+
+                    if not cfg_path:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "No config available for continuation.",
+                            },
+                        )
+                        continue
+
+                    # Start continuation coordination
+                    next_turn = current_turn + 1
+                    task = asyncio.create_task(
+                        run_coordination_with_history(
+                            session_id=session_id,
+                            question=followup_question,
+                            config_path=cfg_path,
+                            session_log_dir=session_log_dir,
+                            turn_number=next_turn,
+                        ),
+                    )
+                    manager.tasks[session_id] = task
+                    await websocket.send_json(
+                        {
+                            "type": "coordination_started",
+                            "session_id": session_id,
+                            "config": cfg_path,
+                            "turn": next_turn,
+                            "is_continuation": True,
+                        },
+                    )
+
+        except WebSocketDisconnect:
+            manager.disconnect(websocket, session_id)
+        except Exception as e:
+            # Send error and disconnect
+            try:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    },
+                )
+            except Exception:
+                pass
+            manager.disconnect(websocket, session_id)
+
+    # =========================================================================
+    # Static File Serving (React build)
+    # =========================================================================
+
+    # Path to React build directory (packaged with massgen)
+    static_dir = Path(__file__).parent / "static"
+
+    if static_dir.exists():
+        # Serve static files from React build
+        app.mount(
+            "/assets",
+            StaticFiles(directory=static_dir / "assets"),
+            name="assets",
+        )
+
+        @app.get("/")
+        async def serve_index():
+            """Serve React app index.html."""
+            return FileResponse(static_dir / "index.html")
+
+        @app.get("/{path:path}")
+        async def serve_spa(path: str):
+            """Serve React SPA - route all paths to index.html.
+
+            Note: API routes (/api/*) are handled by the routes defined above.
+            This catch-all only handles frontend routes.
+            """
+            # Don't serve SPA for API routes - they should 404 if not found
+            if path.startswith("api/"):
+                return JSONResponse(
+                    {"error": "API endpoint not found", "path": path},
+                    status_code=404,
+                )
+
+            file_path = static_dir / path
+            if file_path.exists() and file_path.is_file():
+                return FileResponse(file_path)
+            return FileResponse(static_dir / "index.html")
+
+    return app
+
+
+async def _save_session_metadata(
+    session_id: str,
+    question: str,
+    orchestrator: Any,
+    config_path: str,
+    log_session_dir: Optional[Path],
+    turn_number: int = 1,
+) -> None:
+    """Save CLI-compatible metadata for multi-turn session continuation.
+
+    This creates the same metadata structure as the CLI's save_final_state(),
+    enabling sessions started in WebUI to be continued with `--continue`.
+
+    Args:
+        session_id: WebSocket session identifier
+        question: The question/task that was asked
+        orchestrator: The orchestrator instance (to get winning agent info)
+        config_path: Path to the config file used
+        log_session_dir: The log session directory (may include attempt subdirectory)
+        turn_number: Current turn number (default 1 for first turn)
+    """
+    import json
+    from datetime import datetime
+
+    from massgen.logger_config import get_log_session_dir_base, get_log_session_root
+
+    if not log_session_dir or not log_session_dir.exists():
+        print("[WebUI] Warning: log_session_dir not available, skipping metadata save")
+        return
+
+    try:
+        # Get orchestrator status for winning agent info
+        status = orchestrator.get_status()
+        winning_agent = status.get("selected_agent", "unknown")
+
+        # Get the final answer
+        final_answer = ""
+        if hasattr(orchestrator, "_final_presentation_content") and orchestrator._final_presentation_content:
+            final_answer = orchestrator._final_presentation_content.strip()
+        elif winning_agent and hasattr(orchestrator, "agent_states") and winning_agent in orchestrator.agent_states:
+            stored_answer = orchestrator.agent_states[winning_agent].answer
+            if stored_answer:
+                final_answer = stored_answer.strip()
+
+        # Get the turn directory (without attempt subdirectory)
+        # log_session_dir may be log_xxx/turn_Y/attempt_1/ but we need log_xxx/turn_Y/
+        turn_dir = get_log_session_dir_base()
+        session_dir = get_log_session_root()
+
+        print(f"[WebUI] Saving metadata: turn_dir={turn_dir}, session_dir={session_dir}")
+
+        # Save metadata.json at turn level (CLI-compatible format)
+        metadata = {
+            "turn": turn_number,
+            "timestamp": datetime.now().isoformat(),
+            "winning_agent": winning_agent,
+            "task": question,
+            "session_id": session_dir.name,  # Use log dir name as session ID (e.g., log_xxx)
+        }
+        metadata_file = turn_dir / "metadata.json"
+        metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        # Save answer.txt at turn level (CLI-compatible format)
+        # Note: final/{agent}/answer.txt already exists, but CLI expects answer.txt at turn level too
+        answer_file = turn_dir / "answer.txt"
+        answer_file.write_text(final_answer, encoding="utf-8")
+
+        # Save winning_agents_history.json at session level (for multi-turn memory sharing)
+        winning_agents_history = []
+
+        # Load existing history if present
+        history_file = session_dir / "winning_agents_history.json"
+        if history_file.exists():
+            try:
+                winning_agents_history = json.loads(history_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        # Add current turn's winner
+        winning_agents_history.append(
+            {
+                "agent_id": winning_agent,
+                "turn": turn_number,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+        history_file.write_text(json.dumps(winning_agents_history, indent=2), encoding="utf-8")
+
+        # Register session with SessionRegistry for `massgen --list-sessions` compatibility
+        try:
+            from massgen.session import SessionRegistry
+
+            registry = SessionRegistry()
+            # Use the log directory name as session_id (e.g., "log_20251130_211636_581944")
+            massgen_session_id = session_dir.name
+            registry.register_session(
+                session_id=massgen_session_id,
+                log_directory=str(session_dir),
+                config_path=config_path,
+            )
+            print(f"[WebUI] Registered session: {massgen_session_id}")
+        except Exception as e:
+            print(f"[WebUI] Warning: Could not register session: {e}")
+
+        # Store session info in ConnectionManager for continuation
+        manager.session_log_dirs[session_id] = session_dir
+        manager.session_turns[session_id] = turn_number
+        manager.session_configs[session_id] = config_path
+
+        print(f"[WebUI] Saved session metadata: turn={turn_number}, winner={winning_agent}")
+
+    except Exception as e:
+        print(f"[WebUI] Error saving session metadata: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
+async def run_coordination_with_history(
+    session_id: str,
+    question: str,
+    config_path: str,
+    session_log_dir: Path,
+    turn_number: int,
+) -> None:
+    """Run coordination with conversation history from previous turns.
+
+    This is similar to `run_coordination()` but:
+    1. Restores previous turn data using `restore_session()`
+    2. Passes `previous_turns` and `winning_agents_history` to Orchestrator
+    3. Sets the correct turn number in logger
+
+    Args:
+        session_id: WebSocket session identifier
+        question: The follow-up question
+        config_path: Path to the config file
+        session_log_dir: Path to the session log directory (e.g., .massgen/massgen_logs/log_xxx)
+        turn_number: The turn number for this coordination (2, 3, etc.)
+    """
+    import traceback
+
+    try:
+        # Import here to avoid circular imports
+        from massgen.agent_config import AgentConfig, CoordinationConfig
+        from massgen.cli import (
+            create_agents_from_config,
+            load_config_file,
+            resolve_config_path,
+        )
+        from massgen.frontend.coordination_ui import CoordinationUI
+        from massgen.logger_config import (
+            get_log_session_dir,
+            set_log_base_session_dir,
+            set_log_turn,
+        )
+        from massgen.orchestrator import Orchestrator
+
+        # IMPORTANT: Set the base session dir to reuse the existing session log directory
+        # This must happen before set_log_turn() or get_log_session_dir() is called
+        set_log_base_session_dir(session_log_dir.name)  # e.g., "log_20251202_235530_074788"
+
+        # Restore session state from previous turns
+        previous_turns = []
+        winning_agents_history = []
+        conversation_history = []  # For multi-turn context passing to agents
+
+        try:
+            from massgen.session import restore_session
+
+            # The session_log_dir is the base log dir (e.g., .massgen/massgen_logs/log_xxx)
+            # We need to tell restore_session to look in the massgen_logs directory
+            print(f"[WebUI] Attempting to restore session: session_log_dir={session_log_dir}")
+            print(f"[WebUI] session_log_dir.name={session_log_dir.name}, parent={session_log_dir.parent}")
+            session_state = restore_session(
+                session_log_dir.name,  # e.g., "log_20251130_211636_581944"
+                session_storage=str(session_log_dir.parent),  # e.g., ".massgen/massgen_logs"
+            )
+            if session_state:
+                previous_turns = session_state.previous_turns
+                winning_agents_history = session_state.winning_agents_history
+                conversation_history = session_state.conversation_history or []
+                print(f"[WebUI] Restored {len(previous_turns)} previous turns, {len(winning_agents_history)} winners, {len(conversation_history)} history messages")
+                if conversation_history:
+                    print(f"[WebUI] Conversation history preview: {conversation_history[0] if conversation_history else 'empty'}")
+            else:
+                print(f"[WebUI] restore_session returned None for {session_log_dir.name}")
+        except Exception as e:
+            print(f"[WebUI] ERROR restoring session state: {e}")
+            traceback.print_exc()
+            # Continue anyway - first follow-up might work without full history
+
+        # Set the turn number for logging
+        set_log_turn(turn_number)
+
+        # Resolve config path
+        resolved_path = resolve_config_path(config_path)
+        if resolved_path is None:
+            raise ValueError(f"Could not resolve config path: {config_path}")
+
+        config = load_config_file(str(resolved_path))
+
+        # Extract orchestrator config dict from YAML
+        orchestrator_cfg = config.get("orchestrator", {})
+
+        # Create agents from config
+        agents = create_agents_from_config(
+            config,
+            orchestrator_config=orchestrator_cfg,
+            config_path=str(resolved_path),
+            memory_session_id=session_id,
+        )
+
+        # Get agent IDs and model names
+        agent_ids = list(agents.keys())
+        agent_models = {}
+        for agent_id, agent in agents.items():
+            # Try to get model name from agent - check multiple sources
+            model_name = getattr(agent, "model", None)
+            # For ConfigurableAgent, model is in config.backend_params["model"]
+            if not model_name and hasattr(agent, "config") and agent.config:
+                backend_params = getattr(agent.config, "backend_params", None)
+                if backend_params:
+                    model_name = backend_params.get("model")
+            if model_name:
+                agent_models[agent_id] = model_name
+
+        # Create web display with agent_models
+        display = manager.create_display(session_id, agent_ids, agent_models)
+
+        # Build AgentConfig object for orchestrator
+        orchestrator_config = AgentConfig()
+
+        # Apply voting sensitivity if specified
+        if "voting_sensitivity" in orchestrator_cfg:
+            orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
+
+        # Apply answer count limit if specified
+        if "max_new_answers_per_agent" in orchestrator_cfg:
+            orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
+
+        # Apply answer novelty requirement if specified
+        if "answer_novelty_requirement" in orchestrator_cfg:
+            orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
+
+        # Apply coordination config from YAML (includes enable_agent_task_planning, etc.)
+        coord_cfg = orchestrator_cfg.get("coordination", {})
+        if coord_cfg:
+            orchestrator_config.coordination_config = CoordinationConfig(
+                enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
+                planning_mode_instruction=coord_cfg.get(
+                    "planning_mode_instruction",
+                    "During coordination, describe what you would do without actually executing actions.",
+                ),
+                max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
+                enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
+                max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
+                broadcast=coord_cfg.get("broadcast", False),
+                broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
+                broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+                max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
+                task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
+                enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
+                use_skills=coord_cfg.get("use_skills", False),
+                massgen_skills=coord_cfg.get("massgen_skills", []),
+                skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+            )
+
+        # Get context sharing parameters
+        snapshot_storage = orchestrator_cfg.get("snapshot_storage")
+        agent_temporary_workspace = orchestrator_cfg.get("agent_temporary_workspace")
+
+        # Create orchestrator with history from previous turns
+        orchestrator = Orchestrator(
+            agents=agents,
+            config=orchestrator_config,
+            session_id=session_id,
+            snapshot_storage=snapshot_storage,
+            agent_temporary_workspace=agent_temporary_workspace,
+            previous_turns=previous_turns,
+            winning_agents_history=winning_agents_history,
+        )
+
+        # Store the log session directory in the display
+        display.log_session_dir = get_log_session_dir()
+        print(f"[WebUI] run_coordination_with_history: turn={turn_number}, log_dir={display.log_session_dir}")
+
+        # Create coordination UI with web display
+        ui = CoordinationUI(
+            display=display,
+            display_type="web",
+        )
+
+        # Run coordination with conversation history (like CLI does)
+        # Build messages list: previous Q&A pairs + current question
+        messages = conversation_history.copy() if conversation_history else []
+        messages.append({"role": "user", "content": question})
+
+        if len(messages) > 1:
+            # Multi-turn: use coordinate_with_context so agents see previous conversation
+            print(f"[WebUI] Running coordination with {len(conversation_history)} history messages")
+            await ui.coordinate_with_context(orchestrator, question, messages)
+        else:
+            # First turn: standard coordination
+            await ui.coordinate(orchestrator, question)
+
+        # Save CLI-compatible metadata for this turn
+        await _save_session_metadata(
+            session_id=session_id,
+            question=question,
+            orchestrator=orchestrator,
+            config_path=str(resolved_path),
+            log_session_dir=display.log_session_dir,
+            turn_number=turn_number,
+        )
+
+        # Broadcast completion
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "coordination_complete",
+                "session_id": session_id,
+                "turn": turn_number,
+            },
+        )
+
+    except Exception as e:
+        # Log the full traceback for debugging
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"[WebUI Error] {error_msg}")
+        traceback.print_exc()
+
+        # Broadcast error
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "error",
+                "message": error_msg,
+                "session_id": session_id,
+            },
+        )
+
+
+async def run_coordination(
+    session_id: str,
+    question: str,
+    config_path: Optional[str] = None,
+) -> None:
+    """Run coordination with web display.
+
+    Args:
+        session_id: Session identifier
+        question: Question for coordination
+        config_path: Optional path to config YAML
+    """
+    import traceback
+
+    try:
+        # Import here to avoid circular imports
+        from massgen.agent_config import AgentConfig, CoordinationConfig
+        from massgen.cli import (
+            create_agents_from_config,
+            load_config_file,
+            resolve_config_path,
+        )
+        from massgen.frontend.coordination_ui import CoordinationUI
+        from massgen.orchestrator import Orchestrator
+
+        # Load config from YAML file
+        if not config_path:
+            raise ValueError("Config path is required")
+
+        # Resolve config path (handles @examples/, paths, etc.)
+        resolved_path = resolve_config_path(config_path)
+        if resolved_path is None:
+            raise ValueError(f"Could not resolve config path: {config_path}")
+
+        config = load_config_file(str(resolved_path))
+
+        # Extract orchestrator config dict from YAML
+        orchestrator_cfg = config.get("orchestrator", {})
+
+        # Create agents from config
+        agents = create_agents_from_config(
+            config,
+            orchestrator_config=orchestrator_cfg,
+            config_path=str(resolved_path),
+            memory_session_id=session_id,
+        )
+
+        # Get agent IDs and model names
+        agent_ids = list(agents.keys())
+        agent_models = {}
+        for agent_id, agent in agents.items():
+            # Try to get model name from agent - check multiple sources
+            model_name = getattr(agent, "model", None)
+            # For ConfigurableAgent, model is in config.backend_params["model"]
+            if not model_name and hasattr(agent, "config") and agent.config:
+                backend_params = getattr(agent.config, "backend_params", None)
+                if backend_params:
+                    model_name = backend_params.get("model")
+            if model_name:
+                agent_models[agent_id] = model_name
+
+        # Create web display with agent_models
+        display = manager.create_display(session_id, agent_ids, agent_models)
+
+        # Build AgentConfig object for orchestrator (required by Orchestrator)
+        orchestrator_config = AgentConfig()
+
+        # Apply voting sensitivity if specified
+        if "voting_sensitivity" in orchestrator_cfg:
+            orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
+
+        # Apply answer count limit if specified
+        if "max_new_answers_per_agent" in orchestrator_cfg:
+            orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
+
+        # Apply answer novelty requirement if specified
+        if "answer_novelty_requirement" in orchestrator_cfg:
+            orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
+
+        # Apply coordination config from YAML (includes enable_agent_task_planning, etc.)
+        coord_cfg = orchestrator_cfg.get("coordination", {})
+        if coord_cfg:
+            orchestrator_config.coordination_config = CoordinationConfig(
+                enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
+                planning_mode_instruction=coord_cfg.get(
+                    "planning_mode_instruction",
+                    "During coordination, describe what you would do without actually executing actions.",
+                ),
+                max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
+                enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
+                max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
+                broadcast=coord_cfg.get("broadcast", False),
+                broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
+                broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+                max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
+                task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
+                enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
+                use_skills=coord_cfg.get("use_skills", False),
+                massgen_skills=coord_cfg.get("massgen_skills", []),
+                skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+            )
+
+        # Get context sharing parameters
+        snapshot_storage = orchestrator_cfg.get("snapshot_storage")
+        agent_temporary_workspace = orchestrator_cfg.get("agent_temporary_workspace")
+
+        # Create orchestrator with AgentConfig object
+        orchestrator = Orchestrator(
+            agents=agents,
+            config=orchestrator_config,
+            session_id=session_id,
+            snapshot_storage=snapshot_storage,
+            agent_temporary_workspace=agent_temporary_workspace,
+        )
+
+        # Store the log session directory in the display BEFORE coordination
+        # This ensures the API can find it when coordination_complete is sent
+        from massgen.logger_config import get_log_session_dir
+
+        display.log_session_dir = get_log_session_dir()
+        print(f"[DEBUG] run_coordination: Set display.log_session_dir = {display.log_session_dir}")
+
+        # Create coordination UI with web display
+        ui = CoordinationUI(
+            display=display,
+            display_type="web",
+        )
+
+        # Run coordination
+        await ui.coordinate(orchestrator, question)
+
+        # Save CLI-compatible metadata for multi-turn continuation
+        await _save_session_metadata(
+            session_id=session_id,
+            question=question,
+            orchestrator=orchestrator,
+            config_path=str(resolved_path),
+            log_session_dir=display.log_session_dir,
+        )
+
+        # Broadcast completion
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "coordination_complete",
+                "session_id": session_id,
+            },
+        )
+
+    except Exception as e:
+        # Log the full traceback for debugging
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"[WebUI Error] {error_msg}")
+        traceback.print_exc()
+
+        # Broadcast error
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "error",
+                "message": error_msg,
+                "session_id": session_id,
+            },
+        )
+
+
+def run_server(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    reload: bool = False,
+    config_path: Optional[str] = None,
+) -> None:
+    """Run the web server.
+
+    Args:
+        host: Host to bind to
+        port: Port to listen on
+        reload: Enable auto-reload for development
+        config_path: Default config path for coordination sessions
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        raise ImportError(
+            "uvicorn is not installed. Install with: pip install massgen",
+        )
+
+    # Set default config before starting server
+    if config_path:
+        set_default_config(config_path)
+
+    uvicorn.run(
+        "massgen.frontend.web.server:create_app",
+        host=host,
+        port=port,
+        reload=reload,
+        factory=True,
+    )
+
+
+# For running directly: python -m massgen.frontend.web.server
+if __name__ == "__main__":
+    run_server()

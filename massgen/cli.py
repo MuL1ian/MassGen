@@ -4080,6 +4080,23 @@ Environment Variables:
     parser.add_argument("--no-logs", action="store_true", help="Disable logging")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with verbose logging")
     parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Launch web UI server for real-time visualization",
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=8000,
+        help="Port for web UI server (default: 8000)",
+    )
+    parser.add_argument(
+        "--web-host",
+        type=str,
+        default="127.0.0.1",
+        help="Host for web UI server (default: 127.0.0.1)",
+    )
+    parser.add_argument(
         "--automation",
         action="store_true",
         help="Enable automation mode: silent output (~10 lines), status.json tracking, meaningful exit codes. "
@@ -4391,6 +4408,27 @@ Environment Variables:
     # Setup Docker images if requested
     if args.setup_docker:
         setup_docker()
+        return
+
+    # Launch web UI server if requested
+    if args.web:
+        try:
+            from .frontend.web import run_server
+
+            config_path = args.config if hasattr(args, "config") and args.config else None
+            print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+            print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+            if config_path:
+                print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}   No config specified - use --config or select in UI{RESET}")
+            print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+            run_server(host=args.web_host, port=args.web_port, config_path=config_path)
+        except ImportError as e:
+            print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+            print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+            logger.debug(f"Import error: {e}")
+            sys.exit(1)
         return
 
     # Launch interactive config selector if requested

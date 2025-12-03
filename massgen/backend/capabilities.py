@@ -126,7 +126,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "gpt-4o-mini",
             "o4-mini",
         ],
-        default_model="gpt-5",
+        default_model="gpt-5.1",
         env_var="OPENAI_API_KEY",
         notes="Reasoning support in GPT-5 and o-series models. Audio/video generation (v0.0.30+). Video generation via Sora-2 API (v0.0.31).",
         model_release_dates={
@@ -253,7 +253,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "gemini-2.5-flash",
             "gemini-2.5-pro",
         ],
-        default_model="gemini-2.5-flash",
+        default_model="gemini-3-pro-preview",
         env_var="GEMINI_API_KEY",
         notes="Google Search Retrieval provides web search. Image understanding capabilities.",
         model_release_dates={

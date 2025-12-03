@@ -957,8 +957,9 @@ class FilesystemManager:
         if workspace.exists() and workspace.is_dir():
             for item in workspace.iterdir():
                 if item.is_symlink():
-                    logger.debug(f"[FilesystemManager.save_snapshot] Skipping symlink during clear: {item}")
-                if item.is_file():
+                    # Symlinks must be unlinked directly - rmtree fails on symlinks to directories
+                    item.unlink()
+                elif item.is_file():
                     item.unlink()
                 elif item.is_dir():
                     shutil.rmtree(item)

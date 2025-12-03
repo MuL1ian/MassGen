@@ -224,3 +224,8 @@ CLAUDE.md
 massgen/tests/demo_terminal_evaluation_workspace/
 .agent/
 shared_tools/
+
+# WebUI
+webui/node_modules/
+webui/dist/
+webui/mockups/

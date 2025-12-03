@@ -6,7 +6,7 @@ This guide shows you how to run MassGen using different modes and configurations
 Choosing Your Mode
 ------------------
 
-MassGen offers two primary ways to run multi-agent workflows:
+MassGen offers three ways to run multi-agent workflows:
 
 .. list-table::
    :header-rows: 1
@@ -18,6 +18,9 @@ MassGen offers two primary ways to run multi-agent workflows:
    * - **CLI**
      - Interactive exploration, quick experiments
      - Rich terminal UI, YAML configs, real-time visualization
+   * - **WebUI**
+     - Visual monitoring, team demos, workspace browsing
+     - Browser-based UI, real-time streaming, file explorer, vote visualization
    * - **LiteLLM**
      - Application integration, LangChain, existing LiteLLM users
      - Standard OpenAI interface, drop-in replacement
@@ -39,6 +42,19 @@ Quick Start Examples
          # Interactive mode (multi-turn)
          uv run massgen
 
+      Rich terminal UI with real-time streaming, multi-turn conversations, and YAML configuration.
+
+   .. tab:: WebUI
+
+      .. code-block:: bash
+
+         # Start the web interface
+         uv run massgen --web
+
+         # Open http://localhost:8000 in your browser
+
+      Browser-based UI with real-time agent streaming, vote visualization, and workspace browsing.
+
    .. tab:: LiteLLM
 
       .. code-block:: python
@@ -58,6 +74,8 @@ Quick Start Examples
              optional_params={"models": ["openrouter/openai/gpt-5", "openrouter/anthropic/claude-sonnet-4.5"]}
          )
          print(response.choices[0].message.content)
+
+      Standard OpenAI-compatible interface for seamless integration with existing applications.
 
 CLI Usage
 ---------
@@ -104,6 +122,40 @@ See :doc:`../user_guide/sessions/multi_turn_mode` for the complete guide.
 .. note::
 
    For programmatic Python access with async support and full control, see the :doc:`../user_guide/integration/python_api`.
+
+WebUI
+-----
+
+The WebUI provides a browser-based interface for visual monitoring of multi-agent coordination.
+
+Starting the WebUI
+~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Basic: Start on localhost:8000
+   uv run massgen --web
+
+   # With custom host/port
+   uv run massgen --web --web-host 0.0.0.0 --web-port 3000
+
+   # With a default config
+   uv run massgen --web --config @examples/basic/multi/three_agents_default
+
+Then open http://localhost:8000 in your browser.
+
+Key Features
+~~~~~~~~~~~~
+
+* **Real-time Agent Streaming** - Watch agents think, use tools, and generate answers live
+* **Vote Visualization** - See voting distribution and consensus-building with animated charts
+* **Coordination Timeline** - Visual swimlane diagram showing answer flow and dependencies
+* **Answer Browser** - Browse all agent answers with version history
+* **Workspace Explorer** - View and examine files created by agents during execution
+* **Multi-Turn Conversations** - Continue sessions with follow-up questions
+* **Quickstart Wizard** - Guided setup for configuring agents without manual YAML editing
+
+See :doc:`../user_guide/webui` for the complete WebUI guide.
 
 LiteLLM Integration
 -------------------

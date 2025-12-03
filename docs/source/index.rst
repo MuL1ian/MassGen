@@ -74,6 +74,19 @@ Quick Start
          uv pip install massgen
          uv run massgen        # Setup wizard, then ask your first question
 
+      Rich terminal UI with real-time streaming, multi-turn conversations, and YAML configuration.
+
+   .. tab:: WebUI
+
+      .. code-block:: bash
+
+         pip install uv        # if needed
+         uv venv && source .venv/bin/activate
+         uv pip install massgen
+         uv run massgen --web  # Open http://localhost:8000
+
+      Browser-based UI with real-time agent streaming, vote visualization, and workspace browsing.
+
    .. tab:: LiteLLM
 
       .. code-block:: python
@@ -91,6 +104,8 @@ Quick Start
              optional_params={"models": ["openrouter/openai/gpt-5", "openrouter/anthropic/claude-sonnet-4.5"]}
          )
          print(response.choices[0].message.content)
+
+      Standard OpenAI-compatible interface for seamless integration with existing applications.
 
 :doc:`quickstart/installation` · :doc:`quickstart/running-massgen` · :doc:`quickstart/configuration`
 
@@ -169,9 +184,9 @@ Documentation
    .. grid-item-card:: 📖 User Guide
 
       * :doc:`user_guide/concepts`
+      * :doc:`user_guide/webui`
       * :doc:`user_guide/tools/index`
       * :doc:`user_guide/integration/index`
-      * :doc:`user_guide/sessions/index`
 
    .. grid-item-card:: 📚 Reference
 
@@ -196,6 +211,7 @@ Documentation
 
    user_guide/concepts
    user_guide/backends
+   user_guide/webui
    user_guide/tools/index
    user_guide/files/index
    user_guide/sessions/index

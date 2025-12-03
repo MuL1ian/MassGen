@@ -1942,6 +1942,32 @@ Your answer:"""
                                 result_data,
                                 snapshot_timestamp=answer_timestamp,
                             )
+                            # Notify web display if available
+                            if hasattr(self, "coordination_ui") and self.coordination_ui:
+                                display = getattr(self.coordination_ui, "display", None)
+                                if display and hasattr(display, "send_new_answer"):
+                                    # Get answer count for this agent
+                                    agent_answers = self.coordination_tracker.answers_by_agent.get(agent_id, [])
+                                    answer_number = len(agent_answers)
+                                    display.send_new_answer(
+                                        agent_id=agent_id,
+                                        content=result_data,
+                                        answer_number=answer_number,
+                                    )
+                                # Record answer with context for timeline visualization
+                                if display and hasattr(display, "record_answer_with_context"):
+                                    agent_answers = self.coordination_tracker.answers_by_agent.get(agent_id, [])
+                                    answer_number = len(agent_answers)
+                                    agent_num = self.coordination_tracker._get_agent_number(agent_id)
+                                    # Use same label format as coordination_tracker: "agent1.1"
+                                    answer_label = f"agent{agent_num}.{answer_number}"
+                                    context_sources = self.coordination_tracker.get_agent_context_labels(agent_id)
+                                    display.record_answer_with_context(
+                                        agent_id=agent_id,
+                                        answer_label=answer_label,
+                                        context_sources=context_sources,
+                                        round_num=answer_number,
+                                    )
                             # Update status file for real-time monitoring
                             log_session_dir = get_log_session_dir()
                             if log_session_dir:
@@ -1970,6 +1996,7 @@ Your answer:"""
 
                         elif result_type == "vote":
                             # Agent voted for existing answer
+                            print(f"[DEBUG] VOTE BLOCK ENTERED for {agent_id}, result_data={result_data}")
                             # Ignore votes from agents with restart pending (votes are about current state)
                             if self._check_restart_pending(agent_id):
                                 voted_for = result_data.get("agent_id", "<unknown>")
@@ -2011,8 +2038,36 @@ Your answer:"""
                                     result_data,
                                     snapshot_timestamp=vote_timestamp,
                                 )
+                                # Notify web display about the vote
+                                print(f"[DEBUG] Vote recorded - checking for coordination_ui: hasattr={hasattr(self, 'coordination_ui')}, coordination_ui={self.coordination_ui}")
+                                if hasattr(self, "coordination_ui") and self.coordination_ui:
+                                    display = getattr(self.coordination_ui, "display", None)
+                                    print(f"[DEBUG] Got display: {display}, has update_vote_target: {hasattr(display, 'update_vote_target') if display else 'N/A'}")
+                                    if display and hasattr(display, "update_vote_target"):
+                                        print(f"[DEBUG] Calling update_vote_target({agent_id}, {result_data.get('agent_id', '')}, ...)")
+                                        display.update_vote_target(
+                                            voter_id=agent_id,
+                                            target_id=result_data.get("agent_id", ""),
+                                            reason=result_data.get("reason", ""),
+                                        )
+                                    # Record vote with context for timeline visualization
+                                    if display and hasattr(display, "record_vote_with_context"):
+                                        agent_num = self.coordination_tracker._get_agent_number(agent_id)
+                                        # Count previous votes by this agent to get vote number
+                                        votes_by_agent = [v for v in self.coordination_tracker.votes if v.voter_id == agent_id]
+                                        vote_number = len(votes_by_agent)  # Already recorded above, so this is the count
+                                        # Use format like "vote1.1" (matches answer format "agent1.1")
+                                        vote_label = f"vote{agent_num}.{vote_number}"
+                                        available_answers = self.coordination_tracker.iteration_available_labels.copy()
+                                        display.record_vote_with_context(
+                                            voter_id=agent_id,
+                                            vote_label=vote_label,
+                                            voted_for=result_data.get("agent_id", ""),
+                                            available_answers=available_answers,
+                                        )
                                 # Update status file for real-time monitoring
                                 log_session_dir = get_log_session_dir()
+                                print(f"[DEBUG] Log session dir: {log_session_dir}")
                                 if log_session_dir:
                                     self.coordination_tracker.save_status_file(log_session_dir, orchestrator=self)
 
@@ -2775,12 +2830,20 @@ Your answer:"""
         # Send primary error for the first tool call
         first_tool_call = tool_calls[0]
         error_result_msg = agent.backend.create_tool_result_message(first_tool_call, primary_error_msg)
-        enforcement_msgs.append(error_result_msg)
+        # Handle both single dict (Chat Completions) and list (Response API) returns
+        if isinstance(error_result_msg, list):
+            enforcement_msgs.extend(error_result_msg)
+        else:
+            enforcement_msgs.append(error_result_msg)
 
         # Send secondary error messages for any additional tool calls (API requires response to ALL calls)
         for additional_tool_call in tool_calls[1:]:
             neutral_msg = agent.backend.create_tool_result_message(additional_tool_call, secondary_error_msg)
-            enforcement_msgs.append(neutral_msg)
+            # Handle both single dict (Chat Completions) and list (Response API) returns
+            if isinstance(neutral_msg, list):
+                enforcement_msgs.extend(neutral_msg)
+            else:
+                enforcement_msgs.append(neutral_msg)
 
         return enforcement_msgs
 
@@ -3651,8 +3714,14 @@ Your answer:"""
                         # else: No new answers, proceed with normal error handling
                     if attempt < max_attempts - 1:
                         yield ("content", "🔄 needs to use workflow tools...\n")
-                        # Reset to default enforcement message for this case
-                        enforcement_msg = self.message_templates.enforcement_message()
+                        # If there were tool calls, we must provide tool results before continuing
+                        # (Response API requires function_call + function_call_output pairs)
+                        if tool_calls:
+                            error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
+                            enforcement_msg = self._create_tool_error_messages(agent, tool_calls, error_msg)
+                        else:
+                            # No tool calls, just a plain text response - use default enforcement
+                            enforcement_msg = self.message_templates.enforcement_message()
                         continue  # Retry with updated conversation
                     else:
                         # Last attempt failed, agent did not provide proper workflow response

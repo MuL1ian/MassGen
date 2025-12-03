@@ -169,7 +169,7 @@ html_theme_options = {
 # Logo and favicon (fallback if theme doesn't support logo dict)
 # html_logo = "../../assets/logo.png"
 # html_favicon = "../../assets/logo.png"
-html_favicon = "../../assets/favicon.ico"
+html_favicon = "../../assets/favicon.png"
 
 # Additional HTML context
 html_context = {
