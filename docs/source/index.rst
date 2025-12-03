@@ -60,6 +60,13 @@ MassGen is a cutting-edge multi-agent system that leverages the power of collabo
 
 Think of it as a "parallel study group" for AI - inspired by advanced systems like **xAI's Grok Heavy** and **Google DeepMind's Gemini Deep Think**. Agents learn from each other to produce better results than any single agent could achieve alone.
 
+
+How Does MassGen Compare?
+-------------------------
+
+**MassGen vs LLM Council:** While LLM Council follows a fixed 3-stage pipeline, MassGen agents autonomously decide to contribute new answers or vote for others, reaching consensus organically. Plus, MassGen agents can use tools, execute code, and read/write files in your codebase — backed by active development with regular releases. :doc:`See full comparison → <reference/comparisons>`
+
+
 Quick Start
 -----------
 
@@ -232,6 +239,7 @@ Documentation
    reference/configuration_examples
    reference/timeouts
    reference/supported_models
+   reference/comparisons
    glossary
 
 .. toctree::
