@@ -163,12 +163,14 @@ This project started with the "threads of thought" and "iterative refinement" id
 - **🌐 Web UI System** - Browser-based real-time visualization with React frontend and WebSocket streaming
 - **🐳 Auto Docker Setup** - Automatic Ubuntu 22.04 container creation for computer use agents
 - **🔄 Response API Improvements** - Enhanced multi-turn context handling
+- **📊 LLM Council Comparison** - Feature comparison with Karpathy's LLM Council showing MassGen's tool use and consensus advantages
 
 **Key Improvements:**
 - New `--web`, `--web-port`, `--web-host` CLI flags for launching web server
 - React frontend with AgentCarousel, AnswerBrowser, Timeline, and VoteVisualization components
 - `setup_computer_use_docker()` function with auto-detection for computer use configs
 - Pre-configured desktop environment with X11, xdotool, Firefox, Chromium, and scrot
+- New [comparison documentation](docs/source/reference/comparisons.rst) for multi-agent tool selection
 
 **Try v0.1.20 Features:**
 ```bash
@@ -1145,6 +1147,7 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 - `docs/source/user_guide/webui.rst` - Web UI guide
 - `docs/source/user_guide/advanced/computer_use.rst` - Enhanced computer use documentation
 - `docs/source/user_guide/filesystem_first.rst` - Filesystem-first mode documentation
+- `docs/source/reference/comparisons.rst` - MassGen vs LLM Council comparison
 
 ### Previous Achievements (v0.0.3 - v0.1.19)
 

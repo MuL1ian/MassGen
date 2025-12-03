@@ -50,6 +50,8 @@ Agent-to-agent and human broadcast communication via `ask_others()` tool, Claude
 
 - **Filesystem-First Mode Documentation**: New `docs/source/user_guide/filesystem_first.rst` (872 lines, experimental v0.2.0+) documenting 98% context reduction via on-demand tool discovery
 
+- **LLM Council Comparison**: New `docs/source/reference/comparisons.rst` (155 lines) comparing MassGen vs LLM Council with feature tables, UI differences, and architectural comparisons
+
 ### Technical Details
 - **Major Focus**: Web UI for real-time coordination visualization, automatic Docker setup for computer use agents
 - **Contributors**: @voidcenter @ncrispino @praneeth999 and the MassGen team
