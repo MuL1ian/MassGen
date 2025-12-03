@@ -37,9 +37,19 @@ class ResponseFormatter(FormatterBase):
             else:
                 cleaned_messages.append(message)
 
+        # Collect call_ids that have outputs
+        output_call_ids = {
+            msg.get("call_id") or msg.get("tool_call_id")
+            for msg in cleaned_messages
+            if (msg.get("type") == "function_call_output" or msg.get("role") == "tool") and (msg.get("call_id") or msg.get("tool_call_id"))
+        }
+
         converted_messages = []
 
         for message in cleaned_messages:
+            if message.get("type") == "reasoning":
+                continue
+
             if message.get("role") == "tool":
                 # Convert Chat Completions tool message to Response API format
                 converted_message = {
@@ -51,6 +61,22 @@ class ResponseFormatter(FormatterBase):
             elif message.get("type") == "function_call_output":
                 # Already in Response API format
                 converted_messages.append(message)
+            elif message.get("type") == "function_call":
+                call_id = message.get("call_id")
+                # Strip 'id' to decouple from reasoning items
+                cleaned_fc = {k: v for k, v in message.items() if k != "id"}
+
+                if call_id and call_id not in output_call_ids:
+                    converted_messages.append(cleaned_fc)
+                    converted_messages.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": "[No output recorded for this tool call]",
+                        },
+                    )
+                else:
+                    converted_messages.append(cleaned_fc)
             elif message.get("role") == "assistant" and "tool_calls" in message:
                 # Assistant message with tool_calls - remove tool_calls when sending as input
                 cleaned_message = {k: v for k, v in message.items() if k != "tool_calls"}
