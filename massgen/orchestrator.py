@@ -4587,6 +4587,86 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             "winning_agents_history": self._winning_agents_history.copy(),  # For cross-turn memory sharing
         }
 
+    def get_partial_result(self) -> Optional[Dict[str, Any]]:
+        """Get partial coordination result for interrupted sessions.
+
+        Captures whatever state is available mid-coordination, useful when
+        a user cancels with Ctrl+C before coordination completes.
+
+        Returns:
+            Dict with partial state including:
+            - status: Always "incomplete"
+            - phase: Current workflow phase
+            - current_task: The task being worked on
+            - answers: Dict of agent_id -> answer data for agents with answers
+            - workspaces: Dict of agent_id -> workspace path
+            - selected_agent: Winning agent if voting completed, else None
+            - coordination_tracker: Coordination state if available
+
+            Returns None if no answers have been generated yet.
+
+        Example:
+            >>> partial = orchestrator.get_partial_result()
+            >>> if partial:
+            ...     save_partial_turn(session_id, turn, task, partial)
+        """
+        # Collect any answers that have been submitted
+        answers = {}
+        for agent_id, state in self.agent_states.items():
+            if state.answer:
+                answers[agent_id] = {
+                    "answer": state.answer,
+                    "has_voted": state.has_voted,
+                    "votes": state.votes if state.has_voted else None,
+                    "answer_count": state.answer_count,
+                }
+
+        # Get all agent workspaces (even those without answers)
+        workspaces = self.get_all_agent_workspaces()
+
+        def has_files_recursive(directory: Path) -> bool:
+            """Check if directory contains any files (recursively)."""
+            if not directory.is_dir():
+                return False
+            for item in directory.iterdir():
+                if item.is_file():
+                    return True
+                if item.is_dir() and has_files_recursive(item):
+                    return True
+            return False
+
+        # Check if any workspaces have content (actual files, not just empty dirs)
+        workspaces_with_content = {}
+        for agent_id, ws_path in workspaces.items():
+            if ws_path and Path(ws_path).exists():
+                ws = Path(ws_path)
+                if has_files_recursive(ws):
+                    workspaces_with_content[agent_id] = ws_path
+
+        # If no answers AND no workspaces with content, nothing worth saving
+        if not answers and not workspaces_with_content:
+            return None
+
+        # Build partial result
+        result = {
+            "status": "incomplete",
+            "phase": self.workflow_phase,
+            "current_task": self.current_task,
+            "answers": answers,
+            "workspaces": workspaces_with_content,  # Only include workspaces with content
+            "selected_agent": self._selected_agent,  # May be None if voting incomplete
+        }
+
+        # Include coordination tracker state if available
+        if self.coordination_tracker:
+            try:
+                result["coordination_tracker"] = self.coordination_tracker.to_dict()
+            except Exception:
+                # Don't fail if tracker serialization fails
+                pass
+
+        return result
+
     def get_all_agent_workspaces(self) -> Dict[str, Optional[str]]:
         """Get workspace paths for all agents.
 

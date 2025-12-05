@@ -11,6 +11,7 @@ Session features in MassGen:
 * **Multi-turn mode** - Interactive conversations with persistent context
 * **Memory management** - Long-term context preservation across sessions
 * **Session restart** - Resume and continue previous sessions
+* **Graceful cancellation** - Save partial progress when interrupting
 * **Context windows** - Efficient handling of conversation history
 
 Guides in This Section
@@ -51,6 +52,17 @@ Guides in This Section
       * Continuation patterns
 
       :doc:`Read the Session Restart guide → <orchestration_restart>`
+
+   .. grid-item-card:: ⏹️ Graceful Cancellation
+
+      Save progress on interrupt
+
+      * Ctrl+C handling
+      * Partial progress saving
+      * Resume cancelled sessions
+      * Review partial answers
+
+      :doc:`Read the Graceful Cancellation guide → <graceful_cancellation>`
 
 Quick Start
 -----------
@@ -98,3 +110,4 @@ Related Documentation
    multi_turn_mode
    memory
    orchestration_restart
+   graceful_cancellation

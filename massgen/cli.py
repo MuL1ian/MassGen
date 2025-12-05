@@ -1331,11 +1331,12 @@ async def run_question_with_history(
     history: List[Dict[str, Any]],
     session_info: Dict[str, Any],
     **kwargs,
-) -> tuple[str, Optional[str], int]:
+) -> tuple[str, Optional[str], int, bool]:
     """Run MassGen with a question and conversation history.
 
     Returns:
-        tuple: (response_text, session_id, turn_number)
+        tuple: (response_text, session_id, turn_number, was_cancelled)
+            - was_cancelled: True if user cancelled with Ctrl+C (partial progress may be saved)
     """
     # Build messages including history
     messages = history.copy()
@@ -1517,49 +1518,96 @@ async def run_question_with_history(
     # For multi-agent with history, we need to use a different approach
     # that maintains coordination UI display while supporting conversation context
 
+    # Setup graceful cancellation handling
+    from massgen.cancellation import CancellationManager, CancellationRequested
+    from massgen.session import save_partial_turn
+
+    cancellation_mgr = CancellationManager()
+
+    # Determine session ID for partial saves (may not exist yet for first turn)
+    partial_session_id = session_info.get("session_id") or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    partial_turn_number = session_info.get("current_turn", 0) + 1
+
+    # Check if we're in multi-turn mode (passed from caller)
+    multi_turn_mode = session_info.get("multi_turn", False)
+
+    def save_partial_progress(partial_result):
+        """Callback to save partial progress when cancelled."""
+        try:
+            save_partial_turn(
+                session_id=partial_session_id,
+                turn_number=partial_turn_number,
+                question=question,
+                partial_result=partial_result,
+                session_storage=SESSION_STORAGE,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save partial progress: {e}")
+
+    # Register cancellation handler (multi_turn mode returns to prompt instead of exiting)
+    cancellation_mgr.register(orchestrator, save_partial_progress, multi_turn=multi_turn_mode)
+
     # Restart loop (similar to multiturn pattern) - continues until no restart pending
     response_content = None
-    while True:
-        if history and len(history) > 0:
-            # Use coordination UI with conversation context
-            # Extract current question from messages
-            current_question = messages[-1].get("content", question) if messages else question
+    was_cancelled = False
+    try:
+        while True:
+            if history and len(history) > 0:
+                # Use coordination UI with conversation context
+                # Extract current question from messages
+                current_question = messages[-1].get("content", question) if messages else question
 
-            # Pass the full message context to the UI coordination
-            response_content = await ui.coordinate_with_context(orchestrator, current_question, messages)
+                # Pass the full message context to the UI coordination
+                response_content = await ui.coordinate_with_context(orchestrator, current_question, messages)
+            else:
+                # Standard coordination for new conversations
+                response_content = await ui.coordinate(orchestrator, question)
+
+            # Check if restart is needed
+            if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
+                # Restart needed - create fresh UI for next attempt
+                print(f"\n{'='*80}")
+                print(f"🔄 Restarting coordination - Attempt {orchestrator.current_attempt + 1}/{orchestrator.max_attempts}")
+                print(f"{'='*80}\n")
+
+                # Reset all agent backends to ensure clean state for next attempt
+                for agent_id, agent in orchestrator.agents.items():
+                    if hasattr(agent.backend, "reset_state"):
+                        try:
+                            import inspect
+
+                            result = agent.backend.reset_state()
+                            # Handle both sync and async reset_state
+                            if inspect.iscoroutine(result):
+                                await result
+                            logger.info(f"Reset backend state for {agent_id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to reset backend for {agent_id}: {e}")
+
+                # Create fresh UI instance for next attempt
+                ui = _build_coordination_ui(ui_config)
+
+                # Reset cancellation state for new attempt
+                cancellation_mgr.reset()
+
+                # Continue to next attempt
+                continue
+            else:
+                # Coordination complete - exit loop
+                break
+    except CancellationRequested as cancel_exc:
+        # In multi-turn mode, CancellationRequested is raised instead of KeyboardInterrupt
+        # This allows us to return to the prompt instead of exiting
+        was_cancelled = True
+        response_content = None
+        if cancel_exc.partial_saved:
+            print(f"\n{BRIGHT_YELLOW}⏸️  Turn cancelled. Partial progress saved.{RESET}", flush=True)
         else:
-            # Standard coordination for new conversations
-            response_content = await ui.coordinate(orchestrator, question)
-
-        # Check if restart is needed
-        if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
-            # Restart needed - create fresh UI for next attempt
-            print(f"\n{'='*80}")
-            print(f"🔄 Restarting coordination - Attempt {orchestrator.current_attempt + 1}/{orchestrator.max_attempts}")
-            print(f"{'='*80}\n")
-
-            # Reset all agent backends to ensure clean state for next attempt
-            for agent_id, agent in orchestrator.agents.items():
-                if hasattr(agent.backend, "reset_state"):
-                    try:
-                        import inspect
-
-                        result = agent.backend.reset_state()
-                        # Handle both sync and async reset_state
-                        if inspect.iscoroutine(result):
-                            await result
-                        logger.info(f"Reset backend state for {agent_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to reset backend for {agent_id}: {e}")
-
-            # Create fresh UI instance for next attempt
-            ui = _build_coordination_ui(ui_config)
-
-            # Continue to next attempt
-            continue
-        else:
-            # Coordination complete - exit loop
-            break
+            print(f"\n{BRIGHT_YELLOW}⏸️  Turn cancelled.{RESET}", flush=True)
+        logger.info("Turn cancelled by user in multi-turn mode")
+    finally:
+        # Always unregister the cancellation handler
+        cancellation_mgr.unregister()
 
     # Copy final results from attempt to turn root (turn_N/final/)
     # Only copy if we're in an attempt subdirectory
@@ -1606,7 +1654,7 @@ async def run_question_with_history(
     )
 
     # Return normalized response so conversation history has correct paths
-    return (normalized_response or response_content, session_id_to_use, updated_turn)
+    return (normalized_response or response_content, session_id_to_use, updated_turn, was_cancelled)
 
 
 async def run_single_question(
@@ -3308,6 +3356,7 @@ async def run_interactive_mode(
     conversation_history = []
     previous_turns = []
     winning_agents_history = []
+    incomplete_turn_workspaces = {}  # Dict of agent_id -> workspace path for incomplete turns
     if memory_session_id and restore_session_if_exists:
         from massgen.logger_config import set_log_turn
         from massgen.session import restore_session
@@ -3328,6 +3377,20 @@ async def run_interactive_mode(
                 flush=True,
             )
             print(f"   Starting turn {next_turn}", flush=True)
+
+            # Notify user about incomplete turn if present
+            if session_state.incomplete_turn:
+                incomplete = session_state.incomplete_turn
+                print(f"\n{BRIGHT_YELLOW}⚠️  Previous turn was incomplete (cancelled during {incomplete.get('phase', 'unknown')} phase){RESET}", flush=True)
+                print(f"   Task: {incomplete.get('task', 'N/A')}", flush=True)
+                if incomplete.get("agents_with_answers"):
+                    print(f"   Partial answers saved from: {', '.join(incomplete['agents_with_answers'])}", flush=True)
+                if session_state.incomplete_turn_workspaces:
+                    print(f"   Workspaces available: {', '.join(session_state.incomplete_turn_workspaces.keys())}", flush=True)
+                print("", flush=True)
+
+            # Store incomplete turn workspaces for context path injection
+            incomplete_turn_workspaces = session_state.incomplete_turn_workspaces
         except ValueError as e:
             # restore_session failed - no turns found
             print(f"❌ Session error: {e}", flush=True)
@@ -3349,8 +3412,36 @@ async def run_interactive_mode(
                     latest_turn_dir = session_dir / f"turn_{current_turn}"
                     latest_turn_workspace = latest_turn_dir / "workspace"
 
-                    if latest_turn_workspace.exists():
-                        logger.info(f"[CLI] Recreating agents with turn {current_turn} workspace as read-only context path")
+                    # Determine which workspaces to add as context paths
+                    # For complete turns: single workspace from winning agent
+                    # For incomplete turns: all agent workspaces (no info lost)
+                    context_workspaces_to_add = []
+
+                    if incomplete_turn_workspaces:
+                        # Incomplete turn - add all agent workspaces
+                        for ws_agent_id, ws_path in incomplete_turn_workspaces.items():
+                            if ws_path and Path(ws_path).exists():
+                                context_workspaces_to_add.append(
+                                    {
+                                        "path": str(Path(ws_path).resolve()),
+                                        "permission": "read",
+                                        "description": f"Incomplete turn {current_turn} - {ws_agent_id}'s workspace",
+                                    },
+                                )
+                        logger.info(f"[CLI] Adding {len(context_workspaces_to_add)} workspace(s) from incomplete turn as context")
+                        # Clear after use (only needed for first turn after resume)
+                        incomplete_turn_workspaces = {}
+                    elif latest_turn_workspace.exists():
+                        # Complete turn - single winning agent workspace
+                        context_workspaces_to_add.append(
+                            {
+                                "path": str(latest_turn_workspace.resolve()),
+                                "permission": "read",
+                            },
+                        )
+
+                    if context_workspaces_to_add:
+                        logger.info(f"[CLI] Recreating agents with turn {current_turn} workspace(s) as read-only context path(s)")
 
                         # Clean up existing agents' backends and filesystem managers
                         for agent_id, agent in agents.items():
@@ -3366,7 +3457,7 @@ async def run_interactive_mode(
                             if hasattr(agent.backend, "__aexit__"):
                                 await agent.backend.__aexit__(None, None, None)
 
-                        # Inject previous turn path as read-only context
+                        # Inject previous turn path(s) as read-only context
                         modified_config = original_config.copy()
                         agent_entries = [modified_config["agent"]] if "agent" in modified_config else modified_config.get("agents", [])
 
@@ -3374,8 +3465,7 @@ async def run_interactive_mode(
                             backend_config = agent_data.get("backend", {})
                             if "cwd" in backend_config:  # Only inject if agent has filesystem support
                                 existing_context_paths = backend_config.get("context_paths", [])
-                                new_turn_config = {"path": str(latest_turn_workspace.resolve()), "permission": "read"}
-                                backend_config["context_paths"] = existing_context_paths + [new_turn_config]
+                                backend_config["context_paths"] = existing_context_paths + context_workspaces_to_add
 
                         # Recreate agents from modified config (use same session)
                         enable_rate_limit = kwargs.get("enable_rate_limit", False)
@@ -3387,7 +3477,7 @@ async def run_interactive_mode(
                             config_path=config_path,
                             memory_session_id=session_id,
                         )
-                        logger.info(f"[CLI] Successfully recreated {len(agents)} agents with turn {current_turn} path as read-only context")
+                        logger.info(f"[CLI] Successfully recreated {len(agents)} agents with turn {current_turn} workspace(s) as read-only context")
 
                 # Use initial_question for first turn if provided, otherwise prompt
                 if initial_question and current_turn == 0:
@@ -3524,8 +3614,9 @@ async def run_interactive_mode(
                     "current_turn": current_turn,  # Pass CURRENT turn (for looking up previous turns)
                     "previous_turns": previous_turns,
                     "winning_agents_history": winning_agents_history,
+                    "multi_turn": True,  # Enable soft cancellation (return to prompt instead of exit)
                 }
-                response, updated_session_id, updated_turn = await run_question_with_history(
+                response, updated_session_id, updated_turn, was_cancelled = await run_question_with_history(
                     question,
                     agents,
                     ui_config,
@@ -3548,6 +3639,11 @@ async def run_interactive_mode(
                         flush=True,
                     )
                     print_help_messages()
+
+                elif was_cancelled:
+                    # Turn was cancelled by user - message already printed
+                    # Just continue to next prompt (don't print "No response generated")
+                    print(f"{BRIGHT_CYAN}Enter your next question or /quit to exit.{RESET}", flush=True)
 
                 else:
                     print(f"\n{BRIGHT_RED}❌ No response generated{RESET}", flush=True)
