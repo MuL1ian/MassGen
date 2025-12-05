@@ -9,16 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.21 (December 5, 2025)** - Graceful Cancellation for Multi-Turn Sessions
+Ctrl+C now saves partial progress mid-coordination, preserving agent answers and workspaces. Sessions can resume with `--continue` without losing any work.
+
 **v0.1.20 (December 3, 2025)** - Web UI & Auto Docker Setup
 Browser-based real-time visualization with React frontend, WebSocket streaming, timeline views, and workspace browsing. Automatic Docker container setup for computer use agents.
 
 **v0.1.19 (December 2, 2025)** - LiteLLM Provider & Claude Strict Tool Use
 LiteLLM custom provider integration with programmatic API (`run()`, `build_config()`), Claude strict tool use with structured outputs support, and Gemini exponential backoff for rate limit resilience.
 
-**v0.1.18 (November 28, 2025)** - Agent Communication & Claude Advanced Tooling
-Agent-to-agent and human broadcast communication via `ask_others()` tool, Claude programmatic tool calling from code execution, and deferred tool discovery with server-side tool search.
-
 ---
+
+## [0.1.21] - 2025-12-05
+
+### Added
+- **Graceful Cancellation System**: Ctrl+C during coordination saves partial progress instead of losing work
+  - New `massgen/cancellation.py` with `CancellationManager` class (177 lines)
+  - First Ctrl+C saves and exits gracefully; second Ctrl+C forces immediate exit
+  - In multi-turn mode, first Ctrl+C returns to prompt instead of exiting
+
+### Changed
+- **Session Restoration for Incomplete Turns**: Cancelled sessions can be resumed with `--continue`
+  - Partial answers combined into conversation history with agent attribution
+  - All agent workspaces preserved and provided as read-only context on resume
+  - New `get_partial_result()` method in Orchestrator for mid-coordination state capture
+
+### Documentations, Configurations and Resources
+
+- **Graceful Cancellation Guide**: New `docs/source/user_guide/sessions/graceful_cancellation.rst` (196 lines)
+
+### Technical Details
+- **Major Focus**: Graceful cancellation with partial progress preservation for multi-turn sessions
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.20] - 2025-12-03
 

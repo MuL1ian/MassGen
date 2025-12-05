@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.21 (December 5, 2025)** - Graceful Cancellation for Multi-Turn Sessions
+
+Ctrl+C now saves partial progress mid-coordination, preserving agent answers and workspaces. Sessions can resume with ``--continue`` without losing any work. First Ctrl+C saves gracefully; second forces immediate exit.
+
 **v0.1.20 (December 3, 2025)** - Web UI & Auto Docker Setup
 
 Browser-based real-time visualization with React frontend, WebSocket streaming, timeline views, and workspace browsing. Automatic Docker container setup for computer use agents with Ubuntu 22.04, Xfce desktop, and pre-configured tools.
@@ -164,10 +168,6 @@ Browser-based real-time visualization with React frontend, WebSocket streaming, 
 **v0.1.19 (December 2, 2025)** - LiteLLM Provider & Claude Strict Tool Use
 
 LiteLLM custom provider integration with programmatic API (``run()``, ``build_config()``). Claude strict tool use with structured outputs support via ``enable_strict_tool_use`` and ``output_schema``. Gemini exponential backoff for rate limit resilience.
-
-**v0.1.18 (November 28, 2025)** - Agent Communication & Claude Advanced Tooling
-
-Agent-to-agent and human broadcast communication via ``ask_others()`` tool with three modes (disabled, agents-only, human-only). Claude programmatic tool calling from code execution via ``enable_programmatic_flow`` flag. Claude tool search for deferred tool discovery via ``enable_tool_search``.
 
 :doc:`Full changelog → <changelog>`
 

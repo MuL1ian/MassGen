@@ -227,7 +227,34 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.20 - Latest
+### v0.1.21 - Latest
+**New Features:** Graceful Cancellation System, Session Restoration for Incomplete Turns
+
+**Key Features:**
+- **Graceful Cancellation**: Ctrl+C during coordination saves partial progress instead of losing work
+- **Two-Stage Exit**: First Ctrl+C saves and exits gracefully; second forces immediate exit
+- **Session Resumption**: Cancelled sessions can be resumed with `--continue`, preserving agent answers and workspaces
+- **Multi-Turn Behavior**: In interactive mode, first Ctrl+C returns to prompt instead of exiting
+
+**Documentation:**
+- `docs/source/user_guide/sessions/graceful_cancellation.rst` - Graceful cancellation guide
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Run a multi-agent session and press Ctrl+C to test graceful cancellation
+massgen --config @examples/basic/multi/three_agents_default \
+  "Analyze the pros and cons of different programming paradigms"
+# Press Ctrl+C during coordination - partial progress is saved
+
+# Resume a cancelled session
+massgen --continue
+# Agents see previous partial answers and can continue from where they left off
+```
+
+### v0.1.20
 **New Features:** Web UI System, Automatic Computer Use Docker Setup, Response API Improvements
 
 **Key Features:**
@@ -235,24 +262,14 @@ Most configurations use environment variables for API keys:so
 - **Automatic Docker Setup**: Ubuntu 22.04 container creation for computer use agents with X11 virtual display, xdotool, Firefox, Chromium, and scrot
 - **Response API Improvements**: Enhanced multi-turn context handling with function call preservation and stub output generation
 
-**Documentation:**
-- `docs/source/user_guide/webui.rst` - Web UI guide
-- `docs/source/user_guide/advanced/computer_use.rst` - Enhanced computer use documentation
-- `docs/source/user_guide/filesystem_first.rst` - Filesystem-first mode documentation
-
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Web UI - browser-based multi-agent visualization
-# Prerequisites: API keys in .env
-uv run massgen --web --config @examples/basic/multi/three_agents_default \
+massgen --web --config @examples/basic/multi/three_agents_default \
   "What are the advantages of multi-agent AI systems?"
 
 # Computer Use with Auto Docker Setup
-# Prerequisites: Docker running, ANTHROPIC_API_KEY in .env
-uv run massgen --config @examples/tools/custom_tools/claude_computer_use_docker_example \
+massgen --config @examples/tools/custom_tools/claude_computer_use_docker_example \
   "Open Firefox and search for Python documentation"
 ```
 

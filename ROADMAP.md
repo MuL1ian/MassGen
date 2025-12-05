@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.20
+**Current Version:** v0.1.21
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** December 3, 2025
+**Last Updated:** December 5, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,17 +42,17 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.21** | 12/05/25 | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
+| **v0.1.22** | 12/08/25 | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
 | | | Clarify Code Execution in Docs | @ncrispino | Improve documentation clarity for code execution features |
-| **v0.1.22** | 12/08/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
+| **v0.1.23** | 12/10/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
 | | | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
-| **v0.1.23** | 12/10/25 | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
+| **v0.1.24** | 12/12/25 | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.21 - Grok 4.1 Fast & Code Execution Docs
+## 📋 v0.1.22 - Grok 4.1 Fast & Code Execution Docs
 
 ### Features
 
@@ -80,7 +80,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.22 - RL Integration & MCP Ecosystem
+## 📋 v0.1.23 - RL Integration & MCP Ecosystem
 
 ### Features
 
@@ -103,7 +103,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.23 - Memory as Tools
+## 📋 v0.1.24 - Memory as Tools
 
 ### Features
 
@@ -357,36 +357,43 @@ These features are being actively developed on **separate parallel tracks** and 
 - Environment naming conventions and automatic setup instructions
 - **Status:** ✅ Completed in v0.1.20
 
+### Track: Graceful Cancellation (@ncrispino, nickcrispino)
+- PR: [#596](https://github.com/massgen/MassGen/pull/596)
+- Ctrl+C saves partial progress during multi-agent coordination
+- Session restoration for incomplete turns with `--continue`
+- Multi-turn mode returns to prompt instead of exiting
+- **Status:** ✅ Completed in v0.1.21
+
 ### Track: Grok 4.1 Fast Model Support (@praneeth999, ram2561)
 - Issue: [#540](https://github.com/massgen/MassGen/issues/540)
 - Add support for xAI's Grok 4.1 Fast model
 - Integration with existing Grok backend infrastructure
-- **Target:** v0.1.21
+- **Target:** v0.1.22
 
 ### Track: Clarify Code Execution in Docs (@ncrispino, nickcrispino)
 - Issue: [#573](https://github.com/massgen/MassGen/issues/573)
 - Improve documentation clarity for code execution features
 - Clear examples and usage patterns
-- **Target:** v0.1.21
+- **Target:** v0.1.22
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.22
+- **Target:** v0.1.23
 
 ### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
-- **Target:** v0.1.22
+- **Target:** v0.1.23
 
 ### Track: Memory as Tools (@ncrispino, nickcrispino)
 - Issue: [#461](https://github.com/massgen/MassGen/issues/461)
 - Include memory (including filesystem) as callable tools for agents
 - Unified interface for different memory backends
-- **Target:** v0.1.23
+- **Target:** v0.1.24
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -463,5 +470,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** December 3, 2025
+**Last Updated:** December 5, 2025
 **Maintained By:** MassGen Team
