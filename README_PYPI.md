@@ -164,8 +164,6 @@ This project started with the "threads of thought" and "iterative refinement" id
 - **🔄 Session Resumption** - Cancelled sessions can be resumed with `--continue`, preserving agent answers and workspaces
 
 **Key Improvements:**
-- First Ctrl+C saves partial progress and exits gracefully; second Ctrl+C forces immediate exit
-- In multi-turn mode, first Ctrl+C returns to prompt instead of exiting
 - Partial answers combined into conversation history with agent attribution on resume
 - All agent workspaces preserved and provided as read-only context on resume
 
@@ -1129,8 +1127,6 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 #### Graceful Cancellation System
 - **Partial Progress Saving**: Ctrl+C during coordination saves agent answers and workspaces instead of losing work
-- **Two-Stage Exit**: First Ctrl+C saves and exits gracefully; second forces immediate exit
-- **Multi-Turn Behavior**: In interactive mode, first Ctrl+C returns to prompt instead of exiting
 
 #### Session Restoration for Incomplete Turns
 - **Resume with `--continue`**: Cancelled sessions can be resumed without losing any work
