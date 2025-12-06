@@ -1,0 +1,176 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   Theme CSS Variables
+   ============================================================================ */
+
+:root {
+  /* Light theme colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f4f6;
+  --bg-tertiary: #e5e7eb;
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --border-color: #d1d5db;
+  --scrollbar-track: rgba(209, 213, 219, 0.5);
+  --scrollbar-thumb: rgba(156, 163, 175, 0.5);
+  --shadow-indicator: rgba(255, 255, 255, 0.8);
+}
+
+.dark {
+  /* Dark theme colors */
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --bg-tertiary: #374151;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --border-color: #374151;
+  --scrollbar-track: rgba(55, 65, 81, 0.3);
+  --scrollbar-thumb: rgba(107, 114, 128, 0.5);
+  --shadow-indicator: rgba(17, 24, 39, 0.8);
+}
+
+/* Custom scrollbar for agent panels */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(55, 65, 81, 0.3);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(107, 114, 128, 0.5);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(107, 114, 128, 0.7);
+}
+
+/* Shadow indicators for carousel */
+.shadow-indicator-left {
+  background: linear-gradient(to right, rgba(17, 24, 39, 0.8), transparent);
+}
+
+.shadow-indicator-right {
+  background: linear-gradient(to left, rgba(17, 24, 39, 0.8), transparent);
+}
+
+/* Winner glow effect */
+.winner-glow {
+  animation: glow 2s ease-in-out infinite;
+  border-color: #EAB308;
+}
+
+/* Pulse animation for active agents */
+.agent-active-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Vote bar gradient */
+.vote-bar {
+  background: linear-gradient(90deg, #3B82F6, #8B5CF6);
+}
+
+.vote-bar-winner {
+  background: linear-gradient(90deg, #EAB308, #F59E0B);
+}
+
+/* Code block styling */
+.code-block {
+  background: rgba(31, 41, 55, 0.8);
+  border: 1px solid rgba(75, 85, 99, 0.5);
+  border-radius: 6px;
+  font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+}
+
+/* Tool call styling */
+.tool-call {
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 3px solid #3B82F6;
+}
+
+/* Reasoning block styling */
+.reasoning-block {
+  background: rgba(139, 92, 246, 0.1);
+  border-left: 3px solid #8B5CF6;
+}
+
+/* Typing dots animation for waiting state */
+@keyframes typing-dot {
+  0%, 20% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  80%, 100% {
+    opacity: 0;
+  }
+}
+
+.typing-dot {
+  animation: typing-dot 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Streaming ellipses animation */
+@keyframes streaming-dot {
+  0%, 20% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+  80%, 100% {
+    opacity: 0.3;
+  }
+}
+
+.streaming-dot {
+  animation: streaming-dot 1s infinite ease-in-out;
+  font-weight: bold;
+}
+
+.streaming-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.streaming-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.streaming-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* Final answer celebration glow animation */
+@keyframes final-answer-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(234, 179, 8, 0);
+  }
+  50% {
+    box-shadow: 0 0 40px 20px rgba(234, 179, 8, 0.3);
+  }
+}
+
+.final-answer-glow {
+  animation: final-answer-glow 1.5s ease-in-out;
+}

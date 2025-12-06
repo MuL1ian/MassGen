@@ -3386,6 +3386,12 @@ class ConfigBuilder:
                     # File operations via MCP (no code execution)
                     "exclude_file_operation_mcps": False,  # Keep file MCPs
                 }
+
+            # Add base_url for OpenAI-compatible providers (Groq, Cerebras, Together, etc.)
+            caps = get_capabilities(agent_type)
+            if caps and caps.base_url:
+                backend["base_url"] = caps.base_url
+
             return backend
 
         # Build agents list

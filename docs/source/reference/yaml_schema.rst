@@ -975,6 +975,6 @@ See Also
 --------
 
 * :doc:`../quickstart/configuration` - Configuration guide
-* :doc:`../user_guide/mcp_integration` - MCP configuration details
-* :doc:`../user_guide/project_integration` - Context paths setup
+* :doc:`../user_guide/tools/mcp_integration` - MCP configuration details
+* :doc:`../user_guide/files/project_integration` - Context paths setup
 * :doc:`cli` - CLI parameters

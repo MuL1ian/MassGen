@@ -357,7 +357,7 @@ All workspaces are stored under ``.massgen/workspaces/`` in your project directo
 * **Workspace sharing** - Agents can review each other's workspaces via :term:`snapshots<Snapshot>`
 
 .. seealso::
-   :doc:`file_operations` - Complete workspace management guide including directory structure, snapshots, and safety features
+   :doc:`files/file_operations` - Complete workspace management guide including directory structure, snapshots, and safety features
 
 MCP Tool Integration
 --------------------
@@ -378,7 +378,7 @@ MassGen integrates tools via :term:`Model Context Protocol (MCP)<MCP (Model Cont
          args: ["-y", "@modelcontextprotocol/server-brave-search"]
 
 .. seealso::
-   :doc:`mcp_integration` - Complete MCP guide including common servers, tool filtering, planning mode, and security considerations
+   :doc:`tools/mcp_integration` - Complete MCP guide including common servers, tool filtering, planning mode, and security considerations
 
 Project Integration
 -------------------
@@ -416,9 +416,9 @@ A context path is a shared directory that agents can access during collaboration
 All MassGen state organized under ``.massgen/`` directory in your project root.
 
 .. seealso::
-   * :doc:`project_integration` - Complete project integration guide
-   * :doc:`protected_paths` - Protect specific files within writable paths
-   * :doc:`file_operations` - File operation safety features
+   * :doc:`files/project_integration` - Complete project integration guide
+   * :doc:`files/protected_paths` - Protect specific files within writable paths
+   * :doc:`files/file_operations` - File operation safety features
 
 Interactive Multi-Turn Mode
 ----------------------------
@@ -463,9 +463,9 @@ When using MCP tools or file operations in :term:`multi-turn mode`:
    # Winner modifies existing files
 
 .. seealso::
-   * :doc:`multi_turn_mode` - Complete interactive mode guide including commands, session management, and debugging
-   * :doc:`mcp_integration` - Using MCP tools in multi-turn sessions
-   * :doc:`planning_mode` - Prevent premature tool execution during coordination
+   * :doc:`sessions/multi_turn_mode` - Complete interactive mode guide including commands, session management, and debugging
+   * :doc:`tools/mcp_integration` - Using MCP tools in multi-turn sessions
+   * :doc:`advanced/planning_mode` - Prevent premature tool execution during coordination
 
 External Framework Integration
 -------------------------------
@@ -493,7 +493,7 @@ Integrate :term:`AG2` framework as a custom tool:
 
 AG2's multi-agent orchestration patterns are wrapped as tools that MassGen agents can invoke.
 
-See :doc:`general_interoperability` for details.
+See :doc:`integration/general_interoperability` for details.
 
 File Operation Safety
 ---------------------
@@ -520,7 +520,7 @@ Permissions
 * **During coordination**: All context paths are READ-ONLY
 * **Final presentation**: Winning agent gets configured permission (read/write)
 
-See :doc:`file_operations` for safety features.
+See :doc:`files/file_operations` for safety features.
 
 System Architecture
 -------------------
@@ -602,7 +602,7 @@ MassGen organizes all working files under the :term:`.massgen Directory` in your
 3. **On restart**: Sessions can be resumed from saved state
 4. **Final presentation**: Winner's workspace contains the final output
 
-See :doc:`project_integration` for using ``.massgen`` with your existing codebase.
+See :doc:`files/project_integration` for using ``.massgen`` with your existing codebase.
 
 Common Patterns
 ---------------
@@ -673,7 +673,7 @@ Next Steps
 
 * :doc:`../quickstart/running-massgen` - Practical examples
 * :doc:`../reference/yaml_schema` - Complete configuration reference
-* :doc:`mcp_integration` - Add tools to agents
-* :doc:`multi_turn_mode` - Interactive conversations
-* :doc:`project_integration` - Work with your codebase
-* :doc:`general_interoperability` - External framework integration
+* :doc:`tools/mcp_integration` - Add tools to agents
+* :doc:`sessions/multi_turn_mode` - Interactive conversations
+* :doc:`files/project_integration` - Work with your codebase
+* :doc:`integration/general_interoperability` - External framework integration

@@ -65,18 +65,170 @@ from .chat_agent import (
     create_research_agent,
     create_simple_agent,
 )
+
+# LiteLLM integration
+from .litellm_provider import MassGenLLM, register_with_litellm
 from .message_templates import MessageTemplates, get_templates
 from .orchestrator import Orchestrator, create_orchestrator
 
-__version__ = "0.1.18"
+LITELLM_AVAILABLE = True
+
+__version__ = "0.1.21"
 __author__ = "MassGen Contributors"
+
+
+def build_config(
+    num_agents: int = None,
+    backend: str = None,
+    model: str = None,
+    models: list = None,
+    backends: list = None,
+    use_docker: bool = False,
+    context_path: str = None,
+) -> dict:
+    """Build a MassGen configuration dict programmatically.
+
+    This creates a full-featured multi-agent config similar to --quickstart,
+    with code-based tools, orchestration, and all the good defaults.
+
+    Args:
+        num_agents: Number of agents (1-10). Auto-detected from models/backends if not specified.
+        backend: Backend provider for all agents - 'openai', 'anthropic', 'gemini', 'grok'
+        model: Model name for all agents. Supports slash format: 'gpt-5' or 'openai/gpt-5'
+        models: List of models, one per agent. Supports slash format:
+            - ['gpt-5', 'claude-sonnet-4-5-20250929'] (auto-detect backends)
+            - ['openai/gpt-5', 'groq/llama-3.3-70b'] (explicit backends)
+        backends: List of backends, one per agent (e.g., ['openai', 'claude']) - optional if using slash format
+        use_docker: Enable Docker execution mode (default: False for local mode)
+        context_path: Optional path to add as context for file operations
+
+    Returns:
+        dict: Complete configuration dict ready to use with run()
+
+    Examples:
+        # Same model for all agents
+        >>> config = massgen.build_config(num_agents=3, model="gpt-5")
+
+        # Different models with auto-detected backends
+        >>> config = massgen.build_config(
+        ...     models=["gpt-5", "claude-sonnet-4-5-20250929", "gemini-2.5-flash"]
+        ... )
+
+        # Slash format for explicit backends (recommended for custom models)
+        >>> config = massgen.build_config(
+        ...     models=["openai/gpt-5", "groq/llama-3.3-70b", "cerebras/llama-3.3-70b"]
+        ... )
+
+        # Mixed: auto-detect + explicit
+        >>> config = massgen.build_config(
+        ...     models=["gpt-5", "groq/llama-3.3-70b-versatile"]
+        ... )
+
+        # Use with run()
+        >>> config = massgen.build_config(models=["openai/gpt-5", "gemini/gemini-2.5-flash"])
+        >>> result = await massgen.run(query="Your question", config_dict=config)
+    """
+    from .config_builder import ConfigBuilder
+    from .utils import get_backend_type_from_model
+
+    def parse_model_spec(spec: str) -> tuple:
+        """Parse 'backend/model' or just 'model' string.
+
+        Returns:
+            tuple: (backend_type, model_name)
+        """
+        if "/" in spec:
+            # Explicit backend: "openai/gpt-5" or "groq/llama-3.3-70b"
+            parts = spec.split("/", 1)
+            return parts[0], parts[1]
+        else:
+            # Auto-detect backend from model name
+            return get_backend_type_from_model(spec), spec
+
+    builder = ConfigBuilder()
+
+    # Determine agents config from parameters
+    agents_config = []
+
+    if models:
+        # Multiple models specified - one agent per model
+        # Supports: "gpt-5", "openai/gpt-5", "groq/llama-3.3-70b"
+        for i, model_spec in enumerate(models):
+            # Parse backend/model (slash format) or auto-detect
+            if backends and i < len(backends):
+                # Explicit backends list provided - use that
+                backend_type = backends[i]
+                model_name = model_spec.split("/")[-1] if "/" in model_spec else model_spec
+            else:
+                # Parse from spec (supports "backend/model" or just "model")
+                backend_type, model_name = parse_model_spec(model_spec)
+
+            provider_info = builder.PROVIDERS.get(backend_type, {})
+            agents_config.append(
+                {
+                    "id": f"agent_{chr(ord('a') + i)}",  # agent_a, agent_b, agent_c, ...
+                    "type": provider_info.get("type", backend_type),
+                    "model": model_name,
+                },
+            )
+    elif model:
+        # Single model for all agents
+        # Supports: "gpt-5", "openai/gpt-5", "groq/llama-3.3-70b"
+        n = num_agents or 2
+        if backend:
+            backend_type = backend
+            model_name = model.split("/")[-1] if "/" in model else model
+        else:
+            backend_type, model_name = parse_model_spec(model)
+        provider_info = builder.PROVIDERS.get(backend_type, {})
+
+        for i in range(n):
+            agents_config.append(
+                {
+                    "id": f"agent_{chr(ord('a') + i)}",  # agent_a, agent_b, agent_c, ...
+                    "type": provider_info.get("type", backend_type),
+                    "model": model_name,
+                },
+            )
+    else:
+        # Default: 2 agents with gpt-5
+        default_model = "gpt-5"
+        default_backend = "openai"
+        n = num_agents or 2
+        provider_info = builder.PROVIDERS.get(default_backend, {})
+
+        for i in range(n):
+            agents_config.append(
+                {
+                    "id": f"agent_{chr(ord('a') + i)}",  # agent_a, agent_b, agent_c, ...
+                    "type": provider_info.get("type", default_backend),
+                    "model": default_model,
+                },
+            )
+
+    # Generate full config
+    config = builder._generate_quickstart_config(
+        agents_config,
+        context_path=context_path,
+        use_docker=use_docker,
+    )
+
+    return config
 
 
 # Python API for programmatic usage
 async def run(
     query: str,
     config: str = None,
+    config_dict: dict = None,
     model: str = None,
+    models: list = None,
+    num_agents: int = None,
+    use_docker: bool = False,
+    enable_logging: bool = False,
+    output_file: str = None,
+    verbose: bool = False,
+    conversation_history: list = None,
     **kwargs,
 ) -> dict:
     """Run MassGen query programmatically.
@@ -87,39 +239,67 @@ async def run(
     Args:
         query: Question or task for the agent(s)
         config: Config file path or @examples/NAME (optional)
-        model: Quick single-agent mode with model name (optional)
-        **kwargs: Additional configuration options
+        config_dict: Pre-built config dict from build_config() (optional)
+        model: Quick single-agent mode with model name, or all agents use this model
+        models: List of models for multi-agent mode (e.g., ['gpt-4o', 'claude-sonnet-4-20250514'])
+        num_agents: Number of agents when using single model (default: 2)
+        use_docker: Enable Docker execution when building config (default: False)
+        enable_logging: If True, enable logging and return log_directory (default: False)
+        output_file: If provided, write final answer to this file path
+        verbose: If True, show progress output to stdout (default: False for quiet mode)
+        conversation_history: List of prior messages for multi-turn context (optional)
+            Format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]
+        **kwargs: Additional configuration options (system_message, base_url, context_path)
 
     Returns:
-        dict: Result with 'final_answer' and metadata:
+        dict: Result with 'final_answer' and coordination metadata:
             {
                 'final_answer': str,  # The generated answer
-                'winning_agent_id': str,  # ID of winning agent (multi-agent)
-                'config_used': str,  # Path to config used
+                'config_used': str,  # Path to config or description
+                'session_id': str,  # Session ID for continuation
+                'log_directory': str,  # Root log directory path
+                'final_answer_path': str,  # Path to final/ directory
+                'selected_agent': str,  # ID of winning agent (multi-agent only)
+                'vote_results': dict,  # Voting details: vote_counts, voter_details, winner, is_tie
+                'answers': list,  # List of answers with label, agent_id, answer_path, content
             }
 
     Examples:
         # Single agent with model
         >>> result = await massgen.run(
         ...     query="What is machine learning?",
-        ...     model="gpt-5-mini"
+        ...     model="gpt-5"
         ... )
-        >>> print(result['final_answer'])
 
-        # Multi-agent with config
+        # Multi-agent with same model
+        >>> result = await massgen.run(
+        ...     query="Compare approaches",
+        ...     model="gpt-5",
+        ...     num_agents=3
+        ... )
+
+        # Multi-agent with different models (auto-builds config)
         >>> result = await massgen.run(
         ...     query="Compare renewable energy sources",
-        ...     config="@examples/basic_multi"
+        ...     models=["gpt-5", "claude-sonnet-4-5-20250929", "gemini-2.5-pro"]
         ... )
 
-        # Use default config (from first-run setup)
-        >>> result = await massgen.run("Your question")
+        # With pre-built config dict
+        >>> config = massgen.build_config(models=["gpt-5", "gemini-2.5-pro"])
+        >>> result = await massgen.run(query="Your question", config_dict=config)
+
+        # With config file
+        >>> result = await massgen.run(
+        ...     query="Your question",
+        ...     config="@examples/basic_multi"
+        ... )
 
     Note:
         MassGen is async by nature. Use `asyncio.run()` if calling from sync code:
         >>> import asyncio
-        >>> result = asyncio.run(massgen.run("Question", model="gpt-5"))
+        >>> result = asyncio.run(massgen.run("Question", model="gpt-4o"))
     """
+    from datetime import datetime
     from pathlib import Path
 
     from .cli import (
@@ -127,26 +307,63 @@ async def run(
         create_simple_config,
         load_config_file,
         resolve_config_path,
+        run_question_with_history,
         run_single_question,
     )
+    from .logger_config import setup_logging
     from .utils import get_backend_type_from_model
 
-    # Determine config to use
-    if config:
+    # Initialize logging for programmatic API
+    # This ensures massgen.log is created and captures INFO+ messages
+    setup_logging(debug=False)
+
+    # Generate session ID
+    session_id = f"api_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    # Determine config to use (priority order)
+    final_config_dict = None
+    config_path_used = None
+
+    if config_dict:
+        # 1. Pre-built config dict provided directly
+        final_config_dict = config_dict
+        config_path_used = "config_dict"
+
+    elif models:
+        # 2. Multiple models specified - build multi-agent config
+        final_config_dict = build_config(
+            models=models,
+            use_docker=use_docker,
+            context_path=kwargs.get("context_path"),
+        )
+        config_path_used = f"multi-agent:{','.join(models)}"
+
+    elif model and (num_agents and num_agents > 1):
+        # 3. Single model with multiple agents
+        final_config_dict = build_config(
+            num_agents=num_agents,
+            model=model,
+            use_docker=use_docker,
+            context_path=kwargs.get("context_path"),
+        )
+        config_path_used = f"multi-agent:{model}x{num_agents}"
+
+    elif config:
+        # 4. Config file path
         resolved_path = resolve_config_path(config)
         if resolved_path is None:
             raise ValueError("Could not resolve config path. Use --init to create default config.")
-        config_dict = load_config_file(str(resolved_path))
+        final_config_dict = load_config_file(str(resolved_path))
         config_path_used = str(resolved_path)
+
     elif model:
-        # Quick single-agent mode
+        # 5. Quick single-agent mode
         backend_type = get_backend_type_from_model(model)
-        # Create headless UI config for programmatic API usage
         headless_ui_config = {
             "display_type": "simple",
-            "logging_enabled": False,
+            "logging_enabled": enable_logging,
         }
-        config_dict = create_simple_config(
+        final_config_dict = create_simple_config(
             backend_type=backend_type,
             model=model,
             system_message=kwargs.get("system_message"),
@@ -154,16 +371,20 @@ async def run(
             ui_config=headless_ui_config,
         )
         config_path_used = f"single-agent:{model}"
+
     else:
-        # Try default config
+        # 6. Try default config
         default_config = Path.home() / ".config/massgen/config.yaml"
         if default_config.exists():
-            config_dict = load_config_file(str(default_config))
+            final_config_dict = load_config_file(str(default_config))
             config_path_used = str(default_config)
         else:
             raise ValueError(
-                "No config specified and no default config found.\n" "Run `massgen --init` to create a default configuration.",
+                "No config specified and no default config found.\n" "Options: specify model=, models=, config=, or config_dict=\n" "Or run `massgen --init` to create a default configuration.",
             )
+
+    # Use the determined config
+    config_dict = final_config_dict
 
     # Extract orchestrator config
     orchestrator_cfg = config_dict.get("orchestrator", {})
@@ -176,23 +397,74 @@ async def run(
     # Force headless UI config for programmatic API usage
     # Override any UI settings from the config file to ensure non-interactive operation
     ui_config = {
-        "display_type": "simple",  # Headless mode for API usage
-        "logging_enabled": False,  # Quiet for API usage
+        "display_type": "simple" if verbose else "none",  # Quiet by default, simple if verbose
+        "logging_enabled": enable_logging,
     }
 
-    # Run the query
-    answer = await run_single_question(
-        query,
-        agents,
-        ui_config,
-        orchestrator=orchestrator_cfg,
-    )
+    # Build kwargs for run_single_question
+    run_kwargs = {
+        "orchestrator": orchestrator_cfg,
+    }
+    if output_file:
+        run_kwargs["output_file"] = output_file
+
+    # Run the query - use history-aware version if conversation history provided
+    if conversation_history:
+        # Use run_question_with_history for multi-turn context
+        session_info = {
+            "session_id": session_id,
+            "current_turn": len([m for m in conversation_history if m.get("role") == "user"]),
+            "previous_turns": [],
+            "winning_agents_history": [],
+        }
+        response_text, _, _ = await run_question_with_history(
+            query,
+            agents,
+            ui_config,
+            history=conversation_history,
+            session_info=session_info,
+            **run_kwargs,
+        )
+        response = {"answer": response_text, "coordination_result": None}
+    else:
+        # Standard single-turn query with metadata
+        response = await run_single_question(
+            query,
+            agents,
+            ui_config,
+            session_id=session_id,
+            return_metadata=True,
+            **run_kwargs,
+        )
+
+    # Extract answer and coordination result
+    answer = response.get("answer", "") if isinstance(response, dict) else response
+    coordination_result = response.get("coordination_result") if isinstance(response, dict) else None
 
     # Build result dict
     result = {
         "final_answer": answer,
         "config_used": config_path_used,
+        "session_id": session_id,
     }
+
+    # Add coordination metadata if available
+    if coordination_result:
+        result["selected_agent"] = coordination_result.get("selected_agent")
+        result["vote_results"] = coordination_result.get("vote_results")
+        result["answers"] = coordination_result.get("answers")  # List with label, agent_id, answer_path, content
+        result["log_directory"] = coordination_result.get("log_directory")
+        result["final_answer_path"] = coordination_result.get("final_answer_path")
+        result["agent_mapping"] = coordination_result.get("agent_mapping")  # Maps agent_a -> real_id
+    elif enable_logging:
+        # Fallback: add log directory even without full coordination result
+        try:
+            from .logger_config import get_log_session_root
+
+            log_dir = get_log_session_root()
+            result["log_directory"] = str(log_dir)
+        except Exception:
+            pass  # Log directory not available
 
     return result
 
@@ -200,6 +472,7 @@ async def run(
 __all__ = [
     # Python API
     "run",
+    "build_config",
     # Backends
     "ResponseBackend",
     "ClaudeBackend",
@@ -222,6 +495,10 @@ __all__ = [
     "AgentConfig",
     "MessageTemplates",
     "get_templates",
+    # LiteLLM integration
+    "MassGenLLM",
+    "register_with_litellm",
+    "LITELLM_AVAILABLE",
     # Metadata
     "__version__",
     "__author__",

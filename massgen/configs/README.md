@@ -227,7 +227,73 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.18 - Latest
+### v0.1.21 - Latest
+**New Features:** Graceful Cancellation System, Session Restoration for Incomplete Turns
+
+**Key Features:**
+- **Graceful Cancellation**: Ctrl+C during coordination saves partial progress instead of losing work
+- **Two-Stage Exit**: First Ctrl+C saves and exits gracefully; second forces immediate exit
+- **Session Resumption**: Cancelled sessions can be resumed with `--continue`, preserving agent answers and workspaces
+- **Multi-Turn Behavior**: In interactive mode, first Ctrl+C returns to prompt instead of exiting
+
+**Documentation:**
+- `docs/source/user_guide/sessions/graceful_cancellation.rst` - Graceful cancellation guide
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Run a multi-agent session and press Ctrl+C to test graceful cancellation
+massgen --config @examples/basic/multi/three_agents_default \
+  "Analyze the pros and cons of different programming paradigms"
+# Press Ctrl+C during coordination - partial progress is saved
+
+# Resume a cancelled session
+massgen --continue
+# Agents see previous partial answers and can continue from where they left off
+```
+
+### v0.1.20
+**New Features:** Web UI System, Automatic Computer Use Docker Setup, Response API Improvements
+
+**Key Features:**
+- **Web UI System**: Browser-based real-time visualization with React frontend, WebSocket streaming, and interactive components (AgentCarousel, AnswerBrowser, Timeline, VoteVisualization)
+- **Automatic Docker Setup**: Ubuntu 22.04 container creation for computer use agents with X11 virtual display, xdotool, Firefox, Chromium, and scrot
+- **Response API Improvements**: Enhanced multi-turn context handling with function call preservation and stub output generation
+
+**Try It:**
+```bash
+# Web UI - browser-based multi-agent visualization
+massgen --web --config @examples/basic/multi/three_agents_default \
+  "What are the advantages of multi-agent AI systems?"
+
+# Computer Use with Auto Docker Setup
+massgen --config @examples/tools/custom_tools/claude_computer_use_docker_example \
+  "Open Firefox and search for Python documentation"
+```
+
+### v0.1.19
+**New Features:** LiteLLM Integration & Programmatic API, Claude Strict Tool Use & Structured Outputs, Gemini Exponential Backoff
+
+**Configuration Files:**
+- `providers/claude/strict_tool_use_example.yaml` - Claude strict tool use with custom and MCP tools
+
+**Key Features:**
+- **LiteLLM Integration**: MassGen as a drop-in LiteLLM custom provider via `MassGenLLM` class with `register_with_litellm()` one-line setup
+- **Programmatic API**: New `run()` and `build_config()` functions for direct Python execution, `NoneDisplay` for silent output
+- **Claude Strict Tool Use**: `enable_strict_tool_use` config flag with recursive schema patching, `output_schema` for structured JSON outputs
+- **Gemini Exponential Backoff**: Automatic retry for rate limit errors (429, 503) with `BackoffConfig` and `Retry-After` header support
+
+**Try It:**
+```bash
+# Claude Strict Tool Use - schema validation with structured outputs
+# Prerequisites: ANTHROPIC_API_KEY in .env
+uv run massgen --config massgen/configs/providers/claude/strict_tool_use_example.yaml \
+  "Add 42 and 58, then get weather for Tokyo"
+```
+
+### v0.1.18
 **New Features:** Agent Communication System (Human Broadcast Q&A), Claude Programmatic Tool Calling, Claude Tool Search
 
 **Configuration Files:**
@@ -243,9 +309,6 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Claude Programmatic Tool Calling - call tools from code execution
 # Prerequisites: ANTHROPIC_API_KEY in .env
 massgen --config massgen/configs/providers/claude/programmatic_with_two_tools.yaml \

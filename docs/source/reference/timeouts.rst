@@ -516,7 +516,7 @@ Related Configuration
 ---------------------
 
 * :doc:`../user_guide/concepts` - Understanding coordination mechanics
-* :doc:`../user_guide/planning_mode` - Planning mode and coordination time
+* :doc:`../user_guide/advanced/planning_mode` - Planning mode and coordination time
 * :doc:`yaml_schema` - Complete configuration reference
 * :doc:`cli` - CLI timeout flags
 

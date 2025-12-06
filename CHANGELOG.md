@@ -9,16 +9,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
-**v0.1.18 (November 28, 2025)** - Agent Communication & Claude Advanced Tooling
-Agent-to-agent and human broadcast communication via `ask_others()` tool, Claude programmatic tool calling from code execution, and deferred tool discovery with server-side tool search.
+**v0.1.21 (December 5, 2025)** - Graceful Cancellation for Multi-Turn Sessions
+Ctrl+C now saves partial progress mid-coordination, preserving agent answers and workspaces. Sessions can resume with `--continue` without losing any work.
 
-**v0.1.17 (November 26, 2025)** - Textual Terminal Display
-Interactive terminal UI using the Textual library with dark/light theme support, enhanced CoordinationUI integration, and improved content filtering for better agent coordination visualization.
+**v0.1.20 (December 3, 2025)** - Web UI & Auto Docker Setup
+Browser-based real-time visualization with React frontend, WebSocket streaming, timeline views, and workspace browsing. Automatic Docker container setup for computer use agents.
 
-**v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory Improvements
-Terminal evaluation system with VHS recording support, LiteLLM integration for accurate cost tracking across 500+ models, memory archiving with session improvements, and MassGen self-evolution skills.
+**v0.1.19 (December 2, 2025)** - LiteLLM Provider & Claude Strict Tool Use
+LiteLLM custom provider integration with programmatic API (`run()`, `build_config()`), Claude strict tool use with structured outputs support, and Gemini exponential backoff for rate limit resilience.
 
 ---
+
+## [0.1.21] - 2025-12-05
+
+### Added
+- **Graceful Cancellation System**: Ctrl+C during coordination saves partial progress instead of losing work
+  - New `massgen/cancellation.py` with `CancellationManager` class (177 lines)
+  - First Ctrl+C saves and exits gracefully; second Ctrl+C forces immediate exit
+  - In multi-turn mode, first Ctrl+C returns to prompt instead of exiting
+
+### Changed
+- **Session Restoration for Incomplete Turns**: Cancelled sessions can be resumed with `--continue`
+  - Partial answers combined into conversation history with agent attribution
+  - All agent workspaces preserved and provided as read-only context on resume
+  - New `get_partial_result()` method in Orchestrator for mid-coordination state capture
+
+### Documentations, Configurations and Resources
+
+- **Graceful Cancellation Guide**: New `docs/source/user_guide/sessions/graceful_cancellation.rst` (196 lines)
+
+### Technical Details
+- **Major Focus**: Graceful cancellation with partial progress preservation for multi-turn sessions
+- **Contributors**: @ncrispino and the MassGen team
+
+## [0.1.20] - 2025-12-03
+
+### Added
+- **Web UI System**: Browser-based real-time visualization for multi-agent coordination
+  - New `massgen/frontend/web/server.py` FastAPI server with WebSocket endpoints (1808 lines)
+  - New `massgen/frontend/displays/web_display.py` display adapter for web streaming (730 lines)
+  - React frontend with 18+ components: AgentCarousel, AnswerBrowser, Timeline, VoteVisualization
+  - CLI flags: `--web`, `--web-port`, `--web-host` for launching web server
+  - Quickstart wizard, real-time streaming with syntax highlighting, and multi-turn session support
+
+### Changed
+- **Automatic Computer Use Docker Setup**: Auto-creates Ubuntu 22.04 container with Xfce desktop for GUI automation
+  - New `setup_computer_use_docker()` function with auto-detection of `computer_use_docker_example` configs
+  - Container includes X11 virtual display (:99), xdotool, Firefox, Chromium, and scrot
+
+- **Response API Formatter Enhancement**: Improved function call handling for multi-turn contexts
+  - Preserves `function_call` entries and generates stub outputs for calls without recorded responses
+
+### Fixed
+- **Web UI Multi-turn Support**: Fixed frontend session continuation and follow-up question handling
+- **Timeline Tracking**: Fixed timeline arrows and backend event sequencing
+
+### Documentations, Configurations and Resources
+
+- **Web UI Guide**: New `docs/source/user_guide/webui.rst` (250 lines) covering display modes, timeline visualization, and workspace browsing
+
+- **Computer Use Documentation**: Enhanced `docs/source/user_guide/advanced/computer_use.rst` (+66 lines) with environment naming conventions and automatic setup instructions
+
+- **Filesystem-First Mode Documentation**: New `docs/source/user_guide/filesystem_first.rst` (872 lines, experimental v0.2.0+) documenting 98% context reduction via on-demand tool discovery
+
+- **LLM Council Comparison**: New `docs/source/reference/comparisons.rst` (155 lines) comparing MassGen vs LLM Council with feature tables, UI differences, and architectural comparisons
+
+### Technical Details
+- **Major Focus**: Web UI for real-time coordination visualization, automatic Docker setup for computer use agents
+- **Contributors**: @voidcenter @ncrispino @praneeth999 and the MassGen team
+
+## [0.1.19] - 2025-12-01
+
+### Added
+- **LiteLLM Integration & Programmatic API**: MassGen as a LiteLLM custom provider with direct Python interface
+  - New `massgen/litellm_provider.py` with `MassGenLLM` class and `register_with_litellm()` (452 lines)
+  - New `run()` and `build_config()` functions for programmatic execution without CLI
+  - Model string formats: `massgen/<example>`, `massgen/model:<model>`, `massgen/path:<config>`, `massgen/build`
+  - New `NoneDisplay` silent display class for suppressing output in programmatic/LiteLLM use
+  - Auto-detection of backends from model names (e.g., `gpt-5` → openai, `claude-sonnet-4-5` → claude)
+
+### Changed
+- **Claude Strict Tool Use & Structured Outputs**: Enhanced Claude backend with schema validation and improved defaults
+  - New `enable_strict_tool_use` config flag with recursive `additionalProperties: false` patching
+  - New `output_schema` parameter for structured JSON outputs (requires Sonnet 4.5 or Opus 4.1)
+  - Per-tool opt-out via `strict: false` on individual tools
+  - Increased default max_tokens and improved tool_result handling
+  - ConfigValidator validation for `enable_strict_tool_use` and `output_schema` fields
+
+- **Gemini Exponential Backoff**: Automatic retry mechanism for rate limit errors
+  - New `BackoffConfig` dataclass with configurable retry parameters
+  - Handles HTTP 429 (rate limit) and 503 (service unavailable) with jittered backoff
+  - `Retry-After` header support and Gemini-specific error pattern matching
+
+### Documentations, Configurations and Resources
+
+- **Documentation Reorganization**: Major restructure into `files/`, `tools/`, `integration/`, `sessions/`, and `advanced/` sections with streamlined quickstart guides
+
+- **Configuration Examples**: `massgen/configs/providers/claude/strict_tool_use_example.yaml` for strict tool use with custom and MCP tools
+
+### Technical Details
+- **Major Focus**: LiteLLM provider integration, Claude strict tool use with structured outputs, Gemini rate limit resilience
+- **Contributors**: @ncrispino @praneeth999 and the MassGen team
 
 ## [0.1.18] - 2025-11-28
 

@@ -11,6 +11,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from .displays.base_display import BaseDisplay
+from .displays.none_display import NoneDisplay
 from .displays.rich_terminal_display import RichTerminalDisplay, is_rich_available
 from .displays.silent_display import SilentDisplay
 from .displays.simple_display import SimpleDisplay
@@ -25,6 +26,15 @@ except ImportError:
     TextualTerminalDisplay = None
 
     def is_textual_available():
+        return False
+
+
+try:
+    from .displays.web_display import WebDisplay, is_web_display_available
+except ImportError:
+    WebDisplay = None
+
+    def is_web_display_available():
         return False
 
 
@@ -44,7 +54,7 @@ class CoordinationUI:
         Args:
             display: Custom display instance (overrides display_type)
             logger: Custom logger instance
-            display_type: Type of display ("terminal", "simple", "rich_terminal", "textual_terminal")
+            display_type: Type of display ("terminal", "simple", "rich_terminal", "textual_terminal", "web")
             enable_final_presentation: Whether to ask winning agent to present final answer
             **kwargs: Additional configuration passed to display/logger
         """
@@ -349,6 +359,19 @@ class CoordinationUI:
             except asyncio.CancelledError:
                 pass
 
+            # Always save coordination logs - even for incomplete runs
+            # This ensures we capture partial progress for debugging/analysis
+            try:
+                is_finished = hasattr(orchestrator, "workflow_phase") and orchestrator.workflow_phase == "presenting"
+                if hasattr(orchestrator, "save_coordination_logs"):
+                    # Check if logs were already saved (happens in finalize_presentation for complete runs)
+                    if not is_finished:
+                        orchestrator.save_coordination_logs()
+            except Exception as e:
+                import logging
+
+                logging.getLogger("massgen").warning(f"Failed to save coordination logs: {e}")
+
     def reset(self):
         """Reset UI state for next coordination session."""
         # Clean up display if exists
@@ -390,9 +413,10 @@ class CoordinationUI:
         final_answer = ""
 
         # Reset display to ensure clean state for each coordination
-        if self.display is not None:
+        # But preserve web displays - they have their own lifecycle managed by the web server
+        if self.display is not None and self.display_type != "web":
             self.display.cleanup()
-        self.display = None
+            self.display = None
 
         self.orchestrator = orchestrator
         # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
@@ -412,6 +436,8 @@ class CoordinationUI:
                 self.display = SimpleDisplay(self.agent_ids, **self.config)
             elif self.display_type == "silent":
                 self.display = SilentDisplay(self.agent_ids, **self.config)
+            elif self.display_type == "none":
+                self.display = NoneDisplay(self.agent_ids, **self.config)
             elif self.display_type == "rich_terminal":
                 if not is_rich_available():
                     print("⚠️  Rich library not available. Falling back to terminal display.")
@@ -426,6 +452,13 @@ class CoordinationUI:
                     self.display = TerminalDisplay(self.agent_ids, **self.config)
                 else:
                     self.display = TextualTerminalDisplay(self.agent_ids, **self.config)
+            elif self.display_type == "web":
+                # WebDisplay must be passed in from the web server with broadcast configured
+                if self.display is None:
+                    raise ValueError(
+                        "WebDisplay must be passed to CoordinationUI when using " "display_type='web'. Create it via the web server.",
+                    )
+                # Display already set - just use it
             else:
                 raise ValueError(f"Unknown display type: {self.display_type}")
 
@@ -752,13 +785,17 @@ class CoordinationUI:
             if self.display and is_finished:
                 self.display.cleanup()
 
-            # Don't print - display already showed this info
-            # if selected_agent:
-            #     print(f"✅ Selected by: {selected_agent}")
-            #     if vote_results.get("vote_counts"):
-            #         vote_summary = ", ".join([f"{agent}: {count}" for agent, count in vote_results["vote_counts"].items()])
-            #         print(f"🗳️ Vote results: {vote_summary}")
-            # print()
+            # Always save coordination logs - even for incomplete runs
+            # This ensures we capture partial progress for debugging/analysis
+            try:
+                if hasattr(orchestrator, "save_coordination_logs"):
+                    # Check if logs were already saved (happens in finalize_presentation for complete runs)
+                    if not is_finished:
+                        orchestrator.save_coordination_logs()
+            except Exception as e:
+                import logging
+
+                logging.getLogger("massgen").warning(f"Failed to save coordination logs: {e}")
 
             if self.logger and is_finished:
                 session_info = self.logger.finalize_session(
@@ -793,9 +830,10 @@ class CoordinationUI:
         final_answer = ""
 
         # Reset display to ensure clean state for each coordination
-        if self.display is not None:
+        # But preserve web displays - they have their own lifecycle managed by the web server
+        if self.display is not None and self.display_type != "web":
             self.display.cleanup()
-        self.display = None
+            self.display = None
 
         self.orchestrator = orchestrator
         # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
@@ -815,6 +853,8 @@ class CoordinationUI:
                 self.display = SimpleDisplay(self.agent_ids, **self.config)
             elif self.display_type == "silent":
                 self.display = SilentDisplay(self.agent_ids, **self.config)
+            elif self.display_type == "none":
+                self.display = NoneDisplay(self.agent_ids, **self.config)
             elif self.display_type == "rich_terminal":
                 if not is_rich_available():
                     print("⚠️  Rich library not available. Falling back to terminal display.")
@@ -829,6 +869,13 @@ class CoordinationUI:
                     self.display = TerminalDisplay(self.agent_ids, **self.config)
                 else:
                     self.display = TextualTerminalDisplay(self.agent_ids, **self.config)
+            elif self.display_type == "web":
+                # WebDisplay must be passed in from the web server with broadcast configured
+                if self.display is None:
+                    raise ValueError(
+                        "WebDisplay must be passed to CoordinationUI when using " "display_type='web'. Create it via the web server.",
+                    )
+                # Display already set - just use it
             else:
                 raise ValueError(f"Unknown display type: {self.display_type}")
 
@@ -1096,6 +1143,18 @@ class CoordinationUI:
             if self.display and is_finished:
                 self.display.cleanup()
 
+            # Always save coordination logs - even for incomplete runs
+            # This ensures we capture partial progress for debugging/analysis
+            try:
+                if hasattr(orchestrator, "save_coordination_logs"):
+                    # Check if logs were already saved (happens in finalize_presentation for complete runs)
+                    if not is_finished:
+                        orchestrator.save_coordination_logs()
+            except Exception as e:
+                import logging
+
+                logging.getLogger("massgen").warning(f"Failed to save coordination logs: {e}")
+
     def _display_vote_results(self, vote_results: Dict[str, Any]):
         """Display voting results in a formatted table."""
         print("\n🗳️  VOTING RESULTS")
@@ -1185,7 +1244,9 @@ class CoordinationUI:
 
         else:
             # Thinking content
-            if self.orchestrator and self.display_type == "textual_terminal" and hasattr(self.display, "stream_final_answer_chunk"):
+            # For displays that support streaming final answer (textual_terminal and web),
+            # route content through stream_final_answer_chunk when the selected agent is streaming
+            if self.orchestrator and hasattr(self.display, "stream_final_answer_chunk"):
                 status = self.orchestrator.get_status()
                 if status:
                     selected_agent = status.get("selected_agent")
@@ -1266,6 +1327,9 @@ class CoordinationUI:
                 "**",
                 "result ignored",
                 "restart pending",
+                "🏆",  # Selected Agent banner
+                "🎤",  # presenting final answer
+                "🔍",  # Post-evaluation
             ]
         ):
             # Extract clean final answer content

@@ -1,0 +1,26 @@
+# MassGen Configuration: Claude with Strict Tool Use (Structured Outputs)
+# Usage: uv run massgen --config massgen/configs/providers/claude/strict_tool_use_example.yaml "Add 42 and 58, then get weather for Tokyo"
+
+agents:
+  - id: "claude-strict-tools"
+    backend:
+      type: "claude"
+      model: "claude-sonnet-4-5-20250929"
+      enable_strict_tool_use: true
+      custom_tools:
+        - name: "two_num_tool"
+          category: "math"
+          path: "massgen/tool/_basic/_two_num_tool.py"
+          function: "two_num_tool" #(default when enable_strict_tool_use: true), opt-out by setting strict: false
+      mcp_servers:
+        - name: "weather"
+          type: "stdio"
+          command: "npx"
+          args: ["-y", "@fak111/weather-mcp"] #(default when enable_strict_tool_use: true), opt-out by setting strict: false
+
+    system_message: |
+      You are an AI assistant with strict tool validation enabled.
+
+ui:
+  display_type: "textual_terminal"
+  logging_enabled: true

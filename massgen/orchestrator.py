@@ -1942,6 +1942,32 @@ Your answer:"""
                                 result_data,
                                 snapshot_timestamp=answer_timestamp,
                             )
+                            # Notify web display if available
+                            if hasattr(self, "coordination_ui") and self.coordination_ui:
+                                display = getattr(self.coordination_ui, "display", None)
+                                if display and hasattr(display, "send_new_answer"):
+                                    # Get answer count for this agent
+                                    agent_answers = self.coordination_tracker.answers_by_agent.get(agent_id, [])
+                                    answer_number = len(agent_answers)
+                                    display.send_new_answer(
+                                        agent_id=agent_id,
+                                        content=result_data,
+                                        answer_number=answer_number,
+                                    )
+                                # Record answer with context for timeline visualization
+                                if display and hasattr(display, "record_answer_with_context"):
+                                    agent_answers = self.coordination_tracker.answers_by_agent.get(agent_id, [])
+                                    answer_number = len(agent_answers)
+                                    agent_num = self.coordination_tracker._get_agent_number(agent_id)
+                                    # Use same label format as coordination_tracker: "agent1.1"
+                                    answer_label = f"agent{agent_num}.{answer_number}"
+                                    context_sources = self.coordination_tracker.get_agent_context_labels(agent_id)
+                                    display.record_answer_with_context(
+                                        agent_id=agent_id,
+                                        answer_label=answer_label,
+                                        context_sources=context_sources,
+                                        round_num=answer_number,
+                                    )
                             # Update status file for real-time monitoring
                             log_session_dir = get_log_session_dir()
                             if log_session_dir:
@@ -1970,6 +1996,7 @@ Your answer:"""
 
                         elif result_type == "vote":
                             # Agent voted for existing answer
+                            print(f"[DEBUG] VOTE BLOCK ENTERED for {agent_id}, result_data={result_data}")
                             # Ignore votes from agents with restart pending (votes are about current state)
                             if self._check_restart_pending(agent_id):
                                 voted_for = result_data.get("agent_id", "<unknown>")
@@ -2011,8 +2038,36 @@ Your answer:"""
                                     result_data,
                                     snapshot_timestamp=vote_timestamp,
                                 )
+                                # Notify web display about the vote
+                                print(f"[DEBUG] Vote recorded - checking for coordination_ui: hasattr={hasattr(self, 'coordination_ui')}, coordination_ui={self.coordination_ui}")
+                                if hasattr(self, "coordination_ui") and self.coordination_ui:
+                                    display = getattr(self.coordination_ui, "display", None)
+                                    print(f"[DEBUG] Got display: {display}, has update_vote_target: {hasattr(display, 'update_vote_target') if display else 'N/A'}")
+                                    if display and hasattr(display, "update_vote_target"):
+                                        print(f"[DEBUG] Calling update_vote_target({agent_id}, {result_data.get('agent_id', '')}, ...)")
+                                        display.update_vote_target(
+                                            voter_id=agent_id,
+                                            target_id=result_data.get("agent_id", ""),
+                                            reason=result_data.get("reason", ""),
+                                        )
+                                    # Record vote with context for timeline visualization
+                                    if display and hasattr(display, "record_vote_with_context"):
+                                        agent_num = self.coordination_tracker._get_agent_number(agent_id)
+                                        # Count previous votes by this agent to get vote number
+                                        votes_by_agent = [v for v in self.coordination_tracker.votes if v.voter_id == agent_id]
+                                        vote_number = len(votes_by_agent)  # Already recorded above, so this is the count
+                                        # Use format like "vote1.1" (matches answer format "agent1.1")
+                                        vote_label = f"vote{agent_num}.{vote_number}"
+                                        available_answers = self.coordination_tracker.iteration_available_labels.copy()
+                                        display.record_vote_with_context(
+                                            voter_id=agent_id,
+                                            vote_label=vote_label,
+                                            voted_for=result_data.get("agent_id", ""),
+                                            available_answers=available_answers,
+                                        )
                                 # Update status file for real-time monitoring
                                 log_session_dir = get_log_session_dir()
+                                print(f"[DEBUG] Log session dir: {log_session_dir}")
                                 if log_session_dir:
                                     self.coordination_tracker.save_status_file(log_session_dir, orchestrator=self)
 
@@ -2775,12 +2830,20 @@ Your answer:"""
         # Send primary error for the first tool call
         first_tool_call = tool_calls[0]
         error_result_msg = agent.backend.create_tool_result_message(first_tool_call, primary_error_msg)
-        enforcement_msgs.append(error_result_msg)
+        # Handle both single dict (Chat Completions) and list (Response API) returns
+        if isinstance(error_result_msg, list):
+            enforcement_msgs.extend(error_result_msg)
+        else:
+            enforcement_msgs.append(error_result_msg)
 
         # Send secondary error messages for any additional tool calls (API requires response to ALL calls)
         for additional_tool_call in tool_calls[1:]:
             neutral_msg = agent.backend.create_tool_result_message(additional_tool_call, secondary_error_msg)
-            enforcement_msgs.append(neutral_msg)
+            # Handle both single dict (Chat Completions) and list (Response API) returns
+            if isinstance(neutral_msg, list):
+                enforcement_msgs.extend(neutral_msg)
+            else:
+                enforcement_msgs.append(neutral_msg)
 
         return enforcement_msgs
 
@@ -3651,8 +3714,14 @@ Your answer:"""
                         # else: No new answers, proceed with normal error handling
                     if attempt < max_attempts - 1:
                         yield ("content", "🔄 needs to use workflow tools...\n")
-                        # Reset to default enforcement message for this case
-                        enforcement_msg = self.message_templates.enforcement_message()
+                        # If there were tool calls, we must provide tool results before continuing
+                        # (Response API requires function_call + function_call_output pairs)
+                        if tool_calls:
+                            error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
+                            enforcement_msg = self._create_tool_error_messages(agent, tool_calls, error_msg)
+                        else:
+                            # No tool calls, just a plain text response - use default enforcement
+                            enforcement_msg = self.message_templates.enforcement_message()
                         continue  # Retry with updated conversation
                     else:
                         # Last attempt failed, agent did not provide proper workflow response
@@ -4516,6 +4585,168 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             "winning_agent_id": self._selected_agent,
             "workspace_path": workspace_path,
             "winning_agents_history": self._winning_agents_history.copy(),  # For cross-turn memory sharing
+        }
+
+    def get_partial_result(self) -> Optional[Dict[str, Any]]:
+        """Get partial coordination result for interrupted sessions.
+
+        Captures whatever state is available mid-coordination, useful when
+        a user cancels with Ctrl+C before coordination completes.
+
+        Returns:
+            Dict with partial state including:
+            - status: Always "incomplete"
+            - phase: Current workflow phase
+            - current_task: The task being worked on
+            - answers: Dict of agent_id -> answer data for agents with answers
+            - workspaces: Dict of agent_id -> workspace path
+            - selected_agent: Winning agent if voting completed, else None
+            - coordination_tracker: Coordination state if available
+
+            Returns None if no answers have been generated yet.
+
+        Example:
+            >>> partial = orchestrator.get_partial_result()
+            >>> if partial:
+            ...     save_partial_turn(session_id, turn, task, partial)
+        """
+        # Collect any answers that have been submitted
+        answers = {}
+        for agent_id, state in self.agent_states.items():
+            if state.answer:
+                answers[agent_id] = {
+                    "answer": state.answer,
+                    "has_voted": state.has_voted,
+                    "votes": state.votes if state.has_voted else None,
+                    "answer_count": state.answer_count,
+                }
+
+        # Get all agent workspaces (even those without answers)
+        workspaces = self.get_all_agent_workspaces()
+
+        def has_files_recursive(directory: Path) -> bool:
+            """Check if directory contains any files (recursively)."""
+            if not directory.is_dir():
+                return False
+            for item in directory.iterdir():
+                if item.is_file():
+                    return True
+                if item.is_dir() and has_files_recursive(item):
+                    return True
+            return False
+
+        # Check if any workspaces have content (actual files, not just empty dirs)
+        workspaces_with_content = {}
+        for agent_id, ws_path in workspaces.items():
+            if ws_path and Path(ws_path).exists():
+                ws = Path(ws_path)
+                if has_files_recursive(ws):
+                    workspaces_with_content[agent_id] = ws_path
+
+        # If no answers AND no workspaces with content, nothing worth saving
+        if not answers and not workspaces_with_content:
+            return None
+
+        # Build partial result
+        result = {
+            "status": "incomplete",
+            "phase": self.workflow_phase,
+            "current_task": self.current_task,
+            "answers": answers,
+            "workspaces": workspaces_with_content,  # Only include workspaces with content
+            "selected_agent": self._selected_agent,  # May be None if voting incomplete
+        }
+
+        # Include coordination tracker state if available
+        if self.coordination_tracker:
+            try:
+                result["coordination_tracker"] = self.coordination_tracker.to_dict()
+            except Exception:
+                # Don't fail if tracker serialization fails
+                pass
+
+        return result
+
+    def get_all_agent_workspaces(self) -> Dict[str, Optional[str]]:
+        """Get workspace paths for all agents.
+
+        Returns:
+            Dict mapping agent_id to workspace path (or None if no workspace)
+        """
+        workspaces = {}
+        for agent_id, agent in self.agents.items():
+            if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
+                fm = agent.backend.filesystem_manager
+                if fm:
+                    workspaces[agent_id] = str(fm.get_current_workspace())
+                else:
+                    workspaces[agent_id] = None
+            else:
+                workspaces[agent_id] = None
+        return workspaces
+
+    def get_coordination_result(self) -> Dict[str, Any]:
+        """Get comprehensive coordination result for API consumption.
+
+        Returns:
+            Dict with all coordination metadata:
+            - final_answer: The final presented answer
+            - selected_agent: ID of the winning agent
+            - log_directory: Root log directory path
+            - final_answer_path: Path to final/ directory
+            - answers: List of answers with labels (answerX.Y), paths, and content
+            - vote_results: Full voting details
+        """
+        from pathlib import Path
+
+        from .logger_config import get_log_session_dir, get_log_session_root
+
+        # Get log paths
+        log_root = None
+        log_session_dir = None
+        final_path = None
+        try:
+            log_root = get_log_session_root()
+            log_session_dir = get_log_session_dir()
+            final_path = log_session_dir / "final"
+        except Exception:
+            pass  # Log paths not available
+
+        # Build answers list from snapshot_mappings with full log paths
+        answers = []
+        if self.coordination_tracker and self.coordination_tracker.snapshot_mappings:
+            for label, mapping in self.coordination_tracker.snapshot_mappings.items():
+                if mapping.get("type") == "answer":
+                    # Build full path from log_session_dir + relative path
+                    answer_dir = None
+                    if log_session_dir and mapping.get("path"):
+                        answer_dir = str(log_session_dir / Path(mapping["path"]).parent)
+
+                    # Get answer content from agent state
+                    agent_id = mapping.get("agent_id")
+                    content = None
+                    if agent_id and agent_id in self.agent_states:
+                        content = self.agent_states[agent_id].answer
+
+                    answers.append(
+                        {
+                            "label": label,  # e.g., "agent1.1"
+                            "agent_id": agent_id,
+                            "answer_path": answer_dir,
+                            "content": content,
+                        },
+                    )
+
+        # Get vote results
+        vote_results = self._get_vote_results()
+
+        return {
+            "final_answer": self._final_presentation_content or "",
+            "selected_agent": self._selected_agent,
+            "log_directory": str(log_root) if log_root else None,
+            "final_answer_path": str(final_path) if final_path else None,
+            "answers": answers,
+            "vote_results": vote_results,
         }
 
     def get_status(self) -> Dict[str, Any]:

@@ -216,9 +216,16 @@ code_execution_workspaces*/
 snapshots*/
 temp_workspaces*/
 workspace*/
-sessions/
+# MassGen runtime sessions (not docs/source/user_guide/sessions/)
+.massgen/sessions/
+**/sessions/session_*
 .claude/
 CLAUDE.md
 massgen/tests/demo_terminal_evaluation_workspace/
 .agent/
 shared_tools/
+
+# WebUI
+webui/node_modules/
+webui/dist/
+webui/mockups/

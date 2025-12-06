@@ -450,6 +450,7 @@ class ConfigValidator:
             "enable_code_interpreter",
             "enable_programmatic_flow",
             "enable_tool_search",
+            "enable_strict_tool_use",
         ]
         for field_name in boolean_fields:
             if field_name in backend_config:
@@ -460,6 +461,36 @@ class ConfigValidator:
                         f"{location}.{field_name}",
                         "Use 'true' or 'false'",
                     )
+
+        # Validate output_schema if present (structured outputs)
+        if "output_schema" in backend_config:
+            output_schema = backend_config["output_schema"]
+            if not isinstance(output_schema, dict):
+                result.add_error(
+                    f"'output_schema' must be a dictionary, got {type(output_schema).__name__}",
+                    f"{location}.output_schema",
+                    "Use a JSON schema object like: {type: object, properties: {...}}",
+                )
+            elif not output_schema:
+                result.add_warning(
+                    "'output_schema' is an empty dictionary",
+                    f"{location}.output_schema",
+                    "Provide a valid JSON schema",
+                )
+            elif "type" not in output_schema:
+                result.add_warning(
+                    "'output_schema' should have a 'type' field",
+                    f"{location}.output_schema",
+                    "Add 'type: object' or similar",
+                )
+
+        # Check for incompatible feature combinations
+        if backend_config.get("enable_programmatic_flow") and backend_config.get("enable_strict_tool_use"):
+            result.add_warning(
+                "Strict tool use is not compatible with programmatic tool calling",
+                location,
+                "Strict tool use will be automatically disabled at runtime. ",
+            )
 
     def _validate_tool_filtering(
         self,

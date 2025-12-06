@@ -56,7 +56,7 @@ When **orchestration restart** is enabled, each restart attempt gets its own iso
 For multi-turn: ``turn_1/attempt_1/``, ``turn_1/attempt_2/``, ``turn_1/final/``
 
 .. seealso::
-   :doc:`orchestration_restart` - Learn about automatic quality checks and restart workflows
+   :doc:`sessions/orchestration_restart` - Learn about automatic quality checks and restart workflows
 
 Log Files Explained
 -------------------
@@ -523,6 +523,6 @@ MassGen exits with status 0 on success, non-zero on failure.
 See Also
 --------
 
-* :doc:`multi_turn_mode` - Session logging for interactive mode
-* :doc:`file_operations` - Workspace and file operation logs
+* :doc:`sessions/multi_turn_mode` - Session logging for interactive mode
+* :doc:`files/file_operations` - Workspace and file operation logs
 * :doc:`../reference/cli` - CLI options for logging control
