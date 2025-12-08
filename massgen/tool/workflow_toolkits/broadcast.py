@@ -329,26 +329,6 @@ class BroadcastToolkit(BaseToolkit):
         if wait is None:
             wait = self.wait_by_default
 
-        # Priority check: Ensure agent responds to pending broadcasts before sending new ones
-        # This prevents deadlocks where two agents wait for each other
-        agent = self.orchestrator.agents.get(agent_id)
-        if agent and hasattr(agent, "_peek_broadcast_queue"):
-            pending_broadcast = agent._peek_broadcast_queue()
-            if pending_broadcast:
-                # Enter broadcast response mode - agent MUST respond before continuing
-                agent._current_broadcast_request_id = pending_broadcast.id
-                agent._in_broadcast_response_mode = True
-                agent._broadcast_response_submitted = False
-
-                return json.dumps(
-                    {
-                        "error": "PENDING_BROADCAST",
-                        "message": f"You have a pending broadcast to respond to from {pending_broadcast.sender_agent_id}. Please call respond_to_broadcast first before asking new questions.",
-                        "pending_from": pending_broadcast.sender_agent_id,
-                        "pending_question": pending_broadcast.question[:100],
-                    },
-                )
-
         # In human mode, check if Q&A history already exists
         # If so, return it without prompting human again - let agent decide if they need to ask differently
         if self.broadcast_mode == "human":
@@ -448,55 +428,32 @@ class BroadcastToolkit(BaseToolkit):
 
     async def execute_respond_to_broadcast(self, arguments: str, agent_id: str) -> str:
         """
-        Execute respond_to_broadcast tool - agent submits clean answer to broadcast.
+        Execute respond_to_broadcast tool (DEPRECATED - shadow agents handle responses).
+
+        With the shadow agent architecture, broadcast responses are handled automatically
+        by shadow agents that inherit the parent agent's context. This tool is kept for
+        backwards compatibility but is no longer needed.
 
         Args:
             arguments: JSON string with answer
             agent_id: ID of the responding agent
 
         Returns:
-            JSON string with confirmation
+            JSON string with status message
         """
         from loguru import logger
 
-        args = json.loads(arguments) if isinstance(arguments, str) else arguments
-        answer = args.get("answer", "")
-
-        # Get the agent's current broadcast request being handled
-        agent = self.orchestrator.agents.get(agent_id)
-        if not agent:
-            logger.warning(f"📢 [{agent_id}] Agent not found")
-            return json.dumps({"status": "error", "message": "Agent not found"})
-
-        # Check for immediate response mode (set by priority check) or turn-boundary mode
-        request_id = getattr(agent, "_current_broadcast_request_id", None)
-        if not request_id:
-            logger.warning(f"📢 [{agent_id}] No active broadcast to respond to")
-            return json.dumps({"status": "error", "message": "No active broadcast request"})
-
-        # If in immediate response mode, consume the broadcast from queue
-        in_immediate_mode = getattr(agent, "_in_broadcast_response_mode", False)
-        if in_immediate_mode:
-            # Consume the broadcast from queue since we're responding immediately
-            consumed_broadcast = await agent._check_broadcast_queue()
-            if consumed_broadcast and consumed_broadcast.id == request_id:
-                logger.info(f"📢 [{agent_id}] Consumed broadcast from queue for immediate response")
-            else:
-                logger.warning(f"📢 [{agent_id}] Broadcast queue mismatch in immediate response mode")
-
-        # Submit clean response to broadcast channel
-        await self.orchestrator.broadcast_channel.collect_response(
-            request_id=request_id,
-            responder_id=agent_id,
-            content=answer,
-            is_human=False,
+        logger.info(
+            f"[{agent_id}] respond_to_broadcast called - responses are now handled " f"automatically by shadow agents",
         )
 
-        logger.info(f"📢 [{agent_id}] Submitted broadcast response via tool: {answer[:80]}...")
-
-        # Mark that response has been submitted and clear response mode
-        agent._broadcast_response_submitted = True
-        agent._current_broadcast_request_id = None
-        agent._in_broadcast_response_mode = False
-
-        return json.dumps({"status": "success", "message": "Response submitted"})
+        return json.dumps(
+            {
+                "status": "info",
+                "message": (
+                    "Broadcast responses are now handled automatically by shadow agents. "
+                    "You don't need to call this tool - your shadow agent has already responded. "
+                    "Continue with your current work."
+                ),
+            },
+        )

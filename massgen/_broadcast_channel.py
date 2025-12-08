@@ -120,7 +120,10 @@ class BroadcastChannel:
             return request_id
 
     async def inject_into_agents(self, request_id: str) -> None:
-        """Inject broadcast question into all agents except sender.
+        """Handle broadcast distribution based on mode.
+
+        In human mode: prompts the human for a response
+        In agents mode: spawns shadow agents to respond in parallel
 
         Args:
             request_id: ID of the broadcast request
@@ -141,10 +144,83 @@ class BroadcastChannel:
             # This pauses execution until the human responds
             await self._prompt_human(request_id)
         else:
-            # Agents mode: inject into all agents except sender
-            for agent_id, agent in self.orchestrator.agents.items():
-                if agent_id != broadcast.sender_agent_id:
-                    await agent.inject_broadcast(broadcast)
+            # Agents mode: spawn shadow agents to respond in parallel
+            await self._spawn_shadow_agents(request_id)
+
+    async def _spawn_shadow_agents(self, request_id: str) -> None:
+        """Spawn shadow agents to respond to a broadcast in parallel.
+
+        Shadow agents share their parent's backend and context but have a
+        simplified system prompt. They generate responses without interrupting
+        the parent agent's work.
+
+        Args:
+            request_id: ID of the broadcast request
+        """
+        import asyncio
+
+        from .shadow_agent import ShadowAgentSpawner, inject_informational_to_parent
+
+        broadcast = self.active_broadcasts[request_id]
+        spawner = ShadowAgentSpawner(self.orchestrator)
+
+        async def spawn_shadow_for_agent(target_id: str, target_agent) -> tuple:
+            """Spawn shadow agent and return (target_id, response)."""
+            try:
+                response = await spawner.spawn_and_respond(target_agent, broadcast)
+                return (target_id, response, None)
+            except Exception as e:
+                logger.error(f"[{target_id}] Shadow agent error: {e}")
+                return (target_id, None, str(e))
+
+        # Get all target agents (everyone except sender)
+        target_agents = [(agent_id, agent) for agent_id, agent in self.orchestrator.agents.items() if agent_id != broadcast.sender_agent_id]
+
+        if not target_agents:
+            logger.warning(f"[Broadcast] No target agents for broadcast from {broadcast.sender_agent_id}")
+            return
+
+        logger.info(
+            f"[Broadcast] Spawning {len(target_agents)} shadow agents in parallel " f"for broadcast from {broadcast.sender_agent_id}",
+        )
+
+        # Spawn all shadow agents in parallel
+        tasks = [spawn_shadow_for_agent(target_id, target_agent) for target_id, target_agent in target_agents]
+
+        results = await asyncio.gather(*tasks)
+
+        # Process results: collect responses and inject informational messages
+        for target_id, response, error in results:
+            if error:
+                # Record error as response
+                await self.collect_response(
+                    request_id=request_id,
+                    responder_id=f"shadow_{target_id}",
+                    content=f"[Error: {error}]",
+                    is_human=False,
+                )
+                continue
+
+            # Collect the shadow agent's response
+            await self.collect_response(
+                request_id=request_id,
+                responder_id=f"shadow_{target_id}",
+                content=response,
+                is_human=False,
+            )
+
+            # Inject informational message to parent agent
+            target_agent = self.orchestrator.agents.get(target_id)
+            if target_agent:
+                await inject_informational_to_parent(
+                    target_agent,
+                    broadcast,
+                    response,
+                )
+
+        logger.info(
+            f"[Broadcast] All shadow agents completed for broadcast {request_id[:8]}...",
+        )
 
     async def wait_for_responses(
         self,
