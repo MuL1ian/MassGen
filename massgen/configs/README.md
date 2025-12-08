@@ -227,7 +227,32 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.21 - Latest
+### v0.1.22 - Latest
+**New Features:** Shadow Agent Architecture, Full Context Broadcast Responses
+
+**Key Features:**
+- **Shadow Agent Architecture**: Lightweight agent clones spawned in parallel to respond to broadcasts without interrupting parent agents
+- **Full Context Inheritance**: Shadow agents copy parent's complete conversation history and current turn streaming content
+- **Non-Blocking Responses**: Parent agents continue working uninterrupted while shadows handle broadcast responses
+- **Automatic Response Collection**: Shadow agent responses collected via `asyncio.gather()` for maximum parallelism
+- **Parent Agent Awareness**: Informational messages injected into parent agents after shadow responds
+
+**Documentation:**
+- `docs/source/user_guide/advanced/agent_communication.rst` - Shadow agent architecture documentation
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Run a multi-agent session with agent-to-agent communication enabled
+# Enable with: orchestrator.coordination.broadcast: "agents"
+massgen --config @examples/broadcast/test_broadcast_agents \
+  "Design a collaborative architecture for a microservices system"
+# Agents ask each other questions via ask_others() - shadow agents respond in parallel
+```
+
+### v0.1.21
 **New Features:** Graceful Cancellation System, Session Restoration for Incomplete Turns
 
 **Key Features:**

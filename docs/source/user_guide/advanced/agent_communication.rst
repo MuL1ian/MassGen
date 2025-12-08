@@ -17,10 +17,10 @@ The communication system allows agents to:
 
 Communication is handled through a **broadcast channel** that:
 
-1. Delivers questions to all other agents (inject-then-continue pattern)
-2. Collects responses asynchronously
+1. Spawns **shadow agents** in parallel to generate responses (agent mode)
+2. Collects responses asynchronously without interrupting working agents
 3. Returns responses to the requesting agent
-4. Optionally prompts the human user for input
+4. Optionally prompts the human user for input (human mode)
 
 Communication Modes
 -------------------
@@ -388,55 +388,78 @@ When Q&A history exists, ``ask_others()`` returns immediately with status
 Technical Details
 -----------------
 
-Inject-then-Continue Pattern (Agent Mode)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Shadow Agent Architecture (Agent Mode)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When an agent calls ``ask_others()`` in **agent mode** (``broadcast: "agents"``):
+When an agent calls ``ask_others()`` in **agent mode** (``broadcast: "agents"``),
+MassGen uses a **shadow agent architecture** to generate responses:
 
 1. Broadcast created with unique ``request_id``
-2. Question injected into all other agents' queues
-3. Each agent checks queue at turn boundaries (not a hard interrupt)
-4. Agent responds, then continues with original task
-5. Responses collected asynchronously
-6. Requesting agent receives all responses when complete
+2. **Shadow agents** are spawned in **parallel** for each target agent
+3. Each shadow agent:
 
-This pattern ensures agents aren't abruptly interrupted mid-task.
+   - Shares the parent agent's backend (stateless, safe to share)
+   - Copies the parent agent's **full conversation history** (complete context)
+   - Includes the parent's **current turn streaming content** (work in progress)
+   - Uses a simplified system prompt (preserves identity/persona, removes workflow tools)
+   - Generates a **tool-free** text response
 
-**Important Limitation: Fresh Context for Agent Responses**
+4. All shadow agent responses are collected simultaneously via ``asyncio.gather()``
+5. Parent agents continue working **uninterrupted** throughout
+6. Informational messages are injected into parent agents ("FYI, you were asked X and responded Y")
+7. Requesting agent receives all responses when complete
 
-When an agent receives a broadcast question from another agent, it responds using a
-**separate, fresh LLM call** with NO conversation history. This means:
+**Why Shadow Agents:**
 
-- The responding agent sees ONLY the broadcast question
-- It does NOT have access to its own conversation history
-- It does NOT have access to the requesting agent's context
-- Only the ``respond_to_broadcast`` tool is available (no MCP tools, no ``ask_others``)
+The shadow agent architecture was chosen for two key reasons:
 
-**Why this design:**
+1. **True Parallelization**: Shadow agents run completely in parallel without blocking
+   or interrupting the parent agents. The parent agent continues its work while its
+   shadow responds to the broadcast. This maximizes throughput and prevents deadlocks.
 
-- Keeps responses focused and concise
-- Prevents agents from accessing MCP tools or asking new questions during broadcast response
-- Avoids interference between the agent's main task and broadcast responses
-- Simpler implementation and debugging
+2. **System Prompt Control**: Shadow agents use a simplified system prompt that:
 
-**Future enhancement:**
+   - Preserves the parent's identity and persona (user-configured system message)
+   - Removes workflow tools (no ``vote``, ``new_answer``, ``ask_others``)
+   - Focuses purely on responding to the question
+   - Prevents the shadow from taking unintended actions or getting confused
 
-A future version may add "context-aware" broadcast mode where responding agents can access
-their conversation history. For now, agents should provide self-contained questions that
-don't require the responder to know about prior context.
+**Full Context Responses:**
+
+Shadow agents have access to the parent agent's **complete context**, including:
+
+- **Conversation history**: All prior messages and decisions
+- **Current turn content**: The parent's in-progress streaming output (work being generated)
+
+This means:
+
+- Responding agents understand their own prior work and current activities
+- Responses can reference context from earlier in the conversation
+- Responses account for what the parent is actively working on
+- Questions can assume the responder has relevant background
 
 **Example:**
 
 .. code-block:: python
 
-   # ❌ Bad - requires context
-   ask_others("What do you think about this approach?")  # What approach?
+   # ✅ Both work well with shadow agents
+   ask_others("What do you think about this approach?")  # Shadow has context!
 
-   # ✅ Good - self-contained
    ask_others(
        "I'm considering using React with TypeScript for the frontend. "
        "Do you see any issues with this choice?"
    )
+
+**Parent Agent Awareness:**
+
+After a shadow agent responds, an informational message is injected into the
+parent agent's conversation history:
+
+.. code-block:: text
+
+   [INFO] While you were working, agent_a asked: "Should we use PostgreSQL?"
+   Your shadow agent responded: "Yes, PostgreSQL is a good choice because..."
+   (This is just for your awareness - you may continue your work.)
 
 Serialized Human Mode
 ~~~~~~~~~~~~~~~~~~~~~
@@ -464,7 +487,10 @@ Built-in tools automatically available when broadcasts are enabled:
    Ask question to other agents or human. Waits for and returns all responses.
 
 ``respond_to_broadcast(answer: str)``
-   (Agent mode only) Respond to a broadcast question from another agent.
+   **(Deprecated)** This tool is no longer needed. With the shadow agent architecture,
+   broadcast responses are handled automatically by shadow agents. If an agent calls
+   this tool, it will receive a message indicating that responses are handled
+   automatically and it should continue its work.
 
 These are built-in workflow tools, not MCP servers.
 

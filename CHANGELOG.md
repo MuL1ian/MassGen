@@ -9,16 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.22 (December 8, 2025)** - Shadow Agent Architecture for Broadcast Responses
+Shadow agents now handle broadcast responses in parallel without interrupting parent agents. Each shadow inherits full conversation history and current turn context for context-aware responses.
+
 **v0.1.21 (December 5, 2025)** - Graceful Cancellation for Multi-Turn Sessions
 Ctrl+C now saves partial progress mid-coordination, preserving agent answers and workspaces. Sessions can resume with `--continue` without losing any work.
 
 **v0.1.20 (December 3, 2025)** - Web UI & Auto Docker Setup
 Browser-based real-time visualization with React frontend, WebSocket streaming, timeline views, and workspace browsing. Automatic Docker container setup for computer use agents.
 
-**v0.1.19 (December 2, 2025)** - LiteLLM Provider & Claude Strict Tool Use
-LiteLLM custom provider integration with programmatic API (`run()`, `build_config()`), Claude strict tool use with structured outputs support, and Gemini exponential backoff for rate limit resilience.
-
 ---
+
+## [0.1.22] - 2025-12-08
+
+### Added
+- **Shadow Agent System**: Lightweight agent clones that respond to broadcast questions without interrupting parent agents
+  - New `massgen/shadow_agent.py` with `ShadowAgentSpawner` class (482 lines)
+  - Shadow agents share parent's backend (stateless) and copy full conversation history
+  - Includes parent's current turn context: text content, tool calls, MCP calls, and reasoning
+  - Uses simplified system prompt (preserves identity, removes workflow tools)
+  - Generates tool-free text responses with debug file saving support (`--debug` flag)
+
+### Changed
+- **Broadcast Channel Architecture**: Replaced inject-then-continue pattern with parallel shadow agent spawning
+  - New `_spawn_shadow_agents()` method using `asyncio.gather()` for true parallelization
+  - Parent agents continue working uninterrupted while shadows respond
+  - Informational messages injected to parent agents after shadow responds ("FYI, you were asked X...")
+  - Deprecated `respond_to_broadcast` tool (responses now automatic)
+
+- **Agent Context Tracking**: Enhanced `SingleAgent` to track current turn state for shadow agent access
+  - New attributes: `_current_turn_content`, `_current_turn_tool_calls`, `_current_turn_reasoning`, `_current_turn_mcp_calls`
+  - Context cleared at start of each turn and populated during stream processing
+  - Enables shadow agents to see parent's work-in-progress
+
+### Documentations, Configurations and Resources
+
+- **Agent Communication Documentation**: Updated `docs/source/user_guide/advanced/agent_communication.rst` with shadow agent architecture details, full context responses explanation, and deprecated `respond_to_broadcast` notice
+
+### Technical Details
+- **Major Focus**: Shadow agent architecture for non-blocking, context-aware broadcast responses
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.21] - 2025-12-05
 

@@ -1,8 +1,8 @@
-# MassGen v0.1.22 Roadmap
+# MassGen v0.1.23 Roadmap
 
 ## Overview
 
-Version 0.1.22 focuses on expanding model support with Grok 4.1 Fast and improving code execution documentation.
+Version 0.1.23 focuses on expanding model support with Grok 4.1 Fast and improving code execution documentation.
 
 - **Grok 4.1 Fast Model Support** (Required): 🚀 Add support for xAI's Grok 4.1 Fast model
 - **Clarify Code Execution in Docs** (Required): 📚 Improve documentation clarity for code execution features
@@ -141,14 +141,15 @@ Version 0.1.22 focuses on expanding model support with Grok 4.1 Fast and improvi
 
 ---
 
-## Future Enhancements (Post-v0.1.22)
+## Future Enhancements (Post-v0.1.23)
 
-### v0.1.23 Plans
+### v0.1.24 Plans
 - **Integrate RL into MassGen** (@qidanrui @praneeth999): Reinforcement learning integration for agent optimization and adaptive behavior
 - **Smithery MCP Tools Support** (@ncrispino): Integration with Smithery to expand available MCP tools
 
-### v0.1.24 Plans
+### v0.1.25 Plans
 - **Memory as Tools** (@ncrispino): Include memory (including filesystem) as callable tools for agents
+- **Improve Session Cancellation** (@ncrispino): Enhanced session cancellation handling and user experience
 
 ### Long-term Vision
 - **Universal Rate Limiting**: Rate limiting for all backends
@@ -165,7 +166,7 @@ Version 0.1.22 focuses on expanding model support with Grok 4.1 Fast and improvi
 | Phase 1 | Model Support | Grok 4.1 Fast integration, token counting, capability registration | @praneeth999 | **REQUIRED** |
 | Phase 2 | Documentation | Code execution docs, examples, best practices | @ncrispino | **REQUIRED** |
 
-**Target Release**: December 8, 2025 (Monday @ 9am PT)
+**Target Release**: December 10, 2025 (Wednesday @ 9am PT)
 
 ---
 
@@ -191,7 +192,7 @@ Version 0.1.22 focuses on expanding model support with Grok 4.1 Fast and improvi
 
 ### For Users
 
-- v0.1.22 brings expanded model support and improved documentation:
+- v0.1.23 brings expanded model support and improved documentation:
 
   **Grok 4.1 Fast Model Support:**
   - Access to xAI's latest high-speed model
@@ -222,7 +223,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ---
 
-*This roadmap reflects v0.1.22 priorities focusing on Grok 4.1 Fast model support and code execution documentation.*
+*This roadmap reflects v0.1.23 priorities focusing on Grok 4.1 Fast model support and code execution documentation.*
 
-**Last Updated:** December 5, 2025
+**Last Updated:** December 8, 2025
 **Maintained By:** MassGen Team
