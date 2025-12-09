@@ -129,6 +129,9 @@ class LLMBackend(ABC):
                     "shared_tools_directory": kwargs.get("shared_tools_directory"),
                     # Instance ID for parallel execution (Docker container naming)
                     "instance_id": self._instance_id,
+                    # Session mount support for multi-turn Docker
+                    "filesystem_session_id": kwargs.get("filesystem_session_id"),
+                    "session_storage_base": kwargs.get("session_storage_base"),
                 }
 
                 # Create FilesystemManager
@@ -234,7 +237,9 @@ class LLMBackend(ABC):
             # Backend identification (handled by orchestrator)
             "type",
             "agent_id",
-            "session_id",
+            "session_id",  # Memory/conversation session ID from chat_agent
+            "filesystem_session_id",  # Docker filesystem session mount
+            "session_storage_base",
             # MCP configuration (handled by base class for MCP backends)
             "mcp_servers",
         }

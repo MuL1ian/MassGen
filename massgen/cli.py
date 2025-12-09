@@ -660,6 +660,8 @@ def create_agents_from_config(
     config_path: Optional[str] = None,
     memory_session_id: Optional[str] = None,
     debug: bool = False,
+    filesystem_session_id: Optional[str] = None,
+    session_storage_base: Optional[str] = None,
 ) -> Dict[str, ConfigurableAgent]:
     """Create agents from configuration.
 
@@ -670,6 +672,10 @@ def create_agents_from_config(
         config_path: Optional path to the config file for error messages
         memory_session_id: Optional session ID to use for memory isolation.
                           If provided, overrides session_name from YAML config.
+        filesystem_session_id: Optional session ID for Docker session pre-mounting.
+                   Enables faster multi-turn by avoiding container recreation.
+        session_storage_base: Base directory for session storage (e.g., ".massgen/sessions").
+                             Required with filesystem_session_id for session pre-mounting.
     """
     agents = {}
 
@@ -720,6 +726,13 @@ def create_agents_from_config(
 
         # Inject rate limiting flag from CLI
         backend_config["enable_rate_limit"] = enable_rate_limit
+
+        # Inject session mount parameters for multi-turn Docker support
+        # This enables the session directory to be pre-mounted so all turn
+        # workspaces are automatically visible without container recreation
+        if filesystem_session_id and session_storage_base:
+            backend_config["filesystem_session_id"] = filesystem_session_id
+            backend_config["session_storage_base"] = session_storage_base
 
         # Substitute variables like ${cwd} in backend config
         if "cwd" in backend_config:
@@ -3728,83 +3741,119 @@ async def run_interactive_mode(
                         )
 
                     if context_workspaces_to_add:
-                        logger.info(f"[CLI] Recreating agents with turn {current_turn} workspace(s) as read-only context path(s)")
-
-                        # Check if any agents have Docker containers to clean up
-                        agents_with_docker = [
+                        # Check if any agents have session pre-mount enabled
+                        # Session pre-mount allows us to skip container recreation
+                        agents_with_session_mount = [
                             (agent_id, agent)
                             for agent_id, agent in agents.items()
-                            if hasattr(agent, "backend")
-                            and hasattr(agent.backend, "filesystem_manager")
-                            and agent.backend.filesystem_manager
-                            and hasattr(agent.backend.filesystem_manager, "docker_manager")
-                            and agent.backend.filesystem_manager.docker_manager
+                            if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager and agent.backend.filesystem_manager.has_session_mount()
                         ]
 
-                        # Clean up existing agents' backends and filesystem managers
-                        if agents_with_docker:
-                            from concurrent.futures import (
-                                ThreadPoolExecutor,
-                                as_completed,
+                        # Get persist_containers_between_turns config (default: True)
+                        persist_containers = (
+                            orchestrator_cfg.get("docker", {}).get(
+                                "persist_containers_between_turns",
+                                True,
                             )
-
-                            from rich.status import Status
-
-                            def cleanup_agent_fs(agent_id: str, agent) -> tuple[str, Optional[Exception]]:
-                                """Cleanup a single agent's filesystem manager (Docker container)."""
-                                try:
-                                    agent.backend.filesystem_manager.cleanup()
-                                    return (agent_id, None)
-                                except Exception as e:
-                                    return (agent_id, e)
-
-                            # Parallel Docker cleanup with spinner
-                            with Status(f"[bold cyan]Preparing next turn ({len(agents_with_docker)} container(s))...", spinner="dots"):
-                                with ThreadPoolExecutor(max_workers=len(agents_with_docker)) as executor:
-                                    futures = {executor.submit(cleanup_agent_fs, agent_id, agent): agent_id for agent_id, agent in agents_with_docker}
-                                    for future in as_completed(futures):
-                                        agent_id, error = future.result()
-                                        if error:
-                                            logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {error}")
-
-                            # Cleanup backends (must be sequential/async)
-                            for agent_id, agent in agents.items():
-                                if hasattr(agent.backend, "__aexit__"):
-                                    await agent.backend.__aexit__(None, None, None)
-                        else:
-                            # No Docker - quick cleanup without spinner
-                            for agent_id, agent in agents.items():
-                                if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
-                                    if agent.backend.filesystem_manager:
-                                        try:
-                                            agent.backend.filesystem_manager.cleanup()
-                                        except Exception as e:
-                                            logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {e}")
-
-                                if hasattr(agent.backend, "__aexit__"):
-                                    await agent.backend.__aexit__(None, None, None)
-
-                        # Inject previous turn path(s) as read-only context
-                        modified_config = original_config.copy()
-                        agent_entries = [modified_config["agent"]] if "agent" in modified_config else modified_config.get("agents", [])
-
-                        for agent_data in agent_entries:
-                            backend_config = agent_data.get("backend", {})
-                            if "cwd" in backend_config:  # Only inject if agent has filesystem support
-                                existing_context_paths = backend_config.get("context_paths", [])
-                                backend_config["context_paths"] = existing_context_paths + context_workspaces_to_add
-
-                        # Recreate agents from modified config (use same session)
-                        enable_rate_limit = kwargs.get("enable_rate_limit", False)
-                        agents = create_agents_from_config(
-                            modified_config,
-                            orchestrator_cfg,
-                            debug=debug,
-                            enable_rate_limit=enable_rate_limit,
-                            config_path=config_path,
-                            memory_session_id=session_id,
+                            if orchestrator_cfg
+                            else True
                         )
-                        logger.info(f"[CLI] Successfully recreated {len(agents)} agents with turn {current_turn} workspace(s) as read-only context")
+
+                        if agents_with_session_mount and persist_containers:
+                            # Session dir is pre-mounted - just update permission manager
+                            # No need to restart Docker containers!
+                            logger.info(f"[CLI] Session pre-mounted: adding {len(context_workspaces_to_add)} turn path(s) without container restart")
+
+                            for agent_id, agent in agents.items():
+                                if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
+                                    for ctx_ws in context_workspaces_to_add:
+                                        agent.backend.filesystem_manager.add_turn_context_path(
+                                            Path(ctx_ws["path"]),
+                                        )
+
+                            logger.info(f"[CLI] Turn {current_turn} context paths registered (containers kept alive)")
+                        else:
+                            # Fall back to original behavior: cleanup and recreate agents
+                            logger.info(f"[CLI] Recreating agents with turn {current_turn} workspace(s) as read-only context path(s)")
+
+                            # Check if any agents have Docker containers to clean up
+                            agents_with_docker = [
+                                (agent_id, agent)
+                                for agent_id, agent in agents.items()
+                                if hasattr(agent, "backend")
+                                and hasattr(agent.backend, "filesystem_manager")
+                                and agent.backend.filesystem_manager
+                                and hasattr(agent.backend.filesystem_manager, "docker_manager")
+                                and agent.backend.filesystem_manager.docker_manager
+                            ]
+
+                            # Clean up existing agents' backends and filesystem managers
+                            if agents_with_docker:
+                                from concurrent.futures import (
+                                    ThreadPoolExecutor,
+                                    as_completed,
+                                )
+
+                                from rich.status import Status
+
+                                def cleanup_agent_fs(agent_id: str, agent) -> tuple[str, Optional[Exception]]:
+                                    """Cleanup a single agent's filesystem manager (Docker container)."""
+                                    try:
+                                        agent.backend.filesystem_manager.cleanup()
+                                        return (agent_id, None)
+                                    except Exception as e:
+                                        return (agent_id, e)
+
+                                # Parallel Docker cleanup with spinner
+                                with Status(f"[bold cyan]Preparing next turn ({len(agents_with_docker)} container(s))...", spinner="dots"):
+                                    with ThreadPoolExecutor(max_workers=len(agents_with_docker)) as executor:
+                                        futures = {executor.submit(cleanup_agent_fs, agent_id, agent): agent_id for agent_id, agent in agents_with_docker}
+                                        for future in as_completed(futures):
+                                            agent_id, error = future.result()
+                                            if error:
+                                                logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {error}")
+
+                                # Cleanup backends (must be sequential/async)
+                                for agent_id, agent in agents.items():
+                                    if hasattr(agent.backend, "__aexit__"):
+                                        await agent.backend.__aexit__(None, None, None)
+                            else:
+                                # No Docker - quick cleanup without spinner
+                                for agent_id, agent in agents.items():
+                                    if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
+                                        if agent.backend.filesystem_manager:
+                                            try:
+                                                agent.backend.filesystem_manager.cleanup()
+                                            except Exception as e:
+                                                logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {e}")
+
+                                    if hasattr(agent.backend, "__aexit__"):
+                                        await agent.backend.__aexit__(None, None, None)
+
+                            # Inject previous turn path(s) as read-only context
+                            modified_config = original_config.copy()
+                            agent_entries = [modified_config["agent"]] if "agent" in modified_config else modified_config.get("agents", [])
+
+                            for agent_data in agent_entries:
+                                backend_config = agent_data.get("backend", {})
+                                if "cwd" in backend_config:  # Only inject if agent has filesystem support
+                                    existing_context_paths = backend_config.get("context_paths", [])
+                                    backend_config["context_paths"] = existing_context_paths + context_workspaces_to_add
+
+                            # Recreate agents from modified config (use same session)
+                            enable_rate_limit = kwargs.get("enable_rate_limit", False)
+                            agents = create_agents_from_config(
+                                modified_config,
+                                orchestrator_cfg,
+                                debug=debug,
+                                enable_rate_limit=enable_rate_limit,
+                                config_path=config_path,
+                                memory_session_id=session_id,
+                                # Pass session params for the new agents too
+                                filesystem_session_id=session_id,
+                                session_storage_base=SESSION_STORAGE,
+                            )
+                            logger.info(f"[CLI] Successfully recreated {len(agents)} agents with turn {current_turn} workspace(s) as read-only context")
 
                 # Use initial_question for first turn if provided, otherwise prompt
                 if initial_question and current_turn == 0:
@@ -4346,6 +4395,9 @@ async def main(args):
             config_path=str(resolved_path) if resolved_path else None,
             memory_session_id=memory_session_id,
             debug=args.debug,
+            # Session mount support for multi-turn Docker (pre-mount session dir)
+            filesystem_session_id=memory_session_id,
+            session_storage_base=SESSION_STORAGE,
         )
 
         if not agents:
