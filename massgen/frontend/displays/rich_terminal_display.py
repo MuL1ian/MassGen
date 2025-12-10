@@ -199,6 +199,7 @@ class RichTerminalDisplay(TerminalDisplay):
         self._input_thread = None
         self._stop_input_thread = False
         self._user_quit_requested = False  # Flag to signal user wants to quit
+        self._system_status_message = None  # System status message (e.g., "Cancelling turn...")
         self._original_settings = None
         self._agent_selector_active = False  # Flag to prevent duplicate agent selector calls
         self._human_input_in_progress = False  # Flag to prevent display auto-restart during human input
@@ -1379,12 +1380,14 @@ class RichTerminalDisplay(TerminalDisplay):
         elif key == "f":
             self._open_final_presentation_in_default_text_editor()
         elif key == "q":
-            # Quit the application - restore terminal and stop
+            # Quit the application - set flag for coordination loop to detect
             self._stop_input_thread = True
             self._user_quit_requested = True
-            self._restore_terminal_settings()
-            # Print quit message
-            self.console.print("\n[yellow]Exiting coordination...[/yellow]")
+            # Update system status in display (will be visible until display stops)
+            if hasattr(self, "update_system_status"):
+                self.update_system_status("⏸️ Cancelling turn...")
+            # DON'T print to console here - the Rich Live display would overwrite it
+            # The message will be printed by cli.py AFTER the display is stopped
 
     def _open_agent_in_default_text_editor(self, agent_id: str) -> None:
         """Open agent's txt file in default text editor."""
@@ -2470,6 +2473,13 @@ class RichTerminalDisplay(TerminalDisplay):
         """Create the footer panel with status and events."""
         footer_content = Text()
 
+        # System status message (shown prominently if set)
+        if self._system_status_message:
+            footer_content.append(
+                f"{self._system_status_message}\n",
+                style="bold yellow",
+            )
+
         # Agent status summary
         footer_content.append(
             "📊 Agent Status: ",
@@ -2809,6 +2819,19 @@ class RichTerminalDisplay(TerminalDisplay):
             elif old_status != status:
                 # Update the internal status but don't refresh display if already tracked
                 super().update_agent_status(agent_id, status)
+
+    def update_system_status(self, message: str | None) -> None:
+        """Update the system status message displayed in the footer.
+
+        Args:
+            message: Status message to display, or None to clear
+        """
+        with self._lock:
+            self._system_status_message = message
+            # Force footer update
+            self._footer_cache = None
+            self._pending_updates.add("footer")
+            self._schedule_async_update(force_update=True)
 
     def add_orchestrator_event(self, event: str) -> None:
         """Add an orchestrator coordination event with timestamp."""
@@ -3932,6 +3955,14 @@ class RichTerminalDisplay(TerminalDisplay):
                 if buffer_content:
                     self.agent_outputs[agent_id].append(buffer_content)
                 self._text_buffers[agent_id] = ""
+
+    def reset_quit_request(self) -> None:
+        """Reset the quit request flag for a new turn.
+
+        Called at the start of each turn to allow the 'q' key to be used
+        for cancelling the new turn.
+        """
+        self._user_quit_requested = False
 
     def cleanup(self) -> None:
         """Clean up display resources."""

@@ -93,6 +93,9 @@ class CancellationManager:
         self._partial_saved = False
         self._multi_turn = multi_turn
         self._original_handler = signal.signal(signal.SIGINT, self._handle_signal)
+        # Set reference on orchestrator so coordination UI can check cancellation status
+        if orchestrator is not None:
+            orchestrator.cancellation_manager = self
         logger.debug(
             f"CancellationManager registered (multi_turn={multi_turn})",
         )
@@ -117,8 +120,13 @@ class CancellationManager:
             raise KeyboardInterrupt
 
         self._cancelled = True
-        print("\n⚠️  Cancellation requested - saving partial progress...", flush=True)
         logger.info("Cancellation requested - attempting to save partial progress")
+
+        # In multi-turn mode, DON'T print here - the Rich Live display is still running
+        # and would overwrite our messages. The coordination loop will handle messaging
+        # AFTER stopping the display.
+        if not self._multi_turn:
+            print("\n⚠️  Cancellation requested - saving partial progress...", flush=True)
 
         self._partial_saved = False
         if self._orchestrator and self._save_callback:
@@ -127,25 +135,36 @@ class CancellationManager:
                 if partial_result:
                     self._save_callback(partial_result)
                     self._partial_saved = True
-                    print(
-                        "✅ Partial progress saved. " "Session can be resumed with --continue",
-                        flush=True,
-                    )
                     logger.info("Partial progress saved successfully")
                 else:
-                    print(
-                        "ℹ️  No partial progress to save (no answers generated yet)",
-                        flush=True,
-                    )
                     logger.info("No partial progress to save")
             except Exception as e:
-                print(f"⚠️  Could not save partial progress: {e}", flush=True)
+                if not self._multi_turn:
+                    print(f"⚠️  Could not save partial progress: {e}", flush=True)
                 logger.warning(f"Failed to save partial progress: {e}")
 
-        # Always raise KeyboardInterrupt to exit
-        # TODO: In the future, multi-turn mode could raise CancellationRequested
-        # to return to prompt instead of exiting
-        raise KeyboardInterrupt
+        # In multi-turn mode, DON'T raise or print - just set flag and let coordination loop detect it
+        # This avoids raising exceptions from signal handlers in async code, which can
+        # interrupt the event loop at arbitrary points and bypass all exception handlers.
+        # The coordination loop will stop the display first, then print messages.
+        # In single-turn mode, raise KeyboardInterrupt to exit the process
+        if self._multi_turn:
+            # DON'T RAISE OR PRINT HERE - the coordination loop will check is_cancelled flag,
+            # stop the Rich display, then print the cancellation message
+            logger.info("Cancellation flag set - coordination loop will handle it")
+        else:
+            # Single-turn mode - exit the process
+            if self._partial_saved:
+                print(
+                    "✅ Partial progress saved. Session can be resumed with --continue",
+                    flush=True,
+                )
+            else:
+                print(
+                    "ℹ️  No partial progress to save (no answers generated yet)",
+                    flush=True,
+                )
+            raise KeyboardInterrupt
 
     def unregister(self) -> None:
         """Restore original signal handler.

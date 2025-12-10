@@ -143,6 +143,32 @@ def _build_coordination_ui(ui_config: Dict[str, Any]) -> CoordinationUI:
     )
 
 
+def _restore_terminal_for_input() -> None:
+    """Restore terminal settings to a known good state for input().
+
+    This is needed after Rich display cancellation, which can leave
+    the terminal in a non-canonical mode.
+    """
+    try:
+        import sys
+
+        if sys.stdin.isatty():
+            try:
+                import termios
+
+                # Get current settings
+                current = termios.tcgetattr(sys.stdin.fileno())
+                # Enable echo and canonical mode (required for input())
+                current[3] = current[3] | termios.ECHO | termios.ICANON
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, current)
+                # Flush any pending input
+                termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+            except ImportError:
+                pass  # termios not available (Windows)
+    except Exception:
+        pass  # Best effort
+
+
 def read_multiline_input(prompt: str) -> str:
     """Read user input with support for multi-line input using triple quotes.
 
@@ -155,6 +181,8 @@ def read_multiline_input(prompt: str) -> str:
     Returns:
         The complete user input (single or multi-line)
     """
+    # Ensure terminal is in a good state for input
+    _restore_terminal_for_input()
     first_line = input(prompt).strip()
 
     # Check for multi-line delimiters
@@ -1612,11 +1640,49 @@ async def run_question_with_history(
         # In multi-turn mode, CancellationRequested is raised instead of KeyboardInterrupt
         # This allows us to return to the prompt instead of exiting
         was_cancelled = True
-        response_content = None
+
         if cancel_exc.partial_saved:
             print(f"\n{BRIGHT_YELLOW}⏸️  Turn cancelled. Partial progress saved.{RESET}", flush=True)
         else:
             print(f"\n{BRIGHT_YELLOW}⏸️  Turn cancelled.{RESET}", flush=True)
+
+        # Build cancelled turn history entry based on current phase
+        # Import the helper function
+        from massgen.session._state import _build_cancelled_turn_history_entry
+
+        # Build partial result dict from orchestrator state
+        answers = {}
+        for agent_id, state in orchestrator.agent_states.items():
+            if state.answer:
+                answers[agent_id] = {
+                    "answer": state.answer,
+                    "has_voted": state.has_voted,
+                    "votes": state.votes if state.has_voted else None,
+                }
+
+        active_agents = [state for state in orchestrator.agent_states.values() if not state.is_killed]
+        voting_complete = all(state.has_voted for state in active_agents) if active_agents else False
+
+        partial_result = {
+            "phase": orchestrator.workflow_phase,
+            "selected_agent": orchestrator._selected_agent,
+            "answers": answers,
+            "voting_complete": voting_complete,
+        }
+
+        # Build the history entry
+        response_content = _build_cancelled_turn_history_entry(partial_result, question)
+
+        # If cancelled during final presentation and we have a selected winner, show their answer
+        if orchestrator._selected_agent and orchestrator.workflow_phase == "presenting":
+            selected_agent_id = orchestrator._selected_agent
+            agent_state = orchestrator.agent_states.get(selected_agent_id)
+            if agent_state and agent_state.answer:
+                print(f"\n{BRIGHT_CYAN}📋 Selected winner: {selected_agent_id}{RESET}")
+                print(f"{BRIGHT_WHITE}{'-'*60}{RESET}")
+                print(agent_state.answer)
+                print(f"{BRIGHT_WHITE}{'-'*60}{RESET}")
+
         logger.info("Turn cancelled by user in multi-turn mode")
     finally:
         # Always unregister the cancellation handler
@@ -4079,7 +4145,15 @@ async def run_interactive_mode(
                     rich_console.print("[dim]Tip: Use /inspect to view agent outputs[/dim]")
 
                 elif was_cancelled:
-                    # Turn was cancelled by user - message already printed
+                    # Turn was cancelled by user - add cancelled turn to conversation history
+                    # so agents have context about what happened
+                    if response:
+                        conversation_history.append({"role": "user", "content": question})
+                        conversation_history.append({"role": "assistant", "content": response})
+                        logger.info(f"Added cancelled turn to conversation history (phase: {response[:50]}...)")
+
+                    # Ensure terminal is restored to a good state for next input
+                    _restore_terminal_for_input()
                     # Just continue to next prompt (don't print "No response generated")
                     print(f"{BRIGHT_CYAN}Enter your next question or /quit to exit.{RESET}", flush=True)
 
@@ -4087,14 +4161,16 @@ async def run_interactive_mode(
                     print(f"\n{BRIGHT_RED}❌ No response generated{RESET}", flush=True)
 
             except KeyboardInterrupt:
-                print("\n👋 Goodbye!")
-                break
+                # User pressed Ctrl+C at the prompt - just clear line and continue
+                print()  # Clean line after ^C
+                continue
             except Exception as e:
                 print(f"❌ Error: {e}", flush=True)
                 print("Please try again or type /quit to exit.", flush=True)
 
     except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
+        # Outer handler for any uncaught KeyboardInterrupt - just continue
+        print()  # Clean line after ^C
 
 
 async def main(args):
@@ -4534,7 +4610,42 @@ async def main(args):
         print(f"❌ Configuration error: {e}", flush=True)
         sys.exit(EXIT_CONFIG_ERROR)
     except KeyboardInterrupt:
-        print("\n👋 Goodbye!", flush=True)
+        # Show spinner while cleaning up
+        from rich.console import Console as RichConsole
+        from rich.status import Status
+
+        rich_console = RichConsole()
+        rich_console.print("\n[yellow]Cancelling...[/yellow]")
+
+        # Cleanup agents if they exist
+        if "agents" in locals() and agents:
+            agents_with_docker = [
+                (agent_id, agent)
+                for agent_id, agent in agents.items()
+                if hasattr(agent, "backend")
+                and hasattr(agent.backend, "filesystem_manager")
+                and agent.backend.filesystem_manager
+                and hasattr(agent.backend.filesystem_manager, "docker_manager")
+                and agent.backend.filesystem_manager.docker_manager
+            ]
+
+            if agents_with_docker:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
+                def cleanup_agent(agent_id: str, agent) -> tuple[str, Optional[Exception]]:
+                    try:
+                        agent.backend.filesystem_manager.cleanup()
+                        return (agent_id, None)
+                    except Exception as e:
+                        return (agent_id, e)
+
+                with Status("[bold cyan]Cleaning up...[/bold cyan]", spinner="dots"):
+                    with ThreadPoolExecutor(max_workers=len(agents_with_docker)) as executor:
+                        futures = {executor.submit(cleanup_agent, agent_id, agent): agent_id for agent_id, agent in agents_with_docker}
+                        for future in as_completed(futures):
+                            pass  # Just wait for completion
+
+        rich_console.print("[green]👋 Goodbye![/green]")
         sys.exit(EXIT_INTERRUPTED)
     except TimeoutError as e:
         print(f"❌ Timeout error: {e}", flush=True)

@@ -16,6 +16,66 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _build_cancelled_turn_history_entry(
+    partial_result: Dict[str, Any],
+    question: str,
+) -> str:
+    """Build conversation history entry for a cancelled turn.
+
+    Creates a formatted message that summarizes what happened during a cancelled
+    turn, appropriate for inclusion in conversation history. The format depends
+    on how far the turn progressed before cancellation.
+
+    Args:
+        partial_result: Dict containing phase, selected_agent, answers, voting_complete
+        question: The user's question for this turn
+
+    Returns:
+        Formatted string for the assistant's message in conversation history
+    """
+    phase = partial_result.get("phase", "unknown")
+    selected_agent = partial_result.get("selected_agent")
+    answers = partial_result.get("answers", {})
+    voting_complete = partial_result.get("voting_complete", False)
+
+    # Case 1: No answers generated (idle or very early coordination)
+    if phase == "idle" or not answers:
+        return "[CANCELLED - Turn interrupted before any answers were generated.]"
+
+    # Case 2: During presentation phase with selected winner - use their answer
+    if phase == "presenting" and selected_agent:
+        winner_answer = answers.get(selected_agent, {}).get("answer", "")
+        if winner_answer:
+            return f"""[CANCELLED - Turn interrupted during final presentation]
+Selected winner: {selected_agent}
+
+{winner_answer}"""
+        # Fallback if winner has no answer (shouldn't happen)
+        return f"[CANCELLED - Turn interrupted during final presentation. Selected winner: {selected_agent}]"
+
+    # Case 3: During coordination - show what agents had
+    if phase == "coordinating":
+        parts = []
+
+        if voting_complete:
+            parts.append("[CANCELLED - Turn interrupted after voting completed, before final presentation]")
+        else:
+            parts.append("[CANCELLED - Turn interrupted during coordination]")
+
+        parts.append("\nAgents had submitted these answers before cancellation:")
+        for agent_id, answer_data in sorted(answers.items()):
+            answer_text = answer_data.get("answer", "")
+            if answer_text:
+                # Truncate long answers for history readability
+                preview = answer_text[:500] + "..." if len(answer_text) > 500 else answer_text
+                parts.append(f"\n**{agent_id}**: {preview}")
+
+        return "\n".join(parts)
+
+    # Default fallback
+    return "[CANCELLED - Turn interrupted.]"
+
+
 @dataclass
 class SessionState:
     """Complete state of a MassGen session.
@@ -148,6 +208,8 @@ def restore_session(
                 if metadata.get("status") == "incomplete":
                     turn_data["status"] = "incomplete"
                     turn_data["phase"] = metadata.get("phase", "unknown")
+                    turn_data["voting_complete"] = metadata.get("voting_complete", False)
+                    turn_data["selected_agent"] = metadata.get("winning_agent")
                     incomplete_turn = turn_data
                     logger.info(
                         f"Found incomplete turn {turn_num} (cancelled during {turn_data['phase']} phase)",
@@ -197,65 +259,29 @@ def restore_session(
                 },
             )
 
-        # Handle incomplete turns differently - combine all partial answers
+        # Handle incomplete turns differently - use the cancelled turn history builder
         if turn_data.get("status") == "incomplete":
             partial_answers = turn_data.get("partial_answers", {})
-            agent_workspaces = turn_data.get("agent_workspaces", {})
 
-            # Get all agent IDs (from answers OR workspaces)
-            all_agent_ids = set(partial_answers.keys()) | set(agent_workspaces.keys())
+            # Build partial_result dict for the history builder
+            partial_result = {
+                "phase": turn_data.get("phase", "unknown"),
+                "selected_agent": turn_data.get("selected_agent"),
+                "answers": partial_answers,
+                "voting_complete": turn_data.get("voting_complete", False),
+            }
 
-            if all_agent_ids:
-                # Build combined answer from all agents
-                combined_parts = [
-                    "[INCOMPLETE TURN - Session was cancelled before completion]",
-                    f"[Phase when cancelled: {turn_data.get('phase', 'unknown')}]",
-                    "",
-                ]
-
-                for agent_id in sorted(all_agent_ids):
-                    answer_data = partial_answers.get(agent_id, {})
-                    answer_text = answer_data.get("answer", "")
-                    has_workspace = agent_id in agent_workspaces
-
-                    if answer_text:
-                        # Agent has an answer
-                        voted_info = ""
-                        if answer_data.get("has_voted"):
-                            votes = answer_data.get("votes", {})
-                            if votes:
-                                voted_info = f" (voted for: {votes.get('voted_for', 'unknown')})"
-                        combined_parts.append(f"## {agent_id}'s answer{voted_info}:")
-                        combined_parts.append(answer_text)
-                        if has_workspace:
-                            combined_parts.append(f"[Workspace available at: {agent_workspaces[agent_id]}]")
-                        combined_parts.append("")
-                    elif has_workspace:
-                        # Agent has workspace but no answer yet
-                        combined_parts.append(f"## {agent_id}:")
-                        combined_parts.append("[No answer submitted - agent was still working]")
-                        combined_parts.append(f"[View workspace for current progress: {agent_workspaces[agent_id]}]")
-                        combined_parts.append("")
-
-                combined_answer = "\n".join(combined_parts)
-                conversation_history.append(
-                    {
-                        "role": "assistant",
-                        "content": combined_answer,
-                    },
-                )
-            elif answer_file.exists():
-                # Fallback to answer.txt if no partial_answers loaded
-                try:
-                    answer_text = answer_file.read_text(encoding="utf-8")
-                    conversation_history.append(
-                        {
-                            "role": "assistant",
-                            "content": answer_text,
-                        },
-                    )
-                except IOError as e:
-                    logger.warning(f"Failed to load answer for turn {turn_data['turn']}: {e}")
+            # Use the history builder to create appropriate entry
+            history_content = _build_cancelled_turn_history_entry(
+                partial_result,
+                turn_data["task"],
+            )
+            conversation_history.append(
+                {
+                    "role": "assistant",
+                    "content": history_content,
+                },
+            )
         else:
             # Complete turn - use the final answer
             if answer_file.exists():
@@ -378,6 +404,7 @@ def save_partial_turn(
         "phase": partial_result.get("phase", "unknown"),
         "task": question,
         "session_id": session_id,
+        "voting_complete": partial_result.get("voting_complete", False),
     }
 
     # If we have a selected agent (voting completed), record it

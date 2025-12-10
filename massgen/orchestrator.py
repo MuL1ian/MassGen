@@ -1331,6 +1331,8 @@ class Orchestrator(ChatAgent):
         log_session_dir = get_log_session_dir()
         if log_session_dir:
             self.coordination_tracker.save_coordination_logs(log_session_dir)
+            # Also save final status.json with complete results (including final_answer_preview)
+            self.coordination_tracker.save_status_file(log_session_dir, orchestrator=self)
 
     def _format_planning_mode_ui(
         self,
@@ -4094,6 +4096,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         # Use agent's chat method with proper system message (reset chat for clean presentation)
         presentation_content = ""
         final_snapshot_saved = False  # Track whether snapshot was saved during stream
+        was_cancelled = False  # Track if we broke out due to cancellation
 
         try:
             # Track final round iterations (each chunk is like an iteration)
@@ -4104,6 +4107,14 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 orchestrator_turn=self._current_turn,
                 previous_winners=self._winning_agents_history.copy(),
             ):
+                # Check for cancellation at the start of each chunk
+                if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                    logger.info("Cancellation detected during final presentation - stopping streaming")
+                    was_cancelled = True
+                    # Yield a cancellation chunk so the UI knows to stop
+                    yield StreamChunk(type="cancelled", content="Final presentation cancelled by user", source=selected_agent_id)
+                    break
+
                 chunk_type = self._get_chunk_type_value(chunk)
                 # Start new iteration for this chunk
                 self.coordination_tracker.start_new_iteration()
@@ -4221,8 +4232,9 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             if presentation_content.strip():
                 # Store the synthesized final answer
                 self._final_presentation_content = presentation_content.strip()
-            else:
-                # If no content was generated, use the stored answer as fallback
+            elif not was_cancelled:
+                # Only yield fallback content if NOT cancelled - yielding after cancellation
+                # causes display issues since the UI has already raised CancellationRequested
                 stored_answer = self.agent_states[selected_agent_id].answer
                 if stored_answer:
                     fallback_content = f"\n📋 Using stored answer as final presentation:\n\n{stored_answer}"
@@ -4245,6 +4257,11 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         content="\n❌ No content generated for final presentation and no stored answer available.",
                         source=selected_agent_id,
                     )
+            else:
+                # Cancelled - use stored answer without yielding
+                stored_answer = self.agent_states[selected_agent_id].answer
+                if stored_answer:
+                    self._final_presentation_content = stored_answer
 
             # Mark final round as completed
             self.coordination_tracker.change_status(selected_agent_id, AgentStatus.COMPLETED)
@@ -4647,6 +4664,10 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         if not answers and not workspaces_with_content:
             return None
 
+        # Check if voting is complete (all non-killed agents have voted)
+        active_agents = [state for state in self.agent_states.values() if not state.is_killed]
+        voting_complete = all(state.has_voted for state in active_agents) if active_agents else False
+
         # Build partial result
         result = {
             "status": "incomplete",
@@ -4655,6 +4676,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             "answers": answers,
             "workspaces": workspaces_with_content,  # Only include workspaces with content
             "selected_agent": self._selected_agent,  # May be None if voting incomplete
+            "voting_complete": voting_complete,  # Whether all agents had voted before cancellation
         }
 
         # Include coordination tracker state if available
