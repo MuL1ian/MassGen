@@ -3930,16 +3930,18 @@ async def main(args):
 
             # Register new session immediately (before first turn runs)
             # Get log directory for session metadata
-            from massgen.logger_config import get_log_session_root
+            from massgen.logger_config import get_log_session_dir, get_log_session_root
             from massgen.session import SessionRegistry
 
             log_dir = get_log_session_root()
             log_dir_name = log_dir.name
 
             # Print LOG_DIR for automation mode (LLM agents need this to monitor progress)
+            # LOG_DIR is the main session directory, STATUS includes turn/attempt subdirectory
             if args.automation:
+                full_log_dir = get_log_session_dir()
                 print(f"LOG_DIR: {log_dir}")
-                print(f"STATUS: {log_dir / 'status.json'}")
+                print(f"STATUS: {full_log_dir / 'status.json'}")
 
             registry = SessionRegistry()
             registry.register_session(
@@ -4191,6 +4193,11 @@ Environment Variables:
         type=str,
         default="127.0.0.1",
         help="Host for web UI server (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Don't auto-open browser when using --web with a question",
     )
     parser.add_argument(
         "--automation",
@@ -4512,14 +4519,50 @@ Environment Variables:
             from .frontend.web import run_server
 
             config_path = args.config if hasattr(args, "config") and args.config else None
+            question = getattr(args, "question", None)
+            automation_mode = getattr(args, "automation", False)
+
             print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
             print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
             if config_path:
                 print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
             else:
                 print(f"{BRIGHT_YELLOW}   No config specified - use --config or select in UI{RESET}")
+
+            # Build auto-launch URL if question is provided
+            auto_url = None
+            if question:
+                import urllib.parse
+
+                prompt_encoded = urllib.parse.quote(question)
+                auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                if config_path:
+                    config_encoded = urllib.parse.quote(config_path)
+                    auto_url += f"&config={config_encoded}"
+                print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+            if automation_mode:
+                print(f"{BRIGHT_YELLOW}   Automation mode enabled - progress visible in web UI{RESET}")
+                print(f"{BRIGHT_CYAN}   Status files: .massgen/massgen_logs/log_<timestamp>/turn_N/attempt_N/status.json{RESET}")
+                if not question:
+                    print(f"{BRIGHT_YELLOW}   (no question provided - use web UI to start coordination){RESET}")
+
             print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
-            run_server(host=args.web_host, port=args.web_port, config_path=config_path)
+
+            # Auto-open browser if question+config provided (unless --no-browser or automation mode)
+            no_browser = getattr(args, "no_browser", False)
+            if auto_url and config_path and not no_browser and not automation_mode:
+                import threading
+                import webbrowser
+
+                def open_browser():
+                    import time
+
+                    time.sleep(0.5)  # Wait for server to start
+                    webbrowser.open(auto_url)
+
+                threading.Thread(target=open_browser, daemon=True).start()
+            run_server(host=args.web_host, port=args.web_port, config_path=config_path, automation_mode=automation_mode)
         except ImportError as e:
             print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
             print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")

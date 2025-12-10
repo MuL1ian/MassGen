@@ -43,6 +43,7 @@ export function HeaderControls({
   const [showSessionDropdown, setShowSessionDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [configSearch, setConfigSearch] = useState('');
+  const [sessionIdInput, setSessionIdInput] = useState('');
 
   // Theme state
   const themeMode = useThemeStore(selectThemeMode);
@@ -72,6 +73,10 @@ export function HeaderControls({
     // Only auto-open after initial loading is complete
     if (loading) return;
 
+    // Don't auto-open wizard if URL params provide a config
+    const urlConfigParam = new URLSearchParams(window.location.search).get('config');
+    if (urlConfigParam) return;
+
     // Open wizard if:
     // 1. First-time setup is needed (no user config exists), OR
     // 2. No config is currently selected AND no default exists
@@ -89,7 +94,9 @@ export function HeaderControls({
       const data = await res.json();
       setConfigs(data.configs || []);
       setDefaultConfig(data.default);
-      if (!selectedConfig && data.default) {
+      // Don't override if URL params specify a config (prevents race condition)
+      const urlConfigParam = new URLSearchParams(window.location.search).get('config');
+      if (!selectedConfig && !urlConfigParam && data.default) {
         onConfigChange(data.default);
       }
     } catch (err) {
@@ -140,10 +147,16 @@ export function HeaderControls({
   const categoryOrder = ['user', ...Object.keys(groupedConfigs).filter(c => c !== 'user').sort()];
   const orderedCategories = categoryOrder.filter(cat => groupedConfigs[cat]);
 
-  const selectedConfigName = configs.find(c => c.path === selectedConfig)?.name || 'Select Config';
+  // Find config name - check exact path match first, then try matching by filename (for URL params)
+  const selectedConfigName = selectedConfig
+    ? (configs.find(c => c.path === selectedConfig)?.name
+       || configs.find(c => c.path.endsWith('/' + selectedConfig))?.name
+       || selectedConfig.split('/').pop()?.replace('.yaml', '').replace('.json', '')
+       || 'Selected')
+    : 'Select Config';
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-2 flex-wrap">
       {/* Config Selector */}
       <div className="relative">
         <button
@@ -153,14 +166,14 @@ export function HeaderControls({
             setShowSessionDropdown(false);
             if (!newShowConfig) setConfigSearch(''); // Clear search when closing
           }}
-          className="flex items-center gap-2 px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
                    rounded-lg border border-gray-300 dark:border-gray-600 text-sm transition-colors"
         >
           <FolderOpen className="w-4 h-4 text-blue-400" />
-          <span className="max-w-[200px] truncate">
+          <span className="max-w-[140px] truncate">
             {loading ? 'Loading...' : selectedConfigName}
           </span>
-          <ChevronDown className={`w-4 h-4 transition-transform ${showConfigDropdown ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`w-3 h-3 transition-transform ${showConfigDropdown ? 'rotate-180' : ''}`} />
         </button>
 
         <AnimatePresence>
@@ -273,16 +286,18 @@ export function HeaderControls({
       <div className="relative">
         <button
           onClick={() => {
-            setShowSessionDropdown(!showSessionDropdown);
+            const willOpen = !showSessionDropdown;
+            setShowSessionDropdown(willOpen);
             setShowConfigDropdown(false);
             setConfigSearch(''); // Clear config search when opening sessions
+            if (willOpen) setSessionIdInput(''); // Clear session input when opening
           }}
-          className="flex items-center gap-2 px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
                    rounded-lg border border-gray-300 dark:border-gray-600 text-sm transition-colors"
         >
           <Users className="w-4 h-4 text-purple-400" />
           <span>Sessions ({sessions.length})</span>
-          <ChevronDown className={`w-4 h-4 transition-transform ${showSessionDropdown ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`w-3 h-3 transition-transform ${showSessionDropdown ? 'rotate-180' : ''}`} />
         </button>
 
         <AnimatePresence>
@@ -291,15 +306,75 @@ export function HeaderControls({
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="absolute right-0 mt-2 w-80 max-h-[300px] overflow-y-auto
+              className="absolute right-0 mt-2 w-80 max-h-[400px] overflow-y-auto
                        bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50"
             >
+              {/* Session ID Input */}
+              <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={sessionIdInput}
+                    onChange={(e) => setSessionIdInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && sessionIdInput.trim()) {
+                        onSessionChange(sessionIdInput.trim());
+                        setShowSessionDropdown(false);
+                        setSessionIdInput('');
+                      }
+                    }}
+                    placeholder="Enter session ID..."
+                    className="w-full pl-9 pr-8 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600
+                             rounded-lg text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500
+                             focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  {sessionIdInput && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSessionIdInput('');
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+                    >
+                      <X className="w-4 h-4 text-gray-400" />
+                    </button>
+                  )}
+                </div>
+                {/* Autocomplete suggestions */}
+                {sessionIdInput && (
+                  <div className="mt-1 max-h-24 overflow-y-auto">
+                    {sessions
+                      .filter(s => s.session_id.toLowerCase().includes(sessionIdInput.toLowerCase()))
+                      .slice(0, 3)
+                      .map(s => (
+                        <button
+                          key={s.session_id}
+                          onClick={() => {
+                            onSessionChange(s.session_id);
+                            setShowSessionDropdown(false);
+                            setSessionIdInput('');
+                          }}
+                          className="w-full text-left px-3 py-1 text-xs font-mono text-gray-600 dark:text-gray-400
+                                   hover:bg-gray-100 dark:hover:bg-gray-700 rounded truncate"
+                        >
+                          {s.session_id}
+                        </button>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+
               {/* New Session Button */}
               <div className="p-2 border-b border-gray-200 dark:border-gray-700">
                 <button
                   onClick={() => {
                     onNewSession();
                     setShowSessionDropdown(false);
+                    // Refresh sessions after a short delay to pick up the new session
+                    setTimeout(fetchSessions, 500);
                   }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm
                            bg-green-600 hover:bg-green-500 text-white transition-colors"
@@ -309,58 +384,101 @@ export function HeaderControls({
                 </button>
               </div>
 
-              {/* Session List */}
-              <div className="p-2">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-gray-500">Active Sessions</span>
-                  <button
-                    onClick={fetchSessions}
-                    className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-                    title="Refresh"
-                  >
-                    <RefreshCw className="w-3 h-3 text-gray-500" />
-                  </button>
-                </div>
-
-                {sessions.length === 0 ? (
-                  <div className="text-gray-500 text-sm text-center py-2">
-                    No active sessions
-                  </div>
-                ) : (
-                  sessions.map((session) => (
+              {/* Active Sessions */}
+              {sessions.filter(s => s.status === 'active' || s.is_running || s.connections > 0).length > 0 && (
+                <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-gray-500">Active Sessions</span>
                     <button
-                      key={session.session_id}
-                      onClick={() => {
-                        onSessionChange(session.session_id);
-                        setShowSessionDropdown(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 rounded text-sm mb-1
-                               ${currentSessionId === session.session_id
-                                 ? 'bg-purple-600 text-white'
-                                 : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                      onClick={fetchSessions}
+                      className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                      title="Refresh"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs truncate max-w-[180px]">
-                          {session.session_id.slice(0, 8)}...
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {session.is_running && (
-                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                          )}
+                      <RefreshCw className="w-3 h-3 text-gray-500" />
+                    </button>
+                  </div>
+
+                  {sessions
+                    .filter(s => s.status === 'active' || s.is_running || s.connections > 0)
+                    .map((session) => (
+                      <button
+                        key={session.session_id}
+                        onClick={() => {
+                          onSessionChange(session.session_id);
+                          setShowSessionDropdown(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded text-sm mb-1
+                                 ${currentSessionId === session.session_id
+                                   ? 'bg-purple-600 text-white'
+                                   : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs truncate max-w-[180px]">
+                            {session.session_id.slice(0, 8)}...
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {session.is_running && (
+                              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                            )}
+                            <span className="text-xs text-gray-400">
+                              {session.connections} conn
+                            </span>
+                          </div>
+                        </div>
+                        {session.question && (
+                          <div className="text-xs text-gray-400 truncate mt-1">
+                            {session.question}
+                          </div>
+                        )}
+                      </button>
+                    ))
+                  }
+                </div>
+              )}
+
+              {/* Completed Sessions */}
+              {sessions.filter(s => s.status === 'completed' && !s.is_running && s.connections === 0).length > 0 && (
+                <div className="p-2">
+                  <div className="text-xs text-gray-500 mb-2">Completed Sessions</div>
+                  {sessions
+                    .filter(s => s.status === 'completed' && !s.is_running && s.connections === 0)
+                    .map((session) => (
+                      <button
+                        key={session.session_id}
+                        onClick={() => {
+                          onSessionChange(session.session_id);
+                          setShowSessionDropdown(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded text-sm mb-1
+                                 ${currentSessionId === session.session_id
+                                   ? 'bg-purple-600 text-white'
+                                   : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs truncate max-w-[180px]">
+                            {session.session_id.slice(0, 8)}...
+                          </span>
                           <span className="text-xs text-gray-400">
-                            {session.connections} conn
+                            ✓ done
                           </span>
                         </div>
-                      </div>
-                      {session.question && (
-                        <div className="text-xs text-gray-400 truncate mt-1">
-                          {session.question}
-                        </div>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
+                        {session.question && (
+                          <div className="text-xs text-gray-400 truncate mt-1">
+                            {session.question}
+                          </div>
+                        )}
+                      </button>
+                    ))
+                  }
+                </div>
+              )}
+
+              {/* Empty state */}
+              {sessions.length === 0 && (
+                <div className="p-2 text-gray-500 text-sm text-center py-4">
+                  No sessions
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -369,7 +487,7 @@ export function HeaderControls({
       {/* Answers Browser */}
       <button
         onClick={onOpenAnswerBrowser}
-        className="flex items-center gap-2 px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
                  rounded-lg border border-gray-300 dark:border-gray-600 text-sm transition-colors"
         title="Browse Answers"
       >
@@ -385,7 +503,7 @@ export function HeaderControls({
       {/* Votes Browser */}
       <button
         onClick={onOpenVoteBrowser}
-        className="flex items-center gap-2 px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
                  rounded-lg border border-gray-300 dark:border-gray-600 text-sm transition-colors"
         title="Browse Votes"
       >
@@ -398,21 +516,20 @@ export function HeaderControls({
         )}
       </button>
 
-      {/* Theme Toggle */}
+      {/* Theme Toggle - icon only to save space */}
       <button
         onClick={cycleTheme}
-        className="flex items-center gap-2 px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
-                 rounded-lg border border-gray-300 dark:border-gray-600 text-sm transition-colors"
+        className="p-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+                 rounded-lg border border-gray-300 dark:border-gray-600 transition-colors"
         title={`Theme: ${themeMode} (click to cycle)`}
       >
         <ThemeIcon className="w-4 h-4 text-amber-500 dark:text-yellow-400" />
-        <span className="capitalize">{themeMode}</span>
       </button>
 
       {/* Quickstart Wizard */}
       <button
         onClick={openWizard}
-        className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-500 to-purple-500
+        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-blue-500 to-purple-500
                  hover:from-blue-600 hover:to-purple-600 rounded-lg text-sm text-white transition-all"
         title="Open Quickstart Wizard"
       >
@@ -422,10 +539,10 @@ export function HeaderControls({
 
       {/* Settings */}
       <button
-        className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+        className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
         title="Settings"
       >
-        <Settings className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+        <Settings className="w-4 h-4 text-gray-500 dark:text-gray-400" />
       </button>
     </div>
   );

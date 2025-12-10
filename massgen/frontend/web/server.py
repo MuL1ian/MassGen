@@ -41,6 +41,18 @@ class ConnectionManager:
         self.session_turns: Dict[str, int] = {}
         # session_id -> config path used
         self.session_configs: Dict[str, str] = {}
+        # Completed sessions: session_id -> metadata (persists after disconnect)
+        self.completed_sessions: Dict[str, Dict[str, Any]] = {}
+
+    def mark_session_completed(self, session_id: str, question: str = None, config: str = None) -> None:
+        """Mark a session as completed so it persists in the session list."""
+        import time
+
+        self.completed_sessions[session_id] = {
+            "question": question,
+            "config": config,
+            "completed_at": time.time(),
+        }
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
         """Accept and register a WebSocket connection."""
@@ -110,11 +122,12 @@ def get_default_config() -> Optional[str]:
     return _default_config_path
 
 
-def create_app(config_path: Optional[str] = None) -> "FastAPI":
+def create_app(config_path: Optional[str] = None, automation_mode: bool = False) -> "FastAPI":
     """Create and configure the FastAPI application.
 
     Args:
         config_path: Default config path for coordination sessions
+        automation_mode: If True, UI shows automation-friendly timeline view
     """
     if not FASTAPI_AVAILABLE:
         raise ImportError(
@@ -130,6 +143,9 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
         description="Real-time multi-agent coordination visualization",
         version="0.1.0",
     )
+
+    # Store automation_mode in app state for WebSocket access
+    app.state.automation_mode = automation_mode
 
     # CORS for development
     app.add_middleware(
@@ -469,8 +485,9 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
 
     @app.get("/api/sessions")
     async def list_sessions():
-        """List all active sessions."""
+        """List all active and completed sessions."""
         sessions = []
+        # Active sessions (with WebSocket connections)
         for session_id in manager.active_connections.keys():
             display = manager.get_display(session_id)
             task = manager.tasks.get(session_id)
@@ -482,6 +499,24 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
                     "has_display": display is not None,
                     "is_running": task is not None and not task.done() if task else False,
                     "question": display.question if display and hasattr(display, "question") else None,
+                    "status": "active",
+                },
+            )
+
+        # Completed sessions (no longer connected but preserved)
+        for session_id, metadata in manager.completed_sessions.items():
+            # Skip if already in active list
+            if session_id in manager.active_connections:
+                continue
+            sessions.append(
+                {
+                    "session_id": session_id,
+                    "connections": 0,
+                    "has_display": False,
+                    "is_running": False,
+                    "question": metadata.get("question"),
+                    "status": "completed",
+                    "completed_at": metadata.get("completed_at"),
                 },
             )
 
@@ -1092,7 +1127,17 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
                 await websocket.send_json(
                     {
                         "type": "state_snapshot",
+                        "automation_mode": app.state.automation_mode,
                         **display.get_state_snapshot(),
+                    },
+                )
+            else:
+                # Send init message with automation_mode even without display
+                await websocket.send_json(
+                    {
+                        "type": "init",
+                        "automation_mode": app.state.automation_mode,
+                        "session_id": session_id,
                     },
                 )
 
@@ -1585,6 +1630,13 @@ async def run_coordination_with_history(
             },
         )
 
+        # Mark session as completed so it persists in session list
+        manager.mark_session_completed(
+            session_id,
+            question=question,
+            config=str(resolved_path) if resolved_path else None,
+        )
+
     except Exception as e:
         # Log the full traceback for debugging
         error_msg = f"{type(e).__name__}: {str(e)}"
@@ -1725,6 +1777,11 @@ async def run_coordination(
         display.log_session_dir = get_log_session_dir()
         print(f"[DEBUG] run_coordination: Set display.log_session_dir = {display.log_session_dir}")
 
+        # Print status.json location for automation mode monitoring
+        if display.log_session_dir:
+            print(f"LOG_DIR: {display.log_session_dir}")
+            print(f"STATUS: {display.log_session_dir / 'status.json'}")
+
         # Create coordination UI with web display
         ui = CoordinationUI(
             display=display,
@@ -1752,6 +1809,13 @@ async def run_coordination(
             },
         )
 
+        # Mark session as completed so it persists in session list
+        manager.mark_session_completed(
+            session_id,
+            question=question,
+            config=str(resolved_path) if resolved_path else None,
+        )
+
     except Exception as e:
         # Log the full traceback for debugging
         error_msg = f"{type(e).__name__}: {str(e)}"
@@ -1774,6 +1838,7 @@ def run_server(
     port: int = 8000,
     reload: bool = False,
     config_path: Optional[str] = None,
+    automation_mode: bool = False,
 ) -> None:
     """Run the web server.
 
@@ -1782,6 +1847,7 @@ def run_server(
         port: Port to listen on
         reload: Enable auto-reload for development
         config_path: Default config path for coordination sessions
+        automation_mode: If True, UI shows automation-friendly timeline view
     """
     try:
         import uvicorn
@@ -1794,13 +1860,34 @@ def run_server(
     if config_path:
         set_default_config(config_path)
 
-    uvicorn.run(
-        "massgen.frontend.web.server:create_app",
-        host=host,
-        port=port,
-        reload=reload,
-        factory=True,
-    )
+    # Create app directly with automation_mode (can't pass args via factory string)
+    app = create_app(config_path=config_path, automation_mode=automation_mode)
+
+    # In automation mode, suppress verbose logging to keep stdout clean
+    if automation_mode:
+        import logging
+        import warnings
+
+        # Suppress uvicorn access logs and info messages
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+
+        # Suppress websockets deprecation warnings
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="uvicorn.protocols.websockets")
+
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="warning",
+        )
+    else:
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+        )
 
 
 # For running directly: python -m massgen.frontend.web.server

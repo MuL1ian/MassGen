@@ -94,11 +94,10 @@ def get_log_session_dir(turn: Optional[int] = None) -> Path:
         turn_num = _CURRENT_TURN if _CURRENT_TURN and _CURRENT_TURN > 0 else 1
         base_dir = _LOG_BASE_SESSION_DIR / f"turn_{turn_num}"
 
-        # Add attempt subdirectory if attempt is set
-        if _CURRENT_ATTEMPT and _CURRENT_ATTEMPT > 0:
-            _LOG_SESSION_DIR = base_dir / f"attempt_{_CURRENT_ATTEMPT}"
-        else:
-            _LOG_SESSION_DIR = base_dir
+        # ALWAYS use attempt subdirectories (minimum attempt_1) for consistency
+        # This ensures status.json path is predictable from the start
+        attempt_num = _CURRENT_ATTEMPT if _CURRENT_ATTEMPT and _CURRENT_ATTEMPT > 0 else 1
+        _LOG_SESSION_DIR = base_dir / f"attempt_{attempt_num}"
 
         _LOG_SESSION_DIR.mkdir(parents=True, exist_ok=True)
 

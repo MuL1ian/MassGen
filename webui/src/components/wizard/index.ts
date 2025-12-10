@@ -3,6 +3,7 @@
  */
 
 export { DockerStep } from './DockerStep';
+export { ApiKeyStep } from './ApiKeyStep';
 export { AgentCountStep } from './AgentCountStep';
 export { SetupModeStep } from './SetupModeStep';
 export { AgentConfigStep } from './AgentConfigStep';

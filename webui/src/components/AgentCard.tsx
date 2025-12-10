@@ -262,15 +262,13 @@ export function AgentCard({ agent, isWinner = false, isVisible = true, disableLa
                 </span>
               )}
             </>
-          ) : agent.status === 'waiting' ? (
+          ) : (
             <span className="text-gray-500 italic">
-              Waiting
+              {agent.status === 'working' ? 'Generating response' : 'Waiting'}
               <span className="typing-dot">.</span>
               <span className="typing-dot">.</span>
               <span className="typing-dot">.</span>
             </span>
-          ) : (
-            <span className="text-gray-500 italic">Enter a prompt below to start coordination...</span>
           )}
         </pre>
       </div>

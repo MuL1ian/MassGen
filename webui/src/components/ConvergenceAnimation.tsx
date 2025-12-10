@@ -8,16 +8,17 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trophy, Sparkles } from 'lucide-react';
-import { useAgentStore, selectSelectedAgent, selectAgents, selectViewMode } from '../stores/agentStore';
+import { useAgentStore, selectSelectedAgent, selectAgents, selectViewMode, selectRestoredFromSnapshot } from '../stores/agentStore';
 
 export function ConvergenceAnimation() {
   const selectedAgent = useAgentStore(selectSelectedAgent);
   const agents = useAgentStore(selectAgents);
   const viewMode = useAgentStore(selectViewMode);
+  const restoredFromSnapshot = useAgentStore(selectRestoredFromSnapshot);
   const [dismissed, setDismissed] = useState(false);
 
-  // Show celebration when entering finalComplete mode
-  const showAnimation = viewMode === 'finalComplete' && selectedAgent && !dismissed;
+  // Show celebration when entering finalComplete mode, but not when restored from snapshot
+  const showAnimation = viewMode === 'finalComplete' && selectedAgent && !dismissed && !restoredFromSnapshot;
 
   // Get winner's model name for display
   const winnerAgent = selectedAgent ? agents[selectedAgent] : null;

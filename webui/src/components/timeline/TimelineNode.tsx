@@ -5,7 +5,7 @@
  * Color-coded by type with hover effects and tooltips.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import type { TimelineNode as TimelineNodeType } from '../../types';
 
@@ -16,6 +16,9 @@ interface TimelineNodeProps {
   size: number;
   onClick?: () => void;
 }
+
+// Track which nodes have been animated to prevent re-animation
+const animatedNodes = new Set<string>();
 
 // Node colors by type
 const nodeColors = {
@@ -40,6 +43,12 @@ export function TimelineNode({ node, x, y, size, onClick }: TimelineNodeProps) {
   const [isHovered, setIsHovered] = useState(false);
   const colors = nodeColors[node.type];
   const radius = size / 2;
+
+  // Only animate nodes that haven't been seen before
+  const shouldAnimate = !animatedNodes.has(node.id);
+  useEffect(() => {
+    animatedNodes.add(node.id);
+  }, [node.id]);
 
   // Format timestamp for tooltip
   const formatTime = (timestamp: number) => {
@@ -97,7 +106,7 @@ export function TimelineNode({ node, x, y, size, onClick }: TimelineNodeProps) {
         fill={colors.fill}
         stroke={colors.stroke}
         strokeWidth={2}
-        initial={{ scale: 0 }}
+        initial={shouldAnimate ? { scale: 0 } : false}
         animate={{ scale: isHovered ? 1.15 : 1 }}
         transition={{ type: 'spring', stiffness: 300, damping: 20 }}
         filter={node.type === 'final' ? `url(#glow-${node.id})` : undefined}

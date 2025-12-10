@@ -7,8 +7,8 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Loader2, GitBranch } from 'lucide-react';
-import { useAgentStore } from '../../stores/agentStore';
+import { Loader2, GitBranch, CheckCircle2 } from 'lucide-react';
+import { useAgentStore, selectIsComplete } from '../../stores/agentStore';
 import type { TimelineNode as TimelineNodeType, TimelineData } from '../../types';
 import { TimelineNode } from './TimelineNode';
 import { TimelineArrow } from './TimelineArrow';
@@ -30,6 +30,12 @@ export function TimelineView({ onNodeClick }: TimelineViewProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const sessionId = useAgentStore((state) => state.sessionId);
+  const isComplete = useAgentStore(selectIsComplete);
+
+  // Check if timeline has a final node
+  const hasFinalNode = useMemo(() => {
+    return timelineData?.nodes.some(n => n.type === 'final') ?? false;
+  }, [timelineData]);
 
   // Fetch timeline data
   const fetchTimeline = useCallback(async () => {
@@ -38,7 +44,10 @@ export function TimelineView({ onNodeClick }: TimelineViewProps) {
       return;
     }
 
-    setIsLoading(true);
+    // Only show loading on first fetch
+    if (!timelineData) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -53,11 +62,14 @@ export function TimelineView({ onNodeClick }: TimelineViewProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId]);
+  }, [sessionId, timelineData]);
 
+  // Initial fetch and auto-refresh every 3 seconds
   useEffect(() => {
     fetchTimeline();
-  }, [fetchTimeline]);
+    const interval = setInterval(fetchTimeline, 3000);
+    return () => clearInterval(interval);
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Calculate node positions based on agent and timestamp
   const nodePositions = useMemo(() => {
@@ -124,19 +136,14 @@ export function TimelineView({ onNodeClick }: TimelineViewProps) {
     );
   }
 
-  // Render error state
+  // Render error state (will auto-retry)
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-red-400">
         <GitBranch className="w-12 h-12 mb-3 opacity-50" />
         <p className="font-medium">Failed to load timeline</p>
         <p className="text-sm text-gray-500 mt-1">{error}</p>
-        <button
-          onClick={fetchTimeline}
-          className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-200"
-        >
-          Retry
-        </button>
+        <p className="text-xs text-gray-600 mt-2">Retrying automatically...</p>
       </div>
     );
   }
@@ -162,12 +169,6 @@ export function TimelineView({ onNodeClick }: TimelineViewProps) {
         <p className="text-sm text-gray-600 mt-1">
           Timeline will populate as agents submit answers and votes
         </p>
-        <button
-          onClick={fetchTimeline}
-          className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-200"
-        >
-          Refresh
-        </button>
       </div>
     );
   }
@@ -176,6 +177,17 @@ export function TimelineView({ onNodeClick }: TimelineViewProps) {
     <div className="flex flex-col h-full">
       {/* Legend */}
       <TimelineLegend />
+
+      {/* Completion Banner */}
+      {(isComplete || hasFinalNode) && (
+        <div className="mx-4 mb-2 px-4 py-3 bg-gradient-to-r from-green-900/50 to-emerald-900/50 border border-green-600/50 rounded-lg flex items-center gap-3">
+          <CheckCircle2 className="w-5 h-5 text-green-400 shrink-0" />
+          <div>
+            <p className="text-green-300 font-medium text-sm">Coordination Complete</p>
+            <p className="text-green-400/70 text-xs">Final answer has been selected</p>
+          </div>
+        </div>
+      )}
 
       {/* Timeline Container */}
       <div className="flex-1 overflow-auto p-4">
@@ -303,13 +315,16 @@ export function TimelineView({ onNodeClick }: TimelineViewProps) {
             const pos = nodePositions.get(node.id);
             if (!pos) return null;
 
+            // Final nodes are larger for emphasis
+            const nodeSize = node.type === 'final' ? NODE_SIZE * 1.4 : NODE_SIZE;
+
             return (
               <TimelineNode
                 key={node.id}
                 node={node}
                 x={pos.x}
                 y={pos.y}
-                size={NODE_SIZE}
+                size={nodeSize}
                 onClick={() => onNodeClick?.(node)}
               />
             );

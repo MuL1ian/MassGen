@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Wifi, WifiOff, AlertCircle, XCircle, ArrowLeft, Loader2, Trophy, X, FileCode } from 'lucide-react';
 import { useWebSocket, ConnectionStatus } from './hooks/useWebSocket';
-import { useAgentStore, selectQuestion, selectIsComplete, selectAnswers, selectViewMode, selectSelectedAgent, selectAgents, selectFinalAnswer, selectSelectingWinner, selectVoteDistribution } from './stores/agentStore';
+import { useAgentStore, selectQuestion, selectIsComplete, selectAnswers, selectViewMode, selectSelectedAgent, selectAgents, selectFinalAnswer, selectSelectingWinner, selectVoteDistribution, selectAutomationMode } from './stores/agentStore';
 import { useThemeStore } from './stores/themeStore';
 import { AgentCarousel } from './components/AgentCarousel';
 import { AgentCard } from './components/AgentCard';
@@ -21,6 +21,7 @@ import { QuickstartWizard } from './components/QuickstartWizard';
 import { NotificationToast } from './components/NotificationToast';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { ConversationHistory } from './components/ConversationHistory';
+import { AutomationView } from './components/AutomationView';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { Notification } from './stores/notificationStore';
 
@@ -42,11 +43,18 @@ function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
   );
 }
 
+// Parse URL params once at module load (before any renders)
+const initialUrlParams = new URLSearchParams(window.location.search);
+const initialPrompt = initialUrlParams.get('prompt');
+const initialConfig = initialUrlParams.get('config');
+const initialSession = initialUrlParams.get('session');
+
 export function App() {
-  // Session management
-  const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
-  const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
-  const [inputQuestion, setInputQuestion] = useState('');
+  // Session management - use URL param if provided, otherwise generate random UUID
+  const [sessionId, setSessionId] = useState<string>(() => initialSession || crypto.randomUUID());
+  // Initialize from URL params synchronously to avoid race conditions
+  const [selectedConfig, setSelectedConfig] = useState<string | null>(initialConfig);
+  const [inputQuestion, setInputQuestion] = useState(initialPrompt || '');
   const [followUpQuestion, setFollowUpQuestion] = useState('');
 
   const question = useAgentStore(selectQuestion);
@@ -58,6 +66,7 @@ export function App() {
   const finalAnswer = useAgentStore(selectFinalAnswer);
   const selectingWinner = useAgentStore(selectSelectingWinner);
   const voteDistribution = useAgentStore(selectVoteDistribution);
+  const automationMode = useAgentStore(selectAutomationMode);
   const reset = useAgentStore((s) => s.reset);
   const backToCoordination = useAgentStore((s) => s.backToCoordination);
   const setViewMode = useAgentStore((s) => s.setViewMode);
@@ -83,6 +92,19 @@ export function App() {
       root.classList.remove('dark');
     }
   }, [getEffectiveTheme, themeMode]);
+
+  // Track URL params from initial load (using module-level constants)
+  const urlParamsRef = useRef<{ prompt: string | null; config: string | null; session: string | null } | null>(
+    (initialPrompt || initialConfig || initialSession) ? { prompt: initialPrompt, config: initialConfig, session: initialSession } : null
+  );
+  const urlParamsProcessed = useRef(false);
+
+  // Log URL params if present (for debugging)
+  useEffect(() => {
+    if (initialPrompt || initialConfig || initialSession) {
+      console.log('[WebUI] URL params detected:', { prompt: initialPrompt, config: initialConfig, session: initialSession });
+    }
+  }, []); // Only run once on mount
 
   // Answer/Vote browser modal state
   const [isAnswerBrowserOpen, setIsAnswerBrowserOpen] = useState(false);
@@ -124,6 +146,54 @@ export function App() {
     sessionId,
     autoConnect: true,
   });
+
+  // Auto-connect to active running session (for automation mode)
+  // This runs once on mount to find an existing coordination session
+  // Skip if a session was explicitly specified via URL param
+  const autoConnectAttempted = useRef(false);
+  useEffect(() => {
+    if (autoConnectAttempted.current) return;
+    if (initialSession) {
+      // User explicitly requested a specific session via URL
+      console.log('[WebUI] Using session from URL param:', initialSession);
+      autoConnectAttempted.current = true;
+      return;
+    }
+    autoConnectAttempted.current = true;
+
+    // Fetch sessions to see if there's an active one to connect to
+    fetch('/api/sessions')
+      .then(res => res.json())
+      .then((data: { sessions: Array<{ session_id: string; is_running: boolean; has_display: boolean }> }) => {
+        // Find an active running session with a display (the CLI coordination)
+        const activeSession = data.sessions?.find(s => s.is_running && s.has_display);
+        if (activeSession && activeSession.session_id !== sessionId) {
+          console.log('[WebUI] Auto-connecting to active session:', activeSession.session_id);
+          setSessionId(activeSession.session_id);
+        }
+      })
+      .catch(err => {
+        console.warn('[WebUI] Failed to fetch sessions for auto-connect:', err);
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-start coordination when connected and URL params are present
+  useEffect(() => {
+    if (urlParamsProcessed.current) return;
+    if (!urlParamsRef.current) return;
+    if (status !== 'connected') return;
+
+    const { prompt, config } = urlParamsRef.current;
+
+    // Auto-start if both prompt and config are provided
+    if (prompt && config) {
+      console.log('[WebUI] Auto-starting coordination with URL params');
+      urlParamsProcessed.current = true;
+      startCoordination(prompt, config);
+      // Clear URL params to prevent re-trigger on refresh
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [status, startCoordination]);
 
   // Handle going back to coordination view with scroll position restoration
   const handleBackToCoordination = useCallback(() => {
@@ -238,15 +308,20 @@ export function App() {
 
   const handleSessionChange = useCallback((newSessionId: string) => {
     if (newSessionId !== sessionId) {
-      reset();
+      // Don't reset - state_snapshot from server will restore the session state
       setSessionId(newSessionId);
     }
-  }, [sessionId, reset]);
+  }, [sessionId]);
 
   // Get config name for display
   const configName = selectedConfig
     ? selectedConfig.split('/').pop()?.replace('.yaml', '') || 'Selected'
     : 'No config';
+
+  // Automation mode: show simplified timeline view
+  if (automationMode) {
+    return <AutomationView onSessionChange={handleSessionChange} sessionFromUrl={!!initialSession} />;
+  }
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col">
@@ -332,7 +407,7 @@ export function App() {
 
           {/* View Mode Routing - flex-1 for full height in finalStreaming */}
           <div className="flex-1 min-h-0">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="sync">
             {/* Coordination View - All Agents */}
             {viewMode === 'coordination' && (
               <motion.section
@@ -546,6 +621,7 @@ export function App() {
           <FinalAnswerView
             onBackToAgents={handleBackToCoordination}
             onFollowUp={handleFollowUpFromFinalAnswer}
+            onNewSession={handleNewSession}
             isConnected={status === 'connected'}
           />
         )}

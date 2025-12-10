@@ -175,6 +175,20 @@ class WebDisplay(BaseDisplay):
             question: The coordination question
             log_filename: Optional log file path
         """
+        self.question = question  # Store for snapshot restoration
+
+        # Print status.json location to terminal for automation monitoring
+        # Use get_log_session_dir() to get the actual path with turn/attempt subdirectories
+        try:
+            from massgen.logger_config import get_log_session_dir
+
+            log_session_dir = get_log_session_dir()
+            if log_session_dir:
+                print(f"[WebUI] LOG_DIR: {log_session_dir}")
+                print(f"[WebUI] STATUS: {log_session_dir / 'status.json'}")
+        except Exception:
+            pass  # Silently ignore if logger not configured
+
         self._emit(
             "init",
             {
@@ -703,7 +717,9 @@ class WebDisplay(BaseDisplay):
         """
         return {
             "session_id": self.session_id,
+            "question": getattr(self, "question", ""),
             "agents": self.agent_ids,
+            "agent_models": self.agent_models,
             "agent_status": dict(self.agent_status),
             "agent_outputs": {agent_id: list(outputs) for agent_id, outputs in self.agent_outputs.items()},
             "vote_distribution": dict(self._vote_distribution),
