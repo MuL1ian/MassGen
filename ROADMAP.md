@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.22
+**Current Version:** v0.1.23
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** December 8, 2025
+**Last Updated:** December 10, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,42 +42,14 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.23** | 12/10/25 | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
-| | | Clarify Code Execution in Docs | @ncrispino | Improve documentation clarity for code execution features |
 | **v0.1.24** | 12/12/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
 | | | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
 | **v0.1.25** | 12/15/25 | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
-| | | Improve Session Cancellation | @ncrispino | Enhanced session cancellation handling and user experience |
+| | | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
+| **v0.1.26** | 12/17/25 | Clarify Code Execution in Docs | @ncrispino | Improve documentation clarity for code execution features |
+| | | Local Computer Use Models | @franklinnwren | Add support for local vision models in computer use workflows |
 
 *All releases ship on MWF @ 9am PT when ready*
-
----
-
-## 📋 v0.1.23 - Grok 4.1 Fast & Code Execution Docs
-
-### Features
-
-**1. Grok 4.1 Fast Model Support** (@praneeth999)
-- Issue: [#540](https://github.com/massgen/MassGen/issues/540)
-- Add support for xAI's Grok 4.1 Fast model
-- Integration with existing Grok backend infrastructure
-- Pricing and token counting configuration
-- Model capability registration in backend capabilities
-- **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses and cost-effective multi-agent workflows
-
-**2. Clarify Code Execution in Docs** (@ncrispino)
-- Issue: [#573](https://github.com/massgen/MassGen/issues/573)
-- Improve documentation clarity for code execution features
-- Clear examples and usage patterns for code execution sandbox
-- Best practices and security considerations
-- **Use Case**: Help users understand and effectively use code execution capabilities
-
-### Success Criteria
-- ✅ Grok 4.1 Fast model is accessible via configuration
-- ✅ Token counting and pricing are accurate for Grok 4.1 Fast
-- ✅ Model performs with expected latency and cost characteristics
-- ✅ Code execution documentation is clear and comprehensive
-- ✅ Users can follow guides to enable and use code execution
 
 ---
 
@@ -104,7 +76,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.25 - Memory as Tools & Session Cancellation
+## 📋 v0.1.25 - Memory as Tools & Grok 4.1 Fast
 
 ### Features
 
@@ -115,17 +87,44 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Unified interface for different memory backends
 - **Use Case**: Enable agents to have explicit control over memory operations, allowing them to store, retrieve, and manage persistent information as tool calls
 
-**2. Improve Session Cancellation** (@ncrispino)
-- Issue: [#598](https://github.com/massgen/MassGen/issues/598)
-- Enhanced session cancellation handling and user experience
-- Improved state management during cancellation
-- **Use Case**: Provide better control and feedback when users cancel ongoing sessions
+**2. Grok 4.1 Fast Model Support** (@praneeth999)
+- Issue: [#540](https://github.com/massgen/MassGen/issues/540)
+- Add support for xAI's Grok 4.1 Fast model
+- Integration with existing Grok backend infrastructure
+- Pricing and token counting configuration
+- **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses
 
 ### Success Criteria
 - ✅ Memory operations are available as callable tools
 - ✅ Agents can explicitly store and retrieve information
-- ✅ Works with filesystem and other memory backends
-- ✅ Session cancellation provides clear feedback and proper cleanup
+- ✅ Grok 4.1 Fast model is accessible via configuration
+- ✅ Token counting and pricing are accurate for Grok 4.1 Fast
+
+---
+
+## 📋 v0.1.26 - Code Execution Documentation & Local Computer Use
+
+### Features
+
+**1. Clarify Code Execution in Docs** (@ncrispino)
+- Issue: [#573](https://github.com/massgen/MassGen/issues/573)
+- Improve documentation clarity for code execution features
+- Clear examples and usage patterns for code execution sandbox
+- Best practices and security considerations
+- **Use Case**: Help users understand and effectively use code execution capabilities
+
+**2. Local Computer Use Models** (@franklinnwren)
+- Issue: [#559](https://github.com/massgen/MassGen/issues/559)
+- Add support for local vision models in computer use workflows
+- Enable computer use without relying on cloud-based vision APIs
+- Integration with local model serving infrastructure
+- **Use Case**: Run computer use agents with local models for privacy, cost savings, and offline operation
+
+### Success Criteria
+- ✅ Code execution documentation is clear and comprehensive
+- ✅ Users can follow guides to enable and use code execution
+- ✅ Local vision models can be used for computer use tasks
+- ✅ Documentation covers local model setup and configuration
 
 ---
 
@@ -379,17 +378,50 @@ These features are being actively developed on **separate parallel tracks** and 
 - Parallel spawning with asyncio.gather()
 - **Status:** ✅ Completed in v0.1.22
 
+### Track: Web UI Automation Mode (@voidcenter, @ncrispino, justin_zhang, nickcrispino)
+- PR: [#607](https://github.com/massgen/MassGen/pull/607)
+- Automation-friendly Web UI view with status header and session polling
+- LOG_DIR and STATUS path output for programmatic monitoring
+- Session persistence API for completed sessions
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Multi-Turn Cancellation Improvements (@ncrispino, nickcrispino)
+- PR: [#608](https://github.com/massgen/MassGen/pull/608)
+- Flag-based cancellation handling in multi-turn mode
+- Terminal state restoration after Rich display cancellation
+- Cancelled turns build proper history entries with partial results
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Docker Container Persistence (@ncrispino, nickcrispino)
+- Commit: 34279c88
+- SessionMountManager for pre-mounting session directories to Docker containers
+- Eliminates container recreation between turns (sub-second vs 2-5 second transitions)
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Turn History Inspection (@ncrispino, nickcrispino)
+- Commits: 028f591d, 477423a6
+- New `/inspect` command for reviewing agent outputs from any turn
+- `/inspect all` to list all turns with summaries
+- Interactive menu for viewing agent outputs, final answers, and coordination logs
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Async Execution Consistency (@ncrispino, nickcrispino)
+- PR: [#608](https://github.com/massgen/MassGen/pull/608)
+- New `run_async_safely()` helper for nested event loop handling
+- Fixed mem0 adapter async lifecycle issues
+- **Status:** ✅ Completed in v0.1.23
+
 ### Track: Grok 4.1 Fast Model Support (@praneeth999, ram2561)
 - Issue: [#540](https://github.com/massgen/MassGen/issues/540)
 - Add support for xAI's Grok 4.1 Fast model
 - Integration with existing Grok backend infrastructure
-- **Target:** v0.1.23
+- **Target:** v0.1.25
 
 ### Track: Clarify Code Execution in Docs (@ncrispino, nickcrispino)
 - Issue: [#573](https://github.com/massgen/MassGen/issues/573)
 - Improve documentation clarity for code execution features
 - Clear examples and usage patterns
-- **Target:** v0.1.23
+- **Target:** v0.1.26
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
@@ -485,5 +517,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** December 8, 2025
+**Last Updated:** December 10, 2025
 **Maintained By:** MassGen Team

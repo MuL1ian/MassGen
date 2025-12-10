@@ -227,7 +227,37 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.22 - Latest
+### v0.1.23 - Latest
+**New Features:** Turn History Inspection, Web UI Automation Mode, Docker Container Persistence, Async Execution Consistency
+
+**Key Features:**
+- **Turn History Inspection**: Review any turn's agent outputs and coordination data with `/inspect` commands
+- **Web UI Automation Mode**: Streamlined interface with `AutomationView` component for programmatic monitoring workflows
+- **Docker Container Persistence**: `SessionMountManager` pre-mounts session directories, eliminating container recreation between turns
+- **Improved Cancellation Handling**: Flag-based cancellation with terminal state restoration via `_restore_terminal_for_input()`
+- **Async Safety Utilities**: `run_async_safely()` handles nested event loops with ThreadPoolExecutor pattern
+
+**Documentation:**
+- `docs/source/user_guide/sessions/multi_turn_mode.rst` - Turn history inspection documentation
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Multi-turn session with turn inspection
+massgen --config @examples/basic/multi/three_agents_default
+# After completing turns, use /inspect to review history:
+#   /inspect all  - List all turns with summaries
+#   /inspect 1    - View Turn 1 details with interactive menu
+
+# Web UI automation mode for programmatic monitoring
+massgen --automation --web --config @examples/basic/multi/three_agents_default \
+  "Analyze multi-agent AI coordination patterns"
+# Outputs LOG_DIR and STATUS path for external monitoring
+```
+
+### v0.1.22
 **New Features:** Shadow Agent Architecture, Full Context Broadcast Responses
 
 **Key Features:**

@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
+
+Turn history inspection with ``/inspect`` commands, Web UI automation mode for programmatic workflows, Docker container persistence across turns, and improved Ctrl+C handling with terminal state restoration. New ``run_async_safely()`` utility prevents async event loop conflicts.
+
 **v0.1.22 (December 8, 2025)** - Shadow Agent Architecture
 
 Lightweight shadow agents spawned in parallel respond to broadcasts without interrupting parent agents. Full context inheritance with parent's conversation history and current work-in-progress. Automatic response collection via ``asyncio.gather()`` with informational messages to parent agents.
@@ -164,10 +168,6 @@ Lightweight shadow agents spawned in parallel respond to broadcasts without inte
 **v0.1.21 (December 5, 2025)** - Graceful Cancellation for Multi-Turn Sessions
 
 Ctrl+C now saves partial progress mid-coordination, preserving agent answers and workspaces. Sessions can resume with ``--continue`` without losing any work. First Ctrl+C saves gracefully; second forces immediate exit.
-
-**v0.1.20 (December 3, 2025)** - Web UI & Auto Docker Setup
-
-Browser-based real-time visualization with React frontend, WebSocket streaming, timeline views, and workspace browsing. Automatic Docker container setup for computer use agents with Ubuntu 22.04, Xfce desktop, and pre-configured tools.
 
 :doc:`Full changelog → <changelog>`
 

@@ -9,16 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
+Enhanced multi-turn experience with persistent Docker containers, improved cancellation handling, turn history inspection commands, and Web UI automation mode for programmatic workflows.
+
 **v0.1.22 (December 8, 2025)** - Shadow Agent Architecture for Broadcast Responses
 Shadow agents now handle broadcast responses in parallel without interrupting parent agents. Each shadow inherits full conversation history and current turn context for context-aware responses.
 
 **v0.1.21 (December 5, 2025)** - Graceful Cancellation for Multi-Turn Sessions
 Ctrl+C now saves partial progress mid-coordination, preserving agent answers and workspaces. Sessions can resume with `--continue` without losing any work.
 
-**v0.1.20 (December 3, 2025)** - Web UI & Auto Docker Setup
-Browser-based real-time visualization with React frontend, WebSocket streaming, timeline views, and workspace browsing. Automatic Docker container setup for computer use agents.
-
 ---
+
+## [0.1.23] - 2025-12-10
+
+### Added
+- **Turn History Inspection System**: New `/inspect` command for reviewing agent outputs and coordination data from any turn
+  - `/inspect` or `/inspect <N>` to view specific turn details with interactive menu
+  - `/inspect all` to list all turns in the session with task summaries and winning agents
+  - Menu options for viewing individual agent outputs, final answers, system logs, and coordination tables
+
+- **Web UI Automation Mode**: Streamlined interface for programmatic and monitoring workflows
+  - New `AutomationView` component with phase/elapsed time status header and session polling
+  - `--automation` flag enables timeline-focused view with `LOG_DIR` and `STATUS` path output
+  - Session persistence API (`mark_session_completed`) preserves completed sessions in session list
+
+### Changed
+- **Docker Container Persistence for Multi-Turn**: Containers now persist across turns for faster transitions
+  - New `SessionMountManager` class pre-mounts session directory to Docker containers
+  - Eliminates container recreation between turns (sub-second vs 2-5 second transitions)
+  - Automatic visibility of new turn workspace directories without remounting
+
+- **Multi-Turn Cancellation Handling**: Improved Ctrl+C behavior in multi-turn mode
+  - Flag-based cancellation instead of raising exceptions from signal handlers
+  - Coordination loop detects cancellation flag and stops Rich display before printing messages
+  - Terminal state restoration via `_restore_terminal_for_input()` after display cancellation
+  - Cancelled turns now build proper history entries with partial results
+
+- **Async Execution Consistency**: New utilities for safe async-from-sync execution
+  - New `run_async_safely()` helper for nested event loop handling
+  - ThreadPoolExecutor pattern prevents `async generator ignored GeneratorExit` errors
+  - Fixed mem0 adapter async lifecycle issues
+
+### Documentations, Configurations and Resources
+
+- **Multi-Turn Mode Documentation**: Updated `docs/source/user_guide/sessions/multi_turn_mode.rst` with `/inspect` command documentation, turn history inspection examples, and updated slash command reference
+
+### Technical Details
+- **Major Focus**: Async consistency, Web UI automation mode, Docker persistence for multi-turn, turn history inspection
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.22] - 2025-12-08
 
