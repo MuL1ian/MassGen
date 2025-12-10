@@ -73,6 +73,8 @@ const initialState: SessionState = {
   conversationHistory: [],
   // Per-agent UI state
   agentUIState: {},
+  // Skip animation when restoring from snapshot
+  restoredFromSnapshot: false,
 };
 
 const createAgentUIState = (): AgentUIState => ({
@@ -136,6 +138,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       orchestratorEvents: [],
       viewMode: 'coordination',
       agentUIState: agentUIStates,
+      restoredFromSnapshot: false,  // Reset for new sessions
       // Preserve conversation history if this is a continuation, otherwise start fresh
       ...(isContinuation
         ? {
@@ -289,9 +292,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     // Clear the selectingWinner flag now that consensus is reached
     set({ selectingWinner: false });
 
-    // Always create the "final" round for the winner
-    // This renames the previous "current" round to the proper answer label
-    store.startNewRound(winnerId, 'final', 'final');
+    // Instead of creating a new empty round (which loses already-streaming content),
+    // just rename the winner's current round to 'final'. The content is already there.
+    set((state) => {
+      const agent = state.agents[winnerId];
+      if (!agent) return state;
+
+      const updatedRounds = agent.rounds.map((round) =>
+        round.id === agent.currentRoundId
+          ? { ...round, label: 'final' }  // Just rename, don't create new empty round
+          : round
+      );
+
+      return {
+        agents: {
+          ...state.agents,
+          [winnerId]: { ...agent, rounds: updatedRounds },
+        },
+      };
+    });
 
     // Set selected agent
     set({ selectedAgent: winnerId });
@@ -807,6 +826,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             event.content,
             'content_type' in event ? event.content_type : 'thinking'
           );
+          // Note: We intentionally don't do early transition here.
+          // Let the "Selecting Winner" overlay show until consensus_reached arrives.
+          // The content is accumulating in the current round and will be preserved
+          // when setConsensus renames it to 'final'.
         }
         break;
 
@@ -920,7 +943,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             agentId: newAnswerEvent.agent_id,
             answerNumber: answerNumber,
             content: newAnswerEvent.content,
-            timestamp: newAnswerEvent.timestamp,
+            // Server sends timestamp in seconds, JavaScript Date expects milliseconds
+            timestamp: newAnswerEvent.timestamp < 1e12 ? newAnswerEvent.timestamp * 1000 : newAnswerEvent.timestamp,
             votes: 0,
           });
 
@@ -955,7 +979,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           store.addFileChange(event.agent_id, {
             path: event.path,
             operation: 'operation' in event ? event.operation : 'create',
-            timestamp: event.timestamp,
+            // Server sends timestamp in seconds, JavaScript Date expects milliseconds
+            timestamp: event.timestamp < 1e12 ? event.timestamp * 1000 : event.timestamp,
             contentPreview: 'content_preview' in event ? event.content_preview : undefined,
           });
         }
@@ -967,7 +992,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             id: 'tool_id' in event ? event.tool_id : undefined,
             name: event.tool_name,
             args: 'tool_args' in event ? event.tool_args : {},
-            timestamp: event.timestamp,
+            // Server sends timestamp in seconds, JavaScript Date expects milliseconds
+            timestamp: event.timestamp < 1e12 ? event.timestamp * 1000 : event.timestamp,
           });
         }
         break;
@@ -995,14 +1021,94 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         break;
 
       case 'state_snapshot':
-        // Handle full state snapshot for late-joining clients
+        // Handle full state snapshot for late-joining clients or session switching
         if ('agents' in event && Array.isArray(event.agents)) {
+          // Type the snapshot with all fields
+          const snapshot = event as {
+            session_id: string;
+            question?: string;
+            agents: string[];
+            agent_models?: Record<string, string>;
+            theme?: string;
+            final_answer?: string;
+            selected_agent?: string;
+            vote_distribution?: Record<string, number>;
+            vote_targets?: Record<string, string>;
+            agent_status?: Record<string, string>;
+            agent_outputs?: Record<string, string[]>;
+          };
+
+          // Initialize session with agent_models
           store.initSession(
-            event.session_id,
-            'question' in event ? (event as { question: string }).question : '',
-            event.agents,
-            'theme' in event ? (event as { theme: string }).theme : 'dark'
+            snapshot.session_id,
+            snapshot.question || '',
+            snapshot.agents,
+            snapshot.theme || 'dark',
+            snapshot.agent_models
           );
+
+          // Restore agent statuses
+          if (snapshot.agent_status) {
+            Object.entries(snapshot.agent_status).forEach(([agentId, status]) => {
+              store.updateAgentStatus(agentId, status as AgentStatus);
+            });
+          }
+
+          // Restore agent content from agent_outputs
+          if (snapshot.agent_outputs) {
+            set((state) => {
+              const updatedAgents = { ...state.agents };
+              Object.entries(snapshot.agent_outputs!).forEach(([agentId, outputs]) => {
+                if (updatedAgents[agentId]) {
+                  const content = outputs.join('');
+                  // Update the current round with restored content
+                  const updatedRounds = updatedAgents[agentId].rounds.map((round, idx) =>
+                    idx === 0 ? { ...round, content } : round
+                  );
+                  updatedAgents[agentId] = {
+                    ...updatedAgents[agentId],
+                    rounds: updatedRounds,
+                  };
+                }
+              });
+              return { agents: updatedAgents };
+            });
+          }
+
+          // Restore vote distribution
+          if (snapshot.vote_distribution) {
+            store.updateVoteDistribution(snapshot.vote_distribution);
+          }
+
+          // Restore vote targets
+          if (snapshot.vote_targets) {
+            Object.entries(snapshot.vote_targets).forEach(([voterId, targetId]) => {
+              store.recordVote(voterId, targetId, '');
+            });
+          }
+
+          // Restore final answer and mark as complete
+          if (snapshot.final_answer && snapshot.selected_agent) {
+            // Set flag to skip animation when restoring
+            set({ restoredFromSnapshot: true });
+            store.setFinalAnswer(snapshot.final_answer, {}, snapshot.selected_agent);
+            store.setComplete(true);
+          } else if (snapshot.selected_agent) {
+            // If we have a selected agent but no final answer yet,
+            // fetch the final answer from the API (it may have been saved to disk)
+            set({ restoredFromSnapshot: true });
+            fetch(`/api/sessions/${snapshot.session_id}/final-answer`)
+              .then(res => res.json())
+              .then(data => {
+                if (data.answer) {
+                  store.setFinalAnswer(data.answer, {}, snapshot.selected_agent!);
+                  store.setComplete(true);
+                }
+              })
+              .catch(() => {
+                // Final answer not available yet, that's okay
+              });
+          }
         }
         break;
 
@@ -1025,6 +1131,7 @@ export const selectQuestion = (state: AgentStore) => state.question;
 export const selectOrchestratorEvents = (state: AgentStore) => state.orchestratorEvents;
 export const selectViewMode = (state: AgentStore) => state.viewMode;
 export const selectSelectingWinner = (state: AgentStore) => state.selectingWinner;
+export const selectRestoredFromSnapshot = (state: AgentStore) => state.restoredFromSnapshot;
 
 /**
  * Clean streaming content by removing tool/MCP noise that shouldn't appear in final answers.

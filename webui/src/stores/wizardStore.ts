@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 
 // Types for wizard state
-export type WizardStep = 'docker' | 'agentCount' | 'setupMode' | 'agentConfig' | 'preview';
+export type WizardStep = 'docker' | 'apiKeys' | 'agentCount' | 'setupMode' | 'agentConfig' | 'preview';
 
 export interface ProviderInfo {
   id: string;
@@ -84,7 +84,7 @@ interface WizardState {
   reset: () => void;
 }
 
-const stepOrder: WizardStep[] = ['docker', 'agentCount', 'setupMode', 'agentConfig', 'preview'];
+const stepOrder: WizardStep[] = ['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'preview'];
 
 const initialState = {
   isOpen: false,
@@ -123,8 +123,17 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
   },
 
   nextStep: () => {
-    const { currentStep, agentCount } = get();
+    const { currentStep, agentCount, providers } = get();
     const currentIndex = stepOrder.indexOf(currentStep);
+
+    // Skip apiKeys step if at least one provider has an API key configured
+    if (currentStep === 'docker') {
+      const hasAnyKey = providers.some((p) => p.has_api_key);
+      if (hasAnyKey) {
+        set({ currentStep: 'agentCount' });
+        return;
+      }
+    }
 
     // Skip setupMode step if only 1 agent
     if (currentStep === 'agentCount' && agentCount === 1) {
@@ -161,8 +170,17 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
   },
 
   prevStep: () => {
-    const { currentStep, agentCount } = get();
+    const { currentStep, agentCount, providers } = get();
     const currentIndex = stepOrder.indexOf(currentStep);
+
+    // Skip apiKeys step when going back if providers have keys
+    if (currentStep === 'agentCount') {
+      const hasAnyKey = providers.some((p) => p.has_api_key);
+      if (hasAnyKey) {
+        set({ currentStep: 'docker' });
+        return;
+      }
+    }
 
     // Skip setupMode step when going back if only 1 agent
     if (currentStep === 'agentConfig' && agentCount === 1) {

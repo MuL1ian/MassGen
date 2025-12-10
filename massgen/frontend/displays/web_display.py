@@ -175,6 +175,7 @@ class WebDisplay(BaseDisplay):
             question: The coordination question
             log_filename: Optional log file path
         """
+        self.question = question  # Store for snapshot restoration
         self._emit(
             "init",
             {
@@ -703,7 +704,9 @@ class WebDisplay(BaseDisplay):
         """
         return {
             "session_id": self.session_id,
+            "question": getattr(self, "question", ""),
             "agents": self.agent_ids,
+            "agent_models": self.agent_models,
             "agent_status": dict(self.agent_status),
             "agent_outputs": {agent_id: list(outputs) for agent_id, outputs in self.agent_outputs.items()},
             "vote_distribution": dict(self._vote_distribution),

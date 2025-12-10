@@ -41,6 +41,18 @@ class ConnectionManager:
         self.session_turns: Dict[str, int] = {}
         # session_id -> config path used
         self.session_configs: Dict[str, str] = {}
+        # Completed sessions: session_id -> metadata (persists after disconnect)
+        self.completed_sessions: Dict[str, Dict[str, Any]] = {}
+
+    def mark_session_completed(self, session_id: str, question: str = None, config: str = None) -> None:
+        """Mark a session as completed so it persists in the session list."""
+        import time
+
+        self.completed_sessions[session_id] = {
+            "question": question,
+            "config": config,
+            "completed_at": time.time(),
+        }
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
         """Accept and register a WebSocket connection."""
@@ -469,8 +481,9 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
 
     @app.get("/api/sessions")
     async def list_sessions():
-        """List all active sessions."""
+        """List all active and completed sessions."""
         sessions = []
+        # Active sessions (with WebSocket connections)
         for session_id in manager.active_connections.keys():
             display = manager.get_display(session_id)
             task = manager.tasks.get(session_id)
@@ -482,6 +495,24 @@ def create_app(config_path: Optional[str] = None) -> "FastAPI":
                     "has_display": display is not None,
                     "is_running": task is not None and not task.done() if task else False,
                     "question": display.question if display and hasattr(display, "question") else None,
+                    "status": "active",
+                },
+            )
+
+        # Completed sessions (no longer connected but preserved)
+        for session_id, metadata in manager.completed_sessions.items():
+            # Skip if already in active list
+            if session_id in manager.active_connections:
+                continue
+            sessions.append(
+                {
+                    "session_id": session_id,
+                    "connections": 0,
+                    "has_display": False,
+                    "is_running": False,
+                    "question": metadata.get("question"),
+                    "status": "completed",
+                    "completed_at": metadata.get("completed_at"),
                 },
             )
 
@@ -1585,6 +1616,13 @@ async def run_coordination_with_history(
             },
         )
 
+        # Mark session as completed so it persists in session list
+        manager.mark_session_completed(
+            session_id,
+            question=question,
+            config=str(resolved_path) if resolved_path else None,
+        )
+
     except Exception as e:
         # Log the full traceback for debugging
         error_msg = f"{type(e).__name__}: {str(e)}"
@@ -1725,6 +1763,11 @@ async def run_coordination(
         display.log_session_dir = get_log_session_dir()
         print(f"[DEBUG] run_coordination: Set display.log_session_dir = {display.log_session_dir}")
 
+        # Print status.json location for automation mode monitoring
+        if display.log_session_dir:
+            print(f"LOG_DIR: {display.log_session_dir}")
+            print(f"STATUS: {display.log_session_dir / 'status.json'}")
+
         # Create coordination UI with web display
         ui = CoordinationUI(
             display=display,
@@ -1750,6 +1793,13 @@ async def run_coordination(
                 "type": "coordination_complete",
                 "session_id": session_id,
             },
+        )
+
+        # Mark session as completed so it persists in session list
+        manager.mark_session_completed(
+            session_id,
+            question=question,
+            config=str(resolved_path) if resolved_path else None,
         )
 
     except Exception as e:

@@ -106,6 +106,44 @@ class SilentDisplay(BaseDisplay):
         self.orchestrator_events.append(event)
         # Silent - no output to stdout
 
+    def _print_timeline(self, vote_results):
+        """Print full timeline with answers, votes, and results.
+
+        Args:
+            vote_results: Dictionary containing vote data including:
+                - vote_counts: {agent_id: vote_count}
+                - voter_details: {voted_for_agent_id: [{voter: voter_id, reason: str}]}
+                - winner: winning agent_id
+                - is_tie: boolean
+        """
+        if not vote_results:
+            return
+
+        print("\nTIMELINE:")
+
+        # Show individual votes from voter_details
+        voter_details = vote_results.get("voter_details", {})
+        if voter_details:
+            for voted_for, voters in voter_details.items():
+                for voter_info in voters:
+                    voter = voter_info.get("voter", "unknown")
+                    reason = voter_info.get("reason", "")
+                    reason_preview = reason[:50] + "..." if len(reason) > 50 else reason
+                    print(f"  [VOTE] {voter} -> {voted_for}")
+                    if reason_preview:
+                        print(f"         Reason: {reason_preview}")
+
+        # Show vote distribution summary
+        vote_counts = vote_results.get("vote_counts", {})
+        if vote_counts:
+            print("  [RESULTS]")
+            winner = vote_results.get("winner")
+            is_tie = vote_results.get("is_tie", False)
+            for agent, count in sorted(vote_counts.items(), key=lambda x: -x[1]):
+                winner_mark = " (winner)" if agent == winner else ""
+                tie_mark = " (tie-broken)" if is_tie and agent == winner else ""
+                print(f"    {agent}: {count} vote{'s' if count != 1 else ''}{winner_mark}{tie_mark}")
+
     def show_final_answer(self, answer: str, vote_results=None, selected_agent=None):
         """Display the final coordinated answer with essential information.
 
@@ -113,6 +151,7 @@ class SilentDisplay(BaseDisplay):
         - WINNER: The winning agent ID
         - ANSWER_FILE: Path to final answer file
         - DURATION: Total coordination time
+        - TIMELINE: Answer submissions, votes, and results
         - ANSWER_PREVIEW: First 200 characters of answer
 
         Args:
@@ -132,6 +171,9 @@ class SilentDisplay(BaseDisplay):
         if self.start_time:
             duration = time.time() - self.start_time
             print(f"DURATION: {duration:.1f}s")
+
+        # Print full timeline
+        self._print_timeline(vote_results)
 
         # Show preview of answer (first 200 chars)
         if answer:

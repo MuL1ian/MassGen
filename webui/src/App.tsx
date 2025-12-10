@@ -42,11 +42,17 @@ function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
   );
 }
 
+// Parse URL params once at module load (before any renders)
+const initialUrlParams = new URLSearchParams(window.location.search);
+const initialPrompt = initialUrlParams.get('prompt');
+const initialConfig = initialUrlParams.get('config');
+
 export function App() {
   // Session management
   const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
-  const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
-  const [inputQuestion, setInputQuestion] = useState('');
+  // Initialize from URL params synchronously to avoid race conditions
+  const [selectedConfig, setSelectedConfig] = useState<string | null>(initialConfig);
+  const [inputQuestion, setInputQuestion] = useState(initialPrompt || '');
   const [followUpQuestion, setFollowUpQuestion] = useState('');
 
   const question = useAgentStore(selectQuestion);
@@ -83,6 +89,19 @@ export function App() {
       root.classList.remove('dark');
     }
   }, [getEffectiveTheme, themeMode]);
+
+  // Track URL params from initial load (using module-level constants)
+  const urlParamsRef = useRef<{ prompt: string | null; config: string | null } | null>(
+    (initialPrompt || initialConfig) ? { prompt: initialPrompt, config: initialConfig } : null
+  );
+  const urlParamsProcessed = useRef(false);
+
+  // Log URL params if present (for debugging)
+  useEffect(() => {
+    if (initialPrompt || initialConfig) {
+      console.log('[WebUI] URL params detected:', { prompt: initialPrompt, config: initialConfig });
+    }
+  }, []); // Only run once on mount
 
   // Answer/Vote browser modal state
   const [isAnswerBrowserOpen, setIsAnswerBrowserOpen] = useState(false);
@@ -124,6 +143,24 @@ export function App() {
     sessionId,
     autoConnect: true,
   });
+
+  // Auto-start coordination when connected and URL params are present
+  useEffect(() => {
+    if (urlParamsProcessed.current) return;
+    if (!urlParamsRef.current) return;
+    if (status !== 'connected') return;
+
+    const { prompt, config } = urlParamsRef.current;
+
+    // Auto-start if both prompt and config are provided
+    if (prompt && config) {
+      console.log('[WebUI] Auto-starting coordination with URL params');
+      urlParamsProcessed.current = true;
+      startCoordination(prompt, config);
+      // Clear URL params to prevent re-trigger on refresh
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [status, startCoordination]);
 
   // Handle going back to coordination view with scroll position restoration
   const handleBackToCoordination = useCallback(() => {
@@ -238,10 +275,10 @@ export function App() {
 
   const handleSessionChange = useCallback((newSessionId: string) => {
     if (newSessionId !== sessionId) {
-      reset();
+      // Don't reset - state_snapshot from server will restore the session state
       setSessionId(newSessionId);
     }
-  }, [sessionId, reset]);
+  }, [sessionId]);
 
   // Get config name for display
   const configName = selectedConfig
@@ -332,7 +369,7 @@ export function App() {
 
           {/* View Mode Routing - flex-1 for full height in finalStreaming */}
           <div className="flex-1 min-h-0">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="sync">
             {/* Coordination View - All Agents */}
             {viewMode === 'coordination' && (
               <motion.section
@@ -546,6 +583,7 @@ export function App() {
           <FinalAnswerView
             onBackToAgents={handleBackToCoordination}
             onFollowUp={handleFollowUpFromFinalAnswer}
+            onNewSession={handleNewSession}
             isConnected={status === 'connected'}
           />
         )}

@@ -9,7 +9,7 @@
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useCallback } from 'react';
-import { useAgentStore, selectAgents, selectAgentOrder, selectSelectedAgent } from '../stores/agentStore';
+import { useAgentStore, selectAgents, selectAgentOrder, selectSelectedAgent, selectQuestion } from '../stores/agentStore';
 import { AgentCard } from './AgentCard';
 
 const MAX_VISIBLE = 3;
@@ -19,6 +19,7 @@ export function AgentCarousel() {
   const agents = useAgentStore(selectAgents);
   const agentOrder = useAgentStore(selectAgentOrder);
   const selectedAgent = useAgentStore(selectSelectedAgent);
+  const question = useAgentStore(selectQuestion);
 
   const [startIndex, setStartIndex] = useState(0);
   const x = useMotionValue(0);
@@ -66,6 +67,10 @@ export function AgentCarousel() {
   const rightShadowOpacity = useTransform(x, [0, 100], [0.8, 0]);
 
   if (totalAgents === 0) {
+    // Show different message based on whether a prompt has been submitted
+    const hasPrompt = question && question.trim().length > 0;
+    const message = hasPrompt ? 'Starting coordination...' : 'Waiting for prompt...';
+
     return (
       <div className="flex flex-col items-center justify-center h-[400px] gap-4">
         {/* Pulsing dots animation */}
@@ -91,7 +96,7 @@ export function AgentCarousel() {
           animate={{ opacity: [0.5, 1, 0.5] }}
           transition={{ repeat: Infinity, duration: 2 }}
         >
-          Waiting for prompt...
+          {message}
         </motion.span>
       </div>
     );

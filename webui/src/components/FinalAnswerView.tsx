@@ -7,7 +7,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, FileText, Folder, Trophy, ChevronDown, ChevronRight, File, RefreshCw, History, Copy, Check, Loader2, Send } from 'lucide-react';
+import { ArrowLeft, FileText, Folder, Trophy, ChevronDown, ChevronRight, File, RefreshCw, History, Copy, Check, Loader2, Send, Plus } from 'lucide-react';
 import { useAgentStore, selectSelectedAgent, selectAgents, selectResolvedFinalAnswer, selectAgentOrder } from '../stores/agentStore';
 import type { AnswerWorkspace } from '../types';
 import { FileViewerModal } from './FileViewerModal';
@@ -189,10 +189,11 @@ type TabType = 'answer' | 'workspace';
 interface FinalAnswerViewProps {
   onBackToAgents: () => void;
   onFollowUp?: (question: string) => void;
+  onNewSession?: () => void;
   isConnected?: boolean;
 }
 
-export function FinalAnswerView({ onBackToAgents, onFollowUp, isConnected = true }: FinalAnswerViewProps) {
+export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isConnected = true }: FinalAnswerViewProps) {
   const [activeTab, setActiveTab] = useState<TabType>('answer');
   const [copied, setCopied] = useState(false);
   const [followUpQuestion, setFollowUpQuestion] = useState('');
@@ -352,23 +353,35 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, isConnected = true
           </div>
         </div>
 
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500
-                     rounded-lg transition-colors text-white"
-        >
-          {copied ? (
-            <>
-              <Check className="w-4 h-4" />
-              Copied!
-            </>
-          ) : (
-            <>
-              <Copy className="w-4 h-4" />
-              Copy
-            </>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500
+                       rounded-lg transition-colors text-white"
+          >
+            {copied ? (
+              <>
+                <Check className="w-4 h-4" />
+                Copied!
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4" />
+                Copy
+              </>
+            )}
+          </button>
+          {onNewSession && (
+            <button
+              onClick={onNewSession}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500
+                         rounded-lg transition-colors text-white"
+            >
+              <Plus className="w-4 h-4" />
+              New Session
+            </button>
           )}
-        </button>
+        </div>
       </header>
 
       {/* Tabs */}

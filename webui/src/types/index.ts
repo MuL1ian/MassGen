@@ -260,6 +260,8 @@ export interface SessionState {
   conversationHistory: ConversationMessage[];
   // Per-agent UI state for dropdown tracking
   agentUIState: Record<string, AgentUIState>;
+  // Skip animation when restoring from snapshot
+  restoredFromSnapshot: boolean;
 }
 
 // Union type for all WebSocket events
@@ -295,6 +297,8 @@ export interface SessionInfo {
   has_display: boolean;
   is_running: boolean;
   question?: string;
+  status?: 'active' | 'completed';
+  completed_at?: number;
 }
 
 // ============================================================================

@@ -4193,6 +4193,11 @@ Environment Variables:
         help="Host for web UI server (default: 127.0.0.1)",
     )
     parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Don't auto-open browser when using --web with a question",
+    )
+    parser.add_argument(
         "--automation",
         action="store_true",
         help="Enable automation mode: silent output (~10 lines), status.json tracking, meaningful exit codes. "
@@ -4512,13 +4517,46 @@ Environment Variables:
             from .frontend.web import run_server
 
             config_path = args.config if hasattr(args, "config") and args.config else None
+            question = getattr(args, "question", None)
+            automation_mode = getattr(args, "automation", False)
+
             print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
             print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
             if config_path:
                 print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
             else:
                 print(f"{BRIGHT_YELLOW}   No config specified - use --config or select in UI{RESET}")
+
+            # Build auto-launch URL if question is provided
+            auto_url = None
+            if question:
+                import urllib.parse
+
+                prompt_encoded = urllib.parse.quote(question)
+                auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                if config_path:
+                    config_encoded = urllib.parse.quote(config_path)
+                    auto_url += f"&config={config_encoded}"
+                print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+            if automation_mode and not question:
+                print(f"{BRIGHT_YELLOW}   Automation mode enabled (no question provided){RESET}")
+
             print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+            # Auto-open browser if question+config provided (unless --no-browser)
+            no_browser = getattr(args, "no_browser", False)
+            if auto_url and config_path and not no_browser:
+                import threading
+                import webbrowser
+
+                def open_browser():
+                    import time
+
+                    time.sleep(0.5)  # Wait for server to start
+                    webbrowser.open(auto_url)
+
+                threading.Thread(target=open_browser, daemon=True).start()
             run_server(host=args.web_host, port=args.web_port, config_path=config_path)
         except ImportError as e:
             print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")

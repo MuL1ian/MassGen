@@ -10,6 +10,7 @@ import { X, ChevronLeft, ChevronRight, Loader2, Wand2 } from 'lucide-react';
 import { useWizardStore, WizardStep } from '../stores/wizardStore';
 import {
   DockerStep,
+  ApiKeyStep,
   AgentCountStep,
   SetupModeStep,
   AgentConfigStep,
@@ -17,11 +18,12 @@ import {
 } from './wizard';
 
 const stepConfig: Record<WizardStep, { title: string; subtitle: string }> = {
-  docker: { title: 'Execution Mode', subtitle: 'Step 1 of 5' },
-  agentCount: { title: 'Number of Agents', subtitle: 'Step 2 of 5' },
-  setupMode: { title: 'Setup Mode', subtitle: 'Step 3 of 5' },
-  agentConfig: { title: 'Agent Configuration', subtitle: 'Step 4 of 5' },
-  preview: { title: 'Review & Save', subtitle: 'Step 5 of 5' },
+  docker: { title: 'Execution Mode', subtitle: 'Step 1 of 6' },
+  apiKeys: { title: 'API Keys', subtitle: 'Step 2 of 6' },
+  agentCount: { title: 'Number of Agents', subtitle: 'Step 3 of 6' },
+  setupMode: { title: 'Setup Mode', subtitle: 'Step 4 of 6' },
+  agentConfig: { title: 'Agent Configuration', subtitle: 'Step 5 of 6' },
+  preview: { title: 'Review & Save', subtitle: 'Step 6 of 6' },
 };
 
 interface QuickstartWizardProps {
@@ -59,11 +61,16 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
     }
   }, [saveConfig, handleClose, onConfigSaved]);
 
+  const providers = useWizardStore((s) => s.providers);
+
   // Check if we can proceed to next step
   const canProceed = useCallback(() => {
     switch (currentStep) {
       case 'docker':
         return true; // Always can proceed from docker step
+      case 'apiKeys':
+        // Must have at least one provider with API key
+        return providers.some((p) => p.has_api_key);
       case 'agentCount':
         return agentCount >= 1 && agentCount <= 5;
       case 'setupMode':
@@ -76,13 +83,15 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
       default:
         return false;
     }
-  }, [currentStep, agentCount, agents]);
+  }, [currentStep, agentCount, agents, providers]);
 
   // Render current step content
   const renderStep = () => {
     switch (currentStep) {
       case 'docker':
         return <DockerStep />;
+      case 'apiKeys':
+        return <ApiKeyStep />;
       case 'agentCount':
         return <AgentCountStep />;
       case 'setupMode':
@@ -143,10 +152,15 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
             {/* Progress Bar */}
             <div className="px-6 py-2 bg-gray-50 dark:bg-gray-800/50">
               <div className="flex items-center gap-2">
-                {['docker', 'agentCount', 'setupMode', 'agentConfig', 'preview'].map((step, index) => {
-                  const stepIndex = ['docker', 'agentCount', 'setupMode', 'agentConfig', 'preview'].indexOf(currentStep);
+                {['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'preview'].map((step, index) => {
+                  const allSteps = ['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'preview'];
+                  const stepIndex = allSteps.indexOf(currentStep);
                   const isActive = index === stepIndex;
                   const isComplete = index < stepIndex;
+                  // Hide apiKeys step indicator when providers have keys
+                  if (step === 'apiKeys' && providers.some((p) => p.has_api_key)) {
+                    return null;
+                  }
                   // Hide setupMode step indicator when only 1 agent
                   if (step === 'setupMode' && agentCount === 1) {
                     return null;
