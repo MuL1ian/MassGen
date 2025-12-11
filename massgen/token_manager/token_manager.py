@@ -185,6 +185,7 @@ class ModelPricing:
     output_cost_per_1k: float  # Cost per 1000 output tokens
     context_window: Optional[int] = None
     max_output_tokens: Optional[int] = None
+    source: str = "unknown"  # Where pricing came from: "litellm", "hardcoded", "api"
 
 
 class TokenCostCalculator:
@@ -776,78 +777,182 @@ class TokenCostCalculator:
         # Normalize provider name
         provider = self._normalize_provider(provider)
 
-        # Try LiteLLM database first
-        litellm_db = self._fetch_litellm_pricing()
-        if litellm_db and model in litellm_db:
-            model_data = litellm_db[model]
-            try:
-                # Convert LiteLLM format to ModelPricing
-                # LiteLLM uses per-token, we use per-1K
-                input_per_1k = model_data.get("input_cost_per_token", 0) * 1000
-                output_per_1k = model_data.get("output_cost_per_token", 0) * 1000
-                context = model_data.get("max_input_tokens")
-                max_output = model_data.get("max_output_tokens")
+        # Build list of model name variations to try in LiteLLM
+        # OpenRouter models come as "x-ai/grok-4.1-fast" but LiteLLM uses "openrouter/x-ai/grok-4.1-fast"
+        model_variations = [model]  # Original first
 
-                logger.debug(f"Found pricing for {model} in LiteLLM database")
-                return ModelPricing(
-                    input_cost_per_1k=input_per_1k,
-                    output_cost_per_1k=output_per_1k,
-                    context_window=context,
-                    max_output_tokens=max_output,
-                )
-            except Exception as e:
-                logger.debug(f"Error parsing LiteLLM data for {model}: {e}")
+        # If model has provider prefix (e.g., "x-ai/grok-4.1-fast"), try with openrouter/ prefix
+        if "/" in model:
+            model_variations.append(f"openrouter/{model}")
+            # Also try just the model name without prefix
+            _, model_name_only = model.split("/", 1)
+            model_variations.append(model_name_only)
+            # Try with dots converted to dashes (e.g., "grok-4.1-fast" -> "grok-4-1-fast")
+            model_variations.append(model_name_only.replace(".", "-"))
+
+        # Also try converting version dashes to dots (e.g., "claude-3-5-sonnet" -> "claude-3.5-sonnet")
+        # LiteLLM uses dots for version numbers: "openrouter/anthropic/claude-3.5-sonnet"
+        import re
+
+        model_with_dots = re.sub(r"-(\d+)-(\d+)-", r"-\1.\2-", model)  # "3-5" -> "3.5"
+        if model_with_dots != model:
+            model_variations.append(model_with_dots)
+            model_variations.append(f"openrouter/{model_with_dots}")
+
+        # Try LiteLLM database with all variations
+        litellm_db = self._fetch_litellm_pricing()
+        if litellm_db:
+            for model_variant in model_variations:
+                if model_variant in litellm_db:
+                    model_data = litellm_db[model_variant]
+                    try:
+                        # Convert LiteLLM format to ModelPricing
+                        # LiteLLM uses per-token, we use per-1K
+                        input_per_1k = model_data.get("input_cost_per_token", 0) * 1000
+                        output_per_1k = model_data.get("output_cost_per_token", 0) * 1000
+                        context = model_data.get("max_input_tokens")
+                        max_output = model_data.get("max_output_tokens")
+
+                        logger.info(f"[TokenCostCalculator] Pricing for '{model}' from LiteLLM (variant: {model_variant})")
+                        return ModelPricing(
+                            input_cost_per_1k=input_per_1k,
+                            output_cost_per_1k=output_per_1k,
+                            context_window=context,
+                            max_output_tokens=max_output,
+                            source="litellm",
+                        )
+                    except Exception as e:
+                        logger.debug(f"Error parsing LiteLLM data for {model_variant}: {e}")
 
         # Fallback to hardcoded PROVIDER_PRICING
-        provider_models = self.PROVIDER_PRICING.get(provider, {})
+        # For OpenRouter models, extract actual provider from prefix (e.g., "x-ai/grok-4.1-fast")
+        actual_provider = provider
+        actual_model = model
+        if "/" in model:
+            prefix, model_name = model.split("/", 1)
+            prefix_to_provider = {
+                "x-ai": "xAI",
+                "openai": "OpenAI",
+                "anthropic": "Anthropic",
+                "google": "Google",
+                "meta-llama": "Meta",
+                "mistralai": "Mistral",
+                "deepseek": "DeepSeek",
+                "qwen": "Qwen",
+            }
+            if prefix.lower() in prefix_to_provider:
+                actual_provider = prefix_to_provider[prefix.lower()]
+                actual_model = model_name
+                logger.debug(f"Extracted provider={actual_provider}, model={actual_model} from OpenRouter format")
 
-        # Try exact match first
-        if model in provider_models:
-            logger.debug(f"Found pricing for {model} in hardcoded PROVIDER_PRICING")
-            return provider_models[model]
+        # Normalize model name: convert dots to dashes (e.g., "grok-4.1-fast" -> "grok-4-1-fast")
+        model_normalized = actual_model.replace(".", "-")
+
+        provider_models = self.PROVIDER_PRICING.get(actual_provider, {})
+
+        # Try exact match first (with original model name)
+        if actual_model in provider_models:
+            pricing = provider_models[actual_model]
+            logger.info(f"[TokenCostCalculator] Pricing for '{model}' from hardcoded (exact: {actual_model})")
+            return ModelPricing(
+                pricing.input_cost_per_1k,
+                pricing.output_cost_per_1k,
+                pricing.context_window,
+                pricing.max_output_tokens,
+                source="hardcoded",
+            )
+
+        # Try with normalized model name (dots to dashes)
+        if model_normalized in provider_models:
+            pricing = provider_models[model_normalized]
+            logger.info(f"[TokenCostCalculator] Pricing for '{model}' from hardcoded (normalized: {model_normalized})")
+            return ModelPricing(
+                pricing.input_cost_per_1k,
+                pricing.output_cost_per_1k,
+                pricing.context_window,
+                pricing.max_output_tokens,
+                source="hardcoded",
+            )
 
         # Try to find by partial match
         for model_key, pricing in provider_models.items():
-            if model_key.lower() in model.lower() or model.lower() in model_key.lower():
-                logger.debug(f"Found pricing for {model} via partial match: {model_key}")
-                return pricing
+            if model_key.lower() in model_normalized.lower() or model_normalized.lower() in model_key.lower():
+                logger.info(f"[TokenCostCalculator] Pricing for '{model}' from hardcoded (partial: {model_key})")
+                return ModelPricing(
+                    pricing.input_cost_per_1k,
+                    pricing.output_cost_per_1k,
+                    pricing.context_window,
+                    pricing.max_output_tokens,
+                    source="hardcoded",
+                )
 
         # Try to infer from model name patterns
-        model_lower = model.lower()
+        model_lower = model_normalized.lower()
+
+        def _with_source(pricing: Optional[ModelPricing], matched_key: str) -> Optional[ModelPricing]:
+            """Helper to add source and logging to pattern-matched pricing."""
+            if pricing:
+                logger.info(f"[TokenCostCalculator] Pricing for '{model}' from hardcoded (pattern: {matched_key})")
+                return ModelPricing(
+                    pricing.input_cost_per_1k,
+                    pricing.output_cost_per_1k,
+                    pricing.context_window,
+                    pricing.max_output_tokens,
+                    source="hardcoded",
+                )
+            return None
+
+        # Grok variants (xAI)
+        if "grok" in model_lower:
+            xai_models = self.PROVIDER_PRICING.get("xAI", {})
+            if "grok-4-1-fast" in model_lower or "grok-4.1-fast" in model_lower:
+                return _with_source(xai_models.get("grok-4-1-fast-reasoning"), "grok-4-1-fast-reasoning")
+            elif "grok-4-fast" in model_lower:
+                return _with_source(xai_models.get("grok-4-fast"), "grok-4-fast")
+            elif "grok-4" in model_lower:
+                return _with_source(xai_models.get("grok-4"), "grok-4")
+            elif "grok-3-mini" in model_lower:
+                return _with_source(xai_models.get("grok-3-mini"), "grok-3-mini")
+            elif "grok-3" in model_lower:
+                return _with_source(xai_models.get("grok-3"), "grok-3")
+            elif "grok-2-mini" in model_lower:
+                return _with_source(xai_models.get("grok-2-mini"), "grok-2-mini")
+            elif "grok-2" in model_lower:
+                return _with_source(xai_models.get("grok-2"), "grok-2")
 
         # GPT-4 variants
-        if "gpt-4o" in model_lower and "mini" in model_lower:
-            return provider_models.get("gpt-4o-mini")
+        elif "gpt-4o" in model_lower and "mini" in model_lower:
+            return _with_source(provider_models.get("gpt-4o-mini"), "gpt-4o-mini")
         elif "gpt-4o" in model_lower:
-            return provider_models.get("gpt-4o")
+            return _with_source(provider_models.get("gpt-4o"), "gpt-4o")
         elif "gpt-4" in model_lower and "turbo" in model_lower:
-            return provider_models.get("gpt-4-turbo")
+            return _with_source(provider_models.get("gpt-4-turbo"), "gpt-4-turbo")
         elif "gpt-4" in model_lower:
-            return provider_models.get("gpt-4")
+            return _with_source(provider_models.get("gpt-4"), "gpt-4")
         elif "gpt-3.5" in model_lower:
-            return provider_models.get("gpt-3.5-turbo")
+            return _with_source(provider_models.get("gpt-3.5-turbo"), "gpt-3.5-turbo")
 
         # Claude variants
         elif "claude-3-5-sonnet" in model_lower or "claude-3.5-sonnet" in model_lower:
-            return provider_models.get("claude-3-5-sonnet")
+            return _with_source(provider_models.get("claude-3-5-sonnet"), "claude-3-5-sonnet")
         elif "claude-3-5-haiku" in model_lower or "claude-3.5-haiku" in model_lower:
-            return provider_models.get("claude-3-5-haiku")
+            return _with_source(provider_models.get("claude-3-5-haiku"), "claude-3-5-haiku")
         elif "claude-3-opus" in model_lower:
-            return provider_models.get("claude-3-opus")
+            return _with_source(provider_models.get("claude-3-opus"), "claude-3-opus")
         elif "claude-3-sonnet" in model_lower:
-            return provider_models.get("claude-3-sonnet")
+            return _with_source(provider_models.get("claude-3-sonnet"), "claude-3-sonnet")
         elif "claude-3-haiku" in model_lower:
-            return provider_models.get("claude-3-haiku")
+            return _with_source(provider_models.get("claude-3-haiku"), "claude-3-haiku")
 
         # Gemini variants
         elif "gemini-2" in model_lower and "flash" in model_lower:
-            return provider_models.get("gemini-2.0-flash-exp")
+            return _with_source(provider_models.get("gemini-2.0-flash-exp"), "gemini-2.0-flash-exp")
         elif "gemini-1.5-pro" in model_lower:
-            return provider_models.get("gemini-1.5-pro")
+            return _with_source(provider_models.get("gemini-1.5-pro"), "gemini-1.5-pro")
         elif "gemini-1.5-flash" in model_lower:
-            return provider_models.get("gemini-1.5-flash")
+            return _with_source(provider_models.get("gemini-1.5-flash"), "gemini-1.5-flash")
 
-        logger.debug(f"No pricing found for {provider}/{model}")
+        logger.info(f"[TokenCostCalculator] No pricing found for {provider}/{model}")
         return None
 
     def _normalize_provider(self, provider: str) -> str:

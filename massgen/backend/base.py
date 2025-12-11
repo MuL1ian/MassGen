@@ -462,6 +462,7 @@ class LLMBackend(ABC):
 
         if provider_cost is not None and provider_cost > 0:
             cost = provider_cost
+            logger.info(f"[{self.__class__.__name__}] Cost ${cost:.6f} from API response (model: {model})")
         else:
             # Calculate cost using litellm.completion_cost() directly
             cost = self.token_calculator.calculate_cost_with_usage_object(
@@ -469,6 +470,8 @@ class LLMBackend(ABC):
                 usage=usage,
                 provider=self.get_provider_name(),
             )
+            if cost > 0:
+                logger.info(f"[{self.__class__.__name__}] Cost ${cost:.6f} calculated via litellm (model: {model})")
 
         # Extract detailed token breakdown for visibility
         breakdown = self.token_calculator.extract_token_breakdown(usage)
