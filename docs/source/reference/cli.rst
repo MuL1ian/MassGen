@@ -69,6 +69,14 @@ CLI Parameters
      - Load memory from a previous session by ID (e.g., ``session_20251028_143000``). Allows continuing conversations with memory context from prior runs. Use with ``--list-sessions`` to find available sessions
    * - ``--list-sessions``
      - List all available memory sessions with their metadata (session IDs, timestamps, models, status). Sessions are automatically tracked in ``~/.massgen/sessions.json``
+   * - ``--web``
+     - Start the WebUI server instead of the terminal UI. Opens a browser-based interface with real-time agent streaming, vote visualization, and workspace browsing
+   * - ``--web-host HOST``
+     - Host address for the WebUI server (default: ``127.0.0.1``). Use ``0.0.0.0`` to allow external connections
+   * - ``--web-port PORT``
+     - Port for the WebUI server (default: ``8000``)
+   * - ``--no-browser``
+     - Don't auto-open browser when using ``--web`` with a question. Useful for automation or when running on servers
    * - ``"<your question>"``
      - Optional single-question input. If omitted, MassGen enters interactive chat mode
 
@@ -187,6 +195,23 @@ Session Management
    # Session can also be specified in YAML config
    # Add to your config.yaml:
    #   session_id: "session_20251028_143000"
+
+WebUI Mode
+~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Start WebUI on default localhost:8000
+   massgen --web
+
+   # Custom host and port (for external access)
+   massgen --web --web-host 0.0.0.0 --web-port 3000
+
+   # With a specific config
+   massgen --web --config @examples/basic/multi/three_agents_default
+
+   # Combine with debug mode
+   massgen --web --debug --config my_config.yaml
 
 See Also
 --------

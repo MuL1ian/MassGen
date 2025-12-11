@@ -141,6 +141,9 @@ class LLMBackend(ABC):
                     "shared_tools_directory": kwargs.get("shared_tools_directory"),
                     # Instance ID for parallel execution (Docker container naming)
                     "instance_id": self._instance_id,
+                    # Session mount support for multi-turn Docker
+                    "filesystem_session_id": kwargs.get("filesystem_session_id"),
+                    "session_storage_base": kwargs.get("session_storage_base"),
                 }
 
                 # Create FilesystemManager
@@ -246,7 +249,9 @@ class LLMBackend(ABC):
             # Backend identification (handled by orchestrator)
             "type",
             "agent_id",
-            "session_id",
+            "session_id",  # Memory/conversation session ID from chat_agent
+            "filesystem_session_id",  # Docker filesystem session mount
+            "session_storage_base",
             # MCP configuration (handled by base class for MCP backends)
             "mcp_servers",
         }
@@ -639,7 +644,11 @@ class LLMBackend(ABC):
         else:
             return ""
 
-    def create_tool_result_message(self, tool_call: Dict[str, Any], result_content: str) -> Dict[str, Any]:
+    def create_tool_result_message(
+        self,
+        tool_call: Dict[str, Any],
+        result_content: str,
+    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Create a tool result message in this backend's expected format.
 
@@ -648,7 +657,9 @@ class LLMBackend(ABC):
             result_content: The result content to send back
 
         Returns:
-            Tool result message in backend's expected format
+            Tool result message(s) in backend's expected format.
+            Most backends return a single dict, but Response API returns a list
+            of two dicts (function_call + function_call_output).
         """
         # Default implementation assumes Chat Completions format
         tool_call_id = self.extract_tool_call_id(tool_call)

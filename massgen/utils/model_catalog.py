@@ -198,21 +198,10 @@ def get_models_for_provider_sync(provider: str, use_cache: bool = True) -> List[
     Returns:
         List of model IDs
     """
-    import asyncio
+    from massgen.utils.async_helpers import run_async_safely
 
     try:
-        # Check if we're already in an async context
-        try:
-            asyncio.get_running_loop()
-            # We're in an async context, need to run in thread
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, get_models_for_provider(provider, use_cache))
-                return future.result(timeout=15)
-        except RuntimeError:
-            # No running loop, safe to use asyncio.run()
-            return asyncio.run(get_models_for_provider(provider, use_cache))
+        return run_async_safely(get_models_for_provider(provider, use_cache), timeout=15)
     except Exception:
         # If async fails, return empty list
         return []

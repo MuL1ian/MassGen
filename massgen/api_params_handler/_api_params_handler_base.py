@@ -86,7 +86,9 @@ class APIParamsHandlerBase(ABC):
             # Backend identification (handled by orchestrator)
             "type",
             "agent_id",
-            "session_id",
+            "session_id",  # Memory/conversation session ID from chat_agent
+            "filesystem_session_id",  # Docker filesystem session mount
+            "session_storage_base",
             # MCP configuration (handled by base class for MCP backends)
             "mcp_servers",
             # NLIP configuration belongs to MassGen routing, never provider APIs

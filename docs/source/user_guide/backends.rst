@@ -194,7 +194,7 @@ Different backends support different built-in tools:
   * Most backends support custom tools (OpenAI, Claude, Claude Code, Gemini, Grok, Chat Completions, LM Studio, Inference)
   * **Azure OpenAI** and **AG2** do not support custom tools as they inherit from the base backend class without the custom tools layer
   * Custom tools are essential for multimodal understanding features (``understand_image``, ``understand_video``, ``understand_audio``, ``understand_file``)
-  * See :doc:`custom_tools` for complete documentation on creating and using custom tools
+  * See :doc:`tools/custom_tools` for complete documentation on creating and using custom tools
 
 * **Code Execution vs Bash/Shell:**
 
@@ -210,7 +210,7 @@ Different backends support different built-in tools:
 
     * ⭐ (``claude_code`` only): Native Bash tool built into Claude Code
     * ✅ (all MCP-enabled backends): Universal bash/shell via ``enable_mcp_command_line: true``
-    * See :doc:`code_execution` for detailed setup and comparison
+    * See :doc:`tools/code_execution` for detailed setup and comparison
 
   * **You can use both**: Backends can use built-in code execution AND MCP-based bash/shell simultaneously, though it is preferred to choose one. Use built-in code execution for isolated tasks, and MCP bash/shell for operations you want to affect the agent's workspace.
 
@@ -218,7 +218,7 @@ Different backends support different built-in tools:
 
   * ⭐ (``claude_code`` only): Native filesystem tools (Read, Write, Edit, Bash, Grep, Glob)
   * ✅ (all backends with ``cwd`` parameter): Filesystem operations handled automatically through workspace configuration
-  * See :doc:`file_operations` for detailed filesystem configuration
+  * See :doc:`files/file_operations` for detailed filesystem configuration
 
 * **Multimodal Capabilities:**
 
@@ -233,7 +233,7 @@ Different backends support different built-in tools:
     * Requires ``OPENAI_API_KEY`` in ``.env`` file (tools use OpenAI's API for processing)
     * Examples: ``claude``, ``claude_code``, ``gemini``, ``grok``, ``chatcompletion``, ``lmstudio``, ``inference``
     * Does NOT work with ``azure_openai`` or ``ag2`` (these backends don't support custom tools)
-    * See :doc:`multimodal` for complete setup instructions
+    * See :doc:`advanced/multimodal` for complete setup instructions
 
   * **Understanding vs Generation**:
 
@@ -440,7 +440,7 @@ AG2 Backend
            executor: "local"
            work_dir: "coding"
 
-See :doc:`general_interoperability` for detailed AG2 configuration.
+See :doc:`integration/general_interoperability` for detailed AG2 configuration.
 
 LM Studio Backend
 ~~~~~~~~~~~~~~~~~
@@ -707,7 +707,7 @@ For detailed backend-specific parameters, see:
 MCP Integration
 ~~~~~~~~~~~~~~~
 
-See :doc:`mcp_integration` for:
+See :doc:`tools/mcp_integration` for:
 
 * Adding MCP servers to backends
 * Tool filtering (allowed_tools, exclude_tools)
@@ -717,7 +717,7 @@ See :doc:`mcp_integration` for:
 File Operations
 ~~~~~~~~~~~~~~~
 
-See :doc:`file_operations` for:
+See :doc:`files/file_operations` for:
 
 * Workspace configuration
 * Snapshot storage
@@ -772,7 +772,7 @@ Next Steps
 ----------
 
 * :doc:`../quickstart/configuration` - Full configuration guide
-* :doc:`mcp_integration` - Add external tools via MCP
-* :doc:`file_operations` - Enable file system operations
+* :doc:`tools/mcp_integration` - Add external tools via MCP
+* :doc:`files/file_operations` - Enable file system operations
 * :doc:`../reference/supported_models` - Complete model list
 * :doc:`../examples/basic_examples` - See backends in action

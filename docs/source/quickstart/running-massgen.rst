@@ -1,439 +1,337 @@
 Running MassGen
 ===============
 
-This guide shows you how to run MassGen with different configurations.
+This guide shows you how to run MassGen using different modes and configurations.
 
-.. tip::
-   **Configuration File Paths:** Example commands use ``@examples/...`` paths which work from **any directory** because they're part of MassGen's installed package. See `Configuration File Paths`_ below for all path options.
+Choosing Your Mode
+------------------
 
-Basic Usage
------------
+MassGen offers three ways to run multi-agent workflows:
 
-Run MassGen from the command line:
+.. list-table::
+   :header-rows: 1
+   :widths: 15 35 50
+
+   * - Mode
+     - Best For
+     - Key Features
+   * - **CLI**
+     - Interactive exploration, quick experiments
+     - Rich terminal UI, YAML configs, real-time visualization
+   * - **WebUI**
+     - Visual monitoring, team demos, workspace browsing
+     - Browser-based UI, real-time streaming, file explorer, vote visualization
+   * - **LiteLLM**
+     - Application integration, LangChain, existing LiteLLM users
+     - Standard OpenAI interface, drop-in replacement
+
+For advanced programmatic control, see the :doc:`../user_guide/integration/python_api` (async-first, headless execution).
+
+Quick Start Examples
+--------------------
+
+.. tabs::
+
+   .. tab:: CLI
+
+      .. code-block:: bash
+
+         # Multi-agent collaboration (recommended)
+         uv run massgen --config @examples/basic/multi/three_agents_default "Analyze renewable energy"
+
+         # Interactive mode (multi-turn)
+         uv run massgen
+
+      Rich terminal UI with real-time streaming, multi-turn conversations, and YAML configuration.
+
+   .. tab:: WebUI
+
+      .. code-block:: bash
+
+         # Start the web interface
+         uv run massgen --web
+
+         # Open http://localhost:8000 in your browser
+
+      Browser-based UI with real-time agent streaming, vote visualization, and workspace browsing.
+
+   .. tab:: LiteLLM
+
+      .. code-block:: python
+
+         from dotenv import load_dotenv
+         load_dotenv()  # Load OPENROUTER_API_KEY from .env
+
+         import litellm
+         from massgen import register_with_litellm
+
+         register_with_litellm()
+
+         # Multi-agent with multiple models (using OpenRouter)
+         response = litellm.completion(
+             model="massgen/build",
+             messages=[{"role": "user", "content": "Analyze renewable energy"}],
+             optional_params={"models": ["openrouter/openai/gpt-5", "openrouter/anthropic/claude-sonnet-4.5"]}
+         )
+         print(response.choices[0].message.content)
+
+      Standard OpenAI-compatible interface for seamless integration with existing applications.
+
+CLI Usage
+---------
+
+Basic Command Structure
+~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-   massgen [OPTIONS] ["<your question>"]
+   uv run massgen [OPTIONS] ["<your question>"]
 
-For the complete list of CLI parameters and options, see :doc:`../reference/cli`
-
-Default Configuration Mode
----------------------------
-
-The simplest way to use MassGen - no configuration needed on first run:
-
-.. code-block:: bash
-
-   # First time: Launches setup wizard
-   massgen
-
-The first-run wizard walks you through a two-step setup:
-
-**Step 1: API Keys (if needed)**
-
-* Detects existing API keys in your environment
-* Prompts for cloud provider keys (OpenAI, Anthropic, Google, etc.) if none found
-* Saves keys to ``~/.config/massgen/.env``
-* Skipped if you already have API keys configured
-
-**Step 2: Configuration**
-
-* **Browse ready-to-use configs / examples** - Try pre-built configurations immediately
-* **Build from template** - Create custom agent teams with guided setup
-* Selected configurations saved to ``~/.config/massgen/config.yaml``
-
-When browsing examples or existing configs, you'll be asked:
-
-* "Save this as your default config?" - Choose yes to reuse it on future runs by default without needing to specify it again
-* Then launches directly into interactive mode
-
-**After setup:**
-
-.. code-block:: bash
-
-   # Start interactive conversation
-   massgen
-
-   # Or run a single query
-   massgen "What is machine learning?"
-
-Your default configuration is automatically used when you run ``massgen`` without ``--config`` or ``--model`` flags.
-
-Single Agent (Quick Test)
---------------------------
-
-The fastest way to test MassGen - no configuration file needed:
-
-.. code-block:: bash
-
-   # Quick test with any supported model
-   massgen --model claude-3-5-sonnet-latest "What is machine learning?"
-   massgen --model gemini-2.5-flash "Explain quantum computing"
-   massgen --model gpt-5-nano "Summarize the latest AI developments"
-
-**With specific backend:**
-
-.. code-block:: bash
-
-   massgen \
-     --backend gemini \
-     --model gemini-2.5-flash \
-     "What are the latest developments in AI?"
-
-.. seealso::
-   :doc:`configuration` - Complete configuration reference for all setup options
+For the complete list of CLI options, see :doc:`../reference/cli`.
 
 Multi-Agent Collaboration
---------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The recommended way to use MassGen - multiple agents working together:
+MassGen is designed for multi-agent collaboration - multiple agents working together on complex tasks:
 
 .. code-block:: bash
 
-   # Three powerful agents collaborate
-   massgen \
-     --config @examples/basic/multi/three_agents_default.yaml \
-     "Analyze the pros and cons of renewable energy"
-
-This configuration uses:
-
-* **Gemini 2.5 Flash** - Fast research with web search
-* **GPT-5 Nano** - Advanced reasoning with code execution
-* **Grok-3 Mini** - Real-time information and alternative perspectives
+   # Three agents collaborate
+   uv run massgen --config @examples/basic/multi/three_agents_default "Analyze the pros and cons of renewable energy"
 
 The agents work in parallel, share observations, vote for solutions, and converge on the best answer.
 
-.. seealso::
-   :doc:`configuration` - Learn how to create and customize multi-agent configurations
-
 Interactive Multi-Turn Mode
-----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Start MassGen without a question to enter interactive chat mode:
+Start without a question to enter interactive chat mode:
 
 .. code-block:: bash
 
-   # Single agent interactive mode
-   massgen --model gemini-2.5-flash
-
-   # Multi-agent interactive mode
-   massgen \
-     --config @examples/basic/multi/three_agents_default.yaml
-
-**The Interactive Experience:**
-
-.. code-block:: text
-
-   ╭──────────────────────────────────────────────────────────────────────────────╮
-   │                                                                              │
-   │       ███╗   ███╗ █████╗ ███████╗███████╗ ██████╗ ███████╗███╗   ██╗         │
-   │       ████╗ ████║██╔══██╗██╔════╝██╔════╝██╔════╝ ██╔════╝████╗  ██║         │
-   │       ██╔████╔██║███████║███████╗███████╗██║  ███╗█████╗  ██╔██╗ ██║         │
-   │       ██║╚██╔╝██║██╔══██║╚════██║╚════██║██║   ██║██╔══╝  ██║╚██╗██║         │
-   │       ██║ ╚═╝ ██║██║  ██║███████║███████║╚██████╔╝███████╗██║ ╚████║         │
-   │       ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝         │
-   │                                                                              │
-   │            🤖 🤖 🤖  →  💬 collaborate  →  🎯 winner  →  📢 final            │
-   │                                                                              │
-   ╰──────────────────────────────────────────────────────────────────────────────╯
-
-   ╭──────────────────────────────────────────────────────────────────────────────╮
-   │    🤝 Mode:                Multi-Agent (3 agents)                            │
-   │      ├─ openai_agent_1:    gpt-5 (Response)                                  │
-   │      ├─ gemini_agent_2:    gemini-2.5-flash (Gemini)                         │
-   │      └─ grok_agent_3:      grok-4-fast-reasoning (Grok)                      │
-   ╰──────────────────────────────────────────────────────────────────────────────╯
+   # Interactive with multi-agent team
+   uv run massgen --config @examples/basic/multi/three_agents_default
 
 Features:
 
-* Each response builds on previous conversation context
-* Session history preserved in ``.massgen/sessions/``
-* Multi-agent collaboration on each turn
-* Real-time coordination visualization
+* Conversation context preserved across turns
+* Session history saved in ``.massgen/sessions/``
+* Real-time agent coordination visualization
 
-.. seealso::
-   :doc:`../user_guide/multi_turn_mode` - Complete guide to interactive sessions, commands, and session management
+See :doc:`../user_guide/sessions/multi_turn_mode` for the complete guide.
 
-MCP Integration
----------------
+.. note::
 
-Add tools to your agents using Model Context Protocol:
+   For programmatic Python access with async support and full control, see the :doc:`../user_guide/integration/python_api`.
+
+WebUI
+-----
+
+The WebUI provides a browser-based interface for visual monitoring of multi-agent coordination.
+
+Starting the WebUI
+~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-   # Single MCP tool (weather)
-   massgen \
-     --config @examples/tools/mcp/gpt5_nano_mcp_example.yaml \
-     "What's the weather forecast for New York this week?"
+   # Basic: Start on localhost:8000
+   uv run massgen --web
 
-   # Multiple MCP tools (search + weather + filesystem)
-   massgen \
-     --config @examples/tools/mcp/multimcp_gemini.yaml \
-     "Find the best restaurants in Paris and save the recommendations to a file"
+   # With custom host/port
+   uv run massgen --web --web-host 0.0.0.0 --web-port 3000
 
-See :doc:`../user_guide/mcp_integration` for detailed MCP configuration.
+   # With a default config
+   uv run massgen --web --config @examples/basic/multi/three_agents_default
+
+Then open http://localhost:8000 in your browser.
+
+Key Features
+~~~~~~~~~~~~
+
+* **Real-time Agent Streaming** - Watch agents think, use tools, and generate answers live
+* **Vote Visualization** - See voting distribution and consensus-building with animated charts
+* **Coordination Timeline** - Visual swimlane diagram showing answer flow and dependencies
+* **Answer Browser** - Browse all agent answers with version history
+* **Workspace Explorer** - View and examine files created by agents during execution
+* **Multi-Turn Conversations** - Continue sessions with follow-up questions
+* **Quickstart Wizard** - Guided setup for configuring agents without manual YAML editing
+
+See :doc:`../user_guide/webui` for the complete WebUI guide.
+
+LiteLLM Integration
+-------------------
+
+MassGen integrates with LiteLLM for a familiar OpenAI-compatible interface. Use OpenRouter to access multiple models with a single API key.
+
+Setup
+~~~~~
+
+.. code-block:: python
+
+   from dotenv import load_dotenv
+   load_dotenv()  # Load OPENROUTER_API_KEY from .env
+
+   import litellm
+   from massgen import register_with_litellm
+
+   # Register once at startup
+   register_with_litellm()
+
+Model String Formats
+~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   # Dynamic multi-agent with OpenRouter (recommended - single API key)
+   response = litellm.completion(
+       model="massgen/build",
+       messages=[{"role": "user", "content": "Your question"}],
+       optional_params={"models": ["openrouter/openai/gpt-5", "openrouter/anthropic/claude-sonnet-4.5"]}
+   )
+   print(response.choices[0].message.content)
+
+   # Use example config
+   response = litellm.completion(
+       model="massgen/basic_multi",
+       messages=[{"role": "user", "content": "Your question"}]
+   )
+   print(response.choices[0].message.content)
+
+Access MassGen Metadata
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   # MassGen-specific metadata
+   metadata = response._hidden_params
+   print(metadata.get("massgen_vote_results"))
+   print(metadata.get("massgen_answers"))
+
+See :doc:`../user_guide/integration/python_api` for complete LiteLLM documentation.
+
+Adding Tools
+------------
+
+MCP Integration
+~~~~~~~~~~~~~~~
+
+Add external tools via Model Context Protocol:
+
+.. tabs::
+
+   .. tab:: CLI
+
+      .. code-block:: bash
+
+         uv run massgen --config @examples/tools/mcp/gpt5_nano_mcp_example.yaml \
+           "What's the weather in New York?"
+
+   .. tab:: YAML Config
+
+      .. code-block:: yaml
+
+         agents:
+           - id: "agent_with_tools"
+             backend:
+               type: "openai"
+               model: "openrouter/openai/gpt-5"
+             mcp_servers:
+               - command: "npx"
+                 args: ["-y", "@modelcontextprotocol/server-weather"]
+
+See :doc:`../user_guide/tools/mcp_integration` for details.
 
 File Operations
----------------
+~~~~~~~~~~~~~~~
 
 Agents can work with files in isolated workspaces:
 
-.. code-block:: bash
+.. tabs::
 
-   # Single agent with file operations
-   massgen \
-     --config @examples/tools/filesystem/claude_code_single.yaml \
-     "Create a Python web scraper and save results to CSV"
+   .. tab:: CLI
 
-   # Multi-agent file collaboration
-   massgen \
-     --config @examples/tools/filesystem/claude_code_context_sharing.yaml \
-     "Generate a comprehensive project report with charts and analysis"
+      .. code-block:: bash
 
-Features:
+         uv run massgen --config @examples/tools/filesystem/claude_code_single.yaml \
+           "Create a Python web scraper and save results to CSV"
 
-* Each agent gets an isolated workspace
-* Read-before-delete enforcement for safety
-* Snapshot storage for sharing context between agents
-* Support via Claude Code or MCP filesystem server
+   .. tab:: YAML Config
 
-See :doc:`../user_guide/file_operations` for details.
+      .. code-block:: yaml
 
-Project Integration
+         orchestrator:
+           file_system:
+             enabled: true
+             use_docker: false
+
+See :doc:`../user_guide/files/file_operations` for details.
+
+Configuration Paths
 -------------------
 
-Work directly with your existing codebase using context paths:
+MassGen supports multiple ways to specify configurations:
 
 .. code-block:: bash
 
-   # Multi-agent collaboration on your project
-   massgen \
-     --config @examples/tools/filesystem/gpt5mini_cc_fs_context_path.yaml \
-     "Enhance the website with dark/light theme toggle and interactive features"
+   # Built-in examples (works from any directory)
+   uv run massgen --config @examples/basic/multi/three_agents_default "Question"
 
-Configuration example:
+   # List all examples
+   uv run massgen --list-examples
 
-.. code-block:: yaml
+   # Custom file (relative or absolute path)
+   uv run massgen --config ./my-config.yaml "Question"
 
-   orchestrator:
-     context_paths:
-       - path: "/home/user/my-project/src"
-         permission: "read"    # Agents can analyze your code
-       - path: "/home/user/my-project/docs"
-         permission: "write"   # Final agent can update docs
-
-All MassGen working files organized under ``.massgen/`` directory in your project root.
-
-See :doc:`../user_guide/project_integration` for details.
-
-AG2 Framework Integration
---------------------------
-
-Integrate AG2 agents with code execution:
-
-.. code-block:: bash
-
-   # Single AG2 agent with code execution
-   massgen \
-     --config @examples/ag2/ag2_coder.yaml \
-     "Write a Python script to analyze CSV data and create visualizations"
-
-   # AG2 + Gemini hybrid collaboration
-   massgen \
-     --config @examples/ag2/ag2_coder_case_study.yaml \
-     "Compare AG2 and MassGen frameworks, use code to fetch documentation"
-
-See :doc:`../user_guide/general_interoperability` for AG2 configuration details.
+   # User config directory
+   uv run massgen --config my-saved-config "Question"
+   # Looks for ~/.config/massgen/agents/my-saved-config.yaml
 
 Viewing Results
 ---------------
 
-**Real-time Display**
-
-By default, MassGen shows a rich terminal UI with:
-
-* Agent coordination table showing voting and consensus
-* Live streaming of agent responses
-* Progress indicators and status updates
-
-**Disable UI:**
+By default, MassGen shows a rich terminal UI. Control the display:
 
 .. code-block:: bash
 
-   massgen --no-display --config config.yaml "Question"
+   # Disable UI (quiet mode)
+   uv run massgen --no-display --config config.yaml "Question"
 
-**Debug Mode:**
+   # Enable debug logging
+   uv run massgen --debug --config config.yaml "Question"
 
-.. code-block:: bash
+After execution completes, an interactive Agent Selector menu appears, allowing you to:
 
-   massgen --debug --config config.yaml "Question"
-
-Debug logs saved to ``agent_outputs/log_{timestamp}/massgen_debug.log`` with detailed:
-
-* Orchestrator activities
-* Agent messages
-* Backend operations
-* Tool calls
-
-Configuration File Paths
--------------------------
-
-MassGen supports three ways to specify configuration files:
-
-**1. Built-in Examples (Recommended)**
-
-Use ``@examples/`` prefix to access built-in configurations from any directory:
-
-.. code-block:: bash
-
-   massgen --config @examples/basic/multi/three_agents_default "Your question"
-
-   # List all available examples
-   massgen --list-examples
-
-The ``@examples/`` prefix works from any directory and is the easiest way to get started.
-
-**2. Custom Configuration Files**
-
-Use relative or absolute paths for your own configurations:
-
-.. code-block:: bash
-
-   # Relative to current directory
-   massgen --config ./my-config.yaml "Question"
-
-   # Absolute path
-   massgen --config /path/to/my-config.yaml "Question"
-
-**3. User Configuration Directory**
-
-Store frequently-used configs in ``~/.config/massgen/agents/`` for easy access:
-
-.. code-block:: bash
-
-   # Unix/Mac
-   mkdir -p ~/.config/massgen/agents
-   cp my-config.yaml ~/.config/massgen/agents/my-setup.yaml
-
-   # Windows
-   mkdir %USERPROFILE%\.config\massgen\agents
-   copy my-config.yaml %USERPROFILE%\.config\massgen\agents\my-setup.yaml
-
-.. seealso::
-   For detailed information on configuration files and examples, see :doc:`../reference/configuration_examples`
+* View each agent's original output and reasoning
+* See the orchestrator's system status and voting process
+* Display the coordination table with full agent interaction history
+* Browse workspace files created during execution
+* Press ``q`` to exit
 
 Next Steps
 ----------
 
-**Congratulations! You've run MassGen successfully. Here's what to explore next:**
+.. grid:: 2
+   :gutter: 3
 
-✅ **You are here:** You've run both single-agent and multi-agent examples
+   .. grid-item-card:: ⚙️ Configuration
 
-⬜ **Next:** :doc:`configuration` - Learn how to create custom agent teams
+      Create custom agent teams
 
-⬜ **Understand:** :doc:`../user_guide/concepts` - See how multi-agent coordination works
+      :doc:`configuration`
 
-⬜ **Advanced:** :doc:`../user_guide/mcp_integration` - Add external tools to your agents
+   .. grid-item-card:: 📚 Core Concepts
 
-**Already know what you want to build?** Jump to :doc:`../examples/basic_examples` for ready-to-use configurations.
+      Understand multi-agent coordination
 
-Backwards Compatibility
-=======================
+      :doc:`../user_guide/concepts`
 
-For Existing Users
-------------------
+   .. grid-item-card:: 🐍 Python API
 
-If you previously used MassGen via git clone, **all your existing workflows continue to work**. The PyPI package introduces simplified commands and the ``@examples/`` prefix while maintaining full backwards compatibility.
+      Full programmatic control
 
-Command Syntax Changes
-~~~~~~~~~~~~~~~~~~~~~~
+      :doc:`../user_guide/integration/python_api`
 
-**Old Command Syntax** (still works):
+   .. grid-item-card:: 🔌 Tools & MCP
 
-.. code-block:: bash
+      Add capabilities to agents
 
-   # Old way - using python -m from MassGen directory
-   cd /path/to/MassGen
-   python -m massgen.cli --config massgen/configs/basic/multi/three_agents_default.yaml "Question"
-
-**New Command Syntax** (recommended):
-
-.. code-block:: bash
-
-   # New way - simple massgen command from anywhere
-   massgen --config @examples/basic/multi/three_agents_default "Question"
-
-Configuration Path Changes
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-**Old Config Paths** (still work):
-
-.. code-block:: bash
-
-   # Relative paths from MassGen directory
-   python -m massgen.cli --config massgen/configs/basic/multi/three_agents_default.yaml "Question"
-
-**New @ Prefix for Built-in Configs** (recommended):
-
-.. code-block:: bash
-
-   # @ prefix works from any directory
-   massgen --config @examples/basic/multi/three_agents_default "Question"
-
-**What is the @ prefix?**
-
-The ``@`` prefix is a convenient shortcut to access MassGen's built-in example configurations:
-
-* ``@examples/`` maps to the installed package's example configurations
-* Works from **any directory** (no need to be in MassGen folder)
-* Easier to type and remember
-* Part of the installed package, always available
-
-.. code-block:: bash
-
-   # List all available @examples/ configurations
-   massgen --list-examples
-
-Migration Guide
-~~~~~~~~~~~~~~~
-
-You have several options for migrating to the new PyPI package:
-
-**Option 1: Global Install (Recommended)**
-
-.. code-block:: bash
-
-   # Install MassGen globally via pip
-   pip install massgen
-
-   # Now use the simple 'massgen' command from anywhere
-   massgen --config @examples/basic/multi/three_agents_default "Question"
-
-**Option 2: Keep Git Clone with Editable Install**
-
-.. code-block:: bash
-
-   # Keep your git clone and install in editable mode
-   cd /path/to/MassGen
-   pip install -e .
-
-   # Now you can use 'massgen' from anywhere
-   cd ~/other-project
-   massgen --config @examples/basic/multi/three_agents_default "Question"
-
-**Option 3: Continue Using Old Syntax**
-
-.. code-block:: bash
-
-   # Your existing commands still work
-   cd /path/to/MassGen
-   python -m massgen.cli --config massgen/configs/basic/multi/three_agents_default.yaml "Question"
-
-Compatibility Summary
-~~~~~~~~~~~~~~~~~~~~~
-
-* ✅ ``massgen`` - New simplified command (recommended)
-* ✅ ``python -m massgen.cli`` - Old command syntax (still works)
-* ✅ ``@examples/...`` - New config prefix (recommended)
-* ✅ ``massgen/configs/...`` - Old config paths (still work when in MassGen directory)
-* ✅ Custom config paths (``./my-config.yaml``) - Work in both old and new syntax
+      :doc:`../user_guide/tools/index`

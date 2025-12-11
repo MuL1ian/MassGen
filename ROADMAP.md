@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.16
+**Current Version:** v0.1.23
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** November 24, 2025
+**Last Updated:** December 10, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,50 +42,18 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.17** | 11/26/25 | Broadcasting to Humans/Agents for Implementation Questions | @ncrispino | Enable agents to broadcast questions when facing implementation uncertainties |
-| | | Grok 4.1 Fast Model Support | @ncrispino | Add support for xAI's Grok 4.1 Fast model |
-| **v0.1.18** | 11/28/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
-| | | Textual Terminal Display | @praneeth999 | Rich terminal UI with Textual framework for enhanced visualization |
-| **v0.1.19** | 12/02/25 | Filesystem-Based Memory Reliability | @ncrispino | Ensure memory persistence across turns with filesystem backend |
+| **v0.1.24** | 12/12/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
 | | | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
+| **v0.1.25** | 12/15/25 | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
+| | | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
+| **v0.1.26** | 12/17/25 | Clarify Code Execution in Docs | @ncrispino | Improve documentation clarity for code execution features |
+| | | Local Computer Use Models | @franklinnwren | Add support for local vision models in computer use workflows |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.17 - Broadcasting & Model Support
-
-### Features
-
-**1. Broadcasting to Humans/Agents for Implementation Questions** (@ncrispino)
-- Issue: [#437](https://github.com/massgen/MassGen/issues/437)
-- Enable agents to broadcast questions when facing implementation uncertainties
-- Support for human-in-the-loop clarification during task execution
-- Agent-to-agent communication for collaborative problem solving
-- Structured question/answer workflow with context preservation
-- Integration with existing orchestration and coordination systems
-- **Use Case**: When agents encounter ambiguous requirements or implementation decisions, they can broadcast questions to humans or other agents for clarification, improving decision quality and reducing errors
-
-**2. Grok 4.1 Fast Model Support** (@ncrispino)
-- Issue: [#540](https://github.com/massgen/MassGen/issues/540)
-- Add support for xAI's Grok 4.1 Fast model
-- Integration with existing Grok backend infrastructure
-- Pricing and token counting configuration
-- Model capability registration in backend capabilities
-- Performance optimization for fast inference
-- **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses and cost-effective multi-agent workflows
-
-### Success Criteria
-- ✅ Agents can broadcast questions to humans during execution
-- ✅ Agent-to-agent question routing works seamlessly
-- ✅ Question context is preserved and responses are integrated
-- ✅ Grok 4.1 Fast model is accessible via configuration
-- ✅ Token counting and pricing are accurate for Grok 4.1 Fast
-- ✅ Model performs with expected latency and cost characteristics
-
----
-
-## 📋 v0.1.18 - RL Integration & Enhanced UI
+## 📋 v0.1.24 - RL Integration & MCP Ecosystem
 
 ### Features
 
@@ -94,58 +62,69 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- Policy optimization for task execution strategies
-- Learning from past interactions to improve future performance
-- **Use Case**: Enable agents to learn and improve their performance over time through reinforcement learning, optimizing coordination strategies and task execution based on past successes and failures
-
-**2. Textual Terminal Display** (@praneeth999)
-- Issue: [#539](https://github.com/massgen/MassGen/issues/539)
-- Rich terminal UI using Textual framework
-- Enhanced visualization for multi-agent coordination
-- Interactive agent status displays with real-time updates
-- Improved logging and debugging interface
-- Modern TUI with responsive layout and themes
-- **Use Case**: Provide a more intuitive and visually appealing terminal interface for monitoring multi-agent workflows, improving user experience and debugging capabilities
-
-### Success Criteria
-- ✅ RL framework successfully integrates with MassGen architecture
-- ✅ Agents demonstrate learning and improvement over repeated tasks
-- ✅ Reward modeling accurately reflects task success metrics
-- ✅ Textual UI renders correctly across different terminal emulators
-- ✅ Real-time updates display agent activities without performance degradation
-- ✅ UI is intuitive and improves user experience over current display
-
----
-
-## 📋 v0.1.19 - Memory & MCP Ecosystem Expansion
-
-### Features
-
-**1. Filesystem-Based Memory Reliability** (@ncrispino)
-- Issue: [#499](https://github.com/massgen/MassGen/issues/499)
-- Ensure filesystem-based memory is reliable and can be used across turns
-- Persistent memory state with atomic write operations
-- Crash recovery and data consistency guarantees
-- Multi-turn conversation memory continuity
-- Performance optimization for large memory contexts
-- **Use Case**: Enable reliable long-term memory persistence using filesystem backend, ensuring agents can maintain context across multiple conversation turns and system restarts without data loss
+- **Use Case**: Enable agents to learn and improve their performance over time through reinforcement learning
 
 **2. Smithery MCP Tools Support** (@ncrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
-- Curated registry of high-quality MCP tools from Smithery ecosystem
-- Simplified tool onboarding for users
-- Enhanced tool discovery and recommendation system
-- **Use Case**: Expand MassGen's tool ecosystem by integrating with Smithery, giving users access to a wider range of curated MCP tools without manual configuration
+- **Use Case**: Expand MassGen's tool ecosystem by integrating with Smithery
 
 ### Success Criteria
-- ✅ Filesystem memory operations are atomic and crash-safe
-- ✅ Memory state persists reliably across conversation turns
-- ✅ Performance remains acceptable with large memory contexts
+- ✅ RL framework successfully integrates with MassGen architecture
 - ✅ Smithery integration discovers and installs MCP tools automatically
-- ✅ Tool registry includes curated Smithery tools with proper metadata
-- ✅ Users can easily browse and install Smithery tools
+
+---
+
+## 📋 v0.1.25 - Memory as Tools & Grok 4.1 Fast
+
+### Features
+
+**1. Memory as Tools** (@ncrispino)
+- Issue: [#461](https://github.com/massgen/MassGen/issues/461)
+- Include memory (including filesystem) as callable tools for agents
+- Agents can explicitly invoke memory operations via tool calls
+- Unified interface for different memory backends
+- **Use Case**: Enable agents to have explicit control over memory operations, allowing them to store, retrieve, and manage persistent information as tool calls
+
+**2. Grok 4.1 Fast Model Support** (@praneeth999)
+- Issue: [#540](https://github.com/massgen/MassGen/issues/540)
+- Add support for xAI's Grok 4.1 Fast model
+- Integration with existing Grok backend infrastructure
+- Pricing and token counting configuration
+- **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses
+
+### Success Criteria
+- ✅ Memory operations are available as callable tools
+- ✅ Agents can explicitly store and retrieve information
+- ✅ Grok 4.1 Fast model is accessible via configuration
+- ✅ Token counting and pricing are accurate for Grok 4.1 Fast
+
+---
+
+## 📋 v0.1.26 - Code Execution Documentation & Local Computer Use
+
+### Features
+
+**1. Clarify Code Execution in Docs** (@ncrispino)
+- Issue: [#573](https://github.com/massgen/MassGen/issues/573)
+- Improve documentation clarity for code execution features
+- Clear examples and usage patterns for code execution sandbox
+- Best practices and security considerations
+- **Use Case**: Help users understand and effectively use code execution capabilities
+
+**2. Local Computer Use Models** (@franklinnwren)
+- Issue: [#559](https://github.com/massgen/MassGen/issues/559)
+- Add support for local vision models in computer use workflows
+- Enable computer use without relying on cloud-based vision APIs
+- Integration with local model serving infrastructure
+- **Use Case**: Run computer use agents with local models for privacy, cost savings, and offline operation
+
+### Success Criteria
+- ✅ Code execution documentation is clear and comprehensive
+- ✅ Users can follow guides to enable and use code execution
+- ✅ Local vision models can be used for computer use tasks
+- ✅ Documentation covers local model setup and configuration
 
 ---
 
@@ -323,52 +302,150 @@ These features are being actively developed on **separate parallel tracks** and 
 - Standardize memory access patterns
 - **Status:** ✅ Completed in v0.1.16
 
+### Track: Textual Terminal Display (@praneeth999, ram2561)
+- Issue: [#539](https://github.com/massgen/MassGen/issues/539)
+- PR: [#482](https://github.com/massgen/MassGen/pull/482)
+- Rich terminal UI using Textual framework with dark/light themes
+- Enhanced visualization for multi-agent coordination
+- **Status:** ✅ Completed in v0.1.17
+
 ### Track: Broadcasting to Humans/Agents (@ncrispino, nickcrispino)
 - Issue: [#437](https://github.com/massgen/MassGen/issues/437)
+- PR: [#569](https://github.com/massgen/MassGen/pull/569)
 - Enable agents to broadcast questions when facing implementation uncertainties
 - Human-in-the-loop and agent-to-agent communication for clarification
-- **Target:** v0.1.17
+- **Status:** ✅ Completed in v0.1.18
 
-### Track: Grok 4.1 Fast Model Support (@ncrispino, nickcrispino)
+### Track: Claude Advanced Tooling (@praneeth999, ram2561)
+- PR: [#568](https://github.com/massgen/MassGen/pull/568)
+- Programmatic tool calling from code execution sandbox
+- Server-side tool search with deferred loading
+- **Status:** ✅ Completed in v0.1.18
+
+### Track: LiteLLM Integration & Programmatic API (@ncrispino, nickcrispino)
+- PR: [#580](https://github.com/massgen/MassGen/pull/580)
+- MassGen as a LiteLLM custom provider with `MassGenLLM` class
+- New `run()` and `build_config()` functions for programmatic execution
+- `NoneDisplay` for silent output in programmatic/LiteLLM use
+- **Status:** ✅ Completed in v0.1.19
+
+### Track: Claude Strict Tool Use & Structured Outputs (@praneeth999, ram2561)
+- PR: [#572](https://github.com/massgen/MassGen/pull/572)
+- `enable_strict_tool_use` config flag with recursive schema patching
+- `output_schema` parameter for structured JSON outputs
+- **Status:** ✅ Completed in v0.1.19
+
+### Track: Gemini Exponential Backoff (@praneeth999, ram2561)
+- PR: [#576](https://github.com/massgen/MassGen/pull/576)
+- Automatic retry mechanism for rate limit errors (429, 503)
+- Jittered exponential backoff with `Retry-After` header support
+- **Status:** ✅ Completed in v0.1.19
+
+### Track: CUA Dockerfile / Auto Docker Setup (@franklinnwren, zhichengren)
+- Issue: [#552](https://github.com/massgen/MassGen/issues/552)
+- Automatic Docker container setup for Computer Use Agent
+- Auto-detection of CUA configs with automatic container creation
+- **Status:** ✅ Completed in v0.1.20
+
+### Track: Web UI (@voidcenter, justin_zhang)
+- PR: [#588](https://github.com/massgen/MassGen/pull/588)
+- Browser-based real-time visualization for multi-agent coordination
+- FastAPI server with WebSocket streaming and React frontend
+- **Status:** ✅ Completed in v0.1.20
+
+### Track: Response API Formatter Enhancement (@praneeth999, ram2561)
+- Improved function call handling for multi-turn contexts
+- Preserves function_call entries and generates stub outputs
+- **Status:** ✅ Completed in v0.1.20
+
+### Track: Computer Use Documentation (@franklinnwren, zhichengren)
+- Issue: [#562](https://github.com/massgen/MassGen/issues/562)
+- Comprehensive documentation for computer use workflows
+- Environment naming conventions and automatic setup instructions
+- **Status:** ✅ Completed in v0.1.20
+
+### Track: Graceful Cancellation (@ncrispino, nickcrispino)
+- PR: [#596](https://github.com/massgen/MassGen/pull/596)
+- Ctrl+C saves partial progress during multi-agent coordination
+- Session restoration for incomplete turns with `--continue`
+- Multi-turn mode returns to prompt instead of exiting
+- **Status:** ✅ Completed in v0.1.21
+
+### Track: Shadow Agent Architecture (@ncrispino, nickcrispino)
+- PR: [#600](https://github.com/massgen/MassGen/pull/600)
+- Shadow agents for non-blocking broadcast responses
+- Full context inheritance (conversation history + current turn)
+- Parallel spawning with asyncio.gather()
+- **Status:** ✅ Completed in v0.1.22
+
+### Track: Web UI Automation Mode (@voidcenter, @ncrispino, justin_zhang, nickcrispino)
+- PR: [#607](https://github.com/massgen/MassGen/pull/607)
+- Automation-friendly Web UI view with status header and session polling
+- LOG_DIR and STATUS path output for programmatic monitoring
+- Session persistence API for completed sessions
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Multi-Turn Cancellation Improvements (@ncrispino, nickcrispino)
+- PR: [#608](https://github.com/massgen/MassGen/pull/608)
+- Flag-based cancellation handling in multi-turn mode
+- Terminal state restoration after Rich display cancellation
+- Cancelled turns build proper history entries with partial results
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Docker Container Persistence (@ncrispino, nickcrispino)
+- Commit: 34279c88
+- SessionMountManager for pre-mounting session directories to Docker containers
+- Eliminates container recreation between turns (sub-second vs 2-5 second transitions)
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Turn History Inspection (@ncrispino, nickcrispino)
+- Commits: 028f591d, 477423a6
+- New `/inspect` command for reviewing agent outputs from any turn
+- `/inspect all` to list all turns with summaries
+- Interactive menu for viewing agent outputs, final answers, and coordination logs
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Async Execution Consistency (@ncrispino, nickcrispino)
+- PR: [#608](https://github.com/massgen/MassGen/pull/608)
+- New `run_async_safely()` helper for nested event loop handling
+- Fixed mem0 adapter async lifecycle issues
+- **Status:** ✅ Completed in v0.1.23
+
+### Track: Grok 4.1 Fast Model Support (@praneeth999, ram2561)
 - Issue: [#540](https://github.com/massgen/MassGen/issues/540)
 - Add support for xAI's Grok 4.1 Fast model
 - Integration with existing Grok backend infrastructure
-- **Target:** v0.1.17
+- **Target:** v0.1.25
+
+### Track: Clarify Code Execution in Docs (@ncrispino, nickcrispino)
+- Issue: [#573](https://github.com/massgen/MassGen/issues/573)
+- Improve documentation clarity for code execution features
+- Clear examples and usage patterns
+- **Target:** v0.1.26
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.18
-
-### Track: Textual Terminal Display (@praneeth999, ram2561)
-- Issue: [#539](https://github.com/massgen/MassGen/issues/539)
-- Rich terminal UI using Textual framework
-- Enhanced visualization for multi-agent coordination
-- **Target:** v0.1.18
-
-### Track: Filesystem-Based Memory Reliability (@ncrispino, nickcrispino)
-- Issue: [#499](https://github.com/massgen/MassGen/issues/499)
-- Ensure filesystem-based memory is reliable across conversation turns
-- Persistent memory state with atomic operations
-- **Target:** v0.1.19
+- **Target:** v0.1.24
 
 ### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
-- **Target:** v0.1.19
+- **Target:** v0.1.24
+
+### Track: Memory as Tools (@ncrispino, nickcrispino)
+- Issue: [#461](https://github.com/massgen/MassGen/issues/461)
+- Include memory (including filesystem) as callable tools for agents
+- Unified interface for different memory backends
+- **Target:** v0.1.25
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
 - Enhanced file operations and workspace management
 - **Shipping:** Continuous improvement
-
-### Track: Web UI (@voidcenter, justin_zhang)
-- PR: [#257](https://github.com/massgen/MassGen/pull/257)
-- Visual multi-agent coordination interface
-- **Target:** TBD
 
 ---
 
@@ -440,5 +517,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** November 24, 2025
+**Last Updated:** December 10, 2025
 **Maintained By:** MassGen Team

@@ -67,6 +67,8 @@ class FilesystemManager:
         exclude_custom_tools: Optional[List[str]] = None,
         shared_tools_directory: Optional[str] = None,
         instance_id: Optional[str] = None,
+        filesystem_session_id: Optional[str] = None,
+        session_storage_base: Optional[str] = None,
     ):
         """
         Initialize FilesystemManager.
@@ -100,6 +102,10 @@ class FilesystemManager:
                                     If provided, tools are generated once in shared location (read-only for all agents).
                                     If None, tools are generated in each agent's workspace (per-agent, in snapshots).
             instance_id: Optional unique instance ID for parallel execution (used in Docker container naming)
+            filesystem_session_id: Optional session ID for multi-turn support. When provided with session_storage_base,
+                       enables session directory pre-mounting for Docker containers.
+            session_storage_base: Base directory for session storage (e.g., ".massgen/sessions").
+                                 Required along with filesystem_session_id for session pre-mounting.
         """
         self.agent_id = None  # Will be set by orchestrator via setup_orchestration_paths
         self.instance_id = instance_id  # Unique instance ID for parallel execution
@@ -175,6 +181,18 @@ class FilesystemManager:
                 packages=command_line_docker_packages,
                 instance_id=instance_id,
             )
+
+        # Initialize session mount manager for multi-turn Docker support
+        # This pre-mounts the session directory so all turn workspaces are
+        # automatically visible without container recreation between turns
+        self.session_mount_manager = None
+        if filesystem_session_id and session_storage_base and self.docker_manager:
+            from ._session_mount_manager import SessionMountManager
+
+            self.session_mount_manager = SessionMountManager(Path(session_storage_base))
+            self.session_mount_manager.initialize_session(filesystem_session_id)
+            logger.info(f"[FilesystemManager] Session mount manager initialized for session {filesystem_session_id}")
+
         self.enable_audio_generation = enable_audio_generation
 
         # Store merged skills directory path for local mode
@@ -264,11 +282,19 @@ class FilesystemManager:
         # Create Docker container if Docker mode enabled
         if self.docker_manager and self.agent_id:
             context_paths = self.path_permission_manager.get_context_paths()
+
+            # Get session mount config if session manager is initialized
+            session_mount = None
+            if self.session_mount_manager:
+                session_mount = self.session_mount_manager.get_mount_config()
+                logger.info(f"[FilesystemManager] Session mount configured: {session_mount}")
+
             docker_skills_dir = self.docker_manager.create_container(
                 agent_id=self.agent_id,
                 workspace_path=self.cwd,
                 temp_workspace_path=self.agent_temporary_workspace_parent if self.agent_temporary_workspace_parent else None,
                 context_paths=context_paths,
+                session_mount=session_mount,
                 skills_directory=skills_directory,
                 massgen_skills=massgen_skills,
                 shared_tools_directory=self.shared_tools_base,
@@ -362,6 +388,33 @@ class FilesystemManager:
         for skill in all_skills:
             title = skill.get("title", skill.get("name", "Unknown"))
             logger.info(f"[Local]   - {skill['name']}: {title}")
+
+    def add_turn_context_path(self, turn_path: Path) -> None:
+        """Register a turn workspace as available context.
+
+        When session directory is pre-mounted in Docker, this method registers
+        a new turn's workspace path with the permission manager so agents can
+        access it. No container restart is needed because the parent session
+        directory is already mounted.
+
+        Args:
+            turn_path: Path to the turn's workspace directory
+        """
+        resolved_path = turn_path.resolve()
+        self.path_permission_manager.add_path(
+            resolved_path,
+            Permission.READ,
+            f"session_turn_{turn_path.parent.name}",
+        )
+        logger.info(f"[FilesystemManager] Added turn context path: {resolved_path}")
+
+    def has_session_mount(self) -> bool:
+        """Check if session directory is pre-mounted for this filesystem manager.
+
+        Returns:
+            True if session mount manager is initialized, False otherwise.
+        """
+        return self.session_mount_manager is not None
 
     def setup_massgen_skill_directories(self, massgen_skills: list) -> None:
         """
@@ -957,8 +1010,9 @@ class FilesystemManager:
         if workspace.exists() and workspace.is_dir():
             for item in workspace.iterdir():
                 if item.is_symlink():
-                    logger.warning(f"[FilesystemManager.save_snapshot] Skipping symlink during clear: {item}")
-                if item.is_file():
+                    # Symlinks must be unlinked directly - rmtree fails on symlinks to directories
+                    item.unlink()
+                elif item.is_file():
                     item.unlink()
                 elif item.is_dir():
                     shutil.rmtree(item)
@@ -1375,7 +1429,7 @@ class FilesystemManager:
                     items_copied = 0
                     for item in source_path.iterdir():
                         if item.is_symlink():
-                            logger.warning(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
+                            logger.debug(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
                             continue
                         if item.is_file():
                             shutil.copy2(item, self.snapshot_storage / item.name)
@@ -1404,7 +1458,7 @@ class FilesystemManager:
                 items_copied = 0
                 for item in source_path.iterdir():
                     if item.is_symlink():
-                        logger.warning(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
+                        logger.debug(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
                         continue
                     if item.is_file():
                         shutil.copy2(item, dest_dir / item.name)
@@ -1445,7 +1499,7 @@ class FilesystemManager:
             for item in items_to_clear:
                 logger.info(f" - {item}")
                 if item.is_symlink():
-                    logger.warning(f"[FilesystemManager] Skipping symlink during clear: {item}")
+                    logger.debug(f"[FilesystemManager] Skipping symlink during clear: {item}")
                     continue
                 if item.is_file():
                     item.unlink()
@@ -1485,7 +1539,7 @@ class FilesystemManager:
             for item in items_to_clear:
                 logger.info(f" - Removing temp workspace item: {item}")
                 if item.is_symlink():
-                    logger.warning(f"[FilesystemManager] Skipping symlink during temp clear: {item}")
+                    logger.debug(f"[FilesystemManager] Skipping symlink during temp clear: {item}")
                     continue
                 if item.is_file():
                     item.unlink()

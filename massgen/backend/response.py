@@ -167,18 +167,13 @@ class ResponseBackend(CustomToolAndMCPBackend):
             tool_type: "custom" or "mcp"
 
         Note:
-            Response API requires both function_call and function_call_output messages.
+            For reasoning models (GPT-5, o3, o4-mini), function_call items are already
+            included via response_output_items. We only add function_call_output here.
+            The function_call is already present from response.output to maintain
+            reasoning item continuity.
         """
-        # Add function call message
-        function_call_msg = {
-            "type": "function_call",
-            "call_id": call.get("call_id", ""),
-            "name": call.get("name", ""),
-            "arguments": call.get("arguments", "{}"),
-        }
-        updated_messages.append(function_call_msg)
-
-        # Add function output message
+        # Only add function output message
+        # function_call is already included from response.output (with reasoning items)
         function_output_msg = {
             "type": "function_call_output",
             "call_id": call.get("call_id", ""),
@@ -202,18 +197,13 @@ class ResponseBackend(CustomToolAndMCPBackend):
             tool_type: "custom" or "mcp"
 
         Note:
-            Response API requires both function_call and function_call_output messages.
+            For reasoning models (GPT-5, o3, o4-mini), function_call items are already
+            included via response_output_items. We only add function_call_output here.
+            The function_call is already present from response.output to maintain
+            reasoning item continuity.
         """
-        # Add function call message
-        function_call_msg = {
-            "type": "function_call",
-            "call_id": call.get("call_id", ""),
-            "name": call.get("name", ""),
-            "arguments": call.get("arguments", "{}"),
-        }
-        updated_messages.append(function_call_msg)
-
-        # Add error output message
+        # Only add error output message
+        # function_call is already included from response.output (with reasoning items)
         error_output_msg = {
             "type": "function_call_output",
             "call_id": call.get("call_id", ""),
@@ -279,6 +269,8 @@ class ResponseBackend(CustomToolAndMCPBackend):
         captured_function_calls = []
         current_function_call = None
         response_completed = False
+        response_id = None  # Track response ID for reasoning continuity
+        response_output_items = []  # Track ALL output items (reasoning, messages, function_calls)
 
         async for chunk in stream:
             if hasattr(chunk, "type"):
@@ -319,6 +311,21 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 if chunk.type == "response.completed":
                     response_completed = True
                     # Note: Usage tracking is handled in _process_stream_chunk() above
+                    # Capture response ID and ALL output items for reasoning continuity
+                    if hasattr(chunk, "response") and chunk.response:
+                        response_id = getattr(chunk.response, "id", None)
+                        if response_id:
+                            logger.debug(f"Captured response ID for reasoning continuity: {response_id}")
+                        # CRITICAL: Capture ALL output items (reasoning, function_call, message)
+                        # These must be included in the next request for reasoning models
+                        output = getattr(chunk.response, "output", [])
+                        if output:
+                            for item in output:
+                                # Convert to dict format for the API
+                                item_dict = self._convert_to_dict(item) if hasattr(item, "model_dump") or hasattr(item, "dict") else item
+                                if isinstance(item_dict, dict):
+                                    response_output_items.append(item_dict)
+                            logger.debug(f"Captured {len(response_output_items)} output items for reasoning continuity")
                     if captured_function_calls:
                         # Execute captured function calls and recurse
                         break  # Exit chunk loop to execute functions
@@ -342,6 +349,14 @@ class ResponseBackend(CustomToolAndMCPBackend):
             functions_executed = False
             updated_messages = current_messages.copy()
             processed_call_ids = set()  # Initialize processed_call_ids here
+
+            # CRITICAL: Include ALL response output items (reasoning, function_calls, messages)
+            # This is required for reasoning models like GPT-5, o3, o4-mini
+            # Without reasoning items, subsequent API calls will fail with:
+            # "Item 'msg_...' of type 'message' was provided without its required 'reasoning' item"
+            if response_output_items:
+                updated_messages.extend(response_output_items)
+                logger.debug(f"Added {len(response_output_items)} response output items to messages for reasoning continuity")
 
             # Configuration for custom tool execution
             CUSTOM_TOOL_CONFIG = ToolExecutionConfig(
@@ -509,15 +524,8 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 if call["call_id"] not in processed_call_ids:
                     logger.warning(f"Tool call {call['call_id']} for function {call['name']} was not processed - adding error result")
 
-                    # Add missing function call and error result to messages
-                    function_call_msg = {
-                        "type": "function_call",
-                        "call_id": call["call_id"],
-                        "name": call["name"],
-                        "arguments": call["arguments"],
-                    }
-                    updated_messages.append(function_call_msg)
-
+                    # Only add error output message
+                    # function_call is already included from response.output (with reasoning items)
                     error_output_msg = {
                         "type": "function_call_output",
                         "call_id": call["call_id"],
@@ -530,8 +538,13 @@ class ResponseBackend(CustomToolAndMCPBackend):
             if functions_executed:
                 updated_messages = super()._trim_message_history(updated_messages)
 
+                # Pass response_id for reasoning continuity in recursive call
+                recursive_kwargs = kwargs.copy()
+                if response_id:
+                    recursive_kwargs["previous_response_id"] = response_id
+
                 # Recursive call with updated messages
-                async for chunk in self._stream_with_custom_and_mcp_tools(updated_messages, tools, client, **kwargs):
+                async for chunk in self._stream_with_custom_and_mcp_tools(updated_messages, tools, client, **recursive_kwargs):
                     yield chunk
             else:
                 # No functions were executed, we're done

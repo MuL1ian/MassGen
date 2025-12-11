@@ -11,13 +11,16 @@ or a coordinated multi-agent system.
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
 
 from .backend.base import LLMBackend, StreamChunk
 from .logger_config import logger
 from .memory import ConversationMemory, PersistentMemoryBase
 from .stream_chunk import ChunkType
 from .utils import CoordinationStage
+
+if TYPE_CHECKING:
+    pass
 
 
 class ChatAgent(ABC):
@@ -205,6 +208,17 @@ class SingleAgent(ChatAgent):
         if self.system_message:
             self.conversation_history.append({"role": "system", "content": self.system_message})
 
+        # Orchestrator reference (for coordination features)
+        self._orchestrator = None  # Will be set by orchestrator during initialization
+
+        # Track current turn's full context (for shadow agents to access)
+        # This captures everything streamed in the current turn, not just text content
+        # Cleared at the start of each turn
+        self._current_turn_content = ""  # Text content
+        self._current_turn_tool_calls = []  # Tool calls made
+        self._current_turn_reasoning = []  # Reasoning/thinking (if enabled)
+        self._current_turn_mcp_calls = []  # MCP tool calls with args/results
+
     @staticmethod
     def _get_chunk_type_value(chunk) -> str:
         """
@@ -230,6 +244,12 @@ class SingleAgent(ChatAgent):
         complete_message = None
         messages_to_record = []
 
+        # Clear current turn context at start of stream processing (for shadow agents)
+        self._current_turn_content = ""
+        self._current_turn_tool_calls = []
+        self._current_turn_reasoning = []
+        self._current_turn_mcp_calls = []
+
         # Optional accumulators (based on config)
         all_tool_calls_executed = [] if self._record_all_tool_calls else None
         reasoning_chunks = [] if self._record_reasoning else None
@@ -240,10 +260,15 @@ class SingleAgent(ChatAgent):
                 chunk_type = self._get_chunk_type_value(chunk)
                 if chunk_type == "content":
                     assistant_response += chunk.content
+                    # Also track for shadow agents to access
+                    self._current_turn_content += chunk.content
                     yield chunk
                 elif chunk_type == "tool_calls":
                     chunk_tool_calls = getattr(chunk, "tool_calls", []) or []
                     tool_calls.extend(chunk_tool_calls)
+
+                    # Track for shadow agents (always)
+                    self._current_turn_tool_calls.extend(chunk_tool_calls)
 
                     # Optionally accumulate ALL tool calls for memory
                     if self._record_all_tool_calls and chunk_tool_calls:
@@ -252,58 +277,81 @@ class SingleAgent(ChatAgent):
 
                     yield chunk
                 elif chunk_type == "reasoning":
+                    # Track for shadow agents (always capture reasoning)
+                    if hasattr(chunk, "content") and chunk.content:
+                        self._current_turn_reasoning.append({"type": "reasoning", "content": chunk.content})
+
                     # Optionally accumulate reasoning chunks for memory
                     if self._record_reasoning and hasattr(chunk, "content") and chunk.content:
                         reasoning_chunks.append(chunk.content)
                     yield chunk
                 elif chunk_type == "reasoning_summary":
+                    # Track for shadow agents
+                    if hasattr(chunk, "content") and chunk.content:
+                        self._current_turn_reasoning.append({"type": "summary", "content": chunk.content})
+
                     # Optionally accumulate reasoning summaries for memory
                     if self._record_reasoning and hasattr(chunk, "content") and chunk.content:
                         reasoning_summaries.append(chunk.content)
                     yield chunk
                 elif chunk_type == "mcp_status":
-                    # Optionally track MCP tool calls for memory (if record_all_tool_calls enabled)
-                    if self._record_all_tool_calls and all_tool_calls_executed is not None:
-                        import re
+                    # Extract status for broadcast checking (always needed)
+                    status = getattr(chunk, "status", "")
+                    content = getattr(chunk, "content", "")
 
-                        content = getattr(chunk, "content", "")
-                        status = getattr(chunk, "status", "")
+                    import re
 
-                        # Status 1: Tool call initiated - "🔧 [MCP Tool] Calling tool_name..."
-                        if status == "mcp_tool_called" and "Calling " in content:
-                            match = re.search(r"Calling ([^\s\.]+)", content)
-                            if match:
-                                tool_name = match.group(1)
-                                all_tool_calls_executed.append(
-                                    {
-                                        "name": tool_name,
-                                        "type": "mcp_tool",
-                                        "arguments": "",  # Will be filled in next chunk
-                                        "result": "",  # Will be filled in later chunk
-                                    },
-                                )
-                                logger.debug(f"   🔧 [MCP tracking] Started tracking: {tool_name}")
+                    # Track MCP tool calls for shadow agents (always) and optionally for memory
+                    # Status 1: Tool call initiated - "🔧 [MCP Tool] Calling tool_name..."
+                    if status == "mcp_tool_called" and "Calling " in content:
+                        match = re.search(r"Calling ([^\s\.]+)", content)
+                        if match:
+                            tool_name = match.group(1)
+                            mcp_call = {
+                                "name": tool_name,
+                                "type": "mcp_tool",
+                                "arguments": "",  # Will be filled in next chunk
+                                "result": "",  # Will be filled in later chunk
+                            }
+                            # Track for shadow agents
+                            self._current_turn_mcp_calls.append(mcp_call)
+                            # Track for memory if enabled
+                            if self._record_all_tool_calls and all_tool_calls_executed is not None:
+                                all_tool_calls_executed.append(mcp_call.copy())
+                            logger.debug(f"   🔧 [MCP tracking] Started tracking: {tool_name}")
 
-                        # Status 2: Arguments - "Arguments for Calling tool_name: {...}"
-                        elif status == "function_call" and "Arguments for Calling " in content:
-                            match = re.search(r"Arguments for Calling ([^\s:]+): (.+)", content)
-                            if match and all_tool_calls_executed:
-                                tool_name = match.group(1)
-                                args = match.group(2)
-                                # Update the last tool call with arguments
+                    # Status 2: Arguments - "Arguments for Calling tool_name: {...}"
+                    elif status == "function_call" and "Arguments for Calling " in content:
+                        match = re.search(r"Arguments for Calling ([^\s:]+): (.+)", content)
+                        if match:
+                            tool_name = match.group(1)
+                            args = match.group(2)
+                            # Update shadow agent tracking
+                            for tool in reversed(self._current_turn_mcp_calls):
+                                if tool.get("name") == tool_name and not tool.get("arguments"):
+                                    tool["arguments"] = args
+                                    break
+                            # Update memory tracking if enabled
+                            if self._record_all_tool_calls and all_tool_calls_executed:
                                 for tool in reversed(all_tool_calls_executed):
                                     if tool.get("name") == tool_name and not tool.get("arguments"):
                                         tool["arguments"] = args
                                         logger.debug(f"   🔧 [MCP tracking] Added args for: {tool_name}")
                                         break
 
-                        # Status 3: Results - "Results for Calling tool_name: [...]"
-                        elif status == "function_call_output" and "Results for Calling " in content:
-                            match = re.search(r"Results for Calling ([^\s:]+): (.+)", content, re.DOTALL)
-                            if match and all_tool_calls_executed:
-                                tool_name = match.group(1)
-                                result = match.group(2)
-                                # Update the last tool call with results (no truncation - send full data to mem0)
+                    # Status 3: Results - "Results for Calling tool_name: [...]"
+                    elif status == "function_call_output" and "Results for Calling " in content:
+                        match = re.search(r"Results for Calling ([^\s:]+): (.+)", content, re.DOTALL)
+                        if match:
+                            tool_name = match.group(1)
+                            result = match.group(2)
+                            # Update shadow agent tracking
+                            for tool in reversed(self._current_turn_mcp_calls):
+                                if tool.get("name") == tool_name and not tool.get("result"):
+                                    tool["result"] = result
+                                    break
+                            # Update memory tracking if enabled
+                            if self._record_all_tool_calls and all_tool_calls_executed:
                                 for tool in reversed(all_tool_calls_executed):
                                     if tool.get("name") == tool_name and not tool.get("result"):
                                         tool["result"] = result

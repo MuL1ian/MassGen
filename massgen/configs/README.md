@@ -227,7 +227,179 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.16 - Latest
+### v0.1.23 - Latest
+**New Features:** Turn History Inspection, Web UI Automation Mode, Docker Container Persistence, Async Execution Consistency
+
+**Key Features:**
+- **Turn History Inspection**: Review any turn's agent outputs and coordination data with `/inspect` commands
+- **Web UI Automation Mode**: Streamlined interface with `AutomationView` component for programmatic monitoring workflows
+- **Docker Container Persistence**: `SessionMountManager` pre-mounts session directories, eliminating container recreation between turns
+- **Improved Cancellation Handling**: Flag-based cancellation with terminal state restoration via `_restore_terminal_for_input()`
+- **Async Safety Utilities**: `run_async_safely()` handles nested event loops with ThreadPoolExecutor pattern
+
+**Documentation:**
+- `docs/source/user_guide/sessions/multi_turn_mode.rst` - Turn history inspection documentation
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Multi-turn session with turn inspection
+massgen --config @examples/basic/multi/three_agents_default
+# After completing turns, use /inspect to review history:
+#   /inspect all  - List all turns with summaries
+#   /inspect 1    - View Turn 1 details with interactive menu
+
+# Web UI automation mode for programmatic monitoring
+massgen --automation --web --config @examples/basic/multi/three_agents_default \
+  "Analyze multi-agent AI coordination patterns"
+# Outputs LOG_DIR and STATUS path for external monitoring
+```
+
+### v0.1.22
+**New Features:** Shadow Agent Architecture, Full Context Broadcast Responses
+
+**Key Features:**
+- **Shadow Agent Architecture**: Lightweight agent clones spawned in parallel to respond to broadcasts without interrupting parent agents
+- **Full Context Inheritance**: Shadow agents copy parent's complete conversation history and current turn streaming content
+- **Non-Blocking Responses**: Parent agents continue working uninterrupted while shadows handle broadcast responses
+- **Automatic Response Collection**: Shadow agent responses collected via `asyncio.gather()` for maximum parallelism
+- **Parent Agent Awareness**: Informational messages injected into parent agents after shadow responds
+
+**Documentation:**
+- `docs/source/user_guide/advanced/agent_communication.rst` - Shadow agent architecture documentation
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Run a multi-agent session with agent-to-agent communication enabled
+# Enable with: orchestrator.coordination.broadcast: "agents"
+massgen --config @examples/broadcast/test_broadcast_agents \
+  "Design a collaborative architecture for a microservices system"
+# Agents ask each other questions via ask_others() - shadow agents respond in parallel
+```
+
+### v0.1.21
+**New Features:** Graceful Cancellation System, Session Restoration for Incomplete Turns
+
+**Key Features:**
+- **Graceful Cancellation**: Ctrl+C during coordination saves partial progress instead of losing work
+- **Two-Stage Exit**: First Ctrl+C saves and exits gracefully; second forces immediate exit
+- **Session Resumption**: Cancelled sessions can be resumed with `--continue`, preserving agent answers and workspaces
+- **Multi-Turn Behavior**: In interactive mode, first Ctrl+C returns to prompt instead of exiting
+
+**Documentation:**
+- `docs/source/user_guide/sessions/graceful_cancellation.rst` - Graceful cancellation guide
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Run a multi-agent session and press Ctrl+C to test graceful cancellation
+massgen --config @examples/basic/multi/three_agents_default \
+  "Analyze the pros and cons of different programming paradigms"
+# Press Ctrl+C during coordination - partial progress is saved
+
+# Resume a cancelled session
+massgen --continue
+# Agents see previous partial answers and can continue from where they left off
+```
+
+### v0.1.20
+**New Features:** Web UI System, Automatic Computer Use Docker Setup, Response API Improvements
+
+**Key Features:**
+- **Web UI System**: Browser-based real-time visualization with React frontend, WebSocket streaming, and interactive components (AgentCarousel, AnswerBrowser, Timeline, VoteVisualization)
+- **Automatic Docker Setup**: Ubuntu 22.04 container creation for computer use agents with X11 virtual display, xdotool, Firefox, Chromium, and scrot
+- **Response API Improvements**: Enhanced multi-turn context handling with function call preservation and stub output generation
+
+**Try It:**
+```bash
+# Web UI - browser-based multi-agent visualization
+massgen --web --config @examples/basic/multi/three_agents_default \
+  "What are the advantages of multi-agent AI systems?"
+
+# Computer Use with Auto Docker Setup
+massgen --config @examples/tools/custom_tools/claude_computer_use_docker_example \
+  "Open Firefox and search for Python documentation"
+```
+
+### v0.1.19
+**New Features:** LiteLLM Integration & Programmatic API, Claude Strict Tool Use & Structured Outputs, Gemini Exponential Backoff
+
+**Configuration Files:**
+- `providers/claude/strict_tool_use_example.yaml` - Claude strict tool use with custom and MCP tools
+
+**Key Features:**
+- **LiteLLM Integration**: MassGen as a drop-in LiteLLM custom provider via `MassGenLLM` class with `register_with_litellm()` one-line setup
+- **Programmatic API**: New `run()` and `build_config()` functions for direct Python execution, `NoneDisplay` for silent output
+- **Claude Strict Tool Use**: `enable_strict_tool_use` config flag with recursive schema patching, `output_schema` for structured JSON outputs
+- **Gemini Exponential Backoff**: Automatic retry for rate limit errors (429, 503) with `BackoffConfig` and `Retry-After` header support
+
+**Try It:**
+```bash
+# Claude Strict Tool Use - schema validation with structured outputs
+# Prerequisites: ANTHROPIC_API_KEY in .env
+uv run massgen --config massgen/configs/providers/claude/strict_tool_use_example.yaml \
+  "Add 42 and 58, then get weather for Tokyo"
+```
+
+### v0.1.18
+**New Features:** Agent Communication System (Human Broadcast Q&A), Claude Programmatic Tool Calling, Claude Tool Search
+
+**Configuration Files:**
+- `providers/claude/programmatic_with_two_tools.yaml` - Claude programmatic tool calling with custom and MCP tools
+- `providers/claude/tool_search_example.yaml` - Claude tool search with deferred loading
+- `broadcast/test_broadcast_agents.yaml` - Agent-to-agent broadcast communication
+- `broadcast/test_broadcast_human.yaml` - Human broadcast communication with Q&A prompts
+
+**Key Features:**
+- **Agent Communication System**: Agents broadcast questions to humans or other agents via `ask_others()` tool with three modes, blocking execution with inline response delivery, session-persistent Q&A history
+- **Claude Programmatic Tool Calling**: Code execution invokes tools via `enable_programmatic_flow` flag (requires claude-opus-4-5 or claude-sonnet-4-5)
+- **Claude Tool Search**: Server-side deferred tool discovery via `enable_tool_search` with regex or bm25 variants
+
+**Try It:**
+```bash
+# Claude Programmatic Tool Calling - call tools from code execution
+# Prerequisites: ANTHROPIC_API_KEY in .env
+massgen --config massgen/configs/providers/claude/programmatic_with_two_tools.yaml \
+  "Add 5 and 3, then get weather for Tokyo and New York"
+
+# Claude Tool Search - deferred tool discovery (visible + deferred tools)
+# Prerequisites: ANTHROPIC_API_KEY, BRAVE_API_KEY in .env
+massgen --config massgen/configs/providers/claude/tool_search_example.yaml \
+  "Check weather in tokyo, search for tourist attractions, and find me an Airbnb there for 3 nights in january 2026"
+```
+
+### v0.1.17
+**New Features:** Textual Terminal Display System with Dark/Light Themes (Early Release)
+
+**Configuration Files:**
+- `basic/single_agent_textual.yaml` - Single agent with Textual terminal display
+
+**Key Features:**
+- **Textual Terminal Display**: Modern interactive terminal UI using the Textual library with multi-panel layout for agents and orchestrator
+- **Dark & Light Themes**: VS Code-inspired TCSS stylesheets for customizable appearance
+- **Enhanced Visualization**: Real-time streaming with syntax highlighting, emoji fallback, and content filtering for critical patterns
+
+> **Note:** This is an early release of the Textual display. The default remains `rich_terminal` for stability, but we'll continue iterating on the Textual version.
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Textual Terminal Display - enhanced interactive UI with dark/light themes
+# Prerequisites: OPENAI_API_KEY in .env
+massgen --config massgen/configs/basic/single_agent_textual.yaml \
+  "What is the transformers in deep learning?"
+```
+
+### v0.1.16
 **New Features:** Terminal Evaluation System, LiteLLM Cost Tracking, Memory Archiving, Self-Evolution Skills
 
 **Configuration Files:**
@@ -236,27 +408,17 @@ Most configurations use environment variables for API keys:so
 - `skills/test_memory.yaml` - Memory archiving with multi-turn session support
 
 **Key Features:**
-- **Terminal Evaluation System**: Record terminal sessions with VHS and analyze with multimodal AI (GPT-4.1, Claude) for UI/UX evaluation
-- **LiteLLM Cost Tracking**: Accurate pricing for 500+ models with automatic updates, reasoning token support (o1/o3), cached token handling
+- **Terminal Evaluation System**: Record terminal sessions with VHS and analyze with multimodal AI for UI/UX evaluation
+- **LiteLLM Cost Tracking**: Accurate pricing for 500+ models with automatic updates, reasoning token support
 - **Memory Archiving**: Persistent memory across conversation turns for session continuity
-- **Self-Evolution Skills**: Four new skills enabling MassGen to maintain configs, document releases, and develop features
-- **Docker Enhancements**: Parallel image pulling, VHS integration for terminal recording
-- **Model Updates**: Grok 4.1 family and GPT-4.1 models with accurate pricing metadata
+- **Self-Evolution Skills**: Four new skills for MassGen self-development and maintenance
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Terminal Evaluation - record and analyze MassGen's terminal display
 # Prerequisites: VHS installed (brew install vhs), OPENAI_API_KEY or GEMINI_API_KEY in .env
 uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
   "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
-
-# Terminal Evaluation Tool Demo - demonstrates recording and analysis workflow
-# Prerequisites: VHS installed, OPENAI_API_KEY in .env
-uv run massgen --config massgen/configs/tools/custom_tools/terminal_evaluation.yaml \
-  "Record and evaluate the terminal display for the todo example config"
 
 # Memory Archiving - persistent memory across conversation turns
 # Prerequisites: Docker running, API keys in .env

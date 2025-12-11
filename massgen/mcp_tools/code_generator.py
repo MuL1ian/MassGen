@@ -436,15 +436,10 @@ def call_mcp_tool(server: str, tool: str, arguments: Dict[str, Any]) -> Any:
         ValueError: If server not configured or tool not found
         RuntimeError: If MCP client unavailable or call fails
     """
-    # Run async call in event loop
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        # No event loop in current thread, create one
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # Run async call safely (handles both sync and nested async contexts)
+    from massgen.utils import run_async_safely
 
-    return loop.run_until_complete(call_mcp_tool_async(server, tool, arguments))
+    return run_async_safely(call_mcp_tool_async(server, tool, arguments))
 
 
 async def call_mcp_tool_async(server: str, tool: str, arguments: Dict[str, Any]) -> Any:

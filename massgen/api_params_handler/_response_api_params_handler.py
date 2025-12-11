@@ -29,6 +29,7 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
                 "enable_image_generation",  # Internal flag for image generation (used in system messages only)
                 "enable_audio_generation",  # Internal flag for audio generation (used in system messages only)
                 "enable_video_generation",  # Internal flag for video generation (used in system messages only)
+                "previous_response_id",  # Handled explicitly above for reasoning continuity
             },
         )
 
@@ -75,6 +76,13 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
             "input": converted_messages,
             "stream": True,
         }
+
+        # Pass previous_response_id for reasoning model continuity (e.g., GPT-5)
+        # This ensures reasoning items from previous responses are available
+        previous_response_id = all_params.get("previous_response_id")
+        if previous_response_id:
+            api_params["previous_response_id"] = previous_response_id
+            logger.debug(f"Using previous_response_id for reasoning continuity: {previous_response_id}")
 
         # Handle parallel_tool_calls with built-in tools constraint
         builtin_flags = ("enable_web_search", "enable_code_interpreter", "_has_file_search_files")

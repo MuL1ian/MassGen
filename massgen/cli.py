@@ -124,6 +124,51 @@ MASSGEN_QUESTIONARY_STYLE = Style(
 )
 
 
+def _build_coordination_ui(ui_config: Dict[str, Any]) -> CoordinationUI:
+    """Create a CoordinationUI with display_kwargs passthrough (incl. theme)."""
+    display_kwargs = dict(ui_config.get("display_kwargs", {}) or {})
+    theme = ui_config.get("theme")
+    if theme is not None and "theme" not in display_kwargs:
+        display_kwargs["theme"] = theme
+    if ui_config.get("automation_mode"):
+        display_kwargs["automation_mode"] = True
+    if ui_config.get("skip_agent_selector"):
+        display_kwargs["skip_agent_selector"] = True
+
+    return CoordinationUI(
+        display_type=ui_config.get("display_type", "rich_terminal"),
+        logging_enabled=ui_config.get("logging_enabled", True),
+        enable_final_presentation=True,  # Ensures final presentation is generated/saved
+        **display_kwargs,
+    )
+
+
+def _restore_terminal_for_input() -> None:
+    """Restore terminal settings to a known good state for input().
+
+    This is needed after Rich display cancellation, which can leave
+    the terminal in a non-canonical mode.
+    """
+    try:
+        import sys
+
+        if sys.stdin.isatty():
+            try:
+                import termios
+
+                # Get current settings
+                current = termios.tcgetattr(sys.stdin.fileno())
+                # Enable echo and canonical mode (required for input())
+                current[3] = current[3] | termios.ECHO | termios.ICANON
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, current)
+                # Flush any pending input
+                termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+            except ImportError:
+                pass  # termios not available (Windows)
+    except Exception:
+        pass  # Best effort
+
+
 def read_multiline_input(prompt: str) -> str:
     """Read user input with support for multi-line input using triple quotes.
 
@@ -136,6 +181,8 @@ def read_multiline_input(prompt: str) -> str:
     Returns:
         The complete user input (single or multi-line)
     """
+    # Ensure terminal is in a good state for input
+    _restore_terminal_for_input()
     first_line = input(prompt).strip()
 
     # Check for multi-line delimiters
@@ -641,6 +688,8 @@ def create_agents_from_config(
     config_path: Optional[str] = None,
     memory_session_id: Optional[str] = None,
     debug: bool = False,
+    filesystem_session_id: Optional[str] = None,
+    session_storage_base: Optional[str] = None,
 ) -> Dict[str, ConfigurableAgent]:
     """Create agents from configuration.
 
@@ -651,6 +700,10 @@ def create_agents_from_config(
         config_path: Optional path to the config file for error messages
         memory_session_id: Optional session ID to use for memory isolation.
                           If provided, overrides session_name from YAML config.
+        filesystem_session_id: Optional session ID for Docker session pre-mounting.
+                   Enables faster multi-turn by avoiding container recreation.
+        session_storage_base: Base directory for session storage (e.g., ".massgen/sessions").
+                             Required with filesystem_session_id for session pre-mounting.
     """
     agents = {}
 
@@ -702,6 +755,13 @@ def create_agents_from_config(
         # Inject rate limiting flag from CLI
         backend_config["enable_rate_limit"] = enable_rate_limit
 
+        # Inject session mount parameters for multi-turn Docker support
+        # This enables the session directory to be pre-mounted so all turn
+        # workspaces are automatically visible without container recreation
+        if filesystem_session_id and session_storage_base:
+            backend_config["filesystem_session_id"] = filesystem_session_id
+            backend_config["session_storage_base"] = session_storage_base
+
         # Substitute variables like ${cwd} in backend config
         if "cwd" in backend_config:
             variables = {"cwd": backend_config["cwd"]}
@@ -736,6 +796,9 @@ def create_agents_from_config(
         if config_path:
             backend_config["_config_path"] = config_path
 
+        # Get agent_id for AgentConfig (but don't add to backend_config to avoid duplicate kwargs)
+        agent_id = agent_data.get("id", f"agent{i}")
+
         backend = create_backend(backend_type, **backend_config)
         backend_params = {k: v for k, v in backend_config.items() if k not in ("type", "_config_path")}
 
@@ -767,7 +830,7 @@ def create_agents_from_config(
         else:
             agent_config = AgentConfig(backend_params=backend_params)
 
-        agent_config.agent_id = agent_data.get("id", f"agent{i}")
+        agent_config.agent_id = agent_id
 
         # System message handling: all backends use system_message at agent level
         system_msg = agent_data.get("system_message")
@@ -1309,11 +1372,12 @@ async def run_question_with_history(
     history: List[Dict[str, Any]],
     session_info: Dict[str, Any],
     **kwargs,
-) -> tuple[str, Optional[str], int]:
+) -> tuple[str, Optional[str], int, bool]:
     """Run MassGen with a question and conversation history.
 
     Returns:
-        tuple: (response_text, session_id, turn_number)
+        tuple: (response_text, session_id, turn_number, was_cancelled)
+            - was_cancelled: True if user cancelled with Ctrl+C (partial progress may be saved)
     """
     # Build messages including history
     messages = history.copy()
@@ -1389,6 +1453,11 @@ async def run_question_with_history(
             max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
             enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
             max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
+            broadcast=coord_cfg.get("broadcast", False),
+            broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+            broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
+            broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+            max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
             task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
             enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
             use_skills=coord_cfg.get("use_skills", False),
@@ -1432,12 +1501,7 @@ async def run_question_with_history(
         nlip_config=orchestrator_nlip_config,
     )
     # Create a fresh UI instance for each question to ensure clean state
-    ui = CoordinationUI(
-        display_type=ui_config.get("display_type", "rich_terminal"),
-        logging_enabled=ui_config.get("logging_enabled", True),
-        enable_final_presentation=True,  # Required for multi-turn: ensures final answer is saved
-        skip_agent_selector=ui_config.get("skip_agent_selector", False),
-    )
+    ui = _build_coordination_ui(ui_config)
 
     # Determine display mode text
     if len(agents) == 1:
@@ -1472,6 +1536,11 @@ async def run_question_with_history(
                 ),
                 enable_agent_task_planning=coordination_settings.get("enable_agent_task_planning", False),
                 max_tasks_per_plan=coordination_settings.get("max_tasks_per_plan", 10),
+                broadcast=coordination_settings.get("broadcast", False),
+                broadcast_sensitivity=coordination_settings.get("broadcast_sensitivity", "medium"),
+                broadcast_timeout=coordination_settings.get("broadcast_timeout", 300),
+                broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
+                max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
                 task_planning_filesystem_mode=coordination_settings.get("task_planning_filesystem_mode", False),
                 enable_memory_filesystem_mode=coordination_settings.get("enable_memory_filesystem_mode", False),
                 use_skills=coordination_settings.get("use_skills", False),
@@ -1490,54 +1559,134 @@ async def run_question_with_history(
     # For multi-agent with history, we need to use a different approach
     # that maintains coordination UI display while supporting conversation context
 
+    # Setup graceful cancellation handling
+    from massgen.cancellation import CancellationManager, CancellationRequested
+    from massgen.session import save_partial_turn
+
+    cancellation_mgr = CancellationManager()
+
+    # Determine session ID for partial saves (may not exist yet for first turn)
+    partial_session_id = session_info.get("session_id") or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    partial_turn_number = session_info.get("current_turn", 0) + 1
+
+    # Check if we're in multi-turn mode (passed from caller)
+    multi_turn_mode = session_info.get("multi_turn", False)
+
+    def save_partial_progress(partial_result):
+        """Callback to save partial progress when cancelled."""
+        try:
+            save_partial_turn(
+                session_id=partial_session_id,
+                turn_number=partial_turn_number,
+                question=question,
+                partial_result=partial_result,
+                session_storage=SESSION_STORAGE,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save partial progress: {e}")
+
+    # Register cancellation handler (multi_turn mode returns to prompt instead of exiting)
+    cancellation_mgr.register(orchestrator, save_partial_progress, multi_turn=multi_turn_mode)
+
     # Restart loop (similar to multiturn pattern) - continues until no restart pending
     response_content = None
-    while True:
-        if history and len(history) > 0:
-            # Use coordination UI with conversation context
-            # Extract current question from messages
-            current_question = messages[-1].get("content", question) if messages else question
+    was_cancelled = False
+    try:
+        while True:
+            if history and len(history) > 0:
+                # Use coordination UI with conversation context
+                # Extract current question from messages
+                current_question = messages[-1].get("content", question) if messages else question
 
-            # Pass the full message context to the UI coordination
-            response_content = await ui.coordinate_with_context(orchestrator, current_question, messages)
+                # Pass the full message context to the UI coordination
+                response_content = await ui.coordinate_with_context(orchestrator, current_question, messages)
+            else:
+                # Standard coordination for new conversations
+                response_content = await ui.coordinate(orchestrator, question)
+
+            # Check if restart is needed
+            if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
+                # Restart needed - create fresh UI for next attempt
+                print(f"\n{'='*80}")
+                print(f"🔄 Restarting coordination - Attempt {orchestrator.current_attempt + 1}/{orchestrator.max_attempts}")
+                print(f"{'='*80}\n")
+
+                # Reset all agent backends to ensure clean state for next attempt
+                for agent_id, agent in orchestrator.agents.items():
+                    if hasattr(agent.backend, "reset_state"):
+                        try:
+                            import inspect
+
+                            result = agent.backend.reset_state()
+                            # Handle both sync and async reset_state
+                            if inspect.iscoroutine(result):
+                                await result
+                            logger.info(f"Reset backend state for {agent_id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to reset backend for {agent_id}: {e}")
+
+                # Create fresh UI instance for next attempt
+                ui = _build_coordination_ui(ui_config)
+
+                # Reset cancellation state for new attempt
+                cancellation_mgr.reset()
+
+                # Continue to next attempt
+                continue
+            else:
+                # Coordination complete - exit loop
+                break
+    except CancellationRequested as cancel_exc:
+        # In multi-turn mode, CancellationRequested is raised instead of KeyboardInterrupt
+        # This allows us to return to the prompt instead of exiting
+        was_cancelled = True
+
+        if cancel_exc.partial_saved:
+            print(f"\n{BRIGHT_YELLOW}⏸️  Turn cancelled. Partial progress saved.{RESET}", flush=True)
         else:
-            # Standard coordination for new conversations
-            response_content = await ui.coordinate(orchestrator, question)
+            print(f"\n{BRIGHT_YELLOW}⏸️  Turn cancelled.{RESET}", flush=True)
 
-        # Check if restart is needed
-        if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
-            # Restart needed - create fresh UI for next attempt
-            print(f"\n{'='*80}")
-            print(f"🔄 Restarting coordination - Attempt {orchestrator.current_attempt + 1}/{orchestrator.max_attempts}")
-            print(f"{'='*80}\n")
+        # Build cancelled turn history entry based on current phase
+        # Import the helper function
+        from massgen.session._state import _build_cancelled_turn_history_entry
 
-            # Reset all agent backends to ensure clean state for next attempt
-            for agent_id, agent in orchestrator.agents.items():
-                if hasattr(agent.backend, "reset_state"):
-                    try:
-                        import inspect
+        # Build partial result dict from orchestrator state
+        answers = {}
+        for agent_id, state in orchestrator.agent_states.items():
+            if state.answer:
+                answers[agent_id] = {
+                    "answer": state.answer,
+                    "has_voted": state.has_voted,
+                    "votes": state.votes if state.has_voted else None,
+                }
 
-                        result = agent.backend.reset_state()
-                        # Handle both sync and async reset_state
-                        if inspect.iscoroutine(result):
-                            await result
-                        logger.info(f"Reset backend state for {agent_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to reset backend for {agent_id}: {e}")
+        active_agents = [state for state in orchestrator.agent_states.values() if not state.is_killed]
+        voting_complete = all(state.has_voted for state in active_agents) if active_agents else False
 
-            # Create fresh UI instance for next attempt
-            ui = CoordinationUI(
-                display_type=ui_config.get("display_type", "rich_terminal"),
-                logging_enabled=ui_config.get("logging_enabled", True),
-                enable_final_presentation=True,
-                skip_agent_selector=ui_config.get("skip_agent_selector", False),
-            )
+        partial_result = {
+            "phase": orchestrator.workflow_phase,
+            "selected_agent": orchestrator._selected_agent,
+            "answers": answers,
+            "voting_complete": voting_complete,
+        }
 
-            # Continue to next attempt
-            continue
-        else:
-            # Coordination complete - exit loop
-            break
+        # Build the history entry
+        response_content = _build_cancelled_turn_history_entry(partial_result, question)
+
+        # If cancelled during final presentation and we have a selected winner, show their answer
+        if orchestrator._selected_agent and orchestrator.workflow_phase == "presenting":
+            selected_agent_id = orchestrator._selected_agent
+            agent_state = orchestrator.agent_states.get(selected_agent_id)
+            if agent_state and agent_state.answer:
+                print(f"\n{BRIGHT_CYAN}📋 Selected winner: {selected_agent_id}{RESET}")
+                print(f"{BRIGHT_WHITE}{'-'*60}{RESET}")
+                print(agent_state.answer)
+                print(f"{BRIGHT_WHITE}{'-'*60}{RESET}")
+
+        logger.info("Turn cancelled by user in multi-turn mode")
+    finally:
+        # Always unregister the cancellation handler
+        cancellation_mgr.unregister()
 
     # Copy final results from attempt to turn root (turn_N/final/)
     # Only copy if we're in an attempt subdirectory
@@ -1584,7 +1733,7 @@ async def run_question_with_history(
     )
 
     # Return normalized response so conversation history has correct paths
-    return (normalized_response or response_content, session_id_to_use, updated_turn)
+    return (normalized_response or response_content, session_id_to_use, updated_turn, was_cancelled)
 
 
 async def run_single_question(
@@ -1593,8 +1742,9 @@ async def run_single_question(
     ui_config: Dict[str, Any],
     session_id: Optional[str] = None,
     restore_session_if_exists: bool = False,
+    return_metadata: bool = False,
     **kwargs,
-) -> str:
+):
     """Run MassGen with a single question.
 
     Args:
@@ -1603,10 +1753,12 @@ async def run_single_question(
         ui_config: UI configuration
         session_id: Optional session ID for persistence
         restore_session_if_exists: If True, attempt to restore previous session data
+        return_metadata: If True, return dict with answer and orchestrator data
         **kwargs: Additional arguments
 
     Returns:
-        The final response text
+        str: The final response text (when return_metadata=False)
+        dict: Dict with 'answer' and 'coordination_result' (when return_metadata=True)
     """
     # Generate session_id if not provided (needed for memory archiving)
     if not session_id:
@@ -1654,6 +1806,9 @@ async def run_single_question(
                 session_info,
                 **kwargs,
             )
+            if return_metadata:
+                # Session restore doesn't provide full coordination metadata
+                return {"answer": response_text, "coordination_result": None}
             return response_text
 
         except ValueError as e:
@@ -1686,9 +1841,13 @@ async def run_single_question(
                 continue
             elif chunk.type == "error":
                 print(f"\n❌ Error: {chunk.error}", flush=True)
+                if return_metadata:
+                    return {"answer": "", "coordination_result": None}
                 return ""
 
         print("\n" + "=" * 60, flush=True)
+        if return_metadata:
+            return {"answer": response_content, "coordination_result": None}
         return response_content
 
     else:
@@ -1726,6 +1885,11 @@ async def run_single_question(
                 ),
                 enable_agent_task_planning=coordination_settings.get("enable_agent_task_planning", False),
                 max_tasks_per_plan=coordination_settings.get("max_tasks_per_plan", 10),
+                broadcast=coordination_settings.get("broadcast", False),
+                broadcast_sensitivity=coordination_settings.get("broadcast_sensitivity", "medium"),
+                broadcast_timeout=coordination_settings.get("broadcast_timeout", 300),
+                broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
+                max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
                 task_planning_filesystem_mode=coordination_settings.get("task_planning_filesystem_mode", False),
                 enable_memory_filesystem_mode=coordination_settings.get("enable_memory_filesystem_mode", False),
                 use_skills=coordination_settings.get("use_skills", False),
@@ -1794,6 +1958,11 @@ async def run_single_question(
                 max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
                 enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
                 max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
+                broadcast=coord_cfg.get("broadcast", False),
+                broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
+                broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+                max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
                 task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
                 enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
                 use_skills=coord_cfg.get("use_skills", False),
@@ -1814,17 +1983,15 @@ async def run_single_question(
             nlip_config=orchestrator_nlip_config,
         )
         # Create a fresh UI instance for each question to ensure clean state
-        ui = CoordinationUI(
-            display_type=ui_config.get("display_type", "rich_terminal"),
-            logging_enabled=ui_config.get("logging_enabled", True),
-            enable_final_presentation=True,  # Ensures final presentation is generated
-            skip_agent_selector=ui_config.get("skip_agent_selector", False),
-        )
+        ui = _build_coordination_ui(ui_config)
 
-        print(f"\n🤖 {BRIGHT_CYAN}Multi-Agent Mode{RESET}", flush=True)
-        print(f"Agents: {', '.join(agents.keys())}", flush=True)
-        print(f"Question: {question}", flush=True)
-        print("\n" + "=" * 60, flush=True)
+        # Only print status if not in quiet mode
+        display_type = ui_config.get("display_type", "rich_terminal")
+        if display_type not in ("none", "silent"):
+            print(f"\n🤖 {BRIGHT_CYAN}Multi-Agent Mode{RESET}", flush=True)
+            print(f"Agents: {', '.join(agents.keys())}", flush=True)
+            print(f"Question: {question}", flush=True)
+            print("\n" + "=" * 60, flush=True)
 
         # Restart loop (similar to multiturn pattern)
         # Continues calling coordinate() until no restart is pending
@@ -1836,9 +2003,10 @@ async def run_single_question(
             # Check if restart is needed
             if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
                 # Restart needed - create fresh UI for next attempt
-                print(f"\n{'='*80}")
-                print(f"🔄 Restarting coordination - Attempt {orchestrator.current_attempt + 1}/{orchestrator.max_attempts}")
-                print(f"{'='*80}\n")
+                if display_type not in ("none", "silent"):
+                    print(f"\n{'='*80}")
+                    print(f"🔄 Restarting coordination - Attempt {orchestrator.current_attempt + 1}/{orchestrator.max_attempts}")
+                    print(f"{'='*80}\n")
 
                 # Reset all agent backends to ensure clean state for next attempt
                 for agent_id, agent in orchestrator.agents.items():
@@ -1855,12 +2023,7 @@ async def run_single_question(
                             logger.warning(f"Failed to reset backend for {agent_id}: {e}")
 
                 # Create fresh UI instance for next attempt
-                ui = CoordinationUI(
-                    display_type=ui_config.get("display_type", "rich_terminal"),
-                    logging_enabled=ui_config.get("logging_enabled", True),
-                    enable_final_presentation=True,
-                    skip_agent_selector=ui_config.get("skip_agent_selector", False),
-                )
+                ui = _build_coordination_ui(ui_config)
 
                 # Continue to next attempt
                 continue
@@ -1924,6 +2087,20 @@ async def run_single_question(
             except Exception as e:
                 logger.warning(f"Failed to save session persistence: {e}")
 
+        # Write to output file if specified
+        output_file = kwargs.get("output_file")
+        if output_file and final_response:
+            output_path = Path(output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(final_response)
+            logger.info(f"Wrote final answer to: {output_file}")
+            # Print in automation mode for easy parsing
+            print(f"OUTPUT_FILE: {output_path.resolve()}")
+
+        if return_metadata:
+            # Get comprehensive coordination result from orchestrator
+            coordination_result = orchestrator.get_coordination_result()
+            return {"answer": final_response, "coordination_result": coordination_result}
         return final_response
 
 
@@ -2795,6 +2972,263 @@ def setup_docker() -> None:
         print("  bash massgen/docker/build.sh --sudo\n")
 
 
+def setup_computer_use_docker() -> bool:
+    """Setup Docker container for Computer Use Agent (CUA) automation.
+
+    Creates a Docker container with:
+    - Ubuntu 22.04 with Xfce desktop
+    - X11 virtual display (Xvfb) on :99
+    - xdotool for GUI automation
+    - Firefox and Chromium browsers
+    - scrot for screenshots
+
+    This is required for computer_use_docker_example.yaml configs.
+
+    Returns:
+        True if setup succeeded, False otherwise
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
+    print(f"{BRIGHT_CYAN}  🖥️  Computer Use Docker Container Setup{RESET}")
+    print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}\n")
+
+    # Check if Docker is available
+    print(f"{BRIGHT_CYAN}Checking Docker installation...{RESET}", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            ["docker", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_RED}Error: Docker is not installed{RESET}")
+            print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
+            return False
+        print(f"{BRIGHT_GREEN}✓{RESET}")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: Docker is not available{RESET}")
+        print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
+        return False
+
+    # Check if Docker daemon is running
+    print(f"{BRIGHT_CYAN}Checking Docker daemon...{RESET}", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_RED}Error: Docker daemon is not running{RESET}")
+            print(f"{BRIGHT_YELLOW}Please start Docker and try again{RESET}\n")
+            return False
+        print(f"{BRIGHT_GREEN}✓{RESET}")
+    except subprocess.TimeoutExpired:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: Docker daemon check timed out{RESET}\n")
+        return False
+
+    # Check if container already exists
+    print(f"{BRIGHT_CYAN}Checking for existing container...{RESET}", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=cua-container", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and "cua-container" in result.stdout:
+            print(f"{BRIGHT_YELLOW}⚠{RESET}")
+            print(f"\n{BRIGHT_YELLOW}Container 'cua-container' already exists{RESET}")
+
+            # Check if it's running
+            result = subprocess.run(
+                ["docker", "ps", "--filter", "name=cua-container", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if "cua-container" in result.stdout:
+                print(f"{BRIGHT_GREEN}✓ Container is already running{RESET}\n")
+                return True
+            else:
+                print(f"{BRIGHT_CYAN}Starting existing container...{RESET}", end=" ", flush=True)
+                result = subprocess.run(
+                    ["docker", "start", "cua-container"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if result.returncode == 0:
+                    print(f"{BRIGHT_GREEN}✓{RESET}\n")
+                    return True
+                else:
+                    print(f"{BRIGHT_RED}✗{RESET}")
+                    print(f"{BRIGHT_YELLOW}Removing broken container and rebuilding...{RESET}")
+                    subprocess.run(["docker", "rm", "-f", "cua-container"], capture_output=True, timeout=30)
+        else:
+            print(f"{BRIGHT_GREEN}✓{RESET}")
+    except subprocess.TimeoutExpired:
+        print(f"{BRIGHT_RED}✗{RESET}")
+
+    # Create temporary directory for Dockerfile
+    print(f"\n{BRIGHT_CYAN}Building Computer Use Docker image...{RESET}")
+    print(f"{BRIGHT_YELLOW}This will download Ubuntu 22.04 and install desktop environment{RESET}")
+    print(f"{BRIGHT_YELLOW}Estimated time: 2-5 minutes (depending on internet speed){RESET}\n")
+
+    build_dir = tempfile.mkdtemp(prefix="massgen-cua-")
+    dockerfile_path = Path(build_dir) / "Dockerfile"
+
+    # Create Dockerfile (matching setup_docker_cua.sh)
+    dockerfile_content = """FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install prerequisites for adding PPAs
+RUN apt-get update && apt-get install -y \\
+    software-properties-common \\
+    wget \\
+    gnupg \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Mozilla PPA for real Firefox (not snap)
+RUN add-apt-repository -y ppa:mozillateam/ppa
+
+# Set up apt preferences to prioritize Mozilla PPA
+RUN echo 'Package: *' > /etc/apt/preferences.d/mozilla-firefox && \\
+    echo 'Pin: release o=LP-PPA-mozillateam' >> /etc/apt/preferences.d/mozilla-firefox && \\
+    echo 'Pin-Priority: 1001' >> /etc/apt/preferences.d/mozilla-firefox
+
+# Install desktop environment and tools
+RUN apt-get update && apt-get install -y \\
+    xvfb \\
+    x11vnc \\
+    xfce4 \\
+    xfce4-terminal \\
+    firefox \\
+    chromium-browser \\
+    scrot \\
+    xdotool \\
+    imagemagick \\
+    xdg-utils \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Firefox as the default browser
+RUN update-alternatives --set x-www-browser /usr/bin/firefox && \\
+    update-alternatives --set gnome-www-browser /usr/bin/firefox && \\
+    xdg-settings set default-web-browser firefox.desktop
+
+# Set up X11
+ENV DISPLAY=:99
+
+# Start script
+RUN echo '#!/bin/bash' > /start.sh && \\
+    echo 'Xvfb :99 -screen 0 1280x800x24 &' >> /start.sh && \\
+    echo 'sleep 2' >> /start.sh && \\
+    echo 'xfce4-session &' >> /start.sh && \\
+    echo 'tail -f /dev/null' >> /start.sh && \\
+    chmod +x /start.sh
+
+CMD ["/start.sh"]
+"""
+
+    try:
+        with open(dockerfile_path, "w") as f:
+            f.write(dockerfile_content)
+
+        # Build the image
+        print(f"{BRIGHT_CYAN}Step 1/2: Building Docker image 'cua-ubuntu'...{RESET}")
+        result = subprocess.run(
+            ["docker", "build", "-t", "cua-ubuntu", build_dir],
+            timeout=600,  # 10 minute timeout
+        )
+
+        if result.returncode != 0:
+            print(f"\n{BRIGHT_RED}❌ Docker build failed{RESET}\n")
+            return False
+
+        print(f"\n{BRIGHT_GREEN}✓ Image built successfully{RESET}\n")
+
+        # Remove existing container if it exists
+        subprocess.run(["docker", "rm", "-f", "cua-container"], capture_output=True, timeout=10)
+
+        # Run the container
+        print(f"{BRIGHT_CYAN}Step 2/2: Starting container 'cua-container'...{RESET}", end=" ", flush=True)
+        result = subprocess.run(
+            ["docker", "run", "-d", "--name", "cua-container", "cua-ubuntu"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_RED}❌ Failed to start container{RESET}")
+            print(f"{BRIGHT_YELLOW}Error: {result.stderr}{RESET}\n")
+            return False
+
+        print(f"{BRIGHT_GREEN}✓{RESET}")
+
+        # Wait for container to be ready
+        import time
+
+        time.sleep(3)
+
+        # Test the container
+        print(f"{BRIGHT_CYAN}Testing container...{RESET}", end=" ", flush=True)
+        result = subprocess.run(
+            ["docker", "exec", "-e", "DISPLAY=:99", "cua-container", "xdotool", "getmouselocation"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if result.returncode == 0:
+            print(f"{BRIGHT_GREEN}✓{RESET}")
+            print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
+            print(f"{BRIGHT_GREEN}  ✅ Computer Use Docker container ready!{RESET}")
+            print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
+            print(f"\n{BRIGHT_CYAN}Container details:{RESET}")
+            print("  Name: cua-container")
+            print("  Display: :99")
+            print("  Resolution: 1280x800")
+            print("  Desktop: Xfce4")
+            print("  Browsers: Firefox, Chromium")
+            print(f"\n{BRIGHT_CYAN}You can now run computer use examples:{RESET}")
+            print('  massgen --config @examples/tools/computer_use_docker_example.yaml "Open Firefox"')
+            print('  massgen --config massgen/configs/tools/custom_tools/qwen_computer_use_docker_example.yaml "..."')
+            print('  massgen --config massgen/configs/tools/custom_tools/ui_tars_docker_example.yaml "..."\n')
+            return True
+        else:
+            print(f"{BRIGHT_RED}✗{RESET}")
+            print(f"\n{BRIGHT_YELLOW}⚠️  Container created but test failed{RESET}")
+            print(f"{BRIGHT_YELLOW}Please check container status: docker logs cua-container{RESET}\n")
+            return False
+
+    except subprocess.TimeoutExpired:
+        print(f"\n{BRIGHT_RED}❌ Setup timed out{RESET}\n")
+        return False
+    except Exception as e:
+        print(f"\n{BRIGHT_RED}❌ Setup failed: {e}{RESET}\n")
+        return False
+    finally:
+        # Cleanup temp directory
+        import shutil
+
+        try:
+            shutil.rmtree(build_dir)
+        except Exception:
+            pass
+
+
 def show_example_prompts() -> Optional[str]:
     """Show example prompts that work with default quickstart config.
 
@@ -2857,12 +3291,319 @@ def should_run_builder() -> bool:
     return not default_config.exists()
 
 
+def _list_all_turns(session_id: Optional[str], current_turn: int, console: Console) -> None:
+    """List all turns in the current session."""
+    if not session_id:
+        console.print("[yellow]No active session. Complete a turn first.[/yellow]")
+        return
+
+    session_dir = Path(SESSION_STORAGE) / session_id
+
+    if not session_dir.exists():
+        console.print("[yellow]No session data available.[/yellow]")
+        return
+
+    if current_turn == 0:
+        console.print("[yellow]No turns completed yet.[/yellow]")
+        return
+
+    table = Table(title=f"Session: {session_id}")
+    table.add_column("Turn", style="cyan", width=6)
+    table.add_column("Task", style="white")
+    table.add_column("Winner", style="green", width=15)
+
+    for turn_num in range(1, current_turn + 1):
+        turn_dir = session_dir / f"turn_{turn_num}"
+        metadata_file = turn_dir / "metadata.json"
+
+        if metadata_file.exists():
+            metadata = json.loads(metadata_file.read_text())
+            task = metadata.get("task", "Unknown")
+            # Truncate long tasks
+            if len(task) > 60:
+                task = task[:57] + "..."
+            winner = metadata.get("winning_agent", "Unknown")
+            table.add_row(str(turn_num), task, winner)
+
+    console.print(table)
+    console.print("\n[dim]Use /inspect <turn_number> to view details[/dim]")
+
+
+def _find_log_dir_for_session(session_id: str, turn_number: int) -> Optional[Path]:
+    """Find the log directory for a given session and turn.
+
+    Searches through log directories to find one that matches the session_id
+    by checking execution_metadata.yaml files. Returns the attempt directory
+    which contains the actual log data (agent_outputs, coordination_table, etc.).
+    """
+    logs_base = Path(".massgen/massgen_logs")
+    if not logs_base.exists():
+        return None
+
+    # Search through log directories for matching session_id
+    for log_dir in sorted(logs_base.iterdir(), reverse=True):  # Most recent first
+        if not log_dir.is_dir() or not log_dir.name.startswith("log_"):
+            continue
+
+        turn_dir = log_dir / f"turn_{turn_number}"
+        if not turn_dir.exists():
+            continue
+
+        # Look for attempt directories (e.g., attempt_1, attempt_2)
+        # The actual log data is stored inside attempt directories
+        for attempt_dir in sorted(turn_dir.iterdir(), reverse=True):
+            if not attempt_dir.is_dir() or not attempt_dir.name.startswith("attempt_"):
+                continue
+
+            metadata_file = attempt_dir / "execution_metadata.yaml"
+            if metadata_file.exists():
+                try:
+                    metadata = yaml.safe_load(metadata_file.read_text())
+                    cli_args = metadata.get("cli_args", {})
+                    if cli_args.get("session_id") == session_id:
+                        return attempt_dir
+                except Exception:
+                    continue
+
+    return None
+
+
+def _show_turn_inspection(
+    session_id: str,
+    turn_number: int,
+    agents: Dict[str, Any],
+) -> None:
+    """Show inspection menu for a specific turn's outputs.
+
+    Uses data from both session storage and log directories to provide
+    full inspection capabilities including agent outputs, system status,
+    and coordination events.
+    """
+    console = Console()
+    session_dir = Path(SESSION_STORAGE) / session_id
+    turn_dir = session_dir / f"turn_{turn_number}"
+
+    if not turn_dir.exists():
+        print(f"{BRIGHT_YELLOW}No data for turn {turn_number}.{RESET}", flush=True)
+        return
+
+    # Find the corresponding log directory for richer data
+    log_turn_dir = _find_log_dir_for_session(session_id, turn_number)
+
+    # Load metadata from session
+    metadata_file = turn_dir / "metadata.json"
+    metadata = {}
+    if metadata_file.exists():
+        metadata = json.loads(metadata_file.read_text())
+
+    # Load answer from session
+    answer_file = turn_dir / "answer.txt"
+    answer_content = ""
+    if answer_file.exists():
+        answer_content = answer_file.read_text()
+
+    # Check workspace from session
+    workspace_dir = turn_dir / "workspace"
+    workspace_files = []
+    if workspace_dir.exists():
+        workspace_files = list(workspace_dir.rglob("*"))
+        workspace_files = [f for f in workspace_files if f.is_file()]
+
+    # Check for log data
+    agent_outputs_dir = log_turn_dir / "agent_outputs" if log_turn_dir else None
+    system_status_file = agent_outputs_dir / "system_status.txt" if agent_outputs_dir else None
+    log_turn_dir / "coordination_events.json" if log_turn_dir else None
+    coordination_table_file = log_turn_dir / "coordination_table.txt" if log_turn_dir else None
+
+    # Get available agent output files
+    agent_files = {}
+    if agent_outputs_dir and agent_outputs_dir.exists():
+        for f in agent_outputs_dir.glob("*.txt"):
+            if f.name.startswith("agent_") and not f.name.startswith("final_presentation"):
+                agent_id = f.stem.replace("agent_", "")
+                agent_files[agent_id] = f
+
+    # Get winning agent for display
+    winning_agent = metadata.get("winning_agent", "winner")
+
+    # Interactive menu - matches style of RichTerminalDisplay.show_agent_selector()
+    while True:
+        # Build menu content inside a panel like the original agent selector
+        menu_lines = []
+
+        # Intro description (matches original agent selector style)
+        menu_lines.append(
+            "This is a system inspection interface for diving into the multi-agent collaboration "
+            "behind the scenes in MassGen. It lets you examine each agent's original output and "
+            "compare it to the final MassGen answer in terms of quality. You can explore the "
+            "detailed communication, collaboration, voting, and decision-making process.",
+        )
+        menu_lines.append("")
+
+        # Turn metadata inline
+        task_preview = metadata.get("task", "N/A")
+        if len(task_preview) > 60:
+            task_preview = task_preview[:57] + "..."
+        menu_lines.append(f"[dim]Turn {turn_number} | Task: {task_preview} | Winner: {winning_agent}[/dim]")
+        menu_lines.append("")
+
+        menu_lines.append("[bold green]🎮 Select an option to inspect:[/bold green]")
+
+        # Agent outputs (from logs) - numbered options first
+        if agent_files:
+            for i, agent_id in enumerate(sorted(agent_files.keys()), 1):
+                menu_lines.append(f"  [yellow]{i}:[/yellow] Inspect the original answer and working log of agent {agent_id}")
+
+        # System status (s) - orchestrator log
+        if system_status_file and system_status_file.exists():
+            menu_lines.append("  [yellow]s:[/yellow] Inspect the orchestrator working log including the voting process")
+
+        # Coordination table (r)
+        if coordination_table_file and coordination_table_file.exists():
+            menu_lines.append("  [yellow]r:[/yellow] Display coordination table to see the full history of agent interactions and decisions")
+
+        # Final answer (f) - with winning agent info if available
+        menu_lines.append(f"  [yellow]f:[/yellow] Show final presentation from Selected Agent ({winning_agent})")
+
+        # Workspace files (w/o)
+        if workspace_files:
+            menu_lines.append(f"  [yellow]w:[/yellow] List workspace files ({len(workspace_files)} files)")
+            menu_lines.append("  [yellow]o:[/yellow] Open workspace in file browser")
+
+        # Quit (q)
+        menu_lines.append("  [yellow]q:[/yellow] Quit Inspection")
+        menu_lines.append("")
+
+        # Display in a panel matching the original agent selector style
+        console.print(
+            Panel(
+                "\n".join(menu_lines),
+                title="[bold]Agent Selector[/bold]",
+                border_style="cyan",
+            ),
+        )
+
+        try:
+            choice = input("Enter your choice: ").strip().lower()
+
+            # Check for agent number selection
+            if choice.isdigit():
+                idx = int(choice)
+                agent_ids = sorted(agent_files.keys())
+                if 1 <= idx <= len(agent_ids):
+                    agent_id = agent_ids[idx - 1]
+                    agent_file = agent_files[agent_id]
+                    content = agent_file.read_text()
+                    # Escape Rich markup in content
+                    if "[" in content:
+                        content = content.replace("[", r"\[")
+                    console.print("\n" + "=" * 80)
+                    console.print(
+                        Panel(
+                            content,
+                            title=f"[bold]{agent_id} Output[/bold]",
+                            border_style="cyan",
+                        ),
+                    )
+                    input("\nPress Enter to continue...")
+                    console.print("=" * 80 + "\n")
+                else:
+                    console.print("[red]Invalid agent number.[/red]")
+                continue
+
+            if choice == "f":
+                if answer_content:
+                    console.print("\n" + "=" * 80)
+                    # Escape Rich markup
+                    display_content = answer_content
+                    if "[" in display_content:
+                        display_content = display_content.replace("[", r"\[")
+                    console.print(
+                        Panel(
+                            display_content,
+                            title=f"[bold]Final Answer (Turn {turn_number})[/bold]",
+                            border_style="green",
+                        ),
+                    )
+                    input("\nPress Enter to continue...")
+                    console.print("=" * 80 + "\n")
+                else:
+                    console.print("[yellow]No answer content available.[/yellow]")
+
+            elif choice == "s" and system_status_file and system_status_file.exists():
+                content = system_status_file.read_text()
+                if "[" in content:
+                    content = content.replace("[", r"\[")
+                console.print("\n" + "=" * 80)
+                console.print(
+                    Panel(
+                        content,
+                        title="[bold]System Status Log[/bold]",
+                        border_style="magenta",
+                    ),
+                )
+                input("\nPress Enter to continue...")
+                console.print("=" * 80 + "\n")
+
+            elif choice == "r" and coordination_table_file and coordination_table_file.exists():
+                content = coordination_table_file.read_text()
+                if "[" in content:
+                    content = content.replace("[", r"\[")
+                console.print("\n" + "=" * 80)
+                console.print(
+                    Panel(
+                        content,
+                        title="[bold]Coordination Table[/bold]",
+                        border_style="yellow",
+                    ),
+                )
+                input("\nPress Enter to continue...")
+                console.print("=" * 80 + "\n")
+
+            elif choice == "w" and workspace_files:
+                console.print("\n[bold]Workspace Files:[/bold]")
+                for f in workspace_files[:20]:  # Limit to 20 files
+                    rel_path = f.relative_to(workspace_dir)
+                    console.print(f"  {rel_path}")
+                if len(workspace_files) > 20:
+                    console.print(f"  ... and {len(workspace_files) - 20} more files")
+                console.print(f"\n[dim]Workspace path: {workspace_dir}[/dim]")
+                input("\nPress Enter to continue...")
+
+            elif choice == "o" and workspace_files:
+                import platform
+                import subprocess
+
+                try:
+                    system = platform.system()
+                    if system == "Darwin":  # macOS
+                        subprocess.run(["open", str(workspace_dir)])
+                    elif system == "Windows":
+                        subprocess.run(["explorer", str(workspace_dir)])
+                    else:  # Linux
+                        subprocess.run(["xdg-open", str(workspace_dir)])
+                    console.print(f"[green]Opened workspace: {workspace_dir}[/green]")
+                except Exception as e:
+                    console.print(f"[red]Error opening workspace: {e}[/red]")
+
+            elif choice == "q":
+                break
+
+            else:
+                console.print("[red]Invalid choice. Please try again.[/red]")
+
+        except KeyboardInterrupt:
+            break
+
+    console.print()
+
+
 def print_help_messages():
     """Display help messages using Rich for better formatting."""
     rich_console = Console()
 
     help_content = """[dim]💬  Type your questions below
-💡  Use slash commands: [cyan]/help[/cyan], [cyan]/quit[/cyan], [cyan]/reset[/cyan], [cyan]/status[/cyan], [cyan]/config[/cyan]
+💡  Use slash commands: [cyan]/help[/cyan], [cyan]/quit[/cyan], [cyan]/reset[/cyan], [cyan]/status[/cyan], [cyan]/config[/cyan], [cyan]/context[/cyan], [cyan]/inspect[/cyan]
 📝  For multi-line input: start with [cyan]\"\"\"[/cyan] or [cyan]\'\'\'[/cyan]
 ⌨️   Press [cyan]Ctrl+C[/cyan] to exit[/dim]"""
 
@@ -2973,24 +3714,11 @@ async def run_interactive_mode(
     rich_console.print(config_panel)
     print()
 
-    # Prompt for context paths if filesystem is enabled
-    if original_config and orchestrator_cfg:
-        config_modified = prompt_for_context_paths(original_config, orchestrator_cfg)
-        if config_modified:
-            # Recreate agents with updated context paths (use same session)
-            enable_rate_limit = kwargs.get("enable_rate_limit", False)
-            agents = create_agents_from_config(
-                original_config,
-                orchestrator_cfg,
-                debug=debug,
-                enable_rate_limit=enable_rate_limit,
-                config_path=config_path,
-                memory_session_id=memory_session_id,
-            )
-            print(f"   {BRIGHT_GREEN}✓ Agents reloaded with updated context paths{RESET}", flush=True)
-            print()
-
     print_help_messages()
+
+    # In multi-turn mode, skip the automatic agent selector menu after each turn.
+    # Users can view outputs on demand via /inspect command.
+    ui_config["skip_agent_selector"] = True
 
     # Session management for multi-turn filesystem support
     # Use memory_session_id (unified with memory system) if provided, otherwise create later
@@ -3001,6 +3729,7 @@ async def run_interactive_mode(
     conversation_history = []
     previous_turns = []
     winning_agents_history = []
+    incomplete_turn_workspaces = {}  # Dict of agent_id -> workspace path for incomplete turns
     if memory_session_id and restore_session_if_exists:
         from massgen.logger_config import set_log_turn
         from massgen.session import restore_session
@@ -3021,6 +3750,20 @@ async def run_interactive_mode(
                 flush=True,
             )
             print(f"   Starting turn {next_turn}", flush=True)
+
+            # Notify user about incomplete turn if present
+            if session_state.incomplete_turn:
+                incomplete = session_state.incomplete_turn
+                print(f"\n{BRIGHT_YELLOW}⚠️  Previous turn was incomplete (cancelled during {incomplete.get('phase', 'unknown')} phase){RESET}", flush=True)
+                print(f"   Task: {incomplete.get('task', 'N/A')}", flush=True)
+                if incomplete.get("agents_with_answers"):
+                    print(f"   Partial answers saved from: {', '.join(incomplete['agents_with_answers'])}", flush=True)
+                if session_state.incomplete_turn_workspaces:
+                    print(f"   Workspaces available: {', '.join(session_state.incomplete_turn_workspaces.keys())}", flush=True)
+                print("", flush=True)
+
+            # Store incomplete turn workspaces for context path injection
+            incomplete_turn_workspaces = session_state.incomplete_turn_workspaces
         except ValueError as e:
             # restore_session failed - no turns found
             print(f"❌ Session error: {e}", flush=True)
@@ -3042,45 +3785,148 @@ async def run_interactive_mode(
                     latest_turn_dir = session_dir / f"turn_{current_turn}"
                     latest_turn_workspace = latest_turn_dir / "workspace"
 
-                    if latest_turn_workspace.exists():
-                        logger.info(f"[CLI] Recreating agents with turn {current_turn} workspace as read-only context path")
+                    # Determine which workspaces to add as context paths
+                    # For complete turns: single workspace from winning agent
+                    # For incomplete turns: all agent workspaces (no info lost)
+                    context_workspaces_to_add = []
 
-                        # Clean up existing agents' backends and filesystem managers
-                        for agent_id, agent in agents.items():
-                            # Cleanup filesystem manager (Docker containers, etc.)
-                            if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
-                                if agent.backend.filesystem_manager:
+                    if incomplete_turn_workspaces:
+                        # Incomplete turn - add all agent workspaces
+                        for ws_agent_id, ws_path in incomplete_turn_workspaces.items():
+                            if ws_path and Path(ws_path).exists():
+                                context_workspaces_to_add.append(
+                                    {
+                                        "path": str(Path(ws_path).resolve()),
+                                        "permission": "read",
+                                        "description": f"Incomplete turn {current_turn} - {ws_agent_id}'s workspace",
+                                    },
+                                )
+                        logger.info(f"[CLI] Adding {len(context_workspaces_to_add)} workspace(s) from incomplete turn as context")
+                        # Clear after use (only needed for first turn after resume)
+                        incomplete_turn_workspaces = {}
+                    elif latest_turn_workspace.exists():
+                        # Complete turn - single winning agent workspace
+                        context_workspaces_to_add.append(
+                            {
+                                "path": str(latest_turn_workspace.resolve()),
+                                "permission": "read",
+                            },
+                        )
+
+                    if context_workspaces_to_add:
+                        # Check if any agents have session pre-mount enabled
+                        # Session pre-mount allows us to skip container recreation
+                        agents_with_session_mount = [
+                            (agent_id, agent)
+                            for agent_id, agent in agents.items()
+                            if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager and agent.backend.filesystem_manager.has_session_mount()
+                        ]
+
+                        # Get persist_containers_between_turns config (default: True)
+                        persist_containers = (
+                            orchestrator_cfg.get("docker", {}).get(
+                                "persist_containers_between_turns",
+                                True,
+                            )
+                            if orchestrator_cfg
+                            else True
+                        )
+
+                        if agents_with_session_mount and persist_containers:
+                            # Session dir is pre-mounted - just update permission manager
+                            # No need to restart Docker containers!
+                            logger.info(f"[CLI] Session pre-mounted: adding {len(context_workspaces_to_add)} turn path(s) without container restart")
+
+                            for agent_id, agent in agents.items():
+                                if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
+                                    for ctx_ws in context_workspaces_to_add:
+                                        agent.backend.filesystem_manager.add_turn_context_path(
+                                            Path(ctx_ws["path"]),
+                                        )
+
+                            logger.info(f"[CLI] Turn {current_turn} context paths registered (containers kept alive)")
+                        else:
+                            # Fall back to original behavior: cleanup and recreate agents
+                            logger.info(f"[CLI] Recreating agents with turn {current_turn} workspace(s) as read-only context path(s)")
+
+                            # Check if any agents have Docker containers to clean up
+                            agents_with_docker = [
+                                (agent_id, agent)
+                                for agent_id, agent in agents.items()
+                                if hasattr(agent, "backend")
+                                and hasattr(agent.backend, "filesystem_manager")
+                                and agent.backend.filesystem_manager
+                                and hasattr(agent.backend.filesystem_manager, "docker_manager")
+                                and agent.backend.filesystem_manager.docker_manager
+                            ]
+
+                            # Clean up existing agents' backends and filesystem managers
+                            if agents_with_docker:
+                                from concurrent.futures import (
+                                    ThreadPoolExecutor,
+                                    as_completed,
+                                )
+
+                                from rich.status import Status
+
+                                def cleanup_agent_fs(agent_id: str, agent) -> tuple[str, Optional[Exception]]:
+                                    """Cleanup a single agent's filesystem manager (Docker container)."""
                                     try:
                                         agent.backend.filesystem_manager.cleanup()
+                                        return (agent_id, None)
                                     except Exception as e:
-                                        logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {e}")
+                                        return (agent_id, e)
 
-                            # Cleanup backend itself
-                            if hasattr(agent.backend, "__aexit__"):
-                                await agent.backend.__aexit__(None, None, None)
+                                # Parallel Docker cleanup with spinner
+                                with Status(f"[bold cyan]Preparing next turn ({len(agents_with_docker)} container(s))...", spinner="dots"):
+                                    with ThreadPoolExecutor(max_workers=len(agents_with_docker)) as executor:
+                                        futures = {executor.submit(cleanup_agent_fs, agent_id, agent): agent_id for agent_id, agent in agents_with_docker}
+                                        for future in as_completed(futures):
+                                            agent_id, error = future.result()
+                                            if error:
+                                                logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {error}")
 
-                        # Inject previous turn path as read-only context
-                        modified_config = original_config.copy()
-                        agent_entries = [modified_config["agent"]] if "agent" in modified_config else modified_config.get("agents", [])
+                                # Cleanup backends (must be sequential/async)
+                                for agent_id, agent in agents.items():
+                                    if hasattr(agent.backend, "__aexit__"):
+                                        await agent.backend.__aexit__(None, None, None)
+                            else:
+                                # No Docker - quick cleanup without spinner
+                                for agent_id, agent in agents.items():
+                                    if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
+                                        if agent.backend.filesystem_manager:
+                                            try:
+                                                agent.backend.filesystem_manager.cleanup()
+                                            except Exception as e:
+                                                logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {e}")
 
-                        for agent_data in agent_entries:
-                            backend_config = agent_data.get("backend", {})
-                            if "cwd" in backend_config:  # Only inject if agent has filesystem support
-                                existing_context_paths = backend_config.get("context_paths", [])
-                                new_turn_config = {"path": str(latest_turn_workspace.resolve()), "permission": "read"}
-                                backend_config["context_paths"] = existing_context_paths + [new_turn_config]
+                                    if hasattr(agent.backend, "__aexit__"):
+                                        await agent.backend.__aexit__(None, None, None)
 
-                        # Recreate agents from modified config (use same session)
-                        enable_rate_limit = kwargs.get("enable_rate_limit", False)
-                        agents = create_agents_from_config(
-                            modified_config,
-                            orchestrator_cfg,
-                            debug=debug,
-                            enable_rate_limit=enable_rate_limit,
-                            config_path=config_path,
-                            memory_session_id=session_id,
-                        )
-                        logger.info(f"[CLI] Successfully recreated {len(agents)} agents with turn {current_turn} path as read-only context")
+                            # Inject previous turn path(s) as read-only context
+                            modified_config = original_config.copy()
+                            agent_entries = [modified_config["agent"]] if "agent" in modified_config else modified_config.get("agents", [])
+
+                            for agent_data in agent_entries:
+                                backend_config = agent_data.get("backend", {})
+                                if "cwd" in backend_config:  # Only inject if agent has filesystem support
+                                    existing_context_paths = backend_config.get("context_paths", [])
+                                    backend_config["context_paths"] = existing_context_paths + context_workspaces_to_add
+
+                            # Recreate agents from modified config (use same session)
+                            enable_rate_limit = kwargs.get("enable_rate_limit", False)
+                            agents = create_agents_from_config(
+                                modified_config,
+                                orchestrator_cfg,
+                                debug=debug,
+                                enable_rate_limit=enable_rate_limit,
+                                config_path=config_path,
+                                memory_session_id=session_id,
+                                # Pass session params for the new agents too
+                                filesystem_session_id=session_id,
+                                session_storage_base=SESSION_STORAGE,
+                            )
+                            logger.info(f"[CLI] Successfully recreated {len(agents)} agents with turn {current_turn} workspace(s) as read-only context")
 
                 # Use initial_question for first turn if provided, otherwise prompt
                 if initial_question and current_turn == 0:
@@ -3120,6 +3966,11 @@ async def run_interactive_mode(
                         )
                         print("   /status              - Show current status", flush=True)
                         print("   /config              - Open config file in editor", flush=True)
+                        print("   /context             - Add/modify context paths for file access", flush=True)
+                        print("   /inspect, /i         - View agent outputs", flush=True)
+                        print("     /inspect           - Current turn outputs", flush=True)
+                        print("     /inspect <N>       - View turn N outputs", flush=True)
+                        print("     /inspect all       - List all session turns", flush=True)
                         print(f"\n{BRIGHT_CYAN}💡 Multi-line Input:{RESET}", flush=True)
                         print("   Start with \"\"\" or ''' and end with the same delimiter", flush=True)
                         print('   Example: """', flush=True)
@@ -3165,6 +4016,53 @@ async def run_interactive_mode(
                                 print(f"   Config location: {config_path}", flush=True)
                         else:
                             print("\n❌ No config file available (using CLI arguments)", flush=True)
+                        continue
+                    elif command == "/inspect" or command.startswith("/inspect ") or command == "/i":
+                        # Parse: /inspect, /inspect <N>, /inspect all
+                        parts = question.split()
+
+                        if len(parts) == 1:
+                            # /inspect or /i - show current turn
+                            target_turn = current_turn
+                        elif parts[1].lower() == "all":
+                            # /inspect all - list all turns
+                            _list_all_turns(session_id, current_turn, rich_console)
+                            continue
+                        else:
+                            # /inspect <N> - specific turn
+                            try:
+                                target_turn = int(parts[1])
+                                if target_turn < 1 or target_turn > current_turn:
+                                    print(f"{BRIGHT_RED}Turn {target_turn} not found. Available: 1-{current_turn}{RESET}", flush=True)
+                                    continue
+                            except ValueError:
+                                print(f"{BRIGHT_RED}Invalid turn number. Usage: /inspect [turn_number|all]{RESET}", flush=True)
+                                continue
+
+                        # Show inspection for target turn
+                        if target_turn == 0:
+                            print(f"{BRIGHT_YELLOW}No turns completed yet. Complete a turn first.{RESET}", flush=True)
+                        else:
+                            _show_turn_inspection(session_id, target_turn, agents)
+                        continue
+                    elif command == "/context":
+                        # Add/modify context paths interactively
+                        if original_config and orchestrator_cfg:
+                            config_modified = prompt_for_context_paths(original_config, orchestrator_cfg)
+                            if config_modified:
+                                # Recreate agents with updated context paths
+                                enable_rate_limit = kwargs.get("enable_rate_limit", False)
+                                agents = create_agents_from_config(
+                                    original_config,
+                                    orchestrator_cfg,
+                                    debug=debug,
+                                    enable_rate_limit=enable_rate_limit,
+                                    config_path=config_path,
+                                    memory_session_id=session_id,
+                                )
+                                print(f"   {BRIGHT_GREEN}✓ Agents reloaded with updated context paths{RESET}", flush=True)
+                        else:
+                            print(f"{BRIGHT_YELLOW}Context paths require a config file with orchestrator settings.{RESET}", flush=True)
                         continue
                     else:
                         print(f"❓ Unknown command: {command}", flush=True)
@@ -3217,8 +4115,9 @@ async def run_interactive_mode(
                     "current_turn": current_turn,  # Pass CURRENT turn (for looking up previous turns)
                     "previous_turns": previous_turns,
                     "winning_agents_history": winning_agents_history,
+                    "multi_turn": True,  # Enable soft cancellation (return to prompt instead of exit)
                 }
-                response, updated_session_id, updated_turn = await run_question_with_history(
+                response, updated_session_id, updated_turn, was_cancelled = await run_question_with_history(
                     question,
                     agents,
                     ui_config,
@@ -3235,25 +4134,50 @@ async def run_interactive_mode(
                     # Add to conversation history
                     conversation_history.append({"role": "user", "content": question})
                     conversation_history.append({"role": "assistant", "content": response})
-                    print(f"\n{BRIGHT_GREEN}✅ Complete!{RESET}", flush=True)
-                    print(
-                        f"{BRIGHT_CYAN}💭 History: {len(conversation_history)//2} exchanges{RESET}",
-                        flush=True,
+
+                    # Display the final answer in chat style
+                    rich_console.print()
+                    rich_console.print(
+                        Panel(
+                            response,
+                            title="[bold green]🤖 MassGen[/bold green]",
+                            border_style="green",
+                            padding=(1, 2),
+                        ),
                     )
-                    print_help_messages()
+
+                    rich_console.print(
+                        f"\n[green]✅ Complete![/green] [cyan]💭 History: {len(conversation_history)//2} exchanges[/cyan]",
+                    )
+                    rich_console.print("[dim]Tip: Use /inspect to view agent outputs[/dim]")
+
+                elif was_cancelled:
+                    # Turn was cancelled by user - add cancelled turn to conversation history
+                    # so agents have context about what happened
+                    if response:
+                        conversation_history.append({"role": "user", "content": question})
+                        conversation_history.append({"role": "assistant", "content": response})
+                        logger.info(f"Added cancelled turn to conversation history (phase: {response[:50]}...)")
+
+                    # Ensure terminal is restored to a good state for next input
+                    _restore_terminal_for_input()
+                    # Just continue to next prompt (don't print "No response generated")
+                    print(f"{BRIGHT_CYAN}Enter your next question or /quit to exit.{RESET}", flush=True)
 
                 else:
                     print(f"\n{BRIGHT_RED}❌ No response generated{RESET}", flush=True)
 
             except KeyboardInterrupt:
-                print("\n👋 Goodbye!")
-                break
+                # User pressed Ctrl+C at the prompt - just clear line and continue
+                print()  # Clean line after ^C
+                continue
             except Exception as e:
                 print(f"❌ Error: {e}", flush=True)
                 print("Please try again or type /quit to exit.", flush=True)
 
     except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
+        # Outer handler for any uncaught KeyboardInterrupt - just continue
+        print()  # Clean line after ^C
 
 
 async def main(args):
@@ -3316,6 +4240,38 @@ async def main(args):
             if args.debug:
                 logger.debug(f"Resolved config path: {resolved_path}")
                 logger.debug(f"Config content: {json.dumps(config, indent=2)}")
+
+            # Check if this is a computer use docker example - setup required
+            config_filename = resolved_path.name if resolved_path else ""
+            if "computer_use_docker_example" in config_filename:
+                print(f"\n{BRIGHT_CYAN}🖥️  Computer Use Docker Configuration Detected{RESET}")
+                print(f"{BRIGHT_YELLOW}This configuration requires a special Docker container for GUI automation.{RESET}\n")
+
+                # Check if container exists and is running
+                import subprocess
+
+                try:
+                    result = subprocess.run(
+                        ["docker", "ps", "--filter", "name=cua-container", "--format", "{{.Names}}"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    container_running = "cua-container" in result.stdout
+                except Exception:
+                    container_running = False
+
+                if not container_running:
+                    print(f"{BRIGHT_YELLOW}⚠️  Computer Use Docker container not found or not running{RESET}")
+                    print(f"{BRIGHT_CYAN}Starting automatic setup...{RESET}\n")
+
+                    if not setup_computer_use_docker():
+                        print(f"\n{BRIGHT_RED}❌ Failed to setup Computer Use Docker container{RESET}")
+                        print(f"{BRIGHT_YELLOW}Computer use features will not work without this container.{RESET}")
+                        print(f"{BRIGHT_YELLOW}You can try manual setup with: scripts/setup_docker_cua.sh{RESET}\n")
+                        sys.exit(EXIT_CONFIG_ERROR)
+                else:
+                    print(f"{BRIGHT_GREEN}✓ Computer Use Docker container is ready{RESET}\n")
 
             # Automatic config validation (unless --skip-validation flag is set)
             if not args.skip_validation:
@@ -3495,16 +4451,18 @@ async def main(args):
 
             # Register new session immediately (before first turn runs)
             # Get log directory for session metadata
-            from massgen.logger_config import get_log_session_root
+            from massgen.logger_config import get_log_session_dir, get_log_session_root
             from massgen.session import SessionRegistry
 
             log_dir = get_log_session_root()
             log_dir_name = log_dir.name
 
             # Print LOG_DIR for automation mode (LLM agents need this to monitor progress)
+            # LOG_DIR is the main session directory, STATUS includes turn/attempt subdirectory
             if args.automation:
+                full_log_dir = get_log_session_dir()
                 print(f"LOG_DIR: {log_dir}")
-                print(f"STATUS: {log_dir / 'status.json'}")
+                print(f"STATUS: {full_log_dir / 'status.json'}")
 
             registry = SessionRegistry()
             registry.register_session(
@@ -3522,6 +4480,9 @@ async def main(args):
             config_path=str(resolved_path) if resolved_path else None,
             memory_session_id=memory_session_id,
             debug=args.debug,
+            # Session mount support for multi-turn Docker (pre-mount session dir)
+            filesystem_session_id=memory_session_id,
+            session_storage_base=SESSION_STORAGE,
         )
 
         if not agents:
@@ -3546,6 +4507,10 @@ async def main(args):
 
         # Add rate limit flag to kwargs for interactive mode
         kwargs["enable_rate_limit"] = enable_rate_limit
+
+        # Add output file if specified
+        if args.output_file:
+            kwargs["output_file"] = args.output_file
 
         # Optionally enable DSPy paraphrasing
         dspy_paraphraser = create_dspy_paraphraser_from_config(
@@ -3576,9 +4541,6 @@ async def main(args):
                     restore_session_if_exists=restore_existing_session,
                     **kwargs,
                 )
-                # if response:
-                #     print(f"\n{BRIGHT_GREEN}Final Response:{RESET}", flush=True)
-                #     print(f"{response}", flush=True)
             else:
                 # Pass the config path and session_id to interactive mode
                 config_file_path = str(resolved_path) if args.config and resolved_path else None
@@ -3609,19 +4571,90 @@ async def main(args):
                     logger.debug(f"Marked session as completed: {memory_session_id}")
 
             # Cleanup all agents' filesystem managers (including Docker containers)
+            agents_with_docker = [
+                (agent_id, agent)
+                for agent_id, agent in agents.items()
+                if hasattr(agent, "backend")
+                and hasattr(agent.backend, "filesystem_manager")
+                and agent.backend.filesystem_manager
+                and hasattr(agent.backend.filesystem_manager, "docker_manager")
+                and agent.backend.filesystem_manager.docker_manager
+            ]
+
+            if agents_with_docker:
+                # Show spinner while cleaning up Docker containers in parallel
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
+                from rich.status import Status
+
+                def cleanup_agent(agent_id: str, agent) -> tuple[str, Optional[Exception]]:
+                    """Cleanup a single agent's Docker container."""
+                    try:
+                        agent.backend.filesystem_manager.cleanup()
+                        return (agent_id, None)
+                    except Exception as e:
+                        return (agent_id, e)
+
+                with Status(f"[bold cyan]Cleaning up {len(agents_with_docker)} Docker container(s)...", spinner="dots"):
+                    with ThreadPoolExecutor(max_workers=len(agents_with_docker)) as executor:
+                        futures = {executor.submit(cleanup_agent, agent_id, agent): agent_id for agent_id, agent in agents_with_docker}
+                        for future in as_completed(futures):
+                            agent_id, error = future.result()
+                            if error:
+                                logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {error}")
+
+                print("✅ Docker cleanup complete", flush=True)
+
+            # Cleanup non-Docker filesystem managers (quick, no spinner needed)
             for agent_id, agent in agents.items():
-                if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
-                    if agent.backend.filesystem_manager:
-                        try:
-                            agent.backend.filesystem_manager.cleanup()
-                        except Exception as e:
-                            logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {e}")
+                if (agent_id, agent) not in agents_with_docker:
+                    if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
+                        if agent.backend.filesystem_manager:
+                            try:
+                                agent.backend.filesystem_manager.cleanup()
+                            except Exception as e:
+                                logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {e}")
 
     except ConfigurationError as e:
         print(f"❌ Configuration error: {e}", flush=True)
         sys.exit(EXIT_CONFIG_ERROR)
     except KeyboardInterrupt:
-        print("\n👋 Goodbye!", flush=True)
+        # Show spinner while cleaning up
+        from rich.console import Console as RichConsole
+        from rich.status import Status
+
+        rich_console = RichConsole()
+        rich_console.print("\n[yellow]Cancelling...[/yellow]")
+
+        # Cleanup agents if they exist
+        if "agents" in locals() and agents:
+            agents_with_docker = [
+                (agent_id, agent)
+                for agent_id, agent in agents.items()
+                if hasattr(agent, "backend")
+                and hasattr(agent.backend, "filesystem_manager")
+                and agent.backend.filesystem_manager
+                and hasattr(agent.backend.filesystem_manager, "docker_manager")
+                and agent.backend.filesystem_manager.docker_manager
+            ]
+
+            if agents_with_docker:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
+                def cleanup_agent(agent_id: str, agent) -> tuple[str, Optional[Exception]]:
+                    try:
+                        agent.backend.filesystem_manager.cleanup()
+                        return (agent_id, None)
+                    except Exception as e:
+                        return (agent_id, e)
+
+                with Status("[bold cyan]Cleaning up...[/bold cyan]", spinner="dots"):
+                    with ThreadPoolExecutor(max_workers=len(agents_with_docker)) as executor:
+                        futures = {executor.submit(cleanup_agent, agent_id, agent): agent_id for agent_id, agent in agents_with_docker}
+                        for future in as_completed(futures):
+                            pass  # Just wait for completion
+
+        rich_console.print("[green]👋 Goodbye![/green]")
         sys.exit(EXIT_INTERRUPTED)
     except TimeoutError as e:
         print(f"❌ Timeout error: {e}", flush=True)
@@ -3737,10 +4770,38 @@ Environment Variables:
     parser.add_argument("--no-logs", action="store_true", help="Disable logging")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with verbose logging")
     parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Launch web UI server for real-time visualization",
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=8000,
+        help="Port for web UI server (default: 8000)",
+    )
+    parser.add_argument(
+        "--web-host",
+        type=str,
+        default="127.0.0.1",
+        help="Host for web UI server (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Don't auto-open browser when using --web with a question",
+    )
+    parser.add_argument(
         "--automation",
         action="store_true",
         help="Enable automation mode: silent output (~10 lines), status.json tracking, meaningful exit codes. "
         "REQUIRED for LLM agents and background execution. Automatically isolates workspaces for parallel runs.",
+    )
+    parser.add_argument(
+        "--output-file",
+        type=str,
+        metavar="PATH",
+        help="Write final answer to specified file path. Works in any mode (automation, interactive, etc.)",
     )
     parser.add_argument(
         "--skip-agent-selector",
@@ -4042,6 +5103,63 @@ Environment Variables:
     # Setup Docker images if requested
     if args.setup_docker:
         setup_docker()
+        return
+
+    # Launch web UI server if requested
+    if args.web:
+        try:
+            from .frontend.web import run_server
+
+            config_path = args.config if hasattr(args, "config") and args.config else None
+            question = getattr(args, "question", None)
+            automation_mode = getattr(args, "automation", False)
+
+            print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+            print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+            if config_path:
+                print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}   No config specified - use --config or select in UI{RESET}")
+
+            # Build auto-launch URL if question is provided
+            auto_url = None
+            if question:
+                import urllib.parse
+
+                prompt_encoded = urllib.parse.quote(question)
+                auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                if config_path:
+                    config_encoded = urllib.parse.quote(config_path)
+                    auto_url += f"&config={config_encoded}"
+                print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+            if automation_mode:
+                print(f"{BRIGHT_YELLOW}   Automation mode enabled - progress visible in web UI{RESET}")
+                print(f"{BRIGHT_CYAN}   Status files: .massgen/massgen_logs/log_<timestamp>/turn_N/attempt_N/status.json{RESET}")
+                if not question:
+                    print(f"{BRIGHT_YELLOW}   (no question provided - use web UI to start coordination){RESET}")
+
+            print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+            # Auto-open browser if question+config provided (unless --no-browser or automation mode)
+            no_browser = getattr(args, "no_browser", False)
+            if auto_url and config_path and not no_browser and not automation_mode:
+                import threading
+                import webbrowser
+
+                def open_browser():
+                    import time
+
+                    time.sleep(0.5)  # Wait for server to start
+                    webbrowser.open(auto_url)
+
+                threading.Thread(target=open_browser, daemon=True).start()
+            run_server(host=args.web_host, port=args.web_port, config_path=config_path, automation_mode=automation_mode)
+        except ImportError as e:
+            print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+            print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+            logger.debug(f"Import error: {e}")
+            sys.exit(1)
         return
 
     # Launch interactive config selector if requested

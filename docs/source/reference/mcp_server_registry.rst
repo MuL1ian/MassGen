@@ -214,6 +214,6 @@ This gives you full control over which servers to include and their configuratio
 See Also
 --------
 
-- :doc:`../user_guide/mcp_integration` - Complete MCP integration guide
+- :doc:`../user_guide/tools/mcp_integration` - Complete MCP integration guide
 - :doc:`yaml_schema` - YAML configuration schema
 - ``massgen/configs/tools/mcp/`` - Example configurations

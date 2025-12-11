@@ -16,6 +16,19 @@ class ToolType(Enum):
     MCP = "mcp"
 
 
+# Workflow tool names - centralized list for system-wide reference
+WORKFLOW_TOOL_NAMES = [
+    "new_answer",
+    "vote",
+    "submit",
+    "restart_orchestration",
+    "ask_others",
+    "respond_to_broadcast",
+    "check_broadcast_status",
+    "get_broadcast_responses",
+]
+
+
 class BaseToolkit(ABC):
     """Abstract base class for all toolkits."""
 

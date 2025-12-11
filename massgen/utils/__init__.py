@@ -3,6 +3,7 @@
 
 from enum import Enum
 
+from .async_helpers import run_async_safely
 from .model_matcher import get_all_models_for_provider
 
 # ===== Enums from original utils.py =====
@@ -72,13 +73,24 @@ MODEL_MAPPINGS = {
         "o4-mini-high",
     ],
     "claude": [
-        # Claude 4.5 variants
+        # Claude 4.5 variants (dot notation for OpenRouter/LiteLLM, date notation for direct API)
+        "claude-sonnet-4.5",
         "claude-sonnet-4-5-20250929",
+        "claude-opus-4.5",
+        "claude-opus-4-5-20251101",
+        "claude-haiku-4.5",
+        "claude-haiku-4-5-20251001",
         # Claude 4 variants
+        "claude-opus-4",
         "claude-opus-4-1-20250805",
         "claude-opus-4-20250514",
+        "claude-sonnet-4",
         "claude-sonnet-4-20250514",
+        # Claude 3.7 variants
+        "claude-3.7-sonnet",
+        "claude-3-7-sonnet-20250219",
         # Claude 3.5 variants
+        "claude-3.5-sonnet",
         "claude-3-5-sonnet-latest",
         "claude-3-5-haiku-latest",
         "claude-3-5-sonnet-20250114",
@@ -123,6 +135,8 @@ def get_backend_type_from_model(model: str) -> str:
 
 
 __all__ = [
+    # Async utilities
+    "run_async_safely",
     # Model fetching
     "get_all_models_for_provider",
     # Enums

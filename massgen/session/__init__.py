@@ -14,11 +14,12 @@ The session system is designed to be:
 """
 
 from ._registry import SessionRegistry, format_session_list
-from ._state import SessionState, restore_session
+from ._state import SessionState, restore_session, save_partial_turn
 
 __all__ = [
     "SessionState",
     "restore_session",
+    "save_partial_turn",
     "SessionRegistry",
     "format_session_list",
 ]

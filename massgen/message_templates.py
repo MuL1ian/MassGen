@@ -632,6 +632,350 @@ Based on the coordination process above, present your final answer:"""
         messages.append({"role": "user", "content": self.enforcement_message()})
         return messages
 
+    def command_execution_system_message(
+        self,
+        docker_mode: bool = False,
+        enable_sudo: bool = False,
+    ) -> str:
+        """Generate concise command execution instructions when command line execution is enabled.
+
+        Args:
+            docker_mode: Whether commands execute in Docker containers
+            enable_sudo: Whether sudo is available in Docker containers
+        """
+        parts = ["## Command Execution"]
+        parts.append("You can run command line commands using the `execute_command` tool.\n")
+
+        if docker_mode:
+            parts.append("**IMPORTANT: Docker Execution Environment**")
+            parts.append("- You are running in a Linux Docker container (Debian-based)")
+            parts.append("- Base image: Python 3.11-slim with Node.js 20.x")
+            parts.append("- Pre-installed: git, curl, build-essential, pytest, requests, numpy, pandas")
+            parts.append("- Use `apt-get` for system packages (NOT brew, dnf, yum, etc.)")
+
+            if enable_sudo:
+                parts.append("- **Sudo is available**: You can install packages with `sudo apt-get install <package>`")
+                parts.append("- Example: `sudo apt-get update && sudo apt-get install -y ffmpeg`")
+            else:
+                parts.append("- Sudo is NOT available - use pip/npm for user-level packages only")
+                parts.append("- For system packages, ask the user to rebuild the Docker image with needed packages")
+
+            parts.append("")
+
+        parts.append("If a `.venv` directory exists in your workspace, it will be automatically used.")
+
+        return "\n".join(parts)
+
+    def filesystem_system_message(
+        self,
+        main_workspace: Optional[str] = None,
+        temp_workspace: Optional[str] = None,
+        context_paths: Optional[List[Dict[str, str]]] = None,
+        previous_turns: Optional[List[Dict[str, Any]]] = None,
+        workspace_prepopulated: bool = False,
+        enable_image_generation: bool = False,
+        agent_answers: Optional[Dict[str, str]] = None,
+        enable_command_execution: bool = False,
+        docker_mode: bool = False,
+        enable_sudo: bool = False,
+    ) -> str:
+        """Generate filesystem access instructions for agents with filesystem support.
+
+        Args:
+            main_workspace: Path to agent's main workspace
+            temp_workspace: Path to shared reference workspace
+            context_paths: List of context paths with permissions
+            previous_turns: List of previous turn metadata
+            workspace_prepopulated: Whether workspace is pre-populated
+            enable_image_generation: Whether image generation is enabled
+            agent_answers: Dict of agent answers (keys are agent IDs) to show workspace structure
+            enable_command_execution: Whether command line execution is enabled
+            docker_mode: Whether commands execute in Docker containers
+            enable_sudo: Whether sudo is available in Docker containers
+        """
+        if "filesystem_system_message" in self._template_overrides:
+            return str(self._template_overrides["filesystem_system_message"])
+
+        parts = ["## Filesystem Access"]
+
+        # Explain workspace behavior
+        parts.append(
+            "Your working directory is set to your workspace, so all relative paths in your file operations "
+            "will be resolved from there. This ensures each agent works in isolation while having access to shared references. "
+            "Only include in your workspace files that should be used in your answer.\n",
+        )
+
+        if main_workspace:
+            workspace_note = f"**Your Workspace**: `{main_workspace}` - Write actual files here using file tools. All your file operations will be relative to this directory."
+            if workspace_prepopulated:
+                # Workspace is pre-populated with writable copy of most recent turn
+                workspace_note += (
+                    " **Note**: Your workspace already contains a writable copy of the previous turn's results - "
+                    "you can modify or build upon these files. The original unmodified version is also available as "
+                    "a read-only context path if you need to reference what was originally there."
+                )
+            parts.append(workspace_note)
+
+        if temp_workspace:
+            # Build workspace tree structure
+            workspace_tree = f"**Shared Reference**: `{temp_workspace}` - Contains previous answers from all agents (read/execute-only)\n"
+
+            # Add agent subdirectories in tree format
+            # This was added bc weaker models would often try many incorrect paths.
+            # No point in requiring extra list dir calls if we can just show them the structure.
+            if agent_answers:
+                # Create anonymous mapping: agent1, agent2, etc.
+                agent_mapping = {}
+                for i, agent_id in enumerate(sorted(agent_answers.keys()), 1):
+                    agent_mapping[agent_id] = f"agent{i}"
+
+                workspace_tree += "   Available agent workspaces:\n"
+                agent_items = list(agent_mapping.items())
+                for idx, (agent_id, anon_id) in enumerate(agent_items):
+                    is_last = idx == len(agent_items) - 1
+                    prefix = "   └── " if is_last else "   ├── "
+                    workspace_tree += f"{prefix}{temp_workspace}/{anon_id}/\n"
+
+            workspace_tree += (
+                "   - To improve upon existing answers: Copy files from Shared Reference to your workspace using `copy_file` or `copy_directory` tools, then modify them\n"
+                "   - These correspond directly to the answers shown in the CURRENT ANSWERS section\n"
+                "   - However, not all workspaces may have a matching answer (e.g., if an agent was in the middle of working but restarted before submitting an answer). "
+                "So, it is wise to check the actual files in the Shared Reference, not rely solely on the CURRENT ANSWERS section.\n"
+            )
+            parts.append(workspace_tree)
+
+        if context_paths:
+            has_target = any(p.get("will_be_writable", False) for p in context_paths)
+            has_readonly_context = any(not p.get("will_be_writable", False) and p.get("permission") == "read" for p in context_paths)
+
+            if has_target:
+                parts.append(
+                    "\n**Important Context**: If the user asks about improving, fixing, debugging, or understanding an existing "
+                    "code/project (e.g., 'Why is this code not working?', 'Fix this bug', 'Add feature X'), they are referring "
+                    "to the Target Path below. First READ the existing files from that path to understand what's there, then "
+                    "make your changes based on that codebase. Final deliverables must end up there.\n",
+                )
+            elif has_readonly_context:
+                parts.append(
+                    "\n**Important Context**: If the user asks about debugging or understanding an existing code/project "
+                    "(e.g., 'Why is this code not working?', 'Explain this bug'), they are referring to (one of) the Context Path(s) "
+                    "below. Read then provide analysis/explanation based on that codebase - you cannot modify it directly.\n",
+                )
+
+            for path_config in context_paths:
+                path = path_config.get("path", "")
+                permission = path_config.get("permission", "read")
+                will_be_writable = path_config.get("will_be_writable", False)
+                if path:
+                    if permission == "read" and will_be_writable:
+                        parts.append(
+                            f"**Target Path**: `{path}` (read-only now, write access later) - This is where your changes will be delivered. "
+                            f"Work in your workspace first, then the final presenter will place or update files DIRECTLY into `{path}` using the FULL ABSOLUTE PATH.",
+                        )
+                    elif permission == "write":
+                        parts.append(
+                            f"**Target Path**: `{path}` (write access) - This is where your changes must be delivered. "
+                            f"First, ensure you place your answer in your workspace, then copy/write files DIRECTLY into `{path}` using FULL ABSOLUTE PATH (not relative paths). "
+                            f"Files must go directly into the target path itself (e.g., `{path}/file.txt`), NOT into a `.massgen/` subdirectory within it.",
+                        )
+                    else:
+                        parts.append(f"**Context Path**: `{path}` (read-only) - Use FULL ABSOLUTE PATH when reading.")
+
+        # Add note connecting conversation history (in user message) to context paths (in system message)
+        if previous_turns:
+            parts.append(
+                "\n**Note**: This is a multi-turn conversation. Each User/Assistant exchange in the conversation "
+                "history represents one turn. The workspace from each turn is available as a read-only context path "
+                "listed above (e.g., turn 1's workspace is at the path ending in `/turn_1/workspace`).",
+            )
+
+        # Add intelligent task handling guidance with clear priority hierarchy
+        parts.append(
+            "\n**Task Handling Priority**: When responding to user requests, follow this priority order:\n"
+            "1. **Use MCP Tools First**: If you have specialized MCP tools available, call them DIRECTLY to complete the task\n"
+            "   - Save any outputs/artifacts from MCP tools to your workspace\n"
+            "2. **Write Code If Needed**: If MCP tools cannot complete the task, write and execute code\n"
+            "3. **Create Other Files**: Create configs, documents, or other deliverables as needed\n"
+            "4. **Text Response Otherwise**: If no tools or files are needed, provide a direct text answer\n\n"
+            "**Important**: Do NOT ask the user for clarification or additional input. Make reasonable assumptions and proceed with sensible defaults. "
+            "You will not receive user feedback, so complete the task autonomously based on the original request.\n",
+        )
+
+        # Add requirement for path explanations in answers
+        # if enable_image_generation:
+        # #     # Enabled for image generation tasks
+        #     parts.append(
+        #         "\n**Image Generation Tasks**: When working on image generation tasks, if you find images equivalent and cannot choose between them, "
+        #         "choose the one with the smallest file size.\n"
+        #         "\n**New Answer**: When calling `new_answer` tool:"
+        #         "- For non-image generation tasks, if you created files, list your cwd and file paths (but do NOT paste full file contents)\n"
+        #         "- For image generation tasks, do not use file write tools. Instead, the images are already generated directly "
+        #         "with the image_generation tool. Then, providing new answer with 1) briefly describing the contents of the images "
+        #         "and 2) listing your full cwd and the image paths you created.\n",
+        #     )
+        # else:
+        # Not enabled for image generation tasks
+        new_answer_guidance = "\n**New Answer**: When calling `new_answer`:\n"
+        if enable_command_execution:
+            new_answer_guidance += "- If you executed commands (e.g., running tests), explain the results in your answer (what passed, what failed, what the output shows)\n"
+        new_answer_guidance += "- If you created files, list your cwd and file paths (but do NOT paste full file contents)\n"
+        new_answer_guidance += "- If providing a text response, include your analysis/explanation in the `content` field\n"
+        parts.append(new_answer_guidance)
+
+        # Add workspace cleanup guidance
+        parts.append(
+            "**Workspace Cleanup**: Before submitting your answer with `new_answer`, " "ensure that your workspace contains only the files relevant to your final answer.\n",
+            # use `delete_file` or "
+            # "`delete_files_batch` to remove any outdated, temporary, or unused files from your workspace. "
+            # "Note: You cannot delete read-only files (e.g., files from other agents' workspaces or read-only context paths). "
+            # "This ensures only the relevant final files remain for evaluation. For example, if you created "
+            # "`old_index.html` then later created `new_website/index.html`, delete the old version.\n",
+        )
+
+        # Add diff tools guidance
+        parts.append(
+            "**Comparison Tools**: Use `compare_directories` to see differences between two directories (e.g., comparing "
+            "your workspace to another agent's workspace or a previous version), or `compare_files` to see line-by-line diffs "
+            "between two files. These read-only tools help you understand what changed, build upon existing work effectively, "
+            "or verify solutions before voting.\n",
+        )
+
+        # Add voting guidance
+        # if enable_image_generation:
+        #     # Enabled for image generation tasks
+        #     parts.append(
+        #         "**Evaluation**: When evaluating agents' answers, do NOT base your decision solely on the answer text. "
+        #         "Instead, read and verify the actual files in their workspaces (via Shared Reference) to ensure the work matches their claims."
+        #         "IMPORTANT: For image tasks, you MUST use ONLY the `mcp__workspace__extract_multimodal_files` tool to view and evaluate images. Do NOT use any other tool for this purpose.\n",
+        #     )
+        # else:
+        # Not enabled for image generation tasks
+        parts.append(
+            "**Evaluation**: When evaluating agents' answers, do NOT base your decision solely on the answer text. "
+            "Instead, read and verify the actual files in their workspaces (via Shared Reference) to ensure the work matches their claims.\n",
+        )
+
+        # Add command execution instructions if enabled
+        if enable_command_execution:
+            command_exec_message = self.command_execution_system_message(
+                docker_mode=docker_mode,
+                enable_sudo=enable_sudo,
+            )
+            parts.append(f"\n{command_exec_message}")
+
+        return "\n".join(parts)
+
+    def get_broadcast_guidance(
+        self,
+        broadcast_mode: str,
+        wait_by_default: bool = True,
+        sensitivity: str = "medium",
+    ) -> str:
+        """Generate guidance for using broadcast/communication tools.
+
+        Args:
+            broadcast_mode: "agents" or "human"
+            wait_by_default: Whether ask_others() blocks by default
+            sensitivity: How frequently to use ask_others() ("low", "medium", "high")
+
+        Returns:
+            Formatted guidance string to append to system messages
+        """
+        if "get_broadcast_guidance" in self._template_overrides:
+            return str(self._template_overrides["get_broadcast_guidance"])
+
+        guidance = """
+
+## Agent Communication
+
+You have access to the `ask_others()` tool for collaborative problem-solving.
+
+**IMPORTANT: Call ask_others() when you need input, coordination, or collaboration from other agents"""
+        if broadcast_mode == "human":
+            guidance += " and the human user"
+        guidance += """. Use it strategically to work effectively as a team.**
+
+"""
+        # Add sensitivity-specific guidance
+        if sensitivity == "high":
+            guidance += """**Collaboration frequency: HIGH - Use ask_others() frequently whenever you're considering options, proposing approaches, or could benefit from input.**
+
+"""
+        elif sensitivity == "low":
+            guidance += """**Collaboration frequency: LOW - Use ask_others() only when blocked or for critical architectural decisions.**
+
+"""
+        else:  # medium
+            guidance += """**Collaboration frequency: MEDIUM - Use ask_others() for significant decisions, design choices, or when confirmation would be valuable.**
+
+"""
+
+        guidance += """**When to use ask_others():**
+- **When the user explicitly asks you to**: If the prompt says "ask_others for..." then CALL THE TOOL
+- **Before making a key decision**: "Which framework should we use: Next.js or React?"
+- **When you need clarification**: "What's our approach for authentication?"
+- **After providing an answer**: Ask others for feedback on your approach
+- **When reviewing existing answers**: Ask questions about others' implementations
+- **When stuck on something specific**: "How should I handle [specific issue]?"
+
+**When NOT to use ask_others():**
+- **For rhetorical questions**: Don't ask if you don't need actual responses
+- **When the answer is obvious**: Use your judgment on what needs coordination
+- **Repeatedly on the same topic**: One broadcast per decision is usually enough
+
+**Best practices for timing:**
+- **User says "ask_others"**: Call the tool immediately as requested
+- **Need input before deciding**: Ask first, then provide your answer based on responses
+- **Want feedback on your work**: Provide answer first, then ask for feedback
+- **Use your judgment**: You can ask at any point when collaboration would help
+
+**IMPORTANT: Include broadcast responses in your answer:**
+When you receive responses from ask_others(), INCLUDE THEM in your new_answer() text file:
+- Example: "I asked others about the framework choice. The response was: Vue. Based on this input, I will..."
+- This ensures the information persists if your execution is restarted
+- Check your answer file before calling ask_others() again - if you already documented the response, use it instead of asking again
+
+**How it works:**"""
+
+        if wait_by_default:
+            guidance += """
+- Call `ask_others(question)` with your question
+- The tool blocks and waits for responses from other agents"""
+            if broadcast_mode == "human":
+                guidance += " and the human user"
+            guidance += """
+- Returns all responses immediately when ready
+- You can then continue with your task"""
+        else:
+            guidance += """
+- Call `ask_others(question, wait=False)` to send question without waiting
+- Continue working on other tasks
+- Later, check status with `check_broadcast_status(request_id)`
+- Get responses with `get_broadcast_responses(request_id)` when ready"""
+
+        guidance += """
+
+**Best practices:**
+- Be specific and actionable in your questions
+- Use when you genuinely need coordination or input
+- Actually CALL THE TOOL (don't just mention it in your answer text)
+- Respond helpfully when others ask you questions
+
+**Examples of good questions:**
+- "Which framework should we use for this project: Next.js, Nuxt, or SvelteKit?"
+- "I'm about to refactor the User model. Any concerns or suggestions?"
+- "Does anyone know which OAuth library we're using?"
+- "I'm stuck on this authentication bug. Ideas?"
+- "Should I implement approach A (faster) or approach B (more maintainable)?"
+"""
+
+        if broadcast_mode == "human":
+            guidance += """
+**Note:** The human user may also respond to your questions alongside other agents.
+"""
+
+        return guidance
+
 
 # ### IMPORTANT Evaluation Note:
 # When evaluating other agents' work, focus on the CONTENT and FUNCTIONALITY of their files.

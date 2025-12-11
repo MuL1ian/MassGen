@@ -92,6 +92,7 @@ class BackendCapabilities:
     env_var: Optional[str] = None  # Required environment variable (e.g., "OPENAI_API_KEY")
     notes: str = ""  # Additional notes about the backend
     model_release_dates: Optional[Dict[str, str]] = None  # Model -> "YYYY-MM" release date mapping
+    base_url: Optional[str] = None  # API base URL for OpenAI-compatible providers
 
 
 # THE REGISTRY - Single source of truth for all backend capabilities
@@ -125,7 +126,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "gpt-4o-mini",
             "o4-mini",
         ],
-        default_model="gpt-4o",
+        default_model="gpt-5.1",
         env_var="OPENAI_API_KEY",
         notes="Reasoning support in GPT-5 and o-series models. Audio/video generation (v0.0.30+). Video generation via Sora-2 API (v0.0.31).",
         model_release_dates={
@@ -149,24 +150,46 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "web_search",
             "code_execution",
             "mcp",
+            "tool_search",
+            "programmatic_tool_calling",
             "audio_understanding",
             "video_understanding",
         },
         builtin_tools=["web_search", "code_execution"],
         filesystem_support="mcp",
         models=[
+            # Dot notation (OpenRouter/LiteLLM style)
+            "claude-opus-4.5",
+            "claude-sonnet-4.5",
+            "claude-haiku-4.5",
+            "claude-opus-4",
+            "claude-sonnet-4",
+            # Date notation (direct Anthropic API style)
+            "claude-opus-4-5-20251101",
             "claude-haiku-4-5-20251001",
             "claude-sonnet-4-5-20250929",
             "claude-opus-4-1-20250805",
             "claude-sonnet-4-20250514",
         ],
-        default_model="claude-sonnet-4-5-20250929",
+        default_model="claude-sonnet-4.5",
         env_var="ANTHROPIC_API_KEY",
-        notes="Web search and code execution are built-in tools. Audio/video understanding support (v0.0.30+).",
+        notes=(
+            "Web search and code execution are built-in tools. "
+            "Programmatic tool calling and tool search require 4.5 models. "
+            "Audio/video understanding support (v0.0.30+). "
+            "Model IDs: use dot notation (claude-sonnet-4.5) for OpenRouter/LiteLLM, "
+            "date notation (claude-sonnet-4-5-20250929) for direct Anthropic API."
+        ),
         model_release_dates={
+            "claude-haiku-4.5": "2025-10",
             "claude-haiku-4-5-20251001": "2025-10",
+            "claude-sonnet-4.5": "2025-09",
             "claude-sonnet-4-5-20250929": "2025-09",
+            "claude-opus-4.5": "2025-11",
+            "claude-opus-4-5-20251101": "2025-11",
+            "claude-opus-4": "2025-08",
             "claude-opus-4-1-20250805": "2025-08",
+            "claude-sonnet-4": "2025-05",
             "claude-sonnet-4-20250514": "2025-05",
         },
     ),
@@ -197,16 +220,21 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         filesystem_support="native",
         models=[
+            # Dot notation (OpenRouter/LiteLLM style)
+            "claude-sonnet-4.5",
+            "claude-opus-4",
+            "claude-sonnet-4",
+            # Date notation (direct Anthropic API style)
             "claude-sonnet-4-5-20250929",
             "claude-opus-4-1-20250805",
             "claude-sonnet-4-20250514",
         ],
-        default_model="claude-sonnet-4-5-20250929",
+        default_model="claude-sonnet-4.5",
         env_var="ANTHROPIC_API_KEY",
         notes=(
             "⚠️ Works with local Claude Code CLI login (`claude login`) or ANTHROPIC_API_KEY. "
             "Native filesystem access via SDK. Extensive built-in tooling for code operations. "
-            "Image understanding support."
+            "Image understanding support. Model IDs: use dot notation (claude-sonnet-4.5) for OpenRouter/LiteLLM."
         ),
     ),
     "gemini": BackendCapabilities(
@@ -225,7 +253,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "gemini-2.5-flash",
             "gemini-2.5-pro",
         ],
-        default_model="gemini-2.5-flash",
+        default_model="gemini-3-pro-preview",
         env_var="GEMINI_API_KEY",
         notes="Google Search Retrieval provides web search. Image understanding capabilities.",
         model_release_dates={
@@ -387,7 +415,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         models=["llama-3.3-70b", "llama-3.1-70b", "llama-3.1-8b"],
         default_model="llama-3.3-70b",
         env_var="CEREBRAS_API_KEY",
-        notes="OpenAI-compatible API. Base URL: https://api.cerebras.ai/v1. Ultra-fast inference with Cerebras WSE hardware.",
+        notes="OpenAI-compatible API. Ultra-fast inference with Cerebras WSE hardware.",
+        base_url="https://api.cerebras.ai/v1",
     ),
     "together": BackendCapabilities(
         backend_type="together",
@@ -404,7 +433,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         default_model="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
         env_var="TOGETHER_API_KEY",
-        notes="OpenAI-compatible API. Base URL: https://api.together.xyz/v1. Access to open-source models at scale.",
+        notes="OpenAI-compatible API. Access to open-source models at scale.",
+        base_url="https://api.together.xyz/v1",
     ),
     "fireworks": BackendCapabilities(
         backend_type="fireworks",
@@ -421,7 +451,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         default_model="accounts/fireworks/models/llama-v3p3-70b-instruct",
         env_var="FIREWORKS_API_KEY",
-        notes="OpenAI-compatible API. Base URL: https://api.fireworks.ai/inference/v1. Fast inference for production workloads.",
+        notes="OpenAI-compatible API. Fast inference for production workloads.",
+        base_url="https://api.fireworks.ai/inference/v1",
     ),
     "groq": BackendCapabilities(
         backend_type="groq",
@@ -438,7 +469,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         default_model="llama-3.3-70b-versatile",
         env_var="GROQ_API_KEY",
-        notes="OpenAI-compatible API. Base URL: https://api.groq.com/openai/v1. Ultra-fast inference with LPU hardware.",
+        notes="OpenAI-compatible API. Ultra-fast inference with LPU hardware.",
+        base_url="https://api.groq.com/openai/v1",
     ),
     "openrouter": BackendCapabilities(
         backend_type="openrouter",
@@ -450,10 +482,11 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         },
         builtin_tools=[],
         filesystem_support="mcp",
-        models=["custom"],  # OpenRouter supports 200+ models
+        models=["custom"],  # OpenRouter supports 300+ models
         default_model="custom",
         env_var="OPENROUTER_API_KEY",
-        notes="OpenAI-compatible API. Base URL: https://openrouter.ai/api/v1. Unified access to 200+ AI models. Audio/video understanding available on compatible models (v0.0.30+).",
+        notes="OpenAI-compatible API. Unified access to 300+ AI models.",
+        base_url="https://openrouter.ai/api/v1",
     ),
     "moonshot": BackendCapabilities(
         backend_type="moonshot",
@@ -466,7 +499,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         models=["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
         default_model="moonshot-v1-128k",
         env_var="MOONSHOT_API_KEY",
-        notes="OpenAI-compatible API. Base URL: https://api.moonshot.cn/v1. Chinese language optimized models with long context windows.",
+        notes="OpenAI-compatible API. Chinese language optimized models with long context windows.",
+        base_url="https://api.moonshot.cn/v1",
     ),
     "nebius": BackendCapabilities(
         backend_type="nebius",
@@ -479,7 +513,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         models=["Qwen/Qwen3-4B-fast", "custom"],
         default_model="Qwen/Qwen3-4B-fast",
         env_var="NEBIUS_API_KEY",
-        notes="OpenAI-compatible API. Base URL: https://api.studio.nebius.ai/v1. Nebius AI Studio cloud platform.",
+        notes="OpenAI-compatible API. Nebius AI Studio cloud platform.",
+        base_url="https://api.studio.nebius.ai/v1",
     ),
     "poe": BackendCapabilities(
         backend_type="poe",
@@ -507,7 +542,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         models=["qwen-max", "qwen-plus", "qwen-turbo", "qwen3-vl-30b-a3b-thinking"],
         default_model="qwen-max",
         env_var="QWEN_API_KEY",
-        notes="OpenAI-compatible API. Base URL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1. Qwen models from Alibaba Cloud. Audio/video understanding support (v0.0.30+).",
+        notes="OpenAI-compatible API. Qwen models from Alibaba Cloud.",
+        base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     ),
 }
 
@@ -588,6 +624,19 @@ def validate_backend_config(backend_type: str, config: Dict) -> List[str]:
     if "enable_code_interpreter" in config and config["enable_code_interpreter"]:
         if "code_execution" not in caps.supported_capabilities:
             errors.append(f"{backend_type} does not support code_execution/interpreter")
+
+    # Programmatic tool calling is Claude-specific
+    # Note: code_execution is auto-enabled when programmatic flow is enabled (in api_params_handler)
+    if config.get("enable_programmatic_flow") and backend_type != "claude":
+        errors.append(
+            f"enable_programmatic_flow is only supported by Claude backend, not {backend_type}. " f"This setting will be ignored.",
+        )
+
+    # Tool search is Claude-specific
+    if config.get("enable_tool_search") and backend_type != "claude":
+        errors.append(
+            f"enable_tool_search is only supported by Claude backend, not {backend_type}. " f"This setting will be ignored.",
+        )
 
     # Check MCP configuration
     if "mcp_servers" in config and config["mcp_servers"]:

@@ -3,11 +3,9 @@ Configuration
 
 MassGen is configured using environment variables for API keys and YAML files for agent definitions and orchestrator settings. This guide shows you how to set up your configuration.
 
-.. note::
+.. tip::
 
-   MassGen provides both a CLI and a Python API. Configuration is primarily done via the interactive setup wizard or YAML files.
-
-   **Python API Note:** The Python API is currently in early development with basic functionality only. For advanced features and full control, use the CLI with YAML configuration files. See :doc:`../reference/python_api` for Python API details and status.
+   MassGen offers multiple usage modes: **CLI** with YAML configuration, **Python API** (``massgen.run()``), and **LiteLLM integration** for OpenAI-compatible interfaces. This guide focuses on CLI configuration. For Python integration, see :doc:`../user_guide/integration/python_api`.
 
 Configuration Methods
 =====================
@@ -26,10 +24,10 @@ The easiest way to configure MassGen is through the interactive wizard:
 .. code-block:: bash
 
    # First run automatically triggers the wizard
-   massgen
+   uv run massgen
 
    # Or manually launch it
-   massgen --init
+   uv run massgen --init
 
 **The Config Builder Interface:**
 
@@ -61,7 +59,7 @@ After completing the wizard, your configuration is ready to use:
 
 .. code-block:: bash
 
-   massgen "Your question"  # Uses default config automatically
+   uv run massgen "Your question"  # Uses default config automatically
 
 Configuration Directory Structure
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -88,32 +86,35 @@ MassGen also creates a ``.massgen/`` directory in your project for sessions, wor
 .. code-block:: bash
 
    # Run the wizard in named config mode
-   massgen --init
+   uv run massgen --init
 
    # Choose to save to ~/.config/massgen/agents/ (Windows: %USERPROFILE%\.config\massgen\agents\)
    # Then use it:
-   massgen --config research-team "Your question"
+   uv run massgen --config research-team "Your question"
 
 Environment Variables
 ---------------------
 
 API keys are configured through environment variables or a ``.env`` file. After pip install, the setup wizard can create ``~/.config/massgen/.env`` (Windows: ``%USERPROFILE%\.config\massgen\.env``) for you.
 
-Creating Your .env File
-~~~~~~~~~~~~~~~~~~~~~~~
+OpenRouter (Recommended)
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-Copy the example environment file and add your API keys:
+**Use one API key to access all models** - OpenRouter provides a unified API for OpenAI, Anthropic, Google, xAI, and 200+ other models:
 
 .. code-block:: bash
 
-   # Copy the example file
-   cp .env.example .env
+   # Single key for all models
+   export OPENROUTER_API_KEY=sk-or-v1-...
 
-   # Edit the file with your API keys
-   # (Only add keys for the models you plan to use)
+Then use OpenRouter models in your multi-agent configurations
 
-Example .env File
-~~~~~~~~~~~~~~~~~
+Get your key: `OpenRouter <https://openrouter.ai/keys>`_
+
+Individual Provider Keys
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Alternatively, use provider-specific keys:
 
 .. code-block:: bash
 
@@ -129,23 +130,13 @@ Example .env File
    # xAI Grok
    XAI_API_KEY=...
 
-   # Azure OpenAI
-   AZURE_OPENAI_API_KEY=...
-   AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-   AZURE_OPENAI_API_VERSION=YOUR-AZURE-OPENAI-API-VERSION
-
-   # Other providers (optional)
-   CEREBRAS_API_KEY=...
-   MOONSHOT_API_KEY=...
-   ZHIPUAI_API_KEY=...
-
 **Getting API Keys:**
 
+* `OpenRouter <https://openrouter.ai/keys>`_ (recommended - single key for all models)
 * `OpenAI <https://platform.openai.com/api-keys>`_
 * `Anthropic Claude <https://docs.anthropic.com/en/api/overview>`_
 * `Google Gemini <https://ai.google.dev/gemini-api/docs>`_
 * `xAI Grok <https://docs.x.ai/docs/overview>`_
-* `Azure OpenAI <https://learn.microsoft.com/en-us/azure/ai-services/openai/>`_
 
 YAML Configuration Files
 -------------------------
@@ -203,7 +194,7 @@ For a single agent, use the ``agents`` field (plural) with one entry:
 
 .. code-block:: bash
 
-   massgen \
+   uv run massgen \
      --config @examples/basic/single/single_gpt5nano \
      "What is machine learning?"
 
@@ -243,7 +234,7 @@ For multiple agents, add more entries to the ``agents`` list:
 
 .. code-block:: bash
 
-   massgen \
+   uv run massgen \
      --config @examples/basic/multi/three_agents_default \
      "Analyze the pros and cons of renewable energy"
 
@@ -255,16 +246,128 @@ Each agent requires a ``backend`` configuration that specifies the model provide
 .. important::
    **Choosing the right backend?** Different backends support different features (web search, code execution, file operations, etc.). Check the **Backend Capabilities Matrix** in :doc:`../user_guide/backends` to see which features are available for each backend type.
 
-Backend Types
-~~~~~~~~~~~~~
+Supported Providers
+~~~~~~~~~~~~~~~~~~~
 
-Available backend types:
+MassGen supports many LLM providers. Use the **slash format** (``provider/model``) for the Python API and LiteLLM:
+
+.. list-table:: Provider Reference
+   :header-rows: 1
+   :widths: 15 20 30 20
+
+   * - Provider
+     - Backend Type
+     - Example Models
+     - Slash Format Example
+   * - OpenAI
+     - ``openai``
+     - ``gpt-5``, ``gpt-5-nano``, ``gpt-5.1``
+     - ``openai/gpt-5``
+   * - Anthropic
+     - ``claude``
+     - ``claude-sonnet-4-5-20250929``, ``claude-opus-4-5-20251101``
+     - ``claude/claude-sonnet-4-5-20250929``
+   * - Google
+     - ``gemini``
+     - ``gemini-2.5-flash``, ``gemini-2.5-pro``, ``gemini-3-pro-preview``
+     - ``gemini/gemini-2.5-flash``
+   * - xAI
+     - ``grok``
+     - ``grok-4``, ``grok-4-1-fast-reasoning``, ``grok-3-mini``
+     - ``grok/grok-4``
+   * - Groq
+     - ``groq``
+     - ``llama-3.3-70b-versatile``, ``mixtral-8x7b-32768``
+     - ``groq/llama-3.3-70b-versatile``
+   * - Cerebras
+     - ``cerebras``
+     - ``llama-3.3-70b``, ``llama-3.1-8b``
+     - ``cerebras/llama-3.3-70b``
+   * - Together
+     - ``together``
+     - ``meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo``
+     - ``together/meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo``
+   * - Fireworks
+     - ``fireworks``
+     - ``accounts/fireworks/models/llama-v3p3-70b-instruct``
+     - ``fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct``
+   * - OpenRouter
+     - ``openrouter``
+     - 200+ models (e.g., ``x-ai/grok-4.1-mini``)
+     - ``openrouter/x-ai/grok-4.1-mini``
+   * - Qwen
+     - ``qwen``
+     - ``qwen-max``, ``qwen-plus``, ``qwen-turbo``
+     - ``qwen/qwen-max``
+   * - Moonshot
+     - ``moonshot``
+     - ``moonshot-v1-128k``, ``moonshot-v1-32k``
+     - ``moonshot/moonshot-v1-128k``
+   * - Nebius
+     - ``nebius``
+     - ``Qwen/Qwen3-4B-fast``
+     - ``nebius/Qwen/Qwen3-4B-fast``
+   * - Claude Code
+     - ``claude_code``
+     - ``claude-sonnet-4-5-20250929``
+     - (YAML only)
+   * - Azure OpenAI
+     - ``azure_openai``
+     - ``gpt-4o`` (deployment name)
+     - (YAML only)
+
+.. tip::
+   **Nested slashes are supported!** For providers like OpenRouter, Together, and Fireworks where model names contain slashes, the format still works:
+
+   - ``openrouter/x-ai/grok-4.1-mini`` → provider=openrouter, model=x-ai/grok-4.1-mini
+   - ``together/meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo`` → provider=together, model=meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo
+
+**Using slash format in Python:**
+
+.. code-block:: python
+
+   import massgen
+
+   # Build config with slash format
+   config = massgen.build_config(models=[
+       "openai/gpt-5",
+       "groq/llama-3.3-70b-versatile",
+       "openrouter/x-ai/grok-4.1-mini"
+   ])
+
+   # Or with LiteLLM (using OpenRouter)
+   from dotenv import load_dotenv
+   load_dotenv()  # Load OPENROUTER_API_KEY from .env
+
+   import litellm
+   from massgen import register_with_litellm
+
+   register_with_litellm()
+   response = litellm.completion(
+       model="massgen/build",
+       messages=[{"role": "user", "content": "Your question"}],
+       optional_params={"models": ["openrouter/openai/gpt-5", "openrouter/anthropic/claude-sonnet-4.5"]}
+   )
+   print(response.choices[0].message.content)
+
+Backend Types (YAML)
+~~~~~~~~~~~~~~~~~~~~
+
+For YAML configuration files, use the ``type`` field:
 
 * ``openai`` - OpenAI models (GPT-5, GPT-4, etc.)
 * ``claude`` - Anthropic Claude models
 * ``claude_code`` - Claude Code SDK with dev tools
 * ``gemini`` - Google Gemini models
 * ``grok`` - xAI Grok models
+* ``groq`` - Groq inference (ultra-fast)
+* ``cerebras`` - Cerebras AI
+* ``together`` - Together AI
+* ``fireworks`` - Fireworks AI
+* ``openrouter`` - OpenRouter (200+ models)
+* ``qwen`` - Alibaba Qwen models
+* ``moonshot`` - Kimi/Moonshot AI
+* ``nebius`` - Nebius AI Studio
 * ``azure_openai`` - Azure OpenAI deployment
 * ``zai`` - ZhipuAI GLM models
 * ``ag2`` - AG2 framework integration
@@ -375,7 +478,7 @@ Add MCP (Model Context Protocol) servers for external tools:
              command: "npx"
              args: ["-y", "@fak111/weather-mcp"]
 
-See :doc:`../user_guide/mcp_integration` for details.
+See :doc:`../user_guide/tools/mcp_integration` for details.
 
 File Operations
 ~~~~~~~~~~~~~~~
@@ -395,7 +498,7 @@ Enable file system access for agents:
      snapshot_storage: "snapshots"
      agent_temporary_workspace: "temp_workspaces"
 
-See :doc:`../user_guide/file_operations` for details.
+See :doc:`../user_guide/files/file_operations` for details.
 
 Project Integration
 ~~~~~~~~~~~~~~~~~~~
@@ -417,7 +520,7 @@ Share directories with agents (read or write access):
        - path: "/absolute/path/to/project/docs"
          permission: "write"     # Agents can update docs
 
-See :doc:`../user_guide/project_integration` for details.
+See :doc:`../user_guide/files/project_integration` for details.
 
 Protected Paths
 ~~~~~~~~~~~~~~~
@@ -437,7 +540,7 @@ Make specific files read-only within writable context paths:
 
 **Use Case**: Allow agents to modify most files while protecting critical configurations or templates.
 
-See :doc:`../user_guide/protected_paths` for complete documentation.
+See :doc:`../user_guide/files/protected_paths` for complete documentation.
 
 Planning Mode
 ~~~~~~~~~~~~~
@@ -455,7 +558,7 @@ Prevent irreversible actions during multi-agent coordination:
 
 **Use Case**: File operations, API calls, or any task with irreversible consequences.
 
-See :doc:`../user_guide/planning_mode` for complete documentation.
+See :doc:`../user_guide/advanced/planning_mode` for complete documentation.
 
 Timeout Configuration
 ~~~~~~~~~~~~~~~~~~~~~
@@ -471,28 +574,9 @@ Control maximum coordination time:
 
 .. code-block:: bash
 
-   massgen --orchestrator-timeout 600 --config config.yaml
+   uv run massgen --orchestrator-timeout 600 --config config.yaml
 
 See :doc:`../reference/timeouts` for complete timeout documentation.
-
-Configuration Without Files
----------------------------
-
-For quick tests, you can use CLI flags without a configuration file:
-
-.. code-block:: bash
-
-   # Single agent with model flag
-   massgen --model gemini-2.5-flash "Your question"
-
-   # With backend specification
-   massgen --backend claude --model claude-sonnet-4 "Your question"
-
-   # With custom system message
-   massgen \
-     --model gpt-5-nano \
-     --system-message "You are a helpful coding assistant" \
-     "Write a Python function to sort a list"
 
 For the complete list of CLI parameters, see :doc:`../reference/cli`
 
@@ -530,7 +614,7 @@ Next Steps
 
 ⬜ **Go deeper:** :doc:`../user_guide/concepts` - Understand how multi-agent coordination works
 
-⬜ **Add capabilities:** :doc:`../user_guide/mcp_integration` - Integrate external tools
+⬜ **Add capabilities:** :doc:`../user_guide/tools/mcp_integration` - Integrate external tools
 
 **Need a reference?** The complete configuration schema is at :doc:`../reference/yaml_schema`
 
@@ -544,10 +628,10 @@ Ensure the path is correct relative to the MassGen directory:
 .. code-block:: bash
 
    # Correct - relative to MassGen root
-   massgen --config @examples/basic/multi/three_agents_default
+   uv run massgen --config @examples/basic/multi/three_agents_default
 
    # Incorrect - missing massgen/ prefix
-   massgen --config configs/basic/multi/three_agents_default.yaml
+   uv run massgen --config configs/basic/multi/three_agents_default.yaml
 
 **API key not found:**
 

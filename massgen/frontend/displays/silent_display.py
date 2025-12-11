@@ -7,7 +7,6 @@ Provides only essential information while detailed progress is available via sta
 """
 
 import time
-from pathlib import Path
 from typing import Optional
 
 from .base_display import BaseDisplay
@@ -44,9 +43,9 @@ class SilentDisplay(BaseDisplay):
         """Initialize the display with essential information only.
 
         Prints:
-        - LOG_DIR: Full path to log directory
-        - STATUS: Path to status.json file for real-time monitoring
         - QUESTION: The question being answered
+
+        Note: LOG_DIR and STATUS paths are printed by cli.py for automation mode.
 
         Args:
             question: The user's question
@@ -54,10 +53,12 @@ class SilentDisplay(BaseDisplay):
         """
         self.start_time = time.time()
 
-        if log_filename:
-            self.log_dir = Path(log_filename).parent
-            print(f"LOG_DIR: {self.log_dir}")
-            print(f"STATUS: {self.log_dir / 'status.json'}")
+        # Store log dir for internal use (paths already printed by cli.py)
+        from massgen.logger_config import get_log_session_dir
+
+        log_session_dir = get_log_session_dir()
+        if log_session_dir:
+            self.log_dir = log_session_dir
 
         print(f"QUESTION: {question}")
         print("[Coordination in progress - monitor status.json for real-time updates]")
@@ -106,6 +107,44 @@ class SilentDisplay(BaseDisplay):
         self.orchestrator_events.append(event)
         # Silent - no output to stdout
 
+    def _print_timeline(self, vote_results):
+        """Print full timeline with answers, votes, and results.
+
+        Args:
+            vote_results: Dictionary containing vote data including:
+                - vote_counts: {agent_id: vote_count}
+                - voter_details: {voted_for_agent_id: [{voter: voter_id, reason: str}]}
+                - winner: winning agent_id
+                - is_tie: boolean
+        """
+        if not vote_results:
+            return
+
+        print("\nTIMELINE:")
+
+        # Show individual votes from voter_details
+        voter_details = vote_results.get("voter_details", {})
+        if voter_details:
+            for voted_for, voters in voter_details.items():
+                for voter_info in voters:
+                    voter = voter_info.get("voter", "unknown")
+                    reason = voter_info.get("reason", "")
+                    reason_preview = reason[:50] + "..." if len(reason) > 50 else reason
+                    print(f"  [VOTE] {voter} -> {voted_for}")
+                    if reason_preview:
+                        print(f"         Reason: {reason_preview}")
+
+        # Show vote distribution summary
+        vote_counts = vote_results.get("vote_counts", {})
+        if vote_counts:
+            print("  [RESULTS]")
+            winner = vote_results.get("winner")
+            is_tie = vote_results.get("is_tie", False)
+            for agent, count in sorted(vote_counts.items(), key=lambda x: -x[1]):
+                winner_mark = " (winner)" if agent == winner else ""
+                tie_mark = " (tie-broken)" if is_tie and agent == winner else ""
+                print(f"    {agent}: {count} vote{'s' if count != 1 else ''}{winner_mark}{tie_mark}")
+
     def show_final_answer(self, answer: str, vote_results=None, selected_agent=None):
         """Display the final coordinated answer with essential information.
 
@@ -113,6 +152,7 @@ class SilentDisplay(BaseDisplay):
         - WINNER: The winning agent ID
         - ANSWER_FILE: Path to final answer file
         - DURATION: Total coordination time
+        - TIMELINE: Answer submissions, votes, and results
         - ANSWER_PREVIEW: First 200 characters of answer
 
         Args:
@@ -132,6 +172,9 @@ class SilentDisplay(BaseDisplay):
         if self.start_time:
             duration = time.time() - self.start_time
             print(f"DURATION: {duration:.1f}s")
+
+        # Print full timeline
+        self._print_timeline(vote_results)
 
         # Show preview of answer (first 200 chars)
         if answer:

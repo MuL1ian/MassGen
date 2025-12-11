@@ -40,57 +40,15 @@ MassGen: Multi-Agent Scaling System for GenAI
 
 .. raw:: html
 
-   <p align="center">
-     <i>Multi-agent scaling through intelligent collaboration</i>
-   </p>
-
-.. raw:: html
-
    <a href="https://www.youtube.com/watch?v=Dp2oldJJImw" style="display: block; text-align: center;">
      <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-light">
      <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-dark">
    </a>
 
-Quick Start
------------
-
-Get started with MassGen in minutes:
-
-.. code-block:: bash
-
-   pip install uv
-   uv venv
-   uv pip install massgen
-   uv run massgen
-
-On first run, MassGen will guide you through:
-
-1. **API key setup** - Configure OpenAI, Anthropic, Google, or xAI
-2. **Optional enhancements** - Install Docker images and skills (~5 minutes with Docker, faster without)
-3. **Quickstart configuration** - Create your agent team with smart defaults
-4. **Start chatting** - Launch directly into an interactive conversation
-
-Your configuration is saved automatically. Future runs are simple:
-
-.. code-block:: bash
-
-   # Interactive multi-turn conversation
-   uv run massgen
-
-   # Single query
-   uv run massgen "Your question here"
-
-   # Use a different configuration
-   uv run massgen --config @examples/providers/gemini/gemini_3_pro
-
-**Want to dive deeper?** See :doc:`quickstart/installation` for detailed setup options and :doc:`quickstart/running-massgen` for all the ways to use MassGen.
-
 What is MassGen?
------------------
+----------------
 
-MassGen is a cutting-edge multi-agent system that leverages the power of collaborative AI to solve complex tasks. It assigns a task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution to deliver a comprehensive and high-quality result. The power of this "parallel study group" approach is exemplified by advanced systems like xAI's Grok Heavy and Google DeepMind's Gemini Deep Think.
-
-MassGen assigns your task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution. The system delivers comprehensive, high-quality results by leveraging the collective intelligence of multiple AI models.
+MassGen is a cutting-edge multi-agent system that leverages the power of collaborative AI to solve complex tasks. It assigns a task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution to deliver a comprehensive and high-quality result.
 
 **How It Works:**
 
@@ -102,7 +60,61 @@ MassGen assigns your task to multiple AI agents who work in parallel, observe ea
 
 Think of it as a "parallel study group" for AI - inspired by advanced systems like **xAI's Grok Heavy** and **Google DeepMind's Gemini Deep Think**. Agents learn from each other to produce better results than any single agent could achieve alone.
 
-This project extends the classic "multi-agent conversation" idea from `AG2 <https://github.com/ag2ai/ag2>`_ with "threads of thought" and "iterative refinement" concepts presented in `The Myth of Reasoning <https://docs.ag2.ai/latest/docs/blog/2025/04/16/Reasoning/>`_.
+
+How Does MassGen Compare?
+-------------------------
+
+**MassGen vs LLM Council:** While LLM Council follows a fixed 3-stage pipeline, MassGen agents autonomously decide to contribute new answers or vote for others, reaching consensus organically. Plus, MassGen agents can use tools, execute code, and read/write files in your codebase — backed by active development with regular releases. :doc:`See full comparison → <reference/comparisons>`
+
+
+Quick Start
+-----------
+
+.. tabs::
+
+   .. tab:: CLI
+
+      .. code-block:: bash
+
+         pip install uv        # if needed
+         uv venv && source .venv/bin/activate
+         uv pip install massgen
+         uv run massgen        # Setup wizard, then ask your first question
+
+      Rich terminal UI with real-time streaming, multi-turn conversations, and YAML configuration.
+
+   .. tab:: WebUI
+
+      .. code-block:: bash
+
+         pip install uv        # if needed
+         uv venv && source .venv/bin/activate
+         uv pip install massgen
+         uv run massgen --web  # Open http://localhost:8000
+
+      Browser-based UI with real-time agent streaming, vote visualization, and workspace browsing.
+
+   .. tab:: LiteLLM
+
+      .. code-block:: python
+
+         from dotenv import load_dotenv
+         load_dotenv()  # Load OPENROUTER_API_KEY from .env
+
+         import litellm
+         from massgen import register_with_litellm
+
+         register_with_litellm()
+         response = litellm.completion(
+             model="massgen/build",
+             messages=[{"role": "user", "content": "Your question"}],
+             optional_params={"models": ["openrouter/openai/gpt-5", "openrouter/anthropic/claude-sonnet-4.5"]}
+         )
+         print(response.choices[0].message.content)
+
+      Standard OpenAI-compatible interface for seamless integration with existing applications.
+
+:doc:`quickstart/installation` · :doc:`quickstart/running-massgen` · :doc:`quickstart/configuration`
 
 Key Features
 ------------
@@ -112,31 +124,31 @@ Key Features
 
    .. grid-item-card:: 🤝 Cross-Model Synergy
 
-      Use Claude, Gemini, GPT, Grok, and other models together - each agent can use a different model.
+      Use Claude, Gemini, GPT, Grok together - each agent can use a different model.
 
    .. grid-item-card:: ⚡ Parallel Coordination
 
       Multiple agents work simultaneously with voting and consensus detection.
 
-   .. grid-item-card:: 🛠️ MCP Integration
+   .. grid-item-card:: 🛠️ Tools & MCP
 
-      Model Context Protocol support for tools via YAML configuration.
+      Model Context Protocol for web search, code execution, file operations, and custom tools.
 
-   .. grid-item-card:: 🔗 Framework Interoperability
+   .. grid-item-card:: 🐍 Python & LiteLLM
 
-      Integrate external frameworks (AG2, LangGraph, AgentScope, OpenAI, SmolAgent) as tools within MassGen's coordination.
+      Full async Python API and LiteLLM integration for seamless application embedding.
 
    .. grid-item-card:: 📊 Live Visualization
 
       Real-time terminal display showing agents' working processes and coordination.
 
-   .. grid-item-card:: 🔒 File Operation Safety
+   .. grid-item-card:: 💬 Multi-Turn Sessions
 
-      Read-before-delete enforcement and workspace isolation for secure file operations.
+      Interactive conversations with context preservation across turns.
 
-   .. grid-item-card:: 🔄 Multi-Turn Interactive Mode
+   .. grid-item-card:: 🔗 Framework Interoperability
 
-      Continue conversations across multiple turns with full context preservation and session management.
+      Integrate external frameworks (AG2, LangGraph, AgentScope, OpenAI, SmolAgent) as tools.
 
    .. grid-item-card:: 📁 Project Integration
 
@@ -145,196 +157,50 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.16 (November 24, 2025)** - Terminal Evaluation, LiteLLM Cost Tracking & Memory Improvements
+**v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
 
-Terminal evaluation system with VHS recording for automated session capture as GIF/MP4/WEBM, analyzed by multimodal models (GPT-4.1, Claude) for UI/UX quality, agent performance, and coordination visualization. LiteLLM integration for accurate cost tracking across 500+ models with reasoning tokens (o1/o3) and cached tokens (Claude, OpenAI) support, more accurate than manual pricing tables. Memory archiving system enables persistent multi-turn conversations with improved retrieval and context management. MassGen self-evolution skills (config creator, self-developer, release documenter, model registry maintainer) for autonomous system maintenance. Docker improvements with parallel image pulling and VHS integration.
+Turn history inspection with ``/inspect`` commands, Web UI automation mode for programmatic workflows, Docker container persistence across turns, and improved Ctrl+C handling with terminal state restoration. New ``run_async_safely()`` utility prevents async event loop conflicts.
 
-**v0.1.15 (November 21, 2025)** - Persona Generation System & Docker Distribution
+**v0.1.22 (December 8, 2025)** - Shadow Agent Architecture
 
-Automatic persona generation for multi-agent configurations with multiple strategies (complementary, diverse, specialized, adversarial) to increase response diversity. Enhanced Docker distribution via GitHub Container Registry with ARM architecture support. Custom tools now run in isolated Docker containers for security and portability. MassGen pre-installed in Docker images for immediate use. Improved config builder with better model selection and defaults.
+Lightweight shadow agents spawned in parallel respond to broadcasts without interrupting parent agents. Full context inheritance with parent's conversation history and current work-in-progress. Automatic response collection via ``asyncio.gather()`` with informational messages to parent agents.
 
-**v0.1.14 (November 19, 2025)** - Parallel Tool Execution, Interactive Quickstart & Gemini 3 Pro
+**v0.1.21 (December 5, 2025)** - Graceful Cancellation for Multi-Turn Sessions
 
-Parallel tool execution system with configurable concurrent tool execution across all backends using asyncio-based scheduling and semaphore limits. Full integration for Google's Gemini 3 Pro model with native function calling capabilities. Interactive quickstart workflow with streamlined onboarding experience and guided configuration creation. MCP registry client with enhanced server metadata fetching from official registry for better agent understanding.
+Ctrl+C now saves partial progress mid-coordination, preserving agent answers and workspaces. Sessions can resume with ``--continue`` without losing any work. First Ctrl+C saves gracefully; second forces immediate exit.
 
-Quick Start
------------
-
-Get started with MassGen in minutes. First, ensure you have Python 3.11+ and uv installed, then create a virtual environment with uv and install MassGen via pip.
-
-**Install:**
-
-.. code-block:: bash
-
-   uv venv
-   uv pip install massgen
-
-**Step 1: Set up API keys, Docker, and skills:**
-
-.. code-block:: bash
-
-   uv run massgen --setup
-
-This will:
-
-* Configure your API keys (OpenAI, Anthropic, Google, xAI)
-* Offer to set up Docker images for code execution
-* Offer to install skills (openskills, Anthropic collection)
-
-**Step 2: Create a config and start:**
-
-.. code-block:: bash
-
-   uv run massgen --quickstart
-
-This will:
-
-* Ask how many agents you want (1-5, default 3)
-* Ask which backend/model for each agent
-* Auto-detect Docker and configure execution mode
-* Create a ready-to-use config and launch interactive mode
-
-After setup, you can:
-
-.. code-block:: bash
-
-   # Run a single query with your configured agents
-   uv run massgen "Your question here"
-
-   # Or start an interactive conversation
-   uv run massgen
-
-**Option 2: Quick single-agent test:**
-
-.. code-block:: bash
-
-   # No config needed - specify model directly
-   uv run massgen --model gemini-2.5-flash "What are LLM agents?"
-
-**Option 3: Multi-agent collaboration:**
-
-.. code-block:: bash
-
-   # Use a built-in configuration
-   uv run massgen --config @examples/basic/multi/three_agents_default \
-     "What are the pros and cons of renewable energy?"
-
-Watch agents discuss, vote, and converge on the best answer in real-time!
-
-**Ready to dive deeper?**
-
-* :doc:`quickstart/installation` - Complete installation guide and setup wizard
-* :doc:`quickstart/running-massgen` - Learn all the ways to run MassGen
-* :doc:`quickstart/configuration` - Create custom agent teams
-* :doc:`examples/basic_examples` - Copy-paste ready examples
+:doc:`Full changelog → <changelog>`
 
 Supported Models
 ----------------
 
-MassGen supports a wide range of AI models across different providers:
+**Claude** (Anthropic) · **Gemini** (Google) · **GPT** (OpenAI) · **Grok** (xAI) · **Azure OpenAI** · **Groq** · **Together** · **LM Studio** · :doc:`and more... <reference/supported_models>`
 
-**API-based Models:**
-
-* **Claude** (Anthropic): Haiku, Sonnet, Opus series
-* **Gemini** (Google): Flash, Pro series with MCP support
-* **GPT** (OpenAI): GPT-4, GPT-5 series
-* **Grok** (xAI): Grok-3, Grok-4 series
-* **Azure OpenAI**: Enterprise deployments
-* And :doc:`many more <reference/supported_models>`...
-
-**Local Models:**
-
-* **LM Studio**: Run open-weight models locally
-* **vLLM & SGLang**: Unified inference backend
-
-**External Frameworks:**
-
-* **AG2** Agents with code execution capabilities
-
-.. tip::
-   **Choosing the right backend?** Different models have different strengths. See the complete **Backend Capabilities Matrix** in :doc:`user_guide/backends` to understand which features (web search, code execution, file operations, etc.) are available for each model.
-
-Core Concepts
+Documentation
 -------------
-
-**Simple CLI Interface**
-   Get started with just ``massgen`` - install via pip, run the interactive setup wizard, and you're ready to go.
-
-**Multi-Agent Coordination**
-   Multiple agents work in parallel, observe each other's progress, and reach consensus through natural collaboration with real-time visualization.
-
-**Interactive Multi-Turn Mode**
-   Have ongoing conversations with your multi-agent team! Session history is preserved in the ``.massgen/sessions/`` directory, allowing you to continue conversations across multiple sessions with full context preservation.
-
-**Flexible Model Support**
-   Use Claude, Gemini, GPT, Grok, and more - each agent can use a different model. Mix and match models for optimal results.
-
-**MCP Tool Integration**
-   Extend agent capabilities with Model Context Protocol (MCP) tools. Supports planning mode to prevent irreversible actions during coordination.
-
-**Workspace Isolation & File Operations**
-   Each agent gets its own isolated workspace for safe file operations. The ``.massgen/`` directory keeps all MassGen files organized and separate from your project.
-
-**Project Integration**
-   Work directly with your existing codebases! Use context paths to grant agents read/write access to specific directories with granular permission control.
-
-**Configuration**
-   After using the setup wizard, customize your agent teams via YAML configuration files for advanced scenarios.
-
-Documentation Sections
-----------------------
 
 .. grid:: 3
    :gutter: 2
 
-   .. grid-item::
-
-      **Getting Started**
+   .. grid-item-card:: 🚀 Getting Started
 
       * :doc:`quickstart/installation`
       * :doc:`quickstart/running-massgen`
       * :doc:`quickstart/configuration`
 
-   .. grid-item::
-
-      **User Guide**
+   .. grid-item-card:: 📖 User Guide
 
       * :doc:`user_guide/concepts`
-      * :doc:`user_guide/backends`
-      * :doc:`user_guide/diversity`
-      * :doc:`user_guide/tools`
-      * :doc:`user_guide/code_based_tools`
-      * :doc:`user_guide/file_operations`
-      * :doc:`user_guide/multi_turn_mode`
-      * :doc:`user_guide/general_interoperability`
+      * :doc:`user_guide/webui`
+      * :doc:`user_guide/tools/index`
+      * :doc:`user_guide/integration/index`
 
-   .. grid-item::
+   .. grid-item-card:: 📚 Reference
 
-      **Reference**
-
-      * :doc:`reference/python_api`
       * :doc:`reference/cli`
+      * :doc:`reference/python_api`
       * :doc:`reference/yaml_schema`
-      * :doc:`reference/mcp_server_registry`
-      * :doc:`reference/configuration_examples`
-      * :doc:`reference/supported_models`
-      * :doc:`reference/timeouts`
-
-   .. grid-item::
-
-      **Examples**
-
-      * :doc:`examples/case_studies`
       * :doc:`examples/basic_examples`
-      * :doc:`examples/advanced_patterns`
-
-   .. grid-item::
-
-      **Development**
-
-      * :doc:`development/contributing`
-      * :doc:`development/architecture`
-      * :doc:`development/roadmap`
 
 .. toctree::
    :maxdepth: 2
@@ -352,20 +218,13 @@ Documentation Sections
 
    user_guide/concepts
    user_guide/backends
-   user_guide/diversity
+   user_guide/webui
+   user_guide/tools/index
+   user_guide/files/index
+   user_guide/sessions/index
+   user_guide/integration/index
+   user_guide/advanced/index
    user_guide/validating_configs
-   user_guide/tools
-   user_guide/code_based_tools
-   user_guide/skills
-   user_guide/file_operations
-   user_guide/multi_turn_mode
-   user_guide/memory
-   user_guide/memory_filesystem_mode
-   user_guide/orchestration_restart
-   user_guide/agent_task_planning
-   user_guide/multimodal
-   user_guide/terminal_evaluation
-   user_guide/general_interoperability
    user_guide/logging
 
 .. toctree::
@@ -380,6 +239,7 @@ Documentation Sections
    reference/configuration_examples
    reference/timeouts
    reference/supported_models
+   reference/comparisons
    glossary
 
 .. toctree::
@@ -403,22 +263,3 @@ Documentation Sections
    development/roadmap
    changelog
    api/index
-
-Community
----------
-
-* **GitHub**: `github.com/Leezekun/MassGen <https://github.com/Leezekun/MassGen>`_
-* **Discord**: `discord.massgen.ai <https://discord.massgen.ai>`_
-* **Issues**: `Report bugs or request features <https://github.com/Leezekun/MassGen/issues>`_
-
-License
--------
-
-MassGen is licensed under the Apache License 2.0. See the `LICENSE <https://github.com/Leezekun/MassGen/blob/main/LICENSE>`_ file for details.
-
-Indices and tables
-------------------
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`

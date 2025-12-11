@@ -73,6 +73,6 @@ See :doc:`../user_guide/logging` for details on accessing session logs and the `
 See Also
 --------
 
-* :doc:`../user_guide/multi_turn_mode` - Interactive sessions
+* :doc:`../user_guide/sessions/multi_turn_mode` - Interactive sessions
 * :doc:`../user_guide/logging` - Understanding session logs
-* :doc:`../user_guide/mcp_integration` - External tool integration
+* :doc:`../user_guide/tools/mcp_integration` - External tool integration

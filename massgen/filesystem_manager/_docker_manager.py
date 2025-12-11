@@ -481,6 +481,7 @@ class DockerManager:
         workspace_path: Path,
         temp_workspace_path: Optional[Path] = None,
         context_paths: Optional[List[Dict[str, Any]]] = None,
+        session_mount: Optional[Dict[str, Dict[str, str]]] = None,
         skills_directory: Optional[str] = None,
         massgen_skills: Optional[List[str]] = None,
         shared_tools_directory: Optional[Path] = None,
@@ -500,6 +501,10 @@ class DockerManager:
             temp_workspace_path: Path to shared temp workspace (mounted at same path, read-only)
             context_paths: List of context path dicts with 'path', 'permission', and optional 'name' keys
                           (each mounted at its host path)
+            session_mount: Pre-built Docker volume mount config for session directory. Format:
+                          {host_path: {"bind": container_path, "mode": "ro"}}. When provided,
+                          enables automatic visibility of all turn workspaces without container
+                          recreation between turns.
             skills_directory: Path to skills directory (e.g., .agent/skills) to mount read-only
             massgen_skills: List of MassGen built-in skills to enable (optional)
             shared_tools_directory: Path to shared tools directory (servers/, custom_tools/, .mcp/) to mount read-only
@@ -584,6 +589,14 @@ class DockerManager:
 
                 volumes[str(ctx_path)] = {"bind": str(ctx_path), "mode": mode}
                 mount_info.append(f"      {ctx_path} ← {ctx_path} ({mode})")
+
+        # Mount session directory (read-only) for multi-turn visibility
+        # This allows all turn workspaces to be automatically visible without
+        # container recreation between turns
+        if session_mount:
+            volumes.update(session_mount)
+            for host_path, mount_config in session_mount.items():
+                mount_info.append(f"      {host_path} ← {mount_config['bind']} ({mount_config['mode']}, session)")
 
         # Create merged skills directory (user skills + massgen skills)
         # openskills expects skills in ~/.agent/skills

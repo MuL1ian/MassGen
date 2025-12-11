@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.16 Features](#-latest-features-v0116)
+- [v0.1.23 Features](#-latest-features-v0123)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <summary><h3>🗺️ Roadmap</h3></summary>
 
 - Recent Achievements
-  - [v0.1.16](#recent-achievements-v0116)
-  - [v0.0.3 - v0.1.15](#previous-achievements-v003---v0115)
+  - [v0.1.23](#recent-achievements-v0123)
+  - [v0.0.3 - v0.1.22](#previous-achievements-v003---v0122)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.17 Roadmap](#v0117-roadmap)
+- [v0.1.24 Roadmap](#v0124-roadmap)
 </details>
 
 <details open>
@@ -155,25 +155,21 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.16)
+## 🆕 Latest Features (v0.1.23)
 
-**🎉 Released: November 24, 2025**
+**🎉 Released: December 10, 2025**
 
-**What's New in v0.1.16:**
-- **🎬 Terminal Evaluation System** - Automated VHS recording and AI-powered terminal display evaluation
-- **💰 LiteLLM Cost Tracking** - Accurate pricing for 500+ models with automatic updates
-- **🧠 Memory Archiving** - Multi-turn session persistence with long-term memory storage
-- **🔧 Self-Evolution Skills** - MassGen now has specific agent skills to help with development
+**What's New in v0.1.23:**
+- **🔍 Turn History Inspection** - Review any turn's agent outputs, coordination data, and logs with `/inspect` commands
+- **🖥️ Web UI Automation Mode** - Streamlined interface for programmatic workflows with `--automation` flag
+- **🐳 Faster Multi-Turn Docker** - Containers persist across turns
 
 **Key Improvements:**
-- Record and analyze terminal sessions with VHS for UI/UX evaluation using multimodal AI
-- Precise cost tracking with LiteLLM's pricing database (reasoning tokens, cached tokens support)
-- Archive memory across conversation turns for session continuity
-- Four new skills enabling MassGen to document releases, maintain configs, and develop features
-- Parallel Docker image pulling for faster setup
-- Grok 4.1 and GPT-4.1 model family support with accurate pricing metadata
+- Improved Ctrl+C handling in multi-turn mode with proper terminal restoration
+- New `run_async_safely()` utility prevents async event loop conflicts
+- Cancelled turns now preserve partial results in session history
 
-**Try v0.1.16 Features:**
+**Try v0.1.23 Features:**
 ```bash
 # Install or upgrade from PyPI
 pip install --upgrade massgen
@@ -181,15 +177,16 @@ pip install --upgrade massgen
 # Or with uv (faster)
 uv pip install massgen
 
-# Terminal Evaluation - record and analyze MassGen's terminal display
-# Prerequisites: VHS installed (brew install vhs or go install github.com/charmbracelet/vhs@latest), OPENAI_API_KEY or GEMINI_API_KEY in .env
-uv run massgen --config massgen/configs/meta/massgen_evaluates_terminal.yaml \
-  "Record running massgen on @examples/basic/multi/two_agents_gemini.yaml, answering 'What is 2+2?'. Then, evaluate the terminal display for clarity, status indicators, and coordination visualization, coming up with improvements."
+# Multi-turn session with turn inspection
+massgen --config @examples/basic/multi/three_agents_default
+# After completing turns, use /inspect to review history:
+#   /inspect all  - List all turns with summaries
+#   /inspect 1    - View Turn 1 details with interactive menu
 
-# Memory Archiving - persistent memory across conversation turns
-# Prerequisites: Docker running, API keys in .env
-uv run massgen --config massgen/configs/skills/test_memory.yaml \
-  "Create a website about Bob Dylan"
+# Web UI automation mode for programmatic monitoring
+massgen --automation --web --config @examples/basic/multi/three_agents_default \
+  "Analyze multi-agent AI coordination patterns"
+# Outputs LOG_DIR and STATUS path for external monitoring
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -413,52 +410,47 @@ MassGen automatically loads API keys from `.env` in your current directory.
 The system currently supports multiple model providers with advanced capabilities:
 
 **API-based Models:**
-- **Azure OpenAI** (NEW in v0.0.10): GPT-4, GPT-4o, GPT-3.5-turbo, GPT-4.1, GPT-5-chat
-- **Cerebras AI**: GPT-OSS-120B...
-- **Claude**: Claude Haiku 3.5, Claude Sonnet 4, Claude Opus 4...
-- **Claude Code**: Native Claude Code SDK with comprehensive dev tools
-- **Gemini**: Gemini 2.5 Flash, Gemini 2.5 Pro...
-- **Grok**: Grok-4, Grok-3, Grok-3-mini...
-- **OpenAI**: GPT-5 series (GPT-5, GPT-5-mini, GPT-5-nano)...
-- **Together AI**, **Fireworks AI**, **Groq**, **Kimi/Moonshot**, **Nebius AI Studio**, **OpenRouter**, **POE**: LLaMA, Mistral, Qwen...
-- **Z AI**: GLM-4.5
+- **OpenAI**: GPT-5.1, GPT-5-codex, GPT-5 series (GPT-5, GPT-5-mini, GPT-5-nano), GPT-4.1 series, GPT-4o, o4-mini with reasoning, web search, code interpreter, and computer-use support
+- **Azure OpenAI**: Any Azure-deployed models (GPT-4, GPT-4o, GPT-35-turbo, etc.)
+- **Claude / Anthropic**: Claude Opus 4.5, Claude Haiku 4.5, Claude Sonnet 4.5, Claude Opus 4.5, Claude Opus 4.1, Claude Sonnet 4
+  - Advanced tooling: web search, code execution, Files API, programmatic tool calling, tool search with deferred loading
+- **Claude Code**: Native Claude Code SDK with server-side session persistence and built-in dev tools
+- **Gemini**: Gemini 3 Pro, Gemini 2.5 Flash, Gemini 2.5 Pro with code execution and grounding
+- **Grok / xAI**: Grok-4.1, Grok-4, Grok-3, Grok-3-mini with Grok Live Search
+- **Cerebras AI**: Ultra-fast inference for supported models
+- **Together AI**, **Fireworks AI**, **Groq**: Fast inference for LLaMA, Mistral, Qwen, and other open models
+- **OpenRouter**: Multi-model aggregator with dynamic model listing (400+ models)
+- **Kimi / Moonshot**: Chinese AI models via OpenAI-compatible API
+- **Nebius AI Studio**: Cloud inference platform
+- **POE**: Quora AI platform with dynamic model discovery
+- **Qwen / Alibaba**: DashScope API for Qwen models
+- **Z AI / Zhipu**: GLM-4.5 and related models
 
 **Local Model Support:**
-- **vLLM & SGLang** (ENHANCED in v0.0.25): Unified inference backend supporting both vLLM and SGLang servers
-  - Auto-detection between vLLM (port 8000) and SGLang (port 30000) servers
-  - Support for both vLLM and SGLang-specific parameters (top_k, repetition_penalty, separate_reasoning)
+- **vLLM & SGLang**: Unified inference backend supporting both vLLM and SGLang servers
+  - vLLM (port 8000) and SGLang (port 30000) with OpenAI-compatible API
+  - Support for `top_k`, `repetition_penalty`, `chat_template_kwargs` parameters
+  - SGLang-specific `separate_reasoning` parameter for thinking models
   - Mixed server deployments with configuration example: `two_qwen_vllm_sglang.yaml`
 
-- **LM Studio** (v0.0.7+): Run open-weight models locally with automatic server management
+- **LM Studio**: Run open-weight models locally with automatic server management
   - Automatic LM Studio CLI installation
   - Auto-download and loading of models
-  - Zero-cost usage reporting
   - Support for LLaMA, Mistral, Qwen and other open-weight models
 
 → For complete model list and configuration details, see [Supported Models](https://docs.massgen.ai/en/latest/reference/supported_models.html)
 
 #### Tools
 
-MassGen agents can leverage various tools to enhance their problem-solving capabilities. Both API-based and CLI-based backends support different tool capabilities.
+MassGen agents can leverage various tools to enhance their problem-solving capabilities:
 
-**Supported Built-in Tools by Backend:**
+- **Built-in Tools**: Web search, code execution, bash/shell (provider-dependent)
+- **Filesystem**: Native file operations or via MCP
+- **MCP Integration**: Connect to any MCP server for extended capabilities
+- **Custom Tools**: Define your own tools via YAML configuration
+- **Multimodal**: Image, audio, video understanding and generation (native or via custom tools)
 
-| Backend | Live Search | Code Execution | File Operations | MCP Support | Multimodal Understanding | Multimodal Generation | Advanced Features |
-|---------|:-----------:|:--------------:|:---------------:|:-----------:|:------------------------:|:---------------------:|:-----------------|
-| **Azure OpenAI** (NEW in v0.0.10) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | Code interpreter, Azure deployment management |
-| **Claude API**  | ✅ | ✅ | ✅ | ✅ | ✅<br/>*via custom tools* | ✅<br/>*via custom tools* | Web search, code interpreter, **MCP integration** |
-| **Claude Code** | ✅ | ✅ | ✅ | ✅ | ✅<br/>*Image (native)*<br/>*Audio/Video/Docs (custom tools)* | ✅<br/>*via custom tools* | **Native Claude Code SDK, comprehensive dev tools, MCP integration** |
-| **Gemini API** | ✅ | ✅ | ✅ | ✅ | ✅<br/>*Image (native)*<br/>*Audio/Video/Docs (custom tools)* | ✅<br/>*via custom tools* | Web search, code execution, **MCP integration**|
-| **Grok API** | ✅ | ❌ | ✅ | ✅ | ✅<br/>*via custom tools* | ✅<br/>*via custom tools* | Web search, **MCP integration** |
-| **OpenAI API** | ✅ | ✅ | ✅ | ✅ | ✅<br/>*Image (native)*<br/>*Audio/Video/Docs (custom tools)* | ✅<br/>*via custom tools* | Web search, code interpreter, **MCP integration** |
-| **ZAI API** | ❌ | ❌ | ✅ | ✅ | ✅<br/>*via custom tools* | ✅<br/>*via custom tools* | **MCP integration** |
-
-**Notes:**
-- **Multimodal Understanding** (NEW in v0.1.3): Analyze images, audio, video, and documents via custom tools using OpenAI GPT-4.1 - works with any backend
-- **Multimodal Generation** (NEW in v0.1.4): Generate images, videos, audio, and documents via custom tools using OpenAI APIs - works with any backend
-- See custom tool configurations: [`understand_image.yaml`](massgen/configs/tools/custom_tools/multimodal_tools/understand_image.yaml), [`text_to_image_generation_single.yaml`](massgen/configs/tools/custom_tools/multimodal_tools/text_to_image_generation_single.yaml)
-
-→ For detailed backend capabilities and tool integration guides, see [User Guide - Backends](https://docs.massgen.ai/en/latest/user_guide/backends.html)
+→ For detailed backend capabilities and tool support matrix, see [User Guide - Backends](https://docs.massgen.ai/en/latest/user_guide/backends.html#backend-capabilities)
 
 ---
 
@@ -487,8 +479,8 @@ MassGen agents can leverage various tools to enhance their problem-solving capab
 **Quick Start Commands:**
 ```bash
 # Quick test with any supported model - no configuration needed
-uv run python -m massgen.cli --model claude-3-5-sonnet-latest "What is machine learning?"
-uv run python -m massgen.cli --model gemini-2.5-flash "Explain quantum computing"
+uv run python -m massgen.cli --model claude-sonnet-4-5-20250929 "What is machine learning?"
+uv run python -m massgen.cli --model gemini-3-pro-preview "Explain quantum computing"
 uv run python -m massgen.cli --model gpt-5-nano "Summarize the latest AI developments"
 ```
 
@@ -524,9 +516,9 @@ massgen --config @examples/basic/multi/three_agents_default \
 ```
 
 **This showcases MassGen's core strength:**
-- **Gemini 2.5 Flash** - Fast research with web search
+- **Gemini 3 Pro** - Fast research with web search
 - **GPT-5 Nano** - Advanced reasoning with code execution
-- **Grok-3 Mini** - Real-time information and alternative perspectives
+- **Grok-4 Fast** - Real-time information and alternative perspectives
 
 ```yaml
 agents:  # Multiple agents (alternative to 'agent')
@@ -600,7 +592,7 @@ agents:
   # Multiple MCP Tools Example:
   backend:
     type: "gemini"
-    model: "gemini-2.5-flash"
+    model: "gemini-3.0-pro-preview"
     mcp_servers:
       # Web search
       search:
@@ -664,7 +656,6 @@ agents:
   - id: "file-agent"
     backend:
       type: "claude_code"          # Backend with file support
-      model: "claude-sonnet-4"     # Your model choice
       cwd: "workspace"             # Isolated workspace for file operations
 
 # Multi-Agent Workspace Isolation:
@@ -893,18 +884,18 @@ massgen --config @examples/providers/local/lmstudio \
 **Question Answering & Research:**
 ```bash
 # Complex research with multiple perspectives
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "What's best to do in Stockholm in October 2025"
 
 # Specific research requirements
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "Give me all the talks on agent frameworks in Berkeley Agentic AI Summit 2025"
 ```
 
 **Creative Writing:**
 ```bash
 # Story generation with multiple creative agents
-massgen --config @examples/basic/multi/gemini_4o_claude \
+massgen --config @examples/basic/multi/gemini_gpt5_claude \
   "Write a short story about a robot who discovers music"
 ```
 
@@ -975,10 +966,14 @@ uv run python -m massgen.cli \
 **Interactive Mode Features:**
 - **Multi-turn conversations**: Multiple agents collaborate to chat with you in an ongoing conversation
 - **Real-time coordination tracking**: Live visualization of agent interactions, votes, and decision-making processes
-- **Interactive coordination table**: Press `r` to view complete history of agent coordination events and state transitions
 - **Real-time feedback**: Displays real-time agent and system status with enhanced coordination visualization
-- **Clear conversation history**: Type `/clear` to reset the conversation and start fresh
-- **Easy exit**: Type `/quit`, `/exit`, `/q`, or press `Ctrl+C` to stop
+- **Multi-line input**: Use `"""` or `'''` to enter multi-line messages
+- **Slash commands**:
+  - `/help` or `/h` - Show available commands
+  - `/status` - Display current system status
+  - `/config` - Open the configuration file
+  - `/clear` or `/reset` - Clear conversation history and start fresh
+  - `/quit`, `/exit`, or `/q` - Exit the session (or press `Ctrl+C`)
 
 **Watch the recorded demo:**
 
@@ -1068,6 +1063,46 @@ Topics covered:
 - Parallel experiment execution
 - Performance tips and troubleshooting
 
+### Python API & LiteLLM
+
+Use MassGen programmatically with the familiar LiteLLM/OpenAI interface:
+
+```python
+from dotenv import load_dotenv
+load_dotenv()  # Load API keys from .env
+
+import litellm
+from massgen import register_with_litellm
+
+register_with_litellm()
+
+# Multi-agent with slash format: "backend/model"
+response = litellm.completion(
+    model="massgen/build",
+    messages=[{"role": "user", "content": "Compare AI approaches"}],
+    optional_params={"models": ["openai/gpt-5", "groq/llama-3.3-70b"]}
+)
+print(response.choices[0].message.content)  # Final consensus answer
+```
+
+Or use the direct Python API:
+
+```python
+from dotenv import load_dotenv
+load_dotenv()
+
+import asyncio
+import massgen
+
+result = asyncio.run(massgen.run(
+    query="What is machine learning?",
+    models=["openai/gpt-5", "gemini/gemini-3-pro-preview"]
+))
+print(result["final_answer"])  # Consensus answer from winning agent
+```
+
+> **Full API reference:** [Programmatic API Guide](https://docs.massgen.ai/en/latest/user_guide/programmatic_api.html)
+
 ---
 
 ## 💡 Case Studies
@@ -1090,34 +1125,44 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.16)
+### Recent Achievements (v0.1.23)
 
-**🎉 Released: November 24, 2025**
+**🎉 Released: December 10, 2025**
 
-#### Terminal Evaluation System
-- **VHS Recording & AI Analysis**: Record terminal sessions as GIF/MP4/WEBM using VHS, analyze with GPT-4.1/Claude for UI/UX quality, agent performance, and coordination visualization
+#### Turn History Inspection
+- **Interactive Inspection Commands**: `/inspect` and `/inspect <N>` for reviewing turn details with menu-driven navigation
+- **Session Overview**: `/inspect all` lists all turns with task summaries and winning agents
+- **Comprehensive Access**: View agent outputs, final answers, system logs, and coordination tables
 
-#### LiteLLM Cost Tracking Integration
-- **500+ Model Support**: Auto-updating pricing database with reasoning tokens (o1/o3) and cached tokens (Claude, OpenAI) support, more accurate than manual tables
-- **Robust Fallback**: Graceful degradation to legacy calculation when unavailable
+#### Web UI Automation Mode & Multi-Turn Improvements
+- **Automation View**: New `AutomationView` component with phase/elapsed status and session polling for monitoring workflows
+- **Docker Container Persistence**: `SessionMountManager` pre-mounts session directories, eliminating container recreation between turns
+- **Cancellation Handling**: Flag-based approach with terminal state restoration via `_restore_terminal_for_input()`
 
-#### Memory Archiving System
-- **Persistent Multi-Turn Memory**: Archive memory across conversation turns with improved retrieval and context management for continuous agent interactions
+#### Async Execution Consistency
+- **Safe Async Utilities**: `run_async_safely()` handles nested event loops with ThreadPoolExecutor pattern
+- **Cancelled Turn History**: Partial results preserved in session history for cancelled turns
 
-#### MassGen Self-Evolution Skills
-- **Four Development Skills**: Config creator, self-developer, release documenter, and model registry maintainer to assist with MassGen development and maintenance
+#### Documentations, Configurations and Resources
+- `docs/source/user_guide/sessions/multi_turn_mode.rst` - Turn history inspection documentation
 
-#### Infrastructure Enhancements
-- **Docker Improvements**: Parallel image pulling for faster setup, VHS integration for terminal recording in containers
-- **Model Updates**: Grok 4.1 family (grok-4.1, grok-4.1-mini) and GPT-4.1 models with release dates and improved pricing metadata for accurate cost tracking
+### Previous Achievements (v0.0.3 - v0.1.22)
 
-#### Documentation
-- **Terminal Evaluation System**: `docs/source/user_guide/terminal_evaluation.rst`, `massgen/configs/meta/massgen_evaluates_terminal.yaml`, `massgen/configs/tools/custom_tools/terminal_evaluation.yaml`
-- **LiteLLM Cost Tracking Integration**: `docs/dev_notes/litellm_cost_tracking_integration.md`
-- **Memory Archiving System**: `docs/source/user_guide/memory_filesystem_mode.rst` with archiving workflows
-- **MassGen Self-Evolution Skills**: `massgen-config-creator/SKILL.md`, `massgen-develops-massgen/SKILL.md`, `massgen-release-documenter/SKILL.md`, `model-registry-maintainer/SKILL.md`
+✅ **Shadow Agent Architecture (v0.1.22)**: Lightweight shadow agents respond to broadcasts in parallel without interrupting parent work, inheriting full conversation history and current turn context via `asyncio.gather()` parallelization
 
-### Previous Achievements (v0.0.3 - v0.1.15)
+✅ **Graceful Cancellation & Session Resumption (v0.1.21)**: Ctrl+C saves partial progress during coordination, cancelled sessions resume with `--continue` preserving agent answers and workspaces
+
+✅ **Web UI & Auto Docker Setup (v0.1.20)**: Browser-based real-time visualization with React frontend, WebSocket streaming, timeline views, and workspace browsing. Automatic Docker container setup for computer use agents with pre-configured X11 virtual display, xdotool, Firefox, Chromium, and scrot
+
+✅ **LiteLLM Integration & Claude Strict Tool Use (v0.1.19)**: MassGen as LiteLLM custom provider with `run()` and `build_config()` programmatic API, Claude strict tool use with structured outputs, Gemini exponential backoff for rate limit resilience
+
+✅ **Agent Communication System (v0.1.18)**: Human broadcast Q&A via `ask_others()` tool with three modes, blocking execution with inline response delivery, session-persistent Q&A history
+
+✅ **Claude Advanced Tooling (v0.1.18)**: Programmatic tool calling via `enable_programmatic_flow` flag, server-side tool discovery via `enable_tool_search` with regex or bm25 variants
+
+✅ **Textual Terminal Display (v0.1.17)**: Interactive terminal UI using the Textual library with dark/light themes, multi-panel layout for agents and orchestrator, real-time streaming with syntax highlighting, content filtering for critical patterns
+
+✅ **Terminal Evaluation & Cost Tracking (v0.1.16)**: Automated VHS recording with AI-powered terminal display evaluation, LiteLLM integration for accurate pricing across 500+ models with reasoning/cached tokens support, memory archiving for multi-turn session persistence, four self-evolution skills for MassGen development
 
 ✅ **Persona Generation & Docker Distribution (v0.1.15)**: Automatic persona generation for agent diversity with multiple strategies (complementary, diverse, specialized, adversarial), GitHub Container Registry integration with ARM support, custom tools in isolated Docker containers for security, MassGen pre-installed in Docker images
 
@@ -1291,21 +1336,21 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.17 Roadmap
+### v0.1.24 Roadmap
 
-Version 0.1.17 focuses on broadcasting capabilities and expanding model support:
+Version 0.1.24 focuses on RL integration and Smithery MCP tools:
 
 #### Planned Features
-- **Broadcasting to Humans/Agents**: Enable agents to broadcast questions when facing implementation uncertainties for improved decision quality
-- **Grok 4.1 Fast Model Support**: Add support for xAI's latest high-speed model for rapid agent responses and cost-effective workflows
+- **Integrate RL into MassGen** (@qidanrui, @praneeth999): RL-based learning framework for adaptive agent behavior and coordination optimization
+- **Smithery MCP Tools Support** (@ncrispino): Integration with Smithery MCP server registry for automatic tool discovery and management
 
 Key technical approach:
-- **Broadcasting Infrastructure**: Question routing protocol, human-in-the-loop interaction, agent-to-agent coordination
-- **Grok 4.1 Fast Integration**: Backend integration, token counting, pricing configuration, capability registration
+- **RL Integration**: Reward signals from coordination outcomes, policy learning for agent strategies, multi-agent coordination optimization
+- **Smithery Integration**: Registry client for server metadata, automatic tool loading, MCP server lifecycle management
 
-**Target Release**: November 26, 2025 (Wednesday @ 9am PT)
+**Target Release**: December 12, 2025 (Friday @ 9am PT)
 
-For detailed milestones and technical specifications, see the [full v0.1.17 roadmap](ROADMAP_v0.1.17.md).
+For detailed milestones and technical specifications, see the [full v0.1.24 roadmap](ROADMAP_v0.1.25.md).
 
 ---
 

@@ -42,6 +42,13 @@ class EventType(str, Enum):
     AGENT_CANCELLED = "agent_cancelled"
     UPDATE_INJECTED = "update_injected"
 
+    # Broadcast/communication events
+    BROADCAST_CREATED = "broadcast_created"
+    BROADCAST_RESPONSE = "broadcast_response"
+    BROADCAST_COMPLETE = "broadcast_complete"
+    BROADCAST_TIMEOUT = "broadcast_timeout"
+    HUMAN_BROADCAST_RESPONSE = "human_broadcast_response"
+
 
 ACTION_TO_EVENT = {
     ActionType.ERROR: EventType.AGENT_ERROR,
@@ -561,6 +568,58 @@ class CoordinationTracker:
                 raise ValueError(f"Unsupported ActionType: {action_type}")
             message = f"{action_type.value.upper()}: {details}" if details else action_type.value.upper()
             self._add_event(event_type, agent_id, message)
+
+    def add_broadcast_created(self, request_id: str, sender_id: str, question: str):
+        """Record when a broadcast is created.
+
+        Args:
+            request_id: ID of the broadcast request
+            sender_id: ID of the agent sending the broadcast
+            question: The question being broadcast
+        """
+        context = {
+            "request_id": request_id,
+            "question_preview": question[:100] + "..." if len(question) > 100 else question,
+        }
+        self._add_event(
+            EventType.BROADCAST_CREATED,
+            sender_id,
+            f"Created broadcast: {question[:50]}...",
+            context,
+        )
+
+    def add_broadcast_response(
+        self,
+        request_id: str,
+        responder_id: str,
+        is_human: bool = False,
+    ):
+        """Record when an agent or human responds to a broadcast.
+
+        Args:
+            request_id: ID of the broadcast request
+            responder_id: ID of the responder (agent ID or "human")
+            is_human: Whether this is a human response
+        """
+        context = {
+            "request_id": request_id,
+            "is_human": is_human,
+        }
+        event_type = EventType.HUMAN_BROADCAST_RESPONSE if is_human else EventType.BROADCAST_RESPONSE
+        details = "Responded to broadcast" if not is_human else "Human responded to broadcast"
+        self._add_event(event_type, responder_id if not is_human else None, details, context)
+
+    def add_broadcast_complete(self, request_id: str, status: str):
+        """Record when a broadcast completes.
+
+        Args:
+            request_id: ID of the broadcast request
+            status: Status of completion ("complete" or "timeout")
+        """
+        context = {"request_id": request_id, "completion_status": status}
+        event_type = EventType.BROADCAST_TIMEOUT if status == "timeout" else EventType.BROADCAST_COMPLETE
+        details = f"Broadcast {status}"
+        self._add_event(event_type, None, details, context)
 
     def _add_event(
         self,
