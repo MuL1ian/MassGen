@@ -113,6 +113,7 @@ class AzureOpenAIBackend(LLMBackend):
                 "messages": modified_messages,
                 "model": deployment_name,  # Use deployment name directly
                 "stream": True,
+                "stream_options": {"include_usage": True},  # Enable usage tracking in stream
             }
 
             # Only add tools if explicitly provided and not empty
@@ -146,6 +147,13 @@ class AzureOpenAIBackend(LLMBackend):
             last_yield_type = None
 
             async for chunk in stream:
+                # Track usage data from chunk (typically in final chunk)
+                if hasattr(chunk, "usage") and chunk.usage:
+                    self._update_token_usage_from_api_response(
+                        chunk.usage,
+                        deployment_name,
+                    )
+
                 converted = self._convert_chunk_to_stream_chunk(chunk)
 
                 # Accumulate content chunks

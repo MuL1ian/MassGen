@@ -1012,9 +1012,17 @@ class Orchestrator(ChatAgent):
 
         # Determine what to do based on current state and conversation context
         if self.workflow_phase == "idle":
+            # Emit preparation status
+            yield StreamChunk(type="preparation_status", status="Preparing coordination...", detail="Setting up orchestrator")
+
             # New task - start MassGen coordination with full context
             self.current_task = user_message
+
+            # Prepare paraphrases if DSPy is enabled
+            if self.dspy_paraphraser:
+                yield StreamChunk(type="preparation_status", status="Generating prompt variants...", detail="DSPy paraphrasing")
             await self._prepare_paraphrases_for_agents(self.current_task)
+
             # Reinitialize session with user prompt now that we have it
             self.coordination_tracker.initialize_session(list(self.agents.keys()), self.current_task)
             self.workflow_phase = "coordinating"
@@ -1032,6 +1040,7 @@ class Orchestrator(ChatAgent):
             )
 
             if planning_mode_config_exists:
+                yield StreamChunk(type="preparation_status", status="Analyzing task...", detail="Checking for irreversible operations")
                 # Analyze question for irreversibility and set planning mode accordingly
                 # This happens silently - users don't see this analysis
                 analysis_result = await self._analyze_question_irreversibility(user_message, conversation_context)
@@ -1053,6 +1062,9 @@ class Orchestrator(ChatAgent):
                                 "reason": "irreversibility analysis",
                             },
                         )
+
+            # Starting actual coordination
+            yield StreamChunk(type="preparation_status", status="Starting coordination...", detail=f"{len(self.agents)} agents ready")
 
             async for chunk in self._coordinate_agents_with_timeout(conversation_context):
                 yield chunk
@@ -1324,15 +1336,185 @@ class Orchestrator(ChatAgent):
 
     def save_coordination_logs(self):
         """Public method to save coordination logs after final presentation is complete."""
+        logger.info("[Orchestrator] save_coordination_logs called")
         # End the coordination session
         self.coordination_tracker._end_session()
 
         # Save coordination logs using the coordination tracker
         log_session_dir = get_log_session_dir()
         if log_session_dir:
+            logger.info(f"[Orchestrator] Saving to {log_session_dir}")
             self.coordination_tracker.save_coordination_logs(log_session_dir)
-            # Also save final status.json with complete results (including final_answer_preview)
+            # Also save final status.json with complete token/cost data
             self.coordination_tracker.save_status_file(log_session_dir, orchestrator=self)
+            # Save detailed metrics files
+            self.save_metrics(log_session_dir)
+
+    def save_metrics(self, log_dir: Path):
+        """Save detailed metrics files for analysis.
+
+        Outputs:
+            - metrics_events.json: Detailed event log of all tool executions and round completions
+            - metrics_summary.json: Aggregated summary with per-agent and global statistics
+        """
+        try:
+            log_dir = Path(log_dir)
+
+            # Collect all tool metrics and round history from agents
+            all_tool_events = []
+            all_round_events = []
+            agent_metrics = {}
+
+            for agent_id, agent in self.agents.items():
+                if hasattr(agent, "backend") and agent.backend:
+                    backend = agent.backend
+
+                    # Collect detailed tool execution events
+                    if hasattr(backend, "get_tool_metrics"):
+                        tool_events = backend.get_tool_metrics()
+                        all_tool_events.extend(tool_events)
+
+                    # Collect round token history
+                    if hasattr(backend, "get_round_token_history"):
+                        round_history = backend.get_round_token_history()
+                        all_round_events.extend(round_history)
+
+                    # Collect per-agent summaries
+                    agent_metrics[agent_id] = {
+                        "tool_metrics": backend.get_tool_metrics_summary() if hasattr(backend, "get_tool_metrics_summary") else None,
+                        "round_history": backend.get_round_token_history() if hasattr(backend, "get_round_token_history") else None,
+                        "token_usage": {
+                            "input_tokens": backend.token_usage.input_tokens if backend.token_usage else 0,
+                            "output_tokens": backend.token_usage.output_tokens if backend.token_usage else 0,
+                            "reasoning_tokens": backend.token_usage.reasoning_tokens if backend.token_usage else 0,
+                            "cached_input_tokens": backend.token_usage.cached_input_tokens if backend.token_usage else 0,
+                            "estimated_cost": round(backend.token_usage.estimated_cost, 6) if backend.token_usage else 0,
+                        }
+                        if hasattr(backend, "token_usage")
+                        else None,
+                    }
+
+            # Save detailed events log
+            events_file = log_dir / "metrics_events.json"
+            events_data = {
+                "meta": {
+                    "generated_at": time.time(),
+                    "session_id": log_dir.name,
+                    "question": self.current_task,
+                },
+                "tool_executions": all_tool_events,
+                "round_completions": all_round_events,
+            }
+            with open(events_file, "w", encoding="utf-8") as f:
+                json.dump(events_data, f, indent=2, default=str)
+
+            # Build aggregated summary
+            # Aggregate tool stats
+            tools_summary = {
+                "total_calls": 0,
+                "total_failures": 0,
+                "total_execution_time_ms": 0.0,
+                "by_tool": {},
+            }
+            for event in all_tool_events:
+                tools_summary["total_calls"] += 1
+                if not event.get("success", True):
+                    tools_summary["total_failures"] += 1
+                tools_summary["total_execution_time_ms"] += event.get("execution_time_ms", 0)
+
+                tool_name = event.get("tool_name", "unknown")
+                if tool_name not in tools_summary["by_tool"]:
+                    tools_summary["by_tool"][tool_name] = {
+                        "call_count": 0,
+                        "success_count": 0,
+                        "failure_count": 0,
+                        "total_execution_time_ms": 0.0,
+                        "total_input_chars": 0,
+                        "total_output_chars": 0,
+                        "tool_type": event.get("tool_type", "unknown"),
+                    }
+                tools_summary["by_tool"][tool_name]["call_count"] += 1
+                if event.get("success", True):
+                    tools_summary["by_tool"][tool_name]["success_count"] += 1
+                else:
+                    tools_summary["by_tool"][tool_name]["failure_count"] += 1
+                tools_summary["by_tool"][tool_name]["total_execution_time_ms"] += event.get("execution_time_ms", 0)
+                tools_summary["by_tool"][tool_name]["total_input_chars"] += event.get("input_chars", 0)
+                tools_summary["by_tool"][tool_name]["total_output_chars"] += event.get("output_chars", 0)
+
+            # Calculate tool averages and token estimates
+            for tool_stats in tools_summary["by_tool"].values():
+                count = tool_stats["call_count"]
+                if count > 0:
+                    tool_stats["avg_execution_time_ms"] = round(tool_stats["total_execution_time_ms"] / count, 2)
+                    tool_stats["input_tokens_est"] = tool_stats["total_input_chars"] // 4
+                    tool_stats["output_tokens_est"] = tool_stats["total_output_chars"] // 4
+
+            # Aggregate round stats
+            rounds_summary = {
+                "total_rounds": len(all_round_events),
+                "by_outcome": {"answer": 0, "vote": 0, "presentation": 0, "post_evaluation": 0, "restarted": 0, "error": 0, "timeout": 0},
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_reasoning_tokens": 0,
+                "total_estimated_cost": 0.0,
+                "avg_context_usage_pct": 0.0,
+            }
+            total_context_pct = 0.0
+            for r in all_round_events:
+                outcome = r.get("outcome", "unknown")
+                if outcome in rounds_summary["by_outcome"]:
+                    rounds_summary["by_outcome"][outcome] += 1
+                rounds_summary["total_input_tokens"] += r.get("input_tokens", 0)
+                rounds_summary["total_output_tokens"] += r.get("output_tokens", 0)
+                rounds_summary["total_reasoning_tokens"] += r.get("reasoning_tokens", 0)
+                rounds_summary["total_estimated_cost"] += r.get("estimated_cost", 0.0)
+                total_context_pct += r.get("context_usage_pct", 0.0)
+
+            rounds_summary["total_estimated_cost"] = round(rounds_summary["total_estimated_cost"], 6)
+            if len(all_round_events) > 0:
+                rounds_summary["avg_context_usage_pct"] = round(total_context_pct / len(all_round_events), 2)
+
+            # Calculate total costs across all agents
+            total_cost = 0.0
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_reasoning_tokens = 0
+            for am in agent_metrics.values():
+                tu = am.get("token_usage")
+                if tu:
+                    total_cost += tu.get("estimated_cost", 0)
+                    total_input_tokens += tu.get("input_tokens", 0)
+                    total_output_tokens += tu.get("output_tokens", 0)
+                    total_reasoning_tokens += tu.get("reasoning_tokens", 0)
+
+            # Save summary file
+            summary_file = log_dir / "metrics_summary.json"
+            summary_data = {
+                "meta": {
+                    "generated_at": time.time(),
+                    "session_id": log_dir.name,
+                    "question": self.current_task,
+                    "num_agents": len(self.agents),
+                    "winner": self.coordination_tracker.final_winner,
+                },
+                "totals": {
+                    "estimated_cost": round(total_cost, 6),
+                    "input_tokens": total_input_tokens,
+                    "output_tokens": total_output_tokens,
+                    "reasoning_tokens": total_reasoning_tokens,
+                },
+                "tools": tools_summary,
+                "rounds": rounds_summary,
+                "agents": agent_metrics,
+            }
+            with open(summary_file, "w", encoding="utf-8") as f:
+                json.dump(summary_data, f, indent=2, default=str)
+
+            logger.info(f"[Orchestrator] Saved metrics files to {log_dir}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save metrics files: {e}", exc_info=True)
 
     def _format_planning_mode_ui(
         self,
@@ -1713,6 +1895,13 @@ Your answer:"""
         )
 
         # Generate and inject personas if enabled (happens once per session)
+        if (
+            hasattr(self.config, "coordination_config")
+            and hasattr(self.config.coordination_config, "persona_generator")
+            and self.config.coordination_config.persona_generator.enabled
+            and not self._personas_generated
+        ):
+            yield StreamChunk(type="preparation_status", status="Generating personas...", detail="Creating unique agent identities")
         await self._generate_and_inject_personas()
 
         # Check if we should skip coordination rounds (debug/test mode)
@@ -1774,6 +1963,9 @@ Your answer:"""
             content="## 📋 Agents Coordinating\n",
             source=self.orchestrator_id,
         )
+
+        # Emit status that agents are now starting to work
+        yield StreamChunk(type="preparation_status", status="Agents working...", detail="Waiting for first response")
 
         # Start streaming coordination with real-time agent output
         async for chunk in self._stream_coordination_with_agents(votes, conversation_context):
@@ -1944,6 +2136,9 @@ Your answer:"""
                                 result_data,
                                 snapshot_timestamp=answer_timestamp,
                             )
+                            # End round token tracking with "answer" outcome
+                            if agent and hasattr(agent.backend, "end_round_tracking"):
+                                agent.backend.end_round_tracking("answer")
                             # Notify web display if available
                             if hasattr(self, "coordination_ui") and self.coordination_ui:
                                 display = getattr(self.coordination_ui, "display", None)
@@ -2040,6 +2235,9 @@ Your answer:"""
                                     result_data,
                                     snapshot_timestamp=vote_timestamp,
                                 )
+                                # End round token tracking with "vote" outcome
+                                if agent and hasattr(agent.backend, "end_round_tracking"):
+                                    agent.backend.end_round_tracking("vote")
                                 # Notify web display about the vote
                                 logger.debug(f"Vote recorded - checking for coordination_ui: hasattr={hasattr(self, 'coordination_ui')}, coordination_ui={self.coordination_ui}")
                                 if hasattr(self, "coordination_ui") and self.coordination_ui:
@@ -2091,6 +2289,10 @@ Your answer:"""
                     elif chunk_type == "error":
                         # Agent error
                         self.coordination_tracker.track_agent_action(agent_id, ActionType.ERROR, chunk_data)
+                        # End round token tracking with "error" outcome
+                        agent = self.agents.get(agent_id)
+                        if agent and hasattr(agent.backend, "end_round_tracking"):
+                            agent.backend.end_round_tracking("error")
                         # Error ends the agent's current stream
                         completed_agent_ids.add(agent_id)
                         log_stream_chunk("orchestrator", "error", chunk_data, agent_id)
@@ -2117,6 +2319,10 @@ Your answer:"""
 
                     elif chunk_type == "done":
                         # Stream completed - emit completion status for frontend
+                        # End round token tracking with "restarted" outcome (done without result typically means restart)
+                        agent = self.agents.get(agent_id)
+                        if agent and hasattr(agent.backend, "end_round_tracking"):
+                            agent.backend.end_round_tracking("restarted")
                         completed_agent_ids.add(agent_id)
                         log_stream_chunk("orchestrator", "done", None, agent_id)
                         yield StreamChunk(
@@ -2129,6 +2335,10 @@ Your answer:"""
 
                 except Exception as e:
                     self.coordination_tracker.track_agent_action(agent_id, ActionType.ERROR, f"Stream error - {e}")
+                    # End round token tracking with "error" outcome
+                    agent = self.agents.get(agent_id)
+                    if agent and hasattr(agent.backend, "end_round_tracking"):
+                        agent.backend.end_round_tracking("error")
                     completed_agent_ids.add(agent_id)
                     log_stream_chunk("orchestrator", "error", f"❌ Stream error - {e}", agent_id)
                     yield StreamChunk(
@@ -2181,6 +2391,12 @@ Your answer:"""
             task.cancel()
         for agent_id in list(active_streams.keys()):
             await self._close_agent_stream(agent_id, active_streams)
+
+        # Finalize token tracking for all agents
+        # This estimates tokens for any streams that were interrupted (e.g., due to restart_pending)
+        for agent_id, agent in self.agents.items():
+            if hasattr(agent.backend, "finalize_token_tracking"):
+                agent.backend.finalize_token_tracking()
 
     async def _copy_all_snapshots_to_temp_workspace(self, agent_id: str) -> Optional[str]:
         """Copy all agents' latest workspace snapshots to a temporary workspace for context sharing.
@@ -3229,6 +3445,15 @@ Your answer:"""
             # Update agent status to STREAMING
             self.coordination_tracker.change_status(agent_id, AgentStatus.STREAMING)
 
+            # Start round token tracking for this agent
+            current_round = self.coordination_tracker.get_agent_round(agent_id)
+            if hasattr(agent.backend, "start_round_tracking"):
+                agent.backend.start_round_tracking(
+                    round_number=current_round,
+                    round_type="initial_answer",
+                    agent_id=agent_id,
+                )
+
             for attempt in range(max_attempts):
                 logger.info(f"[Orchestrator] Agent {agent_id} attempt {attempt + 1}/{max_attempts}")
 
@@ -3781,6 +4006,11 @@ Your answer:"""
                 presentation_content += chunk.content
             yield chunk
 
+        # NOTE: end_round_tracking("presentation") and save_coordination_logs() are now called
+        # inside _handle_presentation_phase BEFORE yielding the done chunk.
+        # This is necessary because UI consumers break out of the loop on "done" chunk,
+        # so cleanup must happen before the done is yielded.
+
         # Check if post-evaluation should run
         # Skip post-evaluation on final attempt (user clarification #4)
         is_final_attempt = self.current_attempt >= (self.max_attempts - 1)
@@ -3791,6 +4021,13 @@ Your answer:"""
             final_answer_to_evaluate = self._final_presentation_content or presentation_content
             async for chunk in self.post_evaluate_answer(self._selected_agent, final_answer_to_evaluate):
                 yield chunk
+
+            # End round tracking for post-evaluation phase (moved from post_evaluate_answer finally block
+            # to ensure it completes before save_coordination_logs is called)
+            if self._selected_agent:
+                selected_agent = self.agents.get(self._selected_agent)
+                if selected_agent and hasattr(selected_agent.backend, "end_round_tracking"):
+                    selected_agent.backend.end_round_tracking("post_evaluation")
 
             # Check if restart was requested
             if self.restart_pending and self.current_attempt < (self.max_attempts - 1):
@@ -3823,6 +4060,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         # No restart - add final answer to conversation history
         if self._final_presentation_content:
             self.add_to_history("assistant", self._final_presentation_content)
+
+        # NOTE: save_coordination_logs() is already called inside _handle_presentation_phase
+        # before yielding the done chunk. This code path is never reached because UI breaks
+        # on the done chunk from _handle_presentation_phase.
 
         # Update workflow phase
         self.workflow_phase = "presenting"
@@ -3898,6 +4139,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
         async for chunk in self.get_final_presentation(self._selected_agent, vote_results):
             yield chunk
+
+        # NOTE: end_round_tracking("presentation") and save_coordination_logs() are now called
+        # inside _handle_presentation_phase BEFORE yielding the done chunk.
+        # This code path is never reached because UI breaks on the done chunk.
 
     def _determine_final_agent_from_votes(self, votes: Dict[str, Dict], agent_answers: Dict[str, str]) -> str:
         """Determine which agent should present the final answer based on votes."""
@@ -4093,6 +4338,15 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             content=f"🎤  [{selected_agent_id}] presenting final answer\n",
         )
 
+        # Start round token tracking for final presentation
+        final_round = self.coordination_tracker.get_agent_round(selected_agent_id)
+        if hasattr(agent.backend, "start_round_tracking"):
+            agent.backend.start_round_tracking(
+                round_number=final_round,
+                round_type="presentation",
+                agent_id=selected_agent_id,
+            )
+
         # Use agent's chat method with proper system message (reset chat for clean presentation)
         presentation_content = ""
         final_snapshot_saved = False  # Track whether snapshot was saved during stream
@@ -4179,6 +4433,16 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     # Mark snapshot as saved
                     final_snapshot_saved = True
 
+                    # End round tracking for presentation phase BEFORE yielding done
+                    # (UI consumers break out of loop on "done" chunk, so cleanup must happen first)
+                    agent = self.agents.get(self._selected_agent)
+                    if agent and hasattr(agent.backend, "end_round_tracking"):
+                        agent.backend.end_round_tracking("presentation")
+
+                    # Save coordination logs BEFORE yielding done
+                    # (ensures all round data is captured before UI breaks out of loop)
+                    self.save_coordination_logs()
+
                     log_stream_chunk("orchestrator", "done", None, selected_agent_id)
                     yield StreamChunk(type="done", source=selected_agent_id)
                 elif chunk_type == "error":
@@ -4263,11 +4527,11 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 if stored_answer:
                     self._final_presentation_content = stored_answer
 
+            # Note: end_round_tracking for presentation is called from _present_final_answer
+            # after the async for loop completes, to ensure reliable timing before save_coordination_logs
+
             # Mark final round as completed
             self.coordination_tracker.change_status(selected_agent_id, AgentStatus.COMPLETED)
-
-            # Save logs
-            self.save_coordination_logs()
 
         # Don't yield done here - let _present_final_answer handle final done after post-evaluation
 
@@ -4335,6 +4599,15 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
 
         log_stream_chunk("orchestrator", "status", "🔍 Post-evaluation: Reviewing final answer\n")
         yield StreamChunk(type="status", content="🔍 Post-evaluation: Reviewing final answer\n", source="orchestrator")
+
+        # Start round token tracking for post-evaluation
+        post_eval_round = self.coordination_tracker.get_agent_round(selected_agent_id) + 1
+        if hasattr(agent.backend, "start_round_tracking"):
+            agent.backend.start_round_tracking(
+                round_number=post_eval_round,
+                round_type="post_evaluation",
+                agent_id=selected_agent_id,
+            )
 
         # Stream evaluation with tools (with timeout protection)
         evaluation_complete = False
@@ -4419,6 +4692,9 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             evaluation_complete = True
             # Don't set restart_pending - let it default to False (auto-submit)
         finally:
+            # Note: end_round_tracking for post_evaluation is called from _present_final_answer
+            # after the async for loop completes, to ensure reliable timing before save_coordination_logs
+
             # If no tool was called and evaluation didn't complete, auto-submit
             if not evaluation_complete and not tool_call_detected:
                 log_stream_chunk("orchestrator", "status", "✅ Auto-submitting answer (no tool call detected)\n")

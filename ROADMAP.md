@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.23
+**Current Version:** v0.1.24
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** December 10, 2025
+**Last Updated:** December 12, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,41 +42,42 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.24** | 12/12/25 | Integrate RL into MassGen | @qidanrui @praneeth999 | Reinforcement learning integration for agent optimization and adaptive behavior |
-| | | Smithery MCP Tools Support | @ncrispino | Expand MCP tools access through Smithery integration |
-| **v0.1.25** | 12/15/25 | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
+| **v0.1.25** | 12/15/25 | Add system reminders | @ncrispino | Framework for injecting system reminders mid-run during LLM streaming |
+| | | Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with | @ncrispino | Enable scaling of agent broadcast responses based on configurable sensitivity levels |
+| **v0.1.26** | 12/17/25 | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
 | | | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
-| **v0.1.26** | 12/17/25 | Clarify Code Execution in Docs | @ncrispino | Improve documentation clarity for code execution features |
+| **v0.1.27** | 12/19/25 | Clarify Code Execution in Docs | @ncrispino | Improve documentation clarity for code execution features |
 | | | Local Computer Use Models | @franklinnwren | Add support for local vision models in computer use workflows |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.24 - RL Integration & MCP Ecosystem
+## 📋 v0.1.25 - System Reminders & Targeted Broadcasting
 
 ### Features
 
-**1. Integrate RL into MassGen** (@qidanrui, @praneeth999)
-- Issue: [#527](https://github.com/massgen/MassGen/issues/527)
-- Reinforcement learning integration for agent optimization
-- Adaptive agent behavior based on feedback and outcomes
-- Reward modeling for multi-agent coordination
-- **Use Case**: Enable agents to learn and improve their performance over time through reinforcement learning
+**1. Add system reminders** (@ncrispino)
+- Issue: [#557](https://github.com/massgen/MassGen/issues/557)
+- Framework for injecting system reminders mid-run during LLM streaming
+- Support for context awareness, human feedback, safety, and memory reminders
+- Generic and extensible design for flexible downstream usage
+- **Use Case**: Keep agents focused on key objectives and constraints throughout long conversations
 
-**2. Smithery MCP Tools Support** (@ncrispino)
-- Issue: [#521](https://github.com/massgen/MassGen/issues/521)
-- Integration with Smithery to expand available MCP tools
-- Automatic discovery and installation of Smithery MCP servers
-- **Use Case**: Expand MassGen's tool ecosystem by integrating with Smithery
+**2. Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with** (@ncrispino)
+- Issue: [#614](https://github.com/massgen/MassGen/issues/614)
+- Configuration-based sensitivity levels (three tiers) for broadcast responses
+- Dynamic response complexity that scales with sensitivity settings
+- Targeted questioning that adapts to complexity configuration
+- **Use Case**: Enable scaling of agent responses based on configurable sensitivity for adaptive collaboration
 
 ### Success Criteria
-- ✅ RL framework successfully integrates with MassGen architecture
-- ✅ Smithery integration discovers and installs MCP tools automatically
+- ✅ System reminders can be configured and injected into conversations
+- ✅ Broadcasting targets specific agents with appropriate detail levels
 
 ---
 
-## 📋 v0.1.25 - Memory as Tools & Grok 4.1 Fast
+## 📋 v0.1.26 - Memory as Tools & Grok 4.1 Fast
 
 ### Features
 
@@ -102,7 +103,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.26 - Code Execution Documentation & Local Computer Use
+## 📋 v0.1.27 - Code Execution Documentation & Local Computer Use
 
 ### Features
 
