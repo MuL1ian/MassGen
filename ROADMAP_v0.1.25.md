@@ -1,101 +1,87 @@
-# MassGen v0.1.24 Roadmap
+# MassGen v0.1.25 Roadmap
 
 ## Overview
 
-Version 0.1.24 focuses on reinforcement learning integration and expanding the MCP tools ecosystem through Smithery.
+Version 0.1.25 focuses on system reminders and improved agent broadcasting for more controlled multi-agent communication.
 
-- **Integrate RL into MassGen** (Required): 🤖 Reinforcement learning integration for agent optimization
-- **Smithery MCP Tools Support** (Required): 🔧 Expand MCP tools access through Smithery integration
+- **Add system reminders** (Required): 📋 Framework for injecting reminders mid-run during LLM streaming
+- **Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with** (Required): 🎯 Sensitivity-based scaling for broadcast response complexity
 
 ## Key Technical Priorities
 
-1. **Integrate RL into MassGen**: Reinforcement learning for agent optimization and adaptive behavior
-   **Use Case**: Enable agents to learn and improve their performance over time through reinforcement learning
+1. **Add system reminders**: Framework for injecting system reminders mid-run during LLM streaming
+   **Use Case**: Keep agents focused on key objectives and constraints throughout long conversations
 
-2. **Smithery MCP Tools Support**: Integration with Smithery to expand available MCP tools
-   **Use Case**: Expand MassGen's tool ecosystem by integrating with Smithery
+2. **Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with**: Enable scaling of broadcast responses based on configurable sensitivity levels
+   **Use Case**: Enable adaptive agent responses with three-tier sensitivity configuration
 
 ## Key Milestones
 
-### 🎯 Milestone 1: Integrate RL into MassGen (REQUIRED)
+### 🎯 Milestone 1: Add system reminders (REQUIRED)
 
-**Goal**: Reinforcement learning integration for agent optimization and adaptive behavior
-
-**Owners**: @qidanrui (danrui2020 on Discord), @praneeth999 (ram2561 on Discord)
-
-**Issue**: [#527](https://github.com/massgen/MassGen/issues/527)
-
-#### 1.1 RL Framework Integration
-- [ ] Design RL architecture for MassGen agents
-- [ ] Implement reward modeling for multi-agent coordination
-- [ ] Create feedback collection mechanism
-- [ ] Build training pipeline for agent optimization
-
-#### 1.2 Adaptive Agent Behavior
-- [ ] Implement policy learning for agents
-- [ ] Add experience replay buffer
-- [ ] Configure hyperparameters for RL training
-- [ ] Create evaluation metrics for agent improvement
-
-#### 1.3 Multi-Agent Coordination
-- [ ] Design reward shaping for coordination
-- [ ] Implement collaborative learning mechanisms
-- [ ] Add support for competitive and cooperative scenarios
-- [ ] Performance benchmarking against non-RL agents
-
-#### 1.4 Integration & Testing
-- [ ] Unit tests for RL components
-- [ ] Integration tests with existing workflows
-- [ ] Performance testing for training efficiency
-- [ ] Documentation and configuration examples
-
-**Success Criteria**:
-- ✅ RL framework successfully integrates with MassGen architecture
-- ✅ Agents can learn and improve from feedback
-- ✅ Reward modeling works for multi-agent scenarios
-- ✅ Training is efficient and stable
-- ✅ Documentation covers RL configuration and usage
-
----
-
-### 🎯 Milestone 2: Smithery MCP Tools Support (REQUIRED)
-
-**Goal**: Integration with Smithery to expand available MCP tools
+**Goal**: Framework for injecting system reminders mid-run during LLM streaming
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#521](https://github.com/massgen/MassGen/issues/521)
+**Issue**: [#557](https://github.com/massgen/MassGen/issues/557)
 
-#### 2.1 Smithery Integration
-- [ ] Implement Smithery API client
-- [ ] Add MCP server discovery mechanism
-- [ ] Configure authentication for Smithery
-- [ ] Handle Smithery API rate limiting
+#### 1.1 Reminder Framework Design
+- [ ] Design generic reminder injection framework
+- [ ] Support context awareness reminders
+- [ ] Support human feedback reminders
+- [ ] Support safety and memory reminders
 
-#### 2.2 Automatic Tool Discovery
-- [ ] Build tool registry from Smithery catalog
-- [ ] Implement automatic server installation
-- [ ] Add tool metadata parsing
-- [ ] Create tool compatibility checking
+#### 1.2 Mid-Run Injection Mechanism
+- [ ] Implement mid-run injection during LLM streaming (like tool calls)
+- [ ] Implement reminder injection into conversation flow
+- [ ] Generic and extensible design for flexible downstream usage
+- [ ] Support reminder priorities and ordering
 
-#### 2.3 MCP Server Management
-- [ ] Automatic MCP server lifecycle management
-- [ ] Configuration generation for discovered servers
-- [ ] Health checking and monitoring
-- [ ] Error handling and recovery
+#### 1.3 Integration & Testing
+- [ ] Unit tests for reminder system
+- [ ] Integration tests with multi-turn conversations
+- [ ] Performance testing for overhead
+- [ ] Documentation and configuration examples
 
-#### 2.4 Integration & Testing
-- [ ] Unit tests for Smithery integration
-- [ ] Integration tests with MassGen workflows
-- [ ] Performance testing for tool discovery
+**Success Criteria**:
+- ✅ System reminders can be injected mid-run during LLM streaming
+- ✅ Framework supports context awareness, human feedback, safety, and memory reminders
+- ✅ Design is generic and extensible for flexible downstream usage
+- ✅ Documentation covers reminder framework and usage
+
+---
+
+### 🎯 Milestone 2: Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with (REQUIRED)
+
+**Goal**: Enable scaling of agent broadcast responses based on configurable sensitivity levels
+
+**Owner**: @ncrispino (nickcrispino on Discord)
+
+**Issue**: [#614](https://github.com/massgen/MassGen/issues/614)
+
+#### 2.1 Sensitivity Configuration
+- [ ] Implement configuration-based sensitivity levels (three tiers)
+- [ ] Define scaling behavior for each sensitivity tier
+- [ ] Support per-agent sensitivity overrides
+- [ ] Document sensitivity level behaviors
+
+#### 2.2 Response Complexity Scaling
+- [ ] Dynamic response complexity that scales with sensitivity settings
+- [ ] Targeted questioning that adapts to complexity configuration
+- [ ] Support ranging from simple responses to complex implementations
+- [ ] Allow per-broadcast sensitivity overrides
+
+#### 2.3 Integration & Testing
+- [ ] Unit tests for targeted broadcasting
+- [ ] Integration tests with multi-agent workflows
+- [ ] Performance testing for broadcast efficiency
 - [ ] Documentation and usage examples
 
 **Success Criteria**:
-- ✅ Smithery integration discovers available MCP tools
-- ✅ MCP servers can be automatically installed
-- ✅ Tools work seamlessly with MassGen agents
-- ✅ Server lifecycle is properly managed
-- ✅ Documentation covers Smithery configuration
+- ✅ Three-tier sensitivity levels are configurable
+- ✅ Response complexity scales appropriately with sensitivity settings
+- ✅ Targeted questioning adapts to complexity configuration
+- ✅ Documentation covers sensitivity configuration and scaling behavior
 
 ---
 
@@ -103,25 +89,25 @@ Version 0.1.24 focuses on reinforcement learning integration and expanding the M
 
 ### Functional Requirements
 
-**Integrate RL into MassGen:**
-- [ ] RL framework integrates with MassGen
-- [ ] Agents learn from feedback
-- [ ] Reward modeling works for coordination
-- [ ] Training pipeline is functional
-- [ ] Adaptive behavior is observable
+**System Reminders:**
+- [ ] Mid-run injection during LLM streaming works
+- [ ] Context awareness reminders function correctly
+- [ ] Human feedback reminders function correctly
+- [ ] Safety and memory reminders function correctly
+- [ ] Framework is generic and extensible
 
-**Smithery MCP Tools Support:**
-- [ ] Smithery API integration works
-- [ ] Tool discovery is automatic
-- [ ] MCP servers install correctly
-- [ ] Tools are usable by agents
-- [ ] Server lifecycle is managed
+**Improve Agent Broadcasting:**
+- [ ] Three-tier sensitivity configuration works
+- [ ] Response complexity scales with sensitivity
+- [ ] Targeted questioning adapts to configuration
+- [ ] Per-broadcast sensitivity overrides function
+- [ ] Scaling behavior is documented and predictable
 
 ### Performance Requirements
-- [ ] RL training is efficient
-- [ ] Tool discovery is fast
+- [ ] Reminder injection has minimal overhead
+- [ ] Broadcasting latency is acceptable
 - [ ] Memory usage is reasonable
-- [ ] API calls are performant
+- [ ] No degradation in coordination speed
 
 ### Quality Requirements
 - [ ] All tests passing
@@ -135,30 +121,30 @@ Version 0.1.24 focuses on reinforcement learning integration and expanding the M
 ## Dependencies & Risks
 
 ### Dependencies
-- **Integrate RL into MassGen**: PyTorch/TensorFlow, existing agent infrastructure, reward modeling framework
-- **Smithery MCP Tools Support**: Smithery API, MCP protocol implementation, existing MCP infrastructure
+- **System Reminders**: Existing tool call injection mechanism, message template system, orchestrator infrastructure
+- **Improve Agent Broadcasting**: Existing broadcast system (v0.1.18), shadow agent system (v0.1.22), coordination tracker
 
 ### Risks & Mitigations
-1. **RL Training Stability**: *Mitigation*: Careful hyperparameter tuning, gradient clipping, monitoring
-2. **Smithery API Changes**: *Mitigation*: Version pinning, API monitoring, graceful degradation
-3. **Resource Requirements**: *Mitigation*: Efficient implementations, optional GPU support
-4. **Tool Compatibility**: *Mitigation*: Compatibility checking, fallback mechanisms
+1. **Reminder Timing**: *Mitigation*: Configurable intervals, testing with various conversation lengths
+2. **Broadcasting Complexity**: *Mitigation*: Incremental implementation, backward compatibility with existing broadcast
+3. **Performance Overhead**: *Mitigation*: Efficient injection, lazy evaluation where possible
+4. **Configuration Complexity**: *Mitigation*: Sensible defaults, clear documentation, validation
 
 ---
 
-## Future Enhancements (Post-v0.1.24)
+## Future Enhancements (Post-v0.1.25)
 
-### v0.1.25 Plans
+### v0.1.26 Plans
 - **Memory as Tools** (@ncrispino): Include memory (including filesystem) as callable tools for agents
 - **Grok 4.1 Fast Model Support** (@praneeth999): Add support for xAI's Grok 4.1 Fast model
 
-### v0.1.26 Plans
+### v0.1.27 Plans
 - **Clarify Code Execution in Docs** (@ncrispino): Improve documentation clarity for code execution features
 - **Local Computer Use Models** (@franklinnwren): Add support for local vision models in computer use workflows
 
 ### Long-term Vision
-- **Advanced RL Algorithms**: PPO, SAC, and other advanced RL methods
-- **Federated Learning**: Distributed agent learning across deployments
+- **Advanced Agent Communication**: Sophisticated inter-agent protocols and negotiation
+- **Adaptive Context Management**: Dynamic context windows based on task requirements
 - **Tool Marketplace**: User-contributed tools and integrations
 - **Cost Analytics**: Detailed cost tracking and budget management
 
@@ -168,10 +154,10 @@ Version 0.1.24 focuses on reinforcement learning integration and expanding the M
 
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
-| Phase 1 | RL Integration | RL framework, reward modeling, adaptive agents | @qidanrui @praneeth999 | **REQUIRED** |
-| Phase 2 | Smithery Integration | Tool discovery, MCP server management, documentation | @ncrispino | **REQUIRED** |
+| Phase 1 | Add system reminders | Reminder configuration, injection mechanism, documentation | @ncrispino | **REQUIRED** |
+| Phase 2 | Improve agent broadcasting | Agent targeting, response detail control, documentation | @ncrispino | **REQUIRED** |
 
-**Target Release**: December 12, 2025 (Friday @ 9am PT)
+**Target Release**: December 15, 2025 (Monday @ 9am PT)
 
 ---
 
@@ -179,39 +165,39 @@ Version 0.1.24 focuses on reinforcement learning integration and expanding the M
 
 ### For Contributors
 
-**Phase 1 - Integrate RL into MassGen:**
-1. Review RL architecture design (Issue #527)
-2. Implement reward modeling framework
-3. Build feedback collection mechanism
-4. Create training pipeline
+**Phase 1 - Add system reminders:**
+1. Review reminder system design (Issue #557)
+2. Implement reminder configuration schema
+3. Build injection mechanism
+4. Add periodic and conditional triggers
 5. Add integration tests
 6. Document configuration and usage
 
-**Phase 2 - Smithery MCP Tools Support:**
-1. Implement Smithery API client (Issue #521)
-2. Build tool discovery mechanism
-3. Add automatic server installation
-4. Configure server lifecycle management
+**Phase 2 - Improve agent broadcasting:**
+1. Review broadcasting improvements (Issue #614)
+2. Implement agent targeting
+3. Add response detail configuration
+4. Integrate with shadow agents
 5. Add integration tests
-6. Document Smithery configuration
+6. Document broadcasting configuration
 
 ### For Users
 
-- v0.1.24 brings reinforcement learning and expanded tool ecosystem:
+- v0.1.25 brings system reminders and improved agent broadcasting:
 
-  **Integrate RL into MassGen:**
-  - Agents that learn and improve over time
-  - Adaptive behavior based on feedback
-  - Reward modeling for multi-agent coordination
-  - Configurable training parameters
-  - Performance monitoring and metrics
+  **Add system reminders:**
+  - Framework for injecting reminders mid-run during LLM streaming
+  - Keep agents focused on objectives
+  - Support for context awareness, human feedback, safety, and memory reminders
+  - Generic and extensible design
+  - Flexible downstream usage
 
-  **Smithery MCP Tools Support:**
-  - Expanded MCP tools through Smithery
-  - Automatic tool discovery and installation
-  - Seamless integration with MassGen agents
-  - Server lifecycle management
-  - Easy configuration and setup
+  **Improve agent broadcasting:**
+  - Three-tier sensitivity configuration for broadcast responses
+  - Dynamic response complexity that scales with sensitivity
+  - Targeted questioning that adapts to configuration
+  - Scaling from simple to complex implementations
+  - Configurable sensitivity levels per broadcast
 
 ---
 
@@ -223,13 +209,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 - Pull request process
 - Documentation guidelines
 
-**Contact Track Owners:**
-- RL Integration: @qidanrui on Discord (danrui2020), @praneeth999 on Discord (ram2561)
-- Smithery Integration: @ncrispino on Discord (nickcrispino)
+**Contact Track Owner:**
+- Add system reminders & Improve agent broadcasting: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.24 priorities focusing on reinforcement learning integration and Smithery MCP tools support.*
+*This roadmap reflects v0.1.25 priorities focusing on system reminders and targeted agent broadcasting.*
 
-**Last Updated:** December 10, 2025
+**Last Updated:** December 12, 2025
 **Maintained By:** MassGen Team
