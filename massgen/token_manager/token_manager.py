@@ -14,23 +14,167 @@ from ..logger_config import logger
 
 @dataclass
 class TokenUsage:
-    """Token usage and cost tracking."""
+    """Token usage and cost tracking with full visibility.
+
+    Tracks basic token counts plus detailed breakdown for:
+    - Reasoning tokens (OpenAI o1/o3 models)
+    - Cached tokens (Anthropic/OpenAI prompt caching)
+    - Cache creation tokens (Anthropic cache writes)
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
     estimated_cost: float = 0.0
+
+    # Detailed token breakdown for visibility
+    reasoning_tokens: int = 0  # OpenAI o1/o3 reasoning tokens
+    cached_input_tokens: int = 0  # Prompt cache hits (Anthropic/OpenAI)
+    cache_creation_tokens: int = 0  # Cache write tokens (Anthropic)
 
     def add(self, other: "TokenUsage"):
         """Add another TokenUsage to this one."""
         self.input_tokens += other.input_tokens
         self.output_tokens += other.output_tokens
         self.estimated_cost += other.estimated_cost
+        self.reasoning_tokens += other.reasoning_tokens
+        self.cached_input_tokens += other.cached_input_tokens
+        self.cache_creation_tokens += other.cache_creation_tokens
 
     def reset(self):
         """Reset all counters to zero."""
         self.input_tokens = 0
         self.output_tokens = 0
         self.estimated_cost = 0.0
+        self.reasoning_tokens = 0
+        self.cached_input_tokens = 0
+        self.cache_creation_tokens = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "estimated_cost": self.estimated_cost,
+            "reasoning_tokens": self.reasoning_tokens,
+            "cached_input_tokens": self.cached_input_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
+        }
+
+
+@dataclass
+class ToolExecutionMetric:
+    """Metrics for a single tool execution.
+
+    Tracks timing, success/failure, and character counts for token estimation.
+    Uses character-based estimation (~4 chars per token) for low overhead.
+    """
+
+    tool_name: str
+    tool_type: str  # "mcp", "custom", "provider"
+    call_id: str
+    agent_id: str
+    round_number: int
+    start_time: float
+    end_time: float = 0.0
+    success: bool = True
+    error_message: Optional[str] = None
+    input_chars: int = 0  # Character count in arguments
+    output_chars: int = 0  # Character count in result
+
+    @property
+    def execution_time_ms(self) -> float:
+        """Execution time in milliseconds."""
+        return (self.end_time - self.start_time) * 1000 if self.end_time else 0
+
+    @property
+    def input_tokens_est(self) -> int:
+        """Estimated input tokens (~4 chars per token)."""
+        return self.input_chars // 4
+
+    @property
+    def output_tokens_est(self) -> int:
+        """Estimated output tokens (~4 chars per token)."""
+        return self.output_chars // 4
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "tool_name": self.tool_name,
+            "tool_type": self.tool_type,
+            "call_id": self.call_id,
+            "agent_id": self.agent_id,
+            "round_number": self.round_number,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "execution_time_ms": round(self.execution_time_ms, 2),
+            "success": self.success,
+            "error_message": self.error_message,
+            "input_chars": self.input_chars,
+            "output_chars": self.output_chars,
+            "input_tokens_est": self.input_tokens_est,
+            "output_tokens_est": self.output_tokens_est,
+        }
+
+
+@dataclass
+class RoundTokenUsage:
+    """Token usage for a single coordination round.
+
+    Tracks token delta (consumption) within a round that ends with
+    an answer, vote, restart, or timeout.
+    """
+
+    round_number: int
+    agent_id: str
+    round_type: str  # "initial_answer", "enforcement", "presentation"
+    outcome: str = ""  # "answer", "vote", "restarted", "timeout", "error"
+
+    # Token breakdown (delta from previous round)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_tokens: int = 0
+    cached_input_tokens: int = 0
+    estimated_cost: float = 0.0
+
+    # Context window usage
+    context_window_size: int = 0  # Model's max context
+    context_usage_pct: float = 0.0  # input_tokens / context_window_size * 100
+
+    # Tool usage in this round
+    tool_calls_count: int = 0
+
+    # Token tracking source ("api" = from API response, "estimated" = fallback estimation)
+    token_source: str = "api"
+
+    # Timing
+    start_time: float = 0.0
+    end_time: float = 0.0
+
+    @property
+    def duration_ms(self) -> float:
+        """Round duration in milliseconds."""
+        return (self.end_time - self.start_time) * 1000 if self.end_time else 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "round_number": self.round_number,
+            "agent_id": self.agent_id,
+            "round_type": self.round_type,
+            "outcome": self.outcome,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
+            "cached_input_tokens": self.cached_input_tokens,
+            "estimated_cost": round(self.estimated_cost, 6),
+            "context_window_size": self.context_window_size,
+            "context_usage_pct": round(self.context_usage_pct, 2),
+            "tool_calls_count": self.tool_calls_count,
+            "token_source": self.token_source,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration_ms": round(self.duration_ms, 2),
+        }
 
 
 @dataclass
@@ -41,6 +185,7 @@ class ModelPricing:
     output_cost_per_1k: float  # Cost per 1000 output tokens
     context_window: Optional[int] = None
     max_output_tokens: Optional[int] = None
+    source: str = "unknown"  # Where pricing came from: "litellm", "hardcoded", "api"
 
 
 class TokenCostCalculator:
@@ -292,6 +437,130 @@ class TokenCostCalculator:
 
         return "\n".join(text_parts)
 
+    def _dict_to_namespace(self, d: Any) -> Any:
+        """Recursively convert dict to SimpleNamespace for litellm compatibility."""
+        from types import SimpleNamespace
+
+        if not isinstance(d, dict):
+            return d
+        result = {}
+        for k, v in d.items():
+            result[k] = self._dict_to_namespace(v) if isinstance(v, dict) else v
+        return SimpleNamespace(**result)
+
+    def _map_provider_to_litellm(self, provider: Optional[str]) -> Optional[str]:
+        """Map MassGen provider names to litellm provider identifiers."""
+        if not provider:
+            return None
+        mapping = {
+            "openai": "openai",
+            "anthropic": "anthropic",
+            "claude": "anthropic",
+            "claude_code": "anthropic",
+            "google": "vertex_ai",
+            "gemini": "gemini",
+            "xai": "xai",
+            "grok": "xai",
+            "groq": "groq",
+            "together": "together_ai",
+            "fireworks": "fireworks_ai",
+            "deepseek": "deepseek",
+            "cerebras": "cerebras",
+            "azure": "azure",
+            "azure openai": "azure",
+        }
+        return mapping.get(provider.lower())
+
+    def extract_token_breakdown(self, usage: Union[Dict[str, Any], Any]) -> Dict[str, int]:
+        """Extract detailed token counts from usage object.
+
+        Handles provider-specific formats:
+        - OpenAI: prompt_tokens, completion_tokens, completion_tokens_details.reasoning_tokens
+        - Anthropic: input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens
+        - SGLang: reasoning_tokens at top level
+        - Gemini: prompt_token_count, candidates_token_count, thoughts_token_count, cached_content_token_count
+
+        Args:
+            usage: Usage object or dict from API response
+
+        Returns:
+            Dictionary with token counts for visibility tracking
+        """
+        if not usage:
+            return {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_tokens": 0,
+                "cached_input_tokens": 0,
+                "cache_creation_tokens": 0,
+            }
+
+        # Normalize to dict
+        if isinstance(usage, dict):
+            u = usage
+        elif hasattr(usage, "__dict__"):
+            u = vars(usage)
+        else:
+            # Try to access as object attributes
+            u = {}
+            for attr in [
+                "prompt_tokens",
+                "input_tokens",
+                "completion_tokens",
+                "output_tokens",
+                "reasoning_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+                "prompt_token_count",
+                "candidates_token_count",
+                "thoughts_token_count",
+                "cached_content_token_count",
+            ]:
+                if hasattr(usage, attr):
+                    u[attr] = getattr(usage, attr, 0)
+
+        breakdown = {
+            "input_tokens": u.get("prompt_tokens") or u.get("input_tokens") or u.get("prompt_token_count") or 0,
+            "output_tokens": u.get("completion_tokens") or u.get("output_tokens") or u.get("candidates_token_count") or 0,
+            "reasoning_tokens": 0,
+            "cached_input_tokens": 0,
+            "cache_creation_tokens": 0,
+        }
+
+        # Extract reasoning tokens (OpenAI o1/o3, SGLang, Gemini 2.5 thinking)
+        if u.get("reasoning_tokens"):
+            breakdown["reasoning_tokens"] = u["reasoning_tokens"]
+        elif u.get("thoughts_token_count"):
+            # Gemini 2.5 thinking models use thoughts_token_count
+            breakdown["reasoning_tokens"] = u["thoughts_token_count"]
+        else:
+            # Check nested details (OpenAI/Grok format)
+            completion_details = u.get("completion_tokens_details") or u.get("output_tokens_details")
+            if completion_details:
+                if isinstance(completion_details, dict):
+                    breakdown["reasoning_tokens"] = completion_details.get("reasoning_tokens", 0) or 0
+                elif hasattr(completion_details, "reasoning_tokens"):
+                    breakdown["reasoning_tokens"] = getattr(completion_details, "reasoning_tokens", 0) or 0
+
+        # Extract cached tokens (Anthropic format - separate from input_tokens)
+        breakdown["cached_input_tokens"] = u.get("cache_read_input_tokens", 0) or 0
+        breakdown["cache_creation_tokens"] = u.get("cache_creation_input_tokens", 0) or 0
+
+        # Extract cached tokens (OpenAI format - nested in prompt_tokens_details)
+        if not breakdown["cached_input_tokens"]:
+            prompt_details = u.get("prompt_tokens_details") or u.get("input_tokens_details")
+            if prompt_details:
+                if isinstance(prompt_details, dict):
+                    breakdown["cached_input_tokens"] = prompt_details.get("cached_tokens", 0) or 0
+                elif hasattr(prompt_details, "cached_tokens"):
+                    breakdown["cached_input_tokens"] = getattr(prompt_details, "cached_tokens", 0) or 0
+
+        # Extract cached tokens (Gemini format - cached_content_token_count)
+        if not breakdown["cached_input_tokens"]:
+            breakdown["cached_input_tokens"] = u.get("cached_content_token_count", 0) or 0
+
+        return breakdown
+
     def calculate_cost_with_usage_object(
         self,
         model: str,
@@ -299,7 +568,7 @@ class TokenCostCalculator:
         provider: Optional[str] = None,
     ) -> float:
         """
-        Calculate cost from API usage object using litellm pricing data.
+        Calculate cost from API usage object using litellm.completion_cost() directly.
 
         Automatically handles:
         - Reasoning tokens (o1/o3 models)
@@ -310,39 +579,115 @@ class TokenCostCalculator:
         Args:
             model: Model identifier (e.g., "gpt-4o", "claude-sonnet-4-5-20250929")
             usage: Usage object/dict from API response
-            provider: Optional provider name for fallback
+            provider: Optional provider name for model lookup
 
         Returns:
             Cost in USD
         """
-        # Extract token counts from usage object
+        if not usage:
+            return 0.0
+
+        # Try litellm.completion_cost() first (most accurate, auto-updated)
+        try:
+            from litellm import completion_cost
+
+            # Convert usage to dict if needed (litellm prefers dict format)
+            if isinstance(usage, dict):
+                usage_dict = usage.copy()
+            elif hasattr(usage, "__dict__"):
+                usage_dict = self._namespace_to_dict(usage)
+            else:
+                # Try to build dict from known attributes
+                usage_dict = {}
+                for attr in [
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "input_tokens",
+                    "output_tokens",
+                    "reasoning_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                    "completion_tokens_details",
+                    "prompt_tokens_details",
+                    "prompt_token_count",
+                    "candidates_token_count",
+                    "thoughts_token_count",
+                    "cached_content_token_count",
+                ]:
+                    if hasattr(usage, attr):
+                        val = getattr(usage, attr, None)
+                        if val is not None:
+                            usage_dict[attr] = val
+
+            # Normalize Gemini field names to litellm format
+            # Gemini uses: prompt_token_count, candidates_token_count, thoughts_token_count
+            # Litellm expects: prompt_tokens, completion_tokens
+            if "prompt_token_count" in usage_dict and "prompt_tokens" not in usage_dict:
+                usage_dict["prompt_tokens"] = usage_dict["prompt_token_count"]
+            if "candidates_token_count" in usage_dict and "completion_tokens" not in usage_dict:
+                usage_dict["completion_tokens"] = usage_dict["candidates_token_count"]
+
+            # Create mock response as dict (litellm prefers this format)
+            mock_response = {
+                "model": model,
+                "usage": usage_dict,
+                "choices": [{"message": {"content": ""}, "finish_reason": "stop"}],
+            }
+
+            # Map provider to litellm format
+            custom_provider = self._map_provider_to_litellm(provider)
+
+            # Calculate cost using litellm directly
+            cost = completion_cost(
+                completion_response=mock_response,
+                model=model,
+                custom_llm_provider=custom_provider,
+            )
+
+            logger.debug(f"litellm.completion_cost: {model} = ${cost:.6f}")
+            return float(cost)
+
+        except ImportError:
+            logger.debug("litellm not available, using fallback pricing database")
+        except Exception as e:
+            logger.debug(f"litellm.completion_cost failed ({type(e).__name__}: {e}), using fallback")
+
+        # Fallback: Use litellm pricing database with manual calculation
+        return self._calculate_cost_from_pricing_db(model, usage, provider)
+
+    def _namespace_to_dict(self, obj: Any) -> Dict[str, Any]:
+        """Recursively convert object with __dict__ to dict for litellm."""
+        if not hasattr(obj, "__dict__"):
+            return obj
+
+        result = {}
+        for k, v in vars(obj).items():
+            if hasattr(v, "__dict__"):
+                result[k] = self._namespace_to_dict(v)
+            else:
+                result[k] = v
+        return result
+
+    def _calculate_cost_from_pricing_db(
+        self,
+        model: str,
+        usage: Union[Dict[str, Any], Any],
+        provider: Optional[str] = None,
+    ) -> float:
+        """Fallback cost calculation using litellm pricing database.
+
+        Used when litellm.completion_cost() is not available or fails.
+        """
+        # Extract token breakdown
+        breakdown = self.extract_token_breakdown(usage)
+        input_tokens = breakdown["input_tokens"]
+        output_tokens = breakdown["output_tokens"]
+        reasoning_tokens = breakdown["reasoning_tokens"]
+        cached_read_tokens = breakdown["cached_input_tokens"]
+        cached_write_tokens = breakdown["cache_creation_tokens"]
+
+        # Normalize usage to dict for checking format
         usage_dict = usage if isinstance(usage, dict) else vars(usage) if hasattr(usage, "__dict__") else {}
-
-        # Extract basic tokens (provider-agnostic)
-        input_tokens = usage_dict.get("prompt_tokens") or usage_dict.get("input_tokens", 0)
-        output_tokens = usage_dict.get("completion_tokens") or usage_dict.get("output_tokens", 0)
-
-        # Extract reasoning tokens
-        # Check top-level first (SGLang format)
-        reasoning_tokens = usage_dict.get("reasoning_tokens", 0) or 0
-
-        # Then check nested details (OpenAI/Grok format)
-        if not reasoning_tokens:
-            completion_details = usage_dict.get("completion_tokens_details") or usage_dict.get("output_tokens_details")
-            if completion_details:
-                details_dict = completion_details if isinstance(completion_details, dict) else vars(completion_details) if hasattr(completion_details, "__dict__") else {}
-                reasoning_tokens = details_dict.get("reasoning_tokens", 0) or 0
-
-        # Extract cached tokens (Anthropic, OpenAI)
-        cached_read_tokens = usage_dict.get("cache_read_input_tokens", 0)
-        cached_write_tokens = usage_dict.get("cache_creation_input_tokens", 0)
-
-        # OpenAI uses different field names
-        if not cached_read_tokens:
-            prompt_details = usage_dict.get("prompt_tokens_details") or usage_dict.get("input_tokens_details")
-            if prompt_details:
-                details_dict = prompt_details if isinstance(prompt_details, dict) else vars(prompt_details) if hasattr(prompt_details, "__dict__") else {}
-                cached_read_tokens = details_dict.get("cached_tokens", 0)
 
         # Try to get pricing from litellm database
         litellm_db = self._fetch_litellm_pricing()
@@ -354,24 +699,40 @@ class TokenCostCalculator:
             non_cached_input = input_tokens
             if cached_read_tokens > 0 and "cache_read_input_tokens" not in usage_dict:
                 # OpenAI format: cached tokens are included in prompt_tokens
-                non_cached_input = input_tokens - cached_read_tokens
+                non_cached_input = max(0, input_tokens - cached_read_tokens)
 
             # Calculate costs using litellm pricing
             input_cost = (non_cached_input / 1_000_000) * model_pricing.get("input_cost_per_token", 0) * 1_000_000
             output_cost = (output_tokens / 1_000_000) * model_pricing.get("output_cost_per_token", 0) * 1_000_000
-            reasoning_cost = (reasoning_tokens / 1_000_000) * model_pricing.get("output_cost_per_token", 0) * 1_000_000  # Reasoning uses output price
+            reasoning_cost = (reasoning_tokens / 1_000_000) * model_pricing.get("output_cost_per_token", 0) * 1_000_000
 
             # Cached token costs
-            cache_read_cost = (cached_read_tokens / 1_000_000) * model_pricing.get("cache_read_input_token_cost", model_pricing.get("input_cost_per_token", 0) * 0.1) * 1_000_000
-            cache_write_cost = (cached_write_tokens / 1_000_000) * model_pricing.get("cache_creation_input_token_cost", model_pricing.get("input_cost_per_token", 0) * 1.25) * 1_000_000
+            cache_read_cost = (
+                (cached_read_tokens / 1_000_000)
+                * model_pricing.get(
+                    "cache_read_input_token_cost",
+                    model_pricing.get("input_cost_per_token", 0) * 0.1,
+                )
+                * 1_000_000
+            )
+            cache_write_cost = (
+                (cached_write_tokens / 1_000_000)
+                * model_pricing.get(
+                    "cache_creation_input_token_cost",
+                    model_pricing.get("input_cost_per_token", 0) * 1.25,
+                )
+                * 1_000_000
+            )
 
             total_cost = input_cost + output_cost + reasoning_cost + cache_read_cost + cache_write_cost
 
-            logger.debug(f"litellm pricing: {model} = ${total_cost:.6f} (input=${input_cost:.6f}, output=${output_cost:.6f}, reasoning=${reasoning_cost:.6f}, cache_read=${cache_read_cost:.6f})")
+            logger.debug(
+                f"litellm pricing db: {model} = ${total_cost:.6f} " f"(input=${input_cost:.6f}, output=${output_cost:.6f}, " f"reasoning=${reasoning_cost:.6f}, cache_read=${cache_read_cost:.6f})",
+            )
             return total_cost
 
-        # Fallback to existing logic
-        logger.debug(f"Model {model} not in litellm database, using fallback")
+        # Final fallback to basic calculation
+        logger.debug(f"Model {model} not in litellm database, using basic fallback")
         return self._extract_and_calculate_basic_cost(usage, provider, model)
 
     def _extract_and_calculate_basic_cost(
@@ -416,78 +777,182 @@ class TokenCostCalculator:
         # Normalize provider name
         provider = self._normalize_provider(provider)
 
-        # Try LiteLLM database first
-        litellm_db = self._fetch_litellm_pricing()
-        if litellm_db and model in litellm_db:
-            model_data = litellm_db[model]
-            try:
-                # Convert LiteLLM format to ModelPricing
-                # LiteLLM uses per-token, we use per-1K
-                input_per_1k = model_data.get("input_cost_per_token", 0) * 1000
-                output_per_1k = model_data.get("output_cost_per_token", 0) * 1000
-                context = model_data.get("max_input_tokens")
-                max_output = model_data.get("max_output_tokens")
+        # Build list of model name variations to try in LiteLLM
+        # OpenRouter models come as "x-ai/grok-4.1-fast" but LiteLLM uses "openrouter/x-ai/grok-4.1-fast"
+        model_variations = [model]  # Original first
 
-                logger.debug(f"Found pricing for {model} in LiteLLM database")
-                return ModelPricing(
-                    input_cost_per_1k=input_per_1k,
-                    output_cost_per_1k=output_per_1k,
-                    context_window=context,
-                    max_output_tokens=max_output,
-                )
-            except Exception as e:
-                logger.debug(f"Error parsing LiteLLM data for {model}: {e}")
+        # If model has provider prefix (e.g., "x-ai/grok-4.1-fast"), try with openrouter/ prefix
+        if "/" in model:
+            model_variations.append(f"openrouter/{model}")
+            # Also try just the model name without prefix
+            _, model_name_only = model.split("/", 1)
+            model_variations.append(model_name_only)
+            # Try with dots converted to dashes (e.g., "grok-4.1-fast" -> "grok-4-1-fast")
+            model_variations.append(model_name_only.replace(".", "-"))
+
+        # Also try converting version dashes to dots (e.g., "claude-3-5-sonnet" -> "claude-3.5-sonnet")
+        # LiteLLM uses dots for version numbers: "openrouter/anthropic/claude-3.5-sonnet"
+        import re
+
+        model_with_dots = re.sub(r"-(\d+)-(\d+)-", r"-\1.\2-", model)  # "3-5" -> "3.5"
+        if model_with_dots != model:
+            model_variations.append(model_with_dots)
+            model_variations.append(f"openrouter/{model_with_dots}")
+
+        # Try LiteLLM database with all variations
+        litellm_db = self._fetch_litellm_pricing()
+        if litellm_db:
+            for model_variant in model_variations:
+                if model_variant in litellm_db:
+                    model_data = litellm_db[model_variant]
+                    try:
+                        # Convert LiteLLM format to ModelPricing
+                        # LiteLLM uses per-token, we use per-1K
+                        input_per_1k = model_data.get("input_cost_per_token", 0) * 1000
+                        output_per_1k = model_data.get("output_cost_per_token", 0) * 1000
+                        context = model_data.get("max_input_tokens")
+                        max_output = model_data.get("max_output_tokens")
+
+                        logger.info(f"[TokenCostCalculator] Pricing for '{model}' from LiteLLM (variant: {model_variant})")
+                        return ModelPricing(
+                            input_cost_per_1k=input_per_1k,
+                            output_cost_per_1k=output_per_1k,
+                            context_window=context,
+                            max_output_tokens=max_output,
+                            source="litellm",
+                        )
+                    except Exception as e:
+                        logger.debug(f"Error parsing LiteLLM data for {model_variant}: {e}")
 
         # Fallback to hardcoded PROVIDER_PRICING
-        provider_models = self.PROVIDER_PRICING.get(provider, {})
+        # For OpenRouter models, extract actual provider from prefix (e.g., "x-ai/grok-4.1-fast")
+        actual_provider = provider
+        actual_model = model
+        if "/" in model:
+            prefix, model_name = model.split("/", 1)
+            prefix_to_provider = {
+                "x-ai": "xAI",
+                "openai": "OpenAI",
+                "anthropic": "Anthropic",
+                "google": "Google",
+                "meta-llama": "Meta",
+                "mistralai": "Mistral",
+                "deepseek": "DeepSeek",
+                "qwen": "Qwen",
+            }
+            if prefix.lower() in prefix_to_provider:
+                actual_provider = prefix_to_provider[prefix.lower()]
+                actual_model = model_name
+                logger.debug(f"Extracted provider={actual_provider}, model={actual_model} from OpenRouter format")
 
-        # Try exact match first
-        if model in provider_models:
-            logger.debug(f"Found pricing for {model} in hardcoded PROVIDER_PRICING")
-            return provider_models[model]
+        # Normalize model name: convert dots to dashes (e.g., "grok-4.1-fast" -> "grok-4-1-fast")
+        model_normalized = actual_model.replace(".", "-")
+
+        provider_models = self.PROVIDER_PRICING.get(actual_provider, {})
+
+        # Try exact match first (with original model name)
+        if actual_model in provider_models:
+            pricing = provider_models[actual_model]
+            logger.info(f"[TokenCostCalculator] Pricing for '{model}' from hardcoded (exact: {actual_model})")
+            return ModelPricing(
+                pricing.input_cost_per_1k,
+                pricing.output_cost_per_1k,
+                pricing.context_window,
+                pricing.max_output_tokens,
+                source="hardcoded",
+            )
+
+        # Try with normalized model name (dots to dashes)
+        if model_normalized in provider_models:
+            pricing = provider_models[model_normalized]
+            logger.info(f"[TokenCostCalculator] Pricing for '{model}' from hardcoded (normalized: {model_normalized})")
+            return ModelPricing(
+                pricing.input_cost_per_1k,
+                pricing.output_cost_per_1k,
+                pricing.context_window,
+                pricing.max_output_tokens,
+                source="hardcoded",
+            )
 
         # Try to find by partial match
         for model_key, pricing in provider_models.items():
-            if model_key.lower() in model.lower() or model.lower() in model_key.lower():
-                logger.debug(f"Found pricing for {model} via partial match: {model_key}")
-                return pricing
+            if model_key.lower() in model_normalized.lower() or model_normalized.lower() in model_key.lower():
+                logger.info(f"[TokenCostCalculator] Pricing for '{model}' from hardcoded (partial: {model_key})")
+                return ModelPricing(
+                    pricing.input_cost_per_1k,
+                    pricing.output_cost_per_1k,
+                    pricing.context_window,
+                    pricing.max_output_tokens,
+                    source="hardcoded",
+                )
 
         # Try to infer from model name patterns
-        model_lower = model.lower()
+        model_lower = model_normalized.lower()
+
+        def _with_source(pricing: Optional[ModelPricing], matched_key: str) -> Optional[ModelPricing]:
+            """Helper to add source and logging to pattern-matched pricing."""
+            if pricing:
+                logger.info(f"[TokenCostCalculator] Pricing for '{model}' from hardcoded (pattern: {matched_key})")
+                return ModelPricing(
+                    pricing.input_cost_per_1k,
+                    pricing.output_cost_per_1k,
+                    pricing.context_window,
+                    pricing.max_output_tokens,
+                    source="hardcoded",
+                )
+            return None
+
+        # Grok variants (xAI)
+        if "grok" in model_lower:
+            xai_models = self.PROVIDER_PRICING.get("xAI", {})
+            if "grok-4-1-fast" in model_lower or "grok-4.1-fast" in model_lower:
+                return _with_source(xai_models.get("grok-4-1-fast-reasoning"), "grok-4-1-fast-reasoning")
+            elif "grok-4-fast" in model_lower:
+                return _with_source(xai_models.get("grok-4-fast"), "grok-4-fast")
+            elif "grok-4" in model_lower:
+                return _with_source(xai_models.get("grok-4"), "grok-4")
+            elif "grok-3-mini" in model_lower:
+                return _with_source(xai_models.get("grok-3-mini"), "grok-3-mini")
+            elif "grok-3" in model_lower:
+                return _with_source(xai_models.get("grok-3"), "grok-3")
+            elif "grok-2-mini" in model_lower:
+                return _with_source(xai_models.get("grok-2-mini"), "grok-2-mini")
+            elif "grok-2" in model_lower:
+                return _with_source(xai_models.get("grok-2"), "grok-2")
 
         # GPT-4 variants
-        if "gpt-4o" in model_lower and "mini" in model_lower:
-            return provider_models.get("gpt-4o-mini")
+        elif "gpt-4o" in model_lower and "mini" in model_lower:
+            return _with_source(provider_models.get("gpt-4o-mini"), "gpt-4o-mini")
         elif "gpt-4o" in model_lower:
-            return provider_models.get("gpt-4o")
+            return _with_source(provider_models.get("gpt-4o"), "gpt-4o")
         elif "gpt-4" in model_lower and "turbo" in model_lower:
-            return provider_models.get("gpt-4-turbo")
+            return _with_source(provider_models.get("gpt-4-turbo"), "gpt-4-turbo")
         elif "gpt-4" in model_lower:
-            return provider_models.get("gpt-4")
+            return _with_source(provider_models.get("gpt-4"), "gpt-4")
         elif "gpt-3.5" in model_lower:
-            return provider_models.get("gpt-3.5-turbo")
+            return _with_source(provider_models.get("gpt-3.5-turbo"), "gpt-3.5-turbo")
 
         # Claude variants
         elif "claude-3-5-sonnet" in model_lower or "claude-3.5-sonnet" in model_lower:
-            return provider_models.get("claude-3-5-sonnet")
+            return _with_source(provider_models.get("claude-3-5-sonnet"), "claude-3-5-sonnet")
         elif "claude-3-5-haiku" in model_lower or "claude-3.5-haiku" in model_lower:
-            return provider_models.get("claude-3-5-haiku")
+            return _with_source(provider_models.get("claude-3-5-haiku"), "claude-3-5-haiku")
         elif "claude-3-opus" in model_lower:
-            return provider_models.get("claude-3-opus")
+            return _with_source(provider_models.get("claude-3-opus"), "claude-3-opus")
         elif "claude-3-sonnet" in model_lower:
-            return provider_models.get("claude-3-sonnet")
+            return _with_source(provider_models.get("claude-3-sonnet"), "claude-3-sonnet")
         elif "claude-3-haiku" in model_lower:
-            return provider_models.get("claude-3-haiku")
+            return _with_source(provider_models.get("claude-3-haiku"), "claude-3-haiku")
 
         # Gemini variants
         elif "gemini-2" in model_lower and "flash" in model_lower:
-            return provider_models.get("gemini-2.0-flash-exp")
+            return _with_source(provider_models.get("gemini-2.0-flash-exp"), "gemini-2.0-flash-exp")
         elif "gemini-1.5-pro" in model_lower:
-            return provider_models.get("gemini-1.5-pro")
+            return _with_source(provider_models.get("gemini-1.5-pro"), "gemini-1.5-pro")
         elif "gemini-1.5-flash" in model_lower:
-            return provider_models.get("gemini-1.5-flash")
+            return _with_source(provider_models.get("gemini-1.5-flash"), "gemini-1.5-flash")
 
-        logger.debug(f"No pricing found for {provider}/{model}")
+        logger.info(f"[TokenCostCalculator] No pricing found for {provider}/{model}")
         return None
 
     def _normalize_provider(self, provider: str) -> str:

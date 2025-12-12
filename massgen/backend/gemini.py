@@ -770,6 +770,36 @@ class GeminiBackend(CustomToolAndMCPBackend):
                     self.backoff_total_delay += delay
                     await asyncio.sleep(delay)
 
+            # Helper to track tokens from a response chunk
+            def track_usage_from_chunk(chunk) -> None:
+                """Extract and track token usage from a Gemini response chunk."""
+                if not model_name:
+                    raise ValueError("[Gemini] model_name is required for token tracking")
+                if chunk and hasattr(chunk, "usage_metadata"):
+                    usage_meta = chunk.usage_metadata
+                    if usage_meta:
+                        usage = {
+                            "prompt_token_count": getattr(usage_meta, "prompt_token_count", 0) or 0,
+                            "candidates_token_count": getattr(usage_meta, "candidates_token_count", 0) or 0,
+                            # Gemini 2.5 thinking models
+                            "thoughts_token_count": getattr(usage_meta, "thoughts_token_count", 0) or 0,
+                            # Gemini 2.5 implicit caching
+                            "cached_content_token_count": getattr(usage_meta, "cached_content_token_count", 0) or 0,
+                        }
+                        # Only update if we have actual token counts
+                        if usage["prompt_token_count"] > 0 or usage["candidates_token_count"] > 0:
+                            self._update_token_usage_from_api_response(usage, model_name)
+                            logger.info(
+                                f"[Gemini] Token usage tracked: "
+                                f"input={usage['prompt_token_count']}, "
+                                f"output={usage['candidates_token_count']}, "
+                                f"thinking={usage['thoughts_token_count']}, "
+                                f"cached={usage['cached_content_token_count']}",
+                            )
+
+            # Track usage metadata from the last response (Gemini provides cumulative totals)
+            track_usage_from_chunk(last_response_with_candidates)
+
             # ====================================================================
             # Structured Coordination Output Parsing
             # ====================================================================
@@ -838,6 +868,9 @@ class GeminiBackend(CustomToolAndMCPBackend):
                         # Do not execute workflow tools - just return after yielding
                         # The orchestrator will handle these coordination actions
                         if provider_calls:
+                            # Track tokens before returning
+                            track_usage_from_chunk(last_response_with_candidates)
+
                             # Emit completion status if MCP was actually used
                             if mcp_used:
                                 yield StreamChunk(
@@ -906,6 +939,9 @@ class GeminiBackend(CustomToolAndMCPBackend):
                             tool_calls=workflow_tool_calls,
                             source="gemini",
                         )
+
+                    # Track tokens before returning
+                    track_usage_from_chunk(last_response_with_candidates)
 
                     if mcp_used:
                         yield StreamChunk(
@@ -1203,6 +1239,9 @@ class GeminiBackend(CustomToolAndMCPBackend):
                             self.backoff_total_delay += delay
                             await asyncio.sleep(delay)
 
+                    # Track usage metadata from continuation stream
+                    track_usage_from_chunk(last_continuation_chunk)
+
                     if continuation_text:
                         conversation_history.append(
                             types.Content(parts=[types.Part(text=continuation_text)], role="model"),
@@ -1276,6 +1315,9 @@ class GeminiBackend(CustomToolAndMCPBackend):
                                                 source="gemini",
                                             )
 
+                                        # Track tokens before returning
+                                        track_usage_from_chunk(last_continuation_chunk)
+
                                         if mcp_used:
                                             yield StreamChunk(
                                                 type="mcp_status",
@@ -1334,6 +1376,9 @@ class GeminiBackend(CustomToolAndMCPBackend):
                                 tool_calls=workflow_tool_calls,
                                 source="gemini",
                             )
+
+                        # Track tokens before returning
+                        track_usage_from_chunk(last_continuation_chunk)
 
                         if mcp_used:
                             yield StreamChunk(

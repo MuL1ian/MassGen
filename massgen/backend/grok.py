@@ -77,6 +77,10 @@ class GrokBackend(ChatCompletionsBackend):
         all_params = {**self.config, **kwargs}
         api_params = await self.api_params_handler.build_api_params(current_messages, tools, all_params)
 
+        # Enable usage tracking in streaming responses (required for token counting)
+        if "stream" in api_params and api_params["stream"]:
+            api_params["stream_options"] = {"include_usage": True}
+
         # Add provider tools (web search, code interpreter) if enabled
         # Note: For Grok, get_provider_tools() won't add web_search function tool
         provider_tools = self.api_params_handler.get_provider_tools(all_params)

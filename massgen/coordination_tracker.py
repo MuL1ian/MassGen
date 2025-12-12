@@ -810,6 +810,30 @@ class CoordinationTracker:
                                 "temp_workspace": str(fm.agent_temporary_workspace) if fm.agent_temporary_workspace else None,
                             }
 
+                # Get token usage from agent backend if available
+                token_usage = None
+                tool_metrics = None
+                round_history = None
+                if orchestrator and hasattr(orchestrator, "agents"):
+                    agent = orchestrator.agents.get(agent_id)
+                    if agent and hasattr(agent, "backend") and agent.backend:
+                        backend = agent.backend
+                        if hasattr(backend, "token_usage") and backend.token_usage:
+                            tu = backend.token_usage
+                            token_usage = {
+                                "input_tokens": tu.input_tokens,
+                                "output_tokens": tu.output_tokens,
+                                "reasoning_tokens": tu.reasoning_tokens,
+                                "cached_input_tokens": tu.cached_input_tokens,
+                                "estimated_cost": round(tu.estimated_cost, 6),
+                            }
+                        # Get tool metrics if available
+                        if hasattr(backend, "get_tool_metrics_summary"):
+                            tool_metrics = backend.get_tool_metrics_summary()
+                        # Get round token history if available
+                        if hasattr(backend, "get_round_token_history"):
+                            round_history = backend.get_round_token_history()
+
                 agent_statuses[agent_id] = {
                     "status": status,
                     "answer_count": len(answers),
@@ -819,6 +843,9 @@ class CoordinationTracker:
                     "last_activity": last_activity,
                     "error": error,
                     "workspace_paths": workspace_paths,
+                    "token_usage": token_usage,
+                    "tool_metrics": tool_metrics,
+                    "round_history": round_history,
                 }
 
             # Aggregate vote counts by answer label
@@ -847,6 +874,80 @@ class CoordinationTracker:
                     "temp_workspace_parent": orchestrator._agent_temporary_workspace if hasattr(orchestrator, "_agent_temporary_workspace") else None,
                 }
 
+            # Calculate total costs across all agents
+            total_cost = 0.0
+            total_input_tokens = 0
+            total_output_tokens = 0
+            for agent_status in agent_statuses.values():
+                if agent_status.get("token_usage"):
+                    tu = agent_status["token_usage"]
+                    total_cost += tu.get("estimated_cost", 0)
+                    total_input_tokens += tu.get("input_tokens", 0)
+                    total_output_tokens += tu.get("output_tokens", 0)
+
+            # Aggregate tool metrics across all agents
+            total_tool_calls = 0
+            total_tool_failures = 0
+            total_tool_time_ms = 0.0
+            tools_by_name: Dict[str, Dict[str, Any]] = {}
+            for agent_status in agent_statuses.values():
+                tm = agent_status.get("tool_metrics")
+                if tm:
+                    total_tool_calls += tm.get("total_calls", 0)
+                    total_tool_failures += tm.get("total_failures", 0)
+                    total_tool_time_ms += tm.get("total_execution_time_ms", 0)
+                    # Merge per-tool stats
+                    for tool_name, tool_stats in tm.get("by_tool", {}).items():
+                        if tool_name not in tools_by_name:
+                            tools_by_name[tool_name] = {
+                                "call_count": 0,
+                                "success_count": 0,
+                                "failure_count": 0,
+                                "total_execution_time_ms": 0.0,
+                                "total_input_chars": 0,
+                                "total_output_chars": 0,
+                                "tool_type": tool_stats.get("tool_type", "unknown"),
+                            }
+                        tools_by_name[tool_name]["call_count"] += tool_stats.get("call_count", 0)
+                        tools_by_name[tool_name]["success_count"] += tool_stats.get("success_count", 0)
+                        tools_by_name[tool_name]["failure_count"] += tool_stats.get("failure_count", 0)
+                        tools_by_name[tool_name]["total_execution_time_ms"] += tool_stats.get("total_execution_time_ms", 0)
+                        tools_by_name[tool_name]["total_input_chars"] += tool_stats.get("total_input_chars", 0)
+                        tools_by_name[tool_name]["total_output_chars"] += tool_stats.get("total_output_chars", 0)
+
+            # Calculate averages for aggregated tools
+            for tool_stats in tools_by_name.values():
+                count = tool_stats["call_count"]
+                if count > 0:
+                    tool_stats["avg_execution_time_ms"] = round(tool_stats["total_execution_time_ms"] / count, 2)
+                    tool_stats["input_tokens_est"] = tool_stats["total_input_chars"] // 4
+                    tool_stats["output_tokens_est"] = tool_stats["total_output_chars"] // 4
+
+            # Aggregate round token history across all agents
+            all_rounds = []
+            rounds_summary = {
+                "total_rounds": 0,
+                "by_outcome": {"answer": 0, "vote": 0, "presentation": 0, "post_evaluation": 0, "restarted": 0, "error": 0, "timeout": 0},
+                "total_round_input_tokens": 0,
+                "total_round_output_tokens": 0,
+                "total_round_cost": 0.0,
+            }
+            for agent_status in agent_statuses.values():
+                rh = agent_status.get("round_history")
+                if rh:
+                    all_rounds.extend(rh)
+                    for r in rh:
+                        rounds_summary["total_rounds"] += 1
+                        outcome = r.get("outcome", "unknown")
+                        if outcome in rounds_summary["by_outcome"]:
+                            rounds_summary["by_outcome"][outcome] += 1
+                        rounds_summary["total_round_input_tokens"] += r.get("input_tokens", 0)
+                        rounds_summary["total_round_output_tokens"] += r.get("output_tokens", 0)
+                        rounds_summary["total_round_cost"] += r.get("estimated_cost", 0.0)
+
+            # Round the cost to 6 decimal places
+            rounds_summary["total_round_cost"] = round(rounds_summary["total_round_cost"], 6)
+
             # Build complete status data structure
             status_data = {
                 "meta": {
@@ -858,6 +959,18 @@ class CoordinationTracker:
                     "elapsed_seconds": round(elapsed, 3),
                     "orchestrator_paths": orchestrator_paths,
                 },
+                "costs": {
+                    "total_estimated_cost": round(total_cost, 6),
+                    "total_input_tokens": total_input_tokens,
+                    "total_output_tokens": total_output_tokens,
+                },
+                "tools": {
+                    "total_calls": total_tool_calls,
+                    "total_failures": total_tool_failures,
+                    "total_execution_time_ms": round(total_tool_time_ms, 2),
+                    "by_tool": tools_by_name,
+                },
+                "rounds": rounds_summary,
                 "coordination": {
                     "phase": phase,
                     "active_agent": active_agent,

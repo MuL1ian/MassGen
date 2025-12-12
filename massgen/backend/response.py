@@ -310,6 +310,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 # Response completed
                 if chunk.type == "response.completed":
                     response_completed = True
+                    # Note: Usage tracking is handled in _process_stream_chunk() above
                     # Capture response ID and ALL output items for reasoning continuity
                     if hasattr(chunk, "response") and chunk.response:
                         response_id = getattr(chunk.response, "id", None)
@@ -1148,6 +1149,13 @@ class ResponseBackend(CustomToolAndMCPBackend):
             )
 
         elif chunk.type == "response.completed":
+            # Extract usage data for token tracking
+            if hasattr(chunk, "response") and hasattr(chunk.response, "usage"):
+                self._update_token_usage_from_api_response(
+                    chunk.response.usage,
+                    self.config.get("model", "gpt-4o"),
+                )
+
             # Extract and yield tool calls from the complete response
             if hasattr(chunk, "response"):
                 response_dict = self._convert_to_dict(chunk.response)

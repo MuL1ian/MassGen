@@ -785,9 +785,19 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         custom_tool_calls: List[Dict[str, Any]] = []
         response_completed = False
 
+        # Track usage from message events (Anthropic splits input/output across events)
+        _input_tokens = 0
+        _cache_creation_input_tokens = 0
+        _cache_read_input_tokens = 0
+
         async for event in stream:
             try:
                 if event.type == "message_start":
+                    # Extract input token counts from message_start event
+                    if hasattr(event, "message") and hasattr(event.message, "usage"):
+                        _input_tokens = getattr(event.message.usage, "input_tokens", 0) or 0
+                        _cache_creation_input_tokens = getattr(event.message.usage, "cache_creation_input_tokens", 0) or 0
+                        _cache_read_input_tokens = getattr(event.message.usage, "cache_read_input_tokens", 0) or 0
                     continue
                 elif event.type == "content_block_start":
                     if hasattr(event, "content_block"):
@@ -922,7 +932,20 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                                 tool_data["processed"] = True
                                 break
                 elif event.type == "message_delta":
-                    pass
+                    # Extract output tokens and update usage tracking
+                    if hasattr(event, "usage"):
+                        output_tokens = getattr(event.usage, "output_tokens", 0) or 0
+                        # Combine with input tokens captured from message_start
+                        combined_usage = {
+                            "input_tokens": _input_tokens,
+                            "output_tokens": output_tokens,
+                            "cache_creation_input_tokens": _cache_creation_input_tokens,
+                            "cache_read_input_tokens": _cache_read_input_tokens,
+                        }
+                        self._update_token_usage_from_api_response(
+                            combined_usage,
+                            all_params.get("model", "claude-sonnet-4-20250514"),
+                        )
                 elif event.type == "message_stop":
                     captured_calls = []
                     tool_use_by_name: Dict[str, Dict[str, Any]] = {}
@@ -1234,9 +1257,19 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         content_local = ""
         current_tool_uses_local: Dict[str, Dict[str, Any]] = {}
 
+        # Track usage from message events (Anthropic splits input/output across events)
+        _input_tokens = 0
+        _cache_creation_input_tokens = 0
+        _cache_read_input_tokens = 0
+
         async for chunk in stream:
             try:
                 if chunk.type == "message_start":
+                    # Extract input token counts from message_start event
+                    if hasattr(chunk, "message") and hasattr(chunk.message, "usage"):
+                        _input_tokens = getattr(chunk.message.usage, "input_tokens", 0) or 0
+                        _cache_creation_input_tokens = getattr(chunk.message.usage, "cache_creation_input_tokens", 0) or 0
+                        _cache_read_input_tokens = getattr(chunk.message.usage, "cache_read_input_tokens", 0) or 0
                     continue
                 elif chunk.type == "content_block_start":
                     if hasattr(chunk, "content_block"):
@@ -1392,7 +1425,20 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                                 tool_data["processed"] = True
                                 break
                 elif chunk.type == "message_delta":
-                    pass
+                    # Extract output tokens and update usage tracking
+                    if hasattr(chunk, "usage"):
+                        output_tokens = getattr(chunk.usage, "output_tokens", 0) or 0
+                        # Combine with input tokens captured from message_start
+                        combined_usage = {
+                            "input_tokens": _input_tokens,
+                            "output_tokens": output_tokens,
+                            "cache_creation_input_tokens": _cache_creation_input_tokens,
+                            "cache_read_input_tokens": _cache_read_input_tokens,
+                        }
+                        self._update_token_usage_from_api_response(
+                            combined_usage,
+                            all_params.get("model", "claude-sonnet-4-20250514"),
+                        )
                 elif chunk.type == "message_stop":
                     # Build final response and yield tool_calls for user-defined non-MCP tools
                     user_tool_calls = []
