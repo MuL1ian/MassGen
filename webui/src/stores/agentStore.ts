@@ -51,6 +51,8 @@ interface AgentStore extends SessionState {
   // Per-agent UI state actions
   setAgentDropdownOpen: (agentId: string, open: boolean) => void;
   closeAllDropdowns: () => void;
+  // Preparation status action
+  setPreparationStatus: (status: string | undefined, detail?: string) => void;
 }
 
 const initialState: SessionState = {
@@ -78,6 +80,9 @@ const initialState: SessionState = {
   // Automation mode: shows simplified timeline view
   automationMode: false,
   logDir: undefined,
+  // Preparation status during initialization
+  preparationStatus: undefined,
+  preparationDetail: undefined,
 };
 
 const createAgentUIState = (): AgentUIState => ({
@@ -814,6 +819,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
   },
 
+  setPreparationStatus: (status, detail) => {
+    set({ preparationStatus: status, preparationDetail: detail });
+  },
+
   // Process WebSocket events
   processWSEvent: (event) => {
     const store = get();
@@ -824,8 +833,19 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
 
     switch (event.type) {
+      case 'preparation_status':
+        if ('status' in event) {
+          store.setPreparationStatus(
+            (event as { status: string }).status,
+            'detail' in event ? (event as { detail?: string }).detail : undefined
+          );
+        }
+        break;
+
       case 'init':
+        // Only clear preparation status when agents are actually ready
         if ('agents' in event && 'question' in event) {
+          store.setPreparationStatus(undefined, undefined);
           // Set automation mode if provided
           if ('automation_mode' in event) {
             set({ automationMode: (event as { automation_mode: boolean }).automation_mode });
@@ -1171,6 +1191,8 @@ export const selectSelectingWinner = (state: AgentStore) => state.selectingWinne
 export const selectRestoredFromSnapshot = (state: AgentStore) => state.restoredFromSnapshot;
 export const selectAutomationMode = (state: AgentStore) => state.automationMode;
 export const selectLogDir = (state: AgentStore) => state.logDir;
+export const selectPreparationStatus = (state: AgentStore) => state.preparationStatus;
+export const selectPreparationDetail = (state: AgentStore) => state.preparationDetail;
 
 /**
  * Clean streaming content by removing tool/MCP noise that shouldn't appear in final answers.

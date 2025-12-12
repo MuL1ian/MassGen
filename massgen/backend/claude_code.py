@@ -373,13 +373,38 @@ class ClaudeCodeBackend(LLMBackend):
         if result_message.usage:
             usage_data = result_message.usage
 
-            # Claude Code provides actual token counts
-            input_tokens = usage_data.get("input_tokens", 0)
-            output_tokens = usage_data.get("output_tokens", 0)
+            # Claude Code SDK returns:
+            # - input_tokens: NEW uncached input tokens only
+            # - cache_read_input_tokens: Tokens read from prompt cache (cache hits)
+            # - cache_creation_input_tokens: Tokens written to prompt cache
+            # Total input = input_tokens + cache_read + cache_creation
+
+            if isinstance(usage_data, dict):
+                # Base input tokens (uncached)
+                base_input = usage_data.get("input_tokens", 0) or 0
+                # Cache tokens
+                cache_read = usage_data.get("cache_read_input_tokens", 0) or 0
+                cache_creation = usage_data.get("cache_creation_input_tokens", 0) or 0
+                # Total input is sum of all input-related tokens
+                input_tokens = base_input + cache_read + cache_creation
+                output_tokens = usage_data.get("output_tokens", 0) or 0
+            else:
+                # Object format - use getattr
+                base_input = getattr(usage_data, "input_tokens", 0) or 0
+                cache_read = getattr(usage_data, "cache_read_input_tokens", 0) or 0
+                cache_creation = getattr(usage_data, "cache_creation_input_tokens", 0) or 0
+                input_tokens = base_input + cache_read + cache_creation
+                output_tokens = getattr(usage_data, "output_tokens", 0) or 0
+
+            logger.info(
+                f"[ClaudeCode] Token usage: input={input_tokens} " f"(base={base_input}, cache_read={cache_read}, cache_create={cache_creation}), " f"output={output_tokens}",
+            )
 
             # Update cumulative tracking
             self.token_usage.input_tokens += input_tokens
             self.token_usage.output_tokens += output_tokens
+            # Track cached tokens separately for detailed breakdown
+            self.token_usage.cached_input_tokens += cache_read
 
         # Use actual cost from Claude Code (preferred over calculation)
         if result_message.total_cost_usd is not None:

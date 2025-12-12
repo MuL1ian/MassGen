@@ -30,7 +30,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import questionary
 import yaml
@@ -690,6 +690,7 @@ def create_agents_from_config(
     debug: bool = False,
     filesystem_session_id: Optional[str] = None,
     session_storage_base: Optional[str] = None,
+    progress_callback: Optional[Callable[[str, str], None]] = None,
 ) -> Dict[str, ConfigurableAgent]:
     """Create agents from configuration.
 
@@ -704,6 +705,7 @@ def create_agents_from_config(
                    Enables faster multi-turn by avoiding container recreation.
         session_storage_base: Base directory for session storage (e.g., ".massgen/sessions").
                              Required with filesystem_session_id for session pre-mounting.
+        progress_callback: Optional callback for progress updates (status, detail).
     """
     agents = {}
 
@@ -798,6 +800,14 @@ def create_agents_from_config(
 
         # Get agent_id for AgentConfig (but don't add to backend_config to avoid duplicate kwargs)
         agent_id = agent_data.get("id", f"agent{i}")
+
+        # Emit progress for this agent
+        total = len(agent_entries)
+        if progress_callback:
+            progress_callback(
+                f"Creating agent {i}/{total}: {agent_id}...",
+                f"Backend: {backend_type}",
+            )
 
         backend = create_backend(backend_type, **backend_config)
         backend_params = {k: v for k, v in backend_config.items() if k not in ("type", "_config_path")}
@@ -3414,6 +3424,7 @@ def _show_turn_inspection(
     system_status_file = agent_outputs_dir / "system_status.txt" if agent_outputs_dir else None
     log_turn_dir / "coordination_events.json" if log_turn_dir else None
     coordination_table_file = log_turn_dir / "coordination_table.txt" if log_turn_dir else None
+    status_json_file = log_turn_dir / "status.json" if log_turn_dir else None
 
     # Get available agent output files
     agent_files = {}
@@ -3461,6 +3472,10 @@ def _show_turn_inspection(
         # Coordination table (r)
         if coordination_table_file and coordination_table_file.exists():
             menu_lines.append("  [yellow]r:[/yellow] Display coordination table to see the full history of agent interactions and decisions")
+
+        # Cost breakdown (c)
+        if status_json_file and status_json_file.exists():
+            menu_lines.append("  [yellow]c:[/yellow] Show cost breakdown and token usage")
 
         # Final answer (f) - with winning agent info if available
         menu_lines.append(f"  [yellow]f:[/yellow] Show final presentation from Selected Agent ({winning_agent})")
@@ -3557,6 +3572,72 @@ def _show_turn_inspection(
                         border_style="yellow",
                     ),
                 )
+                input("\nPress Enter to continue...")
+                console.print("=" * 80 + "\n")
+
+            elif choice == "c" and status_json_file and status_json_file.exists():
+                from rich.table import Table
+
+                status_data = json.loads(status_json_file.read_text())
+                console.print("\n" + "=" * 80)
+
+                # Create cost table
+                table = Table(
+                    title="💰 Cost Breakdown & Token Usage",
+                    show_header=True,
+                    header_style="bold cyan",
+                    border_style="cyan",
+                )
+                table.add_column("Agent", style="cyan", no_wrap=True)
+                table.add_column("Input", justify="right", style="green")
+                table.add_column("Output", justify="right", style="blue")
+                table.add_column("Reasoning", justify="right", style="magenta")
+                table.add_column("Cached", justify="right", style="yellow")
+                table.add_column("Est. Cost", justify="right", style="bold green")
+
+                # Get per-agent data
+                agents_data = status_data.get("agents", {})
+                for agent_id in sorted(agents_data.keys()):
+                    agent_info = agents_data[agent_id]
+                    tu = agent_info.get("token_usage", {})
+                    if tu:
+                        cost = tu.get("estimated_cost", 0)
+                        if cost < 0.01:
+                            cost_str = f"${cost:.4f}"
+                        elif cost < 1.0:
+                            cost_str = f"${cost:.3f}"
+                        else:
+                            cost_str = f"${cost:.2f}"
+                        table.add_row(
+                            agent_id,
+                            f"{tu.get('input_tokens', 0):,}",
+                            f"{tu.get('output_tokens', 0):,}",
+                            f"{tu.get('reasoning_tokens', 0):,}" if tu.get("reasoning_tokens", 0) > 0 else "-",
+                            f"{tu.get('cached_input_tokens', 0):,}" if tu.get("cached_input_tokens", 0) > 0 else "-",
+                            cost_str,
+                        )
+
+                # Add totals row
+                costs_data = status_data.get("costs", {})
+                if costs_data and len(agents_data) > 1:
+                    total_cost = costs_data.get("total_estimated_cost", 0)
+                    if total_cost < 0.01:
+                        total_cost_str = f"${total_cost:.4f}"
+                    elif total_cost < 1.0:
+                        total_cost_str = f"${total_cost:.3f}"
+                    else:
+                        total_cost_str = f"${total_cost:.2f}"
+                    table.add_row(
+                        "TOTAL",
+                        f"{costs_data.get('total_input_tokens', 0):,}",
+                        f"{costs_data.get('total_output_tokens', 0):,}",
+                        "-",
+                        "-",
+                        total_cost_str,
+                        style="bold",
+                    )
+
+                console.print(table)
                 input("\nPress Enter to continue...")
                 console.print("=" * 80 + "\n")
 
@@ -5141,17 +5222,20 @@ Environment Variables:
 
             print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
 
-            # Auto-open browser if question+config provided (unless --no-browser or automation mode)
+            # Auto-open browser (unless --no-browser or automation mode)
             no_browser = getattr(args, "no_browser", False)
-            if auto_url and config_path and not no_browser and not automation_mode:
+            if not no_browser and not automation_mode:
                 import threading
                 import webbrowser
+
+                # Use auto_url if available, otherwise just open the base URL
+                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
 
                 def open_browser():
                     import time
 
                     time.sleep(0.5)  # Wait for server to start
-                    webbrowser.open(auto_url)
+                    webbrowser.open(browser_url)
 
                 threading.Thread(target=open_browser, daemon=True).start()
             run_server(host=args.web_host, port=args.web_port, config_path=config_path, automation_mode=automation_mode)
@@ -5209,9 +5293,18 @@ Environment Variables:
         builder = ConfigBuilder()
         result = builder.run_quickstart()
 
-        if result and len(result) == 2:
-            filepath, question = result
-            if filepath and question:
+        if result and len(result) >= 2:
+            # Handle both 2-tuple (legacy) and 3-tuple (with interface choice)
+            filepath = result[0]
+            question = result[1]
+            interface_choice = result[2] if len(result) >= 3 else "terminal"
+
+            if filepath and interface_choice == "web":
+                # Launch web UI
+                args.config = filepath
+                args.web = True
+                # Let the web launch code handle it below
+            elif filepath and question:
                 # Update args to use the newly created config and launch interactive mode with initial question
                 args.config = filepath
                 args.question = question
@@ -5350,14 +5443,22 @@ Environment Variables:
                 print()
                 result = builder.run()
 
-            if result and len(result) == 2:
-                filepath, question = result
+            if result and len(result) >= 2:
+                # Handle both 2-tuple (full builder) and 3-tuple (quickstart with interface choice)
+                filepath = result[0]
+                question = result[1]
+                interface_choice = result[2] if len(result) >= 3 else "terminal"
+
                 if filepath:
                     # Set the config path
                     args.config = filepath
 
-                    # If user provided a question, set it
-                    if question:
+                    # Check if user chose web interface
+                    if interface_choice == "web":
+                        args.web = True
+                        # Let the web launch code handle it below
+                    elif question:
+                        # If user provided a question, set it
                         args.question = question
                         # Will run single question mode
                     else:

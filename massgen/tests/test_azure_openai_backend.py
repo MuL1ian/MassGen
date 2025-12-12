@@ -4,15 +4,11 @@ Test Azure OpenAI backend functionality.
 """
 
 import os
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Add the parent directory to sys.path to allow relative imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from backend.azure_openai import AzureOpenAIBackend  # noqa: E402
+from massgen.backend.azure_openai import AzureOpenAIBackend
 
 
 class TestAzureOpenAIBackend:

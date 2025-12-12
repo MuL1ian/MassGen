@@ -3305,6 +3305,32 @@ class ConfigBuilder:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
             console.print(f"\n[bold green]✅ Config saved to: {filepath}[/bold green]")
+
+            # Step 6: Ask about interface preference
+            console.print("\n[bold cyan]Interface[/bold cyan]")
+            console.print("[dim]Terminal: Rich text-based UI in your terminal[/dim]")
+            console.print("[dim]Web: Browser-based UI with visual coordination timeline[/dim]\n")
+
+            interface_choice = questionary.select(
+                "Launch MassGen with:",
+                choices=[
+                    questionary.Choice("Terminal (rich display)", value="terminal"),
+                    questionary.Choice("Web UI (browser)", value="web"),
+                ],
+                default="terminal",
+                style=questionary.Style(
+                    [
+                        ("selected", "fg:cyan bold"),
+                        ("pointer", "fg:cyan bold"),
+                        ("highlighted", "fg:cyan"),
+                    ],
+                ),
+                use_arrow_keys=True,
+            ).ask()
+
+            if interface_choice is None:
+                raise KeyboardInterrupt
+
             console.print("[dim]Launching MassGen...[/dim]\n")
 
             # Offer example prompts to help users get started
@@ -3314,10 +3340,10 @@ class ConfigBuilder:
 
             if example_prompt:
                 # Return with the selected example prompt as initial question
-                return (str(filepath), example_prompt)
+                return (str(filepath), example_prompt, interface_choice)
             else:
                 # Auto-launch into interactive mode (return empty string to signal interactive mode)
-                return (str(filepath), "")
+                return (str(filepath), "", interface_choice)
 
         except (KeyboardInterrupt, EOFError):
             console.print("\n\n[yellow]Quickstart cancelled[/yellow]\n")

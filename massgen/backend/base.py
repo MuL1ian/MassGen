@@ -5,6 +5,8 @@ Base backend interface for LLM providers.
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -12,8 +14,10 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from ..filesystem_manager import FilesystemManager, PathPermissionManagerHook
 from ..mcp_tools.hooks import FunctionHookManager, HookType
-from ..token_manager import TokenCostCalculator, TokenUsage
+from ..token_manager import RoundTokenUsage, TokenCostCalculator, TokenUsage
 from ..utils import CoordinationStage
+
+logger = logging.getLogger(__name__)
 
 
 class FilesystemSupport(Enum):
@@ -38,6 +42,7 @@ class StreamChunk:
     error: Optional[str] = None
     source: Optional[str] = None  # Source identifier (e.g., agent_id, "orchestrator")
     status: Optional[str] = None  # For agent status updates
+    detail: Optional[str] = None  # Additional detail for status updates
 
     # Reasoning-related fields
     reasoning_delta: Optional[str] = None  # Delta text from reasoning stream
@@ -62,6 +67,14 @@ class LLMBackend(ABC):
 
         # Initialize utility classes
         self.token_usage = TokenUsage()
+
+        # Round-level token tracking
+        self._round_token_history: List[RoundTokenUsage] = []
+        self._current_round_number: int = 0
+        self._current_round_type: str = ""
+        self._round_start_snapshot: Optional[Dict[str, Any]] = None
+        self._round_start_tool_count: int = 0
+        self._round_used_fallback_estimation: bool = False  # Track if fallback was used in current round
 
         # # Initialize tool manager
         # self.custom_tool_manager = ToolManager()
@@ -313,6 +326,209 @@ class LLMBackend(ABC):
     def reset_token_usage(self):
         """Reset token usage tracking."""
         self.token_usage = TokenUsage()
+
+    # ==================== Round Token Tracking ====================
+
+    def start_round_tracking(self, round_number: int, round_type: str, agent_id: str = "") -> None:
+        """Mark the start of a new round for token tracking.
+
+        Args:
+            round_number: The coordination round number
+            round_type: Type of round ("initial_answer", "enforcement", "presentation")
+            agent_id: The agent ID for this round
+        """
+        logger.info(
+            f"[{self.get_provider_name()}] start_round_tracking: round={round_number}, type={round_type}, agent={agent_id}, "
+            f"current_tokens=(in={self.token_usage.input_tokens}, out={self.token_usage.output_tokens})",
+        )
+        self._current_round_number = round_number
+        self._current_round_type = round_type
+        # Snapshot current totals for delta calculation
+        self._round_start_snapshot = {
+            "input_tokens": self.token_usage.input_tokens,
+            "output_tokens": self.token_usage.output_tokens,
+            "reasoning_tokens": self.token_usage.reasoning_tokens,
+            "cached_input_tokens": self.token_usage.cached_input_tokens,
+            "estimated_cost": self.token_usage.estimated_cost,
+            "start_time": time.time(),
+            "agent_id": agent_id,
+        }
+        # Track tool count at start (for tools executed in this round)
+        if hasattr(self, "_tool_execution_metrics"):
+            self._round_start_tool_count = len(self._tool_execution_metrics)
+        else:
+            self._round_start_tool_count = 0
+
+        # Reset fallback tracking for this round
+        self._round_used_fallback_estimation = False
+
+        # Update round number for tool metrics (so tools know which round they're in)
+        if hasattr(self, "set_round_number"):
+            self.set_round_number(round_number)
+
+    def end_round_tracking(self, outcome: str) -> Optional[RoundTokenUsage]:
+        """Mark end of round and calculate delta tokens.
+
+        Args:
+            outcome: How the round ended ("answer", "vote", "restarted", "timeout", "error")
+
+        Returns:
+            RoundTokenUsage for the completed round, or None if no round was started
+        """
+        if self._round_start_snapshot is None:
+            logger.warning(
+                f"[{self.get_provider_name()}] end_round_tracking({outcome}): _round_start_snapshot is None! "
+                f"No round was started. Current tokens=(in={self.token_usage.input_tokens}, out={self.token_usage.output_tokens})",
+            )
+            return None
+
+        logger.info(
+            f"[{self.get_provider_name()}] end_round_tracking({outcome}): "
+            f"snapshot_tokens=(in={self._round_start_snapshot['input_tokens']}, out={self._round_start_snapshot['output_tokens']}), "
+            f"current_tokens=(in={self.token_usage.input_tokens}, out={self.token_usage.output_tokens})",
+        )
+
+        # Calculate tool calls in this round
+        tool_calls = 0
+        if hasattr(self, "_tool_execution_metrics"):
+            tool_calls = len(self._tool_execution_metrics) - self._round_start_tool_count
+
+        # Calculate context window usage percentage
+        context_window_size = 0
+        context_usage_pct = 0.0
+        model = self.config.get("model", "")
+        pricing = self.token_calculator.get_model_pricing(self.get_provider_name(), model)
+        if pricing and pricing.context_window:
+            context_window_size = pricing.context_window
+            current_input = self.token_usage.input_tokens
+            if context_window_size > 0:
+                context_usage_pct = (current_input / context_window_size) * 100
+
+        # Determine token source: "api" if we got real data, "estimated" if we used fallback
+        token_source = "estimated" if self._round_used_fallback_estimation else "api"
+
+        # Create RoundTokenUsage with deltas
+        round_usage = RoundTokenUsage(
+            round_number=self._current_round_number,
+            agent_id=self._round_start_snapshot.get("agent_id", ""),
+            round_type=self._current_round_type,
+            outcome=outcome,
+            input_tokens=self.token_usage.input_tokens - self._round_start_snapshot["input_tokens"],
+            output_tokens=self.token_usage.output_tokens - self._round_start_snapshot["output_tokens"],
+            reasoning_tokens=self.token_usage.reasoning_tokens - self._round_start_snapshot["reasoning_tokens"],
+            cached_input_tokens=self.token_usage.cached_input_tokens - self._round_start_snapshot["cached_input_tokens"],
+            estimated_cost=self.token_usage.estimated_cost - self._round_start_snapshot["estimated_cost"],
+            context_window_size=context_window_size,
+            context_usage_pct=context_usage_pct,
+            tool_calls_count=tool_calls,
+            token_source=token_source,
+            start_time=self._round_start_snapshot["start_time"],
+            end_time=time.time(),
+        )
+
+        self._round_token_history.append(round_usage)
+        self._round_start_snapshot = None
+        logger.info(
+            f"[{self.get_provider_name()}] Round {round_usage.round_number} ({outcome}) recorded: "
+            f"delta_tokens=(in={round_usage.input_tokens}, out={round_usage.output_tokens}), "
+            f"history_length={len(self._round_token_history)}",
+        )
+        return round_usage
+
+    def get_round_token_history(self) -> List[Dict[str, Any]]:
+        """Get token usage history by round."""
+        return [r.to_dict() for r in self._round_token_history]
+
+    def get_current_round_number(self) -> int:
+        """Get the current round number."""
+        return self._current_round_number
+
+    # ==============================================================
+
+    def _update_token_usage_from_api_response(self, usage: Any, model: str) -> None:
+        """Standardized token usage update from API response.
+
+        This is the primary method backends should use to update token tracking.
+        It handles all provider formats and updates both cost and detailed token breakdowns.
+
+        Args:
+            usage: Usage object or dict from API response
+            model: Model name for pricing lookup
+        """
+        if usage is None:
+            return
+
+        # Check if provider returned cost directly (e.g., OpenRouter includes 'cost' field)
+        # This takes priority over litellm calculation since it's the actual billed cost
+        provider_cost = None
+        if isinstance(usage, dict):
+            provider_cost = usage.get("cost")
+        elif hasattr(usage, "cost"):
+            provider_cost = getattr(usage, "cost", None)
+
+        if provider_cost is not None and provider_cost > 0:
+            cost = provider_cost
+            logger.info(f"[{self.__class__.__name__}] Cost ${cost:.6f} from API response (model: {model})")
+        else:
+            # Calculate cost using litellm.completion_cost() directly
+            cost = self.token_calculator.calculate_cost_with_usage_object(
+                model=model,
+                usage=usage,
+                provider=self.get_provider_name(),
+            )
+            if cost > 0:
+                logger.info(f"[{self.__class__.__name__}] Cost ${cost:.6f} calculated via litellm (model: {model})")
+
+        # Extract detailed token breakdown for visibility
+        breakdown = self.token_calculator.extract_token_breakdown(usage)
+
+        # Update all TokenUsage fields
+        self.token_usage.input_tokens += breakdown.get("input_tokens", 0)
+        self.token_usage.output_tokens += breakdown.get("output_tokens", 0)
+        self.token_usage.estimated_cost += cost
+        self.token_usage.reasoning_tokens += breakdown.get("reasoning_tokens", 0)
+        self.token_usage.cached_input_tokens += breakdown.get("cached_input_tokens", 0)
+        self.token_usage.cache_creation_tokens += breakdown.get("cache_creation_tokens", 0)
+
+        # Warn if cost is 0 but tokens were tracked (model likely not in pricing database)
+        input_tokens = breakdown.get("input_tokens", 0)
+        output_tokens = breakdown.get("output_tokens", 0)
+        if cost == 0 and (input_tokens > 0 or output_tokens > 0):
+            logger.warning(
+                f"[{self.__class__.__name__}] Cost is $0.00 for model '{model}' with "
+                f"{input_tokens} input + {output_tokens} output tokens. "
+                f"Model may not be in pricing database (litellm or provider-returned cost).",
+            )
+
+    def _estimate_token_usage(self, messages: List[Dict[str, Any]], response_content: str, model: str) -> None:
+        """Fallback: Estimate tokens for backends without usage data (local models).
+
+        Uses tiktoken for estimation when API doesn't return usage data.
+
+        Args:
+            messages: Input messages for token estimation
+            response_content: Response content for token estimation
+            model: Model name for pricing lookup
+        """
+        # Mark that we used fallback estimation for this round
+        self._round_used_fallback_estimation = True
+
+        input_tokens = self.token_calculator.estimate_tokens(messages)
+        output_tokens = self.token_calculator.estimate_tokens(response_content)
+        cost = self.token_calculator.calculate_cost(
+            input_tokens,
+            output_tokens,
+            self.get_provider_name(),
+            model,
+        )
+
+        self.token_usage.input_tokens += input_tokens
+        self.token_usage.output_tokens += output_tokens
+        self.token_usage.estimated_cost += cost
+
+        logger.info(
+            f"[{self.get_provider_name()}] Used fallback token estimation: " f"input={input_tokens}, output={output_tokens}, cost=${cost:.6f}",
+        )
 
     def format_cost(self, cost: float = None) -> str:
         """Format cost for display."""
