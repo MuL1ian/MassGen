@@ -4306,19 +4306,35 @@ class RichTerminalDisplay(TerminalDisplay):
                     except Exception:
                         raise
 
-                # Run the async function using safe async helper
-                from massgen.utils import run_async_safely
+                # Run the async function
+                import nest_asyncio
+
+                nest_asyncio.apply()
 
                 try:
-                    run_async_safely(_get_and_display_presentation())
+                    # Create new event loop if needed
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+
+                    # Run the coroutine and ensure it completes
+                    loop.run_until_complete(_get_and_display_presentation())
                     # Add explicit wait to ensure presentation is fully displayed
                     time.sleep(0.5)
                 except Exception:
-                    # Fallback: show stored content
-                    self._display_final_presentation_content(
-                        selected_agent,
-                        "Unable to retrieve live presentation.",
-                    )
+                    # If all else fails, try asyncio.run
+                    try:
+                        asyncio.run(_get_and_display_presentation())
+                        # Add explicit wait to ensure presentation is fully displayed
+                        time.sleep(0.5)
+                    except Exception:
+                        # Last resort: show stored content
+                        self._display_final_presentation_content(
+                            selected_agent,
+                            "Unable to retrieve live presentation.",
+                        )
             else:
                 # Fallback: try to get stored presentation content
                 status = self.orchestrator.get_status()

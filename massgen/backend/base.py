@@ -42,6 +42,7 @@ class StreamChunk:
     error: Optional[str] = None
     source: Optional[str] = None  # Source identifier (e.g., agent_id, "orchestrator")
     status: Optional[str] = None  # For agent status updates
+    detail: Optional[str] = None  # Additional detail for status updates
 
     # Reasoning-related fields
     reasoning_delta: Optional[str] = None  # Delta text from reasoning stream
