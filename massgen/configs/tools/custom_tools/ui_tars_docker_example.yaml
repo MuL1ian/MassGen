@@ -46,6 +46,15 @@ agents:
             environment_config:
               container_name: "cua-container"
               display: ":99"
+      mcp_servers:
+        - name: "discord"
+          type: "stdio"
+          command: "npx"
+          args: ["-y", "mcp-discord", "--config", "MTQxNTQzNzQ5MjkxMTQ3MjcxMA.GArg4y.DBJPBBDNsqbM1-kLbcM3nWfsTlOiFDzmRHx7jM"]
+          env:
+            DISCORD_TOKEN: "MTQxNTQzNzQ5MjkxMTQ3MjcxMA.GArg4y.DBJPBBDNsqbM1-kLbcM3nWfsTlOiFDzmRHx7jM"
+          security:
+            level: "high"
     
     system_message: |
       You are an AI assistant with access to ByteDance's UI-TARS-1.5-7B vision-language model

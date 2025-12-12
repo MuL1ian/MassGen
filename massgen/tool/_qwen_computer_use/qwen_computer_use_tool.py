@@ -135,20 +135,66 @@ async def execute_browser_action(page, action: Dict[str, Any], screen_width: int
         logger.info(f"     Executing action: {action_type}")
 
         if action_type == "click":
-            x = action.get("x", 0)
-            y = action.get("y", 0)
-            await page.mouse.click(x, y)
-            logger.info(f"     Clicked at ({x}, {y})")
+            x_raw = action.get("x", 0)
+            y_raw = action.get("y", 0)
+            x = x_raw
+            y = y_raw
+            button = action.get("button", "left")  # Default to left click, can be "left", "right", "middle"
+            
+            logger.info(f"     Raw click coordinates from model: x={x_raw}, y={y_raw}")
+            
+            # Handle array format [x, y] from model
+            if isinstance(x, list) and len(x) >= 2:
+                y = x[1]
+                x = x[0]
+                logger.info(f"     Extracted from array: x={x}, y={y}")
+            
+            # Map button number to button name for Playwright
+            if isinstance(button, int):
+                button = {1: "left", 2: "middle", 3: "right"}.get(button, "left")
+            
+            logger.info(f"     Final click coordinates: x={x}, y={y} (screen: {screen_width}x{screen_height})")
+            
+            # Wait for page to be stable before clicking
+            await asyncio.sleep(0.2)
+            await page.mouse.click(x, y, button=button)
+            # Wait after click for page to react
+            await asyncio.sleep(0.5)
+            logger.info(f"     Clicked at ({x}, {y}) with button={button}")
 
         elif action_type == "type":
             text = action.get("text", "")
-            x = action.get("x")
-            y = action.get("y")
+            x_raw = action.get("x")
+            y_raw = action.get("y")
+            x = x_raw
+            y = y_raw
+            
+            logger.info(f"     Raw type coordinates from model: x={x_raw}, y={y_raw}")
+            
+            # Handle array format [x, y] from model
+            if isinstance(x, list) and len(x) >= 2:
+                y = x[1]
+                x = x[0]
+                logger.info(f"     Extracted from array: x={x}, y={y}")
+            # Extract from array if y is also an array (invalid format from model)
+            if isinstance(y, list) and len(y) >= 1:
+                y = y[0]
+            # Ensure numeric types
+            if x is not None:
+                x = int(float(x)) if not isinstance(x, int) else x
+            if y is not None:
+                y = int(float(y)) if not isinstance(y, int) else y
+            
             if x is not None and y is not None:
+                logger.info(f"     Clicking at ({x}, {y}) before typing")
                 await page.mouse.click(x, y)
-                await asyncio.sleep(0.1)
-            await page.keyboard.type(text)
+                # Wait longer for element to focus
+                await asyncio.sleep(0.5)
+            
+            await page.keyboard.type(text, delay=50)  # Add 50ms delay between keystrokes
             logger.info(f"     Typed: {text}")
+            # Wait for text to appear in UI
+            await asyncio.sleep(0.5)
 
         elif action_type == "scroll":
             direction = action.get("direction", "down")
@@ -165,8 +211,14 @@ async def execute_browser_action(page, action: Dict[str, Any], screen_width: int
 
         elif action_type == "navigate":
             url = action.get("url", "")
-            await page.goto(url, wait_until="networkidle", timeout=10000)
-            logger.info(f"     Navigated to: {url}")
+            try:
+                # Use domcontentloaded - networkidle is too strict for sites with continuous network activity
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                # Wait for initial render
+                await asyncio.sleep(2)
+                logger.info(f"     Navigated to: {url}")
+            except Exception as e:
+                logger.warning(f"     Navigation issue for {url}: {e}, proceeding anyway")
 
         elif action_type == "go_back":
             await page.go_back()
@@ -183,20 +235,38 @@ async def execute_browser_action(page, action: Dict[str, Any], screen_width: int
 
         elif action_type == "key":
             key = action.get("key", "")
-            await page.keyboard.press(key)
-            logger.info(f"     Pressed key: {key}")
+            # Normalize common key names (Playwright expects capitalized keys)
+            key_map = {
+                "enter": "Enter",
+                "return": "Enter",
+                "escape": "Escape",
+                "esc": "Escape",
+                "tab": "Tab",
+                "space": "Space",
+                "backspace": "Backspace",
+                "delete": "Delete",
+                "arrowup": "ArrowUp",
+                "arrowdown": "ArrowDown",
+                "arrowleft": "ArrowLeft",
+                "arrowright": "ArrowRight",
+            }
+            normalized_key = key_map.get(key.lower(), key)
+            await page.keyboard.press(normalized_key)
+            logger.info(f"     Pressed key: {normalized_key}")
 
         else:
             logger.warning(f"     Unknown action type: {action_type}")
             return {"error": f"Unknown action type: {action_type}"}
 
-        # Wait for potential navigations/renders
+        # Wait for dynamic content and network activity to settle
         try:
-            await page.wait_for_load_state(timeout=2000)
+            # Wait for network to be idle (no requests for 500ms)
+            await page.wait_for_load_state('networkidle', timeout=3000)
+            # Wait additional time for visual updates to render
+            await asyncio.sleep(0.5)
         except Exception:
-            pass  # Timeout is okay
-
-        await asyncio.sleep(0.5)
+            # If timeout, wait longer for any pending updates
+            await asyncio.sleep(1.5)
 
         return {"success": True}
 
@@ -227,19 +297,42 @@ def execute_docker_action(container, action: Dict[str, Any], screen_width: int, 
         if action_type == "click":
             x = action.get("x", 0)
             y = action.get("y", 0)
+            button = action.get("button", 1)  # Default to left click (1), 3 is right click
+            # Handle array format [x, y] from model
+            if isinstance(x, list) and len(x) >= 2:
+                y = x[1]
+                x = x[0]
+            # Move mouse first
             container.exec_run(
-                f"xdotool mousemove {x} {y} click 1",
+                f"xdotool mousemove --sync {x} {y}",
                 environment={"DISPLAY": display},
             )
-            logger.info(f"     Docker clicked at ({x}, {y})")
+            time.sleep(0.1)  # Small delay to ensure mouse position updates
+            # Then click
+            container.exec_run(
+                f"xdotool click {button}",
+                environment={"DISPLAY": display},
+            )
+            logger.info(f"     Docker clicked at ({x}, {y}) with button {button}")
 
         elif action_type == "type":
             text = action.get("text", "")
             x = action.get("x")
             y = action.get("y")
+            # Handle array format [x, y] from model
+            if isinstance(x, list) and len(x) >= 2:
+                y = x[1]
+                x = x[0]
             if x is not None and y is not None:
+                # Move mouse first
                 container.exec_run(
-                    f"xdotool mousemove {x} {y} click 1",
+                    f"xdotool mousemove --sync {x} {y}",
+                    environment={"DISPLAY": display},
+                )
+                time.sleep(0.1)  # Small delay to ensure mouse position updates
+                # Then click
+                container.exec_run(
+                    "xdotool click 1",
                     environment={"DISPLAY": display},
                 )
                 time.sleep(0.1)
@@ -404,11 +497,26 @@ async def qwen_computer_use(
             }
             return ExecutionResult(output_blocks=[TextContent(data=json.dumps(result, indent=2))])
 
+        # Check for custom endpoint (e.g., HuggingFace Inference Endpoint)
+        qwen_endpoint = os.getenv("QWEN_HF_ENDPOINT") or os.getenv("QWEN_ENDPOINT")
+        
         # Initialize Qwen client (using OpenAI-compatible API)
-        client = OpenAI(
-            api_key=qwen_api_key,
-            base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        )
+        if qwen_endpoint:
+            # Custom endpoint (e.g., HuggingFace) - ensure it ends with /v1
+            if not qwen_endpoint.endswith('/v1'):
+                qwen_endpoint = qwen_endpoint.rstrip('/') + '/v1'
+            logger.info(f"Using custom Qwen endpoint: {qwen_endpoint}")
+            client = OpenAI(
+                api_key=qwen_api_key,
+                base_url=qwen_endpoint,
+            )
+        else:
+            # Default to DashScope API
+            logger.info("Using DashScope Qwen API")
+            client = OpenAI(
+                api_key=qwen_api_key,
+                base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            )
 
         # Initialize environment (browser or Docker)
         container = None
@@ -449,6 +557,27 @@ async def qwen_computer_use(
                     "error": f"Failed to capture screenshot from Docker container. Check if X11 display {display} is running and scrot is installed.",
                 }
                 return ExecutionResult(output_blocks=[TextContent(data=json.dumps(result, indent=2))])
+            
+            # Start Firefox and navigate to initial URL if provided (for Docker environment)
+            if initial_url:
+                logger.info(f"Starting Firefox and navigating to: {initial_url}")
+                try:
+                    import time
+                    # Start Firefox if not running
+                    container.exec_run("firefox &", environment={"DISPLAY": display}, detach=True)
+                    time.sleep(6)  # Wait longer for Firefox to fully start and render
+                    
+                    # Navigate to URL: Ctrl+L to focus address bar, type URL, press Enter
+                    container.exec_run("xdotool key ctrl+l", environment={"DISPLAY": display})
+                    time.sleep(0.8)
+                    escaped_url = initial_url.replace("'", "'\\''")
+                    container.exec_run(f"xdotool type '{escaped_url}'", environment={"DISPLAY": display})
+                    time.sleep(0.8)
+                    container.exec_run("xdotool key Return", environment={"DISPLAY": display})
+                    time.sleep(5)  # Wait longer for page to fully load and render
+                    logger.info("Initial URL navigation complete")
+                except Exception as e:
+                    logger.warning(f"Failed to navigate to initial URL: {e}")
 
         else:
             # Browser environment
@@ -483,7 +612,17 @@ async def qwen_computer_use(
             # Navigate to initial URL or blank page
             if initial_url:
                 logger.info(f"Navigating to initial URL: {initial_url}")
-                await page.goto(initial_url, wait_until="networkidle", timeout=10000)
+                try:
+                    # Use domcontentloaded instead of networkidle - many sites have continuous network activity
+                    # Increase timeout to 30s for slow-loading sites like Yahoo Finance
+                    await page.goto(initial_url, wait_until="domcontentloaded", timeout=30000)
+                    # Wait for initial render
+                    await asyncio.sleep(2)
+                    logger.info(f"Successfully loaded {initial_url}")
+                except Exception as e:
+                    logger.warning(f"Navigation to {initial_url} encountered issue: {e}")
+                    logger.info("Proceeding anyway - page may have partially loaded")
+                    # Don't fail entirely - the page might have loaded enough to work with
             else:
                 await page.goto("about:blank")
 
@@ -491,6 +630,14 @@ async def qwen_computer_use(
 
             # Take initial screenshot from browser
             initial_screenshot = await page.screenshot(type="png")
+            
+            # Verify screenshot dimensions match viewport
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(initial_screenshot))
+            logger.info(f"Screenshot dimensions: {img.width}x{img.height} (viewport: {display_width}x{display_height})")
+            if img.width != display_width or img.height != display_height:
+                logger.warning(f"Screenshot size mismatch! Expected {display_width}x{display_height}, got {img.width}x{img.height}")
 
         # Initialize conversation
         logger.info(f"Task: {task} (environment: {environment}, model: {model})")
@@ -499,28 +646,40 @@ async def qwen_computer_use(
         screenshot_base64 = encode_image_base64(initial_screenshot)
 
         # System prompt for computer use
-        system_prompt = """You are a computer automation assistant. You can see screenshots and generate actions to control the computer.
+        system_prompt = f"""You are a computer automation assistant. You can see screenshots and generate actions to control the computer.
+
+IMPORTANT: The screen resolution is {display_width}x{display_height} pixels.
+- Valid X coordinates: 0 to {display_width-1}
+- Valid Y coordinates: 0 to {display_height-1}
 
 Your task is to analyze the screenshot and the user's request, then generate appropriate actions to complete the task.
 
 Available actions:
-- click: Click at coordinates {"type": "click", "x": <int>, "y": <int>}
-- type: Type text {"type": "type", "text": "<string>", "x": <int>, "y": <int>} (x,y optional for focus)
-- scroll: Scroll in direction {"type": "scroll", "direction": "down|up|left|right", "amount": <int>}
-- navigate: Navigate to URL {"type": "navigate", "url": "<string>"}
-- go_back: Go back {"type": "go_back"}
-- go_forward: Go forward {"type": "go_forward"}
-- wait: Wait {"type": "wait", "duration": <seconds>}
-- key: Press key {"type": "key", "key": "<key_name>"}
-- done: Task complete {"type": "done", "result": "<string>"}
+- click: Click at coordinates {{"type": "click", "x": <int>, "y": <int>, "button": 1|3}} (button 1=left, 3=right, default=1)
+- type: Type text {{"type": "type", "text": "<string>", "x": <int>, "y": <int>}} (x,y optional for focus)
+- scroll: Scroll in direction {{"type": "scroll", "direction": "down|up|left|right", "amount": <int>}}
+- navigate: Navigate to URL {{"type": "navigate", "url": "<string>"}}
+- go_back: Go back {{"type": "go_back"}}
+- go_forward: Go forward {{"type": "go_forward"}}
+- wait: Wait {{"type": "wait", "duration": <seconds>}}
+- key: Press key {{"type": "key", "key": "<key_name>"}}
+- done: Task complete {{"type": "done", "result": "<string>"}}
 
 Respond with a JSON object containing:
-{
+{{
   "thought": "Your reasoning about what you see and what to do next",
   "actions": [<action_objects>]
-}
+}}
 
-Be precise with coordinates. Analyze the screenshot carefully before deciding actions."""
+IMPORTANT STRATEGIES:
+1. Be VERY precise with coordinates - examine the screenshot pixel-by-pixel to identify exact click targets
+2. For search boxes and text inputs: USE THE TYPE ACTION DIRECTLY - most modern inputs accept keyboard input without requiring a click first
+3. If you see you're repeating the same action (like clicking the same coordinates), try a different approach immediately
+4. ALWAYS SCROLL FIRST if you need information below the current view - don't waste time closing banners/overlays
+5. If clicking fails after 2 attempts, try: typing directly, pressing Enter, scrolling, or using navigation
+6. Close buttons are in the TOP-RIGHT corner of overlays - but only as a last resort
+
+Be precise with coordinates. All coordinates MUST be within the valid range. Analyze the screenshot carefully before deciding actions."""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -539,6 +698,7 @@ Be precise with coordinates. Analyze the screenshot carefully before deciding ac
         # Agent loop
         action_log = []
         iteration_count = 0
+        recent_actions = []  # Track last 5 actions for stuck detection
 
         try:
             for i in range(max_iterations):
@@ -550,7 +710,7 @@ Be precise with coordinates. Analyze the screenshot carefully before deciding ac
                 response = client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    temperature=0.7,
+                    temperature=0.0,  # Deterministic behavior
                     max_tokens=2000,
                 )
 
@@ -637,9 +797,13 @@ Be precise with coordinates. Analyze the screenshot carefully before deciding ac
 
                 screenshot_base64 = encode_image_base64(new_screenshot)
 
-                # Add to conversation
+                # Add to conversation - but remove old screenshot to prevent payload bloat
+                # Keep only the most recent screenshot in the conversation
                 messages.append({"role": "assistant", "content": assistant_message})
-                messages.append(
+                
+                # Remove the previous user message that contained an old screenshot
+                # Keep system message (index 0) and remove old user messages with images
+                messages = [messages[0]] + [msg for msg in messages[1:] if msg.get("role") != "user"] + [
                     {
                         "role": "user",
                         "content": [
@@ -649,8 +813,14 @@ Be precise with coordinates. Analyze the screenshot carefully before deciding ac
                                 "image_url": {"url": f"data:image/png;base64,{screenshot_base64}"},
                             },
                         ],
-                    },
-                )
+                    }
+                ]
+                
+                # Truncate conversation history to prevent context overflow
+                # Keep system message + last 10 turns (20 messages: 10 user + 10 assistant)
+                if len(messages) > 21:  # 1 system + 20 conversation messages
+                    messages = [messages[0]] + messages[-20:]  # Keep system + recent 20
+                    logger.info(f"Truncated conversation history to recent 10 turns to manage context size")
 
         finally:
             # Cleanup

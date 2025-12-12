@@ -150,7 +150,7 @@ def parse_ui_tars_response(response: str, screen_width: int, screen_height: int)
     action_text = result["action"]
     
     # Check for completion/failure
-    if "DONE" in action_text.upper():
+    if "DONE" in action_text.upper() or "finished()" in action_text.lower():
         result["parsed_action"] = {"type": "done"}
         return result
     if "FAIL" in action_text.upper():
@@ -186,15 +186,15 @@ def parse_ui_tars_response(response: str, screen_width: int, screen_height: int)
             result["parsed_action"] = {"type": "drag", "x1": x1, "y1": y1, "x2": x2, "y2": y2}
     
     elif "type(" in action_text:
-        # Extract text to type
-        text_match = re.search(r"text=['\"]([^'\"]+)['\"]", action_text)
+        # Extract text to type - support both 'text=' and 'content=' parameters
+        text_match = re.search(r"(?:text|content)=['\"]([^'\"]+)['\"]", action_text)
         if text_match:
             text = text_match.group(1)
             result["parsed_action"] = {"type": "type", "text": text}
     
     elif "key(" in action_text:
-        # Extract key to press
-        key_match = re.search(r"text=['\"]([^'\"]+)['\"]", action_text)
+        # Extract key to press - support 'text=', 'content=', and 'key=' parameters
+        key_match = re.search(r"(?:text|content|key)=['\"]([^'\"]+)['\"]", action_text)
         if key_match:
             key = key_match.group(1)
             result["parsed_action"] = {"type": "key", "key": key}
@@ -417,6 +417,9 @@ def execute_docker_action(container, action: Dict[str, Any], screen_width: int, 
 
         elif action_type == "key":
             key = action.get("key", "")
+            if not key:
+                logger.error("     Docker key action missing key parameter")
+                return
             # Convert key format
             xdotool_key = key.replace("Control", "ctrl").replace("Shift", "shift").replace("Alt", "alt")
             container.exec_run(
@@ -528,6 +531,8 @@ async def ui_tars_computer_use(
         - For Docker: Docker container with X11 and xdotool installed
         - Optional: pip install ui-tars (for advanced parsing)
     """
+    import time
+    
     # Check environment-specific dependencies
     if environment == "linux":
         if not DOCKER_AVAILABLE:
@@ -633,6 +638,26 @@ async def ui_tars_computer_use(
                     "error": f"Failed to capture screenshot from Docker. Check X11 display {display} is running.",
                 }
                 return ExecutionResult(output_blocks=[TextContent(data=json.dumps(result, indent=2))])
+            
+            # Navigate to initial URL if provided (for Docker environment)
+            if initial_url:
+                logger.info(f"Navigating Docker Firefox to: {initial_url}")
+                try:
+                    # Start Firefox if not running
+                    container.exec_run("firefox &", environment={"DISPLAY": display}, detach=True)
+                    time.sleep(3)  # Wait for Firefox to start
+                    
+                    # Navigate to URL: Ctrl+L to focus address bar, type URL, press Enter
+                    container.exec_run("xdotool key ctrl+l", environment={"DISPLAY": display})
+                    time.sleep(0.5)
+                    escaped_url = initial_url.replace("'", "'\\''")
+                    container.exec_run(f"xdotool type '{escaped_url}'", environment={"DISPLAY": display})
+                    time.sleep(0.5)
+                    container.exec_run("xdotool key Return", environment={"DISPLAY": display})
+                    time.sleep(3)  # Wait for page to load
+                    logger.info("Initial URL navigation complete")
+                except Exception as e:
+                    logger.warning(f"Failed to navigate to initial URL: {e}")
 
         else:  # browser
             # Browser environment
