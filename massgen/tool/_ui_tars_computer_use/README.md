@@ -307,7 +307,7 @@ Error: UI-TARS endpoint not found
 ```
 Error: Playwright not installed
 ```
-**Solution**: 
+**Solution**:
 ```bash
 pip install playwright
 playwright install

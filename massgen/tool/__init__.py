@@ -8,10 +8,10 @@ from ._computer_use import computer_use
 from ._decorators import context_params
 from ._file_handlers import append_file_content, read_file_content, save_file_content
 from ._gemini_computer_use import gemini_computer_use
-from ._qwen_computer_use import qwen_computer_use
-from ._ui_tars_computer_use import ui_tars_computer_use
 from ._manager import ToolManager
+from ._qwen_computer_use import qwen_computer_use
 from ._result import ExecutionResult
+from ._ui_tars_computer_use import ui_tars_computer_use
 from .workflow_toolkits import (
     BaseToolkit,
     NewAnswerToolkit,

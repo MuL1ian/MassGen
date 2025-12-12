@@ -14,7 +14,7 @@ import base64
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -140,21 +140,21 @@ async def execute_browser_action(page, action: Dict[str, Any], screen_width: int
             x = x_raw
             y = y_raw
             button = action.get("button", "left")  # Default to left click, can be "left", "right", "middle"
-            
+
             logger.info(f"     Raw click coordinates from model: x={x_raw}, y={y_raw}")
-            
+
             # Handle array format [x, y] from model
             if isinstance(x, list) and len(x) >= 2:
                 y = x[1]
                 x = x[0]
                 logger.info(f"     Extracted from array: x={x}, y={y}")
-            
+
             # Map button number to button name for Playwright
             if isinstance(button, int):
                 button = {1: "left", 2: "middle", 3: "right"}.get(button, "left")
-            
+
             logger.info(f"     Final click coordinates: x={x}, y={y} (screen: {screen_width}x{screen_height})")
-            
+
             # Wait for page to be stable before clicking
             await asyncio.sleep(0.2)
             await page.mouse.click(x, y, button=button)
@@ -168,9 +168,9 @@ async def execute_browser_action(page, action: Dict[str, Any], screen_width: int
             y_raw = action.get("y")
             x = x_raw
             y = y_raw
-            
+
             logger.info(f"     Raw type coordinates from model: x={x_raw}, y={y_raw}")
-            
+
             # Handle array format [x, y] from model
             if isinstance(x, list) and len(x) >= 2:
                 y = x[1]
@@ -184,13 +184,13 @@ async def execute_browser_action(page, action: Dict[str, Any], screen_width: int
                 x = int(float(x)) if not isinstance(x, int) else x
             if y is not None:
                 y = int(float(y)) if not isinstance(y, int) else y
-            
+
             if x is not None and y is not None:
                 logger.info(f"     Clicking at ({x}, {y}) before typing")
                 await page.mouse.click(x, y)
                 # Wait longer for element to focus
                 await asyncio.sleep(0.5)
-            
+
             await page.keyboard.type(text, delay=50)  # Add 50ms delay between keystrokes
             logger.info(f"     Typed: {text}")
             # Wait for text to appear in UI
@@ -261,7 +261,7 @@ async def execute_browser_action(page, action: Dict[str, Any], screen_width: int
         # Wait for dynamic content and network activity to settle
         try:
             # Wait for network to be idle (no requests for 500ms)
-            await page.wait_for_load_state('networkidle', timeout=3000)
+            await page.wait_for_load_state("networkidle", timeout=3000)
             # Wait additional time for visual updates to render
             await asyncio.sleep(0.5)
         except Exception:
@@ -499,12 +499,12 @@ async def qwen_computer_use(
 
         # Check for custom endpoint (e.g., HuggingFace Inference Endpoint)
         qwen_endpoint = os.getenv("QWEN_HF_ENDPOINT") or os.getenv("QWEN_ENDPOINT")
-        
+
         # Initialize Qwen client (using OpenAI-compatible API)
         if qwen_endpoint:
             # Custom endpoint (e.g., HuggingFace) - ensure it ends with /v1
-            if not qwen_endpoint.endswith('/v1'):
-                qwen_endpoint = qwen_endpoint.rstrip('/') + '/v1'
+            if not qwen_endpoint.endswith("/v1"):
+                qwen_endpoint = qwen_endpoint.rstrip("/") + "/v1"
             logger.info(f"Using custom Qwen endpoint: {qwen_endpoint}")
             client = OpenAI(
                 api_key=qwen_api_key,
@@ -557,16 +557,17 @@ async def qwen_computer_use(
                     "error": f"Failed to capture screenshot from Docker container. Check if X11 display {display} is running and scrot is installed.",
                 }
                 return ExecutionResult(output_blocks=[TextContent(data=json.dumps(result, indent=2))])
-            
+
             # Start Firefox and navigate to initial URL if provided (for Docker environment)
             if initial_url:
                 logger.info(f"Starting Firefox and navigating to: {initial_url}")
                 try:
                     import time
+
                     # Start Firefox if not running
                     container.exec_run("firefox &", environment={"DISPLAY": display}, detach=True)
                     time.sleep(6)  # Wait longer for Firefox to fully start and render
-                    
+
                     # Navigate to URL: Ctrl+L to focus address bar, type URL, press Enter
                     container.exec_run("xdotool key ctrl+l", environment={"DISPLAY": display})
                     time.sleep(0.8)
@@ -630,10 +631,12 @@ async def qwen_computer_use(
 
             # Take initial screenshot from browser
             initial_screenshot = await page.screenshot(type="png")
-            
+
             # Verify screenshot dimensions match viewport
-            from PIL import Image
             import io
+
+            from PIL import Image
+
             img = Image.open(io.BytesIO(initial_screenshot))
             logger.info(f"Screenshot dimensions: {img.width}x{img.height} (viewport: {display_width}x{display_height})")
             if img.width != display_width or img.height != display_height:
@@ -698,7 +701,6 @@ Be precise with coordinates. All coordinates MUST be within the valid range. Ana
         # Agent loop
         action_log = []
         iteration_count = 0
-        recent_actions = []  # Track last 5 actions for stuck detection
 
         try:
             for i in range(max_iterations):
@@ -800,27 +802,31 @@ Be precise with coordinates. All coordinates MUST be within the valid range. Ana
                 # Add to conversation - but remove old screenshot to prevent payload bloat
                 # Keep only the most recent screenshot in the conversation
                 messages.append({"role": "assistant", "content": assistant_message})
-                
+
                 # Remove the previous user message that contained an old screenshot
                 # Keep system message (index 0) and remove old user messages with images
-                messages = [messages[0]] + [msg for msg in messages[1:] if msg.get("role") != "user"] + [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Here is the new screenshot after executing the actions. Generate the next actions or indicate if the task is complete."},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{screenshot_base64}"},
-                            },
-                        ],
-                    }
-                ]
-                
+                messages = (
+                    [messages[0]]
+                    + [msg for msg in messages[1:] if msg.get("role") != "user"]
+                    + [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Here is the new screenshot after executing the actions. Generate the next actions or indicate if the task is complete."},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/png;base64,{screenshot_base64}"},
+                                },
+                            ],
+                        },
+                    ]
+                )
+
                 # Truncate conversation history to prevent context overflow
                 # Keep system message + last 10 turns (20 messages: 10 user + 10 assistant)
                 if len(messages) > 21:  # 1 system + 20 conversation messages
                     messages = [messages[0]] + messages[-20:]  # Keep system + recent 20
-                    logger.info(f"Truncated conversation history to recent 10 turns to manage context size")
+                    logger.info("Truncated conversation history to recent 10 turns to manage context size")
 
         finally:
             # Cleanup

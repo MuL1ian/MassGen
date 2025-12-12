@@ -15,7 +15,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -48,7 +48,10 @@ except ImportError:
     docker = None
 
 try:
-    from ui_tars.action_parser import parse_action_to_structure_output, parsing_response_to_pyautogui_code
+    from ui_tars.action_parser import (
+        parse_action_to_structure_output,
+        parsing_response_to_pyautogui_code,
+    )
 
     UI_TARS_PARSER_AVAILABLE = True
 except ImportError:
@@ -62,7 +65,7 @@ SCREEN_WIDTH = 1440
 SCREEN_HEIGHT = 900
 
 # UI-TARS prompt templates (from official repo)
-COMPUTER_USE_PROMPT = """You are a GUI agent. You are asked to complete a task by interacting with a computer interface. 
+COMPUTER_USE_PROMPT = """You are a GUI agent. You are asked to complete a task by interacting with a computer interface.
 
 You will be presented with a task and an image of the current screen state.
 Your goal is to complete the task step by step through GUI interactions.
@@ -97,7 +100,7 @@ def encode_image_base64(image_bytes: bytes) -> str:
 
 def add_box_token(input_string: str) -> str:
     """Add box tokens to coordinates in UI-TARS format (required by model).
-    
+
     Converts: start_box='(100,200)' -> start_box='<|box_start|>(100,200)<|box_end|>'
     """
     if "Action: " in input_string and "start_box=" in input_string:
@@ -108,16 +111,16 @@ def add_box_token(input_string: str) -> str:
             action = action.strip()
             # Extract coordinates using regex
             coordinates = re.findall(r"(start_box|end_box)='\((\d+),\s*(\d+)\)'", action)
-            
+
             updated_action = action
             for coord_type, x, y in coordinates:
                 # Add box tokens
                 updated_action = updated_action.replace(
                     f"{coord_type}='({x},{y})'",
-                    f"{coord_type}='<|box_start|>({x},{y})<|box_end|>'"
+                    f"{coord_type}='<|box_start|>({x},{y})<|box_end|>'",
                 )
             processed_actions.append(updated_action)
-        
+
         final_string = suffix + "\n\n".join(processed_actions)
     else:
         final_string = input_string
@@ -126,29 +129,29 @@ def add_box_token(input_string: str) -> str:
 
 def parse_ui_tars_response(response: str, screen_width: int, screen_height: int) -> Dict[str, Any]:
     """Parse UI-TARS model response into structured action.
-    
+
     Args:
         response: Raw model response with Thought and Action
         screen_width: Screen width in pixels
         screen_height: Screen height in pixels
-        
+
     Returns:
         Dictionary with 'thought', 'action', and parsed action details
     """
     result = {"thought": "", "action": "", "parsed_action": None}
-    
+
     # Extract thought and action
     thought_match = re.search(r"Thought:\s*(.+?)(?=\nAction:|$)", response, re.DOTALL)
     action_match = re.search(r"Action:\s*(.+)", response, re.DOTALL)
-    
+
     if thought_match:
         result["thought"] = thought_match.group(1).strip()
     if action_match:
         result["action"] = action_match.group(1).strip()
-    
+
     # Parse action into structured format
     action_text = result["action"]
-    
+
     # Check for completion/failure
     if "DONE" in action_text.upper() or "finished()" in action_text.lower():
         result["parsed_action"] = {"type": "done"}
@@ -159,7 +162,7 @@ def parse_ui_tars_response(response: str, screen_width: int, screen_height: int)
     if "WAIT" in action_text.upper():
         result["parsed_action"] = {"type": "wait", "duration": 2}
         return result
-    
+
     # Parse coordinate-based actions
     if "click(" in action_text or "double_click(" in action_text or "right_click(" in action_text:
         # Extract action type
@@ -169,13 +172,13 @@ def parse_ui_tars_response(response: str, screen_width: int, screen_height: int)
             action_type = "right_click"
         else:
             action_type = "click"
-        
+
         # Extract coordinates
         coord_match = re.search(r"start_box=['\"]?\(?(\d+),\s*(\d+)\)?['\"]?", action_text)
         if coord_match:
             x, y = int(coord_match.group(1)), int(coord_match.group(2))
             result["parsed_action"] = {"type": action_type, "x": x, "y": y}
-    
+
     elif "drag(" in action_text:
         # Extract start and end coordinates
         start_match = re.search(r"start_box=['\"]?\(?(\d+),\s*(\d+)\)?['\"]?", action_text)
@@ -184,27 +187,27 @@ def parse_ui_tars_response(response: str, screen_width: int, screen_height: int)
             x1, y1 = int(start_match.group(1)), int(start_match.group(2))
             x2, y2 = int(end_match.group(1)), int(end_match.group(2))
             result["parsed_action"] = {"type": "drag", "x1": x1, "y1": y1, "x2": x2, "y2": y2}
-    
+
     elif "type(" in action_text:
         # Extract text to type - support both 'text=' and 'content=' parameters
         text_match = re.search(r"(?:text|content)=['\"]([^'\"]+)['\"]", action_text)
         if text_match:
             text = text_match.group(1)
             result["parsed_action"] = {"type": "type", "text": text}
-    
+
     elif "key(" in action_text:
         # Extract key to press - support 'text=', 'content=', and 'key=' parameters
         key_match = re.search(r"(?:text|content|key)=['\"]([^'\"]+)['\"]", action_text)
         if key_match:
             key = key_match.group(1)
             result["parsed_action"] = {"type": "key", "key": key}
-    
+
     elif "scroll(" in action_text:
         # Extract scroll direction
         dir_match = re.search(r"direction=['\"]([^'\"]+)['\"]", action_text)
         direction = dir_match.group(1) if dir_match else "down"
         result["parsed_action"] = {"type": "scroll", "direction": direction}
-    
+
     return result
 
 
@@ -532,7 +535,7 @@ async def ui_tars_computer_use(
         - Optional: pip install ui-tars (for advanced parsing)
     """
     import time
-    
+
     # Check environment-specific dependencies
     if environment == "linux":
         if not DOCKER_AVAILABLE:
@@ -592,9 +595,9 @@ async def ui_tars_computer_use(
 
         # Initialize UI-TARS client (OpenAI-compatible)
         # Ensure endpoint has /v1 suffix for OpenAI API compatibility
-        if not endpoint.endswith('/v1'):
-            endpoint = endpoint.rstrip('/') + '/v1'
-        
+        if not endpoint.endswith("/v1"):
+            endpoint = endpoint.rstrip("/") + "/v1"
+
         client = OpenAI(
             api_key=api_key,
             base_url=endpoint,
@@ -638,7 +641,7 @@ async def ui_tars_computer_use(
                     "error": f"Failed to capture screenshot from Docker. Check X11 display {display} is running.",
                 }
                 return ExecutionResult(output_blocks=[TextContent(data=json.dumps(result, indent=2))])
-            
+
             # Navigate to initial URL if provided (for Docker environment)
             if initial_url:
                 logger.info(f"Navigating Docker Firefox to: {initial_url}")
@@ -646,7 +649,7 @@ async def ui_tars_computer_use(
                     # Start Firefox if not running
                     container.exec_run("firefox &", environment={"DISPLAY": display}, detach=True)
                     time.sleep(3)  # Wait for Firefox to start
-                    
+
                     # Navigate to URL: Ctrl+L to focus address bar, type URL, press Enter
                     container.exec_run("xdotool key ctrl+l", environment={"DISPLAY": display})
                     time.sleep(0.5)
@@ -663,10 +666,10 @@ async def ui_tars_computer_use(
             # Browser environment
             logger.info("Initializing browser environment...")
             playwright_instance = await async_playwright().start()
-            
+
             browser_type_name = environment_config.get("browser_type", "chromium")
             headless = environment_config.get("headless", False)
-            
+
             if browser_type_name == "firefox":
                 browser = await playwright_instance.firefox.launch(headless=headless)
             elif browser_type_name == "webkit":
@@ -693,7 +696,7 @@ async def ui_tars_computer_use(
         system_prompt = COMPUTER_USE_PROMPT.format(
             width=display_width,
             height=display_height,
-            task=task
+            task=task,
         )
 
         # Initialize conversation history
@@ -752,7 +755,7 @@ async def ui_tars_computer_use(
             # Call UI-TARS API
             try:
                 logger.info("Calling UI-TARS API...")
-                
+
                 # Add box tokens to previous assistant messages
                 for msg in messages:
                     if msg.get("role") == "assistant":
@@ -775,17 +778,19 @@ async def ui_tars_computer_use(
 
                 # Parse response
                 parsed = parse_ui_tars_response(response_text, display_width, display_height)
-                
+
                 thought = parsed.get("thought", "")
                 action_text = parsed.get("action", "")
                 parsed_action = parsed.get("parsed_action")
 
-                action_log.append({
-                    "iteration": iteration,
-                    "thought": thought,
-                    "action": action_text,
-                    "parsed_action": parsed_action,
-                })
+                action_log.append(
+                    {
+                        "iteration": iteration,
+                        "thought": thought,
+                        "action": action_text,
+                        "parsed_action": parsed_action,
+                    },
+                )
 
                 logger.info(f"Thought: {thought}")
                 logger.info(f"Action: {action_text}")
@@ -794,7 +799,7 @@ async def ui_tars_computer_use(
                 if parsed_action and parsed_action.get("type") in ["done", "fail"]:
                     status = parsed_action["type"]
                     logger.info(f"Task {status}!")
-                    
+
                     result = {
                         "success": status == "done",
                         "operation": "ui_tars_computer_use",
@@ -804,24 +809,31 @@ async def ui_tars_computer_use(
                         "status": status,
                         "action_log": action_log,
                     }
-                    
+
                     # Clean up
                     if browser:
                         await browser.close()
                     if playwright_instance:
                         await playwright_instance.stop()
-                    
+
                     return ExecutionResult(output_blocks=[TextContent(data=json.dumps(result, indent=2))])
 
                 # Execute action
                 if parsed_action:
                     if environment == "linux":
                         exec_result = execute_docker_action(
-                            container, parsed_action, display_width, display_height, display
+                            container,
+                            parsed_action,
+                            display_width,
+                            display_height,
+                            display,
                         )
                     else:
                         exec_result = await execute_browser_action(
-                            page, parsed_action, display_width, display_height
+                            page,
+                            parsed_action,
+                            display_width,
+                            display_height,
                         )
 
                     if exec_result.get("error"):
@@ -837,23 +849,25 @@ async def ui_tars_computer_use(
                             "status": exec_result.get("status", "done"),
                             "action_log": action_log,
                         }
-                        
+
                         # Clean up
                         if browser:
                             await browser.close()
                         if playwright_instance:
                             await playwright_instance.stop()
-                        
+
                         return ExecutionResult(output_blocks=[TextContent(data=json.dumps(result, indent=2))])
                 else:
                     logger.warning("No valid action parsed from response")
 
             except Exception as e:
                 logger.error(f"Error in iteration {iteration}: {e}")
-                action_log.append({
-                    "iteration": iteration,
-                    "error": str(e),
-                })
+                action_log.append(
+                    {
+                        "iteration": iteration,
+                        "error": str(e),
+                    },
+                )
 
         # Max iterations reached
         logger.info("Max iterations reached")
@@ -885,14 +899,14 @@ async def ui_tars_computer_use(
             "task": task,
             "environment": environment,
         }
-        
+
         # Clean up on error
         try:
             if browser:
                 await browser.close()
             if playwright_instance:
                 await playwright_instance.stop()
-        except:
+        except Exception:
             pass
-        
+
         return ExecutionResult(output_blocks=[TextContent(data=json.dumps(result, indent=2))])

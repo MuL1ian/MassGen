@@ -33,7 +33,7 @@ agents:
             Automate browser tasks using Qwen's qwen3-vl-235b-a22b-thinking vision-language model.
             This tool directly calls the Qwen API with vision capabilities to control the browser.
 
-            The Qwen VL model analyzes screenshots and generates actions to autonomously control 
+            The Qwen VL model analyzes screenshots and generates actions to autonomously control
             the browser to complete tasks. Supports clicking, typing, scrolling, navigation, and more.
 
             Use this for complex browser automation tasks that require multiple steps and visual understanding.

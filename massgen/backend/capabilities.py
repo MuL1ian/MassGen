@@ -556,7 +556,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         models=["ui-tars-1.5"],
         default_model="ui-tars-1.5",
         env_var="UI_TARS_API_KEY",
-        notes="OpenAI-compatible API via HuggingFace Inference Endpoints. UI-TARS-1.5-7B model for GUI automation with vision and reasoning. Requires UI_TARS_ENDPOINT environment variable. Computer use support for browser and Linux desktop automation.",
+        notes="OpenAI-compatible API via HuggingFace Inference Endpoints. UI-TARS-1.5-7B model for GUI automation with vision and reasoning. Requires UI_TARS_ENDPOINT environment variable.",
     ),
 }
 

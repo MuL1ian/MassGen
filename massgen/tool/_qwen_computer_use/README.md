@@ -279,12 +279,12 @@ Verify dashboard loads successfully
    ```python
    # Good
    task = "Extract the top 5 story titles from Hacker News homepage"
-   
+
    # Less good
    task = "Check what's on Hacker News"
    ```
 
-2. **Appropriate Iteration Limits**: 
+2. **Appropriate Iteration Limits**:
    - Simple tasks: 10-15 iterations
    - Complex tasks: 20-30 iterations
 

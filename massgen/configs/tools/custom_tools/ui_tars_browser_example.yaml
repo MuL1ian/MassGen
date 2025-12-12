@@ -44,7 +44,7 @@ agents:
             environment_config:
               headless: false
               browser_type: "chromium"
-    
+
     system_message: |
       You are an AI assistant with access to ByteDance's UI-TARS-1.5-7B vision-language model
       for browser automation.
