@@ -2700,6 +2700,31 @@ Your answer:"""
             except Exception as ce:
                 logger.warning(f"[Orchestrator._save_agent_snapshot] Failed to save context for {agent_id}: {ce}")
 
+        # Save conversation buffer if enabled
+        has_coord_config = hasattr(self.config, "coordination_config")
+        persist_buffers = has_coord_config and getattr(self.config.coordination_config, "persist_conversation_buffers", False)
+        logger.info(f"[Orchestrator._save_agent_snapshot] Buffer save check: has_coord_config={has_coord_config}, persist_buffers={persist_buffers}")
+        if persist_buffers:
+            try:
+                # Check if agent has a conversation_buffer
+                has_buffer = hasattr(agent, "conversation_buffer")
+                buffer_exists = has_buffer and agent.conversation_buffer is not None
+                logger.info(f"[Orchestrator._save_agent_snapshot] Agent {agent_id}: has_buffer={has_buffer}, buffer_exists={buffer_exists}")
+                if buffer_exists:
+                    log_session_dir = get_log_session_dir()
+                    logger.info(f"[Orchestrator._save_agent_snapshot] log_session_dir={log_session_dir}")
+                    if log_session_dir:
+                        if is_final:
+                            timestamped_dir = log_session_dir / "final" / agent_id
+                        else:
+                            timestamped_dir = log_session_dir / agent_id / timestamp
+                        timestamped_dir.mkdir(parents=True, exist_ok=True)
+                        buffer_file = timestamped_dir / "buffer.txt"
+                        agent.conversation_buffer.save_to_text_file(buffer_file)
+                        logger.info(f"[Orchestrator._save_agent_snapshot] Saved buffer for {agent_id}: {len(agent.conversation_buffer)} entries to {buffer_file}")
+            except Exception as be:
+                logger.warning(f"[Orchestrator._save_agent_snapshot] Failed to save buffer for {agent_id}: {be}")
+
         # Return the timestamp for tracking
         return timestamp if not is_final else "final"
 

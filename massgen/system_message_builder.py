@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from massgen.system_prompt_sections import (
     AgentIdentitySection,
     BroadcastCommunicationSection,
+    BufferAccessSection,
     CodeBasedToolsSection,
     CommandExecutionSection,
     CoreBehaviorsSection,
@@ -258,6 +259,16 @@ class SystemMessageBuilder:
         if planning_mode_enabled and self.config and hasattr(self.config, "coordination_config") and self.config.coordination_config and self.config.coordination_config.planning_mode_instruction:
             builder.add_section(PlanningModeSection(self.config.coordination_config.planning_mode_instruction))
             logger.info(f"[SystemMessageBuilder] Added planning mode instructions for {agent_id}")
+
+        # PRIORITY 10 (MEDIUM): Buffer Access (conditional)
+        if hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "persist_conversation_buffers", False):
+            # Get the log session directory for buffer paths
+            from massgen.logger_config import get_log_session_dir
+
+            log_session_dir = get_log_session_dir()
+            if log_session_dir:
+                builder.add_section(BufferAccessSection(str(log_session_dir)))
+                logger.info(f"[SystemMessageBuilder] Added buffer access section for {agent_id}")
 
         # Build and return the complete structured system prompt
         return builder.build()

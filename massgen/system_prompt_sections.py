@@ -1730,6 +1730,75 @@ class BroadcastCommunicationSection(SystemPromptSection):
         return "\n".join(lines)
 
 
+class BufferAccessSection(SystemPromptSection):
+    """
+    Provides agents access to conversation buffers for debugging and reasoning inspection.
+
+    When persist_conversation_buffers is enabled, each agent's conversation buffer
+    is saved to buffer.txt in their snapshot directory. This section tells agents
+    how to search and use these buffers (grep-friendly, one entry per line).
+
+    Args:
+        buffers_base_dir: Base directory where buffer files are stored
+    """
+
+    def __init__(self, buffers_base_dir: str):
+        super().__init__(
+            title="Agent Conversation Buffers",
+            priority=Priority.MEDIUM,
+            xml_tag="conversation_buffers",
+        )
+        self.buffers_base_dir = buffers_base_dir
+
+    def build_content(self) -> str:
+        return f"""## Agent Conversation Buffers
+
+When reviewing other agents' answers, you can also inspect their conversation buffers to understand HOW they reached their conclusions. Buffers are grep-friendly text files (one entry per line).
+
+**What buffers contain:**
+- All reasoning and content the agent produced
+- Tool calls made and their results
+- Injections received (updates from other agents)
+- The complete thought process leading to their answer
+
+**Location:**
+{self.buffers_base_dir}/*/buffer.txt
+
+**Format (one entry per line):**
+[HH:MM:SS.ms] [TYPE] content...
+
+Entry types: CONTENT, TOOL_CALL:<name>, TOOL_RESULT:<name>, REASONING, INJECTION, SYSTEM, USER
+
+**IMPORTANT: Do NOT cat entire buffer files - they are very long. Use targeted grep search:**
+
+```bash
+# Find all tool calls
+grep "TOOL_CALL" {self.buffers_base_dir}/*/buffer.txt
+
+# Find injections received (updates from other agents)
+grep "INJECTION" {self.buffers_base_dir}/*/buffer.txt
+
+# Find reasoning
+grep "REASONING" {self.buffers_base_dir}/*/buffer.txt
+
+# Search for specific keyword across all buffers
+grep -r "keyword" {self.buffers_base_dir}/*/buffer.txt
+
+# See context around a match (2 lines before and after)
+grep -B2 -A2 "read_file" {self.buffers_base_dir}/*/buffer.txt
+
+# Search for specific tool usage
+grep "TOOL_CALL:execute_command" {self.buffers_base_dir}/*/buffer.txt
+```
+
+**Use cases:**
+- Understand reasoning behind an answer before voting
+- Critique tool usage or approach
+- Find inspiration from how others solved the problem
+- Identify gaps or errors in reasoning
+- Trace how agents responded to injections"""
+
+
 class SystemPromptBuilder:
     """
     Builder for assembling system prompts from sections.

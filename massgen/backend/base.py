@@ -263,6 +263,8 @@ class LLMBackend(ABC):
             "session_storage_base",
             # MCP configuration (handled by base class for MCP backends)
             "mcp_servers",
+            # Orchestrator-level settings
+            "persist_conversation_buffers",
         }
 
     @abstractmethod

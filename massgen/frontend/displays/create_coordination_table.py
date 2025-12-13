@@ -690,6 +690,37 @@ class CoordinationTableBuilder:
                 # Reset streaming flag so next streaming will be shown
                 agent_states[agent_id]["last_streaming_logged"] = False
 
+            elif event_type == "update_injected":
+                # Handle update injection events (preempt-not-restart feature)
+                details = event.get("details", "")
+                agent_states[agent_id]["status"] = "update_received"
+                agent_states[agent_id]["last_streaming_logged"] = False
+
+                # Create multi-line event with injection details
+                event_lines = []
+                event_lines.append("📨 UPDATE RECEIVED")
+                if details:
+                    clean_details = details.replace("\n", " ").strip()
+                    # Extract the provider info if available
+                    if "from:" in clean_details:
+                        providers = clean_details.split("from:")[-1].strip()
+                        event_lines.append(f"📥 From: {providers}")
+                    else:
+                        details_preview = clean_details[:60] + "..." if len(clean_details) > 60 else clean_details
+                        event_lines.append(f"📥 {details_preview}")
+
+                lines.extend(
+                    self._create_multi_line_event_row(
+                        event_num,
+                        agent_id,
+                        event_lines,
+                        agent_states,
+                        cell_width,
+                    ),
+                )
+                add_separator("-")
+                event_num += 1
+
             elif event_type == "new_answer":
                 label = context.get("label")
                 if label:
@@ -1072,6 +1103,7 @@ class CoordinationTableBuilder:
                 ("🗳️  VOTE", "Agent votes for an answer"),
                 ("💭 Reason", "Reasoning behind the vote"),
                 ("👁️  Preview", "Content of the answer"),
+                ("📨 UPDATE RECEIVED", "Agent receives update mid-stream (no restart)"),
                 ("🔁 RESTART TRIGGERED", "Agent requests to restart"),
                 ("✅ RESTART COMPLETED", "Agent finishes restart"),
                 ("🎯 FINAL ANSWER", "Winner provides final response"),

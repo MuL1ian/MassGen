@@ -638,6 +638,56 @@ class AgentConversationBuffer:
         self.current_attempt = 0
         self.current_round = 0
 
+    def save_to_text_file(self, path: Path) -> None:
+        """
+        Save buffer to grep-friendly text file.
+
+        Each entry is formatted as a single line:
+        [HH:MM:SS.ms] [TYPE] content...
+
+        This format is optimized for grep/search rather than cat.
+
+        Args:
+            path: Path to save to (typically buffer.txt)
+        """
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Flush any pending content first
+        if self.has_pending_content():
+            self.flush_turn()
+
+        lines = []
+        for entry in self.entries:
+            lines.append(self._format_entry_line(entry))
+
+        path.write_text("\n".join(lines))
+
+    def _format_entry_line(self, entry: "ConversationEntry") -> str:
+        """
+        Format entry as single grep-friendly line.
+
+        Args:
+            entry: The conversation entry to format
+
+        Returns:
+            Formatted line string
+        """
+        from datetime import datetime
+
+        ts = datetime.fromtimestamp(entry.timestamp).strftime("%H:%M:%S.%f")[:-3]
+        entry_type = entry.entry_type.value.upper()
+
+        # Add tool name for tool entries
+        if entry.entry_type in (EntryType.TOOL_CALL, EntryType.TOOL_RESULT):
+            tool_name = entry.metadata.get("tool_name", "unknown")
+            entry_type = f"{entry_type}:{tool_name}"
+
+        # Replace newlines with spaces for grep-friendly single-line format
+        content = entry.content.replace("\n", " ").replace("\r", "")
+
+        return f"[{ts}] [{entry_type}] {content}"
+
     # ─────────────────────────────────────────────────────────────────────
     # String representation
     # ─────────────────────────────────────────────────────────────────────

@@ -91,6 +91,8 @@ class APIParamsHandlerBase(ABC):
             "session_storage_base",
             # MCP configuration (handled by base class for MCP backends)
             "mcp_servers",
+            # Orchestrator-level settings
+            "persist_conversation_buffers",
             # NLIP configuration belongs to MassGen routing, never provider APIs
             "enable_nlip",
             "nlip",

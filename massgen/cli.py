@@ -1466,6 +1466,7 @@ async def run_question_with_history(
             use_skills=coord_cfg.get("use_skills", False),
             massgen_skills=coord_cfg.get("massgen_skills", []),
             skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+            persist_conversation_buffers=coord_cfg.get("persist_conversation_buffers", False),
             persona_generator=persona_generator_config,
         )
 
@@ -1552,6 +1553,7 @@ async def run_question_with_history(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                persist_conversation_buffers=coordination_settings.get("persist_conversation_buffers", False),
                 persona_generator=persona_generator_config,
             )
 
@@ -1904,6 +1906,7 @@ async def run_single_question(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                persist_conversation_buffers=coordination_settings.get("persist_conversation_buffers", False),
                 persona_generator=persona_generator_config,
             )
 
@@ -1980,6 +1983,7 @@ async def run_single_question(
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                persist_conversation_buffers=coord_cfg.get("persist_conversation_buffers", False),
                 persona_generator=persona_generator_config,
             )
 
