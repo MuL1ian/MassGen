@@ -9,16 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.24 (December 12, 2025)** - Enhanced Cost Tracking
+Expanded real-time cost tracking across multiple backends (OpenRouter, xAI, Gemini, Grok, Claude Code) with per-agent token breakdown, cost inspection command, and aggregated session totals.
+
 **v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
 Enhanced multi-turn experience with persistent Docker containers, improved cancellation handling, turn history inspection commands, and Web UI automation mode for programmatic workflows.
 
 **v0.1.22 (December 8, 2025)** - Shadow Agent Architecture for Broadcast Responses
 Shadow agents now handle broadcast responses in parallel without interrupting parent agents. Each shadow inherits full conversation history and current turn context for context-aware responses.
 
-**v0.1.21 (December 5, 2025)** - Graceful Cancellation for Multi-Turn Sessions
-Ctrl+C now saves partial progress mid-coordination, preserving agent answers and workspaces. Sessions can resume with `--continue` without losing any work.
-
 ---
+
+## [0.1.24] - 2025-12-12
+
+### Changed
+- **Enhanced Cost Tracking Across Multiple Backends**: Expanded token counting and cost calculation to support additional providers
+  - Added real-time token usage tracking for OpenRouter, xAI/Grok, Gemini, and Claude Code backends
+  - New `/inspect` option `c` displays detailed cost breakdown with per-agent token usage (input, output, reasoning, cached)
+  - Per-round token history tracking via `get_round_token_history()` method
+  - Aggregated cost totals and tool metrics across all agents in coordination status
+  - Improved cost ordering and formatting in display tables
+
+### Technical Details
+- **Major Focus**: Multi-backend cost tracking with real-time visibility
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.23] - 2025-12-10
 

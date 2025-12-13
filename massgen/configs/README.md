@@ -227,34 +227,47 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.23 - Latest
-**New Features:** Turn History Inspection, Web UI Automation Mode, Docker Container Persistence, Async Execution Consistency
+### v0.1.24 - Latest
+**New Features:** Enhanced Cost Tracking Across Multiple Backends
 
 **Key Features:**
-- **Turn History Inspection**: Review any turn's agent outputs and coordination data with `/inspect` commands
-- **Web UI Automation Mode**: Streamlined interface with `AutomationView` component for programmatic monitoring workflows
-- **Docker Container Persistence**: `SessionMountManager` pre-mounts session directories, eliminating container recreation between turns
-- **Improved Cancellation Handling**: Flag-based cancellation with terminal state restoration via `_restore_terminal_for_input()`
-- **Async Safety Utilities**: `run_async_safely()` handles nested event loops with ThreadPoolExecutor pattern
-
-**Documentation:**
-- `docs/source/user_guide/sessions/multi_turn_mode.rst` - Turn history inspection documentation
+- **Multi-Backend Cost Tracking**: Real-time token counting and cost calculation for OpenRouter, xAI/Grok, Gemini, and Claude Code
+- **Cost Inspection Command**: `/inspect c` displays detailed per-agent cost breakdown (input, output, reasoning, cached tokens)
+- **Session Cost Aggregation**: Aggregated cost totals and tool metrics across all agents in coordination status
 
 **Try It:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
+# Run any multi-agent session to track costs
+massgen --config @examples/basic/multi/three_agents_default "Compare AI approaches"
+
+# View cost breakdown during or after coordination:
+#   /inspect c  - Show detailed cost breakdown per agent
+```
+
+### v0.1.23
+**New Features:** Turn History Inspection, Web UI Automation Mode, Docker Container Persistence, Async Execution Consistency
+
+**Key Features:**
+- **Turn History Inspection**: Review any turn's agent outputs and coordination data with `/inspect` commands
+- **Web UI Automation Mode**: Streamlined interface with `AutomationView` component for programmatic monitoring workflows
+- **Docker Container Persistence**: `SessionMountManager` pre-mounts session directories, eliminating container recreation between turns
+- **Improved Cancellation Handling**: Flag-based cancellation with terminal state restoration
+- **Async Safety Utilities**: `run_async_safely()` handles nested event loops with ThreadPoolExecutor pattern
+
+**Try It:**
+```bash
 # Multi-turn session with turn inspection
 massgen --config @examples/basic/multi/three_agents_default
-# After completing turns, use /inspect to review history:
+# Use /inspect to review history:
 #   /inspect all  - List all turns with summaries
-#   /inspect 1    - View Turn 1 details with interactive menu
+#   /inspect 1    - View Turn 1 details
 
-# Web UI automation mode for programmatic monitoring
+# Web UI automation mode
 massgen --automation --web --config @examples/basic/multi/three_agents_default \
   "Analyze multi-agent AI coordination patterns"
-# Outputs LOG_DIR and STATUS path for external monitoring
 ```
 
 ### v0.1.22

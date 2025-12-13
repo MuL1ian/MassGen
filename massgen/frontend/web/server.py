@@ -1162,6 +1162,16 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                         continue
 
                     if question:
+                        # Send immediate acknowledgment that we received the prompt
+                        await websocket.send_json(
+                            {
+                                "type": "preparation_status",
+                                "status": "Received prompt...",
+                                "detail": "Preparing to start coordination",
+                                "session_id": session_id,
+                            },
+                        )
+
                         task = asyncio.create_task(
                             run_coordination(session_id, question, cfg_path),
                         )
@@ -1508,12 +1518,44 @@ async def run_coordination_with_history(
         # Extract orchestrator config dict from YAML
         orchestrator_cfg = config.get("orchestrator", {})
 
-        # Create agents from config
-        agents = create_agents_from_config(
-            config,
-            orchestrator_config=orchestrator_cfg,
-            config_path=str(resolved_path),
-            memory_session_id=session_id,
+        # Create agents from config with progress updates
+        # Note: Multi-turn reuses existing session, so progress is less critical but nice to have
+        num_agents = len(config.get("agents", []))
+
+        # Create progress callback that sends WebSocket updates
+        loop = asyncio.get_running_loop()
+
+        async def emit_preparation_status(status: str, detail: str = "") -> None:
+            """Emit preparation status update to web clients."""
+            await manager.broadcast(
+                session_id,
+                {
+                    "type": "preparation_status",
+                    "status": status,
+                    "detail": detail,
+                    "session_id": session_id,
+                },
+            )
+
+        await emit_preparation_status("Initializing agents...", f"{num_agents} agent{'s' if num_agents != 1 else ''}")
+
+        def progress_callback(status: str, detail: str) -> None:
+            """Thread-safe callback to queue progress updates."""
+            asyncio.run_coroutine_threadsafe(
+                emit_preparation_status(status, detail),
+                loop,
+            )
+
+        # Run agent creation in thread pool so progress updates can be sent
+        agents = await loop.run_in_executor(
+            None,
+            lambda: create_agents_from_config(
+                config,
+                orchestrator_config=orchestrator_cfg,
+                config_path=str(resolved_path),
+                memory_session_id=session_id,
+                progress_callback=progress_callback,
+            ),
         )
 
         # Get agent IDs and model names
@@ -1668,7 +1710,22 @@ async def run_coordination(
     """
     import traceback
 
+    async def emit_preparation_status(status: str, detail: str = "") -> None:
+        """Emit preparation status update to web clients."""
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "preparation_status",
+                "status": status,
+                "detail": detail,
+                "session_id": session_id,
+            },
+        )
+
     try:
+        # Emit initial preparation status
+        await emit_preparation_status("Loading configuration...", config_path or "")
+
         # Import here to avoid circular imports
         from massgen.agent_config import AgentConfig, CoordinationConfig
         from massgen.cli import (
@@ -1693,12 +1750,37 @@ async def run_coordination(
         # Extract orchestrator config dict from YAML
         orchestrator_cfg = config.get("orchestrator", {})
 
-        # Create agents from config
-        agents = create_agents_from_config(
-            config,
-            orchestrator_config=orchestrator_cfg,
-            config_path=str(resolved_path),
-            memory_session_id=session_id,
+        # Check if Docker is being used
+        uses_docker = config.get("execution", {}).get("use_docker", False)
+        if uses_docker:
+            await emit_preparation_status("Preparing Docker environment...", "Setting up isolated containers")
+
+        # Create agents from config with progress updates
+        num_agents = len(config.get("agents", []))
+        await emit_preparation_status("Initializing agents...", f"{num_agents} agent{'s' if num_agents != 1 else ''}")
+
+        # Create progress callback that sends WebSocket updates
+        # We run agent creation in a thread so progress updates can be sent in real-time
+        loop = asyncio.get_running_loop()
+
+        def progress_callback(status: str, detail: str) -> None:
+            """Thread-safe callback to queue progress updates."""
+            # Schedule the async emit on the main event loop
+            asyncio.run_coroutine_threadsafe(
+                emit_preparation_status(status, detail),
+                loop,
+            )
+
+        # Run agent creation in thread pool so progress updates can be sent
+        agents = await loop.run_in_executor(
+            None,
+            lambda: create_agents_from_config(
+                config,
+                orchestrator_config=orchestrator_cfg,
+                config_path=str(resolved_path),
+                memory_session_id=session_id,
+                progress_callback=progress_callback,
+            ),
         )
 
         # Get agent IDs and model names
@@ -1714,6 +1796,9 @@ async def run_coordination(
                     model_name = backend_params.get("model")
             if model_name:
                 agent_models[agent_id] = model_name
+
+        # Emit status about loaded agents
+        await emit_preparation_status("Configuring orchestrator...", ", ".join(agent_ids))
 
         # Create web display with agent_models
         display = manager.create_display(session_id, agent_ids, agent_models)
@@ -1787,6 +1872,9 @@ async def run_coordination(
             display=display,
             display_type="web",
         )
+
+        # Final preparation status before starting
+        await emit_preparation_status("Launching agents...", "Agents will appear momentarily")
 
         # Run coordination
         await ui.coordinate(orchestrator, question)

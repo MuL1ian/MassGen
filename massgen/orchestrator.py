@@ -1119,9 +1119,17 @@ class Orchestrator(ChatAgent):
 
         # Determine what to do based on current state and conversation context
         if self.workflow_phase == "idle":
+            # Emit preparation status
+            yield StreamChunk(type="preparation_status", status="Preparing coordination...", detail="Setting up orchestrator")
+
             # New task - start MassGen coordination with full context
             self.current_task = user_message
+
+            # Prepare paraphrases if DSPy is enabled
+            if self.dspy_paraphraser:
+                yield StreamChunk(type="preparation_status", status="Generating prompt variants...", detail="DSPy paraphrasing")
             await self._prepare_paraphrases_for_agents(self.current_task)
+
             # Reinitialize session with user prompt now that we have it
             self.coordination_tracker.initialize_session(list(self.agents.keys()), self.current_task)
             self.workflow_phase = "coordinating"
@@ -1139,6 +1147,7 @@ class Orchestrator(ChatAgent):
             )
 
             if planning_mode_config_exists:
+                yield StreamChunk(type="preparation_status", status="Analyzing task...", detail="Checking for irreversible operations")
                 # Analyze question for irreversibility and set planning mode accordingly
                 # This happens silently - users don't see this analysis
                 analysis_result = await self._analyze_question_irreversibility(user_message, conversation_context)
@@ -1160,6 +1169,9 @@ class Orchestrator(ChatAgent):
                                 "reason": "irreversibility analysis",
                             },
                         )
+
+            # Starting actual coordination
+            yield StreamChunk(type="preparation_status", status="Starting coordination...", detail=f"{len(self.agents)} agents ready")
 
             async for chunk in self._coordinate_agents_with_timeout(conversation_context):
                 yield chunk
@@ -1990,6 +2002,13 @@ Your answer:"""
         )
 
         # Generate and inject personas if enabled (happens once per session)
+        if (
+            hasattr(self.config, "coordination_config")
+            and hasattr(self.config.coordination_config, "persona_generator")
+            and self.config.coordination_config.persona_generator.enabled
+            and not self._personas_generated
+        ):
+            yield StreamChunk(type="preparation_status", status="Generating personas...", detail="Creating unique agent identities")
         await self._generate_and_inject_personas()
 
         # Check if we should skip coordination rounds (debug/test mode)
@@ -2051,6 +2070,9 @@ Your answer:"""
             content="## 📋 Agents Coordinating\n",
             source=self.orchestrator_id,
         )
+
+        # Emit status that agents are now starting to work
+        yield StreamChunk(type="preparation_status", status="Agents working...", detail="Waiting for first response")
 
         # Start streaming coordination with real-time agent output
         async for chunk in self._stream_coordination_with_agents(votes, conversation_context):
@@ -4186,10 +4208,10 @@ Your answer:"""
 
             # End round tracking for post-evaluation phase (moved from post_evaluate_answer finally block
             # to ensure it completes before save_coordination_logs is called)
-            # Note: _selected_agent is an agent_id string, not an agent object
-            selected_agent_obj = self.agents.get(self._selected_agent) if self._selected_agent else None
-            if selected_agent_obj and hasattr(selected_agent_obj, "backend") and hasattr(selected_agent_obj.backend, "end_round_tracking"):
-                selected_agent_obj.backend.end_round_tracking("post_evaluation")
+            if self._selected_agent:
+                selected_agent = self.agents.get(self._selected_agent)
+                if selected_agent and hasattr(selected_agent.backend, "end_round_tracking"):
+                    selected_agent.backend.end_round_tracking("post_evaluation")
 
             # Check if restart was requested
             if self.restart_pending and self.current_attempt < (self.max_attempts - 1):

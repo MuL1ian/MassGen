@@ -9,7 +9,7 @@
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useCallback } from 'react';
-import { useAgentStore, selectAgents, selectAgentOrder, selectSelectedAgent, selectQuestion } from '../stores/agentStore';
+import { useAgentStore, selectAgents, selectAgentOrder, selectSelectedAgent, selectQuestion, selectPreparationStatus, selectPreparationDetail } from '../stores/agentStore';
 import { AgentCard } from './AgentCard';
 
 const MAX_VISIBLE = 3;
@@ -20,6 +20,8 @@ export function AgentCarousel() {
   const agentOrder = useAgentStore(selectAgentOrder);
   const selectedAgent = useAgentStore(selectSelectedAgent);
   const question = useAgentStore(selectQuestion);
+  const preparationStatus = useAgentStore(selectPreparationStatus);
+  const preparationDetail = useAgentStore(selectPreparationDetail);
 
   const [startIndex, setStartIndex] = useState(0);
   const x = useMotionValue(0);
@@ -67,9 +69,13 @@ export function AgentCarousel() {
   const rightShadowOpacity = useTransform(x, [0, 100], [0.8, 0]);
 
   if (totalAgents === 0) {
-    // Show different message based on whether a prompt has been submitted
+    // Show preparation status if available, otherwise show default messages
     const hasPrompt = question && question.trim().length > 0;
-    const message = hasPrompt ? 'Starting coordination...' : 'Waiting for prompt...';
+    const message = preparationStatus
+      ? preparationStatus
+      : hasPrompt
+        ? 'Starting coordination...'
+        : 'Waiting for prompt...';
 
     return (
       <div className="flex flex-col items-center justify-center h-[400px] gap-4">
@@ -98,6 +104,16 @@ export function AgentCarousel() {
         >
           {message}
         </motion.span>
+        {/* Show detail if available */}
+        {preparationDetail && (
+          <motion.span
+            className="text-gray-600 dark:text-gray-500 text-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.7 }}
+          >
+            {preparationDetail}
+          </motion.span>
+        )}
       </div>
     );
   }
