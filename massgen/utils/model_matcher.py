@@ -23,6 +23,7 @@ COMMON_MODELS_BY_PROVIDER = {
         "anthropic/claude-3.5-sonnet",
         "anthropic/claude-3.5-haiku",
         # OpenAI models
+        "openai/gpt-5.2",
         "openai/gpt-5",
         "openai/gpt-5-mini",
         "openai/gpt-4o",

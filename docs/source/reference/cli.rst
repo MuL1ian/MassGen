@@ -77,6 +77,8 @@ CLI Parameters
      - Port for the WebUI server (default: ``8000``)
    * - ``--no-browser``
      - Don't auto-open browser when using ``--web`` with a question. Useful for automation or when running on servers
+   * - ``--output-file PATH``
+     - Write final answer to specified file path. Works in any mode (automation, interactive, etc.). Useful for capturing agent responses in scripts or pipelines
    * - ``"<your question>"``
      - Optional single-question input. If omitted, MassGen enters interactive chat mode
 
@@ -212,6 +214,20 @@ WebUI Mode
 
    # Combine with debug mode
    massgen --web --debug --config my_config.yaml
+
+Output to File
+~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Save agent response to a file
+   massgen --output-file results.txt "Summarize the key points of machine learning"
+
+   # With config and output file
+   massgen --config my_config.yaml --output-file report.md "Generate a project report"
+
+   # Useful for automation and scripting
+   massgen --model gpt-5-nano --output-file analysis.json "Analyze this data and return JSON"
 
 See Also
 --------

@@ -35,8 +35,11 @@ MassGen configurations have a clear hierarchy of settings. Understanding this st
 
    - Core: ``type``, ``model``, ``api_key``, ``temperature``, ``max_tokens``
    - Tool Enablement: ``enable_web_search``, ``enable_code_execution``, ``enable_code_interpreter``
-   - MCP Integration: ``mcp_servers``, ``exclude_tools``
+   - MCP Integration: ``mcp_servers``, ``exclude_tools``, ``enable_mcp_command_line``
    - Backend-Specific: ``cwd``, ``permission_mode``, ``allowed_tools``, etc.
+
+   .. note::
+      **Code Execution Options**: ``enable_code_execution``/``enable_code_interpreter`` run in the provider's cloud sandbox (no filesystem access). For local code execution with filesystem access, use ``enable_mcp_command_line: true`` instead. See :doc:`../user_guide/tools/code_execution` for details.
 
 4. **MCP Server Level** - Tool server settings (inside ``backend.mcp_servers[]``)
 

@@ -195,6 +195,7 @@ class TokenCostCalculator:
     PROVIDER_PRICING: Dict[str, Dict[str, ModelPricing]] = {
         "OpenAI": {
             # GPT-5 models (400K context window)
+            "gpt-5.2": ModelPricing(0.00175, 0.014, 400000, 128000),
             "gpt-5": ModelPricing(0.00125, 0.01, 400000, 128000),
             "gpt-5-mini": ModelPricing(0.00025, 0.002, 400000, 128000),
             "gpt-5-nano": ModelPricing(0.00005, 0.0004, 400000, 128000),

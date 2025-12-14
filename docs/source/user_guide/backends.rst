@@ -198,21 +198,26 @@ Different backends support different built-in tools:
 
 * **Code Execution vs Bash/Shell:**
 
-  * **Code Execution (⭐)**: Backend provider's native code execution tool (no access to MassGen workspaces)
+  .. warning::
+     **Common Confusion**: ``enable_code_execution`` and ``enable_code_interpreter`` run code in the **provider's sandbox** (cloud environment) with **NO access to your local filesystem**. If you need agents to read/write files in your project, use MCP-based bash instead.
+
+  * **Code Execution (⭐)**: Backend provider's native code execution tool (runs in provider sandbox - **no access to MassGen workspaces**)
 
     * ``openai``: OpenAI code interpreter for calculations and data analysis
     * ``claude``: Anthropic's code execution tool
     * ``gemini``: Google's code execution tool
     * ``azure_openai``: Azure OpenAI code interpreter
     * ``ag2``: AG2 framework code executors (Local, Docker, Jupyter, Cloud)
+    * **When to use**: Quick calculations, data analysis, isolated code snippets that don't need filesystem access
 
-  * **Bash/Shell**: (MassGen-level feature, will directly access workspaces)
+  * **Bash/Shell**: MassGen-level feature with **direct workspace access**
 
     * ⭐ (``claude_code`` only): Native Bash tool built into Claude Code
     * ✅ (all MCP-enabled backends): Universal bash/shell via ``enable_mcp_command_line: true``
+    * **When to use**: Code that needs to interact with your project files, run tests, execute scripts
     * See :doc:`tools/code_execution` for detailed setup and comparison
 
-  * **You can use both**: Backends can use built-in code execution AND MCP-based bash/shell simultaneously, though it is preferred to choose one. Use built-in code execution for isolated tasks, and MCP bash/shell for operations you want to affect the agent's workspace.
+  * **Recommendation**: Choose one approach based on your needs. Use **built-in code execution** for isolated computational tasks, and **MCP bash/shell** for operations that need to affect your workspace files.
 
 * **Filesystem:**
 
