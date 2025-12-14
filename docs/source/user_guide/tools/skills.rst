@@ -117,6 +117,35 @@ This creates a two-tier memory structure:
          ├── short_term/      # Auto-injected into system prompts
          └── long_term/       # Load on-demand via MCP tools
 
+With Previous Session Skills
+-----------------------------
+
+Enable discovery of evolving skills from previous MassGen sessions:
+
+.. code-block:: yaml
+
+   orchestrator:
+     coordination:
+       use_skills: true
+       load_previous_session_skills: true  # Discover skills from past sessions
+
+When enabled, MassGen scans ``.massgen/massgen_logs/`` for evolving skills (``SKILL.md`` files) created by agents in previous sessions. These skills appear in the system prompt with ``<location>previous_session</location>``.
+
+**Path structure scanned:**
+
+.. code-block:: text
+
+   .massgen/massgen_logs/
+     └── log_YYYYMMDD_HHMMSS/
+         └── turn_N/
+             └── attempt_N/
+                 └── final/
+                     └── agent_X/
+                         └── workspace/
+                             └── tasks/
+                                 └── evolving_skill/
+                                     └── SKILL.md  # Discovered as previous_session skill
+
 Complete Setup (All Features)
 ------------------------------
 
@@ -130,6 +159,7 @@ For full coordination capabilities:
        enable_agent_task_planning: true
        task_planning_filesystem_mode: true
        enable_memory_filesystem_mode: true
+       load_previous_session_skills: true  # Optional: load skills from previous sessions
 
 This creates:
 
@@ -152,6 +182,10 @@ MassGen includes built-in skills bundled in ``massgen/skills/``:
 * ``file-search`` - Fast text and structural code search (ripgrep/ast-grep)
 * ``serena`` - Symbol-level code understanding using LSP
 * ``semtools`` - Semantic search using embeddings
+
+**Workflow & Skills (Code Mode):**
+
+* ``evolving-skill-creator`` - Central planning mechanism for code-based workflows. Creates structured workflow plans that inventory MCP servers, custom tools, skills, and capture learnings for reuse in future sessions
 
 **Meta-Development (MassGen develops MassGen):**
 
@@ -560,6 +594,83 @@ Using External Skills
 
    The skill content provides step-by-step instructions, examples, and best practices.
 
+Evolving Skills (Code Mode)
+---------------------------
+
+Evolving skills are the **central planning mechanism** for code-based workflows. When agents enable ``auto_discover_custom_tools: true`` (code mode), they create evolving skills that:
+
+1. **Structure Task Planning**: Enhanced task planning with explicit workflow documentation
+2. **Discover Available Tools**: Structured sections for MCP servers, custom tools, and other skills
+3. **Create Reusable Scripts**: Python tools that persist for future use
+4. **Capture Learnings**: What worked, what didn't, and tips for iteration
+
+**Why Use Evolving Skills:**
+
+Rather than ad-hoc task execution, evolving skills provide a structured approach where agents:
+
+- **Plan before executing**: Document the workflow upfront
+- **Inventory available resources**: Explicitly list MCP servers, custom tools, and skills to use
+- **Build reusable tools**: Create Python scripts that become part of the skill
+- **Learn and improve**: Capture learnings for the skill to improve over iterations
+
+**Creating Evolving Skills:**
+
+Invoke the built-in ``evolving-skill-creator`` skill:
+
+.. code-block:: bash
+
+   openskills read evolving-skill-creator
+
+**Directory Structure:**
+
+.. code-block:: text
+
+   tasks/evolving_skill/
+   ├── SKILL.md              # Workflow plan with structured sections
+   └── scripts/              # Python tools created during execution
+       ├── scrape_data.py
+       └── generate_output.py
+
+**Key Sections in SKILL.md:**
+
+.. code-block:: markdown
+
+   ---
+   name: artist-website-builder  # Descriptive, reusable name
+   description: Build static biographical websites for artists
+   ---
+
+   # Artist Website Builder
+
+   ## Workflow
+   Detailed numbered steps...
+
+   ## Tools to Create
+   Python scripts to build (documented BEFORE writing):
+   - scripts/fetch_data.py: Purpose, inputs, outputs, dependencies
+
+   ## Tools to Use
+   Available resources discovered in the workspace:
+   - servers/context7: Documentation fetching
+   - custom_tools/image_optimizer: Asset compression
+
+   ## Skills
+   Other skills that can help:
+   - web-scraping-patterns: Crawling approach guidance
+
+   ## Packages
+   Dependencies to install:
+   - crawl4ai, jinja2
+
+   ## Learnings
+   (Updated after execution)
+
+**Important:** The ``SKILL.md`` must have proper YAML frontmatter with ``name`` and ``description`` fields for the skill to be discoverable in future sessions. Use descriptive names like ``artist-website-builder``, not instance-specific names like ``bob-dylan-project``.
+
+**Loading in Future Sessions:**
+
+Enable ``load_previous_session_skills: true`` to automatically discover evolving skills from previous sessions. This allows agents to build on previous work and reuse tools/workflows. See :ref:`With Previous Session Skills <user_guide_skills>`.
+
 Creating Custom Skills
 ----------------------
 
@@ -837,3 +948,4 @@ Examples
 * ``massgen/configs/skills/test_semantic_skills.yaml`` - Test configuration for semantic skills
 * ``massgen/configs/skills/skills_with_task_planning.yaml`` - With task planning
 * ``massgen/configs/skills/skills_organized_workspace.yaml`` - Organized workspace structure
+* ``massgen/configs/skills/skills_with_previous_sessions.yaml`` - Load evolving skills from previous sessions

@@ -9,9 +9,10 @@ This was extracted from orchestrator.py to improve separation of concerns and
 reduce coupling between orchestration logic and prompt construction.
 """
 
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from loguru import logger
 
 from massgen.system_prompt_sections import (
     AgentIdentitySection,
@@ -20,6 +21,7 @@ from massgen.system_prompt_sections import (
     CommandExecutionSection,
     CoreBehaviorsSection,
     EvaluationSection,
+    EvolvingSkillsSection,
     FileSearchSection,
     FilesystemBestPracticesSection,
     FilesystemOperationsSection,
@@ -31,8 +33,6 @@ from massgen.system_prompt_sections import (
     TaskPlanningSection,
     WorkspaceStructureSection,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class SystemMessageBuilder:
@@ -135,12 +135,34 @@ class SystemMessageBuilder:
 
             # Scan all available skills
             skills_dir = Path(self.config.coordination_config.skills_directory)
-            all_skills = scan_skills(skills_dir)
+
+            # Check if we should load previous session skills
+            logs_dir = None
+            load_prev = getattr(self.config.coordination_config, "load_previous_session_skills", False)
+            logger.info(f"[SystemMessageBuilder] load_previous_session_skills = {load_prev}")
+            if load_prev:
+                logs_dir = Path(".massgen/massgen_logs")
+                logger.info(f"[SystemMessageBuilder] Will scan logs_dir: {logs_dir}")
+
+            all_skills = scan_skills(skills_dir, logs_dir=logs_dir)
 
             # Log what we found
             builtin_count = len([s for s in all_skills if s["location"] == "builtin"])
             project_count = len([s for s in all_skills if s["location"] == "project"])
-            logger.info(f"[SystemMessageBuilder] Scanned skills: {builtin_count} builtin, {project_count} project")
+            previous_count = len([s for s in all_skills if s["location"] == "previous_session"])
+            logger.info(
+                f"[SystemMessageBuilder] Scanned skills: {builtin_count} builtin, " f"{project_count} project, {previous_count} previous_session",
+            )
+
+            # Log details for each skill
+            for skill in all_skills:
+                name = skill.get("name", "unknown")
+                location = skill.get("location", "unknown")
+                source_path = skill.get("source_path", "")
+                if source_path:
+                    logger.info(f"[SystemMessageBuilder] Skill: {name} ({location}) - {source_path}")
+                else:
+                    logger.info(f"[SystemMessageBuilder] Skill: {name} ({location})")
 
             # Add skills section with all skills (both project and builtin)
             # Builtin skills are now treated the same as project skills - invoke with openskills read
@@ -233,6 +255,14 @@ class SystemMessageBuilder:
                 and agent.backend.filesystem_manager.cwd
             )
             builder.add_section(TaskPlanningSection(filesystem_mode=filesystem_mode))
+
+        # PRIORITY 10 (MEDIUM): Evolving Skills (when auto-discovery is enabled)
+        auto_discover_enabled = False
+        if hasattr(agent, "backend") and hasattr(agent.backend, "config"):
+            auto_discover_enabled = agent.backend.config.get("auto_discover_custom_tools", False)
+        if auto_discover_enabled:
+            builder.add_section(EvolvingSkillsSection())
+            logger.info(f"[SystemMessageBuilder] Added evolving skills section for {agent_id}")
 
         # PRIORITY 10 (MEDIUM): Broadcast Communication (conditional)
         if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "broadcast"):
@@ -340,6 +370,33 @@ class SystemMessageBuilder:
                 code_based_tools_section = CodeBasedToolsSection(workspace_path, shared_tools_path, mcp_servers)
                 sections_content.append(code_based_tools_section.build_content())
                 logger.info("[SystemMessageBuilder] Added code-based tools section for presentation")
+
+            # Add evolving skill consolidation instructions if auto-discovery enabled
+            auto_discover_enabled = False
+            if hasattr(agent, "backend") and hasattr(agent.backend, "config"):
+                auto_discover_enabled = agent.backend.config.get("auto_discover_custom_tools", False)
+            if auto_discover_enabled:
+                evolving_skill_instructions = """## Evolving Skill Output
+
+**REQUIRED**: Write a consolidated evolving skill to the final workspace.
+
+Each agent has created their own evolving skill at `tasks/evolving_skill/SKILL.md` in their workspace.
+Review these and consolidate into a single `SKILL.md` in the output directory:
+
+- **name**: Descriptive name for this workflow
+- **description**: What it does and when to reuse it
+- **## Overview**: Problem solved
+- **## Workflow**: The actual steps that worked (combined from all agents)
+- **## Tools to Create**: Scripts written (with purpose, inputs, outputs)
+- **## Tools to Use**: servers/ and custom_tools/ that were helpful
+- **## Skills**: Other skills that were used
+- **## Packages**: Dependencies installed
+- **## Expected Outputs**: What this workflow produces
+- **## Learnings**: What worked well, what didn't, tips for future use
+
+This makes the work reusable for similar future tasks."""
+                sections_content.append(evolving_skill_instructions)
+                logger.info("[SystemMessageBuilder] Added evolving skill output instructions for presentation")
 
             # Combine: filesystem sections + presentation instructions
             filesystem_content = "\n\n".join(sections_content)

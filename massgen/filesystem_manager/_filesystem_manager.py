@@ -249,6 +249,7 @@ class FilesystemManager:
         agent_temporary_workspace: Optional[str] = None,
         skills_directory: Optional[str] = None,
         massgen_skills: Optional[List[str]] = None,
+        load_previous_session_skills: bool = False,
     ) -> None:
         """
         Setup orchestration-specific paths for snapshots and temporary workspace.
@@ -259,6 +260,7 @@ class FilesystemManager:
             snapshot_storage: Base path for storing workspace snapshots
             agent_temporary_workspace: Base path for temporary workspace during context sharing
             skills_directory: Path to skills directory to mount in Docker (e.g., .agent/skills)
+            load_previous_session_skills: If True, include evolving skills from previous sessions
         """
         logger.info(
             f"[FilesystemManager.setup_orchestration_paths] Called for agent_id={agent_id}, snapshot_storage={snapshot_storage}, "
@@ -298,6 +300,7 @@ class FilesystemManager:
                 skills_directory=skills_directory,
                 massgen_skills=massgen_skills,
                 shared_tools_directory=self.shared_tools_base,
+                load_previous_session_skills=load_previous_session_skills,
             )
             logger.info(f"[FilesystemManager] Docker container created for agent {self.agent_id}")
 

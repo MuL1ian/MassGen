@@ -1612,6 +1612,7 @@ async def run_coordination_with_history(
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
             )
 
         # Get context sharing parameters
@@ -1840,6 +1841,7 @@ async def run_coordination(
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
             )
 
         # Get context sharing parameters

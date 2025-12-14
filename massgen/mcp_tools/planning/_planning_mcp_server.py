@@ -289,63 +289,12 @@ async def create_server() -> fastmcp.FastMCP:
             # Auto-insert discovery tasks based on enabled features
             preparation_tasks = []
 
-            # Capability identification should come first (before skills/tools search)
+            # Create evolving skill - reminder to follow system prompt instructions
             if mcp.auto_discovery_enabled:
                 preparation_tasks.append(
                     {
-                        "id": "identify_capabilities",
-                        "description": (
-                            "Before looking at available tools/skills, think: what technical capabilities would make this "
-                            "task easier? Focus on: AI capabilities you lack innate access to (web scraping, image "
-                            "understanding/generation, browser automation), packages/frameworks that would need installation, "
-                            "external API integrations, specialized processing (PDF, video, audio). These can be fulfilled by "
-                            "custom tools in your workspace, standard packages (pip install), or built-in libraries. For "
-                            "evaluation, consider: what outputs will you create that you cannot innately perceive? You cannot "
-                            "directly see rendered HTML, view images, or observe code execution results - you need technical "
-                            "capabilities to actually see and verify these outputs. REQUIRED: Create tasks/capability_plan.md "
-                            "with YAML frontmatter (created_at, task_context, status: discovery_pending, total_capabilities) "
-                            "and markdown body containing: Task Context section, Identified Capabilities section (for "
-                            "implementation), and Evaluation Capabilities section (for verification - focus on concrete "
-                            "technical capabilities to perceive outputs, NOT abstract concepts like 'accessibility'). Each "
-                            "capability lists Need, Category, and Priority. Leave Resolution subsections empty for now."
-                        ),
-                        "priority": "high",
-                    },
-                )
-
-            if mcp.skills_enabled:
-                depends = ["identify_capabilities"] if mcp.auto_discovery_enabled else []
-                preparation_tasks.append(
-                    {
-                        "id": "prep_skills",
-                        "description": (
-                            "Review available skills listed in your context for matches to your identified capabilities. "
-                            "REQUIRED: Read tasks/capability_plan.md, then update it: (1) Fill in Resolution subsections "
-                            "for any capabilities matched by skills (Status: fulfilled/partial, Fulfilled By: skill name/location), "
-                            "(2) Add a 'Skills Review Summary' section listing skills considered, selected skills with rationale, "
-                            "and gaps identified. Update frontmatter: status to 'skills_reviewed', updated_at, and fulfilled_count."
-                        ),
-                        "depends_on": depends,
-                        "priority": "high",
-                    },
-                )
-            if mcp.auto_discovery_enabled:
-                depends = ["identify_capabilities"]
-                if mcp.skills_enabled:
-                    depends.append("prep_skills")
-                preparation_tasks.append(
-                    {
-                        "id": "find_matching_tools",
-                        "description": (
-                            "Search custom_tools/ and servers/ for tools matching remaining unfulfilled capabilities. "
-                            "Run `ls custom_tools/` and read TOOL.md files for promising matches. "
-                            "REQUIRED: Read tasks/capability_plan.md, then update it: (1) Fill in Resolution subsections "
-                            "for capabilities matched by tools (Status: fulfilled/partial/manual, Fulfilled By: tool name/location), "
-                            "(2) Add 'Tools Discovery Summary' section with tools searched, matching tools found, and integration plan, "
-                            "(3) Add 'Resolution Summary' section with counts and recommended approach. Update frontmatter: "
-                            "status to 'complete', updated_at, fulfilled_count, and manual_count."
-                        ),
-                        "depends_on": depends,
+                        "id": "create_evolving_skill",
+                        "description": ("Create tasks/evolving_skill/SKILL.md with your workflow plan. " "See the Evolving Skills section in system prompt for format."),
                         "priority": "high",
                     },
                 )
@@ -359,6 +308,24 @@ async def create_server() -> fastmcp.FastMCP:
                 )
 
             cleanup_tasks = []
+            if mcp.auto_discovery_enabled:
+                cleanup_tasks.append(
+                    {
+                        "id": "update_evolving_skill",
+                        "description": (
+                            "Update tasks/evolving_skill/SKILL.md with learnings from this session:\n"
+                            "1. Refine ## Workflow based on what actually worked\n"
+                            "2. Update ## Tools to Create - ensure scripts exist in scripts/ directory\n"
+                            "3. Add ## Learnings section with:\n"
+                            "   - What worked well\n"
+                            "   - What didn't work or needed adjustment\n"
+                            "   - Tips for future use\n"
+                            "4. Update ## Dependencies if you discovered better approaches\n\n"
+                            "This makes the skill reusable for similar future tasks."
+                        ),
+                        "priority": "medium",
+                    },
+                )
             if mcp.memory_enabled:
                 cleanup_tasks.append(
                     {

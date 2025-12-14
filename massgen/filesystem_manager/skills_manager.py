@@ -8,25 +8,29 @@ Skills extend agent capabilities with specialized knowledge, workflows, and tool
 
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import yaml
 
 
-def scan_skills(skills_dir: Path) -> List[Dict[str, str]]:
-    """Scan both .agent/skills/ and massgen/skills/ for available skills.
+def scan_skills(skills_dir: Path, logs_dir: Optional[Path] = None) -> List[Dict[str, str]]:
+    """Scan for available skills from multiple sources.
 
     Discovers skills by scanning directories for SKILL.md files and parsing their
-    YAML frontmatter metadata. Includes both external skills (from openskills) and
-    built-in skills (shipped with MassGen).
+    YAML frontmatter metadata. Includes:
+    - External skills (from openskills, in .agent/skills/)
+    - Built-in skills (shipped with MassGen, in massgen/skills/)
+    - Previous session skills (from massgen_logs, if logs_dir provided)
 
     Args:
         skills_dir: Path to external skills directory (typically .agent/skills/).
                    This is where openskills installs skills.
+        logs_dir: Optional path to massgen_logs directory. If provided, scans for
+                 SKILL.md files from previous sessions.
 
     Returns:
         List of skill dictionaries with keys: name, description, location.
-        Location is either "project" (from openskills) or "builtin" (from massgen/skills/).
+        Location is "project", "builtin", or "previous_session".
 
     Example:
         >>> skills = scan_skills(Path(".agent/skills"))
@@ -43,6 +47,10 @@ def scan_skills(skills_dir: Path) -> List[Dict[str, str]]:
     builtin_base = Path(__file__).parent.parent / "skills"
     if builtin_base.exists():
         skills.extend(_scan_directory(builtin_base, location="builtin"))
+
+    # Scan previous session skills if logs_dir provided
+    if logs_dir:
+        skills.extend(scan_previous_session_skills(logs_dir))
 
     return skills
 
@@ -86,6 +94,74 @@ def _scan_directory(directory: Path, location: str) -> List[Dict[str, str]]:
         except Exception:
             # Skip skills that can't be parsed
             continue
+
+    return skills
+
+
+def scan_previous_session_skills(logs_dir: Path) -> List[Dict[str, str]]:
+    """Scan massgen_logs for SKILL.md files from previous sessions.
+
+    For each session/turn, finds the last attempt (highest attempt_N) and
+    looks for SKILL.md in each agent's evolving_skill directory:
+    attempt_N/final/agent_X/workspace/tasks/evolving_skill/SKILL.md
+
+    Args:
+        logs_dir: Path to .massgen/massgen_logs/
+
+    Returns:
+        List of skill dicts with keys: name, description, location, source_path.
+        Location will be "previous_session".
+    """
+    skills = []
+
+    if not logs_dir.exists():
+        return skills
+
+    # Iterate through all log sessions (newest first)
+    for session_dir in sorted(logs_dir.iterdir(), reverse=True):
+        if not session_dir.is_dir() or not session_dir.name.startswith("log_"):
+            continue
+
+        # Iterate through turns
+        for turn_dir in session_dir.iterdir():
+            if not turn_dir.is_dir() or not turn_dir.name.startswith("turn_"):
+                continue
+
+            # Find the last attempt (highest attempt_N number)
+            attempts = [d for d in turn_dir.iterdir() if d.is_dir() and d.name.startswith("attempt_")]
+            if not attempts:
+                continue
+
+            # Sort by attempt number and take the last one
+            try:
+                last_attempt = sorted(attempts, key=lambda x: int(x.name.split("_")[1]))[-1]
+            except (ValueError, IndexError):
+                continue
+
+            # Look for SKILL.md in each agent's evolving_skill directory
+            final_dir = last_attempt / "final"
+            if not final_dir.exists():
+                continue
+
+            for agent_dir in final_dir.iterdir():
+                if not agent_dir.is_dir() or not agent_dir.name.startswith("agent_"):
+                    continue
+
+                skill_file = agent_dir / "workspace" / "tasks" / "evolving_skill" / "SKILL.md"
+                if skill_file.exists():
+                    try:
+                        content = skill_file.read_text(encoding="utf-8")
+                        metadata = parse_frontmatter(content)
+                        skills.append(
+                            {
+                                "name": metadata.get("name", f"session-{session_dir.name}"),
+                                "description": metadata.get("description", ""),
+                                "location": "previous_session",
+                                "source_path": str(skill_file),
+                            },
+                        )
+                    except Exception:
+                        continue
 
     return skills
 
