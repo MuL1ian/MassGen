@@ -228,10 +228,10 @@ Most configurations use environment variables for API keys:so
 ## Release History & Examples
 
 ### v0.1.25 - Latest
-**New Features:** UI-TARS Backend, GPT-5.2 Support, Evolving Skills
+**New Features:** UI-TARS Custom Tool, GPT-5.2 Support, Evolving Skills
 
 **Key Features:**
-- **UI-TARS Backend**: ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
+- **UI-TARS Custom Tool**: ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
 - **GPT-5.2 Model**: OpenAI's latest model added as new default
 - **Evolving Skills**: Create reusable workflow plans that improve through iteration
 - **Textual Terminal Enhancement**: Improved adaptive layouts and dark/light themes

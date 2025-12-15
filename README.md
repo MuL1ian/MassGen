@@ -161,14 +161,13 @@ This project started with the "threads of thought" and "iterative refinement" id
 **🎉 Released: December 15, 2025**
 
 **What's New in v0.1.25:**
-- **🤖 UI-TARS Backend** - New backend for ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
+- **🤖 UI-TARS Custom Tool** - New custom tool for ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
 - **🧠 GPT-5.2 Support** - OpenAI's latest GPT-5.2 model added as the new default
 - **📝 Evolving Skills** - Create reusable workflow plans that improve through iteration
 - **🎨 Enhanced Textual Terminal** - Improved adaptive layouts and dark/light themes
 
 **Key Improvements:**
 - OpenRouter Gemini reasoning details now preserved in streaming responses
-- Qwen backend expanded with qwen3-vl-235b-a22b-thinking for computer use
 - LiteLLM provider context path fixes for better integration
 
 **Try v0.1.25 Features:**
@@ -1129,10 +1128,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 **🎉 Released: December 15, 2025**
 
-#### New Backends & Models
-- **UI-TARS Backend**: ByteDance's UI-TARS-1.5-7B model for GUI automation via HuggingFace Inference Endpoints with Docker and browser automation examples
+#### New Tools & Models
+- **UI-TARS Custom Tool**: ByteDance's UI-TARS-1.5-7B model for GUI automation via HuggingFace Inference Endpoints with Docker and browser automation examples
 - **GPT-5.2 Model**: Added to OpenAI backend as new default with release date metadata
-- **Qwen Enhancement**: Added qwen3-vl-235b-a22b-thinking model with computer use support
 
 #### Evolving Skills System
 - **Workflow Plans**: Framework for creating reusable workflow plans that capture steps, scripts, and learnings

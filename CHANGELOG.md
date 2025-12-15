@@ -23,9 +23,9 @@ Enhanced multi-turn experience with persistent Docker containers, improved cance
 ## [0.1.25] - 2025-12-15
 
 ### Added
-- **UI-TARS Backend Support**: New backend for ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
-  - OpenAI-compatible API via HuggingFace Inference Endpoints
-  - Image understanding capabilities for computer use workflows
+- **UI-TARS Custom Tool**: New custom tool for ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
+  - Connects to UI-TARS via HuggingFace Inference Endpoints
+  - Image understanding capabilities for browser and desktop automation workflows
 
 - **GPT-5.2 Model Support**: Added OpenAI's latest GPT-5.2 model as new default (replacing gpt-5.1)
 
@@ -38,8 +38,6 @@ Enhanced multi-turn experience with persistent Docker containers, improved cance
 - **Textual Terminal Display Enhancement**: Improved terminal UI with adaptive layouts and dark/light theming
   - Adaptive layout management for different terminal sizes and agent states
   - Enhanced modal and panel components for better agent coordination visualization
-
-- **Qwen Backend Enhancement**: Added qwen3-vl-235b-a22b-thinking model with computer use capabilities
 
 ### Fixed
 - **OpenRouter Gemini Reasoning Details**: Preserved reasoning_details in streaming responses for complete reasoning chain
