@@ -5,6 +5,7 @@ Screen {
     color: #d4d4d4;
 }
 
+/* Adaptive layout classes */
 #main_container {
     layout: horizontal;
     background: #1e1e1e;
@@ -14,50 +15,66 @@ Screen {
 
 #agents_container {
     layout: horizontal;
-    width: 3fr;
+    width: 100%;
     height: 100%;
 }
 
-#orchestrator_panel {
+#main_container.single-agent #agents_container {
+    layout: vertical;
+}
+
+.single-agent AgentPanel {
+    width: 100%;
+    height: 100%;
+}
+
+.two-agents AgentPanel {
     width: 1fr;
-    min-width: 25;
-    background: #252526;
-    border-left: solid #5a5a5a;
-    padding: 1;
 }
 
-#post_eval_container {
-    background: #252526;
-    border: solid #5a5a5a;
-    margin: 0 1 1 1;
-    padding: 1;
+.three-agents AgentPanel {
+    width: 1fr;
+}
+
+#main_container.many-agents #agents_container {
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 1;
+}
+
+.many-agents AgentPanel {
     width: 100%;
+    height: 1fr;
 }
 
-#post_eval_label {
-    color: #9cdcfe;
+/* Orchestrator events modal */
+#orchestrator_modal_container {
+    background: #252526;
+    border: thick #007ACC;
+    padding: 2;
+    width: 80%;
+    height: 80%;
+}
+
+#orchestrator_modal_header {
+    color: #ffffff;
+    text-style: bold;
     margin-bottom: 1;
 }
 
-#final_stream_container {
-    background: #2d2d30;
-    border: solid #5a5a5a;
-    margin: 0 1 1 1;
-    padding: 1;
-    width: 100%;
-}
-
-#final_stream_label {
-    color: #c586c0;
+#orchestrator_hint {
+    color: #858585;
+    text-style: italic;
     margin-bottom: 1;
 }
 
-#final_stream_log {
+#orchestrator_events_content {
     background: #1e1e1e;
     color: #d4d4d4;
 }
 
 /* Agent panels */
+
 AgentPanel {
     background: #252526;
     border: solid #5a5a5a;
@@ -67,18 +84,42 @@ AgentPanel {
 }
 
 AgentPanel:hover {
-    border: solid #5a5a5a;
+    border: solid #686868;
 }
 
 /* Override Textual's default purple focus outline */
 AgentPanel:focus,
 AgentPanel:focus-within {
     border: solid #007acc;
-    background: #252526;
+    background: #2a2d2e;
     outline: none;
 }
 
+AgentPanel.status-waiting {
+    border: solid #5a5a5a;
+}
+
+AgentPanel.status-working {
+    border: solid #569cd6;
+    background: #252535;
+}
+
+AgentPanel.status-streaming {
+    border: solid #4ec9b0;
+    background: #252530;
+}
+
+AgentPanel.status-completed {
+    border: solid #4ec9b0;
+}
+
+AgentPanel.status-error {
+    border: solid #f44747;
+    background: #2d2525;
+}
+
 /* Headers */
+
 HeaderWidget {
     background: #007ACC;
     color: #ffffff;
@@ -118,6 +159,7 @@ RichLog {
 }
 
 /* Status colors */
+
 .waiting {
     color: #858585;
 }
@@ -139,6 +181,7 @@ RichLog {
 }
 
 /* Content type colors */
+
 .tool {
     color: #9cdcfe;
 }
@@ -155,15 +198,65 @@ RichLog {
     color: #c586c0;
 }
 
+/* Streaming label */
+
 .streaming_label {
     color: #4ec9b0;
-    text-style: italic;
+    text-style: italic bold;
     height: 1;
     width: 100%;
+    background: #1e2d2d;
+    border-left: tall #4ec9b0;
+    padding-left: 1;
+}
+
+/* Post-evaluation panel */
+
+#post_eval_container {
     background: #252526;
+    border: solid #5a5a5a;
+    margin: 0 1 1 1;
+    padding: 1;
+    width: 100%;
+}
+
+#post_eval_label {
+    color: #9cdcfe;
+    margin-bottom: 1;
+}
+
+/* Final stream panel */
+
+#final_stream_container {
+    background: #2d2d25;
+    border: solid #dcdcaa;
+    margin: 0 1 1 1;
+    padding: 1;
+    width: 100%;
+}
+
+#final_stream_container.streaming-active {
+    border: double #dcdcaa;
+}
+
+#final_stream_label {
+    color: #dcdcaa;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#final_stream_log {
+    background: #1e1e1e;
+    color: #d4d4d4;
+}
+
+#final_stream_log,
+#post_eval_log {
+    scrollbar-size: 2 2;
 }
 
 /* Modals */
+
 ModalScreen {
     align: center middle;
 }
@@ -246,12 +339,8 @@ ModalScreen {
     margin-bottom: 1;
 }
 
-#final_stream_log,
-#post_eval_log {
-    scrollbar-size: 2 2;
-}
-
 /* Buttons */
+
 Button {
     background: #007ACC;
     color: #ffffff;
@@ -269,6 +358,7 @@ Button:focus {
 }
 
 /* Lists */
+
 ListView {
     background: #1e1e1e;
     color: #d4d4d4;
@@ -292,6 +382,7 @@ ListItem:focus {
 }
 
 /* TextArea */
+
 TextArea {
     background: #1e1e1e;
     color: #d4d4d4;
@@ -302,6 +393,7 @@ TextArea:focus {
 }
 
 /* Scrollbars */
+
 Scrollbar {
     background: #3c3c3c;
 }
@@ -315,8 +407,18 @@ ScrollbarThumb:hover {
 }
 
 /* Footer */
+
 Footer {
     background: #007ACC;
     color: #ffffff;
     dock: bottom;
+}
+
+/* Safe mode indicator */
+#safe_indicator {
+    dock: bottom;
+    height: 1;
+    background: #2d2d30;
+    color: #dcdcaa;
+    padding: 0 1;
 }
