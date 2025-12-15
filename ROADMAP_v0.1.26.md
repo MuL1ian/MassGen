@@ -1,11 +1,11 @@
-# MassGen v0.1.25 Roadmap
+# MassGen v0.1.26 Roadmap
 
 ## Overview
 
-Version 0.1.25 focuses on system reminders and improved agent broadcasting for more controlled multi-agent communication.
+Version 0.1.26 focuses on system reminders and improved agent broadcasting for more controlled multi-agent communication.
 
-- **Add system reminders** (Required): 📋 Framework for injecting reminders mid-run during LLM streaming
-- **Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with** (Required): 🎯 Sensitivity-based scaling for broadcast response complexity
+- **Add system reminders** (Required): Framework for injecting reminders mid-run during LLM streaming
+- **Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with** (Required): Sensitivity-based scaling for broadcast response complexity
 
 ## Key Technical Priorities
 
@@ -17,7 +17,7 @@ Version 0.1.25 focuses on system reminders and improved agent broadcasting for m
 
 ## Key Milestones
 
-### 🎯 Milestone 1: Add system reminders (REQUIRED)
+### Milestone 1: Add system reminders (REQUIRED)
 
 **Goal**: Framework for injecting system reminders mid-run during LLM streaming
 
@@ -44,14 +44,14 @@ Version 0.1.25 focuses on system reminders and improved agent broadcasting for m
 - [ ] Documentation and configuration examples
 
 **Success Criteria**:
-- ✅ System reminders can be injected mid-run during LLM streaming
-- ✅ Framework supports context awareness, human feedback, safety, and memory reminders
-- ✅ Design is generic and extensible for flexible downstream usage
-- ✅ Documentation covers reminder framework and usage
+- System reminders can be injected mid-run during LLM streaming
+- Framework supports context awareness, human feedback, safety, and memory reminders
+- Design is generic and extensible for flexible downstream usage
+- Documentation covers reminder framework and usage
 
 ---
 
-### 🎯 Milestone 2: Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with (REQUIRED)
+### Milestone 2: Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with (REQUIRED)
 
 **Goal**: Enable scaling of agent broadcast responses based on configurable sensitivity levels
 
@@ -78,10 +78,10 @@ Version 0.1.25 focuses on system reminders and improved agent broadcasting for m
 - [ ] Documentation and usage examples
 
 **Success Criteria**:
-- ✅ Three-tier sensitivity levels are configurable
-- ✅ Response complexity scales appropriately with sensitivity settings
-- ✅ Targeted questioning adapts to complexity configuration
-- ✅ Documentation covers sensitivity configuration and scaling behavior
+- Three-tier sensitivity levels are configurable
+- Response complexity scales appropriately with sensitivity settings
+- Targeted questioning adapts to complexity configuration
+- Documentation covers sensitivity configuration and scaling behavior
 
 ---
 
@@ -132,15 +132,15 @@ Version 0.1.25 focuses on system reminders and improved agent broadcasting for m
 
 ---
 
-## Future Enhancements (Post-v0.1.25)
+## Future Enhancements (Post-v0.1.26)
 
-### v0.1.26 Plans
+### v0.1.27 Plans
 - **Memory as Tools** (@ncrispino): Include memory (including filesystem) as callable tools for agents
 - **Grok 4.1 Fast Model Support** (@praneeth999): Add support for xAI's Grok 4.1 Fast model
 
-### v0.1.27 Plans
-- **Clarify Code Execution in Docs** (@ncrispino): Improve documentation clarity for code execution features
-- **Local Computer Use Models** (@franklinnwren): Add support for local vision models in computer use workflows
+### v0.1.28 Plans
+- **Automatic Context Compression** (@ncrispino): Automatic context compression for long conversations ([#617](https://github.com/massgen/MassGen/issues/617))
+- **OpenAI-Compatible Chat Server** (@ncrispino): Run MassGen as an OpenAI-compatible API server ([#628](https://github.com/massgen/MassGen/issues/628))
 
 ### Long-term Vision
 - **Advanced Agent Communication**: Sophisticated inter-agent protocols and negotiation
@@ -157,7 +157,7 @@ Version 0.1.25 focuses on system reminders and improved agent broadcasting for m
 | Phase 1 | Add system reminders | Reminder configuration, injection mechanism, documentation | @ncrispino | **REQUIRED** |
 | Phase 2 | Improve agent broadcasting | Agent targeting, response detail control, documentation | @ncrispino | **REQUIRED** |
 
-**Target Release**: December 15, 2025 (Monday @ 9am PT)
+**Target Release**: December 17, 2025 (Wednesday @ 9am PT)
 
 ---
 
@@ -183,7 +183,7 @@ Version 0.1.25 focuses on system reminders and improved agent broadcasting for m
 
 ### For Users
 
-- v0.1.25 brings system reminders and improved agent broadcasting:
+- v0.1.26 brings system reminders and improved agent broadcasting:
 
   **Add system reminders:**
   - Framework for injecting reminders mid-run during LLM streaming
@@ -201,7 +201,7 @@ Version 0.1.25 focuses on system reminders and improved agent broadcasting for m
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 - Development setup and workflow
@@ -214,7 +214,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ---
 
-*This roadmap reflects v0.1.25 priorities focusing on system reminders and targeted agent broadcasting.*
+*This roadmap reflects v0.1.26 priorities focusing on system reminders and targeted agent broadcasting.*
 
-**Last Updated:** December 12, 2025
+**Last Updated:** December 15, 2025
 **Maintained By:** MassGen Team

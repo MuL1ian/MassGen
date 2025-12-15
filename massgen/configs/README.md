@@ -227,7 +227,34 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.24 - Latest
+### v0.1.25 - Latest
+**New Features:** UI-TARS Custom Tool, GPT-5.2 Support, Evolving Skills
+
+**Key Features:**
+- **UI-TARS Custom Tool**: ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
+- **GPT-5.2 Model**: OpenAI's latest model added as new default
+- **Evolving Skills**: Create reusable workflow plans that improve through iteration
+- **Textual Terminal Enhancement**: Improved adaptive layouts and dark/light themes
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Try UI-TARS computer use (requires UI_TARS_API_KEY and UI_TARS_ENDPOINT)
+massgen --config @examples/tools/custom_tools/ui_tars_browser_example \
+  "Search for 'Python asyncio' on Google and summarize the first result"
+
+# Use the new Textual terminal display
+massgen --config @examples/basic/single_agent_textual \
+  "What is the transformers in deep learning?"
+
+# Create evolving skills with previous session discovery
+massgen --config @examples/skills/skills_with_previous_sessions \
+  "Create a web scraping workflow that extracts article titles from news sites"
+```
+
+### v0.1.24
 **New Features:** Enhanced Cost Tracking Across Multiple Backends
 
 **Key Features:**

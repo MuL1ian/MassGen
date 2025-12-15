@@ -9,16 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.25 (December 15, 2025)** - UI-TARS Computer Use & Evolving Skills
+Added UI-TARS custom tool for GUI automation, GPT-5.2 model support, and evolving skill creator system. Enhanced Textual terminal with adaptive layouts and improved OpenRouter Gemini reasoning details handling.
+
 **v0.1.24 (December 12, 2025)** - Enhanced Cost Tracking
 Expanded real-time cost tracking across multiple backends (OpenRouter, xAI, Gemini, Grok, Claude Code) with per-agent token breakdown, cost inspection command, and aggregated session totals.
 
 **v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
 Enhanced multi-turn experience with persistent Docker containers, improved cancellation handling, turn history inspection commands, and Web UI automation mode for programmatic workflows.
 
-**v0.1.22 (December 8, 2025)** - Shadow Agent Architecture for Broadcast Responses
-Shadow agents now handle broadcast responses in parallel without interrupting parent agents. Each shadow inherits full conversation history and current turn context for context-aware responses.
-
 ---
+
+## [0.1.25] - 2025-12-15
+
+### Added
+- **UI-TARS Custom Tool**: New custom tool for ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
+  - Connects to UI-TARS via HuggingFace Inference Endpoints
+  - Image understanding capabilities for browser and desktop automation workflows
+
+- **GPT-5.2 Model Support**: Added OpenAI's latest GPT-5.2 model as new default (replacing gpt-5.1)
+
+- **Evolving Skill Creator System**: Framework for creating and iterating on reusable workflow plans
+  - Skills capture steps, Python scripts, and learnings that improve through iteration
+  - Support for loading skills from previous sessions
+  - Enhanced system message builder (+67 lines) and system prompt sections (+130 lines)
+
+### Changed
+- **Textual Terminal Display Enhancement**: Improved terminal UI with adaptive layouts and dark/light theming
+  - Adaptive layout management for different terminal sizes and agent states
+  - Enhanced modal and panel components for better agent coordination visualization
+
+### Fixed
+- **OpenRouter Gemini Reasoning Details**: Preserved reasoning_details in streaming responses for complete reasoning chain
+
+- **LiteLLM Provider Context Paths**: Fixed file path handling for configuration and documentation references
+
+### Documentations, Configurations and Resources
+
+- **UI-TARS Configuration Examples**:
+  - `massgen/configs/tools/custom_tools/ui_tars_browser_example.yaml`: Browser automation example
+  - `massgen/configs/tools/custom_tools/ui_tars_docker_example.yaml`: Docker automation example
+
+- **Evolving Skills Documentation**:
+  - `massgen/configs/skills/skills_with_previous_sessions.yaml`: Previous session skills configuration
+  - `massgen/skills/evolving-skill-creator/SKILL.md` (209 lines): Skill creator guide
+  - Updated `docs/source/user_guide/tools/skills.rst` (+112 lines): Code mode guide
+
+- **Textual Terminal Themes**:
+  - `massgen/frontend/displays/textual_terminal/dark.tcss` (+164 lines)
+  - `massgen/frontend/displays/textual_terminal/light.tcss` (+180 lines)
+
+- **Documentation Updates**:
+  - Updated `docs/source/reference/python_api.rst` (+158 lines): LiteLLM provider guide
+  - Updated `docs/source/reference/supported_models.rst`: GPT-5.2 model entry
+  - Updated `docs/source/user_guide/backends.rst` (+11 lines): Backend updates
+
+### Technical Details
+- **Major Focus**: UI-TARS computer use backend, evolving skills framework, Textual terminal UI improvements
+- **Contributors**: @ncrispino @praneeth999 @franklinnwren and the MassGen team
 
 ## [0.1.24] - 2025-12-12
 

@@ -157,17 +157,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.25 (December 15, 2025)** - UI-TARS & Evolving Skills
+
+UI-TARS backend for GUI automation with visual understanding. GPT-5.2 model support via OpenRouter. Evolving skill creator system for reusable workflows. Textual terminal display with adaptive dark/light themes.
+
 **v0.1.24 (December 12, 2025)** - Enhanced Cost Tracking
 
-Real-time token counting and cost calculation for OpenRouter, xAI/Grok, Gemini, and Claude Code backends. New ``/inspect c`` command displays detailed per-agent cost breakdown with input, output, reasoning, and cached tokens. Aggregated session totals in coordination status.
+Real-time token counting and cost calculation for OpenRouter, xAI/Grok, Gemini, and Claude Code backends. New ``/inspect c`` command displays detailed per-agent cost breakdown with input, output, reasoning, and cached tokens.
 
 **v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
 
-Turn history inspection with ``/inspect`` commands, Web UI automation mode for programmatic workflows, Docker container persistence across turns, and improved Ctrl+C handling with terminal state restoration.
-
-**v0.1.22 (December 8, 2025)** - Shadow Agent Architecture
-
-Lightweight shadow agents respond to broadcasts in parallel without interrupting parent agents. Full context inheritance with conversation history and current work-in-progress.
+Turn history inspection with ``/inspect`` commands, Web UI automation mode for programmatic workflows, Docker container persistence across turns, and improved Ctrl+C handling.
 
 :doc:`Full changelog → <changelog>`
 
