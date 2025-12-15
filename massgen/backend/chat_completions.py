@@ -213,6 +213,8 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         content = ""
         finish_reason_received = None  # Track finish reason to know when to expect usage
         usage_received_this_request = False  # Track if API returned usage for this specific request
+        # Track reasoning_details for OpenRouter Gemini models
+        reasoning_details = []
 
         async for chunk in stream:
             try:
@@ -222,6 +224,10 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                     # Handle content delta
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
+
+                        # Capture reasoning_details from delta
+                        if getattr(delta, "reasoning_details", None):
+                            reasoning_details.extend(delta.reasoning_details)
 
                         # Plain text content
                         if getattr(delta, "content", None):
@@ -406,6 +412,9 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                         "content": content.strip() if content.strip() else None,
                         "tool_calls": all_tool_calls,
                     }
+                    # Preserve reasoning_details for OpenRouter Gemini models
+                    if reasoning_details:
+                        assistant_message["reasoning_details"] = reasoning_details
                     updated_messages.append(assistant_message)
 
             # Create tool execution configuration objects
@@ -589,6 +598,8 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         provider_name = self.get_provider_name()
         enable_web_search = all_params.get("enable_web_search", False)
         log_prefix = f"backend.{provider_name.lower().replace(' ', '_')}"
+        # Track reasoning_details for OpenRouter Gemini models
+        reasoning_details = []
 
         async for chunk in stream:
             try:
@@ -598,6 +609,10 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                     # Handle content delta
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
+
+                        # Capture reasoning_details from delta
+                        if getattr(delta, "reasoning_details", None):
+                            reasoning_details.extend(delta.reasoning_details)
 
                         # Plain text content
                         if getattr(delta, "content", None):
@@ -700,6 +715,9 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                                 "content": content.strip(),
                                 "tool_calls": final_tool_calls,
                             }
+                            # Preserve reasoning_details for OpenRouter Gemini models
+                            if reasoning_details:
+                                complete_message["reasoning_details"] = reasoning_details
 
                             yield StreamChunk(
                                 type="complete_message",
