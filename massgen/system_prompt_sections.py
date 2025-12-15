@@ -1718,6 +1718,136 @@ class BroadcastCommunicationSection(SystemPromptSection):
         return "\n".join(lines)
 
 
+class EvolvingSkillsSection(SystemPromptSection):
+    """
+    Guidance on evolving skills - detailed workflow plans.
+
+    Includes the full evolving-skill-creator content directly in the system prompt
+    so agents don't need to read it separately.
+    """
+
+    def __init__(self):
+        super().__init__(
+            title="Evolving Skills",
+            priority=6,  # After core_behaviors(4), task_planning(5)
+            xml_tag="evolving_skills",
+        )
+
+    def build_content(self) -> str:
+        return """## Evolving Skills
+
+**REQUIRED**: Before starting work on any task, you MUST create an evolving skill - a detailed workflow plan.
+
+### What is an Evolving Skill?
+
+An evolving skill is a workflow plan that:
+1. Documents specific steps to accomplish a goal
+2. Lists Python scripts you'll create as reusable tools
+3. Captures learnings after execution for future improvement
+
+Unlike static skills, evolving skills are refined through use.
+
+### Directory Structure
+
+```
+tasks/evolving_skill/
+├── SKILL.md              # Your workflow plan
+└── scripts/              # Python tools you create during execution
+    ├── scrape_data.py
+    └── generate_output.py
+```
+
+### SKILL.md Format
+
+```yaml
+---
+name: task-name-here
+description: What this workflow does and when to use it
+---
+# Task Name
+
+## Overview
+Brief description of the problem this skill solves.
+
+## Workflow
+Detailed numbered steps:
+1. First step - be specific
+2. Second step - include commands/tools to use
+3. ...
+
+## Tools to Create
+Python scripts you'll write. Document BEFORE writing them:
+
+### scripts/example_tool.py
+- **Purpose**: What it does
+- **Inputs**: What it takes (args, files, etc.)
+- **Outputs**: What it produces
+- **Dependencies**: Required packages
+
+## Tools to Use
+(Discover what's available, list ones you'll use)
+- servers/name: MCP server tools
+- custom_tools/name: Python tool implementations
+
+## Skills
+- skill_name: how it will help
+
+## Packages
+- package_name (pip install package_name)
+
+## Expected Outputs
+- Files this workflow produces
+- Formats and locations
+
+## Learnings
+(Add after execution)
+
+### What Worked Well
+- ...
+
+### What Didn't Work
+- ...
+
+### Tips for Future Use
+- ...
+```
+
+### Tools to Create Section
+
+This is key. When your workflow involves writing Python scripts, document them upfront:
+
+```markdown
+## Tools to Create
+
+### scripts/fetch_artist_data.py
+- **Purpose**: Crawl Wikipedia and extract artist biographical data
+- **Inputs**: artist_name (str), output_path (str)
+- **Outputs**: JSON file with structured bio data
+- **Dependencies**: crawl4ai, json
+
+### scripts/build_site.py
+- **Purpose**: Generate static HTML from artist data
+- **Inputs**: data_path (str), theme (str), output_dir (str)
+- **Outputs**: Complete website in output_dir/
+- **Dependencies**: jinja2
+```
+
+After execution, the actual scripts live in `scripts/` and can be reused.
+
+### Required Steps
+
+1. **BEFORE starting work**: Create `tasks/evolving_skill/SKILL.md` with your workflow plan
+2. **During execution**: Follow your plan, create scripts as documented
+3. **AFTER completing work**: Update SKILL.md with Learnings section
+
+### Key Principles
+
+1. **Be specific** - Workflow steps should be actionable, not vague
+2. **Document tools upfront** - Plan scripts before writing them
+3. **Update with learnings** - The skill improves through use
+4. **Keep scripts reusable** - Design tools to work in similar future tasks"""
+
+
 class SystemPromptBuilder:
     """
     Builder for assembling system prompts from sections.

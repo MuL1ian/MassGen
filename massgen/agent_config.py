@@ -74,6 +74,8 @@ class CoordinationConfig:
                        When workspace/ is needed for file operations, it is created automatically.
         skills_directory: Path to the skills directory. Default is .agent/skills which is where
                          openskills installs skills. This directory is scanned for available skills.
+        load_previous_session_skills: If True, scan .massgen/massgen_logs/ for SKILL.md files from
+                                     previous sessions and include them as available skills.
         persona_generator: Configuration for automatic persona generation to increase agent diversity.
                           When enabled, an LLM generates diverse system message personas for each agent.
     """
@@ -95,6 +97,7 @@ class CoordinationConfig:
     use_skills: bool = False
     massgen_skills: List[str] = field(default_factory=list)
     skills_directory: str = ".agent/skills"
+    load_previous_session_skills: bool = False
     persona_generator: PersonaGeneratorConfig = field(default_factory=PersonaGeneratorConfig)
 
     def __post_init__(self):

@@ -263,10 +263,12 @@ class Orchestrator(ChatAgent):
         # Get skills configuration if skills are enabled
         skills_directory = None
         massgen_skills = []
+        load_previous_session_skills = False
         if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "use_skills"):
             if self.config.coordination_config.use_skills:
                 skills_directory = self.config.coordination_config.skills_directory
                 massgen_skills = self.config.coordination_config.massgen_skills
+                load_previous_session_skills = getattr(self.config.coordination_config, "load_previous_session_skills", False)
 
         for agent_id, agent in self.agents.items():
             if agent.backend.filesystem_manager:
@@ -276,6 +278,7 @@ class Orchestrator(ChatAgent):
                     agent_temporary_workspace=self._agent_temporary_workspace,
                     skills_directory=skills_directory,
                     massgen_skills=massgen_skills,
+                    load_previous_session_skills=load_previous_session_skills,
                 )
                 # Setup workspace directories for massgen skills
                 if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "massgen_skills"):

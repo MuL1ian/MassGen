@@ -485,6 +485,7 @@ class DockerManager:
         skills_directory: Optional[str] = None,
         massgen_skills: Optional[List[str]] = None,
         shared_tools_directory: Optional[Path] = None,
+        load_previous_session_skills: bool = False,
     ) -> Optional[Path]:
         """
         Create and start a persistent Docker container for an agent.
@@ -508,6 +509,7 @@ class DockerManager:
             skills_directory: Path to skills directory (e.g., .agent/skills) to mount read-only
             massgen_skills: List of MassGen built-in skills to enable (optional)
             shared_tools_directory: Path to shared tools directory (servers/, custom_tools/, .mcp/) to mount read-only
+            load_previous_session_skills: If True, include evolving skills from previous sessions
 
         Returns:
             Path to temporary merged skills directory if skills are enabled, None otherwise
@@ -644,6 +646,29 @@ class DockerManager:
                             shutil.copytree(skill_dir, skill_dest, dirs_exist_ok=True)
                             added_skills.add(skill_dir.name)
 
+            # Copy previous session skills if enabled
+            if load_previous_session_skills:
+                from .skills_manager import scan_previous_session_skills
+
+                logs_dir = Path(".massgen/massgen_logs")
+                logger.info(f"[Docker] load_previous_session_skills enabled, scanning: {logs_dir}")
+                prev_skills = scan_previous_session_skills(logs_dir)
+                logger.info(f"[Docker] Found {len(prev_skills)} previous session skills")
+
+                for skill in prev_skills:
+                    source_path = skill.get("source_path")
+                    if source_path:
+                        source = Path(source_path)
+                        if source.exists():
+                            # Create unique skill directory name from session
+                            # e.g., session-log_20251213_143113
+                            skill_name = skill.get("name", "unknown")
+                            skill_dest = temp_skills_dir / skill_name
+                            skill_dest.mkdir(parents=True, exist_ok=True)
+                            # Copy SKILL.md to the skill directory
+                            shutil.copy2(source, skill_dest / "SKILL.md")
+                            logger.info(f"[Docker] Added previous session skill: {skill_name} from {source}")
+
             # Mount the temp merged directory to ~/.agent/skills
             container_skills_path = "/home/massgen/.agent/skills"
             volumes[str(temp_skills_dir)] = {"bind": container_skills_path, "mode": "ro"}
@@ -655,6 +680,11 @@ class DockerManager:
 
             all_skills = scan_skills(temp_skills_dir)
             logger.info(f"[Docker] Total skills loaded: {len(all_skills)}")
+            # Log counts by location
+            builtin_count = len([s for s in all_skills if s.get("location") == "builtin"])
+            project_count = len([s for s in all_skills if s.get("location") == "project"])
+            previous_count = len([s for s in all_skills if s.get("location") == "previous_session"])
+            logger.info(f"[Docker] Skills breakdown: {builtin_count} builtin, {project_count} project, {previous_count} previous_session")
             for skill in all_skills:
                 title = skill.get("title", skill.get("name", "Unknown"))
                 logger.info(f"[Docker]   - {skill['name']}: {title}")

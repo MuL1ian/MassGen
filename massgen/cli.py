@@ -28,6 +28,8 @@ import json
 import os
 import shutil
 import sys
+import threading
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -1473,6 +1475,7 @@ async def run_question_with_history(
             use_skills=coord_cfg.get("use_skills", False),
             massgen_skills=coord_cfg.get("massgen_skills", []),
             skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+            load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
             persona_generator=persona_generator_config,
         )
 
@@ -1556,6 +1559,7 @@ async def run_question_with_history(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coordination_settings.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
             )
 
@@ -1905,6 +1909,7 @@ async def run_single_question(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coordination_settings.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
             )
 
@@ -1978,6 +1983,7 @@ async def run_single_question(
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
             )
 
@@ -5225,9 +5231,6 @@ Environment Variables:
             # Auto-open browser (unless --no-browser or automation mode)
             no_browser = getattr(args, "no_browser", False)
             if not no_browser and not automation_mode:
-                import threading
-                import webbrowser
-
                 # Use auto_url if available, otherwise just open the base URL
                 browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
 
@@ -5300,10 +5303,48 @@ Environment Variables:
             interface_choice = result[2] if len(result) >= 3 else "terminal"
 
             if filepath and interface_choice == "web":
-                # Launch web UI
-                args.config = filepath
-                args.web = True
-                # Let the web launch code handle it below
+                # Launch web UI directly (web launch code above has already been evaluated)
+                try:
+                    from .frontend.web import run_server
+
+                    config_path = filepath
+                    # Use the question from quickstart if provided
+                    prompt_question = question if question else None
+
+                    print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+                    print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+                    print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+
+                    # Build auto-launch URL if question is provided
+                    auto_url = None
+                    if prompt_question:
+                        import urllib.parse
+
+                        prompt_encoded = urllib.parse.quote(prompt_question)
+                        auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                        config_encoded = urllib.parse.quote(config_path)
+                        auto_url += f"&config={config_encoded}"
+                        print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+                    print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+                    # Auto-open browser
+                    browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+
+                    def open_browser():
+                        import time
+
+                        time.sleep(0.5)  # Wait for server to start
+                        webbrowser.open(browser_url)
+
+                    threading.Thread(target=open_browser, daemon=True).start()
+                    run_server(host=args.web_host, port=args.web_port, config_path=config_path, automation_mode=False)
+                except ImportError as e:
+                    print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+                    print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+                    logger.debug(f"Import error: {e}")
+                    sys.exit(1)
+                return
             elif filepath and question:
                 # Update args to use the newly created config and launch interactive mode with initial question
                 args.config = filepath
@@ -5455,8 +5496,47 @@ Environment Variables:
 
                     # Check if user chose web interface
                     if interface_choice == "web":
-                        args.web = True
-                        # Let the web launch code handle it below
+                        # Launch web UI directly (web launch code above has already been evaluated)
+                        try:
+                            from .frontend.web import run_server
+
+                            config_path = filepath
+                            prompt_question = question if question else None
+
+                            print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+                            print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+                            print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+
+                            # Build auto-launch URL if question is provided
+                            auto_url = None
+                            if prompt_question:
+                                import urllib.parse
+
+                                prompt_encoded = urllib.parse.quote(prompt_question)
+                                auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                                config_encoded = urllib.parse.quote(config_path)
+                                auto_url += f"&config={config_encoded}"
+                                print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+                            print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+                            # Auto-open browser
+                            browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+
+                            def open_browser():
+                                import time
+
+                                time.sleep(0.5)
+                                webbrowser.open(browser_url)
+
+                            threading.Thread(target=open_browser, daemon=True).start()
+                            run_server(host=args.web_host, port=args.web_port, config_path=config_path, automation_mode=False)
+                        except ImportError as e:
+                            print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+                            print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+                            logger.debug(f"Import error: {e}")
+                            sys.exit(1)
+                        return
                     elif question:
                         # If user provided a question, set it
                         args.question = question
