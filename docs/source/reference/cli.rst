@@ -226,8 +226,6 @@ Output to File
    # With config and output file
    massgen --config my_config.yaml --output-file report.md "Generate a project report"
 
-   # Useful for automation and scripting
-   massgen --model gpt-5-nano --output-file analysis.json "Analyze this data and return JSON"
 
 See Also
 --------
