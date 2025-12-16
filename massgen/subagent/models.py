@@ -22,9 +22,10 @@ class SubagentConfig:
         parent_agent_id: ID of the agent that spawned this subagent
         model: Optional model override (inherits from parent if None)
         timeout_seconds: Maximum execution time (default 300s / 5 min)
-        context_files: List of files to copy from parent workspace (read-only)
+        context_files: List of file paths the subagent can READ (read-only access enforced)
         use_docker: Whether to use Docker container (inherits from parent settings)
         system_prompt: Optional custom system prompt for the subagent
+        context: Optional project/goal context so subagent understands what it's working on
     """
 
     id: str
@@ -35,6 +36,7 @@ class SubagentConfig:
     context_files: List[str] = field(default_factory=list)
     use_docker: bool = True
     system_prompt: Optional[str] = None
+    context: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -49,6 +51,7 @@ class SubagentConfig:
         context_files: Optional[List[str]] = None,
         use_docker: bool = True,
         system_prompt: Optional[str] = None,
+        context: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> "SubagentConfig":
         """
@@ -60,9 +63,10 @@ class SubagentConfig:
             subagent_id: Optional custom ID (generates UUID if not provided)
             model: Optional model override
             timeout_seconds: Execution timeout
-            context_files: Files to copy from parent workspace
+            context_files: File paths subagent can read (read-only, no write access)
             use_docker: Whether to use Docker
             system_prompt: Optional custom system prompt
+            context: Project/goal context so subagent understands what it's working on
             metadata: Additional metadata
 
         Returns:
@@ -77,6 +81,7 @@ class SubagentConfig:
             context_files=context_files or [],
             use_docker=use_docker,
             system_prompt=system_prompt,
+            context=context,
             metadata=metadata or {},
         )
 
@@ -91,6 +96,7 @@ class SubagentConfig:
             "context_files": self.context_files.copy(),
             "use_docker": self.use_docker,
             "system_prompt": self.system_prompt,
+            "context": self.context,
             "created_at": self.created_at.isoformat(),
             "metadata": self.metadata.copy(),
         }
@@ -107,9 +113,62 @@ class SubagentConfig:
             context_files=data.get("context_files", []),
             use_docker=data.get("use_docker", True),
             system_prompt=data.get("system_prompt"),
+            context=data.get("context"),
             created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(),
             metadata=data.get("metadata", {}),
         )
+
+
+@dataclass
+class SubagentOrchestratorConfig:
+    """
+    Configuration for subagent orchestrator mode.
+
+    When enabled, subagents use a full Orchestrator with multiple agents
+    instead of a single ConfigurableAgent. This enables multi-agent coordination
+    within subagent execution.
+
+    Attributes:
+        enabled: Whether orchestrator mode is enabled (default False = single agent)
+        num_agents: Number of agents in the subagent orchestrator (default 1)
+        agent_model: Optional model override for all subagent agents (inherits parent if None)
+        coordination: Optional coordination config subset (broadcast, planning, etc.)
+        blocking: If True, spawn_subagents blocks until completion. If False, runs in background.
+    """
+
+    enabled: bool = False
+    num_agents: int = 1
+    agent_model: Optional[str] = None
+    coordination: Dict[str, Any] = field(default_factory=dict)
+    blocking: bool = True
+
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        if self.num_agents < 1:
+            raise ValueError("num_agents must be at least 1")
+        if self.num_agents > 10:
+            raise ValueError("num_agents cannot exceed 10 for subagents")
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SubagentOrchestratorConfig":
+        """Create config from dictionary (YAML parsing)."""
+        return cls(
+            enabled=data.get("enabled", False),
+            num_agents=data.get("num_agents", 1),
+            agent_model=data.get("agent_model"),
+            coordination=data.get("coordination", {}),
+            blocking=data.get("blocking", True),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert config to dictionary for serialization."""
+        return {
+            "enabled": self.enabled,
+            "num_agents": self.num_agents,
+            "agent_model": self.agent_model,
+            "coordination": self.coordination.copy() if self.coordination else {},
+            "blocking": self.blocking,
+        }
 
 
 @dataclass
@@ -121,8 +180,7 @@ class SubagentResult:
         subagent_id: ID of the subagent
         status: Final status (completed/timeout/error)
         success: Whether execution was successful
-        answer: Final answer text from the subagent
-        files_created: List of files created in the subagent workspace
+        answer: Final answer text from the subagent (includes relevant file paths)
         workspace_path: Path to the subagent's workspace
         execution_time_seconds: How long the subagent ran
         error: Error message if status is error/timeout
@@ -133,7 +191,6 @@ class SubagentResult:
     status: Literal["completed", "timeout", "error"]
     success: bool
     answer: Optional[str] = None
-    files_created: List[str] = field(default_factory=list)
     workspace_path: str = ""
     execution_time_seconds: float = 0.0
     error: Optional[str] = None
@@ -146,7 +203,6 @@ class SubagentResult:
             "status": self.status,
             "success": self.success,
             "answer": self.answer,
-            "files_created": self.files_created.copy(),
             "workspace": self.workspace_path,
             "execution_time_seconds": self.execution_time_seconds,
             "error": self.error,
@@ -161,7 +217,6 @@ class SubagentResult:
             status=data["status"],
             success=data["success"],
             answer=data.get("answer"),
-            files_created=data.get("files_created", []),
             workspace_path=data.get("workspace", ""),
             execution_time_seconds=data.get("execution_time_seconds", 0.0),
             error=data.get("error"),
@@ -174,7 +229,6 @@ class SubagentResult:
         subagent_id: str,
         answer: str,
         workspace_path: str,
-        files_created: List[str],
         execution_time_seconds: float,
         token_usage: Optional[Dict[str, int]] = None,
     ) -> "SubagentResult":
@@ -184,7 +238,6 @@ class SubagentResult:
             status="completed",
             success=True,
             answer=answer,
-            files_created=files_created,
             workspace_path=workspace_path,
             execution_time_seconds=execution_time_seconds,
             token_usage=token_usage or {},
@@ -195,7 +248,6 @@ class SubagentResult:
         cls,
         subagent_id: str,
         workspace_path: str,
-        files_created: List[str],
         timeout_seconds: float,
     ) -> "SubagentResult":
         """Create a timeout result."""
@@ -204,7 +256,6 @@ class SubagentResult:
             status="timeout",
             success=False,
             answer=None,
-            files_created=files_created,
             workspace_path=workspace_path,
             execution_time_seconds=timeout_seconds,
             error=f"Subagent exceeded timeout of {timeout_seconds} seconds",
@@ -216,7 +267,6 @@ class SubagentResult:
         subagent_id: str,
         error: str,
         workspace_path: str = "",
-        files_created: Optional[List[str]] = None,
         execution_time_seconds: float = 0.0,
     ) -> "SubagentResult":
         """Create an error result."""
@@ -225,7 +275,6 @@ class SubagentResult:
             status="error",
             success=False,
             answer=None,
-            files_created=files_created or [],
             workspace_path=workspace_path,
             execution_time_seconds=execution_time_seconds,
             error=error,

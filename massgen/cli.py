@@ -1440,6 +1440,7 @@ async def run_question_with_history(
     if "coordination" in orchestrator_cfg:
         from .agent_config import CoordinationConfig
         from .persona_generator import PersonaGeneratorConfig
+        from .subagent.models import SubagentOrchestratorConfig
 
         coord_cfg = orchestrator_cfg["coordination"]
 
@@ -1453,6 +1454,12 @@ async def run_question_with_history(
                 strategy=pg_cfg.get("strategy", "complementary"),
                 persona_guidelines=pg_cfg.get("persona_guidelines"),
             )
+
+        # Parse subagent_orchestrator config if present
+        subagent_orchestrator_config = None
+        if "subagent_orchestrator" in coord_cfg:
+            so_cfg = coord_cfg["subagent_orchestrator"]
+            subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
 
         orchestrator_config.coordination_config = CoordinationConfig(
             enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
@@ -1474,6 +1481,10 @@ async def run_question_with_history(
             massgen_skills=coord_cfg.get("massgen_skills", []),
             skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
             persona_generator=persona_generator_config,
+            enable_subagents=coord_cfg.get("enable_subagents", False),
+            subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
+            subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
+            subagent_orchestrator=subagent_orchestrator_config,
         )
 
     # Get session_id from session_info (will be generated in save_final_state if not exists)
@@ -1525,6 +1536,7 @@ async def run_question_with_history(
         if coordination_settings:
             from .agent_config import CoordinationConfig
             from .persona_generator import PersonaGeneratorConfig
+            from .subagent.models import SubagentOrchestratorConfig
 
             # Parse persona_generator config if present
             persona_generator_config = PersonaGeneratorConfig()
@@ -1536,6 +1548,12 @@ async def run_question_with_history(
                     strategy=pg_cfg.get("strategy", "complementary"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
                 )
+
+            # Parse subagent_orchestrator config if present
+            subagent_orchestrator_config = None
+            if "subagent_orchestrator" in coordination_settings:
+                so_cfg = coordination_settings["subagent_orchestrator"]
+                subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coordination_settings.get("enable_planning_mode", False),
@@ -1557,6 +1575,10 @@ async def run_question_with_history(
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
                 persona_generator=persona_generator_config,
+                enable_subagents=coordination_settings.get("enable_subagents", False),
+                subagent_default_timeout=coordination_settings.get("subagent_default_timeout", 300),
+                subagent_max_concurrent=coordination_settings.get("subagent_max_concurrent", 3),
+                subagent_orchestrator=subagent_orchestrator_config,
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
@@ -1874,6 +1896,7 @@ async def run_single_question(
         if coordination_settings:
             from .agent_config import CoordinationConfig
             from .persona_generator import PersonaGeneratorConfig
+            from .subagent.models import SubagentOrchestratorConfig
 
             # Parse persona_generator config if present
             persona_generator_config = PersonaGeneratorConfig()
@@ -1885,6 +1908,12 @@ async def run_single_question(
                     strategy=pg_cfg.get("strategy", "complementary"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
                 )
+
+            # Parse subagent_orchestrator config if present
+            subagent_orchestrator_config = None
+            if "subagent_orchestrator" in coordination_settings:
+                so_cfg = coordination_settings["subagent_orchestrator"]
+                subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coordination_settings.get("enable_planning_mode", False),
@@ -1906,6 +1935,10 @@ async def run_single_question(
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
                 persona_generator=persona_generator_config,
+                enable_subagents=coordination_settings.get("enable_subagents", False),
+                subagent_default_timeout=coordination_settings.get("subagent_default_timeout", 300),
+                subagent_max_concurrent=coordination_settings.get("subagent_max_concurrent", 3),
+                subagent_orchestrator=subagent_orchestrator_config,
             )
 
         # Get orchestrator parameters from config
@@ -1945,6 +1978,7 @@ async def run_single_question(
         if "coordination" in orchestrator_cfg:
             from .agent_config import CoordinationConfig
             from .persona_generator import PersonaGeneratorConfig
+            from .subagent.models import SubagentOrchestratorConfig
 
             coord_cfg = orchestrator_cfg["coordination"]
 
@@ -1958,6 +1992,12 @@ async def run_single_question(
                     strategy=pg_cfg.get("strategy", "complementary"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
                 )
+
+            # Parse subagent_orchestrator config if present
+            subagent_orchestrator_config = None
+            if "subagent_orchestrator" in coord_cfg:
+                so_cfg = coord_cfg["subagent_orchestrator"]
+                subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
@@ -1979,6 +2019,10 @@ async def run_single_question(
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
                 persona_generator=persona_generator_config,
+                enable_subagents=coord_cfg.get("enable_subagents", False),
+                subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
+                subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
+                subagent_orchestrator=subagent_orchestrator_config,
             )
 
         orchestrator = Orchestrator(

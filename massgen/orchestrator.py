@@ -832,11 +832,26 @@ class Orchestrator(ChatAgent):
         # Get subagent configuration from coordination config
         max_concurrent = 3
         default_timeout = 300
+        subagent_orchestrator_config_json = "{}"
         if hasattr(self.config, "coordination_config"):
             if hasattr(self.config.coordination_config, "subagent_max_concurrent"):
                 max_concurrent = self.config.coordination_config.subagent_max_concurrent
             if hasattr(self.config.coordination_config, "subagent_default_timeout"):
                 default_timeout = self.config.coordination_config.subagent_default_timeout
+            # Get subagent_orchestrator config if present
+            if hasattr(self.config.coordination_config, "subagent_orchestrator"):
+                so_config = self.config.coordination_config.subagent_orchestrator
+                if so_config:
+                    subagent_orchestrator_config_json = json.dumps(so_config.to_dict())
+
+        # Get log directory for subagent logs
+        log_directory = ""
+        try:
+            log_dir = get_log_session_dir()
+            if log_dir:
+                log_directory = str(log_dir)
+        except Exception:
+            pass  # Log directory not configured
 
         args = [
             "run",
@@ -854,6 +869,10 @@ class Orchestrator(ChatAgent):
             str(max_concurrent),
             "--default-timeout",
             str(default_timeout),
+            "--orchestrator-config",
+            subagent_orchestrator_config_json,
+            "--log-directory",
+            log_directory,
         ]
 
         config = {
@@ -1621,6 +1640,10 @@ class Orchestrator(ChatAgent):
                     total_output_tokens += tu.get("output_tokens", 0)
                     total_reasoning_tokens += tu.get("reasoning_tokens", 0)
 
+            # Collect subagent costs from status files
+            subagents_summary = self._collect_subagent_costs(log_dir)
+            subagent_total_cost = subagents_summary.get("total_estimated_cost", 0.0)
+
             # Save summary file
             summary_file = log_dir / "metrics_summary.json"
             summary_data = {
@@ -1632,7 +1655,9 @@ class Orchestrator(ChatAgent):
                     "winner": self.coordination_tracker.final_winner,
                 },
                 "totals": {
-                    "estimated_cost": round(total_cost, 6),
+                    "estimated_cost": round(total_cost + subagent_total_cost, 6),
+                    "agent_cost": round(total_cost, 6),
+                    "subagent_cost": round(subagent_total_cost, 6),
                     "input_tokens": total_input_tokens,
                     "output_tokens": total_output_tokens,
                     "reasoning_tokens": total_reasoning_tokens,
@@ -1640,6 +1665,7 @@ class Orchestrator(ChatAgent):
                 "tools": tools_summary,
                 "rounds": rounds_summary,
                 "agents": agent_metrics,
+                "subagents": subagents_summary,
             }
             with open(summary_file, "w", encoding="utf-8") as f:
                 json.dump(summary_data, f, indent=2, default=str)
@@ -1648,6 +1674,74 @@ class Orchestrator(ChatAgent):
 
         except Exception as e:
             logger.warning(f"Failed to save metrics files: {e}", exc_info=True)
+
+    def _collect_subagent_costs(self, log_dir: Path) -> Dict[str, Any]:
+        """
+        Collect subagent costs from status.json files in the log directory.
+
+        Args:
+            log_dir: Path to the log directory (e.g., turn_1/attempt_1)
+
+        Returns:
+            Dictionary with total costs and per-subagent breakdown
+        """
+        subagents_dir = log_dir / "subagents"
+        if not subagents_dir.exists():
+            return {
+                "total_subagents": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_estimated_cost": 0.0,
+                "subagents": [],
+            }
+
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_estimated_cost = 0.0
+        subagent_details = []
+
+        # Find all status.json files in subagent directories
+        for subagent_path in subagents_dir.iterdir():
+            if not subagent_path.is_dir():
+                continue
+
+            status_file = subagent_path / "status.json"
+            if not status_file.exists():
+                continue
+
+            try:
+                with open(status_file, "r", encoding="utf-8") as f:
+                    status_data = json.load(f)
+
+                token_usage = status_data.get("token_usage", {})
+                input_tokens = token_usage.get("input_tokens", 0)
+                output_tokens = token_usage.get("output_tokens", 0)
+                cost = token_usage.get("estimated_cost", 0.0)
+
+                total_input_tokens += input_tokens
+                total_output_tokens += output_tokens
+                total_estimated_cost += cost
+
+                subagent_details.append(
+                    {
+                        "subagent_id": status_data.get("subagent_id", subagent_path.name),
+                        "status": status_data.get("status", "unknown"),
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "estimated_cost": round(cost, 6),
+                        "task": status_data.get("task", "")[:100],
+                    },
+                )
+            except Exception as e:
+                logger.debug(f"Failed to read subagent status from {status_file}: {e}")
+
+        return {
+            "total_subagents": len(subagent_details),
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
+            "total_estimated_cost": round(total_estimated_cost, 6),
+            "subagents": subagent_details,
+        }
 
     def _format_planning_mode_ui(
         self,

@@ -1,0 +1,470 @@
+# -*- coding: utf-8 -*-
+"""
+Tests for the Subagent feature.
+
+Tests cover:
+- SubagentConfig creation and serialization
+- SubagentResult creation and serialization
+- SubagentPointer tracking
+- TaskPlan subagent tracking
+"""
+
+
+import pytest
+
+from massgen.mcp_tools.planning.planning_dataclasses import TaskPlan
+from massgen.subagent.models import (
+    SubagentConfig,
+    SubagentOrchestratorConfig,
+    SubagentPointer,
+    SubagentResult,
+    SubagentState,
+)
+
+
+class TestSubagentConfig:
+    """Tests for SubagentConfig dataclass."""
+
+    def test_create_with_defaults(self):
+        """Test creating config with default values."""
+        config = SubagentConfig.create(
+            task="Test task",
+            parent_agent_id="parent_1",
+        )
+        assert config.task == "Test task"
+        assert config.parent_agent_id == "parent_1"
+        assert config.id.startswith("sub_")
+        assert config.timeout_seconds == 300
+        assert config.model is None
+        assert config.context_files == []
+
+    def test_create_with_custom_id(self):
+        """Test creating config with custom ID."""
+        config = SubagentConfig.create(
+            task="Custom task",
+            parent_agent_id="parent_1",
+            subagent_id="custom_id",
+        )
+        assert config.id == "custom_id"
+
+    def test_create_with_all_options(self):
+        """Test creating config with all options specified."""
+        config = SubagentConfig.create(
+            task="Full config task",
+            parent_agent_id="parent_1",
+            subagent_id="full_config",
+            model="gpt-4",
+            timeout_seconds=600,
+            context_files=["src/main.py", "README.md"],
+            system_prompt="You are a test agent",
+            metadata={"key": "value"},
+        )
+        assert config.id == "full_config"
+        assert config.model == "gpt-4"
+        assert config.timeout_seconds == 600
+        assert config.context_files == ["src/main.py", "README.md"]
+        assert config.system_prompt == "You are a test agent"
+        assert config.metadata == {"key": "value"}
+
+    def test_to_dict(self):
+        """Test serialization to dictionary."""
+        config = SubagentConfig.create(
+            task="Test task",
+            parent_agent_id="parent_1",
+            subagent_id="test_id",
+        )
+        data = config.to_dict()
+        assert data["id"] == "test_id"
+        assert data["task"] == "Test task"
+        assert data["parent_agent_id"] == "parent_1"
+        assert "created_at" in data
+
+    def test_from_dict(self):
+        """Test deserialization from dictionary."""
+        config = SubagentConfig.create(
+            task="Test task",
+            parent_agent_id="parent_1",
+            subagent_id="test_id",
+        )
+        data = config.to_dict()
+        restored = SubagentConfig.from_dict(data)
+        assert restored.id == config.id
+        assert restored.task == config.task
+        assert restored.parent_agent_id == config.parent_agent_id
+
+
+class TestSubagentResult:
+    """Tests for SubagentResult dataclass."""
+
+    def test_create_success(self):
+        """Test creating a successful result."""
+        result = SubagentResult.create_success(
+            subagent_id="test_sub",
+            answer="Task completed successfully",
+            workspace_path="/workspace/subagents/test_sub",
+            execution_time_seconds=45.2,
+        )
+        assert result.success is True
+        assert result.status == "completed"
+        assert result.answer == "Task completed successfully"
+        assert result.execution_time_seconds == 45.2
+        assert result.error is None
+
+    def test_create_timeout(self):
+        """Test creating a timeout result."""
+        result = SubagentResult.create_timeout(
+            subagent_id="test_sub",
+            workspace_path="/workspace",
+            timeout_seconds=300.0,
+        )
+        assert result.success is False
+        assert result.status == "timeout"
+        assert result.answer is None
+        assert "timeout" in result.error.lower()
+
+    def test_create_error(self):
+        """Test creating an error result."""
+        result = SubagentResult.create_error(
+            subagent_id="test_sub",
+            error="Something went wrong",
+        )
+        assert result.success is False
+        assert result.status == "error"
+        assert result.error == "Something went wrong"
+
+    def test_to_dict(self):
+        """Test serialization to dictionary."""
+        result = SubagentResult.create_success(
+            subagent_id="test_sub",
+            answer="Done",
+            workspace_path="/workspace",
+            execution_time_seconds=10.0,
+        )
+        data = result.to_dict()
+        assert data["subagent_id"] == "test_sub"
+        assert data["success"] is True
+        assert data["status"] == "completed"
+        assert "workspace" in data
+
+    def test_create_success_with_token_usage(self):
+        """Test creating a successful result with token usage and cost tracking."""
+        token_usage = {
+            "input_tokens": 150,
+            "output_tokens": 75,
+            "reasoning_tokens": 0,
+            "cached_input_tokens": 50,
+            "estimated_cost": 0.000325,
+        }
+        result = SubagentResult.create_success(
+            subagent_id="test_sub",
+            answer="Task completed",
+            workspace_path="/workspace",
+            execution_time_seconds=12.5,
+            token_usage=token_usage,
+        )
+        assert result.success is True
+        assert result.token_usage == token_usage
+        assert result.token_usage["input_tokens"] == 150
+        assert result.token_usage["output_tokens"] == 75
+        assert result.token_usage["estimated_cost"] == 0.000325
+
+    def test_token_usage_in_to_dict(self):
+        """Test that token_usage is included in serialization."""
+        token_usage = {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "estimated_cost": 0.0001,
+        }
+        result = SubagentResult.create_success(
+            subagent_id="test_sub",
+            answer="Done",
+            workspace_path="/workspace",
+            execution_time_seconds=5.0,
+            token_usage=token_usage,
+        )
+        data = result.to_dict()
+        assert "token_usage" in data
+        assert data["token_usage"]["input_tokens"] == 100
+        assert data["token_usage"]["estimated_cost"] == 0.0001
+
+    def test_token_usage_from_dict(self):
+        """Test that token_usage is preserved through serialization round-trip."""
+        token_usage = {
+            "input_tokens": 200,
+            "output_tokens": 100,
+            "estimated_cost": 0.0005,
+        }
+        original = SubagentResult.create_success(
+            subagent_id="test_sub",
+            answer="Done",
+            workspace_path="/workspace",
+            execution_time_seconds=8.0,
+            token_usage=token_usage,
+        )
+        data = original.to_dict()
+        restored = SubagentResult.from_dict(data)
+        assert restored.token_usage == token_usage
+        assert restored.token_usage["estimated_cost"] == 0.0005
+
+
+class TestSubagentPointer:
+    """Tests for SubagentPointer dataclass."""
+
+    def test_create_pointer(self):
+        """Test creating a subagent pointer."""
+        pointer = SubagentPointer(
+            id="test_sub",
+            task="Test task",
+            workspace="/workspace/subagents/test_sub",
+            status="running",
+        )
+        assert pointer.id == "test_sub"
+        assert pointer.task == "Test task"
+        assert pointer.status == "running"
+        assert pointer.completed_at is None
+
+    def test_mark_completed_success(self):
+        """Test marking pointer completed with success."""
+        pointer = SubagentPointer(
+            id="test_sub",
+            task="Test task",
+            workspace="/workspace",
+            status="running",
+        )
+        result = SubagentResult.create_success(
+            subagent_id="test_sub",
+            answer="Completed successfully with detailed output",
+            workspace_path="/workspace",
+            execution_time_seconds=10.0,
+        )
+        pointer.mark_completed(result)
+        assert pointer.status == "completed"
+        assert pointer.completed_at is not None
+        assert pointer.result_summary is not None
+
+    def test_mark_completed_failure(self):
+        """Test marking pointer completed with failure."""
+        pointer = SubagentPointer(
+            id="test_sub",
+            task="Test task",
+            workspace="/workspace",
+            status="running",
+        )
+        result = SubagentResult.create_error(
+            subagent_id="test_sub",
+            error="Failed",
+        )
+        pointer.mark_completed(result)
+        assert pointer.status == "failed"
+
+    def test_to_dict(self):
+        """Test serialization to dictionary."""
+        pointer = SubagentPointer(
+            id="test_sub",
+            task="Test task",
+            workspace="/workspace",
+            status="running",
+        )
+        data = pointer.to_dict()
+        assert data["id"] == "test_sub"
+        assert data["task"] == "Test task"
+        assert data["status"] == "running"
+
+
+class TestTaskPlanSubagentTracking:
+    """Tests for TaskPlan subagent tracking."""
+
+    def test_add_subagent(self):
+        """Test adding a subagent to task plan."""
+        plan = TaskPlan(agent_id="test_agent")
+        plan.add_subagent(
+            subagent_id="sub_1",
+            task="Research OAuth",
+            workspace="/workspace/subagents/sub_1",
+        )
+        assert "sub_1" in plan.subagents
+        assert plan.subagents["sub_1"]["task"] == "Research OAuth"
+        assert plan.subagents["sub_1"]["status"] == "running"
+
+    def test_update_subagent_status(self):
+        """Test updating subagent status."""
+        plan = TaskPlan(agent_id="test_agent")
+        plan.add_subagent("sub_1", "Test task", "/workspace")
+        plan.update_subagent_status("sub_1", "completed", "Task done")
+        assert plan.subagents["sub_1"]["status"] == "completed"
+        assert plan.subagents["sub_1"]["result_summary"] == "Task done"
+        assert plan.subagents["sub_1"]["completed_at"] is not None
+
+    def test_get_subagent(self):
+        """Test getting a subagent by ID."""
+        plan = TaskPlan(agent_id="test_agent")
+        plan.add_subagent("sub_1", "Test task", "/workspace")
+        sub = plan.get_subagent("sub_1")
+        assert sub is not None
+        assert sub["id"] == "sub_1"
+
+    def test_get_subagent_not_found(self):
+        """Test getting a non-existent subagent."""
+        plan = TaskPlan(agent_id="test_agent")
+        sub = plan.get_subagent("nonexistent")
+        assert sub is None
+
+    def test_to_dict_with_subagents(self):
+        """Test serialization includes subagents."""
+        plan = TaskPlan(agent_id="test_agent")
+        plan.add_subagent("sub_1", "Test task", "/workspace")
+        data = plan.to_dict()
+        assert "subagents" in data
+        assert "sub_1" in data["subagents"]
+
+    def test_from_dict_with_subagents(self):
+        """Test deserialization preserves subagents."""
+        plan = TaskPlan(agent_id="test_agent")
+        plan.add_subagent("sub_1", "Test task", "/workspace")
+        data = plan.to_dict()
+        restored = TaskPlan.from_dict(data)
+        assert "sub_1" in restored.subagents
+        assert restored.subagents["sub_1"]["task"] == "Test task"
+
+
+class TestSubagentState:
+    """Tests for SubagentState dataclass."""
+
+    def test_create_state(self):
+        """Test creating a subagent state."""
+        config = SubagentConfig.create(
+            task="Test task",
+            parent_agent_id="parent_1",
+        )
+        state = SubagentState(config=config)
+        assert state.status == "pending"
+        assert state.result is None
+
+    def test_to_dict(self):
+        """Test serialization to dictionary."""
+        config = SubagentConfig.create(
+            task="Test task",
+            parent_agent_id="parent_1",
+        )
+        state = SubagentState(config=config, status="running")
+        data = state.to_dict()
+        assert data["status"] == "running"
+        assert "config" in data
+
+
+class TestSubagentOrchestratorConfig:
+    """Tests for SubagentOrchestratorConfig dataclass."""
+
+    def test_default_values(self):
+        """Test creating config with default values."""
+        config = SubagentOrchestratorConfig()
+        assert config.enabled is False
+        assert config.num_agents == 1
+        assert config.agent_model is None
+        assert config.coordination == {}
+
+    def test_enabled_with_custom_values(self):
+        """Test creating config with custom values."""
+        config = SubagentOrchestratorConfig(
+            enabled=True,
+            num_agents=3,
+            agent_model="gpt-4-turbo",
+            coordination={"broadcast": {"type": "always"}},
+        )
+        assert config.enabled is True
+        assert config.num_agents == 3
+        assert config.agent_model == "gpt-4-turbo"
+        assert config.coordination == {"broadcast": {"type": "always"}}
+
+    def test_validation_num_agents_minimum(self):
+        """Test that num_agents must be at least 1."""
+        with pytest.raises(ValueError, match="num_agents must be at least 1"):
+            SubagentOrchestratorConfig(enabled=True, num_agents=0)
+
+    def test_validation_num_agents_maximum(self):
+        """Test that num_agents cannot exceed 10."""
+        with pytest.raises(ValueError, match="num_agents cannot exceed 10"):
+            SubagentOrchestratorConfig(enabled=True, num_agents=11)
+
+    def test_from_dict(self):
+        """Test creating config from dictionary (YAML parsing)."""
+        data = {
+            "enabled": True,
+            "num_agents": 2,
+            "agent_model": "claude-3-sonnet",
+            "coordination": {"voting": {"enabled": True}},
+        }
+        config = SubagentOrchestratorConfig.from_dict(data)
+        assert config.enabled is True
+        assert config.num_agents == 2
+        assert config.agent_model == "claude-3-sonnet"
+        assert config.coordination == {"voting": {"enabled": True}}
+
+    def test_from_dict_with_defaults(self):
+        """Test from_dict uses defaults for missing keys."""
+        config = SubagentOrchestratorConfig.from_dict({})
+        assert config.enabled is False
+        assert config.num_agents == 1
+        assert config.agent_model is None
+        assert config.coordination == {}
+
+    def test_to_dict(self):
+        """Test serialization to dictionary."""
+        config = SubagentOrchestratorConfig(
+            enabled=True,
+            num_agents=4,
+            agent_model="gpt-4",
+            coordination={"planning": True},
+        )
+        data = config.to_dict()
+        assert data["enabled"] is True
+        assert data["num_agents"] == 4
+        assert data["agent_model"] == "gpt-4"
+        assert data["coordination"] == {"planning": True}
+
+    def test_roundtrip_serialization(self):
+        """Test that config survives serialization round-trip."""
+        original = SubagentOrchestratorConfig(
+            enabled=True,
+            num_agents=3,
+            agent_model="claude-sonnet-4-20250514",
+            coordination={"broadcast": {"type": "always"}},
+        )
+        data = original.to_dict()
+        restored = SubagentOrchestratorConfig.from_dict(data)
+        assert restored.enabled == original.enabled
+        assert restored.num_agents == original.num_agents
+        assert restored.agent_model == original.agent_model
+        assert restored.coordination == original.coordination
+
+    def test_empty_coordination(self):
+        """Test handling of empty/None coordination."""
+        config = SubagentOrchestratorConfig(enabled=True)
+        data = config.to_dict()
+        assert data["coordination"] == {}
+        assert config.coordination == {}
+
+    def test_blocking_default_true(self):
+        """Test that blocking defaults to True."""
+        config = SubagentOrchestratorConfig(enabled=True)
+        assert config.blocking is True
+
+    def test_blocking_false(self):
+        """Test setting blocking to False for background mode."""
+        config = SubagentOrchestratorConfig(enabled=True, blocking=False)
+        assert config.blocking is False
+        data = config.to_dict()
+        assert data["blocking"] is False
+
+    def test_blocking_from_dict(self):
+        """Test blocking field is preserved in from_dict."""
+        data = {"enabled": True, "blocking": False}
+        config = SubagentOrchestratorConfig.from_dict(data)
+        assert config.blocking is False
+
+    def test_blocking_roundtrip(self):
+        """Test blocking survives serialization roundtrip."""
+        original = SubagentOrchestratorConfig(enabled=True, blocking=False)
+        data = original.to_dict()
+        restored = SubagentOrchestratorConfig.from_dict(data)
+        assert restored.blocking == original.blocking

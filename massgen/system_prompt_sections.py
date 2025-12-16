@@ -1586,38 +1586,114 @@ You can spawn **subagents** to execute tasks with fresh context and isolated wor
 
 ## How Subagents Work
 
-1. **Isolated Workspace**: Each subagent gets `{self.workspace_path}/subagents/<id>/workspace/`
+1. **Isolated Workspace**: Each subagent gets its own workspace
    - You can READ files from subagent workspaces
    - You CANNOT write to subagent workspaces
 2. **Fresh Context**: Subagents start with a clean slate (just the task you provide)
-3. **Result Delivery**: Structured JSON with answer and files created
+3. **Context Files**: Pass `context_files` to give the subagent READ-ONLY access to files
 4. **No Nesting**: Subagents cannot spawn their own subagents
 
-## Parallel Execution
+## Waiting for Subagents (CRITICAL)
 
-You can run up to {self.max_concurrent} subagents concurrently:
+**DO NOT submit your answer until ALL subagents have returned results.**
+
+When you spawn subagents:
+1. **Wait for the tool to return** - `spawn_subagents` blocks until ALL tasks complete
+2. **Do NOT say "I will now run subagents"** and submit an answer - wait for actual results first
+3. **While waiting**, you can do other useful work (read files, plan next steps) but do NOT submit a final answer
+4. **Only after receiving results** should you integrate outputs and submit your answer
+
+**BAD**: "I spawned 5 subagents. I will now wait for them and report back." (submitting answer before results)
+**GOOD**: Wait for spawn tool to return → read results → integrate → then submit answer with completed work
+
+## Integrating Subagent Results (MANDATORY)
+
+**YOU MUST INTEGRATE SUBAGENT OUTPUTS.** Subagents are helpers - YOU are responsible for the final deliverable.
+
+After subagents complete (or timeout):
+1. **Read each subagent's answer** to get the file paths they created
+2. **Read those files** from the paths listed in the answer
+3. **Write integrated files to YOUR workspace** - combine, merge, and organize the content
+4. **If a subagent timed out**: Check its workspace anyway - it may have created partial work you can use. Complete any remaining work yourself.
+5. **Your final answer**: Describe the COMPLETED work in your workspace, not what subagents did
+
+**Handling timeouts/failures - YOU MUST CHECK WORKSPACES:**
+When a subagent times out, the result still includes the `workspace` path. You MUST:
+1. **Read the workspace path** from the result (e.g., `/path/to/subagents/bio/workspace`)
+2. **List files in that directory** to see what was created before timeout
+3. **Read and use any partial work** - even a half-finished file is better than nothing
+4. **Complete the remaining work yourself** - don't just report the timeout
+
+Example: If subagent timed out with workspace `/path/to/subagents/bio/workspace`:
+```python
+list_directory("/path/to/subagents/bio/workspace")  # See what files exist
+read_file("/path/to/subagents/bio/workspace/bio.md")  # Read partial work
+# Then complete the work in YOUR workspace
+```
+
+Do NOT just report "subagent X timed out" - salvage what's there and finish the job!
+
+**DO NOT:**
+- ❌ Submit answer before subagents finish
+- ❌ Say "I will run subagents and report back" as your answer
+- ❌ List what subagents produced and ask "what do you want next?"
+- ❌ Leave files scattered in subagent workspaces
+- ❌ Report subagent failures without completing the work yourself
+- ❌ Provide "next steps" menus (A/B/C options) instead of finished work
+
+**DO:**
+- ✅ Wait for all subagent results before submitting answer
+- ✅ Read subagent output files and write them to YOUR workspace
+- ✅ If building a website: create the actual HTML/CSS/content files in your workspace
+- ✅ If subagent timed out: check for partial work, use it, complete the rest
+- ✅ Final answer: "I created X, Y, Z in my workspace" with the actual files present
+
+## Retrieving Files from Subagents
+
+When a subagent creates files you need:
+1. **Check the answer**: The subagent lists relevant file paths in its answer
+2. **Read the files**: Use `read_file` to read from the paths in the answer
+3. **Copy to your workspace**: Use `write_file` to save files you need to your workspace
+
+**IMPORTANT**: Only copy files you actually need. Context isolation is a key feature - you don't need every file the subagent created, just the relevant outputs.
+
+## The spawn_subagents Tool
+
+**CRITICAL: Tasks run in PARALLEL (simultaneously), NOT sequentially!**
+
+All subagents start at the same time and cannot see each other's output. Design tasks that are INDEPENDENT:
+- ✅ GOOD: "Research biography" + "Research discography" + "Research songs" (independent research)
+- ❌ BAD: "Research content" + "Build site using researched content" (task 2 can't access task 1's output!)
+
+**REQUIREMENTS:**
+1. **Maximum {self.max_concurrent} tasks per call** - requests for more will error
+2. **`context` parameter is REQUIRED** - subagents need to know the project/goal
+3. **Each task dict must have `"task"` field** (not "description" or "id")
 
 ```python
-# Sequential (one at a time)
-result1 = spawn_subagent(task="Research OAuth providers")
-result2 = spawn_subagent(task="Analyze database schema")
-
-# Parallel (more efficient for independent tasks)
-results = spawn_subagents_parallel(
+# CORRECT: Independent parallel tasks (each can complete without the others)
+spawn_subagents(
     tasks=[
-        {{"task": "Write frontend components", "subagent_id": "frontend"}},
-        {{"task": "Write backend API", "subagent_id": "backend"}},
-        {{"task": "Write database migrations", "subagent_id": "database"}}
-    ]
+        {{"task": "Research and write Bob Dylan biography to bio.md", "subagent_id": "bio"}},
+        {{"task": "Create discography table in discography.md", "subagent_id": "discog"}},
+        {{"task": "List 20 famous songs with years in songs.md", "subagent_id": "songs"}}
+    ],
+    context="Building a Bob Dylan tribute website with biography, discography, songs, and quotes pages"
 )
+
+# WRONG - DO NOT DO THIS (task 2 depends on task 1's output):
+# spawn_subagents(tasks=[
+#     {{"task": "Research all content"}},
+#     {{"task": "Build website using the researched content"}}  # CAN'T ACCESS TASK 1!
+# ])
 ```
 
 ## Available Tools
 
-- `spawn_subagent(task, subagent_id?, model?, timeout_seconds?, context_files?)` - Spawn single subagent
-- `spawn_subagents_parallel(tasks, timeout_seconds?)` - Spawn multiple subagents in parallel
+- `spawn_subagents(tasks, context, timeout_seconds?)` - `context` is REQUIRED! Max {self.max_concurrent} parallel tasks.
 - `list_subagents()` - List all spawned subagents with status
 - `get_subagent_result(subagent_id)` - Get result from a completed subagent
+- `check_subagent_status(subagent_id)` - Check status of a subagent
 
 ## Best Practices
 
@@ -1631,12 +1707,17 @@ results = spawn_subagents_parallel(
 ```json
 {{
     "success": true,
-    "subagent_id": "research_oauth",
-    "status": "completed",
-    "workspace": "{self.workspace_path}/subagents/research_oauth/workspace",
-    "answer": "The subagent's answer...",
-    "files_created": ["report.md", "analysis.json"],
-    "execution_time_seconds": 45.2
+    "operation": "spawn_subagents",
+    "results": [
+        {{
+            "subagent_id": "research_oauth",
+            "status": "completed",
+            "workspace": "{self.workspace_path}/subagents/research_oauth/workspace",
+            "answer": "The subagent's answer with file paths...",
+            "execution_time_seconds": 45.2
+        }}
+    ],
+    "summary": {{"total": 1, "completed": 1, "failed": 0, "timeout": 0}}
 }}
 ```
 
