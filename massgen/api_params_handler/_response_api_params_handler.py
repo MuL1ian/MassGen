@@ -71,6 +71,9 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
         # Convert messages to Response API format
         converted_messages = self.formatter.format_messages(messages)
 
+        # Debug: dump input messages to file when logging is enabled (--debug flag)
+        self._dump_input_debug(messages, converted_messages, all_params)
+
         # Response API uses 'input' instead of 'messages'
         api_params = {
             "input": converted_messages,
@@ -165,3 +168,42 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
                 )
 
         return api_params
+
+    def _dump_input_debug(
+        self,
+        original_messages: List[Dict[str, Any]],
+        converted_messages: List[Dict[str, Any]],
+        all_params: Dict[str, Any],
+    ) -> None:
+        """Dump input messages to a debug file for inspection."""
+        import json
+        import time
+
+        try:
+            from ..logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir()
+            if not log_dir:
+                return
+
+            debug_dir = log_dir / "response_api_debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = int(time.time() * 1000)
+            debug_file = debug_dir / f"response_api_input_{timestamp}.json"
+
+            debug_data = {
+                "timestamp": timestamp,
+                "agent_id": all_params.get("agent_id", "unknown"),
+                "model": all_params.get("model", "unknown"),
+                "num_original_messages": len(original_messages),
+                "num_converted_messages": len(converted_messages),
+                "original_messages": original_messages,
+                "converted_messages": converted_messages,
+            }
+
+            with open(debug_file, "w") as f:
+                json.dump(debug_data, f, indent=2, default=str)
+            logger.debug(f"Dumped Response API input to: {debug_file}")
+        except Exception as e:
+            logger.warning(f"Failed to dump debug input: {e}")

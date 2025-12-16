@@ -14,7 +14,6 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
 
 from .backend.base import LLMBackend, StreamChunk
-from .conversation_buffer import AgentConversationBuffer
 from .logger_config import logger
 from .memory import ConversationMemory, PersistentMemoryBase
 from .stream_chunk import ChunkType
@@ -39,9 +38,6 @@ class ChatAgent(ABC):
         persistent_memory: Optional[PersistentMemoryBase] = None,
     ):
         self.session_id = session_id or f"chat_session_{uuid.uuid4().hex[:8]}"
-        # DEPRECATED: conversation_history is being phased out in favor of conversation_buffer.
-        # The buffer is now the single source of truth for conversation state.
-        # This list is kept in sync for backward compatibility but should not be used for new code.
         self.conversation_history: List[Dict[str, Any]] = []
 
         # Memory components
@@ -111,27 +107,8 @@ class ChatAgent(ABC):
 
     # Common conversation management
     def get_conversation_history(self) -> List[Dict[str, Any]]:
-        """Get full conversation history.
-
-        DEPRECATED: Use get_conversation_from_buffer() instead for accurate history.
-        This method returns the legacy conversation_history list which may drift
-        from the buffer in some edge cases.
-        """
+        """Get full conversation history."""
         return self.conversation_history.copy()
-
-    def get_conversation_from_buffer(self, provider: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get conversation history from the buffer (single source of truth).
-
-        Args:
-            provider: Optional provider name for formatting. If not provided,
-                     uses the backend's provider if available.
-
-        Returns:
-            List of message dicts in provider-appropriate format
-        """
-        if provider is None and hasattr(self, "backend") and self.backend:
-            provider = self.backend.get_provider_name()
-        return self.conversation_buffer.to_messages_for_backend(provider or "")
 
     def add_to_history(self, role: str, content: str, **kwargs) -> None:
         """Add message to conversation history."""
@@ -142,66 +119,6 @@ class ChatAgent(ABC):
     def add_tool_message(self, tool_call_id: str, result: str) -> None:
         """Add tool result to conversation history."""
         self.add_to_history("tool", result, tool_call_id=tool_call_id)
-
-    def _add_message_to_buffer(self, msg: Dict[str, Any]) -> None:
-        """
-        Add a message to the conversation buffer.
-
-        Handles all message types: system, user, assistant, tool, and Response API formats.
-        This is the canonical way to add external messages to the buffer.
-
-        Args:
-            msg: Message dict with role/content or Response API format
-        """
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-
-        if role == "system":
-            self.conversation_buffer.add_system_message(content)
-        elif role == "user":
-            self.conversation_buffer.add_user_message(content)
-        elif role == "assistant":
-            # Check for tool_calls in assistant message
-            tool_calls = msg.get("tool_calls", [])
-            if tool_calls:
-                for tc in tool_calls:
-                    tool_name = tc.get("function", {}).get("name", tc.get("name", "unknown"))
-                    tool_args = tc.get("function", {}).get("arguments", tc.get("arguments", "{}"))
-                    call_id = tc.get("id", tc.get("call_id"))
-                    if isinstance(tool_args, dict):
-                        import json
-
-                        tool_args = json.dumps(tool_args)
-                    self.conversation_buffer.add_tool_call(tool_name, tool_args, call_id)
-            if content:
-                self.conversation_buffer.add_content(content)
-                self.conversation_buffer.flush_turn()
-        elif role == "tool":
-            # Tool result message (OpenAI format)
-            tool_call_id = msg.get("tool_call_id", "")
-            tool_name = msg.get("name", "unknown")
-            self.conversation_buffer.add_tool_result(tool_name, tool_call_id, content)
-        # Handle Response API format (function_call_output)
-        elif msg.get("type") == "function_call_output":
-            call_id = msg.get("call_id", "")
-            output = msg.get("output", "")
-            self.conversation_buffer.add_tool_result("function", call_id, output)
-        # Handle Response API format (function_call)
-        elif msg.get("type") == "function_call":
-            tool_name = msg.get("name", "unknown")
-            tool_args = msg.get("arguments", "{}")
-            call_id = msg.get("call_id", "")
-            self.conversation_buffer.add_tool_call(tool_name, tool_args, call_id)
-
-    def _add_messages_to_buffer(self, messages: List[Dict[str, Any]]) -> None:
-        """
-        Add multiple messages to the conversation buffer.
-
-        Args:
-            messages: List of message dicts
-        """
-        for msg in messages:
-            self._add_message_to_buffer(msg)
 
     def get_last_tool_calls(self) -> List[Dict[str, Any]]:
         """Get tool calls from the last assistant message."""
@@ -269,10 +186,6 @@ class SingleAgent(ChatAgent):
         # Track previous winning agents for shared memory retrieval
         # Format: [{"agent_id": "agent_b", "turn": 1}, {"agent_id": "agent_a", "turn": 2}]
         self._previous_winners = []
-
-        # Conversation buffer - single source of truth for all streaming content
-        # See docs/dev_notes/conversation_buffer_design.md for architecture
-        self.conversation_buffer = AgentConversationBuffer(agent_id=self.agent_id)
 
         # Memory recording configuration
         self._record_all_tool_calls = record_all_tool_calls  # Record ALL tools (not just workflow)
@@ -400,8 +313,6 @@ class SingleAgent(ChatAgent):
                     assistant_response += chunk.content
                     # Also track for shadow agents to access
                     self._current_turn_content += chunk.content
-                    # Record to conversation buffer (single source of truth)
-                    self.conversation_buffer.add_content(chunk.content)
                     yield chunk
                 elif chunk_type == "tool_calls":
                     chunk_tool_calls = getattr(chunk, "tool_calls", []) or []
@@ -409,13 +320,6 @@ class SingleAgent(ChatAgent):
 
                     # Track for shadow agents (always)
                     self._current_turn_tool_calls.extend(chunk_tool_calls)
-
-                    # Record to conversation buffer
-                    for tc in chunk_tool_calls:
-                        tool_name = tc.get("name", tc.get("function", {}).get("name", "unknown"))
-                        tool_args = tc.get("arguments", tc.get("function", {}).get("arguments", {}))
-                        call_id = tc.get("id", tc.get("call_id"))
-                        self.conversation_buffer.add_tool_call(tool_name, tool_args, call_id)
 
                     # Optionally accumulate ALL tool calls for memory
                     if self._record_all_tool_calls and chunk_tool_calls:
@@ -427,8 +331,6 @@ class SingleAgent(ChatAgent):
                     # Track for shadow agents (always capture reasoning)
                     if hasattr(chunk, "content") and chunk.content:
                         self._current_turn_reasoning.append({"type": "reasoning", "content": chunk.content})
-                        # Record to conversation buffer
-                        self.conversation_buffer.add_reasoning(chunk.content)
 
                     # Optionally accumulate reasoning chunks for memory
                     if self._record_reasoning and hasattr(chunk, "content") and chunk.content:
@@ -500,8 +402,6 @@ class SingleAgent(ChatAgent):
                             }
                             # Track for shadow agents
                             self._current_turn_mcp_calls.append(mcp_call)
-                            # Record to conversation buffer (will be updated with args/result)
-                            self.conversation_buffer.add_tool_call(tool_name, {}, call_id=None)
                             # Track for memory if enabled
                             if self._record_all_tool_calls and all_tool_calls_executed is not None:
                                 all_tool_calls_executed.append(mcp_call.copy())
@@ -537,8 +437,6 @@ class SingleAgent(ChatAgent):
                                 if tool.get("name") == tool_name and not tool.get("result"):
                                     tool["result"] = result
                                     break
-                            # Record tool result to conversation buffer
-                            self.conversation_buffer.add_tool_result(tool_name, None, result)
                             # Update memory tracking if enabled
                             if self._record_all_tool_calls and all_tool_calls_executed:
                                 for tool in reversed(all_tool_calls_executed):
@@ -570,10 +468,6 @@ class SingleAgent(ChatAgent):
                                 yield StreamChunk(type="tool_calls", tool_calls=response_tool_calls)
                     # Complete response is for internal use - don't yield it
                 elif chunk_type == "done":
-                    # Flush conversation buffer - commits all pending content to entries
-                    self.conversation_buffer.flush_turn()
-                    logger.debug(f"📝 [done] Flushed conversation buffer: {len(self.conversation_buffer)} entries")
-
                     # Debug: Log what we have before assembling
                     logger.debug(f"🔍 [done] assistant_response length: {len(assistant_response)}")
 
@@ -733,8 +627,7 @@ class SingleAgent(ChatAgent):
 
                     # Log context usage after response (if monitor enabled)
                     if self.context_monitor:
-                        # Priority: use official API token counts when available (most accurate for cost/pricing)
-                        # Fallback: use buffer-based estimation (captures ALL content including tool calls, injections)
+                        # Use official API token counts (most accurate for cost/pricing)
                         actual_input_tokens = None
                         if hasattr(self, "backend") and hasattr(self.backend, "_last_call_input_tokens"):
                             actual_input_tokens = self.backend._last_call_input_tokens
@@ -749,13 +642,16 @@ class SingleAgent(ChatAgent):
                                 f"[{self.agent_id}] Using official API token count: {actual_input_tokens:,} tokens",
                             )
                         else:
-                            # Fallback to buffer-based estimation
-                            usage_info = self.context_monitor.log_context_usage_from_buffer(
-                                self.conversation_buffer,
-                                turn_number=self._turn_number,
-                            )
+                            # No API token count available - use default empty usage info
+                            usage_info = {
+                                "current_tokens": 0,
+                                "max_tokens": self.context_monitor.context_window,
+                                "usage_percent": 0,
+                                "should_compress": False,
+                                "target_tokens": int(self.context_monitor.context_window * self.context_monitor.target_ratio),
+                            }
                             logger.debug(
-                                f"[{self.agent_id}] Using buffer estimation: {usage_info.get('current_tokens', 0):,} tokens, " f"{usage_info.get('buffer_entries', 0)} entries",
+                                f"[{self.agent_id}] No API token count available",
                             )
 
                         # Debug: log compression decision context
@@ -772,10 +668,9 @@ class SingleAgent(ChatAgent):
                             logger.info(
                                 f"🔄 Performing truncation after agent compression for {self.agent_id} " f"({usage_info['current_tokens']:,} → {usage_info['target_tokens']:,} tokens)",
                             )
-                            # Get messages from buffer for compression
-                            buffer_messages = self.conversation_buffer.to_messages()
+                            # Get messages for compression
                             compression_stats = await self.context_compressor.compress_if_needed(
-                                messages=buffer_messages,
+                                messages=self.conversation_history,
                                 current_tokens=usage_info["current_tokens"],
                                 target_tokens=usage_info["target_tokens"],
                                 should_compress=True,
@@ -807,10 +702,9 @@ class SingleAgent(ChatAgent):
                             logger.info(
                                 f"🔄 Attempting algorithmic compression for {self.agent_id} " f"({usage_info['current_tokens']:,} → {usage_info['target_tokens']:,} tokens)",
                             )
-                            # Get messages from buffer for compression
-                            buffer_messages = self.conversation_buffer.to_messages()
+                            # Get messages for compression
                             compression_stats = await self.context_compressor.compress_if_needed(
-                                messages=buffer_messages,
+                                messages=self.conversation_history,
                                 current_tokens=usage_info["current_tokens"],
                                 target_tokens=usage_info["target_tokens"],
                                 should_compress=True,
@@ -845,7 +739,6 @@ class SingleAgent(ChatAgent):
         tools: List[Dict[str, Any]] = None,
         reset_chat: bool = False,
         clear_history: bool = False,
-        clear_buffer: bool = False,
         current_stage: CoordinationStage = None,
         orchestrator_turn: Optional[int] = None,
         previous_winners: Optional[List[Dict[str, Any]]] = None,
@@ -854,9 +747,8 @@ class SingleAgent(ChatAgent):
         Process messages through single backend with tool support.
 
         Args:
-            reset_chat: Reset conversation history to provided messages (but preserve buffer for tracking)
+            reset_chat: Reset conversation history to provided messages
             clear_history: Clear conversation history but keep system messages
-            clear_buffer: Clear conversation buffer (only use on genuine new answer restarts)
             orchestrator_turn: Current orchestrator turn number (for turn-aware memory)
             previous_winners: List of previous winning agents with turns
                              Format: [{"agent_id": "agent_b", "turn": 1}, ...]
@@ -876,11 +768,6 @@ class SingleAgent(ChatAgent):
             # Clear history but keep system message if it exists
             system_messages = [msg for msg in self.conversation_history if msg.get("role") == "system"]
             self.conversation_history = system_messages.copy()
-            # Only clear buffer if explicitly requested
-            if clear_buffer:
-                self.conversation_buffer.clear()
-                for msg in system_messages:
-                    self.conversation_buffer.add_system_message(msg.get("content", ""))
             # Clear backend history while maintaining session
             if self.backend.is_stateful():
                 await self.backend.clear_history()
@@ -889,35 +776,9 @@ class SingleAgent(ChatAgent):
                 await self.conversation_memory.clear()
 
         if reset_chat:
-            # Skip pre-restart recording - messages are already recorded via done chunks
-            # Pre-restart would duplicate content and include orchestrator system prompts (noise)
-            # The conversation_memory contains:
-            # 1. User messages - will be in new conversation after reset
-            # 2. Agent responses - already recorded to persistent_memory via done chunks
-            # 3. System messages - orchestrator prompts, don't want in long-term memory
-            logger.debug(f"🔄 Resetting chat for {self.agent_id} (clear_buffer={clear_buffer})")
-
             # Reset conversation history to the provided messages
+            logger.debug(f"🔄 Resetting chat for {self.agent_id}")
             self.conversation_history = messages.copy()
-
-            # Only clear buffer if explicitly requested (e.g., genuine new answer restart)
-            # This preserves tool call tracking across phases (presentation, post-eval, etc.)
-            if clear_buffer:
-                logger.debug(f"📝 Clearing conversation buffer for {self.agent_id} (new answer restart)")
-                self.conversation_buffer.clear()
-                self._add_messages_to_buffer(messages)
-            else:
-                # Phase transition: preserve tool tracking but update system context
-                # This allows accurate token tracking across reset_chat calls
-                logger.debug(f"📝 Phase transition for {self.agent_id} (preserving tool history)")
-                self.conversation_buffer.flush_turn()  # Commit any pending content
-                # Clear old system messages - each phase has its own system prompt
-                # This prevents "multiple system messages" errors during PRESENTATION etc.
-                removed = self.conversation_buffer.clear_system_entries()
-                if removed > 0:
-                    logger.debug(f"📝 Cleared {removed} old system entries from buffer")
-                # Add new messages to buffer (includes new phase-specific system message)
-                self._add_messages_to_buffer(messages)
             # Reset backend state completely
             if self.backend.is_stateful():
                 await self.backend.reset_state()
@@ -929,8 +790,6 @@ class SingleAgent(ChatAgent):
         else:
             # Regular conversation - append new messages to agent's history
             self.conversation_history.extend(messages)
-            # Also append to conversation buffer (single source of truth)
-            self._add_messages_to_buffer(messages)
             # Add to conversation memory
             if self.conversation_memory:
                 try:
@@ -988,21 +847,10 @@ class SingleAgent(ChatAgent):
                 f"⏭️  Skipping retrieval for {self.agent_id} " f"(no compression yet, all context in conversation_memory)",
             )
 
-        # Add memory context to buffer if available (single source of truth)
-        if memory_context:
-            self.conversation_buffer.add_memory_context(
-                f"Relevant memories:\n{memory_context}",
-                source="persistent",
-            )
-
-        # Add compression request to buffer if pending (before building backend_messages)
+        # Build compression request if pending
         compression_msg = None
         if self._compression_pending and self.agent_driven_compressor:
             compression_msg = self.agent_driven_compressor.build_compression_request(
-                usage_info=self._compression_usage_info,
-            )
-            self.conversation_buffer.add_compression_request(
-                compression_msg.get("content", str(compression_msg)),
                 usage_info=self._compression_usage_info,
             )
             self._compression_pending = False
@@ -1026,10 +874,25 @@ class SingleAgent(ChatAgent):
             if compression_msg:
                 backend_messages.append(compression_msg)
         else:
-            # Stateless: use buffer as single source of truth
-            # Build messages from buffer using provider-specific format
-            provider = self.backend.get_provider_name()
-            backend_messages = self.conversation_buffer.to_messages_for_backend(provider)
+            # Stateless: use conversation_history as source of truth
+            backend_messages = self.conversation_history.copy()
+            # Inject memory context before user messages if available
+            if memory_context:
+                memory_msg = {
+                    "role": "system",
+                    "content": f"Relevant memories:\n{memory_context}",
+                }
+                # Insert after any existing system message but before other messages
+                insert_idx = 0
+                for i, msg in enumerate(backend_messages):
+                    if msg.get("role") == "system":
+                        insert_idx = i + 1
+                    else:
+                        break
+                backend_messages.insert(insert_idx, memory_msg)
+            # Append compression request if it was added
+            if compression_msg:
+                backend_messages.append(compression_msg)
 
         # Log context usage before processing (if monitor enabled)
         # Use litellm.token_counter for accurate count including tools
@@ -1065,10 +928,9 @@ class SingleAgent(ChatAgent):
                     logger.warning(
                         f"⚠️ Pre-flight check: {preflight_tokens:,} tokens exceeds threshold. " f"Compressing before API call...",
                     )
-                    # Compress using buffer messages (not backend_messages which may include tools)
-                    buffer_messages = self.conversation_buffer.to_messages()
+                    # Compress using conversation_history
                     compression_stats = await self.context_compressor.compress_if_needed(
-                        messages=buffer_messages,
+                        messages=self.conversation_history,
                         current_tokens=preflight_tokens,
                         target_tokens=usage_info.get("target_tokens", int(self.context_monitor.context_window * 0.5)),
                         should_compress=True,
@@ -1082,12 +944,8 @@ class SingleAgent(ChatAgent):
                         logger.info(f"✅ Pre-flight compression complete: {len(self.conversation_history)} messages")
 
             except Exception as e:
-                # Fall back to buffer-based estimation if litellm fails
-                logger.debug(f"Pre-flight token count failed: {e}, using buffer estimation")
-                self.context_monitor.log_context_usage_from_buffer(
-                    self.conversation_buffer,
-                    turn_number=self._turn_number,
-                )
+                # Log error but continue
+                logger.debug(f"Pre-flight token count failed: {e}")
 
         # Sanitize messages before sending to backend
         # This ensures no None content values for non-tool-call messages (OpenAI requirement)

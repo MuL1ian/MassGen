@@ -32,6 +32,7 @@ from ..logger_config import log_backend_agent_message, log_stream_chunk, logger
 from ..stream_chunk import ChunkType
 
 # Local imports
+from ._context_errors import is_context_length_error
 from .base import FilesystemSupport, StreamChunk
 from .base_with_custom_tool_and_mcp import (
     CustomToolAndMCPBackend,
@@ -176,9 +177,18 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         current_messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
         client,
+        _compression_retry: bool = False,  # Prevents infinite loops on context errors
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
-        """Recursively stream responses, executing custom and MCP tool calls as needed."""
+        """Recursively stream responses, executing custom and MCP tool calls as needed.
+
+        Args:
+            current_messages: Messages to send to the API
+            tools: Tool definitions
+            client: OpenAI client
+            _compression_retry: If True, this is a retry after compression (prevents loops)
+            **kwargs: Additional parameters
+        """
 
         # Build API params for this iteration
         all_params = {**self.config, **kwargs}
@@ -216,8 +226,38 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                 tools=api_params.get("tools", tools),
             )
 
-        # Start streaming
-        stream = await client.chat.completions.create(**api_params)
+        # Start streaming - wrap in try/except for context length errors
+        try:
+            stream = await client.chat.completions.create(**api_params)
+        except Exception as e:
+            if is_context_length_error(e) and not _compression_retry:
+                # Context length exceeded on initial request - compress and retry
+                logger.warning(
+                    f"[{self.get_provider_name()}] Context length exceeded on request, " f"triggering reactive compression: {e}",
+                )
+                yield StreamChunk(
+                    type="status",
+                    content="⚠️ Context limit reached, compressing conversation...",
+                )
+
+                # Compress messages and retry
+                compressed_messages = await self._compress_for_recovery(
+                    current_messages,
+                    buffer_content=None,  # No partial response yet
+                )
+
+                # Retry with compressed messages
+                async for chunk in self._stream_with_custom_and_mcp_tools(
+                    compressed_messages,
+                    tools,
+                    client,
+                    _compression_retry=True,  # Prevent infinite loops
+                    **kwargs,
+                ):
+                    yield chunk
+                return
+            else:
+                raise  # Re-raise non-context errors or if already retried
 
         # Track function calls in this iteration
         captured_function_calls = []
@@ -619,14 +659,18 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                 # This prevents runaway context growth during multi-turn tool execution
                 if self.should_trigger_compression():
                     logger.warning(
-                        f"[{self.__class__.__name__}] Mid-stream compression check: " f"yielding compression_needed chunk before next tool round",
+                        f"[{self.__class__.__name__}] Mid-stream compression check: " f"injecting compression request into messages before next tool round",
                     )
+                    # Piggyback: append compression request AFTER the tool results
+                    # Agent sees both in same context - no separate call, preserves reasoning
+                    compression_msg = self._build_compression_request_message()
+                    updated_messages.append(compression_msg)
+
                     yield StreamChunk(
                         type="compression_needed",
                         content=f"Context window usage exceeded threshold: {self._last_call_input_tokens:,} tokens",
                     )
-                    # Don't return - continue with recursive call after yielding the signal
-                    # The agent can decide to interrupt or continue
+                    # Continue with recursive call - agent now sees tool results + compression request
 
                 # End LLM call logging before recursion (this call is complete, recursion starts a new one)
                 if llm_logger and llm_call_id:
@@ -983,3 +1027,41 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                 log_stream_chunk(log_prefix, "reasoning_done", "", agent_id)
                 return StreamChunk(type="reasoning_done", content="")
         return None
+
+    async def _compress_for_recovery(
+        self,
+        messages: List[Dict[str, Any]],
+        buffer_content: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Compress messages for context error recovery.
+
+        Uses compression_target_ratio from config to determine how much
+        context to preserve. Since we can only react to errors (not proactively
+        prevent them), this is effectively a lower bound on final context size.
+
+        Args:
+            messages: The messages that caused the context length error
+            buffer_content: Optional partial response content from the buffer
+
+        Returns:
+            Compressed message list ready for retry
+        """
+        from ._compression_utils import compress_messages_for_recovery
+
+        logger.info(
+            f"[{self.get_provider_name()}] Compressing {len(messages)} messages " f"with target_ratio={self._compression_target_ratio}",
+        )
+
+        # Use the shared compression utility
+        result = await compress_messages_for_recovery(
+            messages=messages,
+            backend=self,
+            target_ratio=self._compression_target_ratio,
+            buffer_content=buffer_content,
+        )
+
+        logger.info(
+            f"[{self.get_provider_name()}] Compressed {len(messages)} messages " f"to {len(result)} messages",
+        )
+
+        return result

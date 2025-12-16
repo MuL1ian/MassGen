@@ -675,7 +675,7 @@ class ConfigValidator:
                     )
 
         # Validate boolean fields
-        boolean_fields = ["skip_coordination_rounds", "debug_final_answer", "persist_conversation_buffers"]
+        boolean_fields = ["skip_coordination_rounds", "debug_final_answer"]
         for field_name in boolean_fields:
             if field_name in orchestrator_config:
                 value = orchestrator_config[field_name]

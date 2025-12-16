@@ -159,7 +159,41 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 tools=api_params.get("tools", tools),
             )
 
-        stream = await client.responses.create(**api_params)
+        # Check for compression retry flag to prevent infinite loops
+        _compression_retry = kwargs.get("_compression_retry", False)
+
+        try:
+            stream = await client.responses.create(**api_params)
+        except Exception as e:
+            # Check if this is a context length error and we haven't already retried
+            from ._context_errors import is_context_length_error
+
+            if is_context_length_error(e) and not _compression_retry:
+                logger.warning(
+                    f"[{self.get_provider_name()}] Context length exceeded, " f"attempting compression recovery...",
+                )
+
+                # Compress messages and retry
+                compressed_messages = await self._compress_messages_for_context_recovery(
+                    processed_messages,
+                    buffer_content=None,
+                )
+
+                # Rebuild API params with compressed messages
+                api_params = await self.api_params_handler.build_api_params(
+                    compressed_messages,
+                    tools,
+                    all_params,
+                )
+
+                # Retry with compressed messages
+                stream = await client.responses.create(**api_params)
+
+                logger.info(
+                    f"[{self.get_provider_name()}] Compression recovery successful, " f"continuing with {len(compressed_messages)} messages",
+                )
+            else:
+                raise
 
         finish_reason = "stop"
         try:
@@ -335,8 +369,45 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 tools=api_params.get("tools", tools),
             )
 
-        # Start streaming
-        stream = await client.responses.create(**api_params)
+        # Check for compression retry flag to prevent infinite loops
+        _compression_retry = kwargs.get("_compression_retry", False)
+
+        # Start streaming with context error handling
+        try:
+            stream = await client.responses.create(**api_params)
+        except Exception as e:
+            # Check if this is a context length error and we haven't already retried
+            from ._context_errors import is_context_length_error
+
+            if is_context_length_error(e) and not _compression_retry:
+                logger.warning(
+                    f"[{self.get_provider_name()}] Context length exceeded in MCP mode, " f"attempting compression recovery...",
+                )
+
+                # Compress messages and retry
+                compressed_messages = await self._compress_messages_for_context_recovery(
+                    current_messages,
+                    buffer_content=None,
+                )
+
+                # Rebuild API params with compressed messages
+                api_params = await self.api_params_handler.build_api_params(
+                    compressed_messages,
+                    tools,
+                    all_params,
+                )
+
+                # Retry with compressed messages
+                stream = await client.responses.create(**api_params)
+
+                # Update current_messages for subsequent recursions
+                current_messages = compressed_messages
+
+                logger.info(
+                    f"[{self.get_provider_name()}] Compression recovery successful, " f"continuing with {len(compressed_messages)} messages",
+                )
+            else:
+                raise
 
         # Track function calls in this iteration
         captured_function_calls = []
@@ -1361,19 +1432,74 @@ class ResponseBackend(CustomToolAndMCPBackend):
         # Return legacy StreamChunk for backward compatibility
         return StreamChunk(type="content", content="")
 
+    async def _compress_messages_for_context_recovery(
+        self,
+        messages: List[Dict[str, Any]],
+        buffer_content: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Compress messages for context error recovery.
+
+        Uses the shared compression utility to compress messages when
+        context length is exceeded.
+
+        Args:
+            messages: The messages that caused the context length error
+            buffer_content: Optional partial response content from streaming
+
+        Returns:
+            Compressed message list ready for retry
+        """
+        from ._compression_utils import compress_messages_for_recovery
+
+        logger.info(
+            f"[{self.get_provider_name()}] Compressing {len(messages)} messages " f"with target_ratio={self._compression_target_ratio}",
+        )
+
+        # Use the shared compression utility
+        result = await compress_messages_for_recovery(
+            messages=messages,
+            backend=self,
+            target_ratio=self._compression_target_ratio,
+            buffer_content=buffer_content,
+        )
+
+        logger.info(
+            f"[{self.get_provider_name()}] Compressed {len(messages)} messages " f"to {len(result)} messages",
+        )
+
+        return result
+
     def create_tool_result_message(
         self,
         tool_call: Dict[str, Any],
         result_content: str,
-    ) -> Dict[str, Any]:
-        """Create tool result message for OpenAI Responses API format."""
+    ) -> List[Dict[str, Any]]:
+        """Create tool result message for OpenAI Responses API format.
+
+        Response API requires BOTH the function_call AND function_call_output
+        to be present in the input for multi-turn conversations.
+
+        Returns:
+            List of two dicts: [function_call, function_call_output]
+        """
         tool_call_id = self.extract_tool_call_id(tool_call)
-        # Use Responses API format directly - no conversion needed
-        return {
-            "type": "function_call_output",
-            "call_id": tool_call_id,
-            "output": result_content,
-        }
+        tool_name = tool_call.get("name") or tool_call.get("function", {}).get("name", "unknown")
+        tool_arguments = tool_call.get("arguments") or tool_call.get("function", {}).get("arguments", "{}")
+
+        # Return both function_call and function_call_output
+        return [
+            {
+                "type": "function_call",
+                "call_id": tool_call_id,
+                "name": tool_name,
+                "arguments": tool_arguments,
+            },
+            {
+                "type": "function_call_output",
+                "call_id": tool_call_id,
+                "output": result_content,
+            },
+        ]
 
     def extract_tool_result_content(self, tool_result_message: Dict[str, Any]) -> str:
         """Extract content from OpenAI Responses API tool result message."""

@@ -183,23 +183,71 @@ See :ref:`recording-configuration` below for details.
 Context Compression
 ~~~~~~~~~~~~~~~~~~~
 
-When context usage exceeds the threshold (default 75%):
+MassGen uses **reactive compression** for context window management. This is due to
+a fundamental limitation of most LLM APIs.
 
-1. **Select messages to keep**: System messages + recent messages fitting in target ratio (default 40%)
-2. **Remove old messages** from conversation_memory (already in persistent_memory)
-3. **Enable retrieval** for subsequent turns
+**Why Reactive?**
+
+Most LLM providers (OpenAI, Anthropic, Google) only report token usage *after* a
+request completes. There is no mid-stream token counting or pre-flight validation API.
+This means MassGen cannot proactively prevent context overflow—it can only react when
+the provider returns a context length error.
+
+**How It Works**
+
+1. MassGen sends the conversation to the LLM
+2. If the context is too long, the provider returns an error
+3. MassGen catches the error and summarizes older messages using ``AgentDrivenCompressor``
+4. The summarized conversation is retried automatically (single retry to prevent loops)
+
+**After compression**, the message structure looks like:
 
 .. code-block:: text
 
-   Before Compression:
-   📊 Context: 96,000 / 128,000 tokens (75%)
-   [user msg 1] → [agent response 1] → ... → [user msg 20] → [agent response 20]
+   Before Error:
+   [system] → [user 1] → [assistant 1] → ... → [user 20] → [assistant 20] ← ERROR
 
    After Compression:
-   📊 Context: 51,200 / 128,000 tokens (40%)
-   [user msg 15] → [agent response 15] → ... → [user msg 20] → [agent response 20]
+   [system] → [summary of msgs 1-16] → [user 17] → ... → [user 20]
+   ↑                                    ↑
+   System preserved                     Recent messages preserved (based on target_ratio)
 
-   Old messages (1-14) → Accessible via semantic search in persistent_memory
+   Old messages (1-16) → Summarized, key points preserved in summary message
+
+**Configuration**
+
+.. code-block:: yaml
+
+   coordination:
+     compression_target_ratio: 0.20  # Compress down to 20% of messages
+
+The ``compression_target_ratio`` controls how aggressively to compress:
+
+- **0.20** (default): Preserve ~20% of messages verbatim, summarize the rest
+- **0.30**: More conservative, preserve ~30% of messages
+- **0.10**: More aggressive, preserve only ~10% of messages
+
+.. note::
+
+   The ``compression_trigger_threshold`` setting is **not reliably enforceable** in
+   reactive mode. Since token counts are only available after each LLM call completes,
+   MassGen cannot predict when context will exceed a threshold. Compression only occurs
+   when the provider returns a context length error.
+
+**Best Practices**
+
+- For very long tasks, consider breaking into multiple sessions
+- Use ``clear_history=True`` when starting unrelated topics
+- Critical information should be in recent messages or system prompt
+- Lower ``compression_target_ratio`` for more aggressive compression (preserves less)
+
+**Future Improvements**
+
+Some providers may add better token tracking in the future:
+
+- Pre-flight token counting APIs
+- Streaming token usage updates
+- Local models with tiktoken-based estimation
 
 Memory Retrieval
 ~~~~~~~~~~~~~~~~
@@ -550,13 +598,21 @@ Compression Settings
 .. code-block:: yaml
 
    compression:
-     trigger_threshold: 0.75  # Compress when 75% full
-     target_ratio: 0.40        # Keep 40% after compression
+     trigger_threshold: 0.75  # Not reliably enforceable - see note below
+     target_ratio: 0.20        # Preserve 20% of messages after compression
+
+.. note::
+
+   **Reactive Compression Limitation**: The ``trigger_threshold`` cannot be proactively
+   enforced because token counts are only available after each LLM call completes. MassGen
+   uses reactive compression—catching context length errors from the provider and
+   summarizing automatically. Only ``target_ratio`` is reliably enforced.
 
 Example configurations:
 
-- **Aggressive compression**: ``trigger_threshold: 0.50``, ``target_ratio: 0.20``
-- **Conservative**: ``trigger_threshold: 0.90``, ``target_ratio: 0.60``
+- **Aggressive compression**: ``target_ratio: 0.10`` (preserve only 10%)
+- **Moderate** (default): ``target_ratio: 0.20`` (preserve 20%)
+- **Conservative**: ``target_ratio: 0.40`` (preserve 40%)
 
 Retrieval Settings
 ^^^^^^^^^^^^^^^^^^

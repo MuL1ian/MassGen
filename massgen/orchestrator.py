@@ -2730,31 +2730,6 @@ Your answer:"""
             except Exception as ce:
                 logger.warning(f"[Orchestrator._save_agent_snapshot] Failed to save context for {agent_id}: {ce}")
 
-        # Save conversation buffer if enabled
-        has_coord_config = hasattr(self.config, "coordination_config")
-        persist_buffers = has_coord_config and getattr(self.config.coordination_config, "persist_conversation_buffers", False)
-        logger.info(f"[Orchestrator._save_agent_snapshot] Buffer save check: has_coord_config={has_coord_config}, persist_buffers={persist_buffers}")
-        if persist_buffers:
-            try:
-                # Check if agent has a conversation_buffer
-                has_buffer = hasattr(agent, "conversation_buffer")
-                buffer_exists = has_buffer and agent.conversation_buffer is not None
-                logger.info(f"[Orchestrator._save_agent_snapshot] Agent {agent_id}: has_buffer={has_buffer}, buffer_exists={buffer_exists}")
-                if buffer_exists:
-                    log_session_dir = get_log_session_dir()
-                    logger.info(f"[Orchestrator._save_agent_snapshot] log_session_dir={log_session_dir}")
-                    if log_session_dir:
-                        if is_final:
-                            timestamped_dir = log_session_dir / "final" / agent_id
-                        else:
-                            timestamped_dir = log_session_dir / agent_id / timestamp
-                        timestamped_dir.mkdir(parents=True, exist_ok=True)
-                        buffer_file = timestamped_dir / "buffer.txt"
-                        agent.conversation_buffer.save_to_text_file(buffer_file)
-                        logger.info(f"[Orchestrator._save_agent_snapshot] Saved buffer for {agent_id}: {len(agent.conversation_buffer)} entries to {buffer_file}")
-            except Exception as be:
-                logger.warning(f"[Orchestrator._save_agent_snapshot] Failed to save buffer for {agent_id}: {be}")
-
         # Return the timestamp for tracking
         return timestamp if not is_final else "final"
 
@@ -2922,16 +2897,7 @@ Your answer:"""
         # Save any partial work before injecting update
         snapshot_timestamp = await self._save_partial_work_on_restart(agent_id)
 
-        # Inject directly into the agent's conversation buffer (single source of truth)
-        # This ensures the injection is seen by the agent on the next LLM call
-        agent = self.agents.get(agent_id)
-        if agent and hasattr(agent, "conversation_buffer"):
-            agent.conversation_buffer.inject_update(new_answers, anonymize=True)
-            logger.info(f"[Orchestrator] Injected update into {agent_id}'s conversation buffer")
-        else:
-            logger.warning(f"[Orchestrator] Agent {agent_id} doesn't have conversation_buffer, falling back to conversation_messages")
-
-        # Also append to conversation_messages for backward compatibility
+        # Append update to conversation_messages
         update_message = self._build_update_message(agent_id, new_answers)
         conversation_messages.append(update_message)
 
@@ -3639,40 +3605,23 @@ Your answer:"""
                         conversation_messages,
                         self.workflow_tools,
                         reset_chat=True,
-                        clear_buffer=True,  # First attempt: fresh start, clear buffer
                         current_stage=CoordinationStage.INITIAL_ANSWER,
                         orchestrator_turn=self._current_turn + 1,  # Next turn number
                         previous_winners=self._winning_agents_history.copy(),
                     )
                     is_first_real_attempt = False  # Only first LLM call uses this path
                 elif injection_just_occurred:
-                    # After injection: use buffer's to_messages() which includes the injected update
-                    # The injection was added directly to the agent's conversation_buffer
+                    # After injection: use conversation_messages which includes the injected update
                     injection_just_occurred = False  # Clear flag
-                    if hasattr(agent, "conversation_buffer"):
-                        buffer_messages = agent.conversation_buffer.to_messages()
-                        logger.info(f"[Orchestrator] Using buffer messages after injection ({len(buffer_messages)} messages)")
-                        chat_stream = agent.chat(
-                            buffer_messages,
-                            self.workflow_tools,
-                            reset_chat=True,  # Reset to buffer state (includes injection)
-                            # clear_buffer=False: preserve buffer for tool call tracking
-                            current_stage=CoordinationStage.INITIAL_ANSWER,
-                            orchestrator_turn=self._current_turn + 1,
-                            previous_winners=self._winning_agents_history.copy(),
-                        )
-                    else:
-                        # Fallback: use conversation_messages (has injection appended)
-                        logger.warning("[Orchestrator] No buffer, using conversation_messages after injection")
-                        chat_stream = agent.chat(
-                            conversation_messages,
-                            self.workflow_tools,
-                            reset_chat=True,
-                            # clear_buffer=False: preserve buffer for tool call tracking
-                            current_stage=CoordinationStage.INITIAL_ANSWER,
-                            orchestrator_turn=self._current_turn + 1,
-                            previous_winners=self._winning_agents_history.copy(),
-                        )
+                    logger.info(f"[Orchestrator] Using conversation_messages after injection ({len(conversation_messages)} messages)")
+                    chat_stream = agent.chat(
+                        conversation_messages,
+                        self.workflow_tools,
+                        reset_chat=True,
+                        current_stage=CoordinationStage.INITIAL_ANSWER,
+                        orchestrator_turn=self._current_turn + 1,
+                        previous_winners=self._winning_agents_history.copy(),
+                    )
                 else:
                     # Subsequent attempts: send enforcement message (set by error handling)
 
@@ -4547,8 +4496,6 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             )
 
         # Use agent's chat method with proper system message (reset chat for clean presentation)
-        # Note: reset_chat=True but clear_buffer=False (default) to preserve tool call history
-        # Buffer is only cleared on first attempt of a new answer, not on presentation phase
         presentation_content = ""
         final_snapshot_saved = False  # Track whether snapshot was saved during stream
         was_cancelled = False  # Track if we broke out due to cancellation
@@ -4558,7 +4505,6 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             async for chunk in agent.chat(
                 presentation_messages,
                 reset_chat=True,  # Reset conversation history for clean presentation
-                # clear_buffer=False (default): preserve buffer for complete tool call tracking
                 current_stage=CoordinationStage.PRESENTATION,
                 orchestrator_turn=self._current_turn,
                 previous_winners=self._winning_agents_history.copy(),
@@ -4812,8 +4758,6 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             )
 
         # Stream evaluation with tools (with timeout protection)
-        # Note: reset_chat=True but clear_buffer=False (default) to preserve tool call history
-        # Buffer is only cleared on first attempt of a new answer, not on post-evaluation phase
         evaluation_complete = False
         tool_call_detected = False
 
@@ -4824,7 +4768,6 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                     messages=evaluation_messages,
                     tools=post_eval_tools,
                     reset_chat=True,  # Reset conversation history for clean evaluation
-                    # clear_buffer=False (default): preserve buffer for complete tool call tracking
                     current_stage=CoordinationStage.POST_EVALUATION,
                     orchestrator_turn=self._current_turn,
                     previous_winners=self._winning_agents_history.copy(),

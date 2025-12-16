@@ -84,10 +84,6 @@ class CoordinationConfig:
                          openskills installs skills. This directory is scanned for available skills.
         persona_generator: Configuration for automatic persona generation to increase agent diversity.
                           When enabled, an LLM generates diverse system message personas for each agent.
-        persist_conversation_buffers: If True, saves each agent's conversation buffer to a text file
-                                     when saving snapshots. Buffers are grep-friendly (one entry per line)
-                                     and include timestamps, entry types, and content. Useful for debugging
-                                     and allowing agents to inspect each other's reasoning processes.
     """
 
     enable_planning_mode: bool = False
@@ -111,7 +107,6 @@ class CoordinationConfig:
     massgen_skills: List[str] = field(default_factory=list)
     skills_directory: str = ".agent/skills"
     persona_generator: PersonaGeneratorConfig = field(default_factory=PersonaGeneratorConfig)
-    persist_conversation_buffers: bool = False
 
     def __post_init__(self):
         """Validate configuration after initialization."""

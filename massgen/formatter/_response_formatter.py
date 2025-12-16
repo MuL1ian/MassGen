@@ -50,6 +50,26 @@ class ResponseFormatter(FormatterBase):
             if message.get("type") == "reasoning":
                 continue
 
+            if message.get("type") == "message":
+                # Response API output items have type="message" with content array
+                # containing output_text items. Convert to simple assistant message format.
+                role = message.get("role", "assistant")
+                content_items = message.get("content", [])
+                # Extract text from output_text items
+                text_parts = []
+                for item in content_items:
+                    if isinstance(item, dict):
+                        if item.get("type") == "output_text":
+                            text_parts.append(item.get("text", ""))
+                        elif item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                    elif isinstance(item, str):
+                        text_parts.append(item)
+                combined_text = "".join(text_parts)
+                if combined_text:
+                    converted_messages.append({"role": role, "content": combined_text})
+                continue
+
             if message.get("role") == "tool":
                 # Convert Chat Completions tool message to Response API format
                 converted_message = {
@@ -59,12 +79,24 @@ class ResponseFormatter(FormatterBase):
                 }
                 converted_messages.append(converted_message)
             elif message.get("type") == "function_call_output":
-                # Already in Response API format
-                converted_messages.append(message)
+                # Already in Response API format - but strip any invalid fields like 'content'
+                # Response API only accepts: type, call_id, output
+                cleaned_output = {
+                    "type": "function_call_output",
+                    "call_id": message.get("call_id"),
+                    "output": message.get("output", ""),
+                }
+                converted_messages.append(cleaned_output)
             elif message.get("type") == "function_call":
                 call_id = message.get("call_id")
-                # Strip 'id' to decouple from reasoning items
-                cleaned_fc = {k: v for k, v in message.items() if k != "id"}
+                # Response API only accepts: type, call_id, name, arguments
+                # Strip id, status, content, and any other invalid fields
+                cleaned_fc = {
+                    "type": "function_call",
+                    "call_id": call_id,
+                    "name": message.get("name", ""),
+                    "arguments": message.get("arguments", "{}"),
+                }
 
                 if call_id and call_id not in output_call_ids:
                     converted_messages.append(cleaned_fc)

@@ -6,13 +6,10 @@ Provides logging and tracking for context window usage during agent execution.
 Helps debug memory and token management by showing real-time context usage.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..logger_config import logger
 from ..token_manager.token_manager import TokenCostCalculator
-
-if TYPE_CHECKING:
-    from ..conversation_buffer import AgentConversationBuffer
 
 
 class ContextWindowMonitor:
@@ -189,75 +186,6 @@ class ContextWindowMonitor:
             "target_tokens": target_tokens,
             "trigger_threshold": self.trigger_threshold,
             "target_ratio": self.target_ratio,
-        }
-
-    def log_context_usage_from_buffer(
-        self,
-        buffer: "AgentConversationBuffer",
-        turn_number: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """
-        Log context window usage from conversation buffer.
-
-        This is the most accurate method as it captures ALL content in the buffer:
-        - Committed entries (user, assistant, system, tool calls/results, injections)
-        - Pending content not yet flushed
-        - Reasoning content
-
-        Args:
-            buffer: AgentConversationBuffer instance
-            turn_number: Optional turn number to display
-
-        Returns:
-            Dict with usage stats (same format as log_context_usage)
-        """
-        if not self.enabled:
-            return {}
-
-        # Get token count from buffer
-        current_tokens = buffer.estimate_tokens(self.calculator)
-        usage_percent = current_tokens / self.context_window
-        should_compress = usage_percent >= self.trigger_threshold
-        target_tokens = int(self.context_window * self.target_ratio)
-
-        # Debug logging for compression decision
-        logger.debug(
-            f"[ContextMonitor] buffer tokens: "
-            f"{current_tokens:,}/{self.context_window:,} ({usage_percent*100:.1f}%), "
-            f"entries={len(buffer)}, threshold={self.trigger_threshold*100:.0f}%, "
-            f"should_compress={should_compress}",
-        )
-
-        # Build log message
-        turn_str = f" (Turn {turn_number})" if turn_number is not None else ""
-        status_emoji = "📊"
-
-        if usage_percent >= self.trigger_threshold:
-            status_emoji = "⚠️"
-            logger.warning(
-                f"{status_emoji} Context Buffer{turn_str}: " f"{current_tokens:,} / {self.context_window:,} tokens " f"({usage_percent*100:.1f}%) [buffer] - Approaching limit!",
-            )
-            logger.warning(
-                f"   Compression threshold reached. Target after compression: " f"{target_tokens:,} tokens ({self.target_ratio*100:.0f}%)",
-            )
-        elif usage_percent >= 0.50:
-            logger.info(
-                f"{status_emoji} Context Buffer{turn_str}: " f"{current_tokens:,} / {self.context_window:,} tokens " f"({usage_percent*100:.1f}%) [buffer]",
-            )
-        else:
-            logger.info(
-                f"{status_emoji} Context Buffer{turn_str}: " f"{current_tokens:,} / {self.context_window:,} tokens " f"({usage_percent*100:.1f}%) [buffer]",
-            )
-
-        return {
-            "current_tokens": current_tokens,
-            "max_tokens": self.context_window,
-            "usage_percent": usage_percent,
-            "should_compress": should_compress,
-            "target_tokens": target_tokens,
-            "trigger_threshold": self.trigger_threshold,
-            "target_ratio": self.target_ratio,
-            "buffer_entries": len(buffer),
         }
 
     def log_turn_summary(
