@@ -211,13 +211,9 @@ class DockerManager:
         elif local_env.exists():
             env_path = local_env
         else:
-            # Provide helpful error message with all checked locations
-            checked_locations = [str(home_env), str(provided_path)]
-            if local_env != provided_path:
-                checked_locations.append(str(local_env))
-            raise RuntimeError(
-                "Environment file not found. Checked locations:\n" + "\n".join(f"  - {loc}" for loc in checked_locations),
-            )
+            # No .env file found - this is OK (e.g., using Claude Code with CLI login)
+            logger.info("📄 [Docker] No .env file found - continuing without environment file")
+            return env_vars
 
         logger.info(f"📄 [Docker] Loading environment variables from: {env_path}")
 
