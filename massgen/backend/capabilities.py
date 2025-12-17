@@ -264,14 +264,16 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         builtin_tools=["google_search_retrieval", "code_execution"],
         filesystem_support="mcp",
         models=[
+            "gemini-3-flash-preview",
             "gemini-3-pro-preview",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
         ],
-        default_model="gemini-3-pro-preview",
+        default_model="gemini-3-flash-preview",
         env_var="GEMINI_API_KEY",
         notes="Google Search Retrieval provides web search. Image understanding capabilities.",
         model_release_dates={
+            "gemini-3-flash-preview": "2025-12",
             "gemini-3-pro-preview": "2025-11",
             "gemini-2.5-flash": "2025-06",
             "gemini-2.5-pro": "2025-06",
