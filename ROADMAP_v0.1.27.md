@@ -1,19 +1,19 @@
-# MassGen v0.1.26 Roadmap
+# MassGen v0.1.27 Roadmap
 
 ## Overview
 
-Version 0.1.26 focuses on system reminders and improved agent broadcasting for more controlled multi-agent communication.
+Version 0.1.27 focuses on system reminders and memory as callable tools for enhanced agent control.
 
 - **Add system reminders** (Required): Framework for injecting reminders mid-run during LLM streaming
-- **Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with** (Required): Sensitivity-based scaling for broadcast response complexity
+- **Memory as Tools** (Required): Include memory (including filesystem) as callable tools for agents
 
 ## Key Technical Priorities
 
 1. **Add system reminders**: Framework for injecting system reminders mid-run during LLM streaming
    **Use Case**: Keep agents focused on key objectives and constraints throughout long conversations
 
-2. **Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with**: Enable scaling of broadcast responses based on configurable sensitivity levels
-   **Use Case**: Enable adaptive agent responses with three-tier sensitivity configuration
+2. **Memory as Tools**: Include memory (including filesystem) as callable tools for agents
+   **Use Case**: Enable agents to have explicit control over memory operations
 
 ## Key Milestones
 
@@ -51,37 +51,37 @@ Version 0.1.26 focuses on system reminders and improved agent broadcasting for m
 
 ---
 
-### Milestone 2: Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with (REQUIRED)
+### Milestone 2: Memory as Tools (REQUIRED)
 
-**Goal**: Enable scaling of agent broadcast responses based on configurable sensitivity levels
+**Goal**: Include memory (including filesystem) as callable tools for agents
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#614](https://github.com/massgen/MassGen/issues/614)
+**Issue**: [#461](https://github.com/massgen/MassGen/issues/461)
 
-#### 2.1 Sensitivity Configuration
-- [ ] Implement configuration-based sensitivity levels (three tiers)
-- [ ] Define scaling behavior for each sensitivity tier
-- [ ] Support per-agent sensitivity overrides
-- [ ] Document sensitivity level behaviors
+#### 2.1 Memory Tool Interface
+- [ ] Design unified memory tool interface
+- [ ] Implement store/retrieve/search operations as tools
+- [ ] Support for filesystem memory backend
+- [ ] Support for vector store memory backend
 
-#### 2.2 Response Complexity Scaling
-- [ ] Dynamic response complexity that scales with sensitivity settings
-- [ ] Targeted questioning that adapts to complexity configuration
-- [ ] Support ranging from simple responses to complex implementations
-- [ ] Allow per-broadcast sensitivity overrides
+#### 2.2 Tool Integration
+- [ ] Integrate memory tools with existing tool system
+- [ ] Automatic tool schema generation
+- [ ] Per-agent memory tool configuration
+- [ ] Memory tool permissions and scoping
 
 #### 2.3 Integration & Testing
-- [ ] Unit tests for targeted broadcasting
+- [ ] Unit tests for memory tools
 - [ ] Integration tests with multi-agent workflows
-- [ ] Performance testing for broadcast efficiency
+- [ ] Performance testing for memory operations
 - [ ] Documentation and usage examples
 
 **Success Criteria**:
-- Three-tier sensitivity levels are configurable
-- Response complexity scales appropriately with sensitivity settings
-- Targeted questioning adapts to complexity configuration
-- Documentation covers sensitivity configuration and scaling behavior
+- Memory operations are available as callable tools
+- Agents can explicitly store, retrieve, and search information
+- Unified interface works with different memory backends
+- Documentation covers memory tool configuration and usage
 
 ---
 
@@ -96,16 +96,16 @@ Version 0.1.26 focuses on system reminders and improved agent broadcasting for m
 - [ ] Safety and memory reminders function correctly
 - [ ] Framework is generic and extensible
 
-**Improve Agent Broadcasting:**
-- [ ] Three-tier sensitivity configuration works
-- [ ] Response complexity scales with sensitivity
-- [ ] Targeted questioning adapts to configuration
-- [ ] Per-broadcast sensitivity overrides function
-- [ ] Scaling behavior is documented and predictable
+**Memory as Tools:**
+- [ ] Memory store operation works as tool
+- [ ] Memory retrieve operation works as tool
+- [ ] Memory search operation works as tool
+- [ ] Filesystem memory backend supported
+- [ ] Vector store memory backend supported
 
 ### Performance Requirements
 - [ ] Reminder injection has minimal overhead
-- [ ] Broadcasting latency is acceptable
+- [ ] Memory tool operations are efficient
 - [ ] Memory usage is reasonable
 - [ ] No degradation in coordination speed
 
@@ -122,24 +122,23 @@ Version 0.1.26 focuses on system reminders and improved agent broadcasting for m
 
 ### Dependencies
 - **System Reminders**: Existing tool call injection mechanism, message template system, orchestrator infrastructure
-- **Improve Agent Broadcasting**: Existing broadcast system (v0.1.18), shadow agent system (v0.1.22), coordination tracker
+- **Memory as Tools**: Existing memory module (v0.1.5), tool system infrastructure, memory backends
 
 ### Risks & Mitigations
 1. **Reminder Timing**: *Mitigation*: Configurable intervals, testing with various conversation lengths
-2. **Broadcasting Complexity**: *Mitigation*: Incremental implementation, backward compatibility with existing broadcast
+2. **Memory Tool Complexity**: *Mitigation*: Start with simple operations, iterate based on feedback
 3. **Performance Overhead**: *Mitigation*: Efficient injection, lazy evaluation where possible
 4. **Configuration Complexity**: *Mitigation*: Sensible defaults, clear documentation, validation
 
 ---
 
-## Future Enhancements (Post-v0.1.26)
-
-### v0.1.27 Plans
-- **Memory as Tools** (@ncrispino): Include memory (including filesystem) as callable tools for agents
-- **Grok 4.1 Fast Model Support** (@praneeth999): Add support for xAI's Grok 4.1 Fast model
+## Future Enhancements (Post-v0.1.27)
 
 ### v0.1.28 Plans
+- **Grok 4.1 Fast Model Support** (@praneeth999): Add support for xAI's Grok 4.1 Fast model ([#540](https://github.com/massgen/MassGen/issues/540))
 - **Automatic Context Compression** (@ncrispino): Automatic context compression for long conversations ([#617](https://github.com/massgen/MassGen/issues/617))
+
+### v0.1.29 Plans
 - **OpenAI-Compatible Chat Server** (@ncrispino): Run MassGen as an OpenAI-compatible API server ([#628](https://github.com/massgen/MassGen/issues/628))
 
 ### Long-term Vision
@@ -155,9 +154,9 @@ Version 0.1.26 focuses on system reminders and improved agent broadcasting for m
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
 | Phase 1 | Add system reminders | Reminder configuration, injection mechanism, documentation | @ncrispino | **REQUIRED** |
-| Phase 2 | Improve agent broadcasting | Agent targeting, response detail control, documentation | @ncrispino | **REQUIRED** |
+| Phase 2 | Memory as Tools | Memory tool interface, integration, documentation | @ncrispino | **REQUIRED** |
 
-**Target Release**: December 17, 2025 (Wednesday @ 9am PT)
+**Target Release**: December 19, 2025 (Friday @ 9am PT)
 
 ---
 
@@ -173,17 +172,17 @@ Version 0.1.26 focuses on system reminders and improved agent broadcasting for m
 5. Add integration tests
 6. Document configuration and usage
 
-**Phase 2 - Improve agent broadcasting:**
-1. Review broadcasting improvements (Issue #614)
-2. Implement agent targeting
-3. Add response detail configuration
-4. Integrate with shadow agents
+**Phase 2 - Memory as Tools:**
+1. Review memory tools design (Issue #461)
+2. Design unified memory tool interface
+3. Implement store/retrieve/search tools
+4. Integrate with existing tool system
 5. Add integration tests
-6. Document broadcasting configuration
+6. Document memory tool configuration
 
 ### For Users
 
-- v0.1.26 brings system reminders and improved agent broadcasting:
+- v0.1.27 brings system reminders and memory as tools:
 
   **Add system reminders:**
   - Framework for injecting reminders mid-run during LLM streaming
@@ -192,12 +191,11 @@ Version 0.1.26 focuses on system reminders and improved agent broadcasting for m
   - Generic and extensible design
   - Flexible downstream usage
 
-  **Improve agent broadcasting:**
-  - Three-tier sensitivity configuration for broadcast responses
-  - Dynamic response complexity that scales with sensitivity
-  - Targeted questioning that adapts to configuration
-  - Scaling from simple to complex implementations
-  - Configurable sensitivity levels per broadcast
+  **Memory as Tools:**
+  - Memory operations as callable tools
+  - Explicit store, retrieve, search operations
+  - Unified interface for different memory backends
+  - Agent-controlled memory management
 
 ---
 
@@ -210,11 +208,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 - Documentation guidelines
 
 **Contact Track Owner:**
-- Add system reminders & Improve agent broadcasting: @ncrispino on Discord (nickcrispino)
+- Add system reminders & Memory as Tools: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.26 priorities focusing on system reminders and targeted agent broadcasting.*
+*This roadmap reflects v0.1.27 priorities focusing on system reminders and memory as callable tools.*
 
-**Last Updated:** December 15, 2025
+**Last Updated:** December 17, 2025
 **Maintained By:** MassGen Team

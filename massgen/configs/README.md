@@ -227,7 +227,29 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.25 - Latest
+### v0.1.26 - Latest
+**New Features:** Docker Diagnostics Module, Web UI Setup System, Shadow Agent Response Depth
+
+**Key Features:**
+- **Docker Diagnostics Module**: Comprehensive error detection with platform-specific resolution steps for Docker issues
+- **Web UI Setup System**: Guided first-run setup with API key management and environment checks
+- **Shadow Agent Response Depth**: Test-time compute scaling via `response_depth` parameter (`low`/`medium`/`high`)
+- **Model Registry Updates**: GPT-5.1-Codex family, Claude alias notation, updated defaults
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Use response depth for test-time compute scaling in agent broadcasts
+massgen --config @examples/broadcast/test_broadcast_agents \
+  "Create a website about Bob Dylan. Please ask_others for what framework to use first"
+
+# Launch Web UI with setup wizard
+massgen --web
+```
+
+### v0.1.25
 **New Features:** UI-TARS Custom Tool, GPT-5.2 Support, Evolving Skills
 
 **Key Features:**

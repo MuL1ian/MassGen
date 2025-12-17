@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.25
+**Current Version:** v0.1.26
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** December 15, 2025
+**Last Updated:** December 17, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,18 +42,17 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.26** | 12/17/25 | Add system reminders | @ncrispino | Framework for injecting system reminders mid-run during LLM streaming |
-| | | Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with | @ncrispino | Enable scaling of agent broadcast responses based on configurable sensitivity levels |
-| **v0.1.27** | 12/19/25 | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
-| | | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
-| **v0.1.28** | 12/22/25 | Automatic Context Compression | @ncrispino | Automatic context compression to manage long conversations efficiently |
-| | | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
+| **v0.1.27** | 12/19/25 | Add system reminders | @ncrispino | Framework for injecting system reminders mid-run during LLM streaming |
+| | | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
+| **v0.1.28** | 12/22/25 | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
+| | | Automatic Context Compression | @ncrispino | Automatic context compression to manage long conversations efficiently |
+| **v0.1.29** | 12/24/25 | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.26 - System Reminders & Targeted Broadcasting
+## 📋 v0.1.27 - System Reminders & Memory as Tools
 
 ### Features
 
@@ -64,57 +63,51 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Generic and extensible design for flexible downstream usage
 - **Use Case**: Keep agents focused on key objectives and constraints throughout long conversations
 
-**2. Improve agent broadcasting so it only asks targeted questions and we can control the amount of detail it responds with** (@ncrispino)
-- Issue: [#614](https://github.com/massgen/MassGen/issues/614)
-- Configuration-based sensitivity levels (three tiers) for broadcast responses
-- Dynamic response complexity that scales with sensitivity settings
-- Targeted questioning that adapts to complexity configuration
-- **Use Case**: Enable scaling of agent responses based on configurable sensitivity for adaptive collaboration
-
-### Success Criteria
-- ✅ System reminders can be configured and injected into conversations
-- ✅ Broadcasting targets specific agents with appropriate detail levels
-
----
-
-## 📋 v0.1.27 - Memory as Tools & Grok 4.1 Fast
-
-### Features
-
-**1. Memory as Tools** (@ncrispino)
+**2. Memory as Tools** (@ncrispino)
 - Issue: [#461](https://github.com/massgen/MassGen/issues/461)
 - Include memory (including filesystem) as callable tools for agents
 - Agents can explicitly invoke memory operations via tool calls
 - Unified interface for different memory backends
 - **Use Case**: Enable agents to have explicit control over memory operations, allowing them to store, retrieve, and manage persistent information as tool calls
 
-**2. Grok 4.1 Fast Model Support** (@praneeth999)
+### Success Criteria
+- ✅ System reminders can be configured and injected into conversations
+- ✅ Memory operations are available as callable tools
+- ✅ Agents can explicitly store and retrieve information
+
+---
+
+## 📋 v0.1.28 - Grok 4.1 Fast & Context Compression
+
+### Features
+
+**1. Grok 4.1 Fast Model Support** (@praneeth999)
 - Issue: [#540](https://github.com/massgen/MassGen/issues/540)
 - Add support for xAI's Grok 4.1 Fast model
 - Integration with existing Grok backend infrastructure
 - Pricing and token counting configuration
 - **Use Case**: Provide access to xAI's latest high-speed model for rapid agent responses
 
-### Success Criteria
-- ✅ Memory operations are available as callable tools
-- ✅ Agents can explicitly store and retrieve information
-- ✅ Grok 4.1 Fast model is accessible via configuration
-- ✅ Token counting and pricing are accurate for Grok 4.1 Fast
-
----
-
-## 📋 v0.1.28 - Context Compression & OpenAI-Compatible Server
-
-### Features
-
-**1. Automatic Context Compression** (@ncrispino)
+**2. Automatic Context Compression** (@ncrispino)
 - Issue: [#617](https://github.com/massgen/MassGen/issues/617)
 - Automatic context compression to manage long conversations efficiently
 - Intelligent summarization of conversation history when context limits are reached
 - Configurable compression thresholds and strategies
 - **Use Case**: Enable longer multi-turn conversations without losing important context
 
-**2. Expose MassGen as OpenAI-Compatible Chat Server** (@ncrispino)
+### Success Criteria
+- ✅ Grok 4.1 Fast model is accessible via configuration
+- ✅ Token counting and pricing are accurate for Grok 4.1 Fast
+- ✅ Context compression activates automatically when approaching limits
+- ✅ Compressed context preserves essential conversation information
+
+---
+
+## 📋 v0.1.29 - OpenAI-Compatible Server
+
+### Features
+
+**1. Expose MassGen as OpenAI-Compatible Chat Server** (@ncrispino)
 - Issue: [#628](https://github.com/massgen/MassGen/issues/628)
 - Run MassGen as an OpenAI-compatible API server
 - Enable integration with tools expecting OpenAI API format (Cursor, Continue, etc.)
@@ -122,8 +115,6 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - **Use Case**: Use MassGen multi-agent coordination as a drop-in replacement for OpenAI API in existing workflows
 
 ### Success Criteria
-- ✅ Context compression activates automatically when approaching limits
-- ✅ Compressed context preserves essential conversation information
 - ✅ MassGen server responds to OpenAI-compatible API calls
 - ✅ External tools can connect to MassGen as an OpenAI provider
 
@@ -439,11 +430,29 @@ These features are being actively developed on **separate parallel tracks** and 
 - Improved agent coordination visualization
 - **Status:** ✅ Completed in v0.1.25
 
+### Track: Shadow Agent Response Depth (@ncrispino, nickcrispino)
+- PR: [#634](https://github.com/massgen/MassGen/pull/634)
+- Test-time compute scaling via `response_depth` parameter (low/medium/high)
+- Controls solution complexity in shadow agent broadcast responses
+- **Status:** ✅ Completed in v0.1.26
+
+### Track: Docker Diagnostics Module (@ncrispino, nickcrispino)
+- PR: [#634](https://github.com/massgen/MassGen/pull/634)
+- Comprehensive Docker error detection with platform-specific resolution
+- Distinguishes binary not installed, daemon not running, permission denied, images missing
+- **Status:** ✅ Completed in v0.1.26
+
+### Track: Web UI Setup System (@ncrispino, nickcrispino)
+- PR: [#634](https://github.com/massgen/MassGen/pull/634)
+- Guided first-run setup with SetupPage, ConfigEditorModal, CoordinationStep
+- API key management endpoints and environment checks
+- **Status:** ✅ Completed in v0.1.26
+
 ### Track: Grok 4.1 Fast Model Support (@praneeth999, ram2561)
 - Issue: [#540](https://github.com/massgen/MassGen/issues/540)
 - Add support for xAI's Grok 4.1 Fast model
 - Integration with existing Grok backend infrastructure
-- **Target:** v0.1.27
+- **Target:** v0.1.28
 
 ### Track: Automatic Context Compression (@ncrispino, nickcrispino)
 - Issue: [#617](https://github.com/massgen/MassGen/issues/617)
@@ -455,20 +464,20 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#628](https://github.com/massgen/MassGen/issues/628)
 - Run MassGen as an OpenAI-compatible API server
 - Integration with Cursor, Continue, and other tools
-- **Target:** v0.1.28
+- **Target:** v0.1.29
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.26
+- **Target:** v0.1.27
 
 ### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
-- **Target:** v0.1.26
+- **Target:** v0.1.27
 
 ### Track: Memory as Tools (@ncrispino, nickcrispino)
 - Issue: [#461](https://github.com/massgen/MassGen/issues/461)
@@ -551,5 +560,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** December 15, 2025
+**Last Updated:** December 17, 2025
 **Maintained By:** MassGen Team
