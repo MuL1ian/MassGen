@@ -1467,6 +1467,7 @@ async def run_question_with_history(
             max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
             broadcast=coord_cfg.get("broadcast", False),
             broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+            response_depth=coord_cfg.get("response_depth", "medium"),
             broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
             broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
             max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
@@ -1551,6 +1552,7 @@ async def run_question_with_history(
                 max_tasks_per_plan=coordination_settings.get("max_tasks_per_plan", 10),
                 broadcast=coordination_settings.get("broadcast", False),
                 broadcast_sensitivity=coordination_settings.get("broadcast_sensitivity", "medium"),
+                response_depth=coordination_settings.get("response_depth", "medium"),
                 broadcast_timeout=coordination_settings.get("broadcast_timeout", 300),
                 broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
                 max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
@@ -1901,6 +1903,7 @@ async def run_single_question(
                 max_tasks_per_plan=coordination_settings.get("max_tasks_per_plan", 10),
                 broadcast=coordination_settings.get("broadcast", False),
                 broadcast_sensitivity=coordination_settings.get("broadcast_sensitivity", "medium"),
+                response_depth=coordination_settings.get("response_depth", "medium"),
                 broadcast_timeout=coordination_settings.get("broadcast_timeout", 300),
                 broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
                 max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
@@ -1975,6 +1978,7 @@ async def run_single_question(
                 max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
                 broadcast=coord_cfg.get("broadcast", False),
                 broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                response_depth=coord_cfg.get("response_depth", "medium"),
                 broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
                 broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
                 max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
@@ -2780,35 +2784,21 @@ def check_docker_available() -> bool:
     Returns:
         True if Docker is ready with MassGen images, False otherwise
     """
-    import subprocess
+    from massgen.utils.docker_diagnostics import diagnose_docker
 
-    # Check if Docker is installed and running
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    diagnostics = diagnose_docker()
+    return diagnostics.is_available
 
-    # Check if MassGen sudo image exists
-    try:
-        result = subprocess.run(
-            ["docker", "images", "-q", "ghcr.io/massgen/mcp-runtime-sudo:latest"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
 
-    return False
+def get_docker_diagnostics():
+    """Get detailed Docker diagnostics for error reporting.
+
+    Returns:
+        DockerDiagnostics object with full diagnostic information
+    """
+    from massgen.utils.docker_diagnostics import diagnose_docker
+
+    return diagnose_docker()
 
 
 def setup_docker() -> None:
@@ -2822,54 +2812,71 @@ def setup_docker() -> None:
     import questionary
     from questionary import Style
 
+    from massgen.utils.docker_diagnostics import diagnose_docker
+
     print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
     print(f"{BRIGHT_CYAN}  🐳  MassGen Docker Setup{RESET}")
     print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}\n")
 
-    # Check if Docker is installed
-    print(f"{BRIGHT_CYAN}Checking Docker installation...{RESET}", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            ["docker", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            print(f"{BRIGHT_RED}✗{RESET}")
-            print(f"\n{BRIGHT_RED}Error: Docker is not installed or not in PATH{RESET}")
-            print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
-            return
-        print(f"{BRIGHT_GREEN}✓{RESET}")
-    except FileNotFoundError:
+    # Run comprehensive diagnostics (skip image check since we're setting up)
+    print(f"{BRIGHT_CYAN}Checking Docker...{RESET}", end=" ", flush=True)
+    diagnostics = diagnose_docker(check_images=False)
+
+    # Check binary
+    if not diagnostics.binary_installed:
         print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker is not installed{RESET}")
-        print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
-        return
-    except subprocess.TimeoutExpired:
-        print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker command timed out{RESET}\n")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
         return
 
-    # Check if Docker daemon is running
-    print(f"{BRIGHT_CYAN}Checking Docker daemon...{RESET}", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            print(f"{BRIGHT_RED}✗{RESET}")
-            print(f"\n{BRIGHT_RED}Error: Docker daemon is not running{RESET}")
-            print(f"{BRIGHT_YELLOW}Please start Docker and try again{RESET}\n")
-            return
-        print(f"{BRIGHT_GREEN}✓{RESET}")
-    except subprocess.TimeoutExpired:
+    # Check pip library
+    if not diagnostics.pip_library_installed:
         print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker daemon check timed out{RESET}\n")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
         return
+
+    # Check permissions
+    if not diagnostics.has_permissions:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
+        return
+
+    # Check daemon
+    if not diagnostics.daemon_running:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
+        return
+
+    print(f"{BRIGHT_GREEN}✓{RESET}")
+    if diagnostics.docker_version:
+        print(f"{BRIGHT_CYAN}  Docker version: {diagnostics.docker_version}{RESET}")
 
     # Define available images with metadata
     # Future: Add more images here as needed
@@ -3007,50 +3014,56 @@ def setup_computer_use_docker() -> bool:
     import tempfile
     from pathlib import Path
 
+    from massgen.utils.docker_diagnostics import diagnose_docker
+
     print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
     print(f"{BRIGHT_CYAN}  🖥️  Computer Use Docker Container Setup{RESET}")
     print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}\n")
 
-    # Check if Docker is available
-    print(f"{BRIGHT_CYAN}Checking Docker installation...{RESET}", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            ["docker", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            print(f"{BRIGHT_RED}✗{RESET}")
-            print(f"\n{BRIGHT_RED}Error: Docker is not installed{RESET}")
-            print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
-            return False
-        print(f"{BRIGHT_GREEN}✓{RESET}")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    # Run comprehensive diagnostics (skip image check since we're setting up)
+    print(f"{BRIGHT_CYAN}Checking Docker...{RESET}", end=" ", flush=True)
+    diagnostics = diagnose_docker(check_images=False)
+
+    # Check if Docker is ready (binary, pip library, permissions, daemon)
+    if not diagnostics.binary_installed or not diagnostics.pip_library_installed:
         print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker is not available{RESET}")
-        print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
         return False
 
-    # Check if Docker daemon is running
-    print(f"{BRIGHT_CYAN}Checking Docker daemon...{RESET}", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            print(f"{BRIGHT_RED}✗{RESET}")
-            print(f"\n{BRIGHT_RED}Error: Docker daemon is not running{RESET}")
-            print(f"{BRIGHT_YELLOW}Please start Docker and try again{RESET}\n")
-            return False
-        print(f"{BRIGHT_GREEN}✓{RESET}")
-    except subprocess.TimeoutExpired:
+    if not diagnostics.has_permissions:
         print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker daemon check timed out{RESET}\n")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
         return False
+
+    if not diagnostics.daemon_running:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
+        return False
+
+    print(f"{BRIGHT_GREEN}✓{RESET}")
+    if diagnostics.docker_version:
+        print(f"{BRIGHT_CYAN}  Docker version: {diagnostics.docker_version}{RESET}")
 
     # Check if container already exists
     print(f"{BRIGHT_CYAN}Checking for existing container...{RESET}", end=" ", flush=True)
@@ -5146,7 +5159,8 @@ Environment Variables:
         logger.debug(f"Command line arguments: {vars(args)}")
 
     # Launch interactive API key setup if requested
-    if args.setup:
+    # Skip terminal setup if --web is also provided (web UI will handle setup)
+    if args.setup and not args.web:
         builder = ConfigBuilder()
         api_keys = builder.interactive_api_key_setup()
 
@@ -5207,16 +5221,17 @@ Environment Variables:
             else:
                 print(f"{BRIGHT_YELLOW}   No config specified - use --config or select in UI{RESET}")
 
-            # Build auto-launch URL if question is provided
-            auto_url = None
-            if question:
-                import urllib.parse
+            # Build auto-launch URL with question and/or config if provided
+            import urllib.parse
 
-                prompt_encoded = urllib.parse.quote(question)
-                auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
-                if config_path:
-                    config_encoded = urllib.parse.quote(config_path)
-                    auto_url += f"&config={config_encoded}"
+            base_url = f"http://{args.web_host}:{args.web_port}/"
+            url_params = []
+            if question:
+                url_params.append(f"prompt={urllib.parse.quote(question)}")
+            if config_path:
+                url_params.append(f"config={urllib.parse.quote(config_path)}")
+            auto_url = f"{base_url}?{'&'.join(url_params)}" if url_params else base_url
+            if url_params:
                 print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
 
             if automation_mode:
@@ -5232,6 +5247,14 @@ Environment Variables:
             if not no_browser and not automation_mode:
                 # Use auto_url if available, otherwise just open the base URL
                 browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+                # Remove trailing slash to avoid double slashes
+                browser_url = browser_url.rstrip("/")
+
+                # Check for --setup or --quickstart flags to open specific pages
+                if getattr(args, "setup", False):
+                    browser_url += "/setup"
+                elif getattr(args, "quickstart", False):
+                    browser_url += "/?wizard=open"
 
                 def open_browser():
                     import time
@@ -5291,7 +5314,8 @@ Environment Variables:
             return
 
     # Launch quickstart if requested
-    if args.quickstart:
+    # Skip terminal quickstart if --web is also provided (web UI will show wizard directly)
+    if args.quickstart and not args.web:
         builder = ConfigBuilder()
         result = builder.run_quickstart()
 

@@ -1,0 +1,57 @@
+        <!-- Slide: Code-Based Tools (CodeAct) -->
+        <div class="slide">
+            <div class="icon">🧬</div>
+            <h2>Feature: Code-Based Tools (CodeAct)</h2>
+            <p style="text-align: center; font-size: 1.2em; color: #e74c3c; margin: -20px 0 25px 0; font-weight: 500;">MCP tool schemas don't cloud agent context — tools become discoverable Python code</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 25px; align-items: start;">
+                <div>
+                    <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                        <h3 style="margin: 0 0 12px 0; font-size: 1.15em; color: white;">Workspace Structure</h3>
+                        <div style="font-family: monospace; font-size: 0.85em; line-height: 1.5; color: white;">
+                            workspace/<br>
+                            ├── servers/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="opacity: 0.8;"># MCP tools</span><br>
+                            ├── custom_tools/ <span style="opacity: 0.8;"># User tools</span><br>
+                            ├── skills/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="opacity: 0.8;"># Openskills</span><br>
+                            └── utils/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="opacity: 0.8;"># Agent scripts</span>
+                        </div>
+                    </div>
+                    <div style="background: rgba(102, 126, 234, 0.1); padding: 15px; border-radius: 12px; font-size: 0.85em;">
+                        <strong style="color: #667eea;">Tool Discovery:</strong><br>
+                        Agents explore filesystem, read docstrings, import what they need
+                    </div>
+                </div>
+                <div>
+                    <div style="background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                        <h3 style="margin: 0 0 12px 0; font-size: 1.15em; color: white;">execute_command</h3>
+                        <p style="font-size: 0.9em; line-height: 1.4; margin: 0 0 10px 0; color: white;">
+                            Central MCP tool that runs agent-written Python scripts
+                        </p>
+                        <div style="font-size: 0.8em; opacity: 0.9;">
+                            → Docker execution<br>
+                            → Timeout &amp; security layers<br>
+                            → Workspace confinement
+                        </div>
+                    </div>
+                    <div style="background: rgba(231, 76, 60, 0.1); padding: 15px; border-radius: 12px; font-family: monospace; font-size: 0.8em;">
+                        <span style="color: #888;"># Agent runs their code</span><br>
+                        execute_command(<br>
+                        &nbsp;&nbsp;"python utils/report.py"<br>
+                        )
+                    </div>
+                </div>
+                <div>
+                    <div style="background: linear-gradient(135deg, #00b894, #00cec9); color: white; padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                        <h3 style="margin: 0 0 12px 0; font-size: 1.15em; color: white;">Why It Matters</h3>
+                        <ul style="font-size: 0.9em; line-height: 1.5; list-style: none; padding: 0; margin: 0; color: white;">
+                            <li style="margin-bottom: 6px;">→ Context reduction</li>
+                            <li style="margin-bottom: 6px;">→ Transparent tool access</li>
+                            <li style="margin-bottom: 6px;">→ Native Python composition</li>
+                            <li style="margin-bottom: 6px;">→ Parallel async execution</li>
+                        </ul>
+                    </div>
+                    <div style="background: rgba(0, 184, 148, 0.1); padding: 15px; border-radius: 12px; font-size: 0.85em;">
+                        <strong style="color: #00b894;">Research:</strong> Apple CodeAct, Cloudflare Code Mode, Anthropic MCP
+                    </div>
+                </div>
+            </div>
+        </div>

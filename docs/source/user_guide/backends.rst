@@ -349,6 +349,16 @@ Claude Code Backend
      snapshot_storage: "snapshots"
      agent_temporary_workspace: "temp_workspaces"
 
+**Authentication:**
+
+The Claude Code backend supports flexible authentication:
+
+* **API key**: Set ``CLAUDE_CODE_API_KEY`` or ``ANTHROPIC_API_KEY`` environment variable
+* **Subscription**: If no API key is set, uses Claude subscription authentication
+
+This allows you to use Claude Code with a subscription while using a separate
+API key for standard Claude backend agents.
+
 **Special Features:**
 
 * Native file operations (Read, Write, Edit, Bash, Grep, Glob)
@@ -757,9 +767,18 @@ Check your ``.env`` file has the correct variable name:
    # Backend type → Environment variable
    openai       → OPENAI_API_KEY
    claude       → ANTHROPIC_API_KEY
+   claude_code  → CLAUDE_CODE_API_KEY (falls back to ANTHROPIC_API_KEY)
    gemini       → GOOGLE_API_KEY
    grok         → XAI_API_KEY
    azure_openai → AZURE_OPENAI_API_KEY
+
+.. note::
+
+   **Separate API keys for Claude Code:** The ``claude_code`` backend checks
+   ``CLAUDE_CODE_API_KEY`` first, then falls back to ``ANTHROPIC_API_KEY``.
+   This allows you to use a Claude subscription (no API key needed) or a
+   separate API key for Claude Code agents while using a different API key
+   for standard Claude backend agents.
 
 **Model not supported:**
 

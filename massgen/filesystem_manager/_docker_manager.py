@@ -135,6 +135,18 @@ class DockerManager:
             logger.info(f"    Docker version: {docker_version}")
             logger.info(f"    API version: {api_version}")
         except DockerException as e:
+            # Use diagnostics for better error messages
+            try:
+                from massgen.utils.docker_diagnostics import diagnose_docker
+
+                diagnostics = diagnose_docker(check_images=False)
+                error_msg = diagnostics.format_error(include_steps=True)
+                if error_msg:
+                    logger.error(f"❌ [Docker] {error_msg}")
+                    raise RuntimeError(error_msg)
+            except ImportError:
+                pass
+            # Fall back to generic error if diagnostics unavailable
             logger.error(f"❌ [Docker] Failed to connect to Docker daemon: {e}")
             raise RuntimeError(f"Failed to connect to Docker: {e}")
 
@@ -199,13 +211,9 @@ class DockerManager:
         elif local_env.exists():
             env_path = local_env
         else:
-            # Provide helpful error message with all checked locations
-            checked_locations = [str(home_env), str(provided_path)]
-            if local_env != provided_path:
-                checked_locations.append(str(local_env))
-            raise RuntimeError(
-                "Environment file not found. Checked locations:\n" + "\n".join(f"  - {loc}" for loc in checked_locations),
-            )
+            # No .env file found - this is OK (e.g., using Claude Code with CLI login)
+            logger.info("📄 [Docker] No .env file found - continuing without environment file")
+            return env_vars
 
         logger.info(f"📄 [Docker] Loading environment variables from: {env_path}")
 
@@ -610,14 +618,20 @@ class DockerManager:
             temp_skills_dir = Path(tempfile.mkdtemp(prefix="massgen-skills-"))
             logger.info(f"[Docker] Creating temp merged skills directory: {temp_skills_dir}")
 
-            # Copy user's .agent/skills if it exists
+            # Copy skills from home directory (~/.agent/skills/) first - this is where openskills installs
+            home_skills_path = Path.home() / ".agent" / "skills"
+            if home_skills_path.exists():
+                logger.info(f"[Docker] Copying home skills from: {home_skills_path}")
+                shutil.copytree(home_skills_path, temp_skills_dir, dirs_exist_ok=True)
+
+            # Copy project skills (.agent/skills if it exists) - these override home skills
             if skills_directory:
                 skills_path = Path(skills_directory).resolve()
                 if skills_path.exists():
-                    logger.info(f"[Docker] Copying user skills from: {skills_path}")
+                    logger.info(f"[Docker] Copying project skills from: {skills_path}")
                     shutil.copytree(skills_path, temp_skills_dir, dirs_exist_ok=True)
                 else:
-                    logger.warning(f"[Docker] User skills directory does not exist: {skills_path}")
+                    logger.debug(f"[Docker] Project skills directory does not exist: {skills_path}")
 
             # Copy massgen built-in skills (flat structure in massgen/skills/)
             massgen_skills_base = Path(__file__).parent.parent / "skills"

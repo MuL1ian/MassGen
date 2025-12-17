@@ -9,16 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.26 (December 17, 2025)** - Web UI Setup & Shadow Agent Depth Scaling
+New Web UI setup wizard for guided first-run configuration, Docker diagnostics module with platform-specific resolution, and shadow agent response depth for test-time compute scaling.
+
 **v0.1.25 (December 15, 2025)** - UI-TARS Computer Use & Evolving Skills
 Added UI-TARS custom tool for GUI automation, GPT-5.2 model support, and evolving skill creator system. Enhanced Textual terminal with adaptive layouts and improved OpenRouter Gemini reasoning details handling.
 
 **v0.1.24 (December 12, 2025)** - Enhanced Cost Tracking
 Expanded real-time cost tracking across multiple backends (OpenRouter, xAI, Gemini, Grok, Claude Code) with per-agent token breakdown, cost inspection command, and aggregated session totals.
 
-**v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
-Enhanced multi-turn experience with persistent Docker containers, improved cancellation handling, turn history inspection commands, and Web UI automation mode for programmatic workflows.
-
 ---
+
+## [0.1.26] - 2025-12-17
+
+### Added
+- **Docker Diagnostics Module**: Comprehensive error detection with platform-specific resolution steps for Docker issues (binary not installed, daemon not running, permission denied, images missing)
+
+- **Web UI Setup & Configuration System**: Guided first-run experience with new `SetupPage`, `ConfigEditorModal`, `CoordinationStep` components, enhanced wizard flow, and backend API endpoints for API key management and environment checks
+
+- **Shadow Agent Response Depth**: Test-time compute scaling via `response_depth` parameter (`low`/`medium`/`high`) controlling solution complexity in broadcast responses
+
+### Changed
+- **Model Registry Updates**: Added GPT-5.1-Codex family (`gpt-5.1-codex-max`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`), updated Claude model naming to alias notation (`claude-sonnet-4-5`), changed defaults to `gpt-5.1-codex` and `claude-opus-4-5`
+
+- **Shadow Agent Claude Code Compatibility**: Special handling for Claude Code backend conversation history in shadow agent spawning
+
+### Fixed
+- **Claude Code API Key Handling**: Fixed API key configuration and environment variable handling
+
+- **Web UI Asset Loading**: Fixed configuration and static asset paths (MAS-160)
+
+- **Package Dependencies**: Fixed pyproject.toml dependency specification (MAS-161)
+
+### Documentations, Configurations and Resources
+
+- Updated agent communication docs with response depth and Claude Code limitation notice; added Claude Code API key examples to backend docs; updated broadcast config examples with `response_depth`
+
+### Technical Details
+- **Major Focus**: Web UI setup experience, Docker diagnostics, shadow agent test-time compute scaling
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.25] - 2025-12-15
 

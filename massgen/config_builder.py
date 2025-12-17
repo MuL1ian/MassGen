@@ -473,6 +473,7 @@ class ConfigBuilder:
                 # Main backends (high priority)
                 ("openai", "OpenAI", "OPENAI_API_KEY"),
                 ("anthropic", "Anthropic (Claude)", "ANTHROPIC_API_KEY"),
+                ("claude_code", "Claude Code (optional)", "CLAUDE_CODE_API_KEY"),
                 ("gemini", "Google Gemini", "GOOGLE_API_KEY"),
                 ("grok", "xAI (Grok)", "XAI_API_KEY"),
                 # Azure
@@ -532,6 +533,11 @@ class ConfigBuilder:
                 # Prompt for API key (with password-style input)
                 console.print(f"[bold cyan]{name}[/bold cyan]")
                 console.print(f"[dim]Environment variable: {env_var}[/dim]")
+
+                # Add context for Claude Code
+                if provider_id == "claude_code":
+                    console.print("[dim]Note: Only needed if you want a separate key for claude_code backend.[/dim]")
+                    console.print("[dim]      Leave empty to use ANTHROPIC_API_KEY or Claude subscription.[/dim]")
 
                 api_key = Prompt.ask(
                     f"Enter your {name} API key",
@@ -1204,7 +1210,7 @@ class ConfigBuilder:
                         # Apply selected tools
                         if selected_tools:
                             if "web_search" in selected_tools:
-                                if backend_type in ["openai", "claude", "gemini", "grok", "azure_openai"]:
+                                if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
                                     agent["backend"]["enable_web_search"] = True
 
                             if "code_execution" in selected_tools:
@@ -1310,7 +1316,7 @@ class ConfigBuilder:
 
         # Auto-enable web search if recommended
         if "web_search" in recommended_tools:
-            if backend_type in ["openai", "claude", "gemini", "grok", "azure_openai"]:
+            if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
                 agent["backend"]["enable_web_search"] = True
 
         # Auto-enable code execution if recommended
@@ -1575,7 +1581,7 @@ class ConfigBuilder:
                         if selected_tools:
                             # Apply backend-specific configuration
                             if "web_search" in selected_tools:
-                                if backend_type in ["openai", "claude", "gemini", "grok", "azure_openai"]:
+                                if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
                                     agent["backend"]["enable_web_search"] = True
 
                             if "code_execution" in selected_tools:
@@ -3358,6 +3364,9 @@ class ConfigBuilder:
         context_path: Optional[str] = None,
         context_paths: Optional[List[Dict]] = None,
         use_docker: bool = True,
+        agent_tools: Optional[Dict[str, Dict]] = None,
+        agent_system_messages: Optional[Dict[str, str]] = None,
+        coordination_settings: Optional[Dict] = None,
     ) -> Dict:
         """Generate a full-featured config from the quickstart agent specifications.
 
@@ -3367,13 +3376,23 @@ class ConfigBuilder:
             context_paths: List of context path dicts with 'path' and 'permission' keys.
                           Each entry: {"path": "/path", "permission": "read" or "write"}
             use_docker: Whether to use Docker for code execution (True) or local mode (False)
+            agent_tools: Per-agent tool settings dict. Keys are agent IDs, values are dicts
+                        with tool settings like {"enable_web_search": True, "enable_code_execution": True}
+            agent_system_messages: Per-agent system messages dict. Keys are agent IDs, values are
+                                  the custom system message strings
+            coordination_settings: Shared coordination settings dict with keys like
+                                  'voting_sensitivity', 'answer_novelty_requirement'
 
         Returns:
             Complete configuration dict
         """
+        agent_tools = agent_tools or {}
+        agent_system_messages = agent_system_messages or {}
+        coordination_settings = coordination_settings or {}
 
         # Base agent template with all the good defaults
-        def create_agent_backend(agent_type: str, model: str, workspace_num: int) -> Dict:
+        def create_agent_backend(agent_type: str, model: str, workspace_num: int, tools: Optional[Dict] = None) -> Dict:
+            tools = tools or {}
             if use_docker:
                 # Full Docker mode with code-based tools, command execution, skills
                 backend = {
@@ -3426,19 +3445,39 @@ class ConfigBuilder:
             if caps and caps.base_url:
                 backend["base_url"] = caps.base_url
 
+            # Add per-agent tool settings (e.g., enable_web_search, enable_code_execution)
+            # Only add if the backend supports the capability
+            if tools.get("enable_web_search") is not None:
+                if caps and "web_search" in caps.supported_capabilities:
+                    backend["enable_web_search"] = tools["enable_web_search"]
+
+            if tools.get("enable_code_execution") is not None:
+                if caps and "code_execution" in caps.supported_capabilities:
+                    # Different backends use different parameter names
+                    # OpenAI uses enable_code_interpreter, Claude uses enable_code_execution
+                    if agent_type == "openai":
+                        backend["enable_code_interpreter"] = tools["enable_code_execution"]
+                    else:
+                        backend["enable_code_execution"] = tools["enable_code_execution"]
+
             return backend
 
         # Build agents list
         agents = []
         for i, agent_spec in enumerate(agents_config):
+            agent_id = agent_spec["id"]
             agent = {
-                "id": agent_spec["id"],
+                "id": agent_id,
                 "backend": create_agent_backend(
                     agent_spec["type"],
                     agent_spec["model"],
                     i + 1,
+                    tools=agent_tools.get(agent_id, {}),
                 ),
             }
+            # Add system_message if provided (at agent level, not backend level)
+            if agent_id in agent_system_messages:
+                agent["system_message"] = agent_system_messages[agent_id]
             agents.append(agent)
 
         # Build orchestrator config
@@ -3483,6 +3522,12 @@ class ConfigBuilder:
             ]
         else:
             orchestrator_config["context_paths"] = []
+
+        # Add coordination settings if provided
+        if coordination_settings.get("voting_sensitivity"):
+            orchestrator_config["voting_sensitivity"] = coordination_settings["voting_sensitivity"]
+        if coordination_settings.get("answer_novelty_requirement"):
+            orchestrator_config["answer_novelty_requirement"] = coordination_settings["answer_novelty_requirement"]
 
         # Build full config
         config = {

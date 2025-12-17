@@ -192,6 +192,60 @@ def build_presentation(presentation_name):
             "Vision - Exponential Intelligence",
             "Call to Action - Join Revolution",
         ],
+        "all": [
+            "Title - M2L Summer School",
+            "Title - Columbia University",
+            "Title - RecSys'25 Tutorial",
+            "Title - Applied AI Summit",
+            "Title - PyTorch OpenAgents",
+            "Title - Cambridge",
+            "Title - AI Builders",
+            "Problem - Single-Agent Limitation",
+            "Solution - Multi-Agent Collaboration",
+            "AG2 - Research Foundation",
+            "Evidence - Performance Gains",
+            "Architecture - System Design",
+            "Features & Capabilities",
+            "Tech - Async Streaming",
+            "Tech - Backend Challenges",
+            "Tech - Binary Decision Framework",
+            "Code-Based Tools (CodeAct)",
+            "Advanced Coordination",
+            "Context Sharing - Challenge",
+            "Context Sharing - Solution",
+            "Additional Context Paths",
+            "Context Sharing - In Action",
+            "Benchmarking - Preliminary Results",
+            "Case Study - Success Through Collaboration",
+            "Case Study - When Coordination Fails",
+            "Coordination Psychology - Voting Behavior",
+            "Evolution",
+            "Early Adopters - Community Growth",
+            "Demo - Live Examples",
+            "Applications - Generic",
+            "Columbia Research Applications",
+            "Agentic Recommendation Applications",
+            "Getting Started - 60 Seconds",
+            "Vision - Exponential Intelligence",
+            "Call to Action - Generic",
+            "Call to Action - M2L",
+            "Call to Action - Columbia",
+            "Call to Action - RecSys",
+            "Call to Action - Applied AI Summit",
+            "Call to Action - AI Builders",
+            "Community - Join Us",
+        ],
+        "packt": [
+            "Architecture - System Design",
+            "Additional Context Paths",
+            "Tech - Backend Challenges",
+            "Tech - Binary Decision Framework",
+            "Code-Based Tools (CodeAct)",
+            "Advanced Coordination",
+            "Evolution",
+            "Getting Started - 60 Seconds",
+            "Community - Join Us",
+        ],
     }
 
     # Define the slide order for each presentation type (using extracted component names)
@@ -365,6 +419,70 @@ def build_presentation(presentation_name):
             "slide-roadmap-vision",
             "slide-call-to-action-aibuilders",
         ],
+        "all": [
+            # All title slides
+            "slide-title-m2l",
+            "slide-title-columbia",
+            "slide-title-recsys",
+            "slide-title-applied-ai-summit",
+            "slide-title-pytorch-openagents",
+            "slide-title-cambridge",
+            "slide-title-aibuilders",
+            # Core content slides
+            "slide-the-problem",
+            "slide-the-solution-multi-agent-collaboration",
+            "slide-ag2-research-foundation",
+            "slide-evidence-performance-gains",
+            "slide-architecture",
+            "slide-key-features-capabilities",
+            # Tech deep dives
+            "slide-tech-deep-dive-async-streaming-architecture",
+            "slide-tech-deep-dive-backend-abstraction-challenges",
+            "slide-tech-deep-dive-binary-decision-framework-solution",
+            "slide-codeact",
+            "slide-advanced-coordination",
+            # Context sharing
+            "slide-context-sharing-challenge",
+            "slide-context-sharing-solution",
+            "slide-additional-context-paths",
+            "slide-context-sharing-in-action",
+            # Results and case studies
+            "slide-benchmarking-results",
+            "slide-case-study-success-through-collaboration",
+            "slide-case-study-when-coordination-fails",
+            "slide-coordination-strategy-research",
+            # Evolution and community
+            "slide-evolution-from-v001",
+            "slide-early-adopters",
+            "slide-live-demo-examples",
+            # All application slides
+            "slide-applications",
+            "slide-columbia-research-applications",
+            "slide-recsys-applications",
+            # Getting started and vision
+            "slide-getting-started",
+            "slide-roadmap-vision",
+            # All call-to-action slides
+            "slide-call-to-action-general",
+            "slide-call-to-action-m2l",
+            "slide-call-to-action-columbia",
+            "slide-call-to-action-recsys",
+            "slide-call-to-action-applied-ai-summit",
+            "slide-call-to-action-aibuilders",
+            "slide-community-cta",
+        ],
+        "packt": [
+            "slide-architecture",
+            "slide-additional-context-paths",
+            "slide-tech-deep-dive-backend-abstraction-challenges",
+            "slide-tech-deep-dive-binary-decision-framework-solution",
+            "slide-codeact",
+            "slide-advanced-coordination",
+            "slide-evolution-from-v001",
+            "slide-early-adopters",
+            "slide-getting-started",
+            "slide-community-cta",
+        ],
     }
 
     if presentation_name not in slide_configs:
@@ -426,7 +544,7 @@ def build_presentation(presentation_name):
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python build_presentation.py <presentation_name>")
-        print("Available presentations: m2l, columbia, recsys, recsys-short, applied-ai-summit, aibuilders")
+        print("Available presentations: m2l, columbia, recsys, recsys-short, applied-ai-summit, pytorch-openagents, cambridge, aibuilders, packt, all")
         sys.exit(1)
 
     presentation_name = sys.argv[1]

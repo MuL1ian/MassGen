@@ -80,6 +80,8 @@ const initialState: SessionState = {
   // Automation mode: shows simplified timeline view
   automationMode: false,
   logDir: undefined,
+  // Initialization status (shown during config loading, agent setup, etc.)
+  initStatus: undefined,
   // Preparation status during initialization
   preparationStatus: undefined,
   preparationDetail: undefined,
@@ -845,6 +847,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       case 'init':
         // Only clear preparation status when agents are actually ready
         if ('agents' in event && 'question' in event) {
+          // Clear init status when actual coordination starts
+          set({ initStatus: undefined });
           store.setPreparationStatus(undefined, undefined);
           // Set automation mode if provided
           if ('automation_mode' in event) {
@@ -1065,6 +1069,21 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       case 'done':
       case 'coordination_complete':
         store.setComplete(true);
+        // Clear init status when coordination completes
+        set({ initStatus: undefined });
+        break;
+
+      case 'init_status':
+        // Initialization status updates (config loading, agent setup, etc.)
+        if ('message' in event && 'step' in event && 'progress' in event) {
+          set({
+            initStatus: {
+              message: event.message,
+              step: event.step,
+              progress: event.progress,
+            },
+          });
+        }
         break;
 
       case 'state_snapshot':
@@ -1191,6 +1210,7 @@ export const selectSelectingWinner = (state: AgentStore) => state.selectingWinne
 export const selectRestoredFromSnapshot = (state: AgentStore) => state.restoredFromSnapshot;
 export const selectAutomationMode = (state: AgentStore) => state.automationMode;
 export const selectLogDir = (state: AgentStore) => state.logDir;
+export const selectInitStatus = (state: AgentStore) => state.initStatus;
 export const selectPreparationStatus = (state: AgentStore) => state.preparationStatus;
 export const selectPreparationDetail = (state: AgentStore) => state.preparationDetail;
 

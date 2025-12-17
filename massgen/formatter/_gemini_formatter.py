@@ -136,11 +136,26 @@ class GeminiFormatter(FormatterBase):
 
         return "submit" in tool_names and "restart_orchestration" in tool_names
 
-    def build_structured_output_prompt(self, base_content: str, valid_agent_ids: Optional[List[str]] = None) -> str:
+    def build_structured_output_prompt(self, base_content: str, valid_agent_ids: Optional[List[str]] = None, broadcast_enabled: bool = False) -> str:
         """Build prompt that encourages structured output for coordination."""
         agent_list = ""
         if valid_agent_ids:
             agent_list = f"Valid agents: {', '.join(valid_agent_ids)}"
+
+        # Build ask_others section conditionally
+        ask_others_section = ""
+        if broadcast_enabled:
+            ask_others_section = """
+
+If you want to ASK OTHER AGENTS a question (for collaborative problem-solving):
+{
+  "action_type": "ask_others",
+  "ask_others_data": {
+    "action": "ask_others",
+    "question": "Your specific question with ALL relevant context included (other agents cannot see your workspace)",
+    "wait": true
+  }
+}"""
 
         return f"""{base_content}
 
@@ -163,7 +178,7 @@ If you want to provide a NEW ANSWER:
     "action": "new_answer",
     "content": "Your complete improved answer here"
   }}
-}}
+}}{ask_others_section}
 
 Make your decision and include the JSON at the very end of your response."""
 
@@ -305,6 +320,21 @@ Make your decision and include the JSON at the very end of your response."""
                     "arguments": json.dumps(
                         {
                             "content": answer_data.get("content", ""),
+                        },
+                    ),
+                },
+            ]
+
+        elif action_type == "ask_others":
+            ask_others_data = structured_response.get("ask_others_data", {})
+            return [
+                {
+                    "call_id": f"ask_others_{abs(hash(str(ask_others_data))) % 10000 + 1}",
+                    "name": "ask_others",
+                    "arguments": json.dumps(
+                        {
+                            "question": ask_others_data.get("question", ""),
+                            "wait": ask_others_data.get("wait", True),
                         },
                     ),
                 },

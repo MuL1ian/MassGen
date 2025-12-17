@@ -505,22 +505,26 @@ class GeminiBackend(CustomToolAndMCPBackend):
 
             valid_agent_ids = None
 
+            # Check if broadcast tools are available
+            broadcast_enabled = False
             if is_coordination:
                 # Extract valid agent IDs from vote tool enum if available
                 for tool in tools:
                     if tool.get("type") == "function":
                         func_def = tool.get("function", {})
-                        if func_def.get("name") == "vote":
+                        tool_name = func_def.get("name")
+                        if tool_name == "vote":
                             agent_id_param = func_def.get("parameters", {}).get("properties", {}).get("agent_id", {})
                             if "enum" in agent_id_param:
                                 valid_agent_ids = agent_id_param["enum"]
-                            break
+                        elif tool_name == "ask_others":
+                            broadcast_enabled = True
 
             # Build content string from messages using formatter
             full_content = self.formatter.format_messages(messages)
             # For coordination requests, modify the prompt to use structured output
             if is_coordination:
-                full_content = self.formatter.build_structured_output_prompt(full_content, valid_agent_ids)
+                full_content = self.formatter.build_structured_output_prompt(full_content, valid_agent_ids, broadcast_enabled=broadcast_enabled)
             elif is_post_evaluation:
                 # For post-evaluation, modify prompt to use structured output
                 full_content = self.formatter.build_post_evaluation_prompt(full_content)
@@ -803,8 +807,11 @@ class GeminiBackend(CustomToolAndMCPBackend):
             # ====================================================================
             # Structured Coordination Output Parsing
             # ====================================================================
-            # Check for structured coordination output when no function calls captured
-            if is_coordination and not captured_function_calls and full_content_text:
+            # Check for structured coordination output - ALWAYS check in coordination mode
+            # Structured output (vote, new_answer, ask_others) takes priority over MCP tool calls
+            # Note: Gemini may output both structured JSON AND MCP tool calls in the same response
+            # (e.g., ask_others JSON plus weird file creation attempts). We prioritize the structured output.
+            if is_coordination and full_content_text:
                 # Try to parse structured response from text content
                 parsed = self.formatter.extract_structured_response(full_content_text)
 
@@ -813,8 +820,28 @@ class GeminiBackend(CustomToolAndMCPBackend):
                     tool_calls = self.formatter.convert_structured_to_tool_calls(parsed)
 
                     if tool_calls:
+                        # Valid structured output found - clear any spurious MCP calls from captured_function_calls
+                        # Gemini sometimes outputs both structured JSON AND MCP tool calls, but the structured
+                        # output is the intended coordination action - the MCP calls are erroneous
+                        if captured_function_calls:
+                            logger.warning(
+                                f"[Gemini] Structured coordination output found, clearing {len(captured_function_calls)} "
+                                "spurious MCP tool calls that were issued alongside the structured JSON response",
+                            )
+                            captured_function_calls.clear()
+
                         # Categorize the tool calls
                         mcp_calls, custom_calls, provider_calls = self._categorize_tool_calls(tool_calls)
+
+                        # If there are custom_calls (like ask_others), add them to captured_function_calls
+                        # so they get executed in the Tool Execution Phase
+                        # Mark them as from structured output - these don't have thought_signature
+                        # and need special handling when sending results back to Gemini
+                        if custom_calls:
+                            for call in custom_calls:
+                                call["_from_structured_output"] = True
+                            captured_function_calls.extend(custom_calls)
+                            logger.info(f"[Gemini] Added {len(custom_calls)} custom tool(s) from structured output for execution")
 
                         # Handle provider (workflow) calls - these are coordination actions
                         # We yield StreamChunk entries but do NOT execute them
@@ -867,7 +894,10 @@ class GeminiBackend(CustomToolAndMCPBackend):
 
                         # Do not execute workflow tools - just return after yielding
                         # The orchestrator will handle these coordination actions
-                        if provider_calls:
+                        # BUT: if there are custom_calls (like ask_others), don't return yet
+                        # - let them be executed in the Tool Execution Phase
+                        if provider_calls and not captured_function_calls:
+                            # Only return early if there are NO custom tools to execute
                             # Track tokens before returning
                             track_usage_from_chunk(last_response_with_candidates)
 
@@ -1111,39 +1141,77 @@ class GeminiBackend(CustomToolAndMCPBackend):
                 ]
 
                 if executed_calls:
-                    model_parts = []
-                    for call in executed_calls:
-                        args_payload: Any = call.get("arguments", {})
-                        if isinstance(args_payload, str):
-                            try:
-                                args_payload = json.loads(args_payload)
-                            except json.JSONDecodeError:
-                                args_payload = {}
-                        if not isinstance(args_payload, dict):
-                            args_payload = {}
-                        part = types.Part.from_function_call(
-                            name=call.get("name", ""),
-                            args=args_payload,
-                        )
-                        # Preserve thought_signature if present (required for Gemini 3.x models)
-                        if "thought_signature" in call:
-                            part.thought_signature = call["thought_signature"]
-                        model_parts.append(part)
-                    if model_parts:
-                        conversation_history.append(types.Content(parts=model_parts, role="model"))
+                    # Separate calls that came from structured output (no thought_signature)
+                    # from real function calls (have thought_signature)
+                    structured_output_calls = [c for c in executed_calls if c.get("_from_structured_output")]
+                    real_function_calls = [c for c in executed_calls if not c.get("_from_structured_output")]
 
-                    response_parts = []
-                    for call in executed_calls:
-                        call_id = call.get("call_id")
-                        result_text = tool_results.get(call_id or "", "No result")
-                        response_parts.append(
-                            types.Part.from_function_response(
+                    # For real function calls, use the standard function call/response format
+                    if real_function_calls:
+                        model_parts = []
+                        for call in real_function_calls:
+                            args_payload: Any = call.get("arguments", {})
+                            if isinstance(args_payload, str):
+                                try:
+                                    args_payload = json.loads(args_payload)
+                                except json.JSONDecodeError:
+                                    args_payload = {}
+                            if not isinstance(args_payload, dict):
+                                args_payload = {}
+                            part = types.Part.from_function_call(
                                 name=call.get("name", ""),
-                                response={"result": result_text},
+                                args=args_payload,
+                            )
+                            # Preserve thought_signature if present (required for Gemini 3.x models)
+                            if "thought_signature" in call:
+                                part.thought_signature = call["thought_signature"]
+                            model_parts.append(part)
+                        if model_parts:
+                            conversation_history.append(types.Content(parts=model_parts, role="model"))
+
+                        response_parts = []
+                        for call in real_function_calls:
+                            call_id = call.get("call_id")
+                            result_text = tool_results.get(call_id or "", "No result")
+                            response_parts.append(
+                                types.Part.from_function_response(
+                                    name=call.get("name", ""),
+                                    response={"result": result_text},
+                                ),
+                            )
+                        if response_parts:
+                            conversation_history.append(types.Content(parts=response_parts, role="user"))
+
+                    # For structured output calls (like ask_others from JSON), inject results as text
+                    # These don't have thought_signature and can't use function call/response format
+                    if structured_output_calls:
+                        # Build text representation of tool results
+                        text_results = []
+                        for call in structured_output_calls:
+                            call_id = call.get("call_id")
+                            tool_name = call.get("name", "unknown")
+                            result_text = tool_results.get(call_id or "", "No result")
+                            text_results.append(f"[Tool Result: {tool_name}]\n{result_text}")
+
+                        # Add as model response (assistant acknowledging tool execution)
+                        model_text = "I executed the following tool(s) and received these results:\n\n" + "\n\n".join(text_results)
+                        conversation_history.append(types.Content(parts=[types.Part(text=model_text)], role="model"))
+
+                        # Add user message to prompt continuation
+                        conversation_history.append(
+                            types.Content(
+                                parts=[
+                                    types.Part(
+                                        text=(
+                                            "Based on the tool results above, please continue with your response. "
+                                            "Remember to use the appropriate coordination action "
+                                            "(vote, new_answer, or ask_others) when ready."
+                                        ),
+                                    ),
+                                ],
+                                role="user",
                             ),
                         )
-                    if response_parts:
-                        conversation_history.append(types.Content(parts=response_parts, role="user"))
 
                 last_continuation_chunk = None
 
@@ -1266,12 +1334,48 @@ class GeminiBackend(CustomToolAndMCPBackend):
 
                                 if tool_calls:
                                     # Categorize the tool calls
-                                    mcp_calls, custom_calls, provider_calls = self._categorize_tool_calls(tool_calls)
+                                    cont_mcp_calls, cont_custom_calls, cont_provider_calls = self._categorize_tool_calls(tool_calls)
 
-                                    if provider_calls:
+                                    # Handle custom_calls (like ask_others) - add to execution queue
+                                    # Mark them as from structured output - no thought_signature
+                                    if cont_custom_calls:
+                                        for call in cont_custom_calls:
+                                            call["_from_structured_output"] = True
+                                            tool_name = call.get("name", "")
+                                            tool_args_str = call.get("arguments", "{}")
+
+                                            if isinstance(tool_args_str, str):
+                                                try:
+                                                    tool_args = json.loads(tool_args_str)
+                                                except json.JSONDecodeError:
+                                                    tool_args = {}
+                                            else:
+                                                tool_args = tool_args_str
+
+                                            logger.info(f"[Gemini] Continuation custom tool from structured output: {tool_name}")
+                                            log_tool_call(
+                                                agent_id,
+                                                tool_name,
+                                                tool_args,
+                                                None,
+                                                backend_name="gemini",
+                                            )
+
+                                            # Execute the custom tool
+                                            async for chunk in self._execute_tool_with_logging(
+                                                call,
+                                                CUSTOM_TOOL_CONFIG,
+                                                updated_messages,
+                                                processed_call_ids,
+                                            ):
+                                                yield chunk_adapter(chunk)
+
+                                            executed_calls.append(call)
+
+                                    if cont_provider_calls:
                                         # Convert provider calls to tool_calls format for orchestrator
                                         workflow_tool_calls = []
-                                        for call in provider_calls:
+                                        for call in cont_provider_calls:
                                             tool_name = call.get("name", "")
                                             tool_args_str = call.get("arguments", "{}")
 
@@ -1438,39 +1542,71 @@ class GeminiBackend(CustomToolAndMCPBackend):
                     executed_calls = next_custom_calls + next_mcp_calls
 
                     if executed_calls:
-                        model_parts = []
-                        for call in executed_calls:
-                            args_payload: Any = call.get("arguments", {})
-                            if isinstance(args_payload, str):
-                                try:
-                                    args_payload = json.loads(args_payload)
-                                except json.JSONDecodeError:
-                                    args_payload = {}
-                            if not isinstance(args_payload, dict):
-                                args_payload = {}
-                            part = types.Part.from_function_call(
-                                name=call.get("name", ""),
-                                args=args_payload,
-                            )
-                            # Preserve thought_signature if present (required for Gemini 3.x models)
-                            if "thought_signature" in call:
-                                part.thought_signature = call["thought_signature"]
-                            model_parts.append(part)
-                        if model_parts:
-                            conversation_history.append(types.Content(parts=model_parts, role="model"))
+                        # Separate calls that came from structured output (no thought_signature)
+                        # from real function calls (have thought_signature)
+                        structured_output_calls = [c for c in executed_calls if c.get("_from_structured_output")]
+                        real_function_calls = [c for c in executed_calls if not c.get("_from_structured_output")]
 
-                        response_parts = []
-                        for call in executed_calls:
-                            call_id = call.get("call_id")
-                            result_text = new_tool_results.get(call_id or "", "No result")
-                            response_parts.append(
-                                types.Part.from_function_response(
+                        # For real function calls, use the standard function call/response format
+                        if real_function_calls:
+                            model_parts = []
+                            for call in real_function_calls:
+                                args_payload: Any = call.get("arguments", {})
+                                if isinstance(args_payload, str):
+                                    try:
+                                        args_payload = json.loads(args_payload)
+                                    except json.JSONDecodeError:
+                                        args_payload = {}
+                                if not isinstance(args_payload, dict):
+                                    args_payload = {}
+                                part = types.Part.from_function_call(
                                     name=call.get("name", ""),
-                                    response={"result": result_text},
+                                    args=args_payload,
+                                )
+                                # Preserve thought_signature if present (required for Gemini 3.x models)
+                                if "thought_signature" in call:
+                                    part.thought_signature = call["thought_signature"]
+                                model_parts.append(part)
+                            if model_parts:
+                                conversation_history.append(types.Content(parts=model_parts, role="model"))
+
+                            response_parts = []
+                            for call in real_function_calls:
+                                call_id = call.get("call_id")
+                                result_text = new_tool_results.get(call_id or "", "No result")
+                                response_parts.append(
+                                    types.Part.from_function_response(
+                                        name=call.get("name", ""),
+                                        response={"result": result_text},
+                                    ),
+                                )
+                            if response_parts:
+                                conversation_history.append(types.Content(parts=response_parts, role="user"))
+
+                        # For structured output calls (like ask_others from JSON), inject results as text
+                        # These don't have thought_signature and can't use function call/response format
+                        if structured_output_calls:
+                            text_results = []
+                            for call in structured_output_calls:
+                                call_id = call.get("call_id")
+                                tool_name = call.get("name", "unknown")
+                                result_text = new_tool_results.get(call_id or "", "No result")
+                                text_results.append(f"[Tool Result: {tool_name}]\n{result_text}")
+
+                            model_text = "I executed the following tool(s) and received these results:\n\n" + "\n\n".join(text_results)
+                            conversation_history.append(types.Content(parts=[types.Part(text=model_text)], role="model"))
+
+                            conversation_history.append(
+                                types.Content(
+                                    parts=[
+                                        types.Part(
+                                            text="Based on the tool results above, please continue with your response. "
+                                            "Remember to use the appropriate coordination action (vote, new_answer, or ask_others) when ready.",
+                                        ),
+                                    ],
+                                    role="user",
                                 ),
                             )
-                        if response_parts:
-                            conversation_history.append(types.Content(parts=response_parts, role="user"))
 
             # ====================================================================
             # Completion Phase: Process structured tool calls and builtin indicators

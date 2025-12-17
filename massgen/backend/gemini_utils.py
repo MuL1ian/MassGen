@@ -18,6 +18,7 @@ class ActionType(enum.Enum):
 
     VOTE = "vote"
     NEW_ANSWER = "new_answer"
+    ASK_OTHERS = "ask_others"
 
 
 class PostEvaluationActionType(enum.Enum):
@@ -42,12 +43,25 @@ class NewAnswerAction(BaseModel):
     content: str = Field(description="Your improved answer. If any builtin tools like search or code execution were used, include how they are used here.")
 
 
+class AskOthersAction(BaseModel):
+    """Structured output for ask_others action (broadcast question to other agents)."""
+
+    action: ActionType = Field(default=ActionType.ASK_OTHERS, description="Action type")
+    question: str = Field(
+        description="Your specific, actionable question with ALL relevant context included. "
+        "Other agents cannot see your files or workspace, so include requirements, "
+        "constraints, and any important details they need to give a useful answer.",
+    )
+    wait: bool = Field(default=True, description="Whether to wait for responses before continuing")
+
+
 class CoordinationResponse(BaseModel):
     """Structured response for coordination actions."""
 
     action_type: ActionType = Field(description="Type of action to take")
     vote_data: Optional[VoteAction] = Field(default=None, description="Vote data if action is vote")
     answer_data: Optional[NewAnswerAction] = Field(default=None, description="Answer data if action is new_answer")
+    ask_others_data: Optional[AskOthersAction] = Field(default=None, description="Ask others data if action is ask_others")
 
 
 class SubmitAction(BaseModel):

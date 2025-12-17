@@ -277,35 +277,408 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
     @app.get("/api/setup/status")
     async def get_setup_status():
         """Check if setup is needed (no config exists) and Docker availability."""
-        import subprocess
         from pathlib import Path
+
+        from massgen.utils.docker_diagnostics import diagnose_docker
 
         # Check if default config exists
         config_path = Path.home() / ".config" / "massgen" / "config.yaml"
         has_config = config_path.exists()
 
-        # Check Docker availability
-        docker_available = False
-        try:
-            result = subprocess.run(
-                ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                images = result.stdout.strip().split("\n")
-                # Check for our runtime image
-                docker_available = any("mcp-runtime" in img for img in images)
-        except Exception:
-            docker_available = False
+        # Check Docker using diagnostics
+        diagnostics = diagnose_docker()
 
         return {
             "needs_setup": not has_config,
             "has_config": has_config,
             "config_path": str(config_path),
-            "docker_available": docker_available,
+            "docker_available": diagnostics.is_available,
+            "docker_status": diagnostics.status.value,
+            "docker_error": diagnostics.error_message if not diagnostics.is_available else None,
+            "docker_resolution": diagnostics.resolution_steps if not diagnostics.is_available else None,
         }
+
+    @app.get("/api/docker/diagnostics")
+    async def get_docker_diagnostics():
+        """Get comprehensive Docker diagnostics.
+
+        Returns detailed information about Docker installation status,
+        daemon availability, permissions, and installed images.
+        """
+        from massgen.utils.docker_diagnostics import diagnose_docker
+
+        diagnostics = diagnose_docker()
+        return diagnostics.to_dict()
+
+    @app.get("/api/setup/env-status")
+    async def get_env_status():
+        """Check which .env files exist and their locations."""
+        from pathlib import Path
+
+        home_env = Path.home() / ".massgen" / ".env"
+        local_env = Path.cwd() / ".env"
+
+        return {
+            "global_env": {
+                "path": str(home_env),
+                "exists": home_env.exists(),
+            },
+            "local_env": {
+                "path": str(local_env),
+                "exists": local_env.exists(),
+            },
+            "recommended": "global",
+        }
+
+    @app.post("/api/setup/api-keys")
+    async def save_api_keys(request_data: dict):
+        """Save API keys to .env file.
+
+        Request body:
+        {
+            "keys": {
+                "OPENAI_API_KEY": "sk-...",
+                "ANTHROPIC_API_KEY": "sk-ant-..."
+            },
+            "save_location": "global" | "local"
+        }
+
+        Returns:
+            {"success": true, "saved_to": "...", "saved_keys": ["OPENAI_API_KEY", ...]}
+        """
+        import os
+        from pathlib import Path
+
+        keys = request_data.get("keys", {})
+        save_location = request_data.get("save_location", "global")
+
+        if not keys:
+            return JSONResponse(
+                {"error": "No API keys provided"},
+                status_code=400,
+            )
+
+        # Validate keys format (basic sanity checks)
+        for key_name, key_value in keys.items():
+            if not key_name or not isinstance(key_name, str):
+                return JSONResponse(
+                    {"error": f"Invalid key name: {key_name}"},
+                    status_code=400,
+                )
+            if not key_value or not isinstance(key_value, str):
+                return JSONResponse(
+                    {"error": f"Invalid value for {key_name}"},
+                    status_code=400,
+                )
+
+        # Determine save path
+        if save_location == "global":
+            env_dir = Path.home() / ".massgen"
+            env_path = env_dir / ".env"
+        else:
+            env_dir = Path.cwd()
+            env_path = env_dir / ".env"
+
+        try:
+            # Create directory if needed
+            env_dir.mkdir(parents=True, exist_ok=True)
+
+            # Load existing env vars if file exists
+            existing_vars = {}
+            if env_path.exists():
+                with open(env_path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            name, _, value = line.partition("=")
+                            existing_vars[name.strip()] = value.strip().strip('"').strip("'")
+
+            # Merge new keys (overwrite existing)
+            existing_vars.update(keys)
+
+            # Write back
+            with open(env_path, "w") as f:
+                f.write("# MassGen API Keys\n")
+                f.write("# Generated by MassGen WebUI Setup\n\n")
+                for name, value in sorted(existing_vars.items()):
+                    f.write(f'{name}="{value}"\n')
+
+            # Set file permissions (600 - owner read/write only)
+            os.chmod(env_path, 0o600)
+
+            # Reload into current environment
+            for name, value in keys.items():
+                os.environ[name] = value
+
+            return {
+                "success": True,
+                "saved_to": str(env_path),
+                "saved_keys": list(keys.keys()),
+                "message": f"Saved {len(keys)} API key(s) to {env_path}",
+            }
+
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to save API keys: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/docker/pull")
+    async def start_docker_pull(request_data: dict):
+        """Start pulling Docker images.
+
+        Request body:
+        {
+            "images": ["ghcr.io/massgen/mcp-runtime-sudo:latest"]
+        }
+
+        Returns:
+            {"job_id": "uuid", "status": "started"}
+        """
+        images = request_data.get("images", [])
+
+        if not images:
+            return JSONResponse(
+                {"error": "No images specified"},
+                status_code=400,
+            )
+
+        job_id = str(uuid.uuid4())
+
+        # Store job info for tracking
+        if not hasattr(app, "_docker_pull_jobs"):
+            app._docker_pull_jobs = {}
+
+        app._docker_pull_jobs[job_id] = {
+            "images": images,
+            "status": "started",
+            "progress": {},
+            "completed": False,
+            "error": None,
+        }
+
+        return {
+            "job_id": job_id,
+            "status": "started",
+            "images": images,
+        }
+
+    @app.get("/api/docker/pull/{job_id}/stream")
+    async def stream_docker_pull(job_id: str):
+        """Stream Docker pull progress via Server-Sent Events.
+
+        Returns SSE stream with progress updates.
+        """
+        from starlette.responses import StreamingResponse
+
+        if not hasattr(app, "_docker_pull_jobs"):
+            app._docker_pull_jobs = {}
+
+        job = app._docker_pull_jobs.get(job_id)
+        if not job:
+            return JSONResponse(
+                {"error": "Job not found"},
+                status_code=404,
+            )
+
+        async def generate():
+            import json
+
+            try:
+                import docker
+
+                client = docker.from_env()
+            except Exception as e:
+                yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+                return
+
+            images = job["images"]
+
+            for image in images:
+                yield f"data: {json.dumps({'event': 'start', 'image': image})}\n\n"
+
+                try:
+                    # Pull with streaming progress
+                    for line in client.api.pull(image, stream=True, decode=True):
+                        status = line.get("status", "")
+                        progress = line.get("progress", "")
+                        layer_id = line.get("id", "")
+
+                        yield f"data: {json.dumps({'event': 'progress', 'image': image, 'status': status, 'progress': progress, 'layer_id': layer_id})}\n\n"
+
+                    yield f"data: {json.dumps({'event': 'complete', 'image': image, 'success': True})}\n\n"
+
+                except Exception as e:
+                    yield f"data: {json.dumps({'event': 'error', 'image': image, 'error': str(e)})}\n\n"
+
+            yield f"data: {json.dumps({'event': 'done', 'all_complete': True})}\n\n"
+
+            # Clean up job
+            if job_id in app._docker_pull_jobs:
+                del app._docker_pull_jobs[job_id]
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @app.get("/api/skills")
+    async def list_skills():
+        """List all available skills (built-in, user-installed, and project).
+
+        Returns skills from:
+        - Built-in: massgen/skills/
+        - User: ~/.agent/skills/ (home directory - where openskills installs)
+        - Project: .agent/skills/ (current working directory)
+        """
+        from pathlib import Path
+
+        import massgen
+
+        skills = []
+        seen_names = set()  # Track seen skill names to avoid duplicates
+
+        def add_skills_from_dir(skills_dir: Path, location: str) -> None:
+            """Helper to add skills from a directory."""
+            if not skills_dir.exists():
+                return
+
+            for skill_dir in skills_dir.iterdir():
+                if skill_dir.is_dir() and skill_dir.name not in seen_names:
+                    skill_md = skill_dir / "SKILL.md"
+                    if skill_md.exists():
+                        description = ""
+                        try:
+                            content = skill_md.read_text()
+                            lines = content.strip().split("\n")
+                            for line in lines:
+                                if line.strip() and not line.startswith("#") and not line.startswith("---"):
+                                    description = line.strip()[:200]
+                                    break
+                        except Exception:
+                            pass
+
+                        skills.append(
+                            {
+                                "name": skill_dir.name,
+                                "description": description,
+                                "location": location,
+                                "path": str(skill_dir),
+                                "installed": True,
+                            },
+                        )
+                        seen_names.add(skill_dir.name)
+
+        # Find built-in skills
+        massgen_path = Path(massgen.__file__).parent
+        add_skills_from_dir(massgen_path / "skills", "builtin")
+
+        # Find user-installed skills (~/.agent/skills/ - where openskills/crawl4ai install)
+        add_skills_from_dir(Path.home() / ".agent" / "skills", "user")
+
+        # Find project skills (.agent/skills/ in current directory)
+        add_skills_from_dir(Path.cwd() / ".agent" / "skills", "project")
+
+        return {
+            "skills": skills,
+            "builtin_count": len([s for s in skills if s["location"] == "builtin"]),
+            "user_count": len([s for s in skills if s["location"] == "user"]),
+            "project_count": len([s for s in skills if s["location"] == "project"]),
+        }
+
+    @app.get("/api/skills/{skill_name}")
+    async def get_skill_detail(skill_name: str):
+        """Get detailed information about a skill including SKILL.md content."""
+        from pathlib import Path
+
+        import massgen
+
+        # Search in built-in skills first
+        massgen_path = Path(massgen.__file__).parent
+        builtin_skill = massgen_path / "skills" / skill_name
+
+        if builtin_skill.exists():
+            skill_md = builtin_skill / "SKILL.md"
+            content = skill_md.read_text() if skill_md.exists() else ""
+            return {
+                "name": skill_name,
+                "location": "builtin",
+                "path": str(builtin_skill),
+                "content": content,
+            }
+
+        # Search in project skills
+        project_skill = Path.cwd() / ".agent" / "skills" / skill_name
+        if project_skill.exists():
+            skill_md = project_skill / "SKILL.md"
+            content = skill_md.read_text() if skill_md.exists() else ""
+            return {
+                "name": skill_name,
+                "location": "project",
+                "path": str(project_skill),
+                "content": content,
+            }
+
+        return JSONResponse(
+            {"error": f"Skill '{skill_name}' not found"},
+            status_code=404,
+        )
+
+    @app.post("/api/skills/install")
+    async def install_skill_package(request_data: dict):
+        """Install a skill package (anthropic or crawl4ai).
+
+        Request body:
+        {
+            "package": "anthropic" | "crawl4ai"
+        }
+
+        Returns:
+            {"success": true, "message": "..."} or {"error": "..."}
+        """
+        from massgen.utils.skills_installer import (
+            install_anthropic_skills,
+            install_crawl4ai_skill,
+            install_openskills_cli,
+        )
+
+        package_id = request_data.get("package")
+
+        if package_id == "anthropic":
+            # First ensure openskills CLI is installed
+            if not install_openskills_cli():
+                return JSONResponse(
+                    {"error": "Failed to install openskills CLI. Ensure npm/Node.js is installed."},
+                    status_code=500,
+                )
+            # Then install Anthropic skills
+            if install_anthropic_skills():
+                return {"success": True, "message": "Anthropic skills installed successfully"}
+            else:
+                return JSONResponse(
+                    {"error": "Failed to install Anthropic skills"},
+                    status_code=500,
+                )
+
+        elif package_id == "crawl4ai":
+            if install_crawl4ai_skill():
+                return {"success": True, "message": "Crawl4AI skill installed successfully"}
+            else:
+                return JSONResponse(
+                    {"error": "Failed to install Crawl4AI skill"},
+                    status_code=500,
+                )
+
+        else:
+            return JSONResponse(
+                {"error": f"Unknown package: {package_id}"},
+                status_code=400,
+            )
 
     @app.get("/api/providers")
     async def get_providers():
@@ -321,13 +694,18 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             if backend_type in ["chatcompletion", "inference", "lmstudio", "vllm", "sglang", "ag2"]:
                 continue
 
-            # Check if API key is available
+            # Check if API key is available (and not a placeholder)
             has_api_key = False
-            if caps.env_var:
-                has_api_key = bool(os.getenv(caps.env_var))
-            elif backend_type == "claude_code":
-                # Claude Code works with CLI login or API key
+            if backend_type == "claude_code":
+                # Claude Code always shows - works with CLI login, CLAUDE_CODE_API_KEY, or ANTHROPIC_API_KEY
+                # Mark as available but the notes will explain auth requirements
                 has_api_key = True
+            elif caps.env_var:
+                api_key = os.getenv(caps.env_var, "")
+                # Check it's not empty and not a placeholder from .env.example
+                # All placeholders follow pattern: your-*-key-here
+                is_placeholder = api_key.lower().startswith("your-") and api_key.lower().endswith("-key-here")
+                has_api_key = bool(api_key) and not is_placeholder
             else:
                 # Local backends don't need keys
                 has_api_key = True
@@ -385,6 +763,32 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             "source": "static",
         }
 
+    @app.get("/api/providers/{provider_id}/capabilities")
+    async def get_provider_capabilities(provider_id: str):
+        """Get capabilities for a specific provider.
+
+        Returns information about what features the provider supports,
+        such as web search, code execution, etc.
+        """
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+
+        caps = BACKEND_CAPABILITIES.get(provider_id)
+        if not caps:
+            return JSONResponse(
+                {"error": f"Unknown provider: {provider_id}"},
+                status_code=404,
+            )
+
+        return {
+            "provider_id": provider_id,
+            "supports_web_search": "web_search" in caps.supported_capabilities,
+            "supports_code_execution": "code_execution" in caps.supported_capabilities,
+            "supports_mcp": "mcp" in caps.supported_capabilities,
+            "builtin_tools": caps.builtin_tools,
+            "filesystem_support": caps.filesystem_support,
+            "all_capabilities": list(caps.supported_capabilities),
+        }
+
     @app.post("/api/config/generate")
     async def generate_config(request_data: dict):
         """Generate a config YAML from wizard selections.
@@ -392,11 +796,15 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         Request body:
         {
             "agents": [
-                {"id": "agent_a", "provider": "openai", "model": "gpt-4o"},
-                {"id": "agent_b", "provider": "claude", "model": "claude-sonnet-4-5-20250929"}
+                {"id": "agent_a", "provider": "openai", "model": "gpt-4o", "enable_web_search": true},
+                {"id": "agent_b", "provider": "claude", "model": "claude-sonnet-4-5-20250929", "enable_web_search": false}
             ],
             "use_docker": true,
-            "context_path": "/path/to/project"  // optional
+            "context_path": "/path/to/project",  // optional
+            "coordination": {  // optional
+                "voting_sensitivity": "balanced",  // lenient, balanced, strict
+                "answer_novelty_requirement": "lenient"  // lenient, balanced, strict
+            }
         }
 
         Returns:
@@ -409,6 +817,7 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         agents_config = request_data.get("agents", [])
         use_docker = request_data.get("use_docker", True)
         context_path = request_data.get("context_path")
+        coordination = request_data.get("coordination", {})
 
         if not agents_config:
             return JSONResponse(
@@ -418,14 +827,28 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
         # Convert to format expected by _generate_quickstart_config
         formatted_agents = []
+        agent_tools = {}  # Per-agent tool settings
+        agent_system_messages = {}  # Per-agent system messages
         for agent in agents_config:
+            agent_id = agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}")
             formatted_agents.append(
                 {
-                    "id": agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}"),
+                    "id": agent_id,
                     "type": agent.get("provider", "openai"),
                     "model": agent.get("model", "gpt-4o"),
                 },
             )
+            # Collect per-agent tool settings
+            tool_settings = {}
+            if agent.get("enable_web_search") is not None:
+                tool_settings["enable_web_search"] = agent.get("enable_web_search")
+            if agent.get("enable_code_execution") is not None:
+                tool_settings["enable_code_execution"] = agent.get("enable_code_execution")
+            if tool_settings:
+                agent_tools[agent_id] = tool_settings
+            # Collect per-agent system messages
+            if agent.get("system_message"):
+                agent_system_messages[agent_id] = agent.get("system_message")
 
         # Use ConfigBuilder to generate config
         builder = ConfigBuilder()
@@ -433,6 +856,9 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             formatted_agents,
             context_path=context_path,
             use_docker=use_docker,
+            agent_tools=agent_tools,
+            agent_system_messages=agent_system_messages,
+            coordination_settings=coordination,
         )
 
         # Convert to YAML string for preview
@@ -442,11 +868,113 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
     @app.post("/api/config/save")
     async def save_config(request_data: dict):
-        """Save the generated config to ~/.config/massgen/config.yaml.
+        """Save the generated config to a file.
 
         Request body:
         {
-            "config": {...}  // The config object from generate_config
+            "config": {...},  // The config object from generate_config (optional if yaml_content provided)
+            "yaml_content": "...",  // Raw YAML string (optional, takes priority if provided)
+            "filename": "my_config.yaml"  // Optional custom filename (defaults to config.yaml)
+        }
+
+        Returns:
+            {"success": true, "path": "..."}
+        """
+        import re
+        from pathlib import Path
+
+        import yaml
+
+        config = request_data.get("config")
+        yaml_content = request_data.get("yaml_content")
+
+        if not config and not yaml_content:
+            return JSONResponse(
+                {"error": "No config or yaml_content provided"},
+                status_code=400,
+            )
+
+        # Get custom filename or use default
+        filename = request_data.get("filename", "config.yaml")
+        # Sanitize filename - only allow alphanumeric, underscore, dash, and .yaml extension
+        if not re.match(r"^[\w\-]+\.ya?ml$", filename):
+            # If invalid, sanitize it
+            base_name = re.sub(r"[^\w\-]", "_", filename.replace(".yaml", "").replace(".yml", ""))
+            filename = f"{base_name}.yaml"
+
+        # Save to user config location
+        config_dir = Path.home() / ".config" / "massgen"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = config_dir / filename
+
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                if yaml_content:
+                    # Write raw YAML content (user edited)
+                    f.write(yaml_content)
+                else:
+                    # Serialize config object to YAML
+                    yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+            return {
+                "success": True,
+                "path": str(config_path),
+                "filename": filename,
+                "message": f"Config saved to {config_path}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to save config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.get("/api/config/user-configs")
+    async def list_user_configs():
+        """List all user config files in ~/.config/massgen/.
+
+        Returns:
+            {"configs": [{"name": "config.yaml", "path": "...", "modified": timestamp}, ...]}
+        """
+        from pathlib import Path
+
+        config_dir = Path.home() / ".config" / "massgen"
+        configs = []
+
+        if config_dir.exists():
+            for yaml_file in config_dir.glob("*.yaml"):
+                stat = yaml_file.stat()
+                configs.append(
+                    {
+                        "name": yaml_file.name,
+                        "path": str(yaml_file),
+                        "modified": stat.st_mtime,
+                        "size": stat.st_size,
+                    },
+                )
+            for yml_file in config_dir.glob("*.yml"):
+                stat = yml_file.stat()
+                configs.append(
+                    {
+                        "name": yml_file.name,
+                        "path": str(yml_file),
+                        "modified": stat.st_mtime,
+                        "size": stat.st_size,
+                    },
+                )
+
+        # Sort by modification time (newest first)
+        configs.sort(key=lambda x: x["modified"], reverse=True)
+
+        return {"configs": configs, "config_dir": str(config_dir)}
+
+    @app.put("/api/config/update")
+    async def update_config(request_data: dict):
+        """Update an existing config file with new content.
+
+        Request body:
+        {
+            "path": "/path/to/config.yaml",  // Full path to the config file
+            "content": "yaml content string"  // New YAML content
         }
 
         Returns:
@@ -456,30 +984,193 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
         import yaml
 
-        config = request_data.get("config")
-        if not config:
+        config_path = request_data.get("path")
+        content = request_data.get("content")
+
+        if not config_path:
             return JSONResponse(
-                {"error": "No config provided"},
+                {"error": "No path provided"},
                 status_code=400,
             )
 
-        # Save to default config location
-        config_dir = Path.home() / ".config" / "massgen"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        config_path = config_dir / "config.yaml"
+        if content is None:
+            return JSONResponse(
+                {"error": "No content provided"},
+                status_code=400,
+            )
+
+        config_path = Path(config_path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {"error": "Access denied: can only edit configs in ~/.config/massgen/"},
+                status_code=403,
+            )
+
+        # Validate YAML syntax before saving
+        try:
+            yaml.safe_load(content)
+        except yaml.YAMLError as e:
+            return JSONResponse(
+                {"error": f"Invalid YAML syntax: {str(e)}"},
+                status_code=400,
+            )
 
         try:
-            with open(config_path, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as f:
+                f.write(content)
 
             return {
                 "success": True,
                 "path": str(config_path),
-                "message": f"Config saved to {config_path}",
+                "message": f"Config updated: {config_path}",
             }
         except Exception as e:
             return JSONResponse(
                 {"error": f"Failed to save config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/config/rename")
+    async def rename_config(request_data: dict):
+        """Rename a config file.
+
+        Request body:
+        {
+            "path": "/path/to/old_config.yaml",
+            "new_name": "new_config.yaml"
+        }
+
+        Returns:
+            {"success": true, "old_path": "...", "new_path": "..."}
+        """
+        import re
+        from pathlib import Path
+
+        old_path = request_data.get("path")
+        new_name = request_data.get("new_name")
+
+        if not old_path:
+            return JSONResponse(
+                {"error": "No path provided"},
+                status_code=400,
+            )
+
+        if not new_name:
+            return JSONResponse(
+                {"error": "No new name provided"},
+                status_code=400,
+            )
+
+        old_path = Path(old_path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(old_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {"error": "Access denied: can only rename configs in ~/.config/massgen/"},
+                status_code=403,
+            )
+
+        if not old_path.exists():
+            return JSONResponse(
+                {"error": "Config file not found"},
+                status_code=404,
+            )
+
+        # Sanitize new filename
+        if not re.match(r"^[\w\-]+\.ya?ml$", new_name):
+            base_name = re.sub(r"[^\w\-]", "_", new_name.replace(".yaml", "").replace(".yml", ""))
+            new_name = f"{base_name}.yaml"
+
+        new_path = old_path.parent / new_name
+
+        if new_path.exists():
+            return JSONResponse(
+                {"error": f"A config with name '{new_name}' already exists"},
+                status_code=409,
+            )
+
+        try:
+            old_path.rename(new_path)
+            return {
+                "success": True,
+                "old_path": str(old_path),
+                "new_path": str(new_path),
+                "new_name": new_name,
+                "message": f"Config renamed to {new_name}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to rename config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.delete("/api/config/delete")
+    async def delete_config(path: str):
+        """Delete a config file.
+
+        Query params:
+            path: Full path to the config file to delete
+
+        Returns:
+            {"success": true, "path": "..."}
+        """
+        from pathlib import Path
+
+        if not path:
+            return JSONResponse(
+                {"error": "No path provided"},
+                status_code=400,
+            )
+
+        config_path = Path(path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {"error": "Access denied: can only delete configs in ~/.config/massgen/"},
+                status_code=403,
+            )
+
+        if not config_path.exists():
+            return JSONResponse(
+                {"error": "Config file not found"},
+                status_code=404,
+            )
+
+        # Don't allow deleting the last config
+        config_dir = Path.home() / ".config" / "massgen"
+        yaml_files = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
+        if len(yaml_files) <= 1:
+            return JSONResponse(
+                {"error": "Cannot delete the last config file"},
+                status_code=400,
+            )
+
+        try:
+            config_path.unlink()
+            return {
+                "success": True,
+                "path": str(config_path),
+                "message": f"Config deleted: {config_path.name}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to delete config: {str(e)}"},
                 status_code=500,
             )
 
@@ -1604,6 +2295,7 @@ async def run_coordination_with_history(
                 max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
                 broadcast=coord_cfg.get("broadcast", False),
                 broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                response_depth=coord_cfg.get("response_depth", "medium"),
                 broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
                 broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
                 max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
@@ -1711,6 +2403,19 @@ async def run_coordination(
     """
     import traceback
 
+    async def send_init_status(message: str, step: str, progress: int = 0) -> None:
+        """Send initialization status to WebSocket clients."""
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "init_status",
+                "message": message,
+                "step": step,
+                "progress": progress,
+                "session_id": session_id,
+            },
+        )
+
     async def emit_preparation_status(status: str, detail: str = "") -> None:
         """Emit preparation status update to web clients."""
         await manager.broadcast(
@@ -1737,6 +2442,9 @@ async def run_coordination(
         from massgen.frontend.coordination_ui import CoordinationUI
         from massgen.orchestrator import Orchestrator
 
+        # Send initial status
+        await send_init_status("Loading configuration...", "config", 10)
+
         # Load config from YAML file
         if not config_path:
             raise ValueError("Config path is required")
@@ -1751,13 +2459,17 @@ async def run_coordination(
         # Extract orchestrator config dict from YAML
         orchestrator_cfg = config.get("orchestrator", {})
 
+        # Send agent setup status (this is the slow part - Docker containers, etc.)
+        agent_configs = config.get("agents", [])
+        num_agents = len(agent_configs)
+        await send_init_status(f"Setting up {num_agents} agents...", "agents", 30)
+
         # Check if Docker is being used
         uses_docker = config.get("execution", {}).get("use_docker", False)
         if uses_docker:
             await emit_preparation_status("Preparing Docker environment...", "Setting up isolated containers")
 
         # Create agents from config with progress updates
-        num_agents = len(config.get("agents", []))
         await emit_preparation_status("Initializing agents...", f"{num_agents} agent{'s' if num_agents != 1 else ''}")
 
         # Create progress callback that sends WebSocket updates
@@ -1798,11 +2510,15 @@ async def run_coordination(
             if model_name:
                 agent_models[agent_id] = model_name
 
+        await send_init_status(f"Agents ready: {', '.join(agent_ids)}", "agents_ready", 60)
+
         # Emit status about loaded agents
         await emit_preparation_status("Configuring orchestrator...", ", ".join(agent_ids))
 
         # Create web display with agent_models
         display = manager.create_display(session_id, agent_ids, agent_models)
+
+        await send_init_status("Initializing orchestrator...", "orchestrator", 80)
 
         # Build AgentConfig object for orchestrator (required by Orchestrator)
         orchestrator_config = AgentConfig()
@@ -1833,6 +2549,7 @@ async def run_coordination(
                 max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
                 broadcast=coord_cfg.get("broadcast", False),
                 broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                response_depth=coord_cfg.get("response_depth", "medium"),
                 broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
                 broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
                 max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
@@ -1874,6 +2591,8 @@ async def run_coordination(
             display=display,
             display_type="web",
         )
+
+        await send_init_status("Starting coordination...", "starting", 100)
 
         # Final preparation status before starting
         await emit_preparation_status("Launching agents...", "Agents will appear momentarily")

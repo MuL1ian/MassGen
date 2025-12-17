@@ -337,14 +337,20 @@ class FilesystemManager:
         temp_skills_dir = Path(tempfile.mkdtemp(prefix="massgen-skills-local-"))
         logger.info(f"[Local] Creating temp merged skills directory: {temp_skills_dir}")
 
-        # Copy user's .agent/skills if it exists
+        # Copy skills from home directory (~/.agent/skills/) first - this is where openskills installs
+        home_skills_path = Path.home() / ".agent" / "skills"
+        if home_skills_path.exists():
+            logger.info(f"[Local] Copying home skills from: {home_skills_path}")
+            shutil.copytree(home_skills_path, temp_skills_dir, dirs_exist_ok=True)
+
+        # Copy project skills (.agent/skills if it exists) - these override home skills
         if skills_directory:
             skills_path = Path(skills_directory).resolve()
             if skills_path.exists():
-                logger.info(f"[Local] Copying user skills from: {skills_path}")
+                logger.info(f"[Local] Copying project skills from: {skills_path}")
                 shutil.copytree(skills_path, temp_skills_dir, dirs_exist_ok=True)
             else:
-                logger.warning(f"[Local] User skills directory does not exist: {skills_path}")
+                logger.debug(f"[Local] Project skills directory does not exist: {skills_path}")
 
         # Copy massgen built-in skills (flat structure in massgen/skills/)
         massgen_skills_base = Path(__file__).parent.parent / "skills"

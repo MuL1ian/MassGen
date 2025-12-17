@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.25 Features](#-latest-features-v0125)
+- [v0.1.26 Features](#-latest-features-v0126)
 </details>
 
 <details open>
@@ -123,15 +123,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <summary><h3>🗺️ Roadmap</h3></summary>
 
 - Recent Achievements
-  - [v0.1.25](#recent-achievements-v0125)
-  - [v0.0.3 - v0.1.24](#previous-achievements-v003---v0124)
+  - [v0.1.26](#recent-achievements-v0126)
+  - [v0.0.3 - v0.1.25](#previous-achievements-v003---v0125)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.26 Roadmap](#v0126-roadmap)
+- [v0.1.27 Roadmap](#v0127-roadmap)
 </details>
 
 <details open>
@@ -156,36 +156,35 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.25)
+## 🆕 Latest Features (v0.1.26)
 
-**🎉 Released: December 15, 2025**
+**🎉 Released: December 17, 2025**
 
-**What's New in v0.1.25:**
-- **🤖 UI-TARS Custom Tool** - New custom tool for ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
-- **🧠 GPT-5.2 Support** - OpenAI's latest GPT-5.2 model added as the new default
-- **📝 Evolving Skills** - Create reusable workflow plans that improve through iteration
-- **🎨 Enhanced Textual Terminal** - Improved adaptive layouts and dark/light themes
+**What's New in v0.1.26:**
+- **🐳 Docker Diagnostics** - Platform-specific error detection and resolution for Docker issues
+- **🖥️ Web UI Setup Wizard** - Guided first-run setup with API key management and environment checks
+- **⚡ Shadow Agent Response Depth** - Test-time compute scaling for broadcast responses (`low`/`medium`/`high`)
+- **🔧 Model Registry Updates** - GPT-5.1-Codex family, Claude alias notation, updated defaults
 
 **Key Improvements:**
-- OpenRouter Gemini reasoning details now preserved in streaming responses
-- LiteLLM provider context path fixes for better integration
+- Claude Code API key handling and configuration fixes
+- Web UI asset loading and static path resolution (MAS-160)
 
-**Try v0.1.25 Features:**
+**Try v0.1.26 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Try UI-TARS computer use (requires UI_TARS_API_KEY and UI_TARS_ENDPOINT)
-massgen --config @examples/tools/custom_tools/ui_tars_browser_example \
-  "Search for 'Python asyncio' on Google and summarize the first result"
+# Or with uv (faster)
+uv pip install massgen
 
-# Use the new Textual terminal display
-massgen --config @examples/basic/single_agent_textual \
-  "What is the transformers in deep learning?"
+# Use response depth for test-time compute scaling in agent broadcasts
+# response_depth: "high" makes shadow agents provide more thorough solutions
+massgen --config @examples/broadcast/test_broadcast_agents \
+  "Create a website about Bob Dylan. Please ask_others for what framework to use first"
 
-# Create evolving skills with previous session discovery
-massgen --config @examples/skills/skills_with_previous_sessions \
-  "Create a web scraping workflow that extracts article titles from news sites"
+# Launch Web UI with guided setup wizard (first-run experience)
+massgen --web
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -409,9 +408,9 @@ MassGen automatically loads API keys from `.env` in your current directory.
 The system currently supports multiple model providers with advanced capabilities:
 
 **API-based Models:**
-- **OpenAI**: GPT-5.1, GPT-5-codex, GPT-5 series (GPT-5, GPT-5-mini, GPT-5-nano), GPT-4.1 series, GPT-4o, o4-mini with reasoning, web search, code interpreter, and computer-use support
+- **OpenAI**: GPT-5.1-Codex series (gpt-5.1-codex-max, gpt-5.1-codex, gpt-5.1-codex-mini), GPT-5.2, GPT-5.1, GPT-5 series (GPT-5, GPT-5-mini, GPT-5-nano), GPT-4.1 series, GPT-4o, o4-mini with reasoning, web search, code interpreter, and computer-use support
 - **Azure OpenAI**: Any Azure-deployed models (GPT-4, GPT-4o, GPT-35-turbo, etc.)
-- **Claude / Anthropic**: Claude Opus 4.5, Claude Haiku 4.5, Claude Sonnet 4.5, Claude Opus 4.5, Claude Opus 4.1, Claude Sonnet 4
+- **Claude / Anthropic**: Claude Opus 4.5, Claude Haiku 4.5, Claude Sonnet 4.5, Claude Opus 4.1, Claude Sonnet 4
   - Advanced tooling: web search, code execution, Files API, programmatic tool calling, tool search with deferred loading
 - **Claude Code**: Native Claude Code SDK with server-side session persistence and built-in dev tools
 - **Gemini**: Gemini 3 Pro, Gemini 2.5 Flash, Gemini 2.5 Pro with code execution and grounding
@@ -1124,28 +1123,28 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.25)
+### Recent Achievements (v0.1.26)
 
-**🎉 Released: December 15, 2025**
+**🎉 Released: December 17, 2025**
 
-#### New Tools & Models
-- **UI-TARS Custom Tool**: ByteDance's UI-TARS-1.5-7B model for GUI automation via HuggingFace Inference Endpoints with Docker and browser automation examples
-- **GPT-5.2 Model**: Added to OpenAI backend as new default with release date metadata
+#### Web UI & Setup
+- **Web UI Setup Wizard**: Guided first-run experience with `SetupPage`, `ConfigEditorModal`, and `CoordinationStep` components for API key management and environment configuration
+- **Docker Diagnostics Module**: Comprehensive error detection distinguishing binary not installed, daemon not running, permission denied, and image missing with platform-specific resolution steps
 
-#### Evolving Skills System
-- **Workflow Plans**: Framework for creating reusable workflow plans that capture steps, scripts, and learnings
-- **Session Persistence**: Load skills from previous sessions via `skills_with_previous_sessions.yaml`
-- **Skill Discovery**: Enhanced system prompts for skill evolution guidance
+#### Shadow Agent Enhancement
+- **Response Depth Scaling**: Test-time compute scaling via `response_depth` parameter controlling solution complexity in broadcast responses
 
-#### Terminal & Display
-- **Textual Terminal Enhancement**: Adaptive layouts for different terminal sizes with improved modal and panel components
-- **Theme Improvements**: Enhanced dark/light themes with styled containers for agent coordination visualization
+#### Model Registry
+- **GPT-5.1-Codex Family**: Added `gpt-5.1-codex-max`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` with `gpt-5.1-codex` as new default
+- **Claude Alias Notation**: Updated naming from dot notation to alias notation (`claude-opus-4-5` instead of `claude-opus-4.5`)
 
 #### Bug Fixes
-- **OpenRouter Gemini**: Reasoning details now preserved in streaming responses
-- **LiteLLM Provider**: Fixed context path resolution for configuration and documentation references
+- **Claude Code API Keys**: Fixed API key configuration and environment variable handling
+- **Web UI Assets**: Fixed configuration and static asset paths (MAS-160, MAS-161)
 
-### Previous Achievements (v0.0.3 - v0.1.24)
+### Previous Achievements (v0.0.3 - v0.1.25)
+
+✅ **UI-TARS & Evolving Skills (v0.1.25)**: ByteDance's UI-TARS-1.5-7B for GUI automation, GPT-5.2 model support, evolving skill creator system with session persistence, enhanced Textual terminal with adaptive layouts
 
 ✅ **Multi-Backend Cost Tracking (v0.1.24)**: Real-time token counting for OpenRouter, xAI/Grok, Gemini, and Claude Code backends with `/inspect c` cost breakdown showing per-agent token usage, aggregated session cost totals with improved display formatting
 
@@ -1339,21 +1338,21 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.26 Roadmap
+### v0.1.27 Roadmap
 
-Version 0.1.26 focuses on system reminders and improved agent broadcasting:
+Version 0.1.27 focuses on system reminders and memory as callable tools:
 
 #### Planned Features
 - **Add system reminders** (@ncrispino): Framework for injecting system reminders mid-run during LLM streaming
-- **Improve agent broadcasting** (@ncrispino): Enable scaling of agent broadcast responses based on configurable sensitivity levels
+- **Memory as Tools** (@ncrispino): Include memory (including filesystem) as callable tools for agents
 
 Key technical approach:
 - **System Reminders**: Mid-run injection during LLM streaming, support for context awareness, human feedback, safety, and memory reminders
-- **Agent Broadcasting**: Three-tier sensitivity configuration, dynamic response complexity scaling, targeted questioning
+- **Memory as Tools**: Unified memory tool interface with store/retrieve/search operations, filesystem and vector store backends
 
-**Target Release**: December 17, 2025 (Wednesday @ 9am PT)
+**Target Release**: December 19, 2025 (Friday @ 9am PT)
 
-For detailed milestones and technical specifications, see the [full v0.1.26 roadmap](ROADMAP_v0.1.26.md).
+For detailed milestones and technical specifications, see the [full v0.1.27 roadmap](ROADMAP_v0.1.27.md).
 
 ---
 

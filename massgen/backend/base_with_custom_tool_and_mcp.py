@@ -808,6 +808,7 @@ class CustomToolAndMCPBackend(LLMBackend):
     async def stream_custom_tool_execution(
         self,
         call: Dict[str, Any],
+        agent_id_override: Optional[str] = None,
     ) -> AsyncGenerator[CustomToolChunk, None]:
         """Stream custom tool execution with differentiation between logs and final results.
 
@@ -819,6 +820,9 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         Args:
             call: Function call dictionary with name and arguments
+            agent_id_override: Explicit agent ID for broadcast tools. Use this to avoid race
+                conditions when multiple agents run concurrently (shared _execution_context
+                can get overwritten). If not provided, falls back to _execution_context.
 
         Yields:
             CustomToolChunk instances for streaming to user
@@ -831,8 +835,16 @@ class CustomToolAndMCPBackend(LLMBackend):
         if tool_name in ("ask_others", "respond_to_broadcast", "check_broadcast_status", "get_broadcast_responses") and hasattr(self, "_broadcast_toolkit"):
             # Parse arguments
             arguments = call["arguments"] if isinstance(call["arguments"], str) else json.dumps(call["arguments"])
-            # Get agent_id from execution context (set in stream_with_tools from kwargs)
-            agent_id = self._execution_context.agent_id if self._execution_context and self._execution_context.agent_id else "unknown"
+            # Use explicit agent_id if provided, then instance agent_id, then execution context
+            # Priority: agent_id_override > self.agent_id > _execution_context
+            # This avoids race conditions when multiple agents run concurrently
+            # (the shared _execution_context can get overwritten by other agents)
+            if agent_id_override:
+                agent_id = agent_id_override
+            elif self.agent_id:
+                agent_id = self.agent_id
+            else:
+                agent_id = self._execution_context.agent_id if self._execution_context and self._execution_context.agent_id else "unknown"
 
             # Call broadcast toolkit method
             try:

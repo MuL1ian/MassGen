@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 
 // Types for wizard state
-export type WizardStep = 'docker' | 'apiKeys' | 'agentCount' | 'setupMode' | 'agentConfig' | 'preview';
+export type WizardStep = 'docker' | 'apiKeys' | 'agentCount' | 'setupMode' | 'agentConfig' | 'coordination' | 'preview';
 
 export interface ProviderInfo {
   id: string;
@@ -20,10 +20,32 @@ export interface ProviderInfo {
   notes: string;
 }
 
+// Provider capabilities from the capabilities API
+export interface ProviderCapabilities {
+  provider_id: string;
+  supports_web_search: boolean;
+  supports_code_execution: boolean;
+  supports_mcp: boolean;
+  builtin_tools: string[];
+  filesystem_support: string;
+  all_capabilities: string[];
+}
+
 export interface AgentConfig {
   id: string;
   provider: string;
   model: string;
+  // Per-agent tool settings
+  enable_web_search?: boolean;
+  enable_code_execution?: boolean;
+  // Per-agent custom instruction
+  system_message?: string;
+}
+
+// Coordination settings (shared across all agents)
+export interface CoordinationSettings {
+  voting_sensitivity: 'lenient' | 'balanced' | 'strict';
+  answer_novelty_requirement: 'lenient' | 'balanced' | 'strict';
 }
 
 export interface SetupStatus {
@@ -50,15 +72,25 @@ interface WizardState {
   dynamicModels: Record<string, string[]>;
   loadingModels: Record<string, boolean>;
 
+  // Provider capabilities cache (provider_id -> capabilities)
+  providerCapabilities: Record<string, ProviderCapabilities>;
+  loadingCapabilities: Record<string, boolean>;
+
   // User selections
   useDocker: boolean;
   agentCount: number;
   setupMode: 'same' | 'different';
   agents: AgentConfig[];
 
+  // Coordination settings
+  coordinationSettings: CoordinationSettings;
+
   // Generated config
   generatedConfig: Record<string, unknown> | null;
   generatedYaml: string | null;
+
+  // Config filename for custom naming
+  configFilename: string;
 
   // Saved config path for auto-selection
   savedConfigPath: string | null;
@@ -72,19 +104,31 @@ interface WizardState {
   setUseDocker: (useDocker: boolean) => void;
   setAgentCount: (count: number) => void;
   setSetupMode: (mode: 'same' | 'different') => void;
-  setAgentConfig: (index: number, provider: string, model: string) => void;
-  setAllAgentsConfig: (provider: string, model: string) => void;
+  setAgentConfig: (index: number, provider: string, model: string, enableWebSearch?: boolean) => void;
+  setAllAgentsConfig: (provider: string, model: string, enableWebSearch?: boolean) => void;
+  setAgentWebSearch: (index: number, enableWebSearch: boolean) => void;
+  setAgentCodeExecution: (index: number, enableCodeExecution: boolean) => void;
+  setAgentSystemMessage: (index: number, systemMessage: string) => void;
+  setCoordinationSettings: (settings: Partial<CoordinationSettings>) => void;
+  setConfigFilename: (filename: string) => void;
+  setGeneratedYaml: (yaml: string) => void;
 
   // API actions
   fetchSetupStatus: () => Promise<void>;
   fetchProviders: () => Promise<void>;
   fetchDynamicModels: (providerId: string) => Promise<string[]>;
+  fetchProviderCapabilities: (providerId: string) => Promise<ProviderCapabilities | null>;
   generateConfig: () => Promise<void>;
   saveConfig: () => Promise<boolean>;
   reset: () => void;
 }
 
-const stepOrder: WizardStep[] = ['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'preview'];
+const stepOrder: WizardStep[] = ['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'coordination', 'preview'];
+
+const defaultCoordinationSettings: CoordinationSettings = {
+  voting_sensitivity: 'lenient',
+  answer_novelty_requirement: 'lenient',
+};
 
 const initialState = {
   isOpen: false,
@@ -95,12 +139,16 @@ const initialState = {
   providers: [],
   dynamicModels: {} as Record<string, string[]>,
   loadingModels: {} as Record<string, boolean>,
+  providerCapabilities: {} as Record<string, ProviderCapabilities>,
+  loadingCapabilities: {} as Record<string, boolean>,
   useDocker: true,
   agentCount: 3,
   setupMode: 'same' as const,
   agents: [],
+  coordinationSettings: defaultCoordinationSettings,
   generatedConfig: null,
   generatedYaml: null,
+  configFilename: 'config',
   savedConfigPath: null,
 };
 
@@ -160,7 +208,7 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     }
 
     // When moving to preview, generate the config
-    if (currentStep === 'agentConfig') {
+    if (currentStep === 'coordination') {
       get().generateConfig();
     }
 
@@ -205,23 +253,71 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     set({ setupMode: mode });
   },
 
-  setAgentConfig: (index: number, provider: string, model: string) => {
+  setAgentConfig: (index: number, provider: string, model: string, enableWebSearch?: boolean) => {
     const { agents } = get();
     const newAgents = [...agents];
     if (newAgents[index]) {
-      newAgents[index] = { ...newAgents[index], provider, model };
+      newAgents[index] = {
+        ...newAgents[index],
+        provider,
+        model,
+        ...(enableWebSearch !== undefined && { enable_web_search: enableWebSearch }),
+      };
       set({ agents: newAgents });
     }
   },
 
-  setAllAgentsConfig: (provider: string, model: string) => {
+  setAllAgentsConfig: (provider: string, model: string, enableWebSearch?: boolean) => {
     const { agents } = get();
     const newAgents = agents.map((agent) => ({
       ...agent,
       provider,
       model,
+      ...(enableWebSearch !== undefined && { enable_web_search: enableWebSearch }),
     }));
     set({ agents: newAgents });
+  },
+
+  setAgentWebSearch: (index: number, enableWebSearch: boolean) => {
+    const { agents } = get();
+    const newAgents = [...agents];
+    if (newAgents[index]) {
+      newAgents[index] = { ...newAgents[index], enable_web_search: enableWebSearch };
+      set({ agents: newAgents });
+    }
+  },
+
+  setAgentCodeExecution: (index: number, enableCodeExecution: boolean) => {
+    const { agents } = get();
+    const newAgents = [...agents];
+    if (newAgents[index]) {
+      newAgents[index] = { ...newAgents[index], enable_code_execution: enableCodeExecution };
+      set({ agents: newAgents });
+    }
+  },
+
+  setAgentSystemMessage: (index: number, systemMessage: string) => {
+    const { agents } = get();
+    const newAgents = [...agents];
+    if (newAgents[index]) {
+      newAgents[index] = { ...newAgents[index], system_message: systemMessage || undefined };
+      set({ agents: newAgents });
+    }
+  },
+
+  setCoordinationSettings: (settings: Partial<CoordinationSettings>) => {
+    const { coordinationSettings } = get();
+    set({ coordinationSettings: { ...coordinationSettings, ...settings } });
+  },
+
+  setConfigFilename: (filename: string) => {
+    // Allow the raw input - we'll sanitize on save if needed
+    // This allows users to type freely while seeing the preview
+    set({ configFilename: filename });
+  },
+
+  setGeneratedYaml: (yaml: string) => {
+    set({ generatedYaml: yaml });
   },
 
   fetchSetupStatus: async () => {
@@ -291,8 +387,42 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     }
   },
 
+  fetchProviderCapabilities: async (providerId: string) => {
+    const { providerCapabilities, loadingCapabilities } = get();
+
+    // Return cached capabilities if already loaded
+    if (providerCapabilities[providerId]) {
+      return providerCapabilities[providerId];
+    }
+
+    // Don't fetch if already loading
+    if (loadingCapabilities[providerId]) {
+      return null;
+    }
+
+    set({ loadingCapabilities: { ...loadingCapabilities, [providerId]: true } });
+
+    try {
+      const response = await fetch(`/api/providers/${providerId}/capabilities`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch capabilities');
+      }
+      const data = await response.json();
+
+      set({
+        providerCapabilities: { ...get().providerCapabilities, [providerId]: data },
+        loadingCapabilities: { ...get().loadingCapabilities, [providerId]: false },
+      });
+
+      return data as ProviderCapabilities;
+    } catch (err) {
+      set({ loadingCapabilities: { ...get().loadingCapabilities, [providerId]: false } });
+      return null;
+    }
+  },
+
   generateConfig: async () => {
-    const { agents, useDocker } = get();
+    const { agents, useDocker, coordinationSettings } = get();
     set({ isLoading: true, error: null });
 
     try {
@@ -302,6 +432,7 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
         body: JSON.stringify({
           agents,
           use_docker: useDocker,
+          coordination: coordinationSettings,
         }),
       });
 
@@ -323,8 +454,8 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
   },
 
   saveConfig: async () => {
-    const { generatedConfig } = get();
-    if (!generatedConfig) {
+    const { generatedConfig, generatedYaml, configFilename } = get();
+    if (!generatedConfig && !generatedYaml) {
       set({ error: 'No config to save' });
       return false;
     }
@@ -332,10 +463,22 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
+      // Build filename with .yaml extension
+      const filename = `${configFilename || 'config'}.yaml`;
+
+      // Send yaml_content if we have edited YAML, otherwise send the config object
+      const body: Record<string, unknown> = { filename };
+      if (generatedYaml) {
+        body.yaml_content = generatedYaml;
+      }
+      if (generatedConfig) {
+        body.config = generatedConfig;
+      }
+
       const response = await fetch('/api/config/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: generatedConfig }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -372,3 +515,7 @@ export const selectGeneratedYaml = (state: WizardState) => state.generatedYaml;
 export const selectSavedConfigPath = (state: WizardState) => state.savedConfigPath;
 export const selectDynamicModels = (state: WizardState) => state.dynamicModels;
 export const selectLoadingModels = (state: WizardState) => state.loadingModels;
+export const selectConfigFilename = (state: WizardState) => state.configFilename;
+export const selectProviderCapabilities = (state: WizardState) => state.providerCapabilities;
+export const selectLoadingCapabilities = (state: WizardState) => state.loadingCapabilities;
+export const selectCoordinationSettings = (state: WizardState) => state.coordinationSettings;

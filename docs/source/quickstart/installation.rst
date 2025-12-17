@@ -23,13 +23,14 @@ Quick Install
          pip install uv                          # if needed
          uv venv && source .venv/bin/activate
          uv pip install massgen
-         uv run massgen                          # Setup wizard guides you
 
    .. tab:: LiteLLM Integration
 
       .. code-block:: bash
 
-         pip install massgen litellm python-dotenv
+         pip install uv                          # if needed
+         uv venv && source .venv/bin/activate
+         uv pip install massgen litellm python-dotenv
 
       Then in Python:
 
@@ -55,22 +56,42 @@ For programmatic Python usage, see the :doc:`../user_guide/integration/python_ap
 First Run Setup
 ===============
 
-On first run, MassGen guides you through setup:
+On first run, MassGen guides you through setup. Choose your preferred interface:
 
-.. code-block:: bash
+.. tabs::
 
-   uv run massgen
+   .. tab:: WebUI (Recommended)
 
-The wizard will:
+      .. code-block:: bash
 
-1. **Configure API keys** (OpenRouter recommended, or individual providers)
-2. **Create your agent team** (choose from templates or examples)
-3. **Launch interactive mode** immediately
+         uv run massgen --web
+
+      The browser-based setup wizard will:
+
+      1. **Configure API keys** - Enter keys for OpenAI, Anthropic, Google, etc.
+      2. **Setup Docker** (optional) - For isolated code execution
+      3. **Review Skills** - See available agent capabilities
+      4. **Create your agent team** - Quickstart wizard for configuration
+
+      This is the easiest way to get started - everything in one visual interface.
+
+   .. tab:: CLI
+
+      .. code-block:: bash
+
+         uv run massgen
+
+      The terminal wizard will:
+
+      1. **Configure API keys** (OpenRouter recommended, or individual providers)
+      2. **Create your agent team** (choose from templates or examples)
+      3. **Launch interactive mode** immediately
 
 Your configuration is saved to ``~/.config/massgen/config.yaml``.
 
 API Keys
 --------
+API keys can be configured through webui or cli setup. However, they can also be setup through the terminal:
 
 **OpenRouter (recommended):** Single API key for all models
 
@@ -95,9 +116,10 @@ Re-configure anytime:
 
 .. code-block:: bash
 
-   uv run massgen --init        # Full configuration wizard
-   uv run massgen --setup       # Just API keys
-   uv run massgen --quickstart  # Quick 3-agent setup
+   uv run massgen --web         # WebUI setup page (visit /setup)
+   uv run massgen --init        # CLI full configuration wizard
+   uv run massgen --setup       # CLI just API keys
+   uv run massgen --quickstart  # CLI quick 3-agent setup
 
 Verify Installation
 ===================

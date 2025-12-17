@@ -159,6 +159,12 @@ class CoordinationUI:
                         self.display.update_agent_status(source, status)
                     continue
 
+                # Handle system status updates (e.g., "Initializing coordination...", "Preparing agents...")
+                elif chunk_type == "system_status":
+                    if self.display and hasattr(self.display, "update_system_status"):
+                        self.display.update_system_status(content)
+                    continue
+
                 # Filter out debug chunks from display
                 elif chunk_type == "debug":
                     # Log debug info but don't display it
@@ -627,6 +633,12 @@ class CoordinationUI:
                         self.display.update_agent_status(source, status)
                     continue
 
+                # Handle system status updates (e.g., "Initializing coordination...", "Preparing agents...")
+                elif chunk_type == "system_status":
+                    if self.display and hasattr(self.display, "update_system_status"):
+                        self.display.update_system_status(content)
+                    continue
+
                 # Handle preparation status updates (for web UI progress)
                 elif chunk_type == "preparation_status":
                     status = getattr(chunk, "status", None)
@@ -1031,6 +1043,12 @@ class CoordinationUI:
                     status = getattr(chunk, "status", None)
                     if source and status:
                         self.display.update_agent_status(source, status)
+                    continue
+
+                # Handle system status updates (e.g., "Initializing coordination...", "Preparing agents...")
+                elif chunk_type == "system_status":
+                    if self.display and hasattr(self.display, "update_system_status"):
+                        self.display.update_system_status(content)
                     continue
 
                 # Handle preparation status updates (for web UI progress)

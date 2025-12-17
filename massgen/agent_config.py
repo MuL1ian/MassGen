@@ -55,6 +55,11 @@ class CoordinationConfig:
                              - "low": Only for critical decisions/when blocked
                              - "medium": For significant decisions and design choices (default)
                              - "high": Frequently - whenever considering options or proposing approaches
+        response_depth: Controls test-time compute scaling for shadow agent responses.
+                       Determines how thorough/complex suggested solutions should be.
+                       - "low": Quick, simple responses; minimal solutions (e.g., basic HTML/CSS)
+                       - "medium": Balanced effort; standard solutions (default)
+                       - "high": Thorough responses; sophisticated solutions (e.g., React + Next.js)
         broadcast_timeout: Maximum time to wait for broadcast responses (seconds).
         broadcast_wait_by_default: If True, ask_others() blocks until responses collected (blocking mode).
                                    If False, ask_others() returns immediately for polling (polling mode).
@@ -89,6 +94,7 @@ class CoordinationConfig:
     max_tasks_per_plan: int = 10
     broadcast: Any = False  # False | "agents" | "human"
     broadcast_sensitivity: str = "medium"  # "low" | "medium" | "high" - Used in BroadcastCommunicationSection system prompts
+    response_depth: str = "medium"  # "low" | "medium" | "high" - Controls test-time compute scaling for shadow agents
     broadcast_timeout: int = 300
     broadcast_wait_by_default: bool = True
     max_broadcasts_per_agent: int = 10
@@ -116,6 +122,10 @@ class CoordinationConfig:
             # Validate sensitivity
             if self.broadcast_sensitivity not in ["low", "medium", "high"]:
                 raise ValueError(f"Invalid broadcast_sensitivity: {self.broadcast_sensitivity}. Must be 'low', 'medium', or 'high'")
+
+            # Validate response_depth
+            if self.response_depth not in ["low", "medium", "high"]:
+                raise ValueError(f"Invalid response_depth: {self.response_depth}. Must be 'low', 'medium', or 'high'")
 
             # Warn if both task planning and high-sensitivity broadcasts enabled
             if self.enable_agent_task_planning and self.broadcast_sensitivity == "high":

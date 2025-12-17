@@ -1619,8 +1619,6 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         compatible_patterns = [
             "claude-opus-4-5",
             "claude-sonnet-4-5",
-            "claude-opus-4.5",
-            "claude-sonnet-4.5",
         ]
         is_compatible = any(pattern in model for pattern in compatible_patterns)
 

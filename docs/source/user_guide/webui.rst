@@ -35,6 +35,30 @@ Launch the Web UI with the ``--web`` flag:
 
 Open http://localhost:8000 (default) in your browser.
 
+First-Time Setup
+----------------
+
+When you run ``uv run massgen --web`` for the first time, you'll be automatically
+directed to the **Setup Page** to configure your environment:
+
+**Step 1: API Keys**
+   Enter API keys for the providers you want to use (OpenAI, Anthropic, Google, etc.).
+   Keys can be saved globally (``~/.massgen/.env``) or locally (``./.env``).
+
+**Step 2: Docker Setup**
+   Check Docker availability and pull MassGen runtime images for isolated code execution.
+   Docker is optional - you can skip this step if you prefer local execution mode.
+
+**Step 3: Skills**
+   View available skills that extend agent capabilities. Skills are enabled via YAML config.
+
+After completing setup, click **Finish Setup** to proceed to the Quickstart Wizard
+where you'll configure your first agent team.
+
+.. note::
+   You can return to the Setup Page anytime by clicking the **Setup** button in the header
+   or navigating directly to ``http://localhost:8000/setup``.
+
 Interface Overview
 ------------------
 

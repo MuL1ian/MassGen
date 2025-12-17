@@ -121,14 +121,26 @@ Alternatively, use provider-specific keys:
    # OpenAI (for GPT-5, GPT-4, etc.)
    OPENAI_API_KEY=sk-...
 
-   # Anthropic Claude
+   # Anthropic Claude (for claude backend)
    ANTHROPIC_API_KEY=sk-ant-...
+
+   # Claude Code (optional - for claude_code backend only)
+   # If set, claude_code uses this instead of ANTHROPIC_API_KEY
+   # CLAUDE_CODE_API_KEY=sk-ant-...
 
    # Google Gemini
    GOOGLE_API_KEY=...
 
    # xAI Grok
    XAI_API_KEY=...
+
+.. note::
+
+   **Separate API keys for Claude Code:** The ``claude_code`` backend checks
+   ``CLAUDE_CODE_API_KEY`` first, then falls back to ``ANTHROPIC_API_KEY``.
+   This allows you to use a Claude subscription (no API key) or a separate
+   API key for Claude Code agents while using a different API key for standard
+   Claude backend agents.
 
 **Getting API Keys:**
 

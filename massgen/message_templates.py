@@ -912,8 +912,8 @@ You have access to the `ask_others()` tool for collaborative problem-solving.
 
         guidance += """**When to use ask_others():**
 - **When the user explicitly asks you to**: If the prompt says "ask_others for..." then CALL THE TOOL
-- **Before making a key decision**: "Which framework should we use: Next.js or React?"
-- **When you need clarification**: "What's our approach for authentication?"
+- **Before making a key decision**: "What server-side rendering requirements does this project have?"
+- **When you need clarification**: "What authentication patterns are already implemented?"
 - **After providing an answer**: Ask others for feedback on your approach
 - **When reviewing existing answers**: Ask questions about others' implementations
 - **When stuck on something specific**: "How should I handle [specific issue]?"
@@ -961,12 +961,12 @@ When you receive responses from ask_others(), INCLUDE THEM in your new_answer() 
 - Actually CALL THE TOOL (don't just mention it in your answer text)
 - Respond helpfully when others ask you questions
 
-**Examples of good questions:**
-- "Which framework should we use for this project: Next.js, Nuxt, or SvelteKit?"
-- "I'm about to refactor the User model. Any concerns or suggestions?"
-- "Does anyone know which OAuth library we're using?"
-- "I'm stuck on this authentication bug. Ideas?"
-- "Should I implement approach A (faster) or approach B (more maintainable)?"
+**Examples of good questions (feature-focused, not comparative):**
+- "What SSR capabilities does the project require?"
+- "What database constraints or dependencies exist for the User model?"
+- "Which OAuth library is configured in the project dependencies?"
+- "What authentication patterns are already implemented in this codebase?"
+- "What are the performance requirements for this feature?"
 """
 
         if broadcast_mode == "human":

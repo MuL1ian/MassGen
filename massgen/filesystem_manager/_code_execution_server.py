@@ -312,6 +312,16 @@ async def create_server() -> fastmcp.FastMCP:
     mcp.docker_client = None
     if args.execution_mode == "docker":
         if not DOCKER_AVAILABLE:
+            # Use diagnostics for better error message
+            try:
+                from massgen.utils.docker_diagnostics import diagnose_docker
+
+                diagnostics = diagnose_docker(check_images=False)
+                error_msg = diagnostics.format_error(include_steps=True)
+                if error_msg:
+                    raise RuntimeError(error_msg)
+            except ImportError:
+                pass
             raise RuntimeError("Docker mode requested but docker library not available. Install with: pip install docker")
         # Note: agent_id validation is deferred to first command execution
         # This allows MCP server to start before agent_id is set by orchestrator
@@ -321,6 +331,16 @@ async def create_server() -> fastmcp.FastMCP:
             mcp.docker_client.ping()  # Test connection
             print("✅ [Docker] Connected to Docker daemon")
         except DockerException as e:
+            # Use diagnostics for better error message
+            try:
+                from massgen.utils.docker_diagnostics import diagnose_docker
+
+                diagnostics = diagnose_docker(check_images=False)
+                error_msg = diagnostics.format_error(include_steps=True)
+                if error_msg:
+                    raise RuntimeError(error_msg)
+            except ImportError:
+                pass
             raise RuntimeError(f"Failed to connect to Docker: {e}")
 
     @mcp.tool()

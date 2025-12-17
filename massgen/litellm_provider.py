@@ -38,7 +38,7 @@ Usage:
         model="massgen/build",
         messages=[{"role": "user", "content": "Your question"}],
         optional_params={
-            "models": ["gpt-5", "claude-sonnet-4.5"],  # backends auto-detected
+            "models": ["gpt-5", "claude-sonnet-4-5"],  # backends auto-detected
         }
     )
 

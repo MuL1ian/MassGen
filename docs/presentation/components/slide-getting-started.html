@@ -3,22 +3,21 @@
             <div class="icon">⚡</div>
             <h2>Get Started in 60 Seconds</h2>
             <div class="code-snippet">
-                # 1. Install via PyPI<br>
-                pip install massgen<br><br>
+                # Install and run<br>
+                uv pip install massgen && uv run massgen<br><br>
 
-                # 2. Interactive setup (first time only)<br>
-                massgen --setup  # Guided API key configuration<br><br>
+                # First run: Setup wizard guides you through:<br>
+                #   → API key configuration<br>
+                #   → Creates your default config<br>
+                #   → Downloads skills &amp; containers as needed<br><br>
 
-                # 3. Run single agent (quick test)<br>
-                massgen --model gemini-2.5-flash "When is your knowledge up to"<br><br>
+                # Future runs: uses your default config, or specify another<br>
+                uv run massgen "Your question"<br>
+                uv run massgen --config @examples/basic/multi/three_agents_default "..."  # No Docker<br>
+                uv run massgen --config @examples/tools/filesystem/code_based "..."      # With Docker<br><br>
 
-                # 4. Run multi-agent collaboration<br>
-                massgen --config @examples/basic/multi/three_agents_default "Summarize latest news of github.com/Leezekun/MassGen"<br><br>
-
-                # 5. Launch with Web UI (real-time visualization)<br>
-                massgen --web --config @examples/basic/multi/three_agents_default "Your question"<br><br>
-
-                <!-- # Documentation: https://docs.massgen.io -->
+                # Web UI: Real-time visualization of agent coordination<br>
+                uv run massgen --web
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 25px; margin-top: 30px;">
                 <div style="text-align: center; padding: 20px; background: rgba(46, 204, 113, 0.1); border-radius: 15px;">
@@ -42,6 +41,5 @@
             <div style="text-align: center; padding: 20px; margin-top: 25px; background: rgba(241, 196, 15, 0.1); border-radius: 15px;">
                 <h3 style="color: #f39c12; margin-bottom: 15px;">🎨 UI/UX Interfaces</h3>
                 <div style="font-size: 1.1em;">Web UI • Terminal UI • CLI Streaming Display • Interactive Multi-Turn • Quickstart Wizard • Session Resumption</div>
-            </div>
             </div>
         </div>

@@ -144,6 +144,16 @@ Starting the WebUI
 
 Then open http://localhost:8000 in your browser.
 
+First-Time Setup
+~~~~~~~~~~~~~~~~
+
+On first launch, the WebUI automatically guides you through setup:
+
+1. **Setup Page** - Configure API keys, Docker, and skills
+2. **Quickstart Wizard** - Create your first agent configuration
+
+This makes ``uv run massgen --web`` the easiest way to get started with MassGen.
+
 Key Features
 ~~~~~~~~~~~~
 
