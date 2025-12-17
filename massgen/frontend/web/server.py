@@ -529,81 +529,65 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
     @app.get("/api/skills")
     async def list_skills():
-        """List all available skills (built-in and project).
+        """List all available skills (built-in, user-installed, and project).
 
         Returns skills from:
         - Built-in: massgen/skills/
-        - Project: .agent/skills/ (if exists)
+        - User: ~/.agent/skills/ (home directory - where openskills installs)
+        - Project: .agent/skills/ (current working directory)
         """
         from pathlib import Path
 
         import massgen
 
         skills = []
+        seen_names = set()  # Track seen skill names to avoid duplicates
+
+        def add_skills_from_dir(skills_dir: Path, location: str) -> None:
+            """Helper to add skills from a directory."""
+            if not skills_dir.exists():
+                return
+
+            for skill_dir in skills_dir.iterdir():
+                if skill_dir.is_dir() and skill_dir.name not in seen_names:
+                    skill_md = skill_dir / "SKILL.md"
+                    if skill_md.exists():
+                        description = ""
+                        try:
+                            content = skill_md.read_text()
+                            lines = content.strip().split("\n")
+                            for line in lines:
+                                if line.strip() and not line.startswith("#") and not line.startswith("---"):
+                                    description = line.strip()[:200]
+                                    break
+                        except Exception:
+                            pass
+
+                        skills.append(
+                            {
+                                "name": skill_dir.name,
+                                "description": description,
+                                "location": location,
+                                "path": str(skill_dir),
+                                "installed": True,
+                            },
+                        )
+                        seen_names.add(skill_dir.name)
 
         # Find built-in skills
         massgen_path = Path(massgen.__file__).parent
-        builtin_skills_dir = massgen_path / "skills"
+        add_skills_from_dir(massgen_path / "skills", "builtin")
 
-        if builtin_skills_dir.exists():
-            for skill_dir in builtin_skills_dir.iterdir():
-                if skill_dir.is_dir():
-                    skill_md = skill_dir / "SKILL.md"
-                    if skill_md.exists():
-                        # Parse skill metadata from SKILL.md
-                        description = ""
-                        try:
-                            content = skill_md.read_text()
-                            # Extract description from frontmatter or first paragraph
-                            lines = content.strip().split("\n")
-                            for line in lines:
-                                if line.strip() and not line.startswith("#") and not line.startswith("---"):
-                                    description = line.strip()[:200]
-                                    break
-                        except Exception:
-                            pass
+        # Find user-installed skills (~/.agent/skills/ - where openskills/crawl4ai install)
+        add_skills_from_dir(Path.home() / ".agent" / "skills", "user")
 
-                        skills.append(
-                            {
-                                "name": skill_dir.name,
-                                "description": description,
-                                "location": "builtin",
-                                "path": str(skill_dir),
-                                "installed": True,
-                            },
-                        )
-
-        # Find project skills
-        project_skills_dir = Path.cwd() / ".agent" / "skills"
-        if project_skills_dir.exists():
-            for skill_dir in project_skills_dir.iterdir():
-                if skill_dir.is_dir():
-                    skill_md = skill_dir / "SKILL.md"
-                    if skill_md.exists():
-                        description = ""
-                        try:
-                            content = skill_md.read_text()
-                            lines = content.strip().split("\n")
-                            for line in lines:
-                                if line.strip() and not line.startswith("#") and not line.startswith("---"):
-                                    description = line.strip()[:200]
-                                    break
-                        except Exception:
-                            pass
-
-                        skills.append(
-                            {
-                                "name": skill_dir.name,
-                                "description": description,
-                                "location": "project",
-                                "path": str(skill_dir),
-                                "installed": True,
-                            },
-                        )
+        # Find project skills (.agent/skills/ in current directory)
+        add_skills_from_dir(Path.cwd() / ".agent" / "skills", "project")
 
         return {
             "skills": skills,
             "builtin_count": len([s for s in skills if s["location"] == "builtin"]),
+            "user_count": len([s for s in skills if s["location"] == "user"]),
             "project_count": len([s for s in skills if s["location"] == "project"]),
         }
 
@@ -644,6 +628,57 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             {"error": f"Skill '{skill_name}' not found"},
             status_code=404,
         )
+
+    @app.post("/api/skills/install")
+    async def install_skill_package(request_data: dict):
+        """Install a skill package (anthropic or crawl4ai).
+
+        Request body:
+        {
+            "package": "anthropic" | "crawl4ai"
+        }
+
+        Returns:
+            {"success": true, "message": "..."} or {"error": "..."}
+        """
+        from massgen.utils.skills_installer import (
+            install_anthropic_skills,
+            install_crawl4ai_skill,
+            install_openskills_cli,
+        )
+
+        package_id = request_data.get("package")
+
+        if package_id == "anthropic":
+            # First ensure openskills CLI is installed
+            if not install_openskills_cli():
+                return JSONResponse(
+                    {"error": "Failed to install openskills CLI. Ensure npm/Node.js is installed."},
+                    status_code=500,
+                )
+            # Then install Anthropic skills
+            if install_anthropic_skills():
+                return {"success": True, "message": "Anthropic skills installed successfully"}
+            else:
+                return JSONResponse(
+                    {"error": "Failed to install Anthropic skills"},
+                    status_code=500,
+                )
+
+        elif package_id == "crawl4ai":
+            if install_crawl4ai_skill():
+                return {"success": True, "message": "Crawl4AI skill installed successfully"}
+            else:
+                return JSONResponse(
+                    {"error": "Failed to install Crawl4AI skill"},
+                    status_code=500,
+                )
+
+        else:
+            return JSONResponse(
+                {"error": f"Unknown package: {package_id}"},
+                status_code=400,
+            )
 
     @app.get("/api/providers")
     async def get_providers():

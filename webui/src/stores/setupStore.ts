@@ -90,6 +90,7 @@ interface SetupState {
   // API keys
   providers: ProviderInfo[];
   apiKeyInputs: Record<string, string>;  // env_var -> value (in-memory only)
+  apiKeySaveLocation: 'global' | 'local';
   savingApiKeys: boolean;
   apiKeySaveError: string | null;
   apiKeySaveSuccess: boolean;
@@ -112,7 +113,8 @@ interface SetupState {
   // API key actions
   fetchProviders: () => Promise<void>;
   setApiKeyInput: (envVar: string, value: string) => void;
-  saveApiKeys: (location: 'global' | 'local') => Promise<boolean>;
+  setApiKeySaveLocation: (location: 'global' | 'local') => void;
+  saveApiKeys: () => Promise<boolean>;
   clearApiKeyInputs: () => void;
 
   // Skills actions
@@ -143,6 +145,7 @@ const initialState = {
 
   providers: [] as ProviderInfo[],
   apiKeyInputs: {} as Record<string, string>,
+  apiKeySaveLocation: 'global' as 'global' | 'local',
   savingApiKeys: false,
   apiKeySaveError: null,
   apiKeySaveSuccess: false,
@@ -287,9 +290,9 @@ export const useSetupStore = create<SetupState>()((set, get) => ({
         throw new Error('Failed to fetch providers');
       }
       const data = await response.json();
-      // Filter to only providers with env_var (need API keys)
+      // Filter to only providers with env_var (need API keys) or claude_code (special case - works with CLI login)
       const providersWithKeys = data.providers.filter(
-        (p: ProviderInfo) => p.env_var && p.id !== 'claude_code'
+        (p: ProviderInfo) => p.env_var || p.id === 'claude_code'
       );
       set({ providers: providersWithKeys });
     } catch (err) {
@@ -308,8 +311,12 @@ export const useSetupStore = create<SetupState>()((set, get) => ({
     });
   },
 
-  saveApiKeys: async (location: 'global' | 'local') => {
-    const { apiKeyInputs } = get();
+  setApiKeySaveLocation: (location: 'global' | 'local') => {
+    set({ apiKeySaveLocation: location });
+  },
+
+  saveApiKeys: async () => {
+    const { apiKeyInputs, apiKeySaveLocation } = get();
 
     // Filter out empty values
     const keysToSave: Record<string, string> = {};
@@ -332,7 +339,7 @@ export const useSetupStore = create<SetupState>()((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           keys: keysToSave,
-          save_location: location,
+          save_location: apiKeySaveLocation,
         }),
       });
 
@@ -413,6 +420,7 @@ export const selectPullProgress = (state: SetupState) => state.pullProgress;
 export const selectPullComplete = (state: SetupState) => state.pullComplete;
 export const selectProviders = (state: SetupState) => state.providers;
 export const selectApiKeyInputs = (state: SetupState) => state.apiKeyInputs;
+export const selectApiKeySaveLocation = (state: SetupState) => state.apiKeySaveLocation;
 export const selectSavingApiKeys = (state: SetupState) => state.savingApiKeys;
 export const selectApiKeySaveSuccess = (state: SetupState) => state.apiKeySaveSuccess;
 export const selectApiKeySaveError = (state: SetupState) => state.apiKeySaveError;

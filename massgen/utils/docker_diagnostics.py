@@ -133,11 +133,7 @@ ERROR_MESSAGES: Dict[DockerStatus, Dict[str, Dict[str, Any]]] = {
         "all": {
             "message": "Required MassGen Docker images are not installed.",
             "steps": [
-                "Run MassGen's Docker setup command:",
-                "  massgen --setup-docker",
-                "This will pull the required images from GitHub Container Registry",
-                "Alternatively, pull manually:",
-                "  docker pull ghcr.io/massgen/mcp-runtime-sudo:latest",
+                "Select images below and click 'Pull Selected Images'",
             ],
         },
     },
