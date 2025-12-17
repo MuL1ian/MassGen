@@ -793,6 +793,7 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         # Convert to format expected by _generate_quickstart_config
         formatted_agents = []
         agent_tools = {}  # Per-agent tool settings
+        agent_system_messages = {}  # Per-agent system messages
         for agent in agents_config:
             agent_id = agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}")
             formatted_agents.append(
@@ -803,8 +804,16 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                 },
             )
             # Collect per-agent tool settings
+            tool_settings = {}
             if agent.get("enable_web_search") is not None:
-                agent_tools[agent_id] = {"enable_web_search": agent.get("enable_web_search")}
+                tool_settings["enable_web_search"] = agent.get("enable_web_search")
+            if agent.get("enable_code_execution") is not None:
+                tool_settings["enable_code_execution"] = agent.get("enable_code_execution")
+            if tool_settings:
+                agent_tools[agent_id] = tool_settings
+            # Collect per-agent system messages
+            if agent.get("system_message"):
+                agent_system_messages[agent_id] = agent.get("system_message")
 
         # Use ConfigBuilder to generate config
         builder = ConfigBuilder()
@@ -813,6 +822,7 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             context_path=context_path,
             use_docker=use_docker,
             agent_tools=agent_tools,
+            agent_system_messages=agent_system_messages,
             coordination_settings=coordination,
         )
 

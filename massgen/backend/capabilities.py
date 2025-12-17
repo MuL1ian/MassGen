@@ -183,7 +183,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "claude-opus-4-1-20250805",
             "claude-sonnet-4-20250514",
         ],
-        default_model="claude-sonnet-4-5",
+        default_model="claude-opus-4-5",
         env_var="ANTHROPIC_API_KEY",
         notes=(
             "Web search and code execution are built-in tools. "
@@ -244,7 +244,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "claude-opus-4-1-20250805",
             "claude-sonnet-4-20250514",
         ],
-        default_model="claude-sonnet-4-5",
+        default_model="claude-opus-4-5",
         env_var="ANTHROPIC_API_KEY",
         notes=(
             "⚠️ Works with local Claude Code CLI login (`claude login`), CLAUDE_CODE_API_KEY, or ANTHROPIC_API_KEY. "

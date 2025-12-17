@@ -3365,6 +3365,7 @@ class ConfigBuilder:
         context_paths: Optional[List[Dict]] = None,
         use_docker: bool = True,
         agent_tools: Optional[Dict[str, Dict]] = None,
+        agent_system_messages: Optional[Dict[str, str]] = None,
         coordination_settings: Optional[Dict] = None,
     ) -> Dict:
         """Generate a full-featured config from the quickstart agent specifications.
@@ -3376,7 +3377,9 @@ class ConfigBuilder:
                           Each entry: {"path": "/path", "permission": "read" or "write"}
             use_docker: Whether to use Docker for code execution (True) or local mode (False)
             agent_tools: Per-agent tool settings dict. Keys are agent IDs, values are dicts
-                        with tool settings like {"enable_web_search": True}
+                        with tool settings like {"enable_web_search": True, "enable_code_execution": True}
+            agent_system_messages: Per-agent system messages dict. Keys are agent IDs, values are
+                                  the custom system message strings
             coordination_settings: Shared coordination settings dict with keys like
                                   'voting_sensitivity', 'answer_novelty_requirement'
 
@@ -3384,6 +3387,7 @@ class ConfigBuilder:
             Complete configuration dict
         """
         agent_tools = agent_tools or {}
+        agent_system_messages = agent_system_messages or {}
         coordination_settings = coordination_settings or {}
 
         # Base agent template with all the good defaults
@@ -3441,11 +3445,20 @@ class ConfigBuilder:
             if caps and caps.base_url:
                 backend["base_url"] = caps.base_url
 
-            # Add per-agent tool settings (e.g., enable_web_search)
+            # Add per-agent tool settings (e.g., enable_web_search, enable_code_execution)
             # Only add if the backend supports the capability
             if tools.get("enable_web_search") is not None:
                 if caps and "web_search" in caps.supported_capabilities:
                     backend["enable_web_search"] = tools["enable_web_search"]
+
+            if tools.get("enable_code_execution") is not None:
+                if caps and "code_execution" in caps.supported_capabilities:
+                    # Different backends use different parameter names
+                    # OpenAI uses enable_code_interpreter, Claude uses enable_code_execution
+                    if agent_type == "openai":
+                        backend["enable_code_interpreter"] = tools["enable_code_execution"]
+                    else:
+                        backend["enable_code_execution"] = tools["enable_code_execution"]
 
             return backend
 
@@ -3462,6 +3475,9 @@ class ConfigBuilder:
                     tools=agent_tools.get(agent_id, {}),
                 ),
             }
+            # Add system_message if provided (at agent level, not backend level)
+            if agent_id in agent_system_messages:
+                agent["system_message"] = agent_system_messages[agent_id]
             agents.append(agent)
 
         # Build orchestrator config

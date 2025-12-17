@@ -38,6 +38,8 @@ export interface AgentConfig {
   // Per-agent tool settings
   enable_web_search?: boolean;
   enable_code_execution?: boolean;
+  // Per-agent custom instruction
+  system_message?: string;
 }
 
 // Coordination settings (shared across all agents)
@@ -106,6 +108,7 @@ interface WizardState {
   setAllAgentsConfig: (provider: string, model: string, enableWebSearch?: boolean) => void;
   setAgentWebSearch: (index: number, enableWebSearch: boolean) => void;
   setAgentCodeExecution: (index: number, enableCodeExecution: boolean) => void;
+  setAgentSystemMessage: (index: number, systemMessage: string) => void;
   setCoordinationSettings: (settings: Partial<CoordinationSettings>) => void;
   setConfigFilename: (filename: string) => void;
   setGeneratedYaml: (yaml: string) => void;
@@ -289,6 +292,15 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     const newAgents = [...agents];
     if (newAgents[index]) {
       newAgents[index] = { ...newAgents[index], enable_code_execution: enableCodeExecution };
+      set({ agents: newAgents });
+    }
+  },
+
+  setAgentSystemMessage: (index: number, systemMessage: string) => {
+    const { agents } = get();
+    const newAgents = [...agents];
+    if (newAgents[index]) {
+      newAgents[index] = { ...newAgents[index], system_message: systemMessage || undefined };
       set({ agents: newAgents });
     }
   },

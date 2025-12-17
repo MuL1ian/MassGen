@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, AlertCircle, Check, Search, Sparkles, X, Globe, Code } from 'lucide-react';
+import { Bot, AlertCircle, Check, Search, Sparkles, X, Globe, Code, MessageSquare } from 'lucide-react';
 import { useWizardStore, ProviderInfo, ProviderCapabilities } from '../../stores/wizardStore';
 
 interface ProviderCardProps {
@@ -128,10 +128,12 @@ export function AgentConfigStep() {
   const providers = useWizardStore((s) => s.providers);
   const agents = useWizardStore((s) => s.agents);
   const setupMode = useWizardStore((s) => s.setupMode);
+  const useDocker = useWizardStore((s) => s.useDocker);
   const setAgentConfig = useWizardStore((s) => s.setAgentConfig);
   const setAllAgentsConfig = useWizardStore((s) => s.setAllAgentsConfig);
   const setAgentWebSearch = useWizardStore((s) => s.setAgentWebSearch);
   const setAgentCodeExecution = useWizardStore((s) => s.setAgentCodeExecution);
+  const setAgentSystemMessage = useWizardStore((s) => s.setAgentSystemMessage);
   const dynamicModels = useWizardStore((s) => s.dynamicModels);
   const loadingModels = useWizardStore((s) => s.loadingModels);
   const fetchDynamicModels = useWizardStore((s) => s.fetchDynamicModels);
@@ -234,6 +236,18 @@ export function AgentConfigStep() {
       });
     } else {
       setAgentCodeExecution(activeAgentIndex, enabled);
+    }
+  };
+
+  // Handle system message change
+  const handleSystemMessageChange = (message: string) => {
+    if (setupMode === 'same') {
+      // Update all agents
+      agents.forEach((_, index) => {
+        setAgentSystemMessage(index, message);
+      });
+    } else {
+      setAgentSystemMessage(activeAgentIndex, message);
     }
   };
 
@@ -350,6 +364,12 @@ export function AgentConfigStep() {
                 <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-full">
                   <Code className="w-3 h-3" />
                   Code Execution
+                </span>
+              )}
+              {currentAgent.system_message && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded-full">
+                  <MessageSquare className="w-3 h-3" />
+                  Custom Instructions
                 </span>
               )}
             </div>
@@ -524,7 +544,7 @@ export function AgentConfigStep() {
               </div>
 
               {/* Per-agent options - show after model is selected */}
-              {currentAgent?.model && (currentCapabilities?.supports_web_search || currentCapabilities?.supports_code_execution || isLoadingCapabilities) && (
+              {currentAgent?.model && (
                 <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                   <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                     3. Agent Options
@@ -535,25 +555,55 @@ export function AgentConfigStep() {
                       <span>Loading options...</span>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {currentCapabilities?.supports_web_search && (
-                        <OptionToggle
-                          enabled={currentAgent.enable_web_search ?? false}
-                          onChange={handleWebSearchToggle}
-                          icon={<Globe className="w-4 h-4" />}
-                          label="Web Search"
-                          description="Search the web for up-to-date information"
-                        />
+                    <div className="space-y-3">
+                      {/* Tool toggles - code execution only shown when Docker is NOT enabled */}
+                      {(currentCapabilities?.supports_web_search || (!useDocker && currentCapabilities?.supports_code_execution)) && (
+                        <div className="space-y-2">
+                          {currentCapabilities?.supports_web_search && (
+                            <OptionToggle
+                              enabled={currentAgent.enable_web_search ?? false}
+                              onChange={handleWebSearchToggle}
+                              icon={<Globe className="w-4 h-4" />}
+                              label="Web Search"
+                              description="Search the web for up-to-date information"
+                            />
+                          )}
+                          {/* Only show code execution when Docker is NOT enabled - Docker mode has its own code execution */}
+                          {!useDocker && currentCapabilities?.supports_code_execution && (
+                            <OptionToggle
+                              enabled={currentAgent.enable_code_execution ?? false}
+                              onChange={handleCodeExecutionToggle}
+                              icon={<Code className="w-4 h-4" />}
+                              label="Code Execution"
+                              description="Run code in provider's cloud sandbox"
+                            />
+                          )}
+                        </div>
                       )}
-                      {currentCapabilities?.supports_code_execution && (
-                        <OptionToggle
-                          enabled={currentAgent.enable_code_execution ?? false}
-                          onChange={handleCodeExecutionToggle}
-                          icon={<Code className="w-4 h-4" />}
-                          label="Code Execution"
-                          description="Run code in a sandboxed environment"
+
+                      {/* System message */}
+                      <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MessageSquare className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            System Message
+                          </span>
+                          <span className="text-xs text-gray-400">(optional)</span>
+                        </div>
+                        <textarea
+                          value={currentAgent.system_message ?? ''}
+                          onChange={(e) => handleSystemMessageChange(e.target.value)}
+                          placeholder="Add custom instructions for this agent..."
+                          rows={3}
+                          className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600
+                                   rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                                   resize-none placeholder-gray-400 dark:placeholder-gray-500"
                         />
-                      )}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Custom instructions to guide the agent's behavior and responses
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
