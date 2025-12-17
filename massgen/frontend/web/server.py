@@ -321,13 +321,18 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             if backend_type in ["chatcompletion", "inference", "lmstudio", "vllm", "sglang", "ag2"]:
                 continue
 
-            # Check if API key is available
+            # Check if API key is available (and not a placeholder)
             has_api_key = False
-            if caps.env_var:
-                has_api_key = bool(os.getenv(caps.env_var))
-            elif backend_type == "claude_code":
-                # Claude Code works with CLI login or API key
+            if backend_type == "claude_code":
+                # Claude Code always shows - works with CLI login, CLAUDE_CODE_API_KEY, or ANTHROPIC_API_KEY
+                # Mark as available but the notes will explain auth requirements
                 has_api_key = True
+            elif caps.env_var:
+                api_key = os.getenv(caps.env_var, "")
+                # Check it's not empty and not a placeholder from .env.example
+                # All placeholders follow pattern: your-*-key-here
+                is_placeholder = api_key.lower().startswith("your-") and api_key.lower().endswith("-key-here")
+                has_api_key = bool(api_key) and not is_placeholder
             else:
                 # Local backends don't need keys
                 has_api_key = True
@@ -442,11 +447,113 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
     @app.post("/api/config/save")
     async def save_config(request_data: dict):
-        """Save the generated config to ~/.config/massgen/config.yaml.
+        """Save the generated config to a file.
 
         Request body:
         {
-            "config": {...}  // The config object from generate_config
+            "config": {...},  // The config object from generate_config (optional if yaml_content provided)
+            "yaml_content": "...",  // Raw YAML string (optional, takes priority if provided)
+            "filename": "my_config.yaml"  // Optional custom filename (defaults to config.yaml)
+        }
+
+        Returns:
+            {"success": true, "path": "..."}
+        """
+        import re
+        from pathlib import Path
+
+        import yaml
+
+        config = request_data.get("config")
+        yaml_content = request_data.get("yaml_content")
+
+        if not config and not yaml_content:
+            return JSONResponse(
+                {"error": "No config or yaml_content provided"},
+                status_code=400,
+            )
+
+        # Get custom filename or use default
+        filename = request_data.get("filename", "config.yaml")
+        # Sanitize filename - only allow alphanumeric, underscore, dash, and .yaml extension
+        if not re.match(r"^[\w\-]+\.ya?ml$", filename):
+            # If invalid, sanitize it
+            base_name = re.sub(r"[^\w\-]", "_", filename.replace(".yaml", "").replace(".yml", ""))
+            filename = f"{base_name}.yaml"
+
+        # Save to user config location
+        config_dir = Path.home() / ".config" / "massgen"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = config_dir / filename
+
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                if yaml_content:
+                    # Write raw YAML content (user edited)
+                    f.write(yaml_content)
+                else:
+                    # Serialize config object to YAML
+                    yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+            return {
+                "success": True,
+                "path": str(config_path),
+                "filename": filename,
+                "message": f"Config saved to {config_path}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to save config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.get("/api/config/user-configs")
+    async def list_user_configs():
+        """List all user config files in ~/.config/massgen/.
+
+        Returns:
+            {"configs": [{"name": "config.yaml", "path": "...", "modified": timestamp}, ...]}
+        """
+        from pathlib import Path
+
+        config_dir = Path.home() / ".config" / "massgen"
+        configs = []
+
+        if config_dir.exists():
+            for yaml_file in config_dir.glob("*.yaml"):
+                stat = yaml_file.stat()
+                configs.append(
+                    {
+                        "name": yaml_file.name,
+                        "path": str(yaml_file),
+                        "modified": stat.st_mtime,
+                        "size": stat.st_size,
+                    },
+                )
+            for yml_file in config_dir.glob("*.yml"):
+                stat = yml_file.stat()
+                configs.append(
+                    {
+                        "name": yml_file.name,
+                        "path": str(yml_file),
+                        "modified": stat.st_mtime,
+                        "size": stat.st_size,
+                    },
+                )
+
+        # Sort by modification time (newest first)
+        configs.sort(key=lambda x: x["modified"], reverse=True)
+
+        return {"configs": configs, "config_dir": str(config_dir)}
+
+    @app.put("/api/config/update")
+    async def update_config(request_data: dict):
+        """Update an existing config file with new content.
+
+        Request body:
+        {
+            "path": "/path/to/config.yaml",  // Full path to the config file
+            "content": "yaml content string"  // New YAML content
         }
 
         Returns:
@@ -456,30 +563,193 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
         import yaml
 
-        config = request_data.get("config")
-        if not config:
+        config_path = request_data.get("path")
+        content = request_data.get("content")
+
+        if not config_path:
             return JSONResponse(
-                {"error": "No config provided"},
+                {"error": "No path provided"},
                 status_code=400,
             )
 
-        # Save to default config location
-        config_dir = Path.home() / ".config" / "massgen"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        config_path = config_dir / "config.yaml"
+        if content is None:
+            return JSONResponse(
+                {"error": "No content provided"},
+                status_code=400,
+            )
+
+        config_path = Path(config_path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {"error": "Access denied: can only edit configs in ~/.config/massgen/"},
+                status_code=403,
+            )
+
+        # Validate YAML syntax before saving
+        try:
+            yaml.safe_load(content)
+        except yaml.YAMLError as e:
+            return JSONResponse(
+                {"error": f"Invalid YAML syntax: {str(e)}"},
+                status_code=400,
+            )
 
         try:
-            with open(config_path, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as f:
+                f.write(content)
 
             return {
                 "success": True,
                 "path": str(config_path),
-                "message": f"Config saved to {config_path}",
+                "message": f"Config updated: {config_path}",
             }
         except Exception as e:
             return JSONResponse(
                 {"error": f"Failed to save config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/config/rename")
+    async def rename_config(request_data: dict):
+        """Rename a config file.
+
+        Request body:
+        {
+            "path": "/path/to/old_config.yaml",
+            "new_name": "new_config.yaml"
+        }
+
+        Returns:
+            {"success": true, "old_path": "...", "new_path": "..."}
+        """
+        import re
+        from pathlib import Path
+
+        old_path = request_data.get("path")
+        new_name = request_data.get("new_name")
+
+        if not old_path:
+            return JSONResponse(
+                {"error": "No path provided"},
+                status_code=400,
+            )
+
+        if not new_name:
+            return JSONResponse(
+                {"error": "No new name provided"},
+                status_code=400,
+            )
+
+        old_path = Path(old_path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(old_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {"error": "Access denied: can only rename configs in ~/.config/massgen/"},
+                status_code=403,
+            )
+
+        if not old_path.exists():
+            return JSONResponse(
+                {"error": "Config file not found"},
+                status_code=404,
+            )
+
+        # Sanitize new filename
+        if not re.match(r"^[\w\-]+\.ya?ml$", new_name):
+            base_name = re.sub(r"[^\w\-]", "_", new_name.replace(".yaml", "").replace(".yml", ""))
+            new_name = f"{base_name}.yaml"
+
+        new_path = old_path.parent / new_name
+
+        if new_path.exists():
+            return JSONResponse(
+                {"error": f"A config with name '{new_name}' already exists"},
+                status_code=409,
+            )
+
+        try:
+            old_path.rename(new_path)
+            return {
+                "success": True,
+                "old_path": str(old_path),
+                "new_path": str(new_path),
+                "new_name": new_name,
+                "message": f"Config renamed to {new_name}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to rename config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.delete("/api/config/delete")
+    async def delete_config(path: str):
+        """Delete a config file.
+
+        Query params:
+            path: Full path to the config file to delete
+
+        Returns:
+            {"success": true, "path": "..."}
+        """
+        from pathlib import Path
+
+        if not path:
+            return JSONResponse(
+                {"error": "No path provided"},
+                status_code=400,
+            )
+
+        config_path = Path(path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {"error": "Access denied: can only delete configs in ~/.config/massgen/"},
+                status_code=403,
+            )
+
+        if not config_path.exists():
+            return JSONResponse(
+                {"error": "Config file not found"},
+                status_code=404,
+            )
+
+        # Don't allow deleting the last config
+        config_dir = Path.home() / ".config" / "massgen"
+        yaml_files = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
+        if len(yaml_files) <= 1:
+            return JSONResponse(
+                {"error": "Cannot delete the last config file"},
+                status_code=400,
+            )
+
+        try:
+            config_path.unlink()
+            return {
+                "success": True,
+                "path": str(config_path),
+                "message": f"Config deleted: {config_path.name}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to delete config: {str(e)}"},
                 status_code=500,
             )
 

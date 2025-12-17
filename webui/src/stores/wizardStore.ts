@@ -60,6 +60,9 @@ interface WizardState {
   generatedConfig: Record<string, unknown> | null;
   generatedYaml: string | null;
 
+  // Config filename for custom naming
+  configFilename: string;
+
   // Saved config path for auto-selection
   savedConfigPath: string | null;
 
@@ -74,6 +77,8 @@ interface WizardState {
   setSetupMode: (mode: 'same' | 'different') => void;
   setAgentConfig: (index: number, provider: string, model: string) => void;
   setAllAgentsConfig: (provider: string, model: string) => void;
+  setConfigFilename: (filename: string) => void;
+  setGeneratedYaml: (yaml: string) => void;
 
   // API actions
   fetchSetupStatus: () => Promise<void>;
@@ -101,6 +106,7 @@ const initialState = {
   agents: [],
   generatedConfig: null,
   generatedYaml: null,
+  configFilename: 'config',
   savedConfigPath: null,
 };
 
@@ -224,6 +230,16 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     set({ agents: newAgents });
   },
 
+  setConfigFilename: (filename: string) => {
+    // Allow the raw input - we'll sanitize on save if needed
+    // This allows users to type freely while seeing the preview
+    set({ configFilename: filename });
+  },
+
+  setGeneratedYaml: (yaml: string) => {
+    set({ generatedYaml: yaml });
+  },
+
   fetchSetupStatus: async () => {
     set({ isLoading: true, error: null });
     try {
@@ -323,8 +339,8 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
   },
 
   saveConfig: async () => {
-    const { generatedConfig } = get();
-    if (!generatedConfig) {
+    const { generatedConfig, generatedYaml, configFilename } = get();
+    if (!generatedConfig && !generatedYaml) {
       set({ error: 'No config to save' });
       return false;
     }
@@ -332,10 +348,22 @@ export const useWizardStore = create<WizardState>()((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
+      // Build filename with .yaml extension
+      const filename = `${configFilename || 'config'}.yaml`;
+
+      // Send yaml_content if we have edited YAML, otherwise send the config object
+      const body: Record<string, unknown> = { filename };
+      if (generatedYaml) {
+        body.yaml_content = generatedYaml;
+      }
+      if (generatedConfig) {
+        body.config = generatedConfig;
+      }
+
       const response = await fetch('/api/config/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: generatedConfig }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -372,3 +400,4 @@ export const selectGeneratedYaml = (state: WizardState) => state.generatedYaml;
 export const selectSavedConfigPath = (state: WizardState) => state.savedConfigPath;
 export const selectDynamicModels = (state: WizardState) => state.dynamicModels;
 export const selectLoadingModels = (state: WizardState) => state.loadingModels;
+export const selectConfigFilename = (state: WizardState) => state.configFilename;

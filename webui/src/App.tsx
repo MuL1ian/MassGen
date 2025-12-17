@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Wifi, WifiOff, AlertCircle, XCircle, ArrowLeft, Loader2, Trophy, X, FileCode } from 'lucide-react';
+import { Send, Wifi, WifiOff, AlertCircle, XCircle, ArrowLeft, Loader2, Trophy } from 'lucide-react';
 import { useWebSocket, ConnectionStatus } from './hooks/useWebSocket';
 import { useAgentStore, selectQuestion, selectIsComplete, selectAnswers, selectViewMode, selectSelectedAgent, selectAgents, selectFinalAnswer, selectSelectingWinner, selectVoteDistribution, selectAutomationMode, selectInitStatus } from './stores/agentStore';
 import { useThemeStore } from './stores/themeStore';
@@ -22,6 +22,7 @@ import { NotificationToast } from './components/NotificationToast';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { ConversationHistory } from './components/ConversationHistory';
 import { AutomationView } from './components/AutomationView';
+import { ConfigEditorModal } from './components/ConfigEditorModal';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { Notification } from './stores/notificationStore';
 
@@ -114,10 +115,8 @@ export function App() {
   // Keyboard shortcuts modal state
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
 
-  // Config viewer modal state
-  const [isConfigViewerOpen, setIsConfigViewerOpen] = useState(false);
-  const [configContent, setConfigContent] = useState<string>('');
-  const [configLoading, setConfigLoading] = useState(false);
+  // Config editor modal state
+  const [isConfigEditorOpen, setIsConfigEditorOpen] = useState(false);
 
   // Keyboard shortcuts hook
   const { shortcuts } = useKeyboardShortcuts({
@@ -140,7 +139,7 @@ export function App() {
     onOpenShortcutsHelp: useCallback(() => {
       setIsShortcutsModalOpen(true);
     }, []),
-    enabled: !isAnswerBrowserOpen && !isShortcutsModalOpen && !isConfigViewerOpen,
+    enabled: !isAnswerBrowserOpen && !isShortcutsModalOpen && !isConfigEditorOpen,
   });
 
   const { status, startCoordination, continueConversation, cancelCoordination, error } = useWebSocket({
@@ -284,28 +283,10 @@ export function App() {
     setSelectedConfig(configPath);
   }, []);
 
-  // Handle viewing config
-  const handleViewConfig = useCallback(async () => {
-    if (!selectedConfig) return;
-
-    setConfigLoading(true);
-    setIsConfigViewerOpen(true);
-
-    try {
-      const res = await fetch(`/api/config/content?path=${encodeURIComponent(selectedConfig)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setConfigContent(data.content || 'Unable to load config content');
-      } else {
-        setConfigContent('Failed to load config content');
-      }
-    } catch (err) {
-      setConfigContent('Error loading config content');
-      console.error('Failed to fetch config content:', err);
-    } finally {
-      setConfigLoading(false);
-    }
-  }, [selectedConfig]);
+  // Handle viewing/editing config
+  const handleViewConfig = useCallback(() => {
+    setIsConfigEditorOpen(true);
+  }, []);
 
   const handleSessionChange = useCallback((newSessionId: string) => {
     if (newSessionId !== sessionId) {
@@ -672,61 +653,14 @@ export function App() {
       {/* Quickstart Wizard Modal */}
       <QuickstartWizard onConfigSaved={handleConfigChange} />
 
-      {/* Config Viewer Modal */}
-      <AnimatePresence>
-        {isConfigViewerOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-            onClick={() => setIsConfigViewerOpen(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-3">
-                  <FileCode className="w-5 h-5 text-blue-500" />
-                  <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    Config File
-                  </h2>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500 truncate max-w-md" title={selectedConfig || ''}>
-                    {selectedConfig}
-                  </span>
-                  <button
-                    onClick={() => setIsConfigViewerOpen(false)}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                  >
-                    <X className="w-5 h-5 text-gray-500" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="flex-1 overflow-auto p-4">
-                {configLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-                    <span className="ml-2 text-gray-500">Loading config...</span>
-                  </div>
-                ) : (
-                  <pre className="text-sm text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-900 rounded-lg p-4 overflow-auto whitespace-pre font-mono">
-                    {configContent}
-                  </pre>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Config Editor Modal */}
+      <ConfigEditorModal
+        isOpen={isConfigEditorOpen}
+        onClose={() => setIsConfigEditorOpen(false)}
+        configPath={selectedConfig}
+        onConfigChange={handleConfigChange}
+        onConfigSaved={handleConfigChange}
+      />
 
       {/* Notification Toast (bottom-right) */}
       <NotificationToast onNotificationClick={handleNotificationClick} />

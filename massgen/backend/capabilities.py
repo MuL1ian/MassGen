@@ -282,7 +282,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "grok-3",
             "grok-3-mini",
         ],
-        default_model="grok-4",
+        default_model="grok-4-1-fast-reasoning",
         env_var="XAI_API_KEY",
         notes="Web search includes real-time data access.",
         model_release_dates={
