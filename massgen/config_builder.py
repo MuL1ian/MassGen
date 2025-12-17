@@ -1210,7 +1210,7 @@ class ConfigBuilder:
                         # Apply selected tools
                         if selected_tools:
                             if "web_search" in selected_tools:
-                                if backend_type in ["openai", "claude", "gemini", "grok", "azure_openai"]:
+                                if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
                                     agent["backend"]["enable_web_search"] = True
 
                             if "code_execution" in selected_tools:
@@ -1316,7 +1316,7 @@ class ConfigBuilder:
 
         # Auto-enable web search if recommended
         if "web_search" in recommended_tools:
-            if backend_type in ["openai", "claude", "gemini", "grok", "azure_openai"]:
+            if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
                 agent["backend"]["enable_web_search"] = True
 
         # Auto-enable code execution if recommended
@@ -1581,7 +1581,7 @@ class ConfigBuilder:
                         if selected_tools:
                             # Apply backend-specific configuration
                             if "web_search" in selected_tools:
-                                if backend_type in ["openai", "claude", "gemini", "grok", "azure_openai"]:
+                                if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
                                     agent["backend"]["enable_web_search"] = True
 
                             if "code_execution" in selected_tools:
@@ -3364,6 +3364,8 @@ class ConfigBuilder:
         context_path: Optional[str] = None,
         context_paths: Optional[List[Dict]] = None,
         use_docker: bool = True,
+        agent_tools: Optional[Dict[str, Dict]] = None,
+        coordination_settings: Optional[Dict] = None,
     ) -> Dict:
         """Generate a full-featured config from the quickstart agent specifications.
 
@@ -3373,13 +3375,20 @@ class ConfigBuilder:
             context_paths: List of context path dicts with 'path' and 'permission' keys.
                           Each entry: {"path": "/path", "permission": "read" or "write"}
             use_docker: Whether to use Docker for code execution (True) or local mode (False)
+            agent_tools: Per-agent tool settings dict. Keys are agent IDs, values are dicts
+                        with tool settings like {"enable_web_search": True}
+            coordination_settings: Shared coordination settings dict with keys like
+                                  'voting_sensitivity', 'answer_novelty_requirement'
 
         Returns:
             Complete configuration dict
         """
+        agent_tools = agent_tools or {}
+        coordination_settings = coordination_settings or {}
 
         # Base agent template with all the good defaults
-        def create_agent_backend(agent_type: str, model: str, workspace_num: int) -> Dict:
+        def create_agent_backend(agent_type: str, model: str, workspace_num: int, tools: Optional[Dict] = None) -> Dict:
+            tools = tools or {}
             if use_docker:
                 # Full Docker mode with code-based tools, command execution, skills
                 backend = {
@@ -3432,17 +3441,25 @@ class ConfigBuilder:
             if caps and caps.base_url:
                 backend["base_url"] = caps.base_url
 
+            # Add per-agent tool settings (e.g., enable_web_search)
+            # Only add if the backend supports the capability
+            if tools.get("enable_web_search") is not None:
+                if caps and "web_search" in caps.supported_capabilities:
+                    backend["enable_web_search"] = tools["enable_web_search"]
+
             return backend
 
         # Build agents list
         agents = []
         for i, agent_spec in enumerate(agents_config):
+            agent_id = agent_spec["id"]
             agent = {
-                "id": agent_spec["id"],
+                "id": agent_id,
                 "backend": create_agent_backend(
                     agent_spec["type"],
                     agent_spec["model"],
                     i + 1,
+                    tools=agent_tools.get(agent_id, {}),
                 ),
             }
             agents.append(agent)
@@ -3489,6 +3506,12 @@ class ConfigBuilder:
             ]
         else:
             orchestrator_config["context_paths"] = []
+
+        # Add coordination settings if provided
+        if coordination_settings.get("voting_sensitivity"):
+            orchestrator_config["voting_sensitivity"] = coordination_settings["voting_sensitivity"]
+        if coordination_settings.get("answer_novelty_requirement"):
+            orchestrator_config["answer_novelty_requirement"] = coordination_settings["answer_novelty_requirement"]
 
         # Build full config
         config = {

@@ -7,8 +7,8 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, AlertCircle, Check, Search, Sparkles, X } from 'lucide-react';
-import { useWizardStore, ProviderInfo } from '../../stores/wizardStore';
+import { Bot, AlertCircle, Check, Search, Sparkles, X, Globe, Code } from 'lucide-react';
+import { useWizardStore, ProviderInfo, ProviderCapabilities } from '../../stores/wizardStore';
 
 interface ProviderCardProps {
   provider: ProviderInfo;
@@ -89,15 +89,55 @@ function ModelCard({ model, isSelected, isDefault, onSelect }: ModelCardProps) {
   );
 }
 
+// Per-agent option toggle component
+interface OptionToggleProps {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+  icon: React.ReactNode;
+  label: string;
+  description?: string;
+}
+
+function OptionToggle({ enabled, onChange, icon, label, description }: OptionToggleProps) {
+  return (
+    <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+      <div className="flex items-center gap-3">
+        <div className="text-gray-500 dark:text-gray-400">{icon}</div>
+        <div>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
+          {description && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
+          )}
+        </div>
+      </div>
+      <div className="relative">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className="sr-only peer"
+        />
+        <div className="w-10 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-blue-500 transition-colors" />
+        <div className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-4 transition-transform" />
+      </div>
+    </label>
+  );
+}
+
 export function AgentConfigStep() {
   const providers = useWizardStore((s) => s.providers);
   const agents = useWizardStore((s) => s.agents);
   const setupMode = useWizardStore((s) => s.setupMode);
   const setAgentConfig = useWizardStore((s) => s.setAgentConfig);
   const setAllAgentsConfig = useWizardStore((s) => s.setAllAgentsConfig);
+  const setAgentWebSearch = useWizardStore((s) => s.setAgentWebSearch);
+  const setAgentCodeExecution = useWizardStore((s) => s.setAgentCodeExecution);
   const dynamicModels = useWizardStore((s) => s.dynamicModels);
   const loadingModels = useWizardStore((s) => s.loadingModels);
   const fetchDynamicModels = useWizardStore((s) => s.fetchDynamicModels);
+  const providerCapabilities = useWizardStore((s) => s.providerCapabilities);
+  const loadingCapabilities = useWizardStore((s) => s.loadingCapabilities);
+  const fetchProviderCapabilities = useWizardStore((s) => s.fetchProviderCapabilities);
 
   // Search/filter state
   const [providerSearch, setProviderSearch] = useState('');
@@ -119,6 +159,21 @@ export function AgentConfigStep() {
       fetchDynamicModels(currentAgent.provider);
     }
   }, [currentAgent?.provider, dynamicModels, fetchDynamicModels]);
+
+  // Fetch capabilities when provider changes
+  useEffect(() => {
+    if (currentAgent?.provider && !providerCapabilities[currentAgent.provider]) {
+      fetchProviderCapabilities(currentAgent.provider);
+    }
+  }, [currentAgent?.provider, providerCapabilities, fetchProviderCapabilities]);
+
+  // Get current provider's capabilities
+  const currentCapabilities: ProviderCapabilities | null = currentAgent?.provider
+    ? providerCapabilities[currentAgent.provider] || null
+    : null;
+  const isLoadingCapabilities = currentAgent?.provider
+    ? loadingCapabilities[currentAgent.provider] || false
+    : false;
 
   // Get available models for selected provider
   const availableModels = currentAgent?.provider
@@ -151,11 +206,35 @@ export function AgentConfigStep() {
     const defaultModel = providerInfo?.default_model === 'custom' ? '' : (providerInfo?.default_model || '');
 
     if (setupMode === 'same') {
-      setAllAgentsConfig(providerId, defaultModel);
+      setAllAgentsConfig(providerId, defaultModel, false); // Reset web search to false when provider changes
     } else {
-      setAgentConfig(activeAgentIndex, providerId, defaultModel);
+      setAgentConfig(activeAgentIndex, providerId, defaultModel, false);
     }
     setModelSearch(''); // Clear model search when provider changes
+  };
+
+  // Handle web search toggle
+  const handleWebSearchToggle = (enabled: boolean) => {
+    if (setupMode === 'same') {
+      // Update all agents
+      agents.forEach((_, index) => {
+        setAgentWebSearch(index, enabled);
+      });
+    } else {
+      setAgentWebSearch(activeAgentIndex, enabled);
+    }
+  };
+
+  // Handle code execution toggle
+  const handleCodeExecutionToggle = (enabled: boolean) => {
+    if (setupMode === 'same') {
+      // Update all agents
+      agents.forEach((_, index) => {
+        setAgentCodeExecution(index, enabled);
+      });
+    } else {
+      setAgentCodeExecution(activeAgentIndex, enabled);
+    }
   };
 
   // Handle model selection
@@ -260,6 +339,18 @@ export function AgentConfigStep() {
                     {currentAgent.model}
                   </span>
                 </>
+              )}
+              {currentAgent.enable_web_search && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full">
+                  <Globe className="w-3 h-3" />
+                  Web Search
+                </span>
+              )}
+              {currentAgent.enable_code_execution && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-full">
+                  <Code className="w-3 h-3" />
+                  Code Execution
+                </span>
               )}
             </div>
           </div>
@@ -431,6 +522,42 @@ export function AgentConfigStep() {
                   </div>
                 )}
               </div>
+
+              {/* Per-agent options - show after model is selected */}
+              {currentAgent?.model && (currentCapabilities?.supports_web_search || currentCapabilities?.supports_code_execution || isLoadingCapabilities) && (
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    3. Agent Options
+                  </h4>
+                  {isLoadingCapabilities ? (
+                    <div className="flex items-center gap-2 text-gray-400 text-sm p-3">
+                      <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+                      <span>Loading options...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {currentCapabilities?.supports_web_search && (
+                        <OptionToggle
+                          enabled={currentAgent.enable_web_search ?? false}
+                          onChange={handleWebSearchToggle}
+                          icon={<Globe className="w-4 h-4" />}
+                          label="Web Search"
+                          description="Search the web for up-to-date information"
+                        />
+                      )}
+                      {currentCapabilities?.supports_code_execution && (
+                        <OptionToggle
+                          enabled={currentAgent.enable_code_execution ?? false}
+                          onChange={handleCodeExecutionToggle}
+                          icon={<Code className="w-4 h-4" />}
+                          label="Code Execution"
+                          description="Run code in a sandboxed environment"
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

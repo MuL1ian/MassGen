@@ -22,6 +22,15 @@ Communication is handled through a **broadcast channel** that:
 3. Returns responses to the requesting agent
 4. Optionally prompts the human user for input (human mode)
 
+.. note::
+   **Backend Limitation**: The ``claude_code`` backend does not currently support
+   broadcasting/``ask_others()``. When Claude Code agents attempt to use ``ask_others()``,
+   they will see an error message. This is a known limitation tracked in
+   `GitHub Issue #648 <https://github.com/massgen/MassGen/issues/648>`_.
+
+   Use other backends (``openai``, ``claude``, ``gemini``, etc.) for agents that need
+   to participate in broadcasts.
+
 Communication Modes
 -------------------
 
@@ -561,6 +570,11 @@ Each agent can have at most ``max_broadcasts_per_agent`` active broadcasts
 
 Troubleshooting
 ---------------
+
+**Claude Code backend shows "No such tool available: ask_others"**
+   - The ``claude_code`` backend does not currently support broadcasting
+   - See `GitHub Issue #648 <https://github.com/massgen/MassGen/issues/648>`_ for status
+   - Use other backends (``openai``, ``claude``, ``gemini``) for broadcast-enabled agents
 
 **Broadcasts not working**
    - Check that ``broadcast`` is set to ``"agents"`` or ``"human"`` (not ``false``)

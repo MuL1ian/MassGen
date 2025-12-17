@@ -115,6 +115,9 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         filesystem_support="mcp",
         models=[
             "gpt-5.2",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-mini",
             "gpt-5.1",
             "gpt-5-codex",
             "gpt-5",
@@ -127,11 +130,18 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "gpt-4o-mini",
             "o4-mini",
         ],
-        default_model="gpt-5.2",
+        default_model="gpt-5.1-codex",
         env_var="OPENAI_API_KEY",
-        notes="Reasoning support in GPT-5 and o-series models. Audio/video generation (v0.0.30+). Video generation via Sora-2 API (v0.0.31).",
+        notes=(
+            "Codex models (gpt-5.1-codex, gpt-5-codex) are recommended for coding tasks. "
+            "Reasoning support in GPT-5 and o-series models. Audio/video generation (v0.0.30+). "
+            "Video generation via Sora-2 API (v0.0.31)."
+        ),
         model_release_dates={
             "gpt-5.2": "2025-12",
+            "gpt-5.1-codex-max": "2025-12",
+            "gpt-5.1-codex": "2025-12",
+            "gpt-5.1-codex-mini": "2025-12",
             "gpt-5.1": "2025-11",
             "gpt-5-codex": "2025-09",
             "gpt-5": "2025-08",
@@ -203,6 +213,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "mcp",
             "filesystem_native",
             "image_understanding",
+            "web_search",  # WebSearch/WebFetch tools (enabled via enable_web_search config)
         },
         builtin_tools=[
             "Read",

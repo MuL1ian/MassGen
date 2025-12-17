@@ -135,6 +135,18 @@ class DockerManager:
             logger.info(f"    Docker version: {docker_version}")
             logger.info(f"    API version: {api_version}")
         except DockerException as e:
+            # Use diagnostics for better error messages
+            try:
+                from massgen.utils.docker_diagnostics import diagnose_docker
+
+                diagnostics = diagnose_docker(check_images=False)
+                error_msg = diagnostics.format_error(include_steps=True)
+                if error_msg:
+                    logger.error(f"❌ [Docker] {error_msg}")
+                    raise RuntimeError(error_msg)
+            except ImportError:
+                pass
+            # Fall back to generic error if diagnostics unavailable
             logger.error(f"❌ [Docker] Failed to connect to Docker daemon: {e}")
             raise RuntimeError(f"Failed to connect to Docker: {e}")
 

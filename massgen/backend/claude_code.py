@@ -260,8 +260,13 @@ class ClaudeCodeBackend(LLMBackend):
         return "claude_code"
 
     def get_filesystem_support(self) -> FilesystemSupport:
-        """Claude Code has native filesystem support."""
-        return FilesystemSupport.NATIVE
+        """Claude Code now uses MassGen's MCP-based filesystem tools (v0.1.26)
+
+        Native Claude Code tools (Read, Write, Edit, Bash, etc.) are disabled
+        via disallowed_tools to give MassGen full control. File operations
+        are handled through the filesystem MCP server.
+        """
+        return FilesystemSupport.MCP
 
     def is_stateful(self) -> bool:
         """
@@ -450,35 +455,28 @@ class ClaudeCodeBackend(LLMBackend):
         cost = self.calculate_cost(input_tokens, output_tokens, model, result_message=None)
         self.token_usage.estimated_cost += cost
 
-    def get_supported_builtin_tools(self) -> List[str]:
+    def get_supported_builtin_tools(self, enable_web_search: bool = False) -> List[str]:
         """Get list of builtin tools supported by Claude Code.
 
-        Returns maximum tool set available, with security enforced through
-        disallowed_tools. Dangerous operations are blocked at the tool
-        level, not by restricting tool access.
+        Returns only tools that MassGen doesn't have native equivalents for.
+        MassGen has native implementations for: read_file_content, save_file_content,
+        append_file_content, run_shell_script, list_directory, and will add
+        grep/glob tools (see issue 640).
+
+        Args:
+            enable_web_search: If True, include WebSearch and WebFetch tools.
 
         Returns:
-            List of all tool names that Claude Code provides natively
+            List of tool names that should be enabled for Claude Code.
         """
-        return [
-            "Read",
-            "Write",
-            "Edit",
-            "MultiEdit",
-            "Bash",
-            "Grep",
-            "Glob",
-            "LS",
-            "WebSearch",
-            "WebFetch",
-            "Task",
-            "TodoWrite",
-            "NotebookEdit",
-            "NotebookRead",
-            "mcp__ide__getDiagnostics",
-            "mcp__ide__executeCode",
-            "ExitPlanMode",
+        tools = [
+            "Task",  # Subagent spawning - unique to Claude Code
         ]
+
+        if enable_web_search:
+            tools.extend(["WebSearch", "WebFetch"])
+
+        return tools
 
     def get_current_session_id(self) -> Optional[str]:
         """Get current session ID from server-side session management.
@@ -1120,16 +1118,16 @@ class ClaudeCodeBackend(LLMBackend):
     def _build_claude_options(self, **options_kwargs) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions with provided parameters.
 
-        Creates a secure configuration that allows ALL Claude Code tools while
-        explicitly disallowing dangerous operations. This gives Claude Code
-        maximum power while maintaining security.
+        Creates a secure configuration with only essential Claude Code tools enabled.
+        MassGen has native implementations for most file/shell operations, so we only
+        enable unique tools like Task (subagent spawning) and optionally web tools.
 
-        Important: Sets the Claude Code preset as the default system prompt to maintain
-        v0.0.x behavior. In claude-agent-sdk v0.1.0+, system prompts default to empty,
-        so we explicitly request the claude_code preset.
-
-        When enable_mcp_command_line is True, the native Bash tool is disabled
-        since execute_command MCP tool provides all command execution (Docker or local mode).
+        Config options:
+        - use_default_prompt (bool, default False): When True, uses Claude Code's
+          default system prompt with MassGen instructions appended. When False,
+          uses only MassGen's workflow system prompt for full control.
+        - enable_web_search (bool, default False): When True, enables WebSearch
+          and WebFetch tools. When False, these are disabled (use MassGen's crawl4ai).
 
         Returns:
             ClaudeAgentOptions configured with provided parameters and
@@ -1137,7 +1135,8 @@ class ClaudeCodeBackend(LLMBackend):
         """
         options_kwargs.get("cwd", os.getcwd())
         permission_mode = options_kwargs.get("permission_mode", "acceptEdits")
-        allowed_tools = options_kwargs.get("allowed_tools", self.get_supported_builtin_tools())
+        enable_web_search = options_kwargs.get("enable_web_search", False)
+        allowed_tools = options_kwargs.get("allowed_tools", self.get_supported_builtin_tools(enable_web_search))
 
         # Filter out parameters handled separately or not for ClaudeAgentOptions
         excluded_params = self.get_base_excluded_config_params() | {
@@ -1192,10 +1191,14 @@ class ClaudeCodeBackend(LLMBackend):
         if mcp_servers_dict:
             options["mcp_servers"] = mcp_servers_dict
 
-        # Set Claude Code preset as default system prompt (migration from v0.0.x to v0.1.0+)
-        # This ensures we get Claude Code's default behavior instead of empty system prompt
-        if "system_prompt" not in options:
+        # System prompt handling based on use_default_prompt config
+        # - use_default_prompt=True: Use Claude Code preset (for coding style guidelines)
+        # - use_default_prompt=False (default): Use only MassGen's workflow prompt
+        use_default_prompt = options_kwargs.get("use_default_prompt", False)
+        if use_default_prompt and "system_prompt" not in options:
+            # Use Claude Code preset as base (will be appended to in stream_with_tools)
             options["system_prompt"] = {"type": "preset", "preset": "claude_code"}
+        # else: system_prompt will be set as plain string in stream_with_tools
 
         # Add hooks if available
         if hooks_config:
@@ -1275,27 +1278,50 @@ class ClaudeCodeBackend(LLMBackend):
             client = self._client
         else:
             # Set default disallowed_tools if not provided
+            # Disable tools that MassGen has native implementations for
+            enable_web_search = all_params.get("enable_web_search", False)
+
             if "disallowed_tools" not in all_params:
-                all_params["disallowed_tools"] = [
+                disallowed_tools = [
+                    # Security restrictions (dangerous bash patterns)
                     "Bash(rm*)",
                     "Bash(sudo*)",
                     "Bash(su*)",
                     "Bash(chmod*)",
                     "Bash(chown*)",
+                    # Redundant tools - MassGen has native implementations
+                    "Read",  # Use MassGen's read_file_content
+                    "Write",  # Use MassGen's save_file_content
+                    "Edit",  # Use MassGen's append_file_content
+                    "MultiEdit",  # Use MassGen's append_file_content
+                    "Bash",  # Use MassGen's run_shell_script
+                    "BashOutput",
+                    "KillShell",
+                    "LS",  # MassGen has list_directory
+                    "Grep",  # Use execute_command or future MassGen grep (issue 640)
+                    "Glob",  # Use execute_command or future MassGen glob (issue 640)
+                    "TodoWrite",  # MassGen has its own task tracking
+                    "NotebookEdit",
+                    "NotebookRead",
+                    "mcp__ide__getDiagnostics",
+                    "mcp__ide__executeCode",
+                    "ExitPlanMode",
                 ]
 
-            # Disable Bash tool entirely when MCP command_line is enabled
-            # This ensures we use execute_command MCP tool for all command execution (Docker or local)
-            # Benefits: unified code path, skills support, environment setup
+                # Only disable web tools if not enabled
+                if not enable_web_search:
+                    disallowed_tools.extend(["WebSearch", "WebFetch"])
+
+                all_params["disallowed_tools"] = disallowed_tools
+                logger.info(
+                    f"[ClaudeCodeBackend] Using minimal tool set: Task" f"{', WebSearch, WebFetch' if enable_web_search else ''}",
+                )
+
+            # Additional disabling when MCP command_line is enabled
+            # (redundant now since Bash is always disabled, but kept for explicit clarity)
             enable_mcp_command_line = all_params.get("enable_mcp_command_line", False)
             if enable_mcp_command_line:
-                disallowed_tools = list(all_params.get("disallowed_tools", []))
-                bash_related_tools = ["Bash", "BashOutput", "KillShell"]
-                for tool in bash_related_tools:
-                    if tool not in disallowed_tools:
-                        disallowed_tools.append(tool)
-                all_params["disallowed_tools"] = disallowed_tools
-                logger.info("[ClaudeCodeBackend] Disabled native Bash tools, using MCP execute_command instead")
+                logger.info("[ClaudeCodeBackend] MCP command_line enabled, using execute_command for all commands")
 
             # Windows-specific handling: detect long prompts that exceed CreateProcess limit
             # Windows CreateProcess has ~8,191 char limit for entire command line
@@ -1314,13 +1340,22 @@ class ClaudeCodeBackend(LLMBackend):
             else:
                 # Original approach for Mac/Linux and Windows with simple prompts
                 try:
-                    # Use Claude Code preset with append for workflow system prompt
-                    # This maintains Claude Code's default behavior while adding MassGen tools
-                    system_prompt_config = {
-                        "type": "preset",
-                        "preset": "claude_code",
-                        "append": workflow_system_prompt,
-                    }
+                    # System prompt handling based on use_default_prompt config
+                    use_default_prompt = all_params.get("use_default_prompt", False)
+
+                    if use_default_prompt:
+                        # Use Claude Code preset with MassGen instructions appended
+                        # This gives Claude Code's coding style guidelines + MassGen workflow tools
+                        system_prompt_config = {
+                            "type": "preset",
+                            "preset": "claude_code",
+                            "append": workflow_system_prompt,
+                        }
+                    else:
+                        # Use only MassGen's workflow system prompt (no preset)
+                        # This gives full control over agent behavior
+                        system_prompt_config = workflow_system_prompt
+
                     client = self.create_client(**{**all_params, "system_prompt": system_prompt_config})
                     self._pending_system_prompt = None
 

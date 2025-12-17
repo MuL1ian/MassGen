@@ -187,6 +187,13 @@ Basic Backend
 Claude Code Backend
 ~~~~~~~~~~~~~~~~~~~
 
+The Claude Code backend uses Anthropic's Claude Agent SDK with native development tools.
+By default, MassGen disables most Claude Code tools since it provides native implementations
+for file operations, shell execution, and directory listing. Only the ``Task`` tool (for
+subagent spawning) is enabled by default.
+
+**Basic Configuration:**
+
 .. code-block:: yaml
 
    backend:
@@ -194,6 +201,37 @@ Claude Code Backend
      model: "sonnet"
      cwd: "workspace"            # Working directory for file operations
      permission_mode: "bypassPermissions"  # Optional
+
+**With Web Search and Default Prompt:**
+
+.. code-block:: yaml
+
+   backend:
+     type: "claude_code"
+     model: "sonnet"
+     cwd: "workspace"
+     use_default_prompt: true    # Use Claude Code's default system prompt
+     enable_web_search: true     # Enable WebSearch and WebFetch tools
+
+**Configuration Options:**
+
+- ``use_default_prompt`` (bool, default: false): When true, uses Claude Code's default
+  system prompt (with coding style guidelines) plus MassGen's workflow instructions.
+  When false, uses only MassGen's workflow prompt for full control.
+
+- ``enable_web_search`` (bool, default: false): When true, enables Claude Code's
+  WebSearch and WebFetch tools. Use when MassGen's crawl4ai tools are unavailable
+  (crawl4ai requires Docker).
+
+**Default Tool Behavior:**
+
+Only the ``Task`` tool is enabled by default. All other Claude Code tools are disabled
+because MassGen provides native equivalents:
+
+- ``Read``, ``Write``, ``Edit`` → MassGen's ``read_file_content``, ``save_file_content``, ``append_file_content``
+- ``Bash`` → MassGen's ``run_shell_script`` or ``execute_command`` MCP
+- ``LS`` → MassGen's ``list_directory``
+- ``Grep``, ``Glob`` → Use ``execute_command`` or future MassGen tools (see GitHub issue #640)
 
 With MCP Servers
 ~~~~~~~~~~~~~~~~
@@ -678,8 +716,13 @@ Backend
    * - ``enable_web_search``
      - boolean
      - No
-     - ``claude``, ``gemini``, ``openai``, ``grok``, ``chatcompletion``
-     - Enable built-in web search capability
+     - ``claude``, ``claude_code``, ``gemini``, ``openai``, ``grok``, ``chatcompletion``
+     - Enable built-in web search capability. For ``claude_code``, enables WebSearch and WebFetch tools (default: false)
+   * - ``use_default_prompt``
+     - boolean
+     - No
+     - ``claude_code``
+     - When true, uses Claude Code's default system prompt with MassGen instructions appended. When false (default), uses only MassGen's workflow prompt for full control over agent behavior
    * - ``enable_code_execution``
      - boolean
      - No

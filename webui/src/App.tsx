@@ -24,6 +24,7 @@ import { ConversationHistory } from './components/ConversationHistory';
 import { AutomationView } from './components/AutomationView';
 import { ConfigEditorModal } from './components/ConfigEditorModal';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useWizardStore } from './stores/wizardStore';
 import type { Notification } from './stores/notificationStore';
 
 function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
@@ -49,6 +50,7 @@ const initialUrlParams = new URLSearchParams(window.location.search);
 const initialPrompt = initialUrlParams.get('prompt');
 const initialConfig = initialUrlParams.get('config');
 const initialSession = initialUrlParams.get('session');
+const initialWizardOpen = initialUrlParams.get('wizard') === 'open';
 
 export function App() {
   // Session management - use URL param if provided, otherwise generate random UUID
@@ -85,6 +87,9 @@ export function App() {
   const getEffectiveTheme = useThemeStore((s) => s.getEffectiveTheme);
   const themeMode = useThemeStore((s) => s.mode);
 
+  // Wizard store - for auto-opening wizard via URL param
+  const openWizard = useWizardStore((s) => s.openWizard);
+
   useEffect(() => {
     const effectiveTheme = getEffectiveTheme();
     const root = document.documentElement;
@@ -94,6 +99,15 @@ export function App() {
       root.classList.remove('dark');
     }
   }, [getEffectiveTheme, themeMode]);
+
+  // Auto-open wizard if ?wizard=open query param is present
+  useEffect(() => {
+    if (initialWizardOpen) {
+      openWizard();
+      // Clear the query param to prevent re-opening on refresh
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [openWizard]);
 
   // Track URL params from initial load (using module-level constants)
   const urlParamsRef = useRef<{ prompt: string | null; config: string | null; session: string | null } | null>(

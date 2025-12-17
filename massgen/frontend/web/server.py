@@ -277,35 +277,373 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
     @app.get("/api/setup/status")
     async def get_setup_status():
         """Check if setup is needed (no config exists) and Docker availability."""
-        import subprocess
         from pathlib import Path
+
+        from massgen.utils.docker_diagnostics import diagnose_docker
 
         # Check if default config exists
         config_path = Path.home() / ".config" / "massgen" / "config.yaml"
         has_config = config_path.exists()
 
-        # Check Docker availability
-        docker_available = False
-        try:
-            result = subprocess.run(
-                ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                images = result.stdout.strip().split("\n")
-                # Check for our runtime image
-                docker_available = any("mcp-runtime" in img for img in images)
-        except Exception:
-            docker_available = False
+        # Check Docker using diagnostics
+        diagnostics = diagnose_docker()
 
         return {
             "needs_setup": not has_config,
             "has_config": has_config,
             "config_path": str(config_path),
-            "docker_available": docker_available,
+            "docker_available": diagnostics.is_available,
+            "docker_status": diagnostics.status.value,
+            "docker_error": diagnostics.error_message if not diagnostics.is_available else None,
+            "docker_resolution": diagnostics.resolution_steps if not diagnostics.is_available else None,
         }
+
+    @app.get("/api/docker/diagnostics")
+    async def get_docker_diagnostics():
+        """Get comprehensive Docker diagnostics.
+
+        Returns detailed information about Docker installation status,
+        daemon availability, permissions, and installed images.
+        """
+        from massgen.utils.docker_diagnostics import diagnose_docker
+
+        diagnostics = diagnose_docker()
+        return diagnostics.to_dict()
+
+    @app.get("/api/setup/env-status")
+    async def get_env_status():
+        """Check which .env files exist and their locations."""
+        from pathlib import Path
+
+        home_env = Path.home() / ".massgen" / ".env"
+        local_env = Path.cwd() / ".env"
+
+        return {
+            "global_env": {
+                "path": str(home_env),
+                "exists": home_env.exists(),
+            },
+            "local_env": {
+                "path": str(local_env),
+                "exists": local_env.exists(),
+            },
+            "recommended": "global",
+        }
+
+    @app.post("/api/setup/api-keys")
+    async def save_api_keys(request_data: dict):
+        """Save API keys to .env file.
+
+        Request body:
+        {
+            "keys": {
+                "OPENAI_API_KEY": "sk-...",
+                "ANTHROPIC_API_KEY": "sk-ant-..."
+            },
+            "save_location": "global" | "local"
+        }
+
+        Returns:
+            {"success": true, "saved_to": "...", "saved_keys": ["OPENAI_API_KEY", ...]}
+        """
+        import os
+        from pathlib import Path
+
+        keys = request_data.get("keys", {})
+        save_location = request_data.get("save_location", "global")
+
+        if not keys:
+            return JSONResponse(
+                {"error": "No API keys provided"},
+                status_code=400,
+            )
+
+        # Validate keys format (basic sanity checks)
+        for key_name, key_value in keys.items():
+            if not key_name or not isinstance(key_name, str):
+                return JSONResponse(
+                    {"error": f"Invalid key name: {key_name}"},
+                    status_code=400,
+                )
+            if not key_value or not isinstance(key_value, str):
+                return JSONResponse(
+                    {"error": f"Invalid value for {key_name}"},
+                    status_code=400,
+                )
+
+        # Determine save path
+        if save_location == "global":
+            env_dir = Path.home() / ".massgen"
+            env_path = env_dir / ".env"
+        else:
+            env_dir = Path.cwd()
+            env_path = env_dir / ".env"
+
+        try:
+            # Create directory if needed
+            env_dir.mkdir(parents=True, exist_ok=True)
+
+            # Load existing env vars if file exists
+            existing_vars = {}
+            if env_path.exists():
+                with open(env_path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            name, _, value = line.partition("=")
+                            existing_vars[name.strip()] = value.strip().strip('"').strip("'")
+
+            # Merge new keys (overwrite existing)
+            existing_vars.update(keys)
+
+            # Write back
+            with open(env_path, "w") as f:
+                f.write("# MassGen API Keys\n")
+                f.write("# Generated by MassGen WebUI Setup\n\n")
+                for name, value in sorted(existing_vars.items()):
+                    f.write(f'{name}="{value}"\n')
+
+            # Set file permissions (600 - owner read/write only)
+            os.chmod(env_path, 0o600)
+
+            # Reload into current environment
+            for name, value in keys.items():
+                os.environ[name] = value
+
+            return {
+                "success": True,
+                "saved_to": str(env_path),
+                "saved_keys": list(keys.keys()),
+                "message": f"Saved {len(keys)} API key(s) to {env_path}",
+            }
+
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to save API keys: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/docker/pull")
+    async def start_docker_pull(request_data: dict):
+        """Start pulling Docker images.
+
+        Request body:
+        {
+            "images": ["ghcr.io/massgen/mcp-runtime-sudo:latest"]
+        }
+
+        Returns:
+            {"job_id": "uuid", "status": "started"}
+        """
+        images = request_data.get("images", [])
+
+        if not images:
+            return JSONResponse(
+                {"error": "No images specified"},
+                status_code=400,
+            )
+
+        job_id = str(uuid.uuid4())
+
+        # Store job info for tracking
+        if not hasattr(app, "_docker_pull_jobs"):
+            app._docker_pull_jobs = {}
+
+        app._docker_pull_jobs[job_id] = {
+            "images": images,
+            "status": "started",
+            "progress": {},
+            "completed": False,
+            "error": None,
+        }
+
+        return {
+            "job_id": job_id,
+            "status": "started",
+            "images": images,
+        }
+
+    @app.get("/api/docker/pull/{job_id}/stream")
+    async def stream_docker_pull(job_id: str):
+        """Stream Docker pull progress via Server-Sent Events.
+
+        Returns SSE stream with progress updates.
+        """
+        from starlette.responses import StreamingResponse
+
+        if not hasattr(app, "_docker_pull_jobs"):
+            app._docker_pull_jobs = {}
+
+        job = app._docker_pull_jobs.get(job_id)
+        if not job:
+            return JSONResponse(
+                {"error": "Job not found"},
+                status_code=404,
+            )
+
+        async def generate():
+            import json
+
+            try:
+                import docker
+
+                client = docker.from_env()
+            except Exception as e:
+                yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+                return
+
+            images = job["images"]
+
+            for image in images:
+                yield f"data: {json.dumps({'event': 'start', 'image': image})}\n\n"
+
+                try:
+                    # Pull with streaming progress
+                    for line in client.api.pull(image, stream=True, decode=True):
+                        status = line.get("status", "")
+                        progress = line.get("progress", "")
+                        layer_id = line.get("id", "")
+
+                        yield f"data: {json.dumps({'event': 'progress', 'image': image, 'status': status, 'progress': progress, 'layer_id': layer_id})}\n\n"
+
+                    yield f"data: {json.dumps({'event': 'complete', 'image': image, 'success': True})}\n\n"
+
+                except Exception as e:
+                    yield f"data: {json.dumps({'event': 'error', 'image': image, 'error': str(e)})}\n\n"
+
+            yield f"data: {json.dumps({'event': 'done', 'all_complete': True})}\n\n"
+
+            # Clean up job
+            if job_id in app._docker_pull_jobs:
+                del app._docker_pull_jobs[job_id]
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @app.get("/api/skills")
+    async def list_skills():
+        """List all available skills (built-in and project).
+
+        Returns skills from:
+        - Built-in: massgen/skills/
+        - Project: .agent/skills/ (if exists)
+        """
+        from pathlib import Path
+
+        import massgen
+
+        skills = []
+
+        # Find built-in skills
+        massgen_path = Path(massgen.__file__).parent
+        builtin_skills_dir = massgen_path / "skills"
+
+        if builtin_skills_dir.exists():
+            for skill_dir in builtin_skills_dir.iterdir():
+                if skill_dir.is_dir():
+                    skill_md = skill_dir / "SKILL.md"
+                    if skill_md.exists():
+                        # Parse skill metadata from SKILL.md
+                        description = ""
+                        try:
+                            content = skill_md.read_text()
+                            # Extract description from frontmatter or first paragraph
+                            lines = content.strip().split("\n")
+                            for line in lines:
+                                if line.strip() and not line.startswith("#") and not line.startswith("---"):
+                                    description = line.strip()[:200]
+                                    break
+                        except Exception:
+                            pass
+
+                        skills.append(
+                            {
+                                "name": skill_dir.name,
+                                "description": description,
+                                "location": "builtin",
+                                "path": str(skill_dir),
+                                "installed": True,
+                            },
+                        )
+
+        # Find project skills
+        project_skills_dir = Path.cwd() / ".agent" / "skills"
+        if project_skills_dir.exists():
+            for skill_dir in project_skills_dir.iterdir():
+                if skill_dir.is_dir():
+                    skill_md = skill_dir / "SKILL.md"
+                    if skill_md.exists():
+                        description = ""
+                        try:
+                            content = skill_md.read_text()
+                            lines = content.strip().split("\n")
+                            for line in lines:
+                                if line.strip() and not line.startswith("#") and not line.startswith("---"):
+                                    description = line.strip()[:200]
+                                    break
+                        except Exception:
+                            pass
+
+                        skills.append(
+                            {
+                                "name": skill_dir.name,
+                                "description": description,
+                                "location": "project",
+                                "path": str(skill_dir),
+                                "installed": True,
+                            },
+                        )
+
+        return {
+            "skills": skills,
+            "builtin_count": len([s for s in skills if s["location"] == "builtin"]),
+            "project_count": len([s for s in skills if s["location"] == "project"]),
+        }
+
+    @app.get("/api/skills/{skill_name}")
+    async def get_skill_detail(skill_name: str):
+        """Get detailed information about a skill including SKILL.md content."""
+        from pathlib import Path
+
+        import massgen
+
+        # Search in built-in skills first
+        massgen_path = Path(massgen.__file__).parent
+        builtin_skill = massgen_path / "skills" / skill_name
+
+        if builtin_skill.exists():
+            skill_md = builtin_skill / "SKILL.md"
+            content = skill_md.read_text() if skill_md.exists() else ""
+            return {
+                "name": skill_name,
+                "location": "builtin",
+                "path": str(builtin_skill),
+                "content": content,
+            }
+
+        # Search in project skills
+        project_skill = Path.cwd() / ".agent" / "skills" / skill_name
+        if project_skill.exists():
+            skill_md = project_skill / "SKILL.md"
+            content = skill_md.read_text() if skill_md.exists() else ""
+            return {
+                "name": skill_name,
+                "location": "project",
+                "path": str(project_skill),
+                "content": content,
+            }
+
+        return JSONResponse(
+            {"error": f"Skill '{skill_name}' not found"},
+            status_code=404,
+        )
 
     @app.get("/api/providers")
     async def get_providers():
@@ -390,6 +728,32 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             "source": "static",
         }
 
+    @app.get("/api/providers/{provider_id}/capabilities")
+    async def get_provider_capabilities(provider_id: str):
+        """Get capabilities for a specific provider.
+
+        Returns information about what features the provider supports,
+        such as web search, code execution, etc.
+        """
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+
+        caps = BACKEND_CAPABILITIES.get(provider_id)
+        if not caps:
+            return JSONResponse(
+                {"error": f"Unknown provider: {provider_id}"},
+                status_code=404,
+            )
+
+        return {
+            "provider_id": provider_id,
+            "supports_web_search": "web_search" in caps.supported_capabilities,
+            "supports_code_execution": "code_execution" in caps.supported_capabilities,
+            "supports_mcp": "mcp" in caps.supported_capabilities,
+            "builtin_tools": caps.builtin_tools,
+            "filesystem_support": caps.filesystem_support,
+            "all_capabilities": list(caps.supported_capabilities),
+        }
+
     @app.post("/api/config/generate")
     async def generate_config(request_data: dict):
         """Generate a config YAML from wizard selections.
@@ -397,11 +761,15 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         Request body:
         {
             "agents": [
-                {"id": "agent_a", "provider": "openai", "model": "gpt-4o"},
-                {"id": "agent_b", "provider": "claude", "model": "claude-sonnet-4-5-20250929"}
+                {"id": "agent_a", "provider": "openai", "model": "gpt-4o", "enable_web_search": true},
+                {"id": "agent_b", "provider": "claude", "model": "claude-sonnet-4-5-20250929", "enable_web_search": false}
             ],
             "use_docker": true,
-            "context_path": "/path/to/project"  // optional
+            "context_path": "/path/to/project",  // optional
+            "coordination": {  // optional
+                "voting_sensitivity": "balanced",  // lenient, balanced, strict
+                "answer_novelty_requirement": "lenient"  // lenient, balanced, strict
+            }
         }
 
         Returns:
@@ -414,6 +782,7 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         agents_config = request_data.get("agents", [])
         use_docker = request_data.get("use_docker", True)
         context_path = request_data.get("context_path")
+        coordination = request_data.get("coordination", {})
 
         if not agents_config:
             return JSONResponse(
@@ -423,14 +792,19 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
         # Convert to format expected by _generate_quickstart_config
         formatted_agents = []
+        agent_tools = {}  # Per-agent tool settings
         for agent in agents_config:
+            agent_id = agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}")
             formatted_agents.append(
                 {
-                    "id": agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}"),
+                    "id": agent_id,
                     "type": agent.get("provider", "openai"),
                     "model": agent.get("model", "gpt-4o"),
                 },
             )
+            # Collect per-agent tool settings
+            if agent.get("enable_web_search") is not None:
+                agent_tools[agent_id] = {"enable_web_search": agent.get("enable_web_search")}
 
         # Use ConfigBuilder to generate config
         builder = ConfigBuilder()
@@ -438,6 +812,8 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             formatted_agents,
             context_path=context_path,
             use_docker=use_docker,
+            agent_tools=agent_tools,
+            coordination_settings=coordination,
         )
 
         # Convert to YAML string for preview

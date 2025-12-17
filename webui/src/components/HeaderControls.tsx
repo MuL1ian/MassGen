@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, FolderOpen, Users, ChevronDown, RefreshCw, Plus, FileText, Sun, Moon, Monitor, Search, X, Wand2, Eye, Vote } from 'lucide-react';
+import { Settings, FolderOpen, Users, ChevronDown, RefreshCw, Plus, FileText, Sun, Moon, Monitor, Search, X, Wand2, Eye, Vote, Wrench } from 'lucide-react';
 import type { ConfigInfo, SessionInfo } from '../types';
 import { useThemeStore, selectThemeMode, selectSetThemeMode, type ThemeMode } from '../stores/themeStore';
 import { useWizardStore } from '../stores/wizardStore';
@@ -525,6 +525,17 @@ export function HeaderControls({
       >
         <ThemeIcon className="w-4 h-4 text-amber-500 dark:text-yellow-400" />
       </button>
+
+      {/* Setup Page Button - left of Quickstart */}
+      <a
+        href="/setup"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+                 rounded-lg border border-gray-300 dark:border-gray-600 text-sm transition-colors"
+        title="Open Setup Page"
+      >
+        <Wrench className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+        <span>Setup</span>
+      </a>
 
       {/* Quickstart Wizard */}
       <button

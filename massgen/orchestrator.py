@@ -474,13 +474,18 @@ class Orchestrator(ChatAgent):
             backend = agent.backend
 
             # Check if backend supports custom tool registration
-            if not hasattr(backend, "custom_tool_manager"):
+            # Note: Some backends use custom_tool_manager, others use _custom_tool_manager
+            has_tool_manager = hasattr(backend, "custom_tool_manager") or hasattr(backend, "_custom_tool_manager")
+            if not has_tool_manager:
                 logger.warning(f"[Orchestrator] Agent {agent_id} backend doesn't support custom tool manager - broadcast tools will use orchestrator handling")
                 continue
 
             # Register ask_others as a custom tool
             if not hasattr(backend, "_broadcast_toolkit"):
                 backend._broadcast_toolkit = broadcast_toolkit
+                # Ensure _custom_tool_names exists (some backends may not have it)
+                if not hasattr(backend, "_custom_tool_names"):
+                    backend._custom_tool_names = set()
                 backend._custom_tool_names.add("ask_others")
                 logger.info(f"[Orchestrator] Registered ask_others as custom tool for agent {agent_id}")
 
@@ -3943,7 +3948,36 @@ Your answer:"""
                             yield ("done", None)
                             return
                         elif tool_name in ("ask_others", "check_broadcast_status", "get_broadcast_responses"):
-                            # Broadcast tools are handled as custom tools by the backend
+                            # Broadcast tools - check if backend already executed it
+                            # For most backends, custom tools are executed during streaming
+                            # For Claude Code, tools are parsed from text and need orchestrator execution
+                            is_claude_code = hasattr(agent.backend, "get_provider_name") and agent.backend.get_provider_name() == "claude_code"
+
+                            if is_claude_code and hasattr(agent.backend, "_broadcast_toolkit"):
+                                # Claude Code: Execute broadcast tool here since backend doesn't execute it
+                                import json
+
+                                broadcast_toolkit = agent.backend._broadcast_toolkit
+
+                                if tool_name == "ask_others":
+                                    args_json = json.dumps(tool_args)
+                                    yield ("content", f"📢 Asking others: {tool_args.get('question', '')[:80]}...\n")
+                                    result = await broadcast_toolkit.execute_ask_others(args_json, agent_id)
+                                    # Inject result back to agent's conversation
+                                    result_msg = {"role": "user", "content": f"[Broadcast Response]\n{result}"}
+                                    conversation_messages.append(result_msg)
+                                    yield ("content", "📢 Received broadcast responses\n")
+                                elif tool_name == "check_broadcast_status":
+                                    args_json = json.dumps(tool_args)
+                                    result = await broadcast_toolkit.execute_check_broadcast_status(args_json, agent_id)
+                                    result_msg = {"role": "user", "content": f"[Broadcast Status]\n{result}"}
+                                    conversation_messages.append(result_msg)
+                                elif tool_name == "get_broadcast_responses":
+                                    args_json = json.dumps(tool_args)
+                                    result = await broadcast_toolkit.execute_get_broadcast_responses(args_json, agent_id)
+                                    result_msg = {"role": "user", "content": f"[Broadcast Responses]\n{result}"}
+                                    conversation_messages.append(result_msg)
+
                             # Mark as workflow tool found to avoid retry enforcement
                             # The agent will continue and provide new_answer or vote after receiving broadcast response
                             workflow_tool_found = True

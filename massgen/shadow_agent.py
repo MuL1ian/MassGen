@@ -83,33 +83,50 @@ class ShadowAgentSpawner:
             broadcast_request,
         )
 
-        # 2. Copy conversation context (full history for context)
-        shadow_history = parent_agent.conversation_history.copy()
-
-        # 3. Replace/add system message with shadow prompt
-        # Remove existing system messages and add shadow prompt
-        shadow_history = [msg for msg in shadow_history if msg.get("role") != "system"]
-        shadow_history.insert(0, {"role": "system", "content": shadow_system_prompt})
-
-        # 4. Include current turn's full context (if any)
+        # 2. Get current turn context (if any)
         # This captures everything the parent agent has generated so far in the current turn
         # Including: text content, tool calls, reasoning, MCP tool calls
         current_turn_context = self._build_current_turn_context(parent_agent, shadow_id)
-        if current_turn_context:
+
+        # 3. Check if backend requires special handling (e.g., Claude Code can't accept assistant messages)
+        backend = parent_agent.backend
+        is_claude_code = hasattr(backend, "get_provider_name") and backend.get_provider_name() == "claude_code"
+
+        if is_claude_code:
+            # Claude Code maintains its own conversation history and can't accept assistant messages
+            # Instead, inject context as text within the user message
+            shadow_history = self._build_claude_code_compatible_history(
+                shadow_system_prompt,
+                parent_agent,
+                broadcast_request,
+                current_turn_context,
+                shadow_id,
+            )
+        else:
+            # Standard flow: copy parent history and inject context as messages
+            shadow_history = parent_agent.conversation_history.copy()
+
+            # Replace/add system message with shadow prompt
+            # Remove existing system messages and add shadow prompt
+            shadow_history = [msg for msg in shadow_history if msg.get("role") != "system"]
+            shadow_history.insert(0, {"role": "system", "content": shadow_system_prompt})
+
+            # Include current turn context as assistant message
+            if current_turn_context:
+                shadow_history.append(
+                    {
+                        "role": "assistant",
+                        "content": current_turn_context,
+                    },
+                )
+
+            # Add broadcast question as user message
             shadow_history.append(
                 {
-                    "role": "assistant",
-                    "content": current_turn_context,
+                    "role": "user",
+                    "content": self._format_broadcast_question(broadcast_request),
                 },
             )
-
-        # 5. Add broadcast question as user message
-        shadow_history.append(
-            {
-                "role": "user",
-                "content": self._format_broadcast_question(broadcast_request),
-            },
-        )
 
         # 6. Save debug context if --debug flag is enabled
         from .logger_config import _DEBUG_MODE, _LOG_SESSION_DIR
@@ -321,6 +338,69 @@ You are responding to a question from another agent in your team.
         )
 
         return context
+
+    def _build_claude_code_compatible_history(
+        self,
+        shadow_system_prompt: str,
+        parent_agent: "SingleAgent",
+        broadcast_request: "BroadcastRequest",
+        current_turn_context: Optional[str],
+        shadow_id: str,
+    ) -> list:
+        """Build a conversation history compatible with Claude Code backend.
+
+        Claude Code maintains its own conversation history and cannot accept
+        pre-existing assistant messages. This method injects context as text
+        within a single user message instead.
+
+        Args:
+            shadow_system_prompt: The shadow agent's system prompt
+            parent_agent: The parent agent with conversation history
+            broadcast_request: The broadcast request to respond to
+            current_turn_context: Optional current turn context string
+            shadow_id: ID of the shadow agent for logging
+
+        Returns:
+            List of messages compatible with Claude Code (system + user only)
+        """
+        # Build context summary from parent's conversation history
+        context_parts = []
+
+        # Extract relevant context from parent's history (skip system messages)
+        parent_history = [msg for msg in parent_agent.conversation_history if msg.get("role") != "system"]
+
+        if parent_history:
+            context_parts.append("**Your Previous Work Context:**")
+            for msg in parent_history:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                if content:
+                    context_parts.append(f"[{role.upper()}]: {content}")
+            context_parts.append("")
+
+        # Add current turn context if available
+        if current_turn_context:
+            context_parts.append("**Current Work In Progress:**")
+            context_parts.append(current_turn_context)
+            context_parts.append("")
+
+        # Build the combined user message
+        context_text = "\n".join(context_parts) if context_parts else ""
+        broadcast_question = self._format_broadcast_question(broadcast_request)
+
+        if context_text:
+            user_content = f"{context_text}\n{broadcast_question}"
+        else:
+            user_content = broadcast_question
+
+        logger.info(
+            f"[{shadow_id}] Built Claude Code compatible history: " f"context_parts={len(context_parts)}, user_content={len(user_content)} chars",
+        )
+
+        return [
+            {"role": "system", "content": shadow_system_prompt},
+            {"role": "user", "content": user_content},
+        ]
 
     def _format_broadcast_question(self, broadcast_request: "BroadcastRequest") -> str:
         """Format the broadcast question as a user message.
