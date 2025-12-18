@@ -271,6 +271,118 @@ def install_crawl4ai_skill() -> bool:
         return False
 
 
+def list_available_skills() -> dict:
+    """List all available skills grouped by location.
+
+    Scans for skills in three locations (matching WebUI /api/skills):
+    - Built-in: massgen/skills/
+    - User: ~/.agent/skills/ (home directory - where openskills installs)
+    - Project: .agent/skills/ (current working directory)
+
+    Returns:
+        Dict with 'builtin', 'user', and 'project' keys, each containing list of skill dicts.
+        Each skill dict has 'name', 'description', and 'location' keys.
+    """
+    from massgen.filesystem_manager.skills_manager import scan_skills
+
+    all_skills = []
+    seen_names = set()
+
+    # Scan user skills (~/.agent/skills/)
+    user_dir = Path.home() / ".agent" / "skills"
+    user_skills = scan_skills(user_dir)
+    for skill in user_skills:
+        if skill["location"] == "project":  # scan_skills marks these as "project"
+            skill["location"] = "user"  # Re-label as "user" for home directory
+        if skill["name"] not in seen_names:
+            all_skills.append(skill)
+            seen_names.add(skill["name"])
+
+    # Scan project skills (.agent/skills/ in cwd)
+    project_dir = Path.cwd() / ".agent" / "skills"
+    if project_dir.exists():
+        project_skills = scan_skills(project_dir)
+        for skill in project_skills:
+            if skill["name"] not in seen_names:
+                all_skills.append(skill)
+                seen_names.add(skill["name"])
+
+    # Builtin skills are already included from scan_skills
+
+    # Group by location
+    return {
+        "builtin": [s for s in all_skills if s["location"] == "builtin"],
+        "user": [s for s in all_skills if s["location"] == "user"],
+        "project": [s for s in all_skills if s["location"] == "project"],
+    }
+
+
+def check_skill_packages_installed() -> dict:
+    """Check installation status of skill packages.
+
+    Returns:
+        Dict with package info including installation status.
+    """
+    skills = list_available_skills()
+    # Installed skills = user + project (excluding builtin)
+    installed_skills = skills["user"] + skills["project"]
+
+    # Check for Anthropic skills (installed via openskills, not crawl4ai)
+    anthropic_skills = [s for s in installed_skills if not s["name"].lower().startswith("crawl4ai")]
+    has_anthropic = len(anthropic_skills) > 0
+
+    # Check for Crawl4AI
+    has_crawl4ai = any(s["name"].lower().startswith("crawl4ai") for s in installed_skills)
+
+    return {
+        "anthropic": {
+            "name": "Anthropic Skills Collection",
+            "description": "Official Anthropic skills including code analysis, research, and more",
+            "installed": has_anthropic,
+            "skill_count": len(anthropic_skills) if has_anthropic else 0,
+        },
+        "crawl4ai": {
+            "name": "Crawl4AI",
+            "description": "Web crawling and scraping skill for extracting content from websites",
+            "installed": has_crawl4ai,
+        },
+    }
+
+
+def display_skills_summary() -> None:
+    """Display skills summary in terminal - matches WebUI structure."""
+    skills = list_available_skills()
+    builtin = skills["builtin"]
+    user = skills["user"]
+    project = skills["project"]
+    packages = check_skill_packages_installed()
+
+    installed_count = len(user) + len(project)
+    total = len(builtin) + installed_count
+
+    print(f"\n{BRIGHT_CYAN}{'═' * 60}{RESET}")
+    print(f"{BRIGHT_CYAN}{'Skills':^60}{RESET}")
+    print(f"{BRIGHT_CYAN}{'═' * 60}{RESET}\n")
+
+    # Summary
+    print(f"{BRIGHT_GREEN}{total} Skill(s) Available{RESET}")
+    print(f"  {len(builtin)} built-in, {installed_count} installed\n")
+
+    # Skill Packages section (matches WebUI)
+    print(f"{BRIGHT_CYAN}Skill Packages:{RESET}")
+    print(f"{BRIGHT_YELLOW}Install skill packages to add new capabilities.{RESET}\n")
+
+    for pkg_id, pkg in packages.items():
+        if pkg["installed"]:
+            count_info = f" ({pkg['skill_count']} skills)" if pkg.get("skill_count") else ""
+            print(f"  {BRIGHT_GREEN}✓{RESET} {pkg['name']} [installed{count_info}]")
+        else:
+            print(f"  {BRIGHT_RED}✗{RESET} {pkg['name']} [not installed]")
+        print(f"      {pkg['description']}")
+
+    print()
+
+
 def install_skills() -> None:
     """Main entry point for skills installation.
 

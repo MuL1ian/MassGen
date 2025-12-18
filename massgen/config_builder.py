@@ -32,6 +32,25 @@ from massgen.backend.capabilities import (
 )
 from massgen.utils.model_matcher import get_all_models_for_provider
 
+
+def _get_provider_capabilities(provider_id: str) -> Dict[str, bool]:
+    """Get capability flags for a provider for quickstart UI.
+
+    Args:
+        provider_id: The provider/backend type (e.g., "openai", "claude")
+
+    Returns:
+        Dict with boolean flags for supported capabilities
+    """
+    caps = get_capabilities(provider_id)
+    if not caps:
+        return {"web_search": False, "code_execution": False}
+    return {
+        "web_search": "web_search" in caps.supported_capabilities,
+        "code_execution": "code_execution" in caps.supported_capabilities,
+    }
+
+
 # Load environment variables
 load_dotenv()
 
@@ -76,6 +95,7 @@ class ConfigBuilder:
                 "type": caps.backend_type,
                 "env_var": caps.env_var,
                 "models": caps.models,
+                "default_model": caps.default_model,
                 "supports": supports,
             }
 
@@ -464,8 +484,8 @@ class ConfigBuilder:
             console.print("[dim]Configure API keys for cloud AI providers.[/dim]")
             console.print("[dim](Alternatively, you can use local models like vLLM/Ollama - no keys needed)[/dim]\n")
 
-            # Collect API keys from user
-            collected_keys = {}
+            # First, detect and show currently configured keys
+            current_api_keys = self.detect_api_keys()
 
             # Complete list of all API key providers (includes main backends + chatcompletion variants)
             # This is the complete set from cli.py create_backend()
@@ -491,9 +511,37 @@ class ConfigBuilder:
                 ("qwen", "Qwen (Alibaba)", "QWEN_API_KEY"),
             ]
 
-            # Create checkbox choices for provider selection (nothing pre-checked)
+            # Show configured keys summary FIRST
+            configured_providers = [(pid, name, env_var) for pid, name, env_var in all_providers if current_api_keys.get(pid, False)]
+            unconfigured_providers = [(pid, name, env_var) for pid, name, env_var in all_providers if not current_api_keys.get(pid, False)]
+
+            if configured_providers:
+                console.print(f"[green]✓ {len(configured_providers)} API Key(s) Configured:[/green]")
+                for _, name, _ in configured_providers:
+                    console.print(f"  [green]✓[/green] {name}")
+                console.print()
+
+            if not unconfigured_providers:
+                console.print("[green]All providers are configured![/green]")
+                return current_api_keys
+
+            # Sort unconfigured providers: popular first, then alphabetically
+            popular_provider_ids = ["openai", "anthropic", "gemini", "grok"]
+
+            def sort_key(provider):
+                pid = provider[0]
+                if pid in popular_provider_ids:
+                    return (0, popular_provider_ids.index(pid))
+                return (1, provider[1])  # sort by name
+
+            unconfigured_providers.sort(key=sort_key)
+
+            # Collect API keys from user
+            collected_keys = {}
+
+            # Create checkbox choices for unconfigured providers only
             provider_choices = []
-            for provider_id, name, env_var in all_providers:
+            for provider_id, name, env_var in unconfigured_providers:
                 provider_choices.append(
                     questionary.Choice(
                         f"{name:<25} [{env_var}]",
@@ -974,7 +1022,7 @@ class ConfigBuilder:
                 "id": f"agent_{agent_letter}",
                 "backend": {
                     "type": provider_info.get("type", provider_id),
-                    "model": provider_info.get("models", ["default"])[0],  # Default to first model
+                    "model": provider_info.get("default_model", provider_info.get("models", ["default"])[0]),
                 },
             }
 
@@ -1078,7 +1126,7 @@ class ConfigBuilder:
                 # Replace backend with target provider's default model + preserved settings
                 cloned["backend"] = {
                     "type": target_backend_type,
-                    "model": target_provider_info.get("models", ["default"])[0],
+                    "model": target_provider_info.get("default_model", target_provider_info.get("models", ["default"])[0]),
                     **preserved_settings,
                 }
 
@@ -3073,6 +3121,11 @@ class ConfigBuilder:
             console.print("[dim]Creates a full-featured config with code-based tools, Docker, skills, etc.[/dim]")
             console.print("[dim]You just need to specify your models.[/dim]\n")
 
+            # Initialize tracking for per-agent settings
+            agent_tools: Dict[str, Dict] = {}
+            agent_system_messages: Dict[str, str] = {}
+            coordination_settings: Dict[str, str] = {}
+
             # Step 1: How many agents?
             num_choices = [
                 questionary.Choice("1 agent", value=1),
@@ -3168,27 +3221,57 @@ class ConfigBuilder:
                 # Select model
                 provider_info = self.PROVIDERS.get(provider_id, {})
                 models = provider_info.get("models", ["default"])
+                default_model = provider_info.get("default_model", models[0] if models else None)
 
                 model = self.select_model_smart(
                     provider_id,
                     models,
-                    current_model=models[0] if models else None,
+                    current_model=default_model,
                     prompt="  Model:",
                 )
 
                 if model is None:
                     raise KeyboardInterrupt
 
+                # Per-agent options (applied to all agents in same-provider mode)
+                provider_caps = _get_provider_capabilities(provider_id)
+
+                # Web search toggle (if provider supports it)
+                enable_web_search = False
+                if provider_caps["web_search"]:
+                    enable_web_search = questionary.confirm(
+                        "  Enable web search for all agents?",
+                        default=False,
+                        style=questionary.Style([("question", "fg:cyan bold")]),
+                    ).ask()
+                    if enable_web_search is None:
+                        raise KeyboardInterrupt
+
+                # System message (optional)
+                console.print("\n[dim]  System message (optional) - custom instructions for all agents[/dim]")
+                system_msg = questionary.text(
+                    "  System message (press Enter to skip):",
+                    default="",
+                ).ask()
+                if system_msg is None:
+                    raise KeyboardInterrupt
+
                 # Create all agents with same config
                 for i in range(num_agents):
                     agent_letter = chr(ord("a") + i)
+                    agent_id = f"agent_{agent_letter}"
                     agents_config.append(
                         {
-                            "id": f"agent_{agent_letter}",
+                            "id": agent_id,
                             "type": provider_info.get("type", provider_id),
                             "model": model,
                         },
                     )
+                    # Track per-agent settings
+                    if enable_web_search:
+                        agent_tools[agent_id] = {"enable_web_search": True}
+                    if system_msg and system_msg.strip():
+                        agent_system_messages[agent_id] = system_msg.strip()
 
             else:
                 # Configure each agent individually
@@ -3224,24 +3307,56 @@ class ConfigBuilder:
                     # Select model
                     provider_info = self.PROVIDERS.get(provider_id, {})
                     models = provider_info.get("models", ["default"])
+                    default_model = provider_info.get("default_model", models[0] if models else None)
 
                     model = self.select_model_smart(
                         provider_id,
                         models,
-                        current_model=models[0] if models else None,
+                        current_model=default_model,
                         prompt="  Model:",
                     )
 
                     if model is None:
                         raise KeyboardInterrupt
 
+                    agent_id = f"agent_{agent_letter}"
+
+                    # Per-agent options
+                    provider_caps = _get_provider_capabilities(provider_id)
+
+                    # Web search toggle (if provider supports it)
+                    enable_web_search = False
+                    if provider_caps["web_search"]:
+                        enable_web_search = questionary.confirm(
+                            "    Enable web search?",
+                            default=False,
+                            style=questionary.Style([("question", "fg:cyan bold")]),
+                        ).ask()
+                        if enable_web_search is None:
+                            raise KeyboardInterrupt
+
+                    # System message (optional)
+                    console.print("[dim]    System message (optional) - custom instructions for this agent[/dim]")
+                    system_msg = questionary.text(
+                        "    System message (press Enter to skip):",
+                        default="",
+                    ).ask()
+                    if system_msg is None:
+                        raise KeyboardInterrupt
+
                     agents_config.append(
                         {
-                            "id": f"agent_{agent_letter}",
+                            "id": agent_id,
                             "type": provider_info.get("type", provider_id),
                             "model": model,
                         },
                     )
+
+                    # Track per-agent settings
+                    if enable_web_search:
+                        agent_tools[agent_id] = {"enable_web_search": True}
+                    if system_msg and system_msg.strip():
+                        agent_system_messages[agent_id] = system_msg.strip()
 
             # Step 3: Check Docker availability and ask about execution mode
             # Import check function from cli
@@ -3274,6 +3389,37 @@ class ConfigBuilder:
                 console.print("[dim]To enable Docker mode, run: massgen --setup-docker[/dim]\n")
                 use_docker = False
 
+            # Step 3b: Code Execution toggle (only when Docker is NOT enabled)
+            # Providers like OpenAI/Claude have cloud-based code execution sandboxes
+            if not use_docker:
+                # Check if any agent's provider supports code execution
+                agents_with_code_exec = []
+                for agent in agents_config:
+                    caps = _get_provider_capabilities(agent["type"])
+                    if caps["code_execution"]:
+                        agents_with_code_exec.append(agent)
+
+                if agents_with_code_exec:
+                    console.print("\n[bold cyan]Provider Code Execution[/bold cyan]")
+                    console.print("[dim]Some providers offer cloud-based code execution sandboxes.[/dim]")
+                    console.print("[dim]This runs code in the provider's cloud, not locally.[/dim]\n")
+
+                    enable_code_exec = questionary.confirm(
+                        "Enable provider code execution for supported agents?",
+                        default=False,
+                        style=questionary.Style([("question", "fg:cyan bold")]),
+                    ).ask()
+
+                    if enable_code_exec is None:
+                        raise KeyboardInterrupt
+
+                    if enable_code_exec:
+                        for agent in agents_with_code_exec:
+                            agent_id = agent["id"]
+                            if agent_id not in agent_tools:
+                                agent_tools[agent_id] = {}
+                            agent_tools[agent_id]["enable_code_execution"] = True
+
             # Step 4: Ask about context path (to avoid runtime prompt)
             console.print("\n[bold cyan]Context Path[/bold cyan]")
             console.print("[dim]Context paths give agents read/write access to your project files.[/dim]")
@@ -3296,10 +3442,74 @@ class ConfigBuilder:
 
             context_path = cwd if add_context else None
 
-            # Step 5: Generate the full config
+            # Step 5: Coordination settings (only for multi-agent)
+            if num_agents > 1:
+                console.print("\n[bold cyan]Coordination Settings[/bold cyan]")
+                console.print("[dim]Configure how agents evaluate and accept answers.[/dim]\n")
+
+                # Voting sensitivity
+                voting_choices = [
+                    questionary.Choice("Lenient - Agents accept answers more easily", value="lenient"),
+                    questionary.Choice("Balanced - Moderate scrutiny of answers", value="balanced"),
+                    questionary.Choice("Strict - Agents are highly critical", value="strict"),
+                ]
+
+                voting_sensitivity = questionary.select(
+                    "Voting Sensitivity:",
+                    choices=voting_choices,
+                    default="lenient",
+                    style=questionary.Style(
+                        [
+                            ("selected", "fg:cyan bold"),
+                            ("pointer", "fg:cyan bold"),
+                            ("highlighted", "fg:cyan"),
+                        ],
+                    ),
+                    use_arrow_keys=True,
+                ).ask()
+
+                if voting_sensitivity is None:
+                    raise KeyboardInterrupt
+
+                coordination_settings["voting_sensitivity"] = voting_sensitivity
+
+                # Answer novelty requirement
+                novelty_choices = [
+                    questionary.Choice("Lenient - Similar answers are accepted", value="lenient"),
+                    questionary.Choice("Balanced - Some differentiation required", value="balanced"),
+                    questionary.Choice("Strict - Answers must be substantially different", value="strict"),
+                ]
+
+                answer_novelty = questionary.select(
+                    "Answer Novelty Requirement:",
+                    choices=novelty_choices,
+                    default="lenient",
+                    style=questionary.Style(
+                        [
+                            ("selected", "fg:cyan bold"),
+                            ("pointer", "fg:cyan bold"),
+                            ("highlighted", "fg:cyan"),
+                        ],
+                    ),
+                    use_arrow_keys=True,
+                ).ask()
+
+                if answer_novelty is None:
+                    raise KeyboardInterrupt
+
+                coordination_settings["answer_novelty_requirement"] = answer_novelty
+
+            # Step 6: Generate the full config
             console.print("\n[dim]Generating configuration...[/dim]")
 
-            config = self._generate_quickstart_config(agents_config, context_path, use_docker)
+            config = self._generate_quickstart_config(
+                agents_config,
+                context_path=context_path,
+                use_docker=use_docker,
+                agent_tools=agent_tools,
+                agent_system_messages=agent_system_messages,
+                coordination_settings=coordination_settings,
+            )
 
             # Step 4: Save the config
             # Save to default config location so users can run `massgen` without flags
