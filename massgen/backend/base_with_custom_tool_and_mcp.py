@@ -2311,8 +2311,54 @@ class CustomToolAndMCPBackend(LLMBackend):
                         async for chunk in self._stream_handle_custom_and_mcp_exceptions(e, messages, tools, client, **kwargs):
                             yield chunk
                     else:
-                        logger.error(f"Streaming error: {e}")
-                        yield StreamChunk(type="error", error=str(e))
+                        # Check if this is a context length error that we can recover from
+                        from ._context_errors import is_context_length_error
+
+                        _compression_retry = kwargs.get("_compression_retry", False)
+
+                        if is_context_length_error(e) and not _compression_retry and hasattr(self, "_compress_messages_for_context_recovery"):
+                            logger.warning(
+                                f"[{self.get_provider_name()}] Context length exceeded during streaming, " f"attempting compression recovery...",
+                            )
+                            try:
+                                # Get streaming buffer content if available (subclass may track this)
+                                buffer_content = getattr(self, "_streaming_buffer", None) or None
+
+                                # Compress messages and retry
+                                compressed_messages = await self._compress_messages_for_context_recovery(
+                                    messages,
+                                    buffer_content=buffer_content,
+                                )
+
+                                # Retry with compressed messages (with flag to prevent infinite loops)
+                                retry_kwargs = {**kwargs, "_compression_retry": True}
+
+                                if use_mcp or use_custom_tools:
+                                    async for chunk in self._stream_with_custom_and_mcp_tools(
+                                        compressed_messages,
+                                        tools,
+                                        client,
+                                        **retry_kwargs,
+                                    ):
+                                        yield chunk
+                                else:
+                                    async for chunk in self._stream_without_custom_and_mcp_tools(
+                                        compressed_messages,
+                                        tools,
+                                        client,
+                                        **retry_kwargs,
+                                    ):
+                                        yield chunk
+
+                                logger.info(
+                                    f"[{self.get_provider_name()}] Compression recovery successful",
+                                )
+                            except Exception as retry_error:
+                                logger.error(f"Compression recovery failed: {retry_error}")
+                                yield StreamChunk(type="error", error=str(retry_error))
+                        else:
+                            logger.error(f"Streaming error: {e}")
+                            yield StreamChunk(type="error", error=str(e))
 
                 finally:
                     await self._cleanup_client(client)

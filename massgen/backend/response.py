@@ -58,6 +58,11 @@ class ResponseBackend(CustomToolAndMCPBackend):
         self._vector_store_ids: List[str] = []
         self._uploaded_file_ids: List[str] = []
 
+        # Streaming buffer for compression recovery
+        # Tracks accumulated content during streaming so it can be included
+        # in compression summaries when context limits are exceeded
+        self._streaming_buffer: str = ""
+
     def supports_upload_files(self) -> bool:
         return True
 
@@ -71,6 +76,9 @@ class ResponseBackend(CustomToolAndMCPBackend):
 
         Wraps parent implementation to ensure File Search cleanup happens after streaming completes.
         """
+        # Clear streaming buffer at start of new stream (unless this is a compression retry)
+        if not kwargs.get("_compression_retry", False):
+            self._streaming_buffer = ""
 
         try:
             async for chunk in super().stream_with_tools(messages, tools, **kwargs):
@@ -113,7 +121,9 @@ class ResponseBackend(CustomToolAndMCPBackend):
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
         agent_id = kwargs.get("agent_id")
-        all_params = {**self.config, **kwargs}
+        # Filter out internal flags that shouldn't be passed to API
+        filtered_kwargs = {k: v for k, v in kwargs.items() if not k.startswith("_compression")}
+        all_params = {**self.config, **filtered_kwargs}
 
         processed_messages = await self._process_upload_files(messages, all_params)
 
@@ -174,9 +184,11 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 )
 
                 # Compress messages and retry
+                # Include accumulated buffer content if available (may have content from prior calls)
+                buffer_for_compression = self._streaming_buffer if self._streaming_buffer else None
                 compressed_messages = await self._compress_messages_for_context_recovery(
                     processed_messages,
-                    buffer_content=None,
+                    buffer_content=buffer_for_compression,
                 )
 
                 # Rebuild API params with compressed messages
@@ -269,12 +281,18 @@ class ResponseBackend(CustomToolAndMCPBackend):
         """
         # Only add function output message
         # function_call is already included from response.output (with reasoning items)
+        result_str = str(result)
         function_output_msg = {
             "type": "function_call_output",
             "call_id": call.get("call_id", ""),
-            "output": str(result),
+            "output": result_str,
         }
         updated_messages.append(function_output_msg)
+
+        # Track tool result in streaming buffer for compression recovery
+        # This captures the actual data that makes context large
+        tool_name = call.get("name", "unknown")
+        self._streaming_buffer += f"\n\n[Tool: {tool_name}]\n{result_str}"
 
     def _append_tool_error_message(
         self,
@@ -305,6 +323,10 @@ class ResponseBackend(CustomToolAndMCPBackend):
             "output": error_msg,
         }
         updated_messages.append(error_output_msg)
+
+        # Track tool error in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._streaming_buffer += f"\n\n[Tool Error: {tool_name}]\n{error_msg}"
 
     async def _execute_custom_tool(self, call: Dict[str, Any]) -> AsyncGenerator[CustomToolChunk, None]:
         """Execute custom tool with streaming support - async generator for base class.
@@ -339,7 +361,9 @@ class ResponseBackend(CustomToolAndMCPBackend):
         agent_id = kwargs.get("agent_id")
 
         # Build API params for this iteration
-        all_params = {**self.config, **kwargs}
+        # Filter out internal flags that shouldn't be passed to API
+        filtered_kwargs = {k: v for k, v in kwargs.items() if not k.startswith("_compression")}
+        all_params = {**self.config, **filtered_kwargs}
 
         if all_params.get("_has_file_search_files"):
             logger.info("Processing File Search uploads...")
@@ -385,9 +409,11 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 )
 
                 # Compress messages and retry
+                # Include accumulated buffer content if available (not first API call)
+                buffer_for_compression = self._streaming_buffer if self._streaming_buffer else None
                 compressed_messages = await self._compress_messages_for_context_recovery(
                     current_messages,
-                    buffer_content=None,
+                    buffer_content=buffer_for_compression,
                 )
 
                 # Rebuild API params with compressed messages
@@ -440,6 +466,9 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 # Handle regular content and other events
                 elif chunk.type == "response.output_text.delta":
                     delta = getattr(chunk, "delta", "")
+                    # Track content in streaming buffer for compression recovery
+                    if delta:
+                        self._streaming_buffer += delta
                     # Record content chunk for LLM call logging
                     if llm_logger and llm_call_id and delta:
                         llm_logger.record_chunk(
