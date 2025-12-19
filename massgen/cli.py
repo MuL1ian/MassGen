@@ -4752,6 +4752,42 @@ async def main(args):
 
 def cli_main():
     """Synchronous wrapper for CLI entry point."""
+    # Handle 'logs' subcommand specially before main argument parsing
+    # This avoids conflict with the positional 'question' argument
+    if len(sys.argv) >= 2 and sys.argv[1] == "logs":
+        from .logs_analyzer import logs_command
+
+        # Create a separate parser just for logs subcommand
+        logs_parser = argparse.ArgumentParser(
+            prog="massgen logs",
+            description="Analyze and display MassGen run logs",
+        )
+        logs_subparsers = logs_parser.add_subparsers(dest="logs_command", help="Log analysis commands")
+
+        # logs summary (default)
+        summary_parser = logs_subparsers.add_parser("summary", help="Display run summary (default)")
+        summary_parser.add_argument("--log-dir", type=str, help="Path to specific log directory")
+        summary_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+        # logs tools
+        tools_parser = logs_subparsers.add_parser("tools", help="Display tool breakdown")
+        tools_parser.add_argument("--sort", choices=["time", "calls"], default="time", help="Sort by time or calls")
+        tools_parser.add_argument("--log-dir", type=str, help="Path to specific log directory")
+        tools_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+        # logs list
+        list_parser = logs_subparsers.add_parser("list", help="List recent runs")
+        list_parser.add_argument("--limit", type=int, default=10, help="Number of runs to show")
+        list_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+        # logs open
+        open_parser = logs_subparsers.add_parser("open", help="Open log directory in file manager")
+        open_parser.add_argument("--log-dir", type=str, help="Path to specific log directory")
+
+        # Parse logs arguments (skip 'massgen logs')
+        logs_args = logs_parser.parse_args(sys.argv[2:])
+        sys.exit(logs_command(logs_args))
+
     parser = argparse.ArgumentParser(
         description="MassGen - Multi-Agent Coordination CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -5044,6 +5080,9 @@ Environment Variables:
         help="Enable rate limiting (uses limits from rate_limits.yaml config)",
     )
 
+    # Note: 'logs' subcommand is handled separately at the start of cli_main()
+    # to avoid conflict with the positional 'question' argument
+
     args = parser.parse_args()
 
     # Handle --continue flag BEFORE setup_logging so we can reuse log directory
@@ -5095,6 +5134,8 @@ Environment Variables:
             print(f"📄 Using config from session: {session_config_path}")
 
     # Handle special commands first (before logging setup to avoid creating log dirs)
+    # Note: 'logs' subcommand is handled at the very start of cli_main()
+
     if args.list_sessions:
         from massgen.session import SessionRegistry, format_session_list
 

@@ -357,6 +357,98 @@ At the bottom of the coordination table:
 Accessing Logs
 --------------
 
+Log Analysis Commands
+~~~~~~~~~~~~~~~~~~~~~
+
+MassGen provides the ``massgen logs`` command for quick log analysis without manual file navigation.
+
+**Summary of most recent run:**
+
+.. code-block:: bash
+
+   massgen logs
+
+   # Example output:
+   # ╭──────────────────────────── MassGen Run Summary ─────────────────────────────╮
+   # │ Create a website about Bob Dylan                                             │
+   # │                                                                               │
+   # │ Winner: agent_a | Agents: 1 | Duration: 7.2m | Cost: $0.54                   │
+   # ╰───────────────────────────────────────────────────────────────────────────────╯
+   #
+   # Tokens: Input: 6,035,629 | Output: 21,279 | Reasoning: 7,104
+   #
+   # Rounds (5): answer: 1 | vote: 1 | presentation: 2 | post_evaluation: 1
+   #   Errors: 0 | Timeouts: 0
+   #
+   # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━━┓
+   # ┃ Tool                                      ┃ Calls ┃  Time ┃  Avg ┃ Fail ┃
+   # ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━━┩
+   # │ mcp__command_line__execute_command        │    47 │  4.4s │ 94ms │      │
+   # │ mcp__planning__update_task_status         │    13 │ 228ms │ 18ms │      │
+   # └───────────────────────────────────────────┴───────┴───────┴──────┴──────┘
+
+**Available subcommands:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Command
+     - Description
+   * - ``massgen logs`` or ``massgen logs summary``
+     - Display run summary with tokens, rounds, and top tools
+   * - ``massgen logs tools``
+     - Full tool breakdown table sorted by execution time
+   * - ``massgen logs tools --sort calls``
+     - Sort tools by call count instead of time
+   * - ``massgen logs list``
+     - List recent runs with timestamps, costs, and questions
+   * - ``massgen logs list --limit 20``
+     - Show more runs (default: 10)
+   * - ``massgen logs open``
+     - Open log directory in system file manager (Finder/Explorer)
+
+**Common options:**
+
+.. code-block:: bash
+
+   # Analyze a specific log directory
+   massgen logs --log-dir .massgen/massgen_logs/log_20251218_134125_867383/turn_1/attempt_1
+
+   # Output raw JSON for scripting
+   massgen logs summary --json
+
+**Tool breakdown example:**
+
+.. code-block:: bash
+
+   massgen logs tools
+
+   # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━━┓
+   # ┃ Tool                                      ┃ Calls ┃  Time ┃  Avg ┃ Fail ┃
+   # ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━━┩
+   # │ mcp__command_line__execute_command        │    47 │  4.4s │ 94ms │      │
+   # │ mcp__planning__update_task_status         │    13 │ 228ms │ 18ms │      │
+   # │ mcp__filesystem__write_file               │     7 │ 181ms │ 26ms │      │
+   # │ mcp__planning__create_task_plan           │     2 │  36ms │ 18ms │      │
+   # ├───────────────────────────────────────────┼───────┼───────┼──────┼──────┤
+   # │ TOTAL                                     │    69 │  4.8s │      │      │
+   # └───────────────────────────────────────────┴───────┴───────┴──────┴──────┘
+
+**List recent runs:**
+
+.. code-block:: bash
+
+   massgen logs list --limit 5
+
+   # ┏━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+   # ┃ # ┃ Timestamp        ┃ Duration ┃  Cost ┃ Question                           ┃
+   # ┡━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+   # │ 1 │ 2025-12-18 13:41 │     7.2m │ $0.54 │ Create a website about Bob Dylan   │
+   # │ 2 │ 2025-12-17 23:01 │    16.2m │ $1.23 │ Build a REST API...                │
+   # │ 3 │ 2025-12-17 22:30 │     3.1m │ $0.12 │ Explain quantum computing...       │
+   # └───┴──────────────────┴──────────┴───────┴────────────────────────────────────┘
+
 During Execution
 ~~~~~~~~~~~~~~~~
 
@@ -369,6 +461,10 @@ After Execution
 
 .. code-block:: bash
 
+   # Using massgen logs open (recommended)
+   massgen logs open
+
+   # Or manually
    ls -t .massgen/massgen_logs/ | head -1
 
 **View coordination table:**
