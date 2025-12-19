@@ -16,7 +16,7 @@ See Also
 
 ---
 
-*Last synced with CHANGELOG.md: October 2025*
+*Last synced with CHANGELOG.md: December 2025*
 
 .. note::
 

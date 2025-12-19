@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.27 (December 19, 2025)** - Session Sharing, Log Analysis & Config Builder Enhancements
+Session sharing via GitHub Gist with `massgen export`. New `massgen logs` CLI command for run log analysis. Per-LLM call time tracking. Gemini 3 Flash model support. CLI config builder with per-agent web search, system messages, and coordination settings. Web UI context paths wizard and "Open in Browser" button.
+
 **v0.1.26 (December 17, 2025)** - Web UI Setup & Shadow Agent Depth Scaling
 New Web UI setup wizard for guided first-run configuration, Docker diagnostics module with platform-specific resolution, and shadow agent response depth for test-time compute scaling.
 
@@ -19,6 +22,77 @@ Added UI-TARS custom tool for GUI automation, GPT-5.2 model support, and evolvin
 Expanded real-time cost tracking across multiple backends (OpenRouter, xAI, Gemini, Grok, Claude Code) with per-agent token breakdown, cost inspection command, and aggregated session totals.
 
 ---
+
+## [0.1.27] - 2025-12-19
+
+### Added
+- **Session Sharing via GitHub Gist**: Share MassGen sessions with collaborators using `massgen export` (MAS-16)
+  - Uploads session logs to GitHub Gist (requires `gh` CLI authenticated)
+  - Returns shareable URL to MassGen Viewer (`https://massgen.github.io/MassGen-Viewer/?gist=...`)
+  - Manage shares with `massgen shares list` and `massgen shares delete <gist_id>`
+  - Auto-excludes large files, debug logs, and redacts API keys
+  - New `massgen/share.py` module (373 lines)
+  - New `massgen/session_exporter.py` for session export logic
+
+- **Log Analysis CLI Command**: New `massgen logs` command for analyzing run logs with metrics visualization, tool breakdown, and export to JSON/CSV formats
+  - New `massgen/logs_analyzer.py` with `LogAnalyzer` class (433 lines)
+  - Enhanced `massgen/cli.py` with logs subcommand integration
+
+- **Per-LLM Call Time Tracking**: Detailed timing metrics for individual LLM API calls
+  - Track time spent on each API call across all backends (Claude, Gemini, OpenAI, Grok)
+  - Aggregate timing statistics in metrics summary
+  - Enhanced `massgen/backend/base.py` with timing instrumentation
+  - New timing fields in `massgen/backend/response.py`
+
+- **Gemini 3 Flash Model Support**: Added `gemini-3-flash-preview` model
+  - Enhanced `massgen/backend/capabilities.py` with new models and release dates
+  - New config: `massgen/configs/providers/gemini/gemini_3_flash.yaml`
+
+- **Web UI Context Paths Wizard**: New `ContextPathsStep` component in quickstart wizard for configuring file context paths
+
+- **Web UI "Open in Browser" Button**: Added button to open workspaces directly in browser from answer views
+  - Enhanced `massgen/frontend/web/server.py` with browser open endpoint
+
+### Changed
+- **CLI Config Builder Enhancements**: Per-agent web search toggles, system message configuration, and improved default model selection
+  - Enhanced `massgen/config_builder.py` with `_get_provider_capabilities()` helper (+234 lines)
+  - Added per-agent `enable_web_search` toggle and system message prompts during quickstart
+
+- **Logging System Improvements**: Enhanced logger configuration with better formatting and file output (`logger_config.py`)
+
+### Fixed
+- **Web Search Call Message Preservation**: Fixed response formatter to preserve `web_search_call` messages like reasoning messages (`_response_formatter.py`)
+
+- **Claude Code Tool Permissions**: Fixed tool allow issue for Claude Code backend
+  - Fixed `massgen/backend/claude_code.py`
+  - Fixed `massgen/filesystem_manager/_filesystem_manager.py`
+
+- **Orchestrator Workflow Timeout**: Fixed timeout handling in orchestrator error respawn logic (`massgen/orchestrator.py`)
+
+- **Workflow Restart Loop**: Fixed issue where workflow would search first then keep running into workflow restarted errors (`massgen/backend/response.py`)
+
+### Documentations, Configurations and Resources
+
+- **Session Sharing Documentation**:
+  - Updated `docs/source/user_guide/logging.rst`: Sharing sessions guide
+  - Updated `docs/source/reference/cli.rst`: Export and shares CLI reference
+  - Updated `docs/source/quickstart/running-massgen.rst`: Quickstart sharing guide
+
+- **Log Analysis Documentation**:
+  - Updated `docs/source/user_guide/logging.rst`: `massgen logs` command guide
+
+- **Configuration Examples**:
+  - `massgen/configs/providers/gemini/gemini_3_flash.yaml`: Gemini 3 Flash configuration
+  - `massgen/configs/debug/error_respawn_test.yaml`: Orchestrator error respawn testing
+
+- **Web UI Components**:
+  - New `webui/src/components/wizard/ContextPathsStep.tsx` (234 lines): Context paths wizard step
+  - Enhanced `webui/src/stores/wizardStore.ts`: Context path state management
+  - Enhanced `webui/src/components/FinalAnswerView.tsx`: Share and open in browser buttons
+
+### Technical Details
+- **Major Focus**: Session sharing, log analysis tooling, per-LLM timing, CLI config builder UX, Web UI enhancements
+- **Contributors**: @ncrispino @praneeth999 and the MassGen team
 
 ## [0.1.26] - 2025-12-17
 

@@ -10,13 +10,13 @@ agents:
       enable_mcp_command_line: true
       command_line_execution_mode: "docker"
 
-  # - id: "agent_b"
-  #   backend:
-  #     type: "gemini"
-  #     model: "gemini-3-flash-preview"
-  #     cwd: "workspace2"  # Required for filesystem mode
-  #     enable_mcp_command_line: true
-  #     command_line_execution_mode: "docker"
+  - id: "agent_b"
+    backend:
+      type: "gemini"
+      model: "gemini-3-flash-preview"
+      cwd: "workspace2"  # Required for filesystem mode
+      enable_mcp_command_line: true
+      command_line_execution_mode: "docker"
 
 orchestrator:
   snapshot_storage: "snapshots"

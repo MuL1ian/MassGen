@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.26
+**Current Version:** v0.1.27
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** December 17, 2025
+**Last Updated:** December 19, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,42 +42,62 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.27** | 12/19/25 | Add system reminders | @ncrispino | Framework for injecting system reminders mid-run during LLM streaming |
+| **v0.1.28** | 12/22/25 | Add system reminders | @ncrispino | Framework for injecting system reminders mid-run during LLM streaming |
 | | | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
-| **v0.1.28** | 12/22/25 | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
+| **v0.1.29** | 12/24/25 | Grok 4.1 Fast Model Support | @praneeth999 | Add support for xAI's Grok 4.1 Fast model for rapid agent responses |
 | | | Automatic Context Compression | @ncrispino | Automatic context compression to manage long conversations efficiently |
-| **v0.1.29** | 12/24/25 | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
+| **v0.1.30** | 12/26/25 | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.27 - System Reminders & Memory as Tools
+## ✅ v0.1.27 - Session Sharing & Log Analysis (COMPLETED)
+
+**Released: December 19, 2025**
 
 ### Features
 
-**1. Add system reminders** (@ncrispino)
-- Issue: [#557](https://github.com/massgen/MassGen/issues/557)
-- Framework for injecting system reminders mid-run during LLM streaming
-- Support for context awareness, human feedback, safety, and memory reminders
-- Generic and extensible design for flexible downstream usage
-- **Use Case**: Keep agents focused on key objectives and constraints throughout long conversations
+**1. Session Sharing via GitHub Gist**
+- Share MassGen sessions with collaborators using `massgen export`
+- Uploads session logs to GitHub Gist (requires `gh` CLI authenticated)
+- Returns shareable URL to MassGen Viewer
+- Manage shares with `massgen shares list` and `massgen shares delete`
+- Auto-excludes large files, debug logs, and redacts API keys
+- **Status:** ✅ Completed
 
-**2. Memory as Tools** (@ncrispino)
-- Issue: [#461](https://github.com/massgen/MassGen/issues/461)
-- Include memory (including filesystem) as callable tools for agents
-- Agents can explicitly invoke memory operations via tool calls
-- Unified interface for different memory backends
-- **Use Case**: Enable agents to have explicit control over memory operations, allowing them to store, retrieve, and manage persistent information as tool calls
+**2. Log Analysis CLI**
+- New `massgen logs` command for viewing, filtering, and exporting run logs
+- `massgen logs list` - List all runs with status
+- `massgen logs view <log_id>` - View detailed run info with LLM timing
+- Export to JSON/CSV formats
+- **Status:** ✅ Completed
 
-### Success Criteria
-- ✅ System reminders can be configured and injected into conversations
-- ✅ Memory operations are available as callable tools
-- ✅ Agents can explicitly store and retrieve information
+**3. Per-LLM Call Time Tracking**
+- Detailed timing metrics for individual LLM API calls
+- Track time spent on each API call across all backends
+- Aggregate timing statistics in metrics summary
+- **Status:** ✅ Completed
+
+**4. Gemini 3 Flash Model Support**
+- Added `gemini-3-flash-preview` model to provider registry
+- New config: `massgen/configs/providers/gemini/gemini_3_flash.yaml`
+- **Status:** ✅ Completed
+
+**5. CLI Config Builder Enhancements**
+- Per-agent web search toggle
+- System message configuration
+- Improved coordination settings
+- **Status:** ✅ Completed
+
+**6. Web UI Context Paths Wizard**
+- New `ContextPathsStep` component for workspace configuration
+- "Open in Browser" button for quick workspace access
+- **Status:** ✅ Completed
 
 ---
 
-## 📋 v0.1.28 - Grok 4.1 Fast & Context Compression
+## 📋 v0.1.28 - System Reminders & Memory as Tools
 
 ### Features
 
@@ -471,19 +491,19 @@ These features are being actively developed on **separate parallel tracks** and 
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.27
+- **Target:** v0.1.28
 
 ### Track: Smithery MCP Tools Support (@ncrispino, nickcrispino)
 - Issue: [#521](https://github.com/massgen/MassGen/issues/521)
 - Integration with Smithery to expand available MCP tools
 - Automatic discovery and installation of Smithery MCP servers
-- **Target:** v0.1.27
+- **Target:** v0.1.29
 
 ### Track: Memory as Tools (@ncrispino, nickcrispino)
 - Issue: [#461](https://github.com/massgen/MassGen/issues/461)
 - Include memory (including filesystem) as callable tools for agents
 - Unified interface for different memory backends
-- **Target:** v0.1.27
+- **Target:** v0.1.29
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -560,5 +580,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** December 17, 2025
+**Last Updated:** December 19, 2025
 **Maintained By:** MassGen Team

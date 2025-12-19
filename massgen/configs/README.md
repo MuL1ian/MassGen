@@ -227,7 +227,37 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.26 - Latest
+### v0.1.27 - Latest
+**New Features:** Session Sharing, Log Analysis CLI, Per-LLM Call Timing, Gemini 3 Flash
+
+**Key Features:**
+- **Session Sharing via GitHub Gist**: Share sessions with `massgen export`, manage with `massgen shares list/delete`
+- **Log Analysis CLI**: New `massgen logs` command for viewing, filtering, and exporting run logs
+- **Per-LLM Call Timing**: Detailed timing metrics for individual LLM API calls across all backends
+- **Gemini 3 Flash Model**: Google's Gemini 3 Flash model added to provider registry
+- **CLI Config Builder**: Per-agent web search toggle, system messages, coordination settings
+- **Web UI Context Paths Wizard**: New `ContextPathsStep` component for workspace configuration
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Share a session via GitHub Gist (requires gh CLI)
+massgen export                            # Share most recent session
+massgen export log_20251218_134125        # Share specific session
+massgen shares list                       # List your shared sessions
+
+# Analyze your run logs
+massgen logs list                         # List all runs
+massgen logs view <log_id>                # View detailed run info with LLM timing
+
+# Try Gemini 3 Flash
+massgen --config @examples/providers/gemini/gemini_3_flash \
+  "Create a simple Python script that demonstrates async programming"
+```
+
+### v0.1.26
 **New Features:** Docker Diagnostics Module, Web UI Setup System, Shadow Agent Response Depth
 
 **Key Features:**

@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.27 (December 19, 2025)** - Session Sharing & Log Analysis
+
+Session sharing via GitHub Gist with ``massgen export`` command. New ``massgen logs`` CLI for viewing, filtering, and exporting run logs. Per-LLM call timing metrics across all backends. Gemini 3 Flash model support. CLI config builder with per-agent web search and system messages. Web UI context paths wizard.
+
 **v0.1.26 (December 17, 2025)** - Docker Diagnostics & Web UI Setup
 
 Docker diagnostics module with platform-specific error detection and resolution. Web UI setup wizard for guided first-run experience with API key management. Shadow agent response depth for test-time compute scaling. Model registry updates with GPT-5.1-Codex family and Claude alias notation.
@@ -164,10 +168,6 @@ Docker diagnostics module with platform-specific error detection and resolution.
 **v0.1.25 (December 15, 2025)** - UI-TARS & Evolving Skills
 
 UI-TARS backend for GUI automation with visual understanding. GPT-5.2 model support via OpenRouter. Evolving skill creator system for reusable workflows. Textual terminal display with adaptive dark/light themes.
-
-**v0.1.24 (December 12, 2025)** - Enhanced Cost Tracking
-
-Real-time token counting and cost calculation for OpenRouter, xAI/Grok, Gemini, and Claude Code backends. New ``/inspect c`` command displays detailed per-agent cost breakdown with input, output, reasoning, and cached tokens.
 
 :doc:`Full changelog → <changelog>`
 

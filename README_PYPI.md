@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.26 Features](#-latest-features-v0126)
+- [v0.1.27 Features](#-latest-features-v0127)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <summary><h3>🗺️ Roadmap</h3></summary>
 
 - Recent Achievements
-  - [v0.1.26](#recent-achievements-v0126)
-  - [v0.0.3 - v0.1.25](#previous-achievements-v003---v0125)
+  - [v0.1.27](#recent-achievements-v0127)
+  - [v0.0.3 - v0.1.26](#previous-achievements-v003---v0126)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.27 Roadmap](#v0127-roadmap)
+- [v0.1.28 Roadmap](#v0128-roadmap)
 </details>
 
 <details open>
@@ -155,35 +155,42 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.26)
+## 🆕 Latest Features (v0.1.27)
 
-**🎉 Released: December 17, 2025**
+**🎉 Released: December 19, 2025**
 
-**What's New in v0.1.26:**
-- **🐳 Docker Diagnostics** - Platform-specific error detection and resolution for Docker issues
-- **🖥️ Web UI Setup Wizard** - Guided first-run setup with API key management and environment checks
-- **⚡ Shadow Agent Response Depth** - Test-time compute scaling for broadcast responses (`low`/`medium`/`high`)
-- **🔧 Model Registry Updates** - GPT-5.1-Codex family, Claude alias notation, updated defaults
+**What's New in v0.1.27:**
+- **📤 Session Sharing** - Share sessions via GitHub Gist with `massgen export` (MAS-16)
+- **📊 Log Analysis CLI** - New `massgen logs` command for viewing, filtering, and exporting run logs
+- **⏱️ Per-LLM Call Timing** - Detailed timing metrics for each LLM API call
+- **🌐 Gemini 3 Flash** - Google's Gemini 3 Flash model now available
+- **⚙️ Config Builder Improvements** - Per-agent web search, system messages, and coordination settings
+- **🖥️ Web UI Improvements** - Context paths wizard and "Open in Browser" button
 
-**Key Improvements:**
-- Claude Code API key handling and configuration fixes
-- Web UI asset loading and static path resolution (MAS-160)
+**Bug Fixes:**
+- Fixed Claude Code tool permissions handling
+- Fixed orchestrator error recovery with proper timeout handling
+- Fixed web search workflow restart issues
 
-**Try v0.1.26 Features:**
+**Try v0.1.27 Features:**
 ```bash
 # Install or upgrade
-pip install --upgrade massgen
+uv pip install --upgrade massgen
 
 # Or with uv (faster)
 uv pip install massgen
 
-# Use response depth for test-time compute scaling in agent broadcasts
-# response_depth: "high" makes shadow agents provide more thorough solutions
-massgen --config @examples/broadcast/test_broadcast_agents \
-  "Create a website about Bob Dylan. Please ask_others for what framework to use first"
+# Try Gemini 3 Flash
+uv run massgen --config massgen/configs/providers/gemini/gemini_3_flash.yaml \
+  "Create a simple Python script that demonstrates async programming"
 
-# Launch Web UI with guided setup wizard (first-run experience)
-massgen --web
+# Analyze your run logs
+massgen logs list                         # List all runs
+massgen logs view <log_id>                # View detailed run info
+
+# Share a session via GitHub Gist (requires gh CLI)
+massgen export                            # Share most recent session
+massgen shares list                       # List your shared sessions
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1122,26 +1129,29 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.26)
+### Recent Achievements (v0.1.27)
 
-**🎉 Released: December 17, 2025**
+**🎉 Released: December 19, 2025**
 
-#### Web UI & Setup
-- **Web UI Setup Wizard**: Guided first-run experience with `SetupPage`, `ConfigEditorModal`, and `CoordinationStep` components for API key management and environment configuration
-- **Docker Diagnostics Module**: Comprehensive error detection distinguishing binary not installed, daemon not running, permission denied, and image missing with platform-specific resolution steps
+#### Session Sharing & Log Analysis
+- **Session Sharing via GitHub Gist**: Share sessions with `massgen export`, manage with `massgen shares list/delete` (MAS-16)
+- **Log Analysis CLI**: New `massgen logs` command for viewing, filtering, and exporting run logs to JSON/CSV
+- **Per-LLM Call Timing**: Detailed timing metrics for individual LLM API calls across all backends
 
-#### Shadow Agent Enhancement
-- **Response Depth Scaling**: Test-time compute scaling via `response_depth` parameter controlling solution complexity in broadcast responses
-
-#### Model Registry
-- **GPT-5.1-Codex Family**: Added `gpt-5.1-codex-max`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` with `gpt-5.1-codex` as new default
-- **Claude Alias Notation**: Updated naming from dot notation to alias notation (`claude-opus-4-5` instead of `claude-opus-4.5`)
+#### New Features
+- **Gemini 3 Flash Model**: Google's Gemini 3 Flash model added to provider registry
+- **CLI Config Builder**: Per-agent web search toggle, system messages, coordination settings
+- **Web UI Context Paths Wizard**: New `ContextPathsStep` component for workspace configuration
+- **Web UI "Open in Browser"**: Quick-access button for opening results in browser
 
 #### Bug Fixes
-- **Claude Code API Keys**: Fixed API key configuration and environment variable handling
-- **Web UI Assets**: Fixed configuration and static asset paths (MAS-160, MAS-161)
+- Fixed Claude Code tool permissions handling
+- Fixed orchestrator error recovery with proper timeout handling
+- Fixed web search workflow restart issues
 
-### Previous Achievements (v0.0.3 - v0.1.25)
+### Previous Achievements (v0.0.3 - v0.1.26)
+
+✅ **Web UI Setup & Shadow Agent Depth (v0.1.26)**: Docker diagnostics module, Web UI setup wizard with guided first-run experience, shadow agent response depth for test-time compute scaling, GPT-5.1-Codex family models
 
 ✅ **UI-TARS & Evolving Skills (v0.1.25)**: ByteDance's UI-TARS-1.5-7B for GUI automation, GPT-5.2 model support, evolving skill creator system with session persistence, enhanced Textual terminal with adaptive layouts
 
@@ -1337,9 +1347,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.27 Roadmap
+### v0.1.28 Roadmap
 
-Version 0.1.27 focuses on system reminders and memory as callable tools:
+Version 0.1.28 focuses on system reminders and memory as callable tools:
 
 #### Planned Features
 - **Add system reminders** (@ncrispino): Framework for injecting system reminders mid-run during LLM streaming
@@ -1349,9 +1359,7 @@ Key technical approach:
 - **System Reminders**: Mid-run injection during LLM streaming, support for context awareness, human feedback, safety, and memory reminders
 - **Memory as Tools**: Unified memory tool interface with store/retrieve/search operations, filesystem and vector store backends
 
-**Target Release**: December 19, 2025 (Friday @ 9am PT)
-
-For detailed milestones and technical specifications, see the [full v0.1.27 roadmap](ROADMAP_v0.1.27.md).
+For detailed milestones and technical specifications, see the [full v0.1.28 roadmap](ROADMAP_v0.1.28.md).
 
 ---
 

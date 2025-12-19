@@ -1,8 +1,8 @@
-# MassGen v0.1.27 Roadmap
+# MassGen v0.1.28 Roadmap
 
 ## Overview
 
-Version 0.1.27 focuses on system reminders and memory as callable tools for enhanced agent control.
+Version 0.1.28 focuses on system reminders and memory as callable tools for enhanced agent control.
 
 - **Add system reminders** (Required): Framework for injecting reminders mid-run during LLM streaming
 - **Memory as Tools** (Required): Include memory (including filesystem) as callable tools for agents
@@ -60,10 +60,7 @@ Version 0.1.27 focuses on system reminders and memory as callable tools for enha
 **Issue**: [#461](https://github.com/massgen/MassGen/issues/461)
 
 #### 2.1 Memory Tool Interface
-- [ ] Design unified memory tool interface
-- [ ] Implement store/retrieve/search operations as tools
-- [ ] Support for filesystem memory backend
-- [ ] Support for vector store memory backend
+- [ ] Design unified memory tool interface or harden existing cli tools
 
 #### 2.2 Tool Integration
 - [ ] Integrate memory tools with existing tool system
@@ -132,13 +129,13 @@ Version 0.1.27 focuses on system reminders and memory as callable tools for enha
 
 ---
 
-## Future Enhancements (Post-v0.1.27)
+## Future Enhancements (Post-v0.1.28)
 
-### v0.1.28 Plans
+### v0.1.29 Plans
 - **Grok 4.1 Fast Model Support** (@praneeth999): Add support for xAI's Grok 4.1 Fast model ([#540](https://github.com/massgen/MassGen/issues/540))
 - **Automatic Context Compression** (@ncrispino): Automatic context compression for long conversations ([#617](https://github.com/massgen/MassGen/issues/617))
 
-### v0.1.29 Plans
+### v0.1.30 Plans
 - **OpenAI-Compatible Chat Server** (@ncrispino): Run MassGen as an OpenAI-compatible API server ([#628](https://github.com/massgen/MassGen/issues/628))
 
 ### Long-term Vision
@@ -156,7 +153,7 @@ Version 0.1.27 focuses on system reminders and memory as callable tools for enha
 | Phase 1 | Add system reminders | Reminder configuration, injection mechanism, documentation | @ncrispino | **REQUIRED** |
 | Phase 2 | Memory as Tools | Memory tool interface, integration, documentation | @ncrispino | **REQUIRED** |
 
-**Target Release**: December 19, 2025 (Friday @ 9am PT)
+**Target Release**: December 22, 2025 (Monday @ 9am PT)
 
 ---
 
@@ -182,7 +179,7 @@ Version 0.1.27 focuses on system reminders and memory as callable tools for enha
 
 ### For Users
 
-- v0.1.27 brings system reminders and memory as tools:
+- v0.1.28 brings system reminders and memory as tools:
 
   **Add system reminders:**
   - Framework for injecting reminders mid-run during LLM streaming
@@ -212,7 +209,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ---
 
-*This roadmap reflects v0.1.27 priorities focusing on system reminders and memory as callable tools.*
+*This roadmap reflects v0.1.28 priorities focusing on system reminders and memory as callable tools.*
 
-**Last Updated:** December 17, 2025
+**Last Updated:** December 19, 2025
 **Maintained By:** MassGen Team
