@@ -7,6 +7,7 @@ Supports image input (URL and base64) and image generation via tools.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 from io import BytesIO
@@ -350,9 +351,45 @@ class ResponseBackend(CustomToolAndMCPBackend):
             # Categorize function calls using helper method
             mcp_calls, custom_calls, provider_calls = self._categorize_tool_calls(captured_function_calls)
 
-            # If there are provider calls (non-MCP, non-custom), let API handle them
+            # If there are provider calls (non-MCP, non-custom), emit them as tool_calls
+            # for the orchestrator to process (workflow tools like new_answer, vote)
             if provider_calls:
-                logger.info(f"Provider function calls detected: {[call['name'] for call in provider_calls]}. Ending local processing.")
+                logger.info(f"Provider function calls detected: {[call['name'] for call in provider_calls]}. Emitting for orchestrator.")
+
+                # Convert provider calls to tool_calls format for orchestrator
+                workflow_tool_calls = []
+                for call in provider_calls:
+                    tool_name = call.get("name", "")
+                    tool_args = call.get("arguments", {})
+
+                    # Parse arguments if they're a string
+                    if isinstance(tool_args, str):
+                        try:
+                            tool_args = json.loads(tool_args)
+                        except json.JSONDecodeError:
+                            tool_args = {}
+
+                    # Build tool call in standard format
+                    workflow_tool_calls.append(
+                        {
+                            "id": call.get("call_id", f"call_{len(workflow_tool_calls)}"),
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": tool_args,
+                            },
+                        },
+                    )
+
+                # Emit tool_calls chunk for orchestrator to process
+                if workflow_tool_calls:
+                    log_stream_chunk("backend.response", "tool_calls", workflow_tool_calls, kwargs.get("agent_id"))
+                    yield TextStreamChunk(
+                        type=ChunkType.TOOL_CALLS,
+                        tool_calls=workflow_tool_calls,
+                        source="response_api",
+                    )
+
                 yield TextStreamChunk(type=ChunkType.DONE, source="response_api")
                 return
 
