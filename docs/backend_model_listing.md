@@ -1,52 +1,56 @@
 # Backend Model Listing Discovery (MAS-163)
 
-## Context
+## Overview
 
 MassGen’s runtime model handling is **string-based and provider-agnostic**.
+
 Model selection relies on:
-- model name conventions
-- provider prefixes (e.g., `groq/`, `together/`, `cerebras/`)
+- User-supplied model strings
+- Provider prefixes (e.g. `groq/`, `together/`, `cerebras/`)
 - LiteLLM backend routing
 
-There are **no provider-specific model registries** used in core execution.
+There are **no strict provider-specific model registries** used during execution.
 
-As a result, automatic model listing would primarily improve:
+As a result, automatic model listing primarily improves:
 - CLI UX (interactive selection, suggestions)
 - Documentation accuracy
 - Example configurations
 
-It would **not affect core execution or runtime behavior**.
+It does **not** affect core execution or routing.
 
 ---
 
-## Current Backend Model Listing Status
+## Current Model Listing Status
 
-| Provider      | Automatic Listing | Source | Notes |
-|---------------|------------------|--------|-------|
-| OpenRouter    | ✅ Yes            | OpenRouter API | Models dynamically fetched |
-| OpenAI        | ❓ Unknown        |        | Likely available via API |
-| Anthropic     | ❓ Unknown        |        | TBD |
-| Groq          | ❓ Unknown        |        | TBD |
-| Nebius        | ❓ Unknown        |        | TBD |
-| Together AI   | ❓ Unknown        |        | TBD |
-| Cerebras      | ❓ Unknown        |        | TBD |
-| Qwen          | ❓ Unknown        |        | TBD |
-| Moonshot      | ❓ Unknown        |        | TBD |
+| Provider     | Automatic Listing | Notes |
+|-------------|------------------|-------|
+| OpenRouter  | ✅ Yes | Models fetched dynamically |
+| OpenAI      | ❌ No | Manually referenced |
+| Anthropic   | ❌ No | Manually referenced |
+| Groq        | ❌ No | Manually referenced |
+| Nebius      | ❌ No | Manually referenced |
+| Together AI | ❌ No | Manually referenced |
+| Cerebras    | ❌ No | Manually referenced |
+| Qwen        | ❌ No | Manually referenced |
+| Moonshot    | ❌ No | Manually referenced |
 
 ---
 
-## Findings from Codebase Inspection
+## Findings
 
-- Model handling is driven entirely by user-supplied strings
+- Runtime model handling does **not** rely on provider registries
 - Provider inference occurs via model name prefixes
-- Tests confirm there are no hardcoded provider-specific model lists
-- UX-facing model lists (CLI prompts, docs, examples) are the primary candidates for automation
+- Tests confirm no hardcoded provider → model mappings
+- Model names primarily appear in:
+  - documentation
+  - CLI examples
+  - presentation artifacts
 
 ---
 
-## Next Steps
+## Recommendations
 
-1. Identify all UX-facing model lists (CLI, interactive setup, documentation)
-2. Investigate provider APIs and LiteLLM support for model discovery
-3. Implement automatic listing for providers that support it
-4. Clearly document providers that require manual model list updates
+1. Clearly document which providers support automatic model discovery
+2. Mark providers requiring manual updates
+3. Explore API-based model listing only for UX-facing components
+4. Avoid introducing execution-time dependencies on model registries
