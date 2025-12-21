@@ -1,0 +1,57 @@
+---
+description: Quick, reliable test commands for MassGen (use existing .venv; avoid sandbox pitfalls).
+globs: massgen/**, pyproject.toml, Makefile, massgen/tests/**
+alwaysApply: true
+---
+# Testing Quickstart (MassGen)
+
+## Use the project virtualenv (preferred)
+
+- **Python**: Use the repo’s existing venv at `.venv/` (it is gitignored).
+- **Why**: Cursor’s default sandbox can’t read gitignored paths like `.venv/`, so tests may fail at import/collection time unless you run outside the sandbox.
+
+### When running tests via tool calls
+
+- **Permission**: If a tool-run command needs `.venv/`, run it with `required_permissions: ['all']`.
+- **Interpreter**: Prefer invoking pytest via the venv:
+
+```bash
+/Users/admin/src/MassGen/.venv/bin/python -m pytest -q
+```
+
+## Canonical commands (as documented by the repo)
+
+- **Makefile**:
+
+```bash
+make test
+```
+
+- **Direct**:
+
+```bash
+pytest massgen/tests/
+```
+
+> Note: `make test` uses `uv run pytest ...`. If `uv` is used inside a restricted sandbox, ensure its cache is writable or use `required_permissions: ['all']`.
+
+## Common targeted runs (fast feedback)
+
+- **New OpenAI server tests**:
+
+```bash
+/Users/admin/src/MassGen/.venv/bin/python -m pytest -q \
+  massgen/tests/test_openai_server_health.py \
+  massgen/tests/test_openai_server_chat_completions.py \
+  massgen/tests/test_openai_server_tool_calls.py
+```
+
+- **Single test**:
+
+```bash
+/Users/admin/src/MassGen/.venv/bin/python -m pytest -vv path/to/test_file.py::test_name
+```
+
+## Notes on skips / environment
+
+- Some tests intentionally **skip** without API keys (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) or without Docker.

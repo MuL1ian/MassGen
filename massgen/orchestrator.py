@@ -189,6 +189,10 @@ class Orchestrator(ChatAgent):
             broadcast_wait_by_default=True,
         )
 
+        # Client-provided tools (OpenAI-style). These are passed through to backends
+        # so models can request them, but are never executed by MassGen.
+        self._external_tools: List[Dict[str, Any]] = []
+
         # MassGen-specific state
         self.current_task: Optional[str] = None
         self.workflow_phase: str = "idle"  # idle, coordinating, presenting
@@ -998,7 +1002,10 @@ class Orchestrator(ChatAgent):
         Yields:
             StreamChunk: Streaming response chunks
         """
-        _ = tools  # Unused parameter
+        # External (client-provided) tools: these are passed through to backends so models
+        # can request them, but MassGen will NOT execute them (backends treat unknown tools
+        # as provider_calls and emit StreamChunk(type="tool_calls")).
+        self._external_tools = tools or []
 
         # Handle conversation management
         if clear_history:
@@ -1117,6 +1124,9 @@ class Orchestrator(ChatAgent):
                 if len(conversation_history) > 0 or len(messages) > 1:
                     conversation_history.append(message.copy())
             elif role == "assistant":
+                conversation_history.append(message.copy())
+            elif role == "tool":
+                # Preserve tool results for multi-turn tool calling.
                 conversation_history.append(message.copy())
             elif role == "system":
                 # System messages are typically not part of conversation history
@@ -2175,6 +2185,18 @@ Your answer:"""
                         # Stream agent content in real-time with source info
                         log_stream_chunk("orchestrator", "content", chunk_data, agent_id)
                         yield StreamChunk(type="content", content=chunk_data, source=agent_id)
+
+                    elif chunk_type == "external_tool_calls":
+                        # Client-provided (non-workflow) tool calls must be surfaced to the caller
+                        # and are never executed by MassGen.
+                        yield StreamChunk(type="tool_calls", tool_calls=chunk_data, source=agent_id)
+                        # Close all active streams and stop coordination.
+                        for aid in list(active_streams.keys()):
+                            await self._close_agent_stream(aid, active_streams)
+                        for t in list(active_tasks.values()):
+                            t.cancel()
+                        yield StreamChunk(type="done")
+                        return
 
                     elif chunk_type == "reasoning":
                         # Stream reasoning content with proper attribution
@@ -3381,6 +3403,7 @@ Your answer:"""
         Yields:
             ("content", str): Real-time agent output (source attribution added by caller)
             ("result", (type, data)): Final result - ("vote", vote_data) or ("answer", content)
+            ("external_tool_calls", List[Dict]): Client-provided tool calls that must be surfaced externally (not executed)
             ("error", str): Error message (self-terminating)
             ("done", None): Graceful completion signal
 
@@ -3599,7 +3622,8 @@ Your answer:"""
                         continue  # Agent continues working with update
                     # else: No new answers (already has all context), just clear flag and proceed normally
 
-                # Stream agent response with workflow tools
+                # Stream agent response with workflow tools + any client-provided external tools.
+                combined_tools = list(self.workflow_tools) + (list(self._external_tools) if self._external_tools else [])
                 # TODO: Need to still log this redo enforcement msg in the context.txt, and this & others in the coordination tracker.
                 if attempt == 0:
                     # First attempt: orchestrator provides initial conversation
@@ -3608,7 +3632,7 @@ Your answer:"""
                     # Pass current turn and previous winners for memory sharing
                     chat_stream = agent.chat(
                         conversation_messages,
-                        self.workflow_tools,
+                        combined_tools,
                         reset_chat=True,
                         current_stage=CoordinationStage.INITIAL_ANSWER,
                         orchestrator_turn=self._current_turn + 1,  # Next turn number
@@ -3621,7 +3645,7 @@ Your answer:"""
                         # Tool message array
                         chat_stream = agent.chat(
                             enforcement_msg,
-                            self.workflow_tools,
+                            combined_tools,
                             reset_chat=False,
                             current_stage=CoordinationStage.ENFORCEMENT,
                             orchestrator_turn=self._current_turn + 1,
@@ -3635,7 +3659,7 @@ Your answer:"""
                         }
                         chat_stream = agent.chat(
                             [enforcement_message],
-                            self.workflow_tools,
+                            combined_tools,
                             reset_chat=False,
                             current_stage=CoordinationStage.ENFORCEMENT,
                             orchestrator_turn=self._current_turn + 1,
@@ -3644,6 +3668,12 @@ Your answer:"""
                 response_text = ""
                 tool_calls = []
                 workflow_tool_found = False
+                # Determine internal tool names for this run (includes broadcast tools if enabled).
+                internal_tool_names = {
+                    (t.get("function", {}) or {}).get("name")
+                    for t in (self.workflow_tools or [])
+                    if isinstance(t, dict)
+                }
 
                 logger.info(f"[Orchestrator] Agent {agent_id} starting to stream chat response...")
 
@@ -3707,9 +3737,15 @@ Your answer:"""
                         if hasattr(agent, "backend") and hasattr(agent.backend, "get_provider_name"):
                             backend_name = agent.backend.get_provider_name()
 
+                        external_tool_calls = []
                         for tool_call in chunk_tool_calls:
                             tool_name = agent.backend.extract_tool_name(tool_call)
                             tool_args = agent.backend.extract_tool_arguments(tool_call)
+
+                            # Non-workflow tool calls are treated as external: surface to caller and end the turn.
+                            if tool_name and tool_name not in internal_tool_names:
+                                external_tool_calls.append(tool_call)
+                                continue
 
                             if tool_name == "new_answer":
                                 content = tool_args.get("content", "")
@@ -3757,6 +3793,12 @@ Your answer:"""
                             else:
                                 yield ("content", f"🔧 Using {tool_name}")
                                 log_tool_call(agent_id, tool_name, tool_args, None, backend_name)
+
+                        if external_tool_calls:
+                            # Surface external tool calls (do NOT execute) and terminate this agent execution.
+                            yield ("external_tool_calls", external_tool_calls)
+                            yield ("done", None)
+                            return
                     elif chunk_type == "error":
                         # Stream error information to user interface
                         error_msg = getattr(chunk, "error", str(chunk.content)) if hasattr(chunk, "error") else str(chunk.content)

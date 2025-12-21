@@ -67,11 +67,25 @@ from .chat_agent import (
 )
 
 # LiteLLM integration
-from .litellm_provider import MassGenLLM, register_with_litellm
+#
+# LiteLLM integration
+#
+# NOTE:
+# Some environments (including restricted sandboxes / CI hardening) may forbid
+# reading system CA bundle locations during module import. `litellm` currently
+# initializes an HTTP client + SSL context at import-time, which can raise
+# PermissionError and prevent *any* MassGen import (and therefore pytest
+# collection). Treat LiteLLM as an optional integration and fail soft.
+try:
+    from .litellm_provider import MassGenLLM, register_with_litellm
+
+    LITELLM_AVAILABLE = True
+except Exception:  # pragma: no cover - environment-specific import side effects
+    MassGenLLM = None  # type: ignore[assignment]
+    register_with_litellm = None  # type: ignore[assignment]
+    LITELLM_AVAILABLE = False
 from .message_templates import MessageTemplates, get_templates
 from .orchestrator import Orchestrator, create_orchestrator
-
-LITELLM_AVAILABLE = True
 
 __version__ = "0.1.27"
 __author__ = "MassGen Contributors"
