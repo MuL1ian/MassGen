@@ -604,12 +604,39 @@ class ClaudeBackend(CustomToolAndMCPBackend):
 
         Note:
             Claude uses tool_result format with tool_use_id.
-            All tool_result blocks for a given assistant turn MUST be in a SINGLE user message immediately after the assistant message with tool_use blocks
+            All tool_result blocks for a given assistant turn MUST be in a SINGLE user message immediately after the assistant message with tool_use blocks.
+            Supports multimodal content (images) in tool results when present.
         """
+        # Check for multimodal content to inject
+        mm_inject = self._extract_multimodal_content(result)
+
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
+        if mm_inject and mm_inject.get("type") == "image":
+            # Claude supports images in tool results as content arrays
+            content = [
+                {"type": "text", "text": result_text},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mm_inject.get("mime_type", "image/png"),
+                        "data": mm_inject["base64"],
+                    },
+                },
+            ]
+        elif mm_inject:
+            # For audio/video, Claude doesn't support native embedding yet
+            # Include text result only, the fallback path should have been used
+            content = result_text
+        else:
+            content = result_text
+
         tool_result_block = {
             "type": "tool_result",
             "tool_use_id": call.get("call_id", "") or call.get("id", ""),
-            "content": str(result),
+            "content": content,
         }
 
         tool_result_msg_idx = None

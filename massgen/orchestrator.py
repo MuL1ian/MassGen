@@ -3150,8 +3150,9 @@ Your answer:"""
     def _check_min_answers_before_voting(self, agent_id: str) -> tuple[bool, Optional[str]]:
         """Check if voting is allowed based on minimum answer requirements.
 
-        When min_answers_before_voting is set, ALL agents must have provided at least
-        that many answers before any agent can vote.
+        When min_answers_before_voting is set, the voting agent must have provided
+        at least that many answers before they can vote. This prevents premature
+        voting while avoiding deadlocks where one agent blocks another.
 
         Args:
             agent_id: The agent attempting to vote
@@ -3163,32 +3164,15 @@ Your answer:"""
         if min_answers <= 0:
             return (True, None)
 
-        # Check if all agents have provided at least min_answers
-        agents_below_minimum = []
-        for aid in self.agents.keys():
-            answer_count = len(self.coordination_tracker.answers_by_agent.get(aid, []))
-            if answer_count < min_answers:
-                agents_below_minimum.append((aid, answer_count))
+        # Only check if the voting agent has provided enough answers
+        this_agent_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
 
-        if agents_below_minimum:
-            # Get this agent's answer count
-            this_agent_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
-
-            if this_agent_count < min_answers:
-                # This agent hasn't provided enough answers
-                error_msg = (
-                    f"Voting not allowed yet. You must provide at least {min_answers} answer(s) before voting. "
-                    f"You have provided {this_agent_count} answer(s). Please use the `new_answer` tool to submit your answer."
-                )
-            else:
-                # This agent has enough, but others don't
-                missing_info = ", ".join([f"{aid}: {count}/{min_answers}" for aid, count in agents_below_minimum])
-                error_msg = (
-                    f"Voting not allowed yet. All agents must provide at least {min_answers} answer(s) before voting. "
-                    f"Agents still need more answers: {missing_info}. Please wait or provide another answer."
-                )
-
-            logger.info(f"[Orchestrator] Vote rejected for {agent_id}: min_answers_before_voting requirement not met")
+        if this_agent_count < min_answers:
+            error_msg = (
+                f"Voting not allowed yet. You must provide at least {min_answers} answer(s) before voting. "
+                f"You have provided {this_agent_count} answer(s). Please use the `new_answer` tool to submit your answer."
+            )
+            logger.info(f"[Orchestrator] Vote rejected for {agent_id}: min_answers_before_voting requirement not met ({this_agent_count}/{min_answers})")
             return (False, error_msg)
 
         return (True, None)

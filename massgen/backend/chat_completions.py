@@ -119,11 +119,38 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             call: Tool call dictionary with call_id, name, arguments
             result: Tool execution result
             tool_type: "custom" or "mcp"
+
+        Note:
+            Supports multimodal content (images) in tool results when present.
+            Uses OpenAI's content array format with image_url for base64 images.
         """
+        # Check for multimodal content to inject
+        mm_inject = self._extract_multimodal_content(result)
+
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
+        if mm_inject and mm_inject.get("type") == "image":
+            # OpenAI Chat Completions supports images in tool results as content arrays
+            content = [
+                {"type": "text", "text": result_text},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mm_inject.get('mime_type', 'image/png')};base64,{mm_inject['base64']}",
+                    },
+                },
+            ]
+        elif mm_inject:
+            # For audio/video, the fallback path should have been used
+            content = result_text
+        else:
+            content = result_text
+
         function_output_msg = {
             "role": "tool",
             "tool_call_id": call.get("call_id", ""),
-            "content": str(result),
+            "content": content,
         }
         updated_messages.append(function_output_msg)
 

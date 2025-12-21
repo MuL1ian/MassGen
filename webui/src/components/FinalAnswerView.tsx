@@ -7,11 +7,12 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, FileText, Folder, Trophy, ChevronDown, ChevronRight, File, RefreshCw, History, Copy, Check, Loader2, Send, Plus, ExternalLink, Share2, X } from 'lucide-react';
+import { ArrowLeft, FileText, Folder, Trophy, ChevronDown, ChevronRight, File, RefreshCw, History, Copy, Check, Loader2, Send, Plus, ExternalLink, Share2, X, Eye } from 'lucide-react';
 import { useAgentStore, selectSelectedAgent, selectAgents, selectResolvedFinalAnswer, selectAgentOrder } from '../stores/agentStore';
 import type { AnswerWorkspace } from '../types';
-import { FileViewerModal } from './FileViewerModal';
+import { ArtifactPreviewModal } from './ArtifactPreviewModal';
 import { ConversationHistory } from './ConversationHistory';
+import { canPreviewFile } from '../utils/artifactTypes';
 
 // Types for workspace API responses
 interface WorkspaceInfo {
@@ -119,6 +120,7 @@ interface FileNodeProps {
 
 function FileNode({ node, depth, onFileClick }: FileNodeProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const isPreviewable = !node.isDirectory && canPreviewFile(node.name);
 
   const handleClick = () => {
     if (node.isDirectory) {
@@ -137,6 +139,7 @@ function FileNode({ node, depth, onFileClick }: FileNodeProps) {
           flex items-center gap-1 py-1.5 px-2 hover:bg-gray-100 dark:hover:bg-gray-700/30 rounded cursor-pointer
           text-sm text-gray-700 dark:text-gray-300
           ${!node.isDirectory && onFileClick ? 'hover:bg-blue-100 dark:hover:bg-blue-900/30' : ''}
+          ${isPreviewable ? 'text-violet-600 dark:text-violet-400' : ''}
         `}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
@@ -154,10 +157,16 @@ function FileNode({ node, depth, onFileClick }: FileNodeProps) {
         {node.isDirectory ? (
           <Folder className="w-4 h-4 text-blue-400" />
         ) : (
-          <File className="w-4 h-4 text-gray-400" />
+          <File className={`w-4 h-4 ${isPreviewable ? 'text-violet-400' : 'text-gray-400'}`} />
         )}
 
         <span className="flex-1">{node.name}</span>
+
+        {isPreviewable && (
+          <span title="Rich preview available">
+            <Eye className="w-3.5 h-3.5 text-violet-400" />
+          </span>
+        )}
 
         {!node.isDirectory && node.size !== undefined && (
           <span className="text-xs text-gray-500 dark:text-gray-500">
@@ -656,8 +665,8 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
         </footer>
       )}
 
-      {/* File Viewer Modal */}
-      <FileViewerModal
+      {/* Artifact Preview Modal */}
+      <ArtifactPreviewModal
         isOpen={fileViewerOpen}
         onClose={() => setFileViewerOpen(false)}
         filePath={selectedFilePath}

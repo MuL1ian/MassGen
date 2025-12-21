@@ -58,6 +58,19 @@ from enum import Enum
 from typing import Dict, List, Optional, Set
 
 
+@dataclass
+class ModelModalities:
+    """Supported input modalities for a specific model.
+
+    Used to track which media types a model can natively process in its context.
+    Models not listed default to no multimodal support.
+    """
+
+    image: bool = False
+    audio: bool = False
+    video: bool = False
+
+
 class Capability(Enum):
     """Enumeration of all possible backend capabilities."""
 
@@ -93,6 +106,7 @@ class BackendCapabilities:
     notes: str = ""  # Additional notes about the backend
     model_release_dates: Optional[Dict[str, str]] = None  # Model -> "YYYY-MM" release date mapping
     base_url: Optional[str] = None  # API base URL for OpenAI-compatible providers
+    model_modalities: Optional[Dict[str, ModelModalities]] = None  # Model -> supported input modalities
 
 
 # THE REGISTRY - Single source of truth for all backend capabilities
@@ -154,6 +168,23 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "gpt-4o-mini": "2024-07",
             "o4-mini": "2025-04",
         },
+        model_modalities={
+            "gpt-5.2": ModelModalities(image=True, audio=True, video=True),
+            "gpt-5.1-codex-max": ModelModalities(image=True, audio=True, video=True),
+            "gpt-5.1-codex": ModelModalities(image=True, audio=True, video=True),
+            "gpt-5.1-codex-mini": ModelModalities(image=True, audio=True, video=False),
+            "gpt-5.1": ModelModalities(image=True, audio=True, video=True),
+            "gpt-5-codex": ModelModalities(image=True, audio=True, video=False),
+            "gpt-5": ModelModalities(image=True, audio=True, video=False),
+            "gpt-5-mini": ModelModalities(image=True, audio=False, video=False),
+            "gpt-5-nano": ModelModalities(image=True, audio=False, video=False),
+            "gpt-4.1": ModelModalities(image=True, audio=False, video=False),
+            "gpt-4.1-mini": ModelModalities(image=True, audio=False, video=False),
+            "gpt-4.1-nano": ModelModalities(image=True, audio=False, video=False),
+            "gpt-4o": ModelModalities(image=True, audio=True, video=False),
+            "gpt-4o-mini": ModelModalities(image=True, audio=False, video=False),
+            "o4-mini": ModelModalities(image=True, audio=False, video=False),
+        },
     ),
     "claude": BackendCapabilities(
         backend_type="claude",
@@ -204,6 +235,19 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "claude-sonnet-4": "2025-05",
             "claude-sonnet-4-20250514": "2025-05",
         },
+        model_modalities={
+            # Claude models support images natively, audio/video via tools
+            "claude-opus-4-5": ModelModalities(image=True, audio=False, video=False),
+            "claude-sonnet-4-5": ModelModalities(image=True, audio=False, video=False),
+            "claude-haiku-4-5": ModelModalities(image=True, audio=False, video=False),
+            "claude-opus-4": ModelModalities(image=True, audio=False, video=False),
+            "claude-sonnet-4": ModelModalities(image=True, audio=False, video=False),
+            "claude-opus-4-5-20251101": ModelModalities(image=True, audio=False, video=False),
+            "claude-haiku-4-5-20251001": ModelModalities(image=True, audio=False, video=False),
+            "claude-sonnet-4-5-20250929": ModelModalities(image=True, audio=False, video=False),
+            "claude-opus-4-1-20250805": ModelModalities(image=True, audio=False, video=False),
+            "claude-sonnet-4-20250514": ModelModalities(image=True, audio=False, video=False),
+        },
     ),
     "claude_code": BackendCapabilities(
         backend_type="claude_code",
@@ -251,6 +295,17 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "Native filesystem access via SDK. Extensive built-in tooling for code operations. "
             "Image understanding support."
         ),
+        model_modalities={
+            # Claude Code SDK supports images via base64 in Read tool
+            "claude-sonnet-4-5": ModelModalities(image=True, audio=False, video=False),
+            "claude-opus-4-5": ModelModalities(image=True, audio=False, video=False),
+            "claude-opus-4": ModelModalities(image=True, audio=False, video=False),
+            "claude-sonnet-4": ModelModalities(image=True, audio=False, video=False),
+            "claude-sonnet-4-5-20250929": ModelModalities(image=True, audio=False, video=False),
+            "claude-opus-4-5-20251101": ModelModalities(image=True, audio=False, video=False),
+            "claude-opus-4-1-20250805": ModelModalities(image=True, audio=False, video=False),
+            "claude-sonnet-4-20250514": ModelModalities(image=True, audio=False, video=False),
+        },
     ),
     "gemini": BackendCapabilities(
         backend_type="gemini",
@@ -278,6 +333,16 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "gemini-2.5-flash": "2025-06",
             "gemini-2.5-pro": "2025-06",
         },
+        model_modalities={
+            # Images: Native inline injection works (usually under 20MB limit)
+            # Audio/Video: Set to False so read_media falls back to understand_audio/understand_video
+            # which process the media via Gemini's native capabilities and return TEXT description.
+            # This avoids inline_data 20MB limit issues and keeps audio/video out of conversation context.
+            "gemini-3-flash-preview": ModelModalities(image=True, audio=False, video=False),
+            "gemini-3-pro-preview": ModelModalities(image=True, audio=False, video=False),
+            "gemini-2.5-flash": ModelModalities(image=True, audio=False, video=False),
+            "gemini-2.5-pro": ModelModalities(image=True, audio=False, video=False),
+        },
     ),
     "grok": BackendCapabilities(
         backend_type="grok",
@@ -285,6 +350,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         supported_capabilities={
             "web_search",
             "mcp",
+            "image_understanding",
         },
         builtin_tools=["web_search"],
         filesystem_support="mcp",
@@ -299,7 +365,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         default_model="grok-4-1-fast-reasoning",
         env_var="XAI_API_KEY",
-        notes="Web search includes real-time data access.",
+        notes="Web search includes real-time data access. Image understanding capabilities.",
         model_release_dates={
             "grok-4-1-fast-reasoning": "2025-11",
             "grok-4-1-fast-non-reasoning": "2025-11",
@@ -308,6 +374,16 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "grok-4-fast": "2025-09",
             "grok-3": "2025-02",
             "grok-3-mini": "2025-05",
+        },
+        model_modalities={
+            # Grok models support images via OpenAI-compatible API
+            "grok-4-1-fast-reasoning": ModelModalities(image=True, audio=False, video=False),
+            "grok-4-1-fast-non-reasoning": ModelModalities(image=True, audio=False, video=False),
+            "grok-code-fast-1": ModelModalities(image=True, audio=False, video=False),
+            "grok-4": ModelModalities(image=True, audio=False, video=False),
+            "grok-4-fast": ModelModalities(image=True, audio=False, video=False),
+            "grok-3": ModelModalities(image=True, audio=False, video=False),
+            "grok-3-mini": ModelModalities(image=True, audio=False, video=False),
         },
     ),
     "azure_openai": BackendCapabilities(
@@ -326,6 +402,12 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         default_model="gpt-4o",
         env_var="AZURE_OPENAI_API_KEY",
         notes="Capabilities depend on Azure deployment configuration. Image understanding and generation via gpt-4o.",
+        model_modalities={
+            # Azure deployments - actual capabilities depend on deployed model version
+            "gpt-4": ModelModalities(image=True, audio=False, video=False),
+            "gpt-4o": ModelModalities(image=True, audio=True, video=False),
+            "gpt-35-turbo": ModelModalities(image=False, audio=False, video=False),
+        },
     ),
     "chatcompletion": BackendCapabilities(
         backend_type="chatcompletion",
@@ -685,3 +767,28 @@ def validate_backend_config(backend_type: str, config: Dict) -> List[str]:
         )
 
     return errors
+
+
+def model_supports_media_type(backend_type: str, model: str, media_type: str) -> bool:
+    """Check if a specific model supports a specific media type for native input.
+
+    This is used by read_media tool to determine whether to use native multimodal
+    input (returning base64 in tool result) or fall back to understand_* tools.
+
+    Args:
+        backend_type: The backend type (e.g., "openai", "claude", "gemini")
+        model: The model ID (e.g., "gpt-4o", "claude-sonnet-4-5")
+        media_type: The media type to check ("image", "audio", or "video")
+
+    Returns:
+        True if the model natively supports this media type, False otherwise
+    """
+    caps = get_capabilities(backend_type)
+    if not caps or not caps.model_modalities:
+        return False
+
+    modalities = caps.model_modalities.get(model)
+    if not modalities:
+        return False
+
+    return getattr(modalities, media_type, False)

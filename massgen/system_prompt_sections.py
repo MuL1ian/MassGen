@@ -1468,7 +1468,7 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
             min_answers_section = f"""
 
 IMPORTANT: You must provide at least {self.min_answers_before_voting} answer(s) before you can vote.
-All agents must meet this minimum before voting is allowed. Focus on providing your best answer first."""
+Focus on providing your best answer first, then evaluate others' proposals."""
 
         return f"""You are evaluating answers from multiple agents for final response to a message.
 Different agents may have different builtin tools and capabilities.

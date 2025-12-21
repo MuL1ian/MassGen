@@ -1633,6 +1633,240 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                 status_code=500,
             )
 
+    @app.post("/api/convert/document")
+    async def convert_document_to_pdf(request: Request):
+        """Convert DOCX/PPTX/XLSX to PDF using the MassGen Docker container.
+
+        This endpoint uses LibreOffice inside the MassGen container to convert
+        Office documents to PDF format for preview in the webui.
+
+        Request body:
+            {
+                "path": str,        # Relative path to file within workspace
+                "workspace": str,   # Absolute path to workspace directory
+            }
+
+        Returns:
+            {
+                "content": str,     # Base64-encoded PDF content
+                "success": bool,    # Whether conversion succeeded
+                "error": str,       # Error message if failed
+            }
+        """
+        import base64
+        import tempfile
+
+        try:
+            data = await request.json()
+            file_path_str = data.get("path")
+            workspace = data.get("workspace")
+
+            if not file_path_str or not workspace:
+                return JSONResponse(
+                    {"success": False, "error": "Both 'path' and 'workspace' are required"},
+                    status_code=400,
+                )
+
+            workspace_path = Path(workspace).resolve()
+            file_path = (workspace_path / file_path_str).resolve()
+
+            # Security: Ensure file is within workspace
+            try:
+                file_path.relative_to(workspace_path)
+            except ValueError:
+                return JSONResponse(
+                    {"success": False, "error": "Access denied: path outside workspace"},
+                    status_code=403,
+                )
+
+            if not file_path.exists():
+                return JSONResponse(
+                    {"success": False, "error": "File not found"},
+                    status_code=404,
+                )
+
+            # Check file extension
+            suffix = file_path.suffix.lower()
+            if suffix not in [".docx", ".pptx", ".xlsx", ".doc", ".ppt", ".xls", ".odt", ".odp", ".ods"]:
+                return JSONResponse(
+                    {"success": False, "error": f"Unsupported file type: {suffix}"},
+                    status_code=400,
+                )
+
+            # Check if Docker is available
+            try:
+                import docker
+
+                client = docker.from_env()
+                client.ping()
+            except Exception:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": "Docker is not available. Install Docker and pull the MassGen container to enable document preview.",
+                        "docker_required": True,
+                    },
+                    status_code=503,
+                )
+
+            # Check if MassGen image exists
+            massgen_image = "ghcr.io/massgen/mcp-runtime:latest"
+            try:
+                client.images.get(massgen_image)
+            except docker.errors.ImageNotFound:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": f"MassGen Docker image not found. Run: docker pull {massgen_image}",
+                        "docker_required": True,
+                    },
+                    status_code=503,
+                )
+
+            # Create temp directory for output
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_dir_path = Path(temp_dir)
+
+                # Run LibreOffice conversion in container
+                # Mount the file's parent directory and temp output directory
+                input_dir = file_path.parent
+                input_filename = file_path.name
+                output_filename = file_path.stem + ".pdf"
+
+                try:
+                    # Run soffice in container
+                    result = client.containers.run(
+                        massgen_image,
+                        command=[
+                            "/bin/sh",
+                            "-c",
+                            f"soffice --headless --convert-to pdf --outdir /output '/input/{input_filename}'",
+                        ],
+                        volumes={
+                            str(input_dir): {"bind": "/input", "mode": "ro"},
+                            str(temp_dir_path): {"bind": "/output", "mode": "rw"},
+                        },
+                        remove=True,
+                        user="root",  # LibreOffice needs write access to home dir
+                        stderr=True,
+                        stdout=True,
+                    )
+
+                    # Check if PDF was created
+                    output_pdf = temp_dir_path / output_filename
+                    if not output_pdf.exists():
+                        # Try alternate output name (sometimes LibreOffice changes case)
+                        for f in temp_dir_path.iterdir():
+                            if f.suffix.lower() == ".pdf":
+                                output_pdf = f
+                                break
+
+                    if not output_pdf.exists():
+                        return JSONResponse(
+                            {
+                                "success": False,
+                                "error": "Conversion failed: PDF not generated",
+                                "details": result.decode("utf-8") if isinstance(result, bytes) else str(result),
+                            },
+                            status_code=500,
+                        )
+
+                    # Read and encode the PDF
+                    with open(output_pdf, "rb") as f:
+                        pdf_content = base64.b64encode(f.read()).decode("utf-8")
+
+                    return {
+                        "success": True,
+                        "content": pdf_content,
+                        "mimeType": "application/pdf",
+                    }
+
+                except docker.errors.ContainerError as e:
+                    return JSONResponse(
+                        {
+                            "success": False,
+                            "error": f"Container error: {e.stderr.decode() if e.stderr else str(e)}",
+                        },
+                        status_code=500,
+                    )
+
+        except Exception as e:
+            return JSONResponse(
+                {"success": False, "error": f"Conversion failed: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/tester/upload")
+    async def upload_test_file(request: Request):
+        """Upload a file temporarily for testing artifact preview with Docker conversion.
+
+        This endpoint saves a base64-encoded file to a temp directory so the
+        artifact tester can test Docker-based document conversion.
+
+        Request body:
+            {
+                "fileName": str,    # Original file name
+                "content": str,     # Base64-encoded file content
+            }
+
+        Returns:
+            {
+                "success": bool,
+                "workspacePath": str,   # Temp directory path
+                "filePath": str,        # Relative file path within workspace
+            }
+        """
+        import base64
+        import tempfile
+
+        try:
+            data = await request.json()
+            file_name = data.get("fileName")
+            content_b64 = data.get("content")
+
+            if not file_name or not content_b64:
+                return JSONResponse(
+                    {"success": False, "error": "Both 'fileName' and 'content' are required"},
+                    status_code=400,
+                )
+
+            # Create a persistent temp directory (won't be auto-deleted)
+            # We use a fixed location so files persist across requests
+            temp_base = Path(tempfile.gettempdir()) / "massgen_artifact_tester"
+            temp_base.mkdir(exist_ok=True)
+
+            # Create a unique subdirectory for this upload
+            import uuid
+
+            upload_id = str(uuid.uuid4())[:8]
+            workspace_path = temp_base / upload_id
+            workspace_path.mkdir(exist_ok=True)
+
+            # Decode and save the file
+            try:
+                file_bytes = base64.b64decode(content_b64)
+            except Exception as e:
+                return JSONResponse(
+                    {"success": False, "error": f"Invalid base64 content: {str(e)}"},
+                    status_code=400,
+                )
+
+            file_path = workspace_path / file_name
+            with open(file_path, "wb") as f:
+                f.write(file_bytes)
+
+            return {
+                "success": True,
+                "workspacePath": str(workspace_path),
+                "filePath": file_name,
+            }
+
+        except Exception as e:
+            return JSONResponse(
+                {"success": False, "error": f"Upload failed: {str(e)}"},
+                status_code=500,
+            )
+
     @app.post("/api/workspace/open")
     async def open_workspace_in_finder(request: Request):
         """Open a workspace folder in the native file browser.

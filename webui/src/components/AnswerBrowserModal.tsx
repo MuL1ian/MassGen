@@ -10,8 +10,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History, Vote, ArrowRight, Eye, GitBranch, ExternalLink } from 'lucide-react';
 import { useAgentStore, selectAnswers, selectAgents, selectAgentOrder, selectSelectedAgent, selectFinalAnswer, selectVoteDistribution, resolveAnswerContent } from '../stores/agentStore';
 import type { Answer, AnswerWorkspace, TimelineNode as TimelineNodeType } from '../types';
-import { FileViewerModal } from './FileViewerModal';
+import { ArtifactPreviewModal } from './ArtifactPreviewModal';
 import { TimelineView } from './timeline';
+import { canPreviewFile } from '../utils/artifactTypes';
 
 // Types for workspace API responses
 interface WorkspaceInfo {
@@ -135,6 +136,7 @@ function formatFileSize(bytes: number): string {
 
 function FileNode({ node, depth, onFileClick }: FileNodeProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const isPreviewable = !node.isDirectory && canPreviewFile(node.name);
 
   const handleClick = () => {
     if (node.isDirectory) {
@@ -153,6 +155,7 @@ function FileNode({ node, depth, onFileClick }: FileNodeProps) {
           flex items-center gap-1 py-1 px-2 hover:bg-gray-700/30 dark:hover:bg-gray-700/30 rounded cursor-pointer
           text-sm text-gray-700 dark:text-gray-300
           ${!node.isDirectory && onFileClick ? 'hover:bg-blue-900/30' : ''}
+          ${isPreviewable ? 'text-violet-400' : ''}
         `}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
@@ -170,21 +173,23 @@ function FileNode({ node, depth, onFileClick }: FileNodeProps) {
         {node.isDirectory ? (
           <Folder className="w-4 h-4 text-blue-400" />
         ) : (
-          <File className="w-4 h-4 text-gray-400" />
+          <File className={`w-4 h-4 ${isPreviewable ? 'text-violet-400' : 'text-gray-400'}`} />
         )}
 
         <span className="flex-1">{node.name}</span>
+
+        {/* Preview icon for previewable files */}
+        {isPreviewable && (
+          <span title="Rich preview available">
+            <Eye className="w-3.5 h-3.5 text-violet-400" />
+          </span>
+        )}
 
         {/* File size for non-directories */}
         {!node.isDirectory && node.size !== undefined && (
           <span className="text-xs text-gray-500 dark:text-gray-500">
             {formatFileSize(node.size)}
           </span>
-        )}
-
-        {/* View icon for files */}
-        {!node.isDirectory && onFileClick && (
-          <Eye className="w-3.5 h-3.5 text-gray-500 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
         )}
       </motion.div>
 
@@ -885,23 +890,25 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                           onChange={(e) => {
                             const label = e.target.value;
                             setSelectedAnswerLabel(label);
-                            setSelectedHistoricalWorkspace(null);
                             fetchWorkspaces();
                             fetchAnswerWorkspaces();
 
                             if (label === 'current') {
                               // Use current workspace for this agent
+                              setSelectedHistoricalWorkspace(null);
                               const ws = workspacesByAgent[selectedAgentWorkspace]?.current;
                               if (ws) fetchWorkspaceFiles(ws);
                             } else {
-                              // Find answer workspace by label
+                              // Find answer workspace by label and set as active
                               const answerWs = answerWorkspaces.find(w => w.answerLabel === label);
                               if (answerWs) {
-                                fetchWorkspaceFiles({
+                                const historicalWs: WorkspaceInfo = {
                                   name: answerWs.answerLabel,
                                   path: answerWs.workspacePath,
                                   type: 'historical'
-                                });
+                                };
+                                setSelectedHistoricalWorkspace(historicalWs);
+                                fetchWorkspaceFiles(historicalWs);
                               }
                             }
                           }}
@@ -1028,8 +1035,8 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
         </>
       )}
 
-      {/* File Viewer Modal */}
-      <FileViewerModal
+      {/* Artifact Preview Modal */}
+      <ArtifactPreviewModal
         isOpen={fileViewerOpen}
         onClose={() => setFileViewerOpen(false)}
         filePath={selectedFilePath}

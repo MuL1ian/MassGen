@@ -172,13 +172,36 @@ class ResponseBackend(CustomToolAndMCPBackend):
             included via response_output_items. We only add function_call_output here.
             The function_call is already present from response.output to maintain
             reasoning item continuity.
+            Supports multimodal content (images) in tool results when present.
         """
+        # Check for multimodal content to inject
+        mm_inject = self._extract_multimodal_content(result)
+
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
+        if mm_inject and mm_inject.get("type") == "image":
+            # Response API may support images in function_call_output
+            # Try using content array format with image_url
+            output = [
+                {"type": "input_text", "text": result_text},
+                {
+                    "type": "input_image",
+                    "image_url": f"data:{mm_inject.get('mime_type', 'image/png')};base64,{mm_inject['base64']}",
+                },
+            ]
+        elif mm_inject:
+            # For audio/video, the fallback path should have been used
+            output = result_text
+        else:
+            output = result_text
+
         # Only add function output message
         # function_call is already included from response.output (with reasoning items)
         function_output_msg = {
             "type": "function_call_output",
             "call_id": call.get("call_id", ""),
-            "output": str(result),
+            "output": output,
         }
         updated_messages.append(function_output_msg)
 

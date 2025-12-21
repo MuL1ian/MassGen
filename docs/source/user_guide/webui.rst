@@ -136,8 +136,8 @@ Viewing Results
 
 **Workspace Browser** (``W`` key)
    Browse files created by agents in their isolated workspaces.
-   Select different agents and view file contents with syntax highlighting.
-   Navigate directories and download files as needed.
+   Select different agents and view file contents with rich artifact preview.
+   Navigate directories, preview HTML/React/markdown files, and download as needed.
 
 **Timeline View** (``T`` key)
    Visualize the coordination timeline as a swimlane diagram. See when
@@ -158,6 +158,65 @@ After coordination completes, the final answer displays in a full-screen view wi
 
 **Conversation Tab**
    Review the full conversation history including all turns in a multi-turn session.
+
+Artifact Preview
+~~~~~~~~~~~~~~~~
+
+The WebUI supports rich artifact previews for files created by agents. When you click
+on a file in the Workspace Browser or Final Answer workspace tab, the Artifact Preview
+modal opens with intelligent rendering based on file type.
+
+**Supported Artifact Types:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 30 50
+
+   * - Category
+     - File Types
+     - Preview Capabilities
+   * - Interactive
+     - ``.html``, ``.jsx``, ``.tsx``, ``.vue``
+     - Live HTML preview, React/Vue components with Sandpack
+   * - Diagrams
+     - ``.mermaid``, ``.mmd``
+     - Rendered flowcharts, sequence diagrams, and more
+   * - Documents
+     - ``.md``, ``.pdf``
+     - Rendered markdown with styling, native PDF viewer
+   * - Graphics
+     - ``.svg``, ``.png``, ``.jpg``, ``.gif``, ``.webp``
+     - SVG rendering, images with zoom and rotate controls
+   * - Office
+     - ``.docx``, ``.xlsx``, ``.pptx``
+     - Word documents, Excel spreadsheets, PowerPoint slides
+   * - Code
+     - All other files
+     - Syntax-highlighted source code (40+ languages)
+
+**Preview vs Source Toggle:**
+   For previewable file types, toggle between "Preview" and "Source" views using
+   the buttons in the modal header. Preview shows the rendered artifact while
+   Source shows syntax-highlighted code.
+
+**Actions:**
+   - **Copy** - Copy file contents to clipboard
+   - **Download** - Download the file locally
+
+**Accessing Artifact Preview:**
+
+1. **During Execution** - Press ``W`` to open Workspace Browser, then click any file
+2. **After Completion** - Go to Workspace tab in Final Answer view, click any file
+3. **Answer Browser** - Press ``A``, go to Workspace tab, click any file
+
+**Preview Indicators:**
+   Files that support rich preview are highlighted in violet with an eye icon (👁) in the
+   file browser. This makes it easy to identify which files can be previewed vs only
+   viewed as source code.
+
+.. tip::
+   React and Vue components are rendered using Sandpack, providing a full bundled
+   preview with live updates. This works best for standalone components.
 
 Multi-Turn Conversations
 ------------------------
@@ -274,7 +333,9 @@ The WebUI consists of:
 
 **Frontend** (React + TypeScript)
    Single-page application using Zustand for state management, Framer Motion
-   for animations, and Shiki for syntax highlighting.
+   for animations, Shiki for syntax highlighting, and Sandpack for live code preview.
+   Artifact preview uses Mermaid for diagrams, Marked for markdown, and Mammoth/SheetJS
+   for Office document rendering.
 
 **Backend** (FastAPI + WebSockets)
    REST API for configuration and session management, WebSocket for real-time
