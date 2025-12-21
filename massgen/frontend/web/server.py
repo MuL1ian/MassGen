@@ -8,6 +8,7 @@ and serves the React frontend.
 from __future__ import annotations
 
 import asyncio
+import base64
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
@@ -1601,8 +1602,24 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             is_binary = b"\x00" in chunk
 
             if is_binary:
+                # For binary files, read and base64 encode the content
+                # Limit binary files to 10MB
+                max_binary_size = 10 * 1024 * 1024
+                if size > max_binary_size:
+                    return {
+                        "content": "",
+                        "binary": True,
+                        "size": size,
+                        "mimeType": mime_type,
+                        "language": language,
+                        "error": f"File too large for preview ({size} bytes, max {max_binary_size})",
+                    }
+
+                with open(file_path, "rb") as f:
+                    binary_content = f.read()
+
                 return {
-                    "content": "",
+                    "content": base64.b64encode(binary_content).decode("utf-8"),
                     "binary": True,
                     "size": size,
                     "mimeType": mime_type,

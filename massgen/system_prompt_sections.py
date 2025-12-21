@@ -1865,6 +1865,56 @@ After execution, the actual scripts live in `scripts/` and can be reused.
 4. **Keep scripts reusable** - Design tools to work in similar future tasks"""
 
 
+class MultimodalToolsSection(SystemPromptSection):
+    """
+    Guidance for using the read_media tool to analyze images, audio, and video.
+
+    MEDIUM priority - important when multimodal tools are enabled.
+    """
+
+    def __init__(self):
+        super().__init__(
+            title="Multimodal Tools",
+            priority=Priority.MEDIUM,
+            xml_tag="multimodal_tools",
+        )
+
+    def build_content(self) -> str:
+        return """## Multimodal Tools
+
+You have access to the `read_media` tool for analyzing media files.
+
+### read_media Tool
+
+Use this tool to read and understand images, audio, and video files:
+
+```
+read_media(file_path="path/to/file.png")
+read_media(file_path="screenshot.jpg", prompt="What text is visible?")
+read_media(file_path="audio.mp3", prompt="Transcribe this audio")
+read_media(file_path="video.mp4", prompt="Describe what happens in this video")
+```
+
+**Supported formats:**
+- Images: png, jpg, jpeg, gif, webp, bmp
+- Audio: mp3, wav, m4a, ogg, flac, aac
+- Video: mp4, mov, avi, mkv, webm
+
+**Parameters:**
+- `file_path` (required): Path to the media file (relative to your workspace or absolute)
+- `prompt` (optional): Specific question about the content
+
+**When to use:**
+- To verify visual output (screenshots, generated images)
+- To understand image contents for tasks
+- To transcribe or analyze audio
+- To understand video content
+
+**Example workflow for verifying a website:**
+1. Take a screenshot: `execute_command("screenshot output.png")`
+2. Analyze it: `read_media(file_path="output.png", prompt="Does the website look correct?")`"""
+
+
 class SystemPromptBuilder:
     """
     Builder for assembling system prompts from sections.

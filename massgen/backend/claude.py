@@ -569,6 +569,24 @@ class ClaudeBackend(CustomToolAndMCPBackend):
             else:
                 api_params.pop("tools", None)
 
+        # Add custom tool schemas (they were filtered out above, now add them back)
+        if self._custom_tool_names:
+            custom_tool_schemas = self._get_custom_tools_schemas()
+            if custom_tool_schemas:
+                if "tools" not in api_params:
+                    api_params["tools"] = []
+                # Convert from OpenAI format to Claude format
+                for schema in custom_tool_schemas:
+                    if schema.get("type") == "function":
+                        func = schema.get("function", {})
+                        claude_tool = {
+                            "name": func.get("name"),
+                            "description": func.get("description", ""),
+                            "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+                        }
+                        api_params["tools"].append(claude_tool)
+                logger.debug(f"[Claude] Added {len(custom_tool_schemas)} custom tool schemas")
+
         # Start API call timing
         model = api_params.get("model", "unknown")
         self.start_api_call_timing(model)

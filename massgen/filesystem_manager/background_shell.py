@@ -5,6 +5,8 @@ Background shell execution manager for MassGen.
 Provides infrastructure for running shell commands in the background with
 process management, output capture, and control capabilities.
 
+Supports both local subprocess execution and Docker container execution.
+
 Example usage:
     >>> manager = BackgroundShellManager()
     >>> shell_id = manager.start_shell("python train.py --epochs 100")
@@ -12,6 +14,15 @@ Example usage:
     >>> status = manager.get_status(shell_id)
     >>> output = manager.get_output(shell_id)
     >>> manager.kill_shell(shell_id)
+
+Docker usage:
+    >>> manager = BackgroundShellManager()
+    >>> shell_id = manager.start_docker_shell(
+    ...     command="python train.py",
+    ...     container_name="massgen-agent_a",
+    ...     docker_client=docker_client,
+    ...     work_dir="/workspace"
+    ... )
 """
 
 import atexit
@@ -21,9 +32,13 @@ import time
 import uuid
 from collections import deque
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ..logger_config import logger
+
+# Docker is optional - only needed for Docker mode
+if TYPE_CHECKING:
+    pass
 
 
 class RingBuffer:
@@ -183,6 +198,181 @@ class BackgroundShell:
         # (joining can cause hangs if threads are blocked on readline)
 
 
+class DockerBackgroundShell:
+    """Represents a background shell process running inside a Docker container."""
+
+    def __init__(
+        self,
+        shell_id: str,
+        command: str,
+        container: Any,  # docker.models.containers.Container
+        exec_id: str,
+        cwd: Optional[str] = None,
+        max_output_lines: int = 10000,
+    ):
+        """Initialize Docker background shell.
+
+        Args:
+            shell_id: Unique identifier for this shell
+            command: Command being executed
+            container: Docker container object
+            exec_id: Docker exec instance ID
+            cwd: Working directory for the command
+            max_output_lines: Maximum lines to buffer (default: 10,000)
+        """
+        self.shell_id = shell_id
+        self.command = command
+        self.container = container
+        self.exec_id = exec_id
+        self.cwd = cwd
+        self.start_time = datetime.now()
+        self.end_time: Optional[datetime] = None
+        self.exit_code: Optional[int] = None
+        self._is_docker = True  # Flag to identify Docker shells
+
+        # Output buffers
+        self.stdout_buffer = RingBuffer(maxlen=max_output_lines)
+        self.stderr_buffer = RingBuffer(maxlen=max_output_lines)
+
+        # Socket for reading output
+        self._socket = None
+        self._stop_capture = threading.Event()
+        self._capture_thread: Optional[threading.Thread] = None
+
+    def start_capture(self, socket: Any) -> None:
+        """Start capturing output from the Docker exec socket.
+
+        Args:
+            socket: Docker exec socket for reading output
+        """
+        self._socket = socket
+        self._capture_thread = threading.Thread(target=self._capture_output, daemon=True)
+        self._capture_thread.start()
+
+    def _capture_output(self) -> None:
+        """Capture output from Docker exec in background thread."""
+        try:
+            # Read from the socket - Docker multiplexes stdout/stderr
+            while not self._stop_capture.is_set():
+                try:
+                    # Set a timeout so we can check _stop_capture periodically
+                    self._socket._sock.settimeout(0.5)
+                    chunk = self._socket.read(4096)
+                    if not chunk:
+                        break
+                    # Docker stream format: first 8 bytes are header
+                    # [stream_type (1), 0, 0, 0, size (4)]
+                    # For simplicity, we'll treat all output as stdout
+                    decoded = chunk.decode("utf-8", errors="replace")
+                    for line in decoded.splitlines():
+                        # Skip Docker stream headers (binary data)
+                        if line and not line.startswith("\x01") and not line.startswith("\x02"):
+                            self.stdout_buffer.append(line)
+                except TimeoutError:
+                    continue
+                except Exception as e:
+                    if not self._stop_capture.is_set():
+                        logger.debug(f"Docker output capture ended: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"Error capturing Docker output for shell {self.shell_id}: {e}")
+        finally:
+            self._update_exit_code()
+
+    def _update_exit_code(self) -> None:
+        """Check and update exit code from Docker exec."""
+        if self.exit_code is None:
+            try:
+                # Inspect the exec instance to get exit code
+                exec_info = self.container.client.api.exec_inspect(self.exec_id)
+                if exec_info.get("Running", True) is False:
+                    self.exit_code = exec_info.get("ExitCode", 0)
+                    if self.end_time is None:
+                        self.end_time = datetime.now()
+            except Exception as e:
+                logger.debug(f"Could not inspect Docker exec {self.exec_id}: {e}")
+
+    def get_status(self) -> str:
+        """Get current status of the shell.
+
+        Returns:
+            Status string: 'running', 'stopped', 'failed', or 'killed'
+        """
+        self._update_exit_code()
+
+        if self.exit_code is None:
+            # Check if exec is still running
+            try:
+                exec_info = self.container.client.api.exec_inspect(self.exec_id)
+                if exec_info.get("Running", False):
+                    return "running"
+                self.exit_code = exec_info.get("ExitCode", 0)
+                if self.end_time is None:
+                    self.end_time = datetime.now()
+            except Exception:
+                pass
+
+        if self.exit_code is None:
+            return "running"
+        elif self.exit_code < 0:
+            return "killed"
+        elif self.exit_code > 0:
+            return "failed"
+        else:
+            return "stopped"
+
+    def update_exit_code(self) -> Optional[int]:
+        """Update and return exit code if process has finished.
+
+        Returns:
+            Exit code if process finished, None if still running
+        """
+        self._update_exit_code()
+        return self.exit_code
+
+    def kill(self, signal: int = 15) -> None:  # 15 = SIGTERM
+        """Kill the background process in the container.
+
+        Args:
+            signal: Signal to send (default: SIGTERM=15)
+        """
+        if self.get_status() == "running":
+            try:
+                # Find the PID inside the container and kill it
+                exec_info = self.container.client.api.exec_inspect(self.exec_id)
+                pid = exec_info.get("Pid", 0)
+                if pid > 0:
+                    # Kill the process inside the container
+                    self.container.exec_run(f"kill -{signal} {pid}", detach=True)
+                    time.sleep(0.5)
+                    # Force kill if still running
+                    if self.get_status() == "running":
+                        self.container.exec_run(f"kill -9 {pid}", detach=True)
+                self.exit_code = -signal  # Negative signal indicates killed
+                self.end_time = datetime.now()
+            except Exception as e:
+                logger.error(f"Error killing Docker shell {self.shell_id}: {e}")
+
+    def cleanup(self) -> None:
+        """Clean up resources."""
+        self._stop_capture.set()
+        if self.get_status() == "running":
+            self.kill()
+        if self._socket:
+            try:
+                self._socket.close()
+            except Exception:
+                pass
+
+    @property
+    def process(self) -> None:
+        """Compatibility property - Docker shells don't have a subprocess.
+
+        Returns None but allows code to check `shell.process.pid` safely.
+        """
+        return None
+
+
 class BackgroundShellManager:
     """Manager for background shell processes."""
 
@@ -270,6 +460,78 @@ class BackgroundShellManager:
 
             return shell_id
 
+    def start_docker_shell(
+        self,
+        command: str,
+        container: Any,  # docker.models.containers.Container
+        cwd: Optional[str] = None,
+    ) -> str:
+        """Start a command in the background inside a Docker container.
+
+        Args:
+            command: Command to execute
+            container: Docker container object to execute in
+            cwd: Working directory inside the container
+
+        Returns:
+            shell_id: Unique identifier for this shell
+
+        Raises:
+            RuntimeError: If max concurrent shells limit is reached or Docker exec fails
+        """
+        with self._shells_lock:
+            # Check concurrent limit
+            active_shells = sum(1 for s in self._shells.values() if s.get_status() == "running")
+            if active_shells >= self._max_concurrent:
+                raise RuntimeError(f"Maximum concurrent shells ({self._max_concurrent}) reached")
+
+            # Generate unique shell ID
+            shell_id = f"shell_{uuid.uuid4().hex[:8]}"
+
+            try:
+                # Create exec instance with streaming
+                exec_config = {
+                    "cmd": ["/bin/sh", "-c", command],
+                    "stdout": True,
+                    "stderr": True,
+                    "stdin": False,
+                    "tty": False,
+                    "detach": False,  # We'll handle streaming ourselves
+                }
+                if cwd:
+                    exec_config["workdir"] = cwd
+
+                # Create the exec instance
+                exec_id = container.client.api.exec_create(container.id, **exec_config)["Id"]
+
+                # Start the exec and get a socket for streaming output
+                socket = container.client.api.exec_start(exec_id, socket=True, detach=False)
+
+                # Create Docker background shell
+                docker_shell = DockerBackgroundShell(
+                    shell_id=shell_id,
+                    command=command,
+                    container=container,
+                    exec_id=exec_id,
+                    cwd=cwd,
+                    max_output_lines=self._max_output_lines,
+                )
+
+                # Start output capture
+                docker_shell.start_capture(socket)
+
+                self._shells[shell_id] = docker_shell
+
+                logger.info(
+                    f"Started Docker background shell {shell_id} in container {container.name}: " f"{command[:100]}{'...' if len(command) > 100 else ''}",
+                )
+
+                return shell_id
+
+            except Exception as e:
+                logger.error(f"Failed to start Docker background shell: {e}")
+                raise RuntimeError(f"Failed to start Docker background shell: {e}")
+
     def get_output(self, shell_id: str) -> Dict[str, Any]:
         """Get output from a background shell.
 
@@ -322,15 +584,30 @@ class BackgroundShellManager:
             else:
                 duration = (datetime.now() - bg_shell.start_time).total_seconds()
 
+            # Handle both local and Docker shells
+            is_docker = getattr(bg_shell, "_is_docker", False)
+            if is_docker:
+                # Docker shell - get PID from exec_inspect if available
+                pid = None
+                try:
+                    exec_info = bg_shell.container.client.api.exec_inspect(bg_shell.exec_id)
+                    pid = exec_info.get("Pid", None)
+                except Exception:
+                    pass
+            else:
+                # Local shell
+                pid = bg_shell.process.pid
+
             return {
                 "shell_id": shell_id,
                 "status": bg_shell.get_status(),
                 "exit_code": bg_shell.exit_code,
-                "pid": bg_shell.process.pid,
+                "pid": pid,
                 "command": bg_shell.command,
                 "cwd": bg_shell.cwd,
                 "start_time": bg_shell.start_time.isoformat(),
                 "duration_seconds": round(duration, 2),
+                "is_docker": is_docker,
             }
 
     def kill_shell(self, shell_id: str) -> Dict[str, Any]:
@@ -420,6 +697,21 @@ def start_shell(command: str, cwd: Optional[str] = None, env: Optional[Dict[str,
     """
     manager = BackgroundShellManager()
     return manager.start_shell(command, cwd=cwd, env=env)
+
+
+def start_docker_shell(command: str, container: Any, cwd: Optional[str] = None) -> str:
+    """Start a command in the background inside a Docker container.
+
+    Args:
+        command: Command to execute
+        container: Docker container object to execute in
+        cwd: Working directory inside the container
+
+    Returns:
+        shell_id: Unique identifier for this shell
+    """
+    manager = BackgroundShellManager()
+    return manager.start_docker_shell(command, container=container, cwd=cwd)
 
 
 def get_shell_output(shell_id: str) -> Dict[str, Any]:

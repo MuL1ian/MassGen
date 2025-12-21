@@ -17,9 +17,14 @@ interface ImagePreviewProps {
 export function ImagePreview({ content, fileName, mimeType }: ImagePreviewProps) {
   const [zoom, setZoom] = useState(100);
   const [rotation, setRotation] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Create image source URL
   const imageSrc = useMemo(() => {
+    if (!content) {
+      return '';
+    }
+
     // If content is already a data URL, use it directly
     if (content.startsWith('data:')) {
       return content;
@@ -29,6 +34,10 @@ export function ImagePreview({ content, fileName, mimeType }: ImagePreviewProps)
     const type = mimeType || 'image/png';
     return `data:${type};base64,${content}`;
   }, [content, mimeType]);
+
+  const handleImageError = () => {
+    setLoadError('Failed to load image');
+  };
 
   const handleZoomIn = useCallback(() => {
     setZoom((prev) => Math.min(prev + 25, 300));
@@ -81,16 +90,30 @@ export function ImagePreview({ content, fileName, mimeType }: ImagePreviewProps)
 
       {/* Image container */}
       <div className="flex-1 overflow-auto bg-gray-800/50 flex items-center justify-center p-4">
-        <img
-          src={imageSrc}
-          alt={fileName}
-          style={{
-            transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
-            transition: 'transform 0.2s ease',
-            maxWidth: 'none',
-          }}
-          className="object-contain"
-        />
+        {loadError ? (
+          <div className="text-red-400 text-center">
+            <ImageIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
+            <p>{loadError}</p>
+            <p className="text-xs text-gray-500 mt-1">Content length: {content?.length || 0}</p>
+          </div>
+        ) : imageSrc ? (
+          <img
+            src={imageSrc}
+            alt={fileName}
+            onError={handleImageError}
+            style={{
+              transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
+              transition: 'transform 0.2s ease',
+              maxWidth: 'none',
+            }}
+            className="object-contain"
+          />
+        ) : (
+          <div className="text-gray-500 text-center">
+            <ImageIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
+            <p>No image content</p>
+          </div>
+        )}
       </div>
     </div>
   );

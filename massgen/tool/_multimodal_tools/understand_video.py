@@ -275,6 +275,170 @@ async def _process_with_openai(
     return response.output_text if hasattr(response, "output_text") else str(response.output)
 
 
+async def _process_with_anthropic(
+    video_path: Path,
+    prompt: str,
+    model: str = "claude-sonnet-4-5",
+    num_frames: int = 8,
+) -> str:
+    """
+    Process video using Anthropic's Claude vision API with frame extraction.
+
+    Args:
+        video_path: Path to the video file
+        prompt: Prompt for analysis
+        model: Claude model to use
+        num_frames: Number of frames to extract
+
+    Returns:
+        Text analysis from Claude
+    """
+    import anthropic
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY not found in environment")
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    # Extract frames from video
+    frames_base64 = _extract_key_frames(video_path, num_frames)
+
+    logger.info(
+        f"[understand_video] Using Anthropic {model} for video: {video_path.name} " f"({len(frames_base64)} frames)",
+    )
+
+    # Build content array with frames and prompt
+    content = []
+    for frame_base64 in frames_base64:
+        content.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": frame_base64,
+                },
+            },
+        )
+    content.append({"type": "text", "text": prompt})
+
+    # Call Claude API
+    response = client.messages.create(
+        model=model,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": content}],
+    )
+
+    return response.content[0].text
+
+
+async def _process_with_grok(
+    video_path: Path,
+    prompt: str,
+    model: str = "grok-4-1-fast-reasoning",
+    num_frames: int = 8,
+) -> str:
+    """
+    Process video using Grok's vision API with frame extraction.
+    Grok uses OpenAI-compatible API.
+
+    Args:
+        video_path: Path to the video file
+        prompt: Prompt for analysis
+        model: Grok model to use
+        num_frames: Number of frames to extract
+
+    Returns:
+        Text analysis from Grok
+    """
+    from openai import OpenAI
+
+    api_key = os.getenv("XAI_API_KEY")
+    if not api_key:
+        raise ValueError("XAI_API_KEY not found in environment")
+
+    client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+
+    # Extract frames from video
+    frames_base64 = _extract_key_frames(video_path, num_frames)
+
+    logger.info(
+        f"[understand_video] Using Grok {model} for video: {video_path.name} " f"({len(frames_base64)} frames)",
+    )
+
+    # Build content array with prompt and all frames
+    content = [{"type": "text", "text": prompt}]
+    for frame_base64 in frames_base64:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{frame_base64}"},
+            },
+        )
+
+    # Call Grok API (OpenAI-compatible)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": content}],
+    )
+
+    return response.choices[0].message.content
+
+
+async def _process_with_openrouter(
+    video_path: Path,
+    prompt: str,
+    model: str = "openai/gpt-4.1",
+    num_frames: int = 8,
+) -> str:
+    """
+    Process video using OpenRouter's API with frame extraction.
+    OpenRouter uses OpenAI-compatible API.
+
+    Args:
+        video_path: Path to the video file
+        prompt: Prompt for analysis
+        model: Model to use (with provider prefix)
+        num_frames: Number of frames to extract
+
+    Returns:
+        Text analysis from OpenRouter
+    """
+    from openai import OpenAI
+
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY not found in environment")
+
+    client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+
+    # Extract frames from video
+    frames_base64 = _extract_key_frames(video_path, num_frames)
+
+    logger.info(
+        f"[understand_video] Using OpenRouter {model} for video: {video_path.name} " f"({len(frames_base64)} frames)",
+    )
+
+    # Build content array with prompt and all frames
+    content = [{"type": "text", "text": prompt}]
+    for frame_base64 in frames_base64:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{frame_base64}"},
+            },
+        )
+
+    # Call OpenRouter API (OpenAI-compatible)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": content}],
+    )
+
+    return response.choices[0].message.content
+
+
 async def understand_video(
     video_path: str,
     prompt: str = "What's happening in this video? Please describe the content, actions, and any important details you observe.",
@@ -418,7 +582,28 @@ async def understand_video(
                     prompt=prompt,
                     model=selected_model,
                 )
-            else:  # openai
+            elif selected_backend == "claude":
+                response_text = await _process_with_anthropic(
+                    video_path=vid_path,
+                    prompt=prompt,
+                    model=selected_model,
+                    num_frames=num_frames,
+                )
+            elif selected_backend == "grok":
+                response_text = await _process_with_grok(
+                    video_path=vid_path,
+                    prompt=prompt,
+                    model=selected_model,
+                    num_frames=num_frames,
+                )
+            elif selected_backend == "openrouter":
+                response_text = await _process_with_openrouter(
+                    video_path=vid_path,
+                    prompt=prompt,
+                    model=selected_model,
+                    num_frames=num_frames,
+                )
+            else:  # openai (default)
                 response_text = await _process_with_openai(
                     video_path=vid_path,
                     prompt=prompt,

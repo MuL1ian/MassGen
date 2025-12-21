@@ -290,6 +290,34 @@ class CustomToolAndMCPBackend(LLMBackend):
         if custom_tools:
             self._register_custom_tools(custom_tools)
 
+        # Register multimodal tools if enabled
+        enable_multimodal = self.config.get("enable_multimodal_tools", False) or kwargs.get("enable_multimodal_tools", False)
+        if enable_multimodal:
+            multimodal_tools = [
+                {
+                    "name": ["read_media"],
+                    "category": "multimodal",
+                    "path": "massgen/tool/_multimodal_tools/read_media.py",
+                    "function": ["read_media"],
+                },
+                {
+                    "name": ["generate_media"],
+                    "category": "multimodal",
+                    "path": "massgen/tool/_multimodal_tools/generation/generate_media.py",
+                    "function": ["generate_media"],
+                },
+            ]
+            self._register_custom_tools(multimodal_tools)
+            logger.info(f"[{self.backend_name}] Multimodal tools enabled: read_media, generate_media")
+
+        # Build multimodal config for injection into read_media and generate_media tools
+        # Priority: explicit multimodal_config > individual config variables
+        self._multimodal_config = self.config.get("multimodal_config", {}) or kwargs.get("multimodal_config", {})
+
+        # If not explicitly set, build from individual generation config variables
+        if not self._multimodal_config:
+            self._multimodal_config = self._build_multimodal_config_from_params()
+
         # MCP integration (filesystem MCP server may have been injected by base class)
         self.mcp_servers = self.config.get("mcp_servers", [])
 
@@ -366,6 +394,54 @@ class CustomToolAndMCPBackend(LLMBackend):
         # Initialize backend name and agent ID for MCP operations
         self.backend_name = self.get_provider_name()
         self.agent_id = kwargs.get("agent_id", None)
+
+    def _build_multimodal_config_from_params(self) -> Dict[str, Any]:
+        """Build multimodal_config from individual generation config variables.
+
+        Reads the following config variables and builds a structured config:
+        - image_generation_backend, image_generation_model
+        - video_generation_backend, video_generation_model
+        - audio_generation_backend, audio_generation_model
+
+        Returns:
+            Dict with structure: {"image": {"backend": ..., "model": ...}, ...}
+        """
+        multimodal_config: Dict[str, Any] = {}
+
+        # Image generation config
+        image_backend = self.config.get("image_generation_backend")
+        image_model = self.config.get("image_generation_model")
+        if image_backend or image_model:
+            multimodal_config["image"] = {}
+            if image_backend:
+                multimodal_config["image"]["backend"] = image_backend
+            if image_model:
+                multimodal_config["image"]["model"] = image_model
+
+        # Video generation config
+        video_backend = self.config.get("video_generation_backend")
+        video_model = self.config.get("video_generation_model")
+        if video_backend or video_model:
+            multimodal_config["video"] = {}
+            if video_backend:
+                multimodal_config["video"]["backend"] = video_backend
+            if video_model:
+                multimodal_config["video"]["model"] = video_model
+
+        # Audio generation config
+        audio_backend = self.config.get("audio_generation_backend")
+        audio_model = self.config.get("audio_generation_model")
+        if audio_backend or audio_model:
+            multimodal_config["audio"] = {}
+            if audio_backend:
+                multimodal_config["audio"]["backend"] = audio_backend
+            if audio_model:
+                multimodal_config["audio"]["model"] = audio_model
+
+        if multimodal_config:
+            logger.debug(f"[{self.backend_name}] Built multimodal_config from params: {multimodal_config}")
+
+        return multimodal_config
 
     def set_nlip_router(self, nlip_router, enabled: bool = True) -> None:
         """
@@ -892,6 +968,12 @@ class CustomToolAndMCPBackend(LLMBackend):
             if "agent_cwd" not in arguments or arguments.get("agent_cwd") is None:
                 arguments["agent_cwd"] = self.filesystem_manager.cwd
                 logger.info(f"Dynamically injected agent_cwd at execution time: {self.filesystem_manager.cwd}")
+
+        # Inject multimodal_config if available (for read_media tool)
+        if hasattr(self, "_multimodal_config") and self._multimodal_config:
+            if "multimodal_config" not in arguments:
+                arguments["multimodal_config"] = self._multimodal_config
+                logger.debug(f"Injected multimodal_config: {self._multimodal_config}")
 
         tool_request = {
             "name": call["name"],

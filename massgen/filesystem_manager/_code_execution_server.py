@@ -29,6 +29,7 @@ from massgen.filesystem_manager.background_shell import (
     get_shell_status,
     kill_shell,
     list_shells,
+    start_docker_shell,
     start_shell,
 )
 
@@ -661,6 +662,9 @@ async def create_server() -> fastmcp.FastMCP:
         and continue with other work. Use get_background_shell_output() to check
         progress and retrieve output later.
 
+        In Docker mode, the command runs inside the container, ensuring network
+        isolation and consistent behavior with execute_command().
+
         Args:
             command: Shell command to execute in background
             work_dir: Working directory for the command (default: current directory)
@@ -670,7 +674,8 @@ async def create_server() -> fastmcp.FastMCP:
             - shell_id: Unique identifier to track this background shell
             - status: Current status ("running")
             - command: The command being executed
-            - pid: Process ID
+            - pid: Process ID (container PID in Docker mode)
+            - is_docker: Whether running in Docker container
 
         Example:
             Start a web server in background:
@@ -691,19 +696,74 @@ async def create_server() -> fastmcp.FastMCP:
             else:
                 work_path = Path.cwd()
 
-            # Start background shell
-            shell_id = start_shell(command, cwd=str(work_path))
+            # Execute based on execution mode (same as execute_command)
+            if mcp.execution_mode == "docker":
+                # Docker mode: start background shell inside container
+                if not mcp.docker_client:
+                    return {
+                        "success": False,
+                        "error": "Docker mode enabled but docker_client not initialized",
+                    }
 
-            # Get initial status
-            status = get_shell_status(shell_id)
+                if not mcp.agent_id:
+                    return {
+                        "success": False,
+                        "error": "Docker mode requires agent_id to be set",
+                    }
 
-            return {
-                "shell_id": shell_id,
-                "status": status["status"],
-                "command": command,
-                "pid": status["pid"],
-                "work_dir": str(work_path),
-            }
+                try:
+                    # Get container by name
+                    if mcp.instance_id:
+                        container_name = f"massgen-{mcp.agent_id}-{mcp.instance_id}"
+                    else:
+                        container_name = f"massgen-{mcp.agent_id}"
+                    container = mcp.docker_client.containers.get(container_name)
+
+                    # Start background shell in Docker container
+                    shell_id = start_docker_shell(
+                        command=command,
+                        container=container,
+                        cwd=str(work_path),
+                    )
+
+                    # Get initial status
+                    status = get_shell_status(shell_id)
+
+                    return {
+                        "shell_id": shell_id,
+                        "status": status["status"],
+                        "command": command,
+                        "pid": status["pid"],
+                        "work_dir": str(work_path),
+                        "is_docker": True,
+                    }
+
+                except DockerException as e:
+                    return {
+                        "success": False,
+                        "error": f"Docker container error: {str(e)}",
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"Failed to start Docker background shell: {str(e)}",
+                    }
+
+            else:
+                # Local mode: start background shell using subprocess
+                shell_id = start_shell(command, cwd=str(work_path))
+
+                # Get initial status
+                status = get_shell_status(shell_id)
+
+                return {
+                    "shell_id": shell_id,
+                    "status": status["status"],
+                    "command": command,
+                    "pid": status["pid"],
+                    "work_dir": str(work_path),
+                    "is_docker": False,
+                }
 
         except ValueError as e:
             return {

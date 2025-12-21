@@ -3707,6 +3707,7 @@ class ConfigBuilder:
                         "_gemini_computer_use",
                         "_browser_automation",
                     ],
+                    # Note: enable_multimodal_tools is set at orchestrator level
                 }
             else:
                 # Local mode - file operations only, no command execution
@@ -3716,6 +3717,7 @@ class ConfigBuilder:
                     "cwd": f"workspace{workspace_num}",
                     # File operations via MCP (no code execution)
                     "exclude_file_operation_mcps": False,  # Keep file MCPs
+                    # Note: enable_multimodal_tools is set at orchestrator level
                 }
 
             # Add base_url for OpenAI-compatible providers (Groq, Cerebras, Together, etc.)
@@ -3765,6 +3767,12 @@ class ConfigBuilder:
                 "snapshot_storage": "snapshots",
                 "agent_temporary_workspace": "temp_workspaces",
                 "max_new_answers_per_agent": 5,
+                # Multimodal tools enabled for all agents
+                "enable_multimodal_tools": True,
+                # Default generation backends (agents can override)
+                "image_generation_backend": "google",  # Google Imagen
+                "video_generation_backend": "google",  # Google Veo
+                "audio_generation_backend": "openai",  # OpenAI TTS
                 "coordination": {
                     "max_orchestration_restarts": 2,
                     "use_skills": True,
@@ -3780,6 +3788,12 @@ class ConfigBuilder:
                 "snapshot_storage": "snapshots",
                 "agent_temporary_workspace": "temp_workspaces",
                 "max_new_answers_per_agent": 5,
+                # Multimodal tools enabled for all agents
+                "enable_multimodal_tools": True,
+                # Default generation backends (agents can override)
+                "image_generation_backend": "google",  # Google Imagen
+                "video_generation_backend": "google",  # Google Veo
+                "audio_generation_backend": "openai",  # OpenAI TTS
                 "coordination": {
                     "max_orchestration_restarts": 2,
                     "enable_agent_task_planning": True,

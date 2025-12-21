@@ -15,7 +15,7 @@ interface HtmlPreviewProps {
 }
 
 /**
- * Inline CSS and JS files referenced in the HTML
+ * Inline CSS, JS, and image files referenced in the HTML
  */
 function inlineRelatedFiles(html: string, relatedFiles: Record<string, string>): string {
   let result = html;
@@ -26,7 +26,7 @@ function inlineRelatedFiles(html: string, relatedFiles: Record<string, string>):
     (match, href) => {
       const fileName = href.split('/').pop() || href;
       const cssContent = relatedFiles[fileName] || relatedFiles[href];
-      if (cssContent) {
+      if (cssContent && !cssContent.startsWith('data:')) {
         return `<style>/* Inlined from ${fileName} */\n${cssContent}</style>`;
       }
       return match; // Keep original if file not found
@@ -39,7 +39,7 @@ function inlineRelatedFiles(html: string, relatedFiles: Record<string, string>):
     (match, href) => {
       const fileName = href.split('/').pop() || href;
       const cssContent = relatedFiles[fileName] || relatedFiles[href];
-      if (cssContent) {
+      if (cssContent && !cssContent.startsWith('data:')) {
         return `<style>/* Inlined from ${fileName} */\n${cssContent}</style>`;
       }
       return match;
@@ -52,10 +52,44 @@ function inlineRelatedFiles(html: string, relatedFiles: Record<string, string>):
     (match, src) => {
       const fileName = src.split('/').pop() || src;
       const jsContent = relatedFiles[fileName] || relatedFiles[src];
-      if (jsContent) {
+      if (jsContent && !jsContent.startsWith('data:')) {
         return `<script>/* Inlined from ${fileName} */\n${jsContent}</script>`;
       }
       return match; // Keep original if file not found
+    }
+  );
+
+  // Inline images: <img src="image.png"> -> <img src="data:image/png;base64,...">
+  result = result.replace(
+    /<img\s+([^>]*)src=["']([^"']+)["']([^>]*)>/gi,
+    (match, before, src, after) => {
+      // Skip if already a data URL or external URL
+      if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
+        return match;
+      }
+      const fileName = src.split('/').pop() || src;
+      const imageDataUrl = relatedFiles[src] || relatedFiles[fileName] || relatedFiles[`./${src}`];
+      if (imageDataUrl && imageDataUrl.startsWith('data:')) {
+        return `<img ${before}src="${imageDataUrl}"${after}>`;
+      }
+      return match; // Keep original if file not found
+    }
+  );
+
+  // Also handle CSS background-image: url() references
+  result = result.replace(
+    /url\(["']?([^"')]+)["']?\)/gi,
+    (match, url) => {
+      // Skip if already a data URL or external URL
+      if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) {
+        return match;
+      }
+      const fileName = url.split('/').pop() || url;
+      const imageDataUrl = relatedFiles[url] || relatedFiles[fileName] || relatedFiles[`./${url}`];
+      if (imageDataUrl && imageDataUrl.startsWith('data:')) {
+        return `url("${imageDataUrl}")`;
+      }
+      return match;
     }
   );
 

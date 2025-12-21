@@ -88,12 +88,44 @@ OPENAI_IMAGE = BackendConfig(
     api_key_env_vars=["OPENAI_API_KEY"],
 )
 
-# Anthropic backends
+# Claude backends
 # Note: These defaults can be overridden via config multimodal settings
-ANTHROPIC_IMAGE = BackendConfig(
-    name="anthropic",
-    model="claude-sonnet-4-5",
+CLAUDE_IMAGE = BackendConfig(
+    name="claude",
+    model="claude-sonnet-4-5-20250929",
     api_key_env_vars=["ANTHROPIC_API_KEY"],
+)
+
+CLAUDE_VIDEO = BackendConfig(
+    name="claude",
+    model="claude-sonnet-4-5-20250929",  # Has vision, uses frame extraction
+    api_key_env_vars=["ANTHROPIC_API_KEY"],
+)
+
+# Grok backends (xAI) - OpenAI-compatible API
+GROK_IMAGE = BackendConfig(
+    name="grok",
+    model="grok-4-1-fast-reasoning",
+    api_key_env_vars=["XAI_API_KEY"],
+)
+
+GROK_VIDEO = BackendConfig(
+    name="grok",
+    model="grok-4-1-fast-reasoning",  # Has vision, uses frame extraction
+    api_key_env_vars=["XAI_API_KEY"],
+)
+
+# OpenRouter backends - OpenAI-compatible API
+OPENROUTER_IMAGE = BackendConfig(
+    name="openrouter",
+    model="openai/gpt-4.1",  # OpenAI model naming
+    api_key_env_vars=["OPENROUTER_API_KEY"],
+)
+
+OPENROUTER_VIDEO = BackendConfig(
+    name="openrouter",
+    model="openai/gpt-4.1",  # OpenAI model naming, uses frame extraction
+    api_key_env_vars=["OPENROUTER_API_KEY"],
 )
 
 
@@ -110,12 +142,17 @@ AUDIO_BACKENDS = [
 VIDEO_BACKENDS = [
     GEMINI_VIDEO,  # Gemini has native video understanding
     OPENAI_VIDEO,  # OpenAI with frame extraction
+    CLAUDE_VIDEO,  # Claude with frame extraction
+    GROK_VIDEO,  # Grok with frame extraction
+    OPENROUTER_VIDEO,  # OpenRouter with frame extraction
 ]
 
 IMAGE_BACKENDS = [
     GEMINI_IMAGE,  # Gemini vision
     OPENAI_IMAGE,  # GPT-4o vision
-    ANTHROPIC_IMAGE,  # Claude vision
+    CLAUDE_IMAGE,  # Claude vision
+    GROK_IMAGE,  # Grok vision
+    OPENROUTER_IMAGE,  # OpenRouter vision
 ]
 
 

@@ -26,6 +26,7 @@ from massgen.system_prompt_sections import (
     FilesystemBestPracticesSection,
     FilesystemOperationsSection,
     MemorySection,
+    MultimodalToolsSection,
     PlanningModeSection,
     PostEvaluationSection,
     SkillsSection,
@@ -232,6 +233,12 @@ class SystemMessageBuilder:
             # Add lightweight file search guidance if command execution is available
             # (rg and sg are pre-installed in Docker and commonly available in local mode)
             builder.add_section(FileSearchSection())
+
+            # Add multimodal tools section if enabled
+            enable_multimodal = agent.backend.config.get("enable_multimodal_tools", False)
+            if enable_multimodal:
+                builder.add_section(MultimodalToolsSection())
+                logger.info(f"[SystemMessageBuilder] Added multimodal tools section for {agent_id}")
 
             # Add code-based tools section if enabled (CodeAct paradigm)
             if agent.backend.filesystem_manager.enable_code_based_tools:

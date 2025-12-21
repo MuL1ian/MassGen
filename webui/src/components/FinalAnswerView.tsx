@@ -5,12 +5,12 @@
  * Features tabbed interface for Answer and Workspace views.
  */
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, FileText, Folder, Trophy, ChevronDown, ChevronRight, File, RefreshCw, History, Copy, Check, Loader2, Send, Plus, ExternalLink, Share2, X, Eye } from 'lucide-react';
 import { useAgentStore, selectSelectedAgent, selectAgents, selectResolvedFinalAnswer, selectAgentOrder } from '../stores/agentStore';
 import type { AnswerWorkspace } from '../types';
-import { ArtifactPreviewModal } from './ArtifactPreviewModal';
+import { InlineArtifactPreview } from './InlineArtifactPreview';
 import { ConversationHistory } from './ConversationHistory';
 import { canPreviewFile } from '../utils/artifactTypes';
 
@@ -233,14 +233,20 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
   const [answerWorkspaces, setAnswerWorkspaces] = useState<AnswerWorkspace[]>([]);
   const [selectedAnswerLabel, setSelectedAnswerLabel] = useState<string>('current');
 
-  // File viewer modal state
-  const [fileViewerOpen, setFileViewerOpen] = useState(false);
+  // File viewer state (inline preview, not modal)
   const [selectedFilePath, setSelectedFilePath] = useState<string>('');
 
-  // Handle file click from workspace browser
+  // Track auto-preview per workspace
+  const hasAutoPreviewedRef = useRef<string | null>(null);
+
+  // Handle file click from workspace browser - sets file for inline preview
   const handleFileClick = useCallback((filePath: string) => {
     setSelectedFilePath(filePath);
-    setFileViewerOpen(true);
+  }, []);
+
+  // Handle closing inline preview
+  const handleInlinePreviewClose = useCallback(() => {
+    setSelectedFilePath('');
   }, []);
 
   // Fetch workspaces
@@ -327,14 +333,75 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
   }, [activeTab, fetchWorkspaces, fetchAnswerWorkspaces]);
 
   // Fetch files when workspace is available
+  // Also clear selected file when workspace changes to avoid showing stale content
   useEffect(() => {
     if (winnerWorkspace && activeTab === 'workspace') {
+      // Clear the selected file path when workspace changes
+      setSelectedFilePath('');
+      // Reset auto-preview tracking for this new workspace
+      hasAutoPreviewedRef.current = null;
       fetchWorkspaceFiles(winnerWorkspace);
     }
   }, [winnerWorkspace, activeTab, fetchWorkspaceFiles]);
 
   // Build file tree
   const fileTree = useMemo(() => buildFileTree(workspaceFiles), [workspaceFiles]);
+
+  // Auto-preview: Select first previewable file when workspace files are loaded
+  useEffect(() => {
+    const workspaceKey = winnerWorkspace?.path || '';
+    if (
+      workspaceFiles.length > 0 &&
+      !selectedFilePath &&
+      activeTab === 'workspace' &&
+      hasAutoPreviewedRef.current !== workspaceKey
+    ) {
+      // Find main previewable file with priority: PDF > PPTX > DOCX > HTML > images > other
+      const findMainPreviewable = (): string | null => {
+        const previewableFiles = workspaceFiles.filter(f => canPreviewFile(f.path));
+        if (previewableFiles.length === 0) return null;
+
+        // Priority 1: PDF
+        const pdf = previewableFiles.find(f => f.path.toLowerCase().endsWith('.pdf'));
+        if (pdf) return pdf.path;
+
+        // Priority 2: PPTX
+        const pptx = previewableFiles.find(f => f.path.toLowerCase().endsWith('.pptx'));
+        if (pptx) return pptx.path;
+
+        // Priority 3: DOCX
+        const docx = previewableFiles.find(f => f.path.toLowerCase().endsWith('.docx'));
+        if (docx) return docx.path;
+
+        // Priority 4: index.html
+        const indexHtml = previewableFiles.find(f => f.path.toLowerCase().endsWith('index.html'));
+        if (indexHtml) return indexHtml.path;
+
+        // Priority 5: Any HTML file
+        const anyHtml = previewableFiles.find(f =>
+          f.path.toLowerCase().endsWith('.html') || f.path.toLowerCase().endsWith('.htm')
+        );
+        if (anyHtml) return anyHtml.path;
+
+        // Priority 6: Images
+        const image = previewableFiles.find(f => {
+          const ext = f.path.toLowerCase();
+          return ext.endsWith('.png') || ext.endsWith('.jpg') || ext.endsWith('.jpeg') ||
+                 ext.endsWith('.gif') || ext.endsWith('.svg') || ext.endsWith('.webp');
+        });
+        if (image) return image.path;
+
+        // Priority 7: First previewable file
+        return previewableFiles[0].path;
+      };
+
+      const mainFile = findMainPreviewable();
+      if (mainFile) {
+        hasAutoPreviewedRef.current = workspaceKey;
+        setSelectedFilePath(mainFile);
+      }
+    }
+  }, [workspaceFiles, selectedFilePath, activeTab, winnerWorkspace]);
 
   // Copy to clipboard
   const handleCopy = useCallback(async () => {
@@ -598,35 +665,51 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
                 </div>
               )}
 
-              {/* File tree */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-                <div className="max-w-4xl mx-auto">
+              {/* Split View: File Tree + Preview */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* Left: File Tree */}
+                <div className="w-80 shrink-0 border-r border-gray-200 dark:border-gray-700 overflow-y-auto custom-scrollbar p-4">
                   {isLoadingWorkspaces || isLoadingFiles ? (
                     <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-                      <RefreshCw className="w-8 h-8 mb-4 animate-spin" />
-                      <p>Loading workspace...</p>
+                      <RefreshCw className="w-6 h-6 mb-3 animate-spin" />
+                      <p className="text-sm">Loading...</p>
                     </div>
                   ) : !winnerWorkspace ? (
                     <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-                      <Folder className="w-12 h-12 mb-4 opacity-50" />
-                      <p>No workspace found for winner</p>
+                      <Folder className="w-10 h-10 mb-3 opacity-50" />
+                      <p className="text-sm">No workspace found</p>
                     </div>
                   ) : workspaceFiles.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-                      <Folder className="w-12 h-12 mb-4 opacity-50" />
-                      <p>No files in workspace</p>
+                      <Folder className="w-10 h-10 mb-3 opacity-50" />
+                      <p className="text-sm">No files</p>
                     </div>
                   ) : (
-                    <div className="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                      <div className="mb-3 text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                        <Folder className="w-4 h-4" />
-                        <span>{winnerWorkspace.name}</span>
-                        <span className="text-gray-400">-</span>
+                    <div>
+                      <div className="mb-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                        <Folder className="w-3 h-3" />
                         <span>{workspaceFiles.length} files</span>
                       </div>
                       {fileTree.map((node) => (
                         <FileNode key={node.path} node={node} depth={0} onFileClick={handleFileClick} />
                       ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Inline Preview */}
+                <div className="flex-1 overflow-hidden p-4">
+                  {selectedFilePath && winnerWorkspace ? (
+                    <InlineArtifactPreview
+                      filePath={selectedFilePath}
+                      workspacePath={winnerWorkspace.path}
+                      onClose={handleInlinePreviewClose}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-500 bg-gray-100 dark:bg-gray-800/30 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <Eye className="w-12 h-12 mb-4 opacity-30" />
+                      <p className="text-sm">Select a file to preview</p>
+                      <p className="text-xs text-gray-400 mt-1">Click any file in the tree</p>
                     </div>
                   )}
                 </div>
@@ -664,14 +747,6 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
           </form>
         </footer>
       )}
-
-      {/* Artifact Preview Modal */}
-      <ArtifactPreviewModal
-        isOpen={fileViewerOpen}
-        onClose={() => setFileViewerOpen(false)}
-        filePath={selectedFilePath}
-        workspacePath={winnerWorkspace?.path || ''}
-      />
 
       {/* Share Modal */}
       <AnimatePresence>
