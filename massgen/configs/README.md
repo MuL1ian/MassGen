@@ -227,7 +227,35 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.27 - Latest
+### v0.1.28 - Latest
+**New Features:** Native Multimodal Understanding, Unified Media Generation, Web UI Artifact Previewer, Coordination Control
+
+**Key Features:**
+- **Native Multimodal Understanding**: Image, audio, and video analysis using provider's built-in APIs (Gemini, OpenAI) instead of external tools
+- **Unified Media Generation**: Consolidated `generate_media` tool for images (DALL-E, Imagen), videos (Sora, Veo), and audio (TTS)
+- **Web UI Artifact Previewer**: Preview PDFs, DOCX, PPTX, images, HTML, SVG, Markdown, and Mermaid diagrams
+- **Minimum Answers Before Voting**: New `min_answers_before_voting` coordination option
+- **OpenRouter Model Filtering**: Automatic filtering to only show tool-capable models
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Multimodal understanding - analyze images with native backend support
+massgen --config @examples/tools/custom_tools/multimodal_tools/understand_image \
+  "Describe what you see in this image"
+
+# Generate images with unified media tool
+massgen --config @examples/tools/custom_tools/multimodal_tools/text_to_image_generation_single \
+  "Create an image of a futuristic city at sunset"
+
+# Multi-agent with coordination control
+massgen --config @examples/basic/multi/three_agents_default \
+  "Compare different approaches to building AI agents"
+```
+
+### v0.1.27
 **New Features:** Session Sharing, Log Analysis CLI, Per-LLM Call Timing, Gemini 3 Flash
 
 **Key Features:**

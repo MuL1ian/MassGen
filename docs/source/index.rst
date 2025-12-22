@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.28 (December 22, 2025)** - Multimodal Backend Integration & Artifact Previews
+
+Multimodal understanding now uses provider's built-in APIs (Gemini, OpenAI) instead of external tools. Unified ``generate_media`` tool for images, videos, and audio. Web UI artifact previewer for PDFs, documents, images, and code. New ``min_answers_before_voting`` coordination option. Azure OpenAI workflow fixes.
+
 **v0.1.27 (December 19, 2025)** - Session Sharing & Log Analysis
 
 Session sharing via GitHub Gist with ``massgen export`` command. New ``massgen logs`` CLI for viewing, filtering, and exporting run logs. Per-LLM call timing metrics across all backends. Gemini 3 Flash model support. CLI config builder with per-agent web search and system messages. Web UI context paths wizard.
@@ -164,10 +168,6 @@ Session sharing via GitHub Gist with ``massgen export`` command. New ``massgen l
 **v0.1.26 (December 17, 2025)** - Docker Diagnostics & Web UI Setup
 
 Docker diagnostics module with platform-specific error detection and resolution. Web UI setup wizard for guided first-run experience with API key management. Shadow agent response depth for test-time compute scaling. Model registry updates with GPT-5.1-Codex family and Claude alias notation.
-
-**v0.1.25 (December 15, 2025)** - UI-TARS & Evolving Skills
-
-UI-TARS backend for GUI automation with visual understanding. GPT-5.2 model support via OpenRouter. Evolving skill creator system for reusable workflows. Textual terminal display with adaptive dark/light themes.
 
 :doc:`Full changelog → <changelog>`
 

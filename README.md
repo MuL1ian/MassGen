@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.27 Features](#-latest-features-v0127)
+- [v0.1.28 Features](#-latest-features-v0128)
 </details>
 
 <details open>
@@ -123,15 +123,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <summary><h3>🗺️ Roadmap</h3></summary>
 
 - Recent Achievements
-  - [v0.1.27](#recent-achievements-v0127)
-  - [v0.0.3 - v0.1.26](#previous-achievements-v003---v0126)
+  - [v0.1.28](#recent-achievements-v0128)
+  - [v0.0.3 - v0.1.27](#previous-achievements-v003---v0127)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.28 Roadmap](#v0128-roadmap)
+- [v0.1.29 Roadmap](#v0129-roadmap)
 </details>
 
 <details open>
@@ -156,42 +156,37 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.27)
+## 🆕 Latest Features (v0.1.28)
 
-**🎉 Released: December 19, 2025**
+**🎉 Released: December 22, 2025**
 
-**What's New in v0.1.27:**
-- **📤 Session Sharing** - Share sessions via GitHub Gist with `massgen export` (MAS-16)
-- **📊 Log Analysis CLI** - New `massgen logs` command for viewing, filtering, and exporting run logs
-- **⏱️ Per-LLM Call Timing** - Detailed timing metrics for each LLM API call
-- **🌐 Gemini 3 Flash** - Google's Gemini 3 Flash model now available
-- **⚙️ Config Builder Improvements** - Per-agent web search, system messages, and coordination settings
-- **🖥️ Web UI Improvements** - Context paths wizard and "Open in Browser" button
+**What's New in v0.1.28:**
+- **🖼️ Native Multimodal Understanding** - Image, audio, and video analysis using provider's built-in APIs (Gemini, OpenAI) instead of external tools
+- **🎨 Unified Media Generation** - Create images, videos, and audio with the consolidated `generate_media` tool
+- **📄 Web UI Artifact Previewer** - Preview PDFs, DOCX, PPTX, images, HTML, SVG, Markdown, and Mermaid diagrams
+- **🗳️ Minimum Answers Before Voting** - New `min_answers_before_voting` option for coordination control
 
 **Bug Fixes:**
-- Fixed Claude Code tool permissions handling
-- Fixed orchestrator error recovery with proper timeout handling
-- Fixed web search workflow restart issues
+- Azure OpenAI tool calls and workflow integration
+- Web UI display and cancellation handling
+- Docker background shell and sudo configuration
 
-**Try v0.1.27 Features:**
+**Try v0.1.28 Features:**
 ```bash
 # Install or upgrade
-uv pip install --upgrade massgen
+pip install --upgrade massgen
 
-# Or with uv (faster)
-uv pip install massgen
+# Multimodal understanding - analyze images with native backend support
+massgen --config @examples/tools/custom_tools/multimodal_tools/understand_image \
+  "Describe what you see in this image"
 
-# Try Gemini 3 Flash
-uv run massgen --config massgen/configs/providers/gemini/gemini_3_flash.yaml \
-  "Create a simple Python script that demonstrates async programming"
+# Generate images with unified media tool
+massgen --config @examples/tools/custom_tools/multimodal_tools/text_to_image_generation_single \
+  "Create an image of a futuristic city at sunset"
 
-# Analyze your run logs
-massgen logs list                         # List all runs
-massgen logs view <log_id>                # View detailed run info
-
-# Share a session via GitHub Gist (requires gh CLI)
-massgen export                            # Share most recent session
-massgen shares list                       # List your shared sessions
+# Multi-agent collaboration with minimum voting threshold
+massgen --config @examples/basic/multi/three_agents_default \
+  "Analyze the impact of AI on software development"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1130,27 +1125,27 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.27)
+### Recent Achievements (v0.1.28)
 
-**🎉 Released: December 19, 2025**
+**🎉 Released: December 22, 2025**
 
-#### Session Sharing & Log Analysis
-- **Session Sharing via GitHub Gist**: Share sessions with `massgen export`, manage with `massgen shares list/delete` (MAS-16)
-- **Log Analysis CLI**: New `massgen logs` command for viewing, filtering, and exporting run logs to JSON/CSV
-- **Per-LLM Call Timing**: Detailed timing metrics for individual LLM API calls across all backends
+#### Multimodal Enhancements
+- **Native Multimodal Understanding**: Image, audio, and video analysis using provider's built-in APIs (Gemini, OpenAI) instead of routing through external tools
+- **Unified Media Generation**: Consolidated `generate_media` tool with provider selection for images (DALL-E, Imagen), videos (Sora, Veo), and audio (TTS)
+- **OpenRouter Model Filtering**: Automatic filtering to only display models that support tool calling
 
-#### New Features
-- **Gemini 3 Flash Model**: Google's Gemini 3 Flash model added to provider registry
-- **CLI Config Builder**: Per-agent web search toggle, system messages, coordination settings
-- **Web UI Context Paths Wizard**: New `ContextPathsStep` component for workspace configuration
-- **Web UI "Open in Browser"**: Quick-access button for opening results in browser
+#### Web UI & Coordination
+- **Artifact Previewer**: Preview workspace artifacts directly in the web interface (PDF, DOCX, PPTX, XLSX, images, HTML, SVG, Markdown, Mermaid)
+- **Minimum Answers Before Voting**: New `min_answers_before_voting` coordination option requiring deliberation before convergence
 
 #### Bug Fixes
-- Fixed Claude Code tool permissions handling
-- Fixed orchestrator error recovery with proper timeout handling
-- Fixed web search workflow restart issues
+- Azure OpenAI tool calls, parameter filtering, and message validation
+- Web UI display and cancellation propagation
+- Docker background shell and sudo configuration
 
-### Previous Achievements (v0.0.3 - v0.1.26)
+### Previous Achievements (v0.0.3 - v0.1.27)
+
+✅ **Session Sharing & Log Analysis (v0.1.27)**: Session sharing via GitHub Gist with `massgen export`, log analysis CLI with `massgen logs` command, per-LLM call timing metrics, Gemini 3 Flash model support, enhanced CLI config builder with per-agent web search and system messages
 
 ✅ **Web UI Setup & Shadow Agent Depth (v0.1.26)**: Docker diagnostics module, Web UI setup wizard with guided first-run experience, shadow agent response depth for test-time compute scaling, GPT-5.1-Codex family models
 
@@ -1348,19 +1343,19 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.28 Roadmap
+### v0.1.29 Roadmap
 
-Version 0.1.28 focuses on system reminders and memory as callable tools:
+Version 0.1.29 focuses on backend model auto-update and automatic context compression:
 
 #### Planned Features
-- **Add system reminders** (@ncrispino): Framework for injecting system reminders mid-run during LLM streaming
-- **Memory as Tools** (@ncrispino): Include memory (including filesystem) as callable tools for agents
+- **Backend Model List Auto-Update** (@ncrispino): Automatic model listing via provider APIs, third-party wrappers, or documented manual processes
+- **Automatic Context Compression** (@ncrispino): Automatic context compression to manage long conversations efficiently
 
 Key technical approach:
-- **System Reminders**: Mid-run injection during LLM streaming, support for context awareness, human feedback, safety, and memory reminders
-- **Memory as Tools**: Unified memory tool interface with store/retrieve/search operations, filesystem and vector store backends
+- **Backend Model List Auto-Update**: Native API implementation for OpenAI, Anthropic, Grok, Groq, Nebius; third-party wrappers where needed
+- **Automatic Context Compression**: Intelligent summarization with configurable thresholds and strategies
 
-For detailed milestones and technical specifications, see the [full v0.1.28 roadmap](ROADMAP_v0.1.28.md).
+For detailed milestones and technical specifications, see the [full v0.1.29 roadmap](ROADMAP_v0.1.29.md).
 
 ---
 
