@@ -1314,36 +1314,92 @@ def create_app(
                 status_code=404,
             )
 
-        # Get workspace path from display if available
-        workspace_path = getattr(display, "_workspace_path", None)
-        if workspace_path:
-            agent_workspace = Path(workspace_path) / agent_id
-        else:
-            # Fall back to default workspace pattern
-            agent_workspace = Path.cwd() / f"workspace_{agent_id}"
+        # Try to get workspace path from status.json first (more reliable during active coordination)
+        agent_workspace = None
+        if display.log_session_dir:
+            try:
+                import json
+
+                from massgen.logger_config import get_log_session_dir
+
+                log_dir = get_log_session_dir()
+                if log_dir:
+                    status_file = log_dir / "status.json"
+                    if status_file.exists():
+                        with open(status_file, "r") as f:
+                            status_data = json.load(f)
+
+                        # Get workspace path from status.json
+                        agents_data = status_data.get("agents", {})
+                        agent_data = agents_data.get(agent_id, {})
+                        workspace_paths = agent_data.get("workspace_paths", {})
+                        workspace_str = workspace_paths.get("workspace")
+
+                        if workspace_str:
+                            agent_workspace = Path(workspace_str)
+            except Exception as e:
+                print(f"[WebUI] Warning: Could not read workspace path from status.json: {e}")
+
+        # Fall back to display workspace path or default pattern
+        if not agent_workspace:
+            workspace_path = getattr(display, "_workspace_path", None)
+            if workspace_path:
+                agent_workspace = Path(workspace_path) / agent_id
+            else:
+                # Fall back to default workspace pattern
+                agent_workspace = Path.cwd() / f"workspace_{agent_id}"
 
         files = []
-        if agent_workspace.exists():
+        if agent_workspace and agent_workspace.exists():
             try:
-                for file_path in agent_workspace.rglob("*"):
-                    if file_path.is_file():
-                        rel_path = file_path.relative_to(agent_workspace)
-                        stat = file_path.stat()
-                        files.append(
-                            {
-                                "path": str(rel_path),
-                                "size": stat.st_size,
-                                "modified": stat.st_mtime,
-                                "operation": "create",  # For compatibility
-                            },
-                        )
+                # Use iterdir with limit instead of rglob to avoid scanning huge trees
+                # Limit to first 1000 files to prevent timeout
+                file_count = 0
+                max_files = 1000
+
+                def scan_directory(directory: Path, max_depth: int = 10, current_depth: int = 0):
+                    """Recursively scan directory with depth limit and file count limit."""
+                    nonlocal file_count
+
+                    if current_depth > max_depth or file_count >= max_files:
+                        return
+
+                    try:
+                        for item in directory.iterdir():
+                            if file_count >= max_files:
+                                break
+
+                            if item.is_file():
+                                rel_path = item.relative_to(agent_workspace)
+                                stat = item.stat()
+                                files.append(
+                                    {
+                                        "path": str(rel_path),
+                                        "size": stat.st_size,
+                                        "modified": stat.st_mtime,
+                                        "operation": "create",
+                                    },
+                                )
+                                file_count += 1
+                            elif item.is_dir():
+                                # Skip hidden directories and common ignore patterns
+                                if not item.name.startswith(".") and item.name not in ["__pycache__", "node_modules", ".git"]:
+                                    scan_directory(item, max_depth, current_depth + 1)
+                    except PermissionError:
+                        pass  # Skip directories we can't read
+
+                scan_directory(agent_workspace)
+
+                if file_count >= max_files:
+                    print(f"[WebUI] Warning: File limit reached for {agent_id} workspace. Showing first {max_files} files.")
+
             except Exception as e:
                 return JSONResponse(
                     {"error": str(e), "files": []},
                     status_code=500,
                 )
 
-        return {"files": files, "workspace_path": str(agent_workspace)}
+        return {"files": files, "workspace_path": str(agent_workspace) if agent_workspace else None}
 
     @app.get("/api/workspaces")
     async def list_workspaces():
@@ -3348,6 +3404,18 @@ async def run_coordination_with_history(
                 config_content=config,
             )
 
+            # IMPORTANT: Save initial status.json with workspace paths immediately
+            # This allows the WebUI to display workspace files right away without waiting
+            # for coordination to start
+            try:
+                orchestrator.coordination_tracker.save_status_file(
+                    display.log_session_dir,
+                    orchestrator=orchestrator,
+                )
+                print("[WebUI] Saved initial status.json with workspace paths")
+            except Exception as e:
+                print(f"[WebUI] Warning: Could not save initial status.json: {e}")
+
         # Create coordination UI with web display
         ui = CoordinationUI(
             display=display,
@@ -3712,6 +3780,18 @@ async def run_coordination(
                 config_path=str(resolved_path),
                 config_content=config,
             )
+
+            # IMPORTANT: Save initial status.json with workspace paths immediately
+            # This allows the WebUI to display workspace files right away without waiting
+            # for coordination to start
+            try:
+                orchestrator.coordination_tracker.save_status_file(
+                    display.log_session_dir,
+                    orchestrator=orchestrator,
+                )
+                print("[WebUI] Saved initial status.json with workspace paths")
+            except Exception as e:
+                print(f"[WebUI] Warning: Could not save initial status.json: {e}")
 
         # Create coordination UI with web display
         ui = CoordinationUI(
