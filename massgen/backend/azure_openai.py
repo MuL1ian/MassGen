@@ -99,7 +99,7 @@ class AzureOpenAIBackend(LLMBackend):
 
             # Modify messages to include workflow tool instructions if needed
             modified_messages = self._prepare_messages_with_workflow_tools(messages, workflow_tools) if has_workflow_tools else messages
-            
+
             # Filter out problematic tool messages for Azure OpenAI
             modified_messages = self._filter_tool_messages_for_azure(modified_messages)
 
@@ -111,7 +111,7 @@ class AzureOpenAIBackend(LLMBackend):
                     {
                         "workflow_tools_count": len(workflow_tools),
                         "workflow_tool_names": [t.get("function", {}).get("name") for t in workflow_tools],
-                        "system_message_length": len(modified_messages[0]["content"]) if modified_messages and modified_messages[0]["role"] == "system" else 0
+                        "system_message_length": len(modified_messages[0]["content"]) if modified_messages and modified_messages[0]["role"] == "system" else 0,
                     },
                     agent_id=agent_id,
                 )
@@ -225,7 +225,7 @@ class AzureOpenAIBackend(LLMBackend):
                     {"complete_response": complete_response},
                     agent_id=agent_id,
                 )
-                
+
                 workflow_tool_calls = self._extract_workflow_tool_calls(complete_response)
                 if workflow_tool_calls:
                     log_stream_chunk(
@@ -338,10 +338,10 @@ class AzureOpenAIBackend(LLMBackend):
         """Filter out tool messages that don't follow Azure OpenAI requirements."""
         filtered_messages = []
         last_message_had_tool_calls = False
-        
+
         for message in messages:
             role = message.get("role")
-            
+
             if role == "tool":
                 # Only include tool messages if the previous message had tool_calls
                 if last_message_had_tool_calls:
@@ -350,12 +350,8 @@ class AzureOpenAIBackend(LLMBackend):
             else:
                 filtered_messages.append(message)
                 # Check if this assistant message has tool_calls
-                last_message_had_tool_calls = (
-                    role == "assistant" and 
-                    "tool_calls" in message and 
-                    message["tool_calls"]
-                )
-        
+                last_message_had_tool_calls = role == "assistant" and "tool_calls" in message and message["tool_calls"]
+
         return filtered_messages
 
     def _extract_workflow_tool_calls(self, content: str) -> List[Dict[str, Any]]:
@@ -409,7 +405,7 @@ class AzureOpenAIBackend(LLMBackend):
             # AZURE OPENAI FALLBACK: Handle {"content":"..."} format and convert to new_answer
             azure_content_pattern = r'\{"content":"([^"]+)"\}'
             azure_matches = re.findall(azure_content_pattern, content)
-            
+
             if azure_matches:
                 # Take the last content match and convert to new_answer tool call
                 answer_content = azure_matches[-1]
@@ -475,7 +471,7 @@ class AzureOpenAIBackend(LLMBackend):
     def extract_tool_call_id(self, tool_call: Dict[str, Any]) -> str:
         """Extract tool call id from Chat Completions-style tool call."""
         return tool_call.get("id", "")
-    
+
     def get_filesystem_support(self) -> FilesystemSupport:
         """OpenAI supports filesystem through MCP servers."""
         return FilesystemSupport.MCP
