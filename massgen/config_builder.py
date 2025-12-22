@@ -3770,8 +3770,8 @@ class ConfigBuilder:
                 # Multimodal tools enabled for all agents
                 "enable_multimodal_tools": True,
                 # Default generation backends (agents can override)
-                "image_generation_backend": "google",  # Google Imagen
-                "video_generation_backend": "google",  # Google Veo
+                "image_generation_backend": "openai",  # OpenAI responses image gen
+                "video_generation_backend": "openai",  # OpenAI Sora2
                 "audio_generation_backend": "openai",  # OpenAI TTS
                 "coordination": {
                     "max_orchestration_restarts": 2,

@@ -22,6 +22,7 @@ import {
   DocxPreview,
   XlsxPreview,
   PptxPreview,
+  VideoPreview,
   SandpackPreview,
 } from './artifactRenderers';
 
@@ -37,6 +38,21 @@ type ViewMode = 'preview' | 'source';
 // Get file name from path
 function getFileName(path: string): string {
   return path.split('/').pop() || path;
+}
+
+function base64ToBlob(base64: string, mimeType?: string): Blob | null {
+  try {
+    const byteChars = atob(base64);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      byteNumbers[i] = byteChars.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType || 'application/octet-stream' });
+  } catch (err) {
+    console.error('Failed to decode base64 content for download', err);
+    return null;
+  }
 }
 
 // Format file size for display
@@ -102,7 +118,18 @@ export function ArtifactPreviewModal({
   // Detect artifact type
   const artifactType = useMemo((): ArtifactType => {
     if (!content) return 'code';
-    return detectArtifactType(filePath, content.mimeType, content.content);
+    const detected = detectArtifactType(filePath, content.mimeType, content.content);
+    const lowerPath = filePath.toLowerCase();
+    if (
+      content.binary &&
+      (content.mimeType?.startsWith('video') ||
+        lowerPath.endsWith('.mp4') ||
+        lowerPath.endsWith('.webm') ||
+        lowerPath.endsWith('.mov'))
+    ) {
+      return 'video';
+    }
+    return detected;
   }, [filePath, content]);
 
   const artifactConfig = useMemo(() => getArtifactConfig(artifactType), [artifactType]);
@@ -114,6 +141,13 @@ export function ArtifactPreviewModal({
       setViewMode('preview'); // Default to preview mode
     }
   }, [isOpen, filePath, workspacePath, fetchFile]);
+
+  // Ensure binary videos snap back to preview mode when detected
+  useEffect(() => {
+    if (artifactType === 'video') {
+      setViewMode('preview');
+    }
+  }, [artifactType]);
 
   // Clear content when modal closes
   useEffect(() => {
@@ -217,7 +251,10 @@ export function ArtifactPreviewModal({
   const handleDownload = useCallback(() => {
     if (!content?.content) return;
 
-    const blob = new Blob([content.content], { type: content.mimeType || 'text/plain' });
+    const blob = content.binary
+      ? base64ToBlob(content.content, content.mimeType)
+      : new Blob([content.content], { type: content.mimeType || 'text/plain' });
+    if (!blob) return;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -269,6 +306,8 @@ export function ArtifactPreviewModal({
         return <XlsxPreview content={content.content} fileName={fileName} />;
       case 'pptx':
         return <PptxPreview content={content.content} fileName={fileName} workspacePath={workspacePath} filePath={filePath} />;
+      case 'video':
+        return <VideoPreview content={content.content} fileName={fileName} mimeType={content.mimeType} />;
       case 'react':
         return <SandpackPreview content={content.content} fileName={fileName} />;
       default:

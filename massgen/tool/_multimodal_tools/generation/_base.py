@@ -95,7 +95,7 @@ DEFAULT_MODELS: Dict[str, Dict[MediaType, str]] = {
     },
     "google": {
         MediaType.IMAGE: "imagen-4.0-fast-generate-001",  # gemini-3-pro-image-preview
-        MediaType.VIDEO: "veo-3.1-fast-generate-001",
+        MediaType.VIDEO: "veo-3.1-generate-preview",
     },
     "openrouter": {
         MediaType.IMAGE: "google/gemini-2.5-flash-image-preview",
@@ -104,8 +104,8 @@ DEFAULT_MODELS: Dict[str, Dict[MediaType, str]] = {
 
 # Priority order for auto-selection per media type
 BACKEND_PRIORITY: Dict[MediaType, List[str]] = {
-    MediaType.IMAGE: ["google", "openai", "openrouter"],
-    MediaType.VIDEO: ["google", "openai"],
+    MediaType.IMAGE: ["openai", "google", "openrouter"],
+    MediaType.VIDEO: ["openai", "google"],
     MediaType.AUDIO: ["openai"],
 }
 

@@ -62,7 +62,17 @@ async def _generate_video_openai(config: GenerationConfig) -> GenerationResult:
     try:
         client = OpenAI(api_key=api_key)
         model = config.model or get_default_model("openai", MediaType.VIDEO)
-        duration = config.duration or 4  # Default 4 seconds
+
+        # OpenAI Sora API only allows 4, 8, or 12 seconds
+        SORA_VALID_DURATIONS = [4, 8, 12]
+        requested_duration = config.duration or 4
+        # Find the closest valid duration
+        duration = min(SORA_VALID_DURATIONS, key=lambda x: abs(x - requested_duration))
+
+        if requested_duration not in SORA_VALID_DURATIONS:
+            logger.warning(
+                f"OpenAI Sora duration adjusted from {requested_duration}s to {duration}s " f"(valid values: {SORA_VALID_DURATIONS})",
+            )
 
         start_time = time.time()
 
@@ -147,7 +157,17 @@ async def _generate_video_google(config: GenerationConfig) -> GenerationResult:
 
         client = genai.Client(api_key=api_key)
         model = config.model or get_default_model("google", MediaType.VIDEO)
-        duration = config.duration or 8  # Veo default is 8 seconds (supports 5-8)
+
+        # Google Veo supports 4-8 seconds duration
+        VEO_MIN_DURATION = 4
+        VEO_MAX_DURATION = 8
+        requested_duration = config.duration or VEO_MAX_DURATION
+        duration = max(VEO_MIN_DURATION, min(VEO_MAX_DURATION, requested_duration))
+
+        if requested_duration != duration:
+            logger.warning(
+                f"Google Veo duration clamped from {requested_duration}s to {duration}s " f"(valid range: {VEO_MIN_DURATION}-{VEO_MAX_DURATION}s)",
+            )
 
         start_time = time.time()
 

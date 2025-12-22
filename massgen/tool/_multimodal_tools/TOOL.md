@@ -288,9 +288,9 @@ orchestrator:
   enable_multimodal_tools: true
 
   # Set default backends for all agents
-  image_generation_backend: "google"      # Use Google Imagen for images
-  video_generation_backend: "google"      # Use Google Veo for video
-  audio_generation_backend: "openai"      # OpenAI TTS for audio
+  image_generation_backend: "openai"
+  video_generation_backend: "openai"
+  audio_generation_backend: "openai"
 
   # Optionally set default models
   image_generation_model: "imagen-3.0-generate-002"

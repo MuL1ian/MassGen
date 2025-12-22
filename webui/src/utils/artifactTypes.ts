@@ -13,6 +13,7 @@ export type ArtifactType =
   | 'markdown'   // Markdown documents
   | 'pdf'        // PDF documents
   | 'image'      // Images (PNG, JPG, GIF, WebP)
+  | 'video'      // Videos (MP4/WebM/MOV)
   | 'docx'       // Word documents
   | 'xlsx'       // Excel spreadsheets
   | 'pptx'       // PowerPoint presentations
@@ -57,6 +58,11 @@ const extensionMap: Record<string, ArtifactType> = {
   'gif': 'image',
   'webp': 'image',
 
+  // Video
+  'mp4': 'video',
+  'webm': 'video',
+  'mov': 'video',
+
   // Office documents
   'docx': 'docx',
   'xlsx': 'xlsx',
@@ -73,6 +79,9 @@ const mimeTypeMap: Record<string, ArtifactType> = {
   'image/jpeg': 'image',
   'image/gif': 'image',
   'image/webp': 'image',
+  'video/mp4': 'video',
+  'video/webm': 'video',
+  'video/quicktime': 'video',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
@@ -87,6 +96,7 @@ const artifactConfigs: Record<ArtifactType, Omit<ArtifactConfig, 'type'>> = {
   markdown: { canPreview: true, label: 'Markdown Preview', icon: '📝' },
   pdf: { canPreview: true, label: 'PDF Document', icon: '📄' },
   image: { canPreview: true, label: 'Image', icon: '🖼️' },
+  video: { canPreview: true, label: 'Video', icon: '🎬' },
   docx: { canPreview: true, label: 'Word Document', icon: '📘' },
   xlsx: { canPreview: true, label: 'Excel Spreadsheet', icon: '📊' },
   pptx: { canPreview: true, label: 'PowerPoint', icon: '📽️' },

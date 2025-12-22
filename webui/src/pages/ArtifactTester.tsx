@@ -19,6 +19,7 @@ import {
   DocxPreview,
   XlsxPreview,
   PptxPreview,
+  VideoPreview,
   SandpackPreview,
 } from '../components/artifactRenderers';
 
@@ -43,7 +44,15 @@ export function ArtifactTester() {
   const [isUploading, setIsUploading] = useState(false);
 
   // Detect artifact type
-  const artifactType = file ? detectArtifactType(file.name, file.type, file.content) : 'code';
+  const artifactType = file
+    ? (() => {
+        const detected = detectArtifactType(file.name, file.type, file.content);
+        if (file.type.startsWith('video')) return 'video';
+        const lower = file.name.toLowerCase();
+        if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')) return 'video';
+        return detected;
+      })()
+    : 'code';
   const artifactConfig = getArtifactConfig(artifactType);
 
   // Check if this file type needs Docker conversion (DOCX, PPTX)
@@ -96,8 +105,16 @@ export function ArtifactTester() {
     setWorkspaceInfo(null);
 
     try {
-      // Read as text for text-based files
-      const textContent = await selectedFile.text();
+      const ext = selectedFile.name.toLowerCase().split('.').pop() || '';
+      const mime = selectedFile.type || '';
+      const isVideo = mime.startsWith('video') || ['mp4', 'webm', 'mov'].includes(ext);
+      const isPdf = mime === 'application/pdf' || ext === 'pdf';
+      const isImage = mime.startsWith('image') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
+      const isOffice = ['docx', 'xlsx', 'pptx'].includes(ext);
+      const treatAsBinary = isVideo || isPdf || isImage || isOffice;
+
+      // Read as text only for text-like files to avoid massive binary strings
+      const textContent = treatAsBinary ? '' : await selectedFile.text();
 
       // Read as base64 for binary files
       const base64Content = await new Promise<string>((resolve, reject) => {
@@ -117,7 +134,7 @@ export function ArtifactTester() {
         content: textContent,
         base64: base64Content,
         size: selectedFile.size,
-        type: selectedFile.type,
+        type: selectedFile.type || (isVideo ? 'video/mp4' : ''),
       });
 
       console.log('File loaded:', {
@@ -168,7 +185,7 @@ export function ArtifactTester() {
   }, []);
 
   // Determine which content to use (text vs base64)
-  const isBinaryType = ['docx', 'xlsx', 'pptx', 'pdf', 'image'].includes(artifactType);
+  const isBinaryType = ['docx', 'xlsx', 'pptx', 'pdf', 'image', 'video'].includes(artifactType);
   const contentToUse = file ? (isBinaryType ? file.base64 : file.content) : '';
 
   // Render the appropriate preview
@@ -210,15 +227,23 @@ export function ArtifactTester() {
             filePath={workspaceInfo?.filePath}
           />
         );
+      case 'video':
+        return <VideoPreview content={file.base64} fileName={fileName} mimeType={file.type} />;
       case 'react':
         return <SandpackPreview content={file.content} fileName={fileName} />;
       default:
         return (
           <div className="p-4">
-            <pre className="whitespace-pre-wrap text-sm text-gray-300 font-mono">
-              {file.content.substring(0, 5000)}
-              {file.content.length > 5000 && '\n... (truncated)'}
-            </pre>
+            {file.content ? (
+              <pre className="whitespace-pre-wrap text-sm text-gray-300 font-mono">
+                {file.content.substring(0, 5000)}
+                {file.content.length > 5000 && '\n... (truncated)'}
+              </pre>
+            ) : (
+              <div className="text-sm text-gray-400">
+                Binary file loaded. Use preview or download above.
+              </div>
+            )}
           </div>
         );
     }
@@ -252,7 +277,7 @@ export function ArtifactTester() {
             <Upload className="w-12 h-12 mx-auto mb-4 text-gray-500" />
             <p className="text-lg mb-2">Drop a file here or click to select</p>
             <p className="text-sm text-gray-500 mb-4">
-              Supports: HTML, JSX/TSX, SVG, Markdown, PDF, DOCX, XLSX, PPTX, Images, Mermaid
+              Supports: HTML, JSX/TSX, SVG, Markdown, PDF, DOCX, XLSX, PPTX, Images, Video, Mermaid
             </p>
             <label className="inline-block">
               <input

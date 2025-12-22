@@ -1816,6 +1816,13 @@ Python scripts you'll write. Document BEFORE writing them:
 - Files this workflow produces
 - Formats and locations
 
+## Verification
+How to verify the output works (output-first approach):
+- For code: Run it, check output matches expectations
+- For websites: Screenshot and view, check layout/styling
+- For files: Open and inspect contents
+- For data: Validate format and values
+
 ## Learnings
 (Add after execution)
 
@@ -1855,44 +1862,98 @@ After execution, the actual scripts live in `scripts/` and can be reused.
 
 1. **BEFORE starting work**: Create `tasks/evolving_skill/SKILL.md` with your workflow plan
 2. **During execution**: Follow your plan, create scripts as documented
-3. **AFTER completing work**: Update SKILL.md with Learnings section
+3. **BEFORE answering**: Verify outputs work (run code, view visuals, check files)
+4. **AFTER completing work**: Update SKILL.md with Learnings section
 
 ### Key Principles
 
 1. **Be specific** - Workflow steps should be actionable, not vague
 2. **Document tools upfront** - Plan scripts before writing them
-3. **Update with learnings** - The skill improves through use
-4. **Keep scripts reusable** - Design tools to work in similar future tasks"""
+3. **Verify outputs first** - Test the result as a user would (run code, view websites, check files)
+4. **Update with learnings** - The skill improves through use
+5. **Keep scripts reusable** - Design tools to work in similar future tasks"""
 
 
-class MultimodalToolsSection(SystemPromptSection):
+class OutputFirstVerificationSection(SystemPromptSection):
     """
-    Guidance for using the read_media tool to analyze images, audio, and video.
+    Core principle: verify outcomes, not just implementations.
 
-    MEDIUM priority - important when multimodal tools are enabled.
+    HIGH priority - fundamental operating principle for quality work.
+    Always included regardless of tools available.
     """
 
     def __init__(self):
         super().__init__(
-            title="Multimodal Tools",
-            priority=Priority.MEDIUM,
-            xml_tag="multimodal_tools",
+            title="Output-First Verification",
+            priority=Priority.HIGH,
+            xml_tag="output_first_verification",
         )
 
     def build_content(self) -> str:
-        return """## Multimodal Tools
+        return """## Output-First Verification
 
-You have access to the `read_media` tool for analyzing media files.
+**Core Principle: Verify your work the way a user would experience it.**
 
-### read_media Tool
+Before checking code or implementation details, verify the actual OUTPUT:
 
-Use this tool to read and understand images, audio, and video files:
+| Artifact Type | Verify By | Then Check |
+|--------------|-----------|------------|
+| Script/Code | Run it, observe output | Implementation details |
+| Website/App | View it in browser | HTML/CSS/JS code |
+| Generated files | Open and read contents | Generation logic |
+| API integration | Make test calls | Request/response code |
+| Data processing | Check output data | Pipeline code |
 
+**Why this matters:**
+- Code that "looks correct" but crashes has **failed**
+- A file generator that runs but produces wrong content has **failed**
+- An API call that executes but returns errors has **failed**
+
+**The goal is to verify OUTCOMES, not implementations.**
+
+### Apply at every stage:
+1. **During development** - test as you build, don't wait until "done"
+2. **Before answering** - verify deliverables work as intended
+3. **During evaluation** - judge by results, not code elegance
+
+### Verification examples:
+- **Code**: `python script.py` → check output matches expectations
+- **Files**: Read generated file → verify contents are correct
+- **Websites**: Open in browser or screenshot → verify it renders properly
+- **APIs**: Make test request → verify response is valid"""
+
+
+class MultimodalToolsSection(SystemPromptSection):
+    """
+    Guidance for using read_media to verify visual artifacts.
+
+    MEDIUM priority - extends output-first verification to visual content.
+    Only included when multimodal tools are enabled.
+    """
+
+    def __init__(self):
+        super().__init__(
+            title="Visual Verification Tools",
+            priority=Priority.MEDIUM,
+            xml_tag="visual_verification_tools",
+        )
+
+    def build_content(self) -> str:
+        return """## Visual Verification with read_media
+
+For visual artifacts, use `read_media` to apply output-first verification:
+
+### When to use read_media:
+- **Websites/UIs**: Screenshot and analyze layout, styling, content
+- **Diagrams/Charts**: Verify labels are readable, data is correct
+- **Generated images**: Check quality and correctness
+- **Videos**: Verify content matches requirements
+
+### Tool usage:
 ```
-read_media(file_path="path/to/file.png")
-read_media(file_path="screenshot.jpg", prompt="What text is visible?")
-read_media(file_path="audio.mp3", prompt="Transcribe this audio")
-read_media(file_path="video.mp4", prompt="Describe what happens in this video")
+read_media(file_path="screenshot.png", prompt="Does the layout look correct?")
+read_media(file_path="diagram.png", prompt="Are all labels readable?")
+read_media(file_path="output.mp4", prompt="Does this show the expected content?")
 ```
 
 **Supported formats:**
@@ -1900,19 +1961,11 @@ read_media(file_path="video.mp4", prompt="Describe what happens in this video")
 - Audio: mp3, wav, m4a, ogg, flac, aac
 - Video: mp4, mov, avi, mkv, webm
 
-**Parameters:**
-- `file_path` (required): Path to the media file (relative to your workspace or absolute)
-- `prompt` (optional): Specific question about the content
-
-**When to use:**
-- To verify visual output (screenshots, generated images)
-- To understand image contents for tasks
-- To transcribe or analyze audio
-- To understand video content
-
-**Example workflow for verifying a website:**
-1. Take a screenshot: `execute_command("screenshot output.png")`
-2. Analyze it: `read_media(file_path="output.png", prompt="Does the website look correct?")`"""
+### Website verification workflow:
+1. Start server or open HTML file
+2. Take screenshot (Playwright or screenshot command)
+3. Analyze: `read_media(file_path="screenshot.png", prompt="Does this look professional?")`
+4. Fix issues based on what you SEE, not what code suggests"""
 
 
 class SystemPromptBuilder:

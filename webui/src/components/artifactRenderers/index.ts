@@ -13,4 +13,5 @@ export { MermaidPreview } from './MermaidPreview';
 export { DocxPreview } from './DocxPreview';
 export { XlsxPreview } from './XlsxPreview';
 export { PptxPreview } from './PptxPreview';
+export { VideoPreview } from './VideoPreview';
 export { SandpackPreview } from './SandpackPreview';

@@ -27,6 +27,7 @@ from massgen.system_prompt_sections import (
     FilesystemOperationsSection,
     MemorySection,
     MultimodalToolsSection,
+    OutputFirstVerificationSection,
     PlanningModeSection,
     PostEvaluationSection,
     SkillsSection,
@@ -119,6 +120,9 @@ class SystemMessageBuilder:
 
         # PRIORITY 1 (CRITICAL): Core Behaviors - HOW to act
         builder.add_section(CoreBehaviorsSection())
+
+        # PRIORITY 1 (HIGH): Output-First Verification - verify outcomes, not implementations
+        builder.add_section(OutputFirstVerificationSection())
 
         # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer primitives
         voting_sensitivity = self.message_templates._voting_sensitivity

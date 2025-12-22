@@ -7,7 +7,7 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History, Vote, ArrowRight, Eye, GitBranch, ExternalLink } from 'lucide-react';
+import { X, FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History, Vote, ArrowRight, Eye, GitBranch, ExternalLink, Bell } from 'lucide-react';
 import { useAgentStore, selectAnswers, selectAgents, selectAgentOrder, selectSelectedAgent, selectFinalAnswer, selectVoteDistribution, resolveAnswerContent } from '../stores/agentStore';
 import type { Answer, AnswerWorkspace, TimelineNode as TimelineNodeType } from '../types';
 import { ArtifactPreviewModal } from './ArtifactPreviewModal';
@@ -268,6 +268,60 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
   // Track if we've auto-previewed for the current workspace
   const hasAutoPreviewedRef = useRef<string | null>(null);
 
+  // New answer notification state
+  const [newAnswerNotification, setNewAnswerNotification] = useState<{
+    show: boolean;
+    answerLabel: string;
+    agentId: string;
+    workspacePath: string;
+  } | null>(null);
+  const lastKnownAnswerCountRef = useRef<number>(0);
+
+  // Track new answers while on workspace tab
+  useEffect(() => {
+    if (activeTab === 'workspace' && isOpen) {
+      // If we have more answers than before, show notification
+      if (answers.length > lastKnownAnswerCountRef.current && lastKnownAnswerCountRef.current > 0) {
+        // Find the newest answer
+        const newestAnswer = [...answers].sort((a, b) => b.timestamp - a.timestamp)[0];
+        if (newestAnswer) {
+          const agentIdx = agentOrder.indexOf(newestAnswer.agentId) + 1;
+          const answerLabel = newestAnswer.answerNumber === 0
+            ? 'Final Answer'
+            : `Agent ${agentIdx} Answer ${newestAnswer.answerNumber}`;
+
+          setNewAnswerNotification({
+            show: true,
+            answerLabel,
+            agentId: newestAnswer.agentId,
+            workspacePath: '', // Will be populated from answerWorkspaces
+          });
+        }
+      }
+      lastKnownAnswerCountRef.current = answers.length;
+    }
+  }, [answers.length, activeTab, isOpen, agentOrder, answers]);
+
+  // Update answer count when switching tabs
+  useEffect(() => {
+    if (activeTab === 'workspace') {
+      lastKnownAnswerCountRef.current = answers.length;
+    }
+  }, [activeTab, answers.length]);
+
+  // Handle notification actions
+  const handleViewNewAnswer = useCallback(() => {
+    if (newAnswerNotification) {
+      // Switch to answers tab
+      setActiveTab('answers');
+      setNewAnswerNotification(null);
+    }
+  }, [newAnswerNotification]);
+
+  const handleDismissNotification = useCallback(() => {
+    setNewAnswerNotification(null);
+  }, []);
+
   // Handle file click from workspace browser - sets file for inline preview
   const handleFileClick = useCallback((filePath: string) => {
     setSelectedFilePath(filePath);
@@ -429,14 +483,23 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
   }, [isOpen, activeTab, fetchWorkspaces, fetchAnswerWorkspaces]);
 
 
+  // Track previous workspace path to detect actual changes
+  const prevWorkspacePathRef = useRef<string | null>(null);
+
   // Fetch files when workspace is selected
   // Also clear selected file when workspace changes to avoid showing stale content
   useEffect(() => {
-    if (activeWorkspace) {
-      // Clear the selected file path when workspace changes
+    const currentPath = activeWorkspace?.path || null;
+    const pathChanged = prevWorkspacePathRef.current !== currentPath;
+
+    if (activeWorkspace && pathChanged) {
+      prevWorkspacePathRef.current = currentPath;
+      // Clear the selected file path when workspace actually changes
       setSelectedFilePath('');
       // Reset auto-preview tracking for this new workspace
       hasAutoPreviewedRef.current = null;
+      // Clear workspace files first to show loading state
+      setWorkspaceFiles([]);
       fetchWorkspaceFiles(activeWorkspace);
     }
   }, [activeWorkspace, fetchWorkspaceFiles]);
@@ -985,15 +1048,11 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                           onChange={(e) => {
                             const label = e.target.value;
                             setSelectedAnswerLabel(label);
-                            setSelectedFilePath(''); // Clear selection for auto-preview
-                            fetchWorkspaces();
-                            fetchAnswerWorkspaces();
 
                             if (label === 'current') {
                               // Use current workspace for this agent
+                              // The effect watching activeWorkspace will handle fetching
                               setSelectedHistoricalWorkspace(null);
-                              const ws = workspacesByAgent[selectedAgentWorkspace]?.current;
-                              if (ws) fetchWorkspaceFiles(ws);
                             } else {
                               // Find answer workspace by label and set as active
                               const answerWs = answerWorkspaces.find(w => w.answerLabel === label);
@@ -1003,8 +1062,8 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                                   path: answerWs.workspacePath,
                                   type: 'historical'
                                 };
+                                // The effect watching activeWorkspace will handle fetching
                                 setSelectedHistoricalWorkspace(historicalWs);
-                                fetchWorkspaceFiles(historicalWs);
                               }
                             }
                           }}
@@ -1057,6 +1116,48 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                     {workspaceError}
                   </div>
                 )}
+
+                {/* New Answer Notification */}
+                <AnimatePresence>
+                  {newAnswerNotification && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      className="mx-4 mt-3 p-3 bg-blue-900/40 border border-blue-600/50 rounded-lg flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-600/30 rounded-full">
+                          <Bell className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-blue-200 font-medium">
+                            New answer available
+                          </p>
+                          <p className="text-xs text-blue-300/70">
+                            {newAnswerNotification.answerLabel} has been submitted
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleViewNewAnswer}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors flex items-center gap-1.5"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          View Answer
+                        </button>
+                        <button
+                          onClick={handleDismissNotification}
+                          className="p-1.5 text-blue-300 hover:text-white hover:bg-blue-700/50 rounded-lg transition-colors"
+                          title="Dismiss"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* Split View: File Tree + Preview */}
                 <div className="flex-1 flex overflow-hidden">

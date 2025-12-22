@@ -21,6 +21,7 @@ import {
   DocxPreview,
   XlsxPreview,
   PptxPreview,
+  VideoPreview,
   SandpackPreview,
 } from './artifactRenderers';
 
@@ -58,6 +59,24 @@ function isWebAsset(filePath: string): boolean {
 function isImageFile(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase();
   return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp'].includes(ext || '');
+}
+
+/**
+ * Convert base64-encoded content into a Blob for downloads.
+ */
+function base64ToBlob(base64: string, mimeType?: string): Blob | null {
+  try {
+    const byteChars = atob(base64);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      byteNumbers[i] = byteChars.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType || 'application/octet-stream' });
+  } catch (err) {
+    console.error('Failed to decode base64 content for download', err);
+    return null;
+  }
 }
 
 /**
@@ -106,7 +125,19 @@ export function InlineArtifactPreview({
   // Detect artifact type
   const artifactType = useMemo((): ArtifactType => {
     if (!content) return 'code';
-    return detectArtifactType(filePath, content.mimeType, content.content);
+    const detected = detectArtifactType(filePath, content.mimeType, content.content);
+    // Force video rendering for binary video payloads even if detection fails
+    const lowerPath = filePath.toLowerCase();
+    if (
+      content.binary &&
+      (content.mimeType?.startsWith('video') ||
+        lowerPath.endsWith('.mp4') ||
+        lowerPath.endsWith('.webm') ||
+        lowerPath.endsWith('.mov'))
+    ) {
+      return 'video';
+    }
+    return detected;
   }, [filePath, content]);
 
   const artifactConfig = useMemo(() => getArtifactConfig(artifactType), [artifactType]);
@@ -132,6 +163,12 @@ export function InlineArtifactPreview({
       setViewMode('preview');
     }
   }, [filePath, workspacePath, fetchFile]);
+  // Force preview for detected videos to avoid raw base64 view
+  useEffect(() => {
+    if (artifactType === 'video') {
+      setViewMode('preview');
+    }
+  }, [artifactType]);
 
   // Clear content when component unmounts or path becomes empty
   useEffect(() => {
@@ -245,7 +282,10 @@ export function InlineArtifactPreview({
   const handleDownload = useCallback(() => {
     if (!content?.content) return;
 
-    const blob = new Blob([content.content], { type: content.mimeType || 'text/plain' });
+    const blob = content.binary
+      ? base64ToBlob(content.content, content.mimeType)
+      : new Blob([content.content], { type: content.mimeType || 'text/plain' });
+    if (!blob) return;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -315,6 +355,14 @@ export function InlineArtifactPreview({
             fileName={fileName}
             workspacePath={workspacePath}
             filePath={filePath}
+          />
+        );
+      case 'video':
+        return (
+          <VideoPreview
+            content={content.content}
+            fileName={fileName}
+            mimeType={content.mimeType}
           />
         );
       case 'react':
