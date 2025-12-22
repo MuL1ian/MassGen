@@ -157,9 +157,9 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.28 (December 22, 2025)** - Multimodal Backend Integration & Artifact Previews
+**v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
 
-Multimodal understanding now uses provider's built-in APIs (Gemini, OpenAI) instead of external tools. Unified ``generate_media`` tool for images, videos, and audio. Web UI artifact previewer for PDFs, documents, images, and code. New ``min_answers_before_voting`` coordination option. Azure OpenAI workflow fixes.
+Unified multimodal understanding via ``read_media`` tool and generation via ``generate_media`` tool. Web UI artifact previewer for PDFs, documents, images, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
 
 **v0.1.27 (December 19, 2025)** - Session Sharing & Log Analysis
 

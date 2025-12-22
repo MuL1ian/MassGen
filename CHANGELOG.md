@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
-**v0.1.28 (December 22, 2025)** - Multimodal Backend Integration & Artifact Previews
-Multimodal understanding now uses provider's built-in APIs (Gemini, OpenAI) instead of external tools. Unified multimodal generation via `generate_media` tool. Web UI artifact previewer for documents, images, PDFs, and code. New `min_answers_before_voting` coordination option. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
+**v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
+Unified multimodal understanding via `read_media` tool and generation via `generate_media` tool. Web UI artifact previewer for documents, images, PDFs, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
 
 **v0.1.27 (December 19, 2025)** - Session Sharing, Log Analysis & Config Builder Enhancements
 Session sharing via GitHub Gist with `massgen export`. New `massgen logs` CLI command for run log analysis. Per-LLM call time tracking. Gemini 3 Flash model support. CLI config builder with per-agent web search, system messages, and coordination settings. Web UI context paths wizard and "Open in Browser" button.
@@ -23,23 +23,15 @@ New Web UI setup wizard for guided first-run configuration, Docker diagnostics m
 ## [0.1.28] - 2025-12-22
 
 ### Added
-- **Minimum Answers Before Voting**: New orchestrator configuration option requiring agents to submit answers before voting
-  - Forces deliberation before convergence with `min_answers_before_voting` setting
-  - Integrated into CLI quickstart wizard and Web UI CoordinationStep
-
 - **Web UI Artifact Previewer**: Preview workspace artifacts directly in the web interface
   - Support for multiple formats: PDF, DOCX, PPTX, XLSX, images, HTML, SVG, Markdown, Mermaid diagrams
   - New `ArtifactPreviewModal` and `InlineArtifactPreview` components with Sandpack code preview
 
 ### Changed
-- **Multimodal Understanding Backend Integration**: Multimodal support now uses provider's built-in APIs directly
-  - Image, audio, and video understanding via `read_media` tool using each provider's native multimodal API (Gemini, OpenAI) instead of routing through external tools
-  - Backend selector automatically routes to appropriate provider (Gemini, OpenAI, OpenRouter)
-  - Enhanced `gemini.py` and `chat_completions.py` with multimodal content processing
-
-- **Multimodal Generation Consolidation**: Unified `generate_media` tool with provider selection
-  - New `generation/` module with `_image.py`, `_video.py`, `_audio.py` implementations
-  - Backend selector (`_selector.py`) for OpenAI (DALL-E, Sora, TTS), Google (Imagen, Veo), OpenRouter
+- **Unified Multimodal Tools**: Consolidated `read_media` for understanding and `generate_media` for generation
+  - Understanding: Image, audio, and video analysis with backend selector routing to Gemini, OpenAI, or OpenRouter
+  - Generation: Create images (DALL-E, Imagen), videos (Sora, Veo), and audio (TTS) with provider selection
+  - New `generation/` module with modular `_image.py`, `_video.py`, `_audio.py` implementations
 
 - **OpenRouter Tool-Capable Model Filtering**: Model list now filters to only show models supporting tool calling
   - Checks `supported_parameters` for "tools" capability before including models

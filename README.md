@@ -161,10 +161,8 @@ This project started with the "threads of thought" and "iterative refinement" id
 **🎉 Released: December 22, 2025**
 
 **What's New in v0.1.28:**
-- **🖼️ Native Multimodal Understanding** - Image, audio, and video analysis using provider's built-in APIs (Gemini, OpenAI) instead of external tools
-- **🎨 Unified Media Generation** - Create images, videos, and audio with the consolidated `generate_media` tool
+- **🖼️ Unified Multimodal Tools** - Analyze media with `read_media` and create media with `generate_media` (images, audio, video)
 - **📄 Web UI Artifact Previewer** - Preview PDFs, DOCX, PPTX, images, HTML, SVG, Markdown, and Mermaid diagrams
-- **🗳️ Minimum Answers Before Voting** - New `min_answers_before_voting` option for coordination control
 
 **Bug Fixes:**
 - Azure OpenAI tool calls and workflow integration
@@ -176,15 +174,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 # Install or upgrade
 pip install --upgrade massgen
 
-# Multimodal understanding - analyze images with native backend support
+# Multimodal understanding - analyze images with read_media tool
 massgen --config @examples/tools/custom_tools/multimodal_tools/understand_image \
   "Describe what you see in this image"
 
-# Generate images with unified media tool
+# Generate images with generate_media tool
 massgen --config @examples/tools/custom_tools/multimodal_tools/text_to_image_generation_single \
   "Create an image of a futuristic city at sunset"
 
-# Multi-agent collaboration with minimum voting threshold
+# Multi-agent collaboration
 massgen --config @examples/basic/multi/three_agents_default \
   "Analyze the impact of AI on software development"
 ```
@@ -1130,13 +1128,12 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 **🎉 Released: December 22, 2025**
 
 #### Multimodal Enhancements
-- **Native Multimodal Understanding**: Image, audio, and video analysis using provider's built-in APIs (Gemini, OpenAI) instead of routing through external tools
+- **Unified Multimodal Understanding**: Consolidated `read_media` tool for image, audio, and video analysis
 - **Unified Media Generation**: Consolidated `generate_media` tool with provider selection for images (DALL-E, Imagen), videos (Sora, Veo), and audio (TTS)
 - **OpenRouter Model Filtering**: Automatic filtering to only display models that support tool calling
 
-#### Web UI & Coordination
+#### Web UI
 - **Artifact Previewer**: Preview workspace artifacts directly in the web interface (PDF, DOCX, PPTX, XLSX, images, HTML, SVG, Markdown, Mermaid)
-- **Minimum Answers Before Voting**: New `min_answers_before_voting` coordination option requiring deliberation before convergence
 
 #### Bug Fixes
 - Azure OpenAI tool calls, parameter filtering, and message validation
