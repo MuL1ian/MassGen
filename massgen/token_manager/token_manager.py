@@ -117,6 +117,47 @@ class ToolExecutionMetric:
 
 
 @dataclass
+class APICallMetric:
+    """Metrics for a single LLM API call.
+
+    Tracks timing for the actual API request/response cycle,
+    separate from tool execution time.
+    """
+
+    agent_id: str
+    round_number: int
+    call_index: int  # Which API call in this round (0-indexed)
+    backend_name: str  # "OpenAI", "Anthropic", "Google", etc.
+    model: str
+    start_time: float
+    end_time: float = 0.0
+    time_to_first_token_ms: float = 0.0  # TTFT for streaming
+    success: bool = True
+    error_message: Optional[str] = None
+
+    @property
+    def duration_ms(self) -> float:
+        """Total API call duration in milliseconds."""
+        return (self.end_time - self.start_time) * 1000 if self.end_time else 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "agent_id": self.agent_id,
+            "round_number": self.round_number,
+            "call_index": self.call_index,
+            "backend_name": self.backend_name,
+            "model": self.model,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration_ms": round(self.duration_ms, 2),
+            "time_to_first_token_ms": round(self.time_to_first_token_ms, 2),
+            "success": self.success,
+            "error_message": self.error_message,
+        }
+
+
+@dataclass
 class RoundTokenUsage:
     """Token usage for a single coordination round.
 
@@ -150,6 +191,11 @@ class RoundTokenUsage:
     start_time: float = 0.0
     end_time: float = 0.0
 
+    # API call timing (pure LLM time, excluding tool execution)
+    api_calls_count: int = 0
+    api_time_ms: float = 0.0
+    avg_ttft_ms: float = 0.0  # Average time to first token
+
     @property
     def duration_ms(self) -> float:
         """Round duration in milliseconds."""
@@ -174,6 +220,9 @@ class RoundTokenUsage:
             "start_time": self.start_time,
             "end_time": self.end_time,
             "duration_ms": round(self.duration_ms, 2),
+            "api_calls_count": self.api_calls_count,
+            "api_time_ms": round(self.api_time_ms, 2),
+            "avg_ttft_ms": round(self.avg_ttft_ms, 2),
         }
 
 
@@ -195,6 +244,7 @@ class TokenCostCalculator:
     PROVIDER_PRICING: Dict[str, Dict[str, ModelPricing]] = {
         "OpenAI": {
             # GPT-5 models (400K context window)
+            "gpt-5.2": ModelPricing(0.00175, 0.014, 400000, 128000),
             "gpt-5": ModelPricing(0.00125, 0.01, 400000, 128000),
             "gpt-5-mini": ModelPricing(0.00025, 0.002, 400000, 128000),
             "gpt-5-nano": ModelPricing(0.00005, 0.0004, 400000, 128000),

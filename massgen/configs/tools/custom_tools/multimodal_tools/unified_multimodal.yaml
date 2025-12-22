@@ -1,0 +1,78 @@
+agents:
+- id: agent_a
+  backend:
+    type: gemini
+    model: gemini-3-flash-preview
+    cwd: workspace1
+    enable_code_based_tools: true
+    exclude_file_operation_mcps: true
+    enable_mcp_command_line: true
+    command_line_execution_mode: docker
+    command_line_docker_image: ghcr.io/massgen/mcp-runtime-sudo:latest
+    command_line_docker_network_mode: bridge
+    command_line_docker_enable_sudo: true
+    command_line_docker_credentials:
+      env_file: .env
+      env_vars_from_file:
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+    shared_tools_directory: shared_tools
+    auto_discover_custom_tools: true
+    exclude_custom_tools:
+    - _computer_use
+    - _claude_computer_use
+    - _gemini_computer_use
+    - _browser_automation
+    enable_web_search: false
+- id: agent_b
+  backend:
+    type: gemini
+    model: gemini-3-flash-preview
+    cwd: workspace2
+    enable_code_based_tools: true
+    exclude_file_operation_mcps: true
+    enable_mcp_command_line: true
+    command_line_execution_mode: docker
+    command_line_docker_image: ghcr.io/massgen/mcp-runtime-sudo:latest
+    command_line_docker_network_mode: bridge
+    command_line_docker_enable_sudo: true
+    command_line_docker_credentials:
+      env_file: .env
+      env_vars_from_file:
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+    shared_tools_directory: shared_tools
+    auto_discover_custom_tools: true
+    exclude_custom_tools:
+    - _computer_use
+    - _claude_computer_use
+    - _gemini_computer_use
+    - _browser_automation
+    enable_web_search: false
+orchestrator:
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+  max_new_answers_per_agent: 5
+  enable_multimodal_tools: true
+  image_generation_backend: openai
+  video_generation_backend: openai
+  audio_generation_backend: openai
+  coordination:
+    max_orchestration_restarts: 2
+    use_skills: true
+    skills_directory: .agent/skills
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+    enable_memory_filesystem_mode: true
+  context_paths: []
+  voting_sensitivity: lenient
+  answer_novelty_requirement: lenient
+timeout_settings:
+  orchestrator_timeout_seconds: 1800
+ui:
+  type: rich_terminal
+  logging_enabled: true

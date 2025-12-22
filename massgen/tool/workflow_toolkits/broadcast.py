@@ -102,16 +102,24 @@ class BroadcastToolkit(BaseToolkit):
                 "description": (
                     "Call this tool to ask a question to "
                     + ("the human user" if self.broadcast_mode == "human" else "other agents")
-                    + " for collaborative problem-solving. Use this when you need input, coordination, or decisions. "
+                    + " for collaborative problem-solving. "
+                    + "IMPORTANT: Other agents cannot see your workspace or files. Include ALL relevant context "
+                    + "in your question (requirements, constraints, what you've discovered). "
                     + sensitivity_guidance
-                    + " Example: ask_others(question='Which framework should we use: Next.js or Nuxt?')"
+                    + " Example: ask_others(question='I need to build a simple static website about Bob Dylan. "
+                    + "What framework would you recommend - considering I want fast build times and minimal dependencies?')"
                 ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "question": {
                             "type": "string",
-                            "description": "Your specific, actionable question for " + ("the human user" if self.broadcast_mode == "human" else "other agents") + ". Be clear about what you need.",
+                            "description": (
+                                "Your specific, actionable question with ALL relevant context included. "
+                                + ("The human user" if self.broadcast_mode == "human" else "Other agents")
+                                + " cannot see your files or workspace, so include requirements, "
+                                + "constraints, and any important details they need to give a useful answer."
+                            ),
                         },
                         "wait": {
                             "type": "boolean",
@@ -132,16 +140,24 @@ class BroadcastToolkit(BaseToolkit):
                     "description": (
                         "Call this tool to ask a question to "
                         + ("the human user" if self.broadcast_mode == "human" else "other agents")
-                        + " for collaborative problem-solving. Use this when you need input, coordination, or decisions. "
+                        + " for collaborative problem-solving. "
+                        + "IMPORTANT: Other agents cannot see your workspace or files. Include ALL relevant context "
+                        + "in your question (requirements, constraints, what you've discovered). "
                         + sensitivity_guidance
-                        + " Example: ask_others(question='Which framework should we use: Next.js or Nuxt?')"
+                        + " Example: ask_others(question='I need to build a simple static website about Bob Dylan. "
+                        + "What framework would you recommend - considering I want fast build times and minimal dependencies?')"
                     ),
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "question": {
                                 "type": "string",
-                                "description": "Your specific, actionable question for " + ("the human user" if self.broadcast_mode == "human" else "other agents") + ". Be clear about what you need.",
+                                "description": (
+                                    "Your specific, actionable question with ALL relevant context included. "
+                                    + ("The human user" if self.broadcast_mode == "human" else "Other agents")
+                                    + " cannot see your files or workspace, so include requirements, "
+                                    + "constraints, and any important details they need to give a useful answer."
+                                ),
                             },
                             "wait": {
                                 "type": "boolean",

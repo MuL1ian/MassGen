@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Set
 
 from ..logger_config import logger
+from ._constants import PATTERNS_TO_IGNORE_FOR_TRACKING
 
 
 class FileOperationTracker:
@@ -23,29 +24,7 @@ class FileOperationTracker:
     """
 
     # Auto-generated file patterns that don't need to be read before deletion
-    AUTO_GENERATED_PATTERNS = [
-        "__pycache__",
-        ".pyc",
-        ".pyo",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        ".coverage",
-        "*.egg-info",
-        ".tox",
-        ".nox",
-        "node_modules",
-        ".next",
-        ".nuxt",
-        "dist",
-        "build",
-        ".DS_Store",
-        "Thumbs.db",
-        "*.log",
-        "*.swp",
-        "*.swo",
-        "*~",
-    ]
+    AUTO_GENERATED_PATTERNS = PATTERNS_TO_IGNORE_FOR_TRACKING
 
     def __init__(self, enforce_read_before_delete: bool = True):
         """

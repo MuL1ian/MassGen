@@ -157,17 +157,17 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.24 (December 12, 2025)** - Enhanced Cost Tracking
+**v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
 
-Real-time token counting and cost calculation for OpenRouter, xAI/Grok, Gemini, and Claude Code backends. New ``/inspect c`` command displays detailed per-agent cost breakdown with input, output, reasoning, and cached tokens. Aggregated session totals in coordination status.
+Unified multimodal understanding via ``read_media`` tool and generation via ``generate_media`` tool. Web UI artifact previewer for PDFs, documents, images, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
 
-**v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
+**v0.1.27 (December 19, 2025)** - Session Sharing & Log Analysis
 
-Turn history inspection with ``/inspect`` commands, Web UI automation mode for programmatic workflows, Docker container persistence across turns, and improved Ctrl+C handling with terminal state restoration.
+Session sharing via GitHub Gist with ``massgen export`` command. New ``massgen logs`` CLI for viewing, filtering, and exporting run logs. Per-LLM call timing metrics across all backends. Gemini 3 Flash model support. CLI config builder with per-agent web search and system messages. Web UI context paths wizard.
 
-**v0.1.22 (December 8, 2025)** - Shadow Agent Architecture
+**v0.1.26 (December 17, 2025)** - Docker Diagnostics & Web UI Setup
 
-Lightweight shadow agents respond to broadcasts in parallel without interrupting parent agents. Full context inheritance with conversation history and current work-in-progress.
+Docker diagnostics module with platform-specific error detection and resolution. Web UI setup wizard for guided first-run experience with API key management. Shadow agent response depth for test-time compute scaling. Model registry updates with GPT-5.1-Codex family and Claude alias notation.
 
 :doc:`Full changelog → <changelog>`
 

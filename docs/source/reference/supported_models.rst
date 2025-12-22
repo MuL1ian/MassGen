@@ -122,7 +122,7 @@ OpenAI
    :widths: 40 60
 
    * - **Models**
-     - GPT-5, GPT-5-mini, GPT-5-nano, GPT-4 series
+     - GPT-5.2, GPT-5, GPT-5-mini, GPT-5-nano, GPT-4 series
    * - **Backend Type**
      - ``openai``
    * - **Tools Support**

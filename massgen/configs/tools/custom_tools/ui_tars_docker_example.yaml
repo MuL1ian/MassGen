@@ -1,0 +1,169 @@
+# MassGen Configuration: UI-TARS Computer Use (Docker/Linux Desktop)
+#
+# This configuration uses ByteDance's UI-TARS-1.5-7B vision-language model
+# for Linux desktop automation via Docker with X11 virtual display.
+#
+# Model: UI-TARS-1.5-7B
+# Provider: ByteDance via HuggingFace Endpoints
+# Performance: 42.5% OSWorld, 84.8% WebVoyager, 94.2% ScreenSpot-V2
+#
+# Your HuggingFace Endpoint:
+# URL: https://x1z03h47yuwrjfni.us-east-1.aws.endpoints.huggingface.cloud
+# Instance: Nvidia A100 80GB GPU ($2.5/hour while running)
+# Region: us-east-1 (AWS)
+# Status: Running
+#
+# Usage:
+#   massgen --config ui_tars_docker_example.yaml "Open Firefox and navigate to wikipedia.org"
+#
+# Prerequisites:
+#   1. Docker container with X11 running (see setup below)
+#   2. UI_TARS_API_KEY and UI_TARS_ENDPOINT in .env
+#   3. Optional: VNC for real-time visualization
+
+# Agent Configuration
+agents:
+  - id: "uitars_docker_agent"
+    backend:
+      type: "openai"  # Use simple backend for orchestration
+      model: "gpt-4.1"
+      custom_tools:
+        - name: ["ui_tars_computer_use"]
+          category: "automation"
+          path: "massgen/tool/_ui_tars_computer_use/ui_tars_computer_use_tool.py"
+          function: ["ui_tars_computer_use"]
+          description: >
+            Automate Linux desktop tasks using ByteDance's UI-TARS-1.5-7B vision-language model
+            in a Docker container with X11. Analyzes screenshots, provides reasoning, and generates
+            actions via xdotool. Supports clicking, typing, keyboard shortcuts, scrolling, dragging.
+          preset_args:
+            environment: "linux"
+            display_width: 1280
+            display_height: 800
+            max_iterations: 30
+            model: "ui-tars-1.5"
+            huggingface_endpoint: "https://x1z03h47yuwrjfni.us-east-1.aws.endpoints.huggingface.cloud"
+            environment_config:
+              container_name: "cua-container"
+              display: ":99"
+
+    system_message: |
+      You are an AI assistant with access to ByteDance's UI-TARS-1.5-7B vision-language model
+      for Linux desktop automation via Docker.
+
+      You have the ui_tars_computer_use tool which allows you to automate desktop tasks in
+      a Docker container with X11 virtual display.
+
+      When users ask you to open applications, navigate the desktop, or interact with GUI
+      elements, use the ui_tars_computer_use tool with a clear task description.
+
+      Example: ui_tars_computer_use("Open Firefox and navigate to wikipedia.org")
+
+      The tool will complete the task in the Docker container and return results with
+      reasoning for each step. If VNC is enabled, you can watch the automation in real-time.
+
+display:
+  type: "rich_terminal"
+
+# Setup Instructions:
+# ====================
+#
+# 1. Add to your .env file in MassGen root directory:
+#    UI_TARS_API_KEY=hf_xxxxxxxxxxxxx  # Your HuggingFace API token
+#    UI_TARS_ENDPOINT=https://x1z03h47yuwrjfni.us-east-1.aws.endpoints.huggingface.cloud
+#
+# 2. Install required dependencies:
+#    pip install openai docker
+#
+# 3. Create Docker container with X11:
+#    cd MassGen/scripts
+#    ./setup_docker_cua.sh
+#
+#    This creates 'cua-container' with:
+#    - Ubuntu 22.04 with Xfce desktop
+#    - X11 virtual display on :99 (1280x800)
+#    - xdotool for GUI control
+#    - Firefox, Chromium browsers
+#    - scrot for screenshots
+#
+# 4. Verify container is running:
+#    docker ps | grep cua-container
+#
+# 5. Optional - Enable VNC for real-time visualization:
+#    cd MassGen/scripts
+#    ./enable_vnc_viewer.sh
+#    vncviewer localhost:5900
+#    # Or use any VNC client to connect to localhost:5900
+#
+# 6. Get your HuggingFace API token:
+#    - Go to https://huggingface.co/settings/tokens
+#    - Create a new token with "read" permissions
+#    - Copy and add to .env file
+
+# Example Usage:
+# ==============
+#
+# Open Firefox:
+#   massgen --config ui_tars_docker_example.yaml "Open Firefox and navigate to wikipedia.org"
+#
+# Text editor:
+#   massgen --config ui_tars_docker_example.yaml "Open a text editor and write 'Hello World'"
+#
+# File manager:
+#   massgen --config ui_tars_docker_example.yaml "Open the file manager and create a new folder named 'test'"
+#
+# Screenshot:
+#   massgen --config ui_tars_docker_example.yaml "Take a screenshot using the screenshot tool"
+#
+# Multi-app workflow:
+#   massgen --config ui_tars_docker_example.yaml "Open Firefox, go to GitHub, then take a screenshot"
+#
+# Keyboard shortcuts:
+#   massgen --config ui_tars_docker_example.yaml "Open Firefox and use Ctrl+L to focus the address bar"
+
+# Docker Container Management:
+# ============================
+#
+# Start container:
+#   docker start cua-container
+#
+# Stop container:
+#   docker stop cua-container
+#
+# Check X11 display:
+#   docker exec cua-container bash -c "DISPLAY=:99 xdpyinfo | grep dimensions"
+#
+# Access container shell:
+#   docker exec -it cua-container bash
+
+# VNC Visualization:
+# ==================
+# Watch the automation in real-time:
+# 1. Start VNC server:
+#    docker exec -d cua-container bash -c "x11vnc -display :99 -forever -shared -rfbport 5900 -nopw"
+#
+# 2. Connect with VNC viewer:
+#    vncviewer localhost:5900
+
+# Cost Information:
+# =================
+# - Infrastructure: $2.50/hour while endpoint is running (A100 GPU)
+# - Per task: $0.05-0.20 depending on complexity (5-30 iterations)
+# - Scale-to-zero: Endpoint auto-stops after 1 hour of inactivity
+# - Docker container: Free (runs locally)
+
+# Model Performance:
+# ==================
+# - OSWorld (Linux): 42.5% | WebVoyager: 84.8% | ScreenSpot-V2: 94.2%
+
+# Troubleshooting:
+# ================
+#
+# Container not found:
+#   cd MassGen/scripts && ./setup_docker_cua.sh
+#
+# Screenshot fails:
+#   docker exec cua-container ps aux | grep Xvfb
+#
+# VNC connection refused:
+#   docker exec -d cua-container bash -c "x11vnc -display :99 -forever -shared -rfbport 5900 -nopw"

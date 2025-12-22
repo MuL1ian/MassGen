@@ -7,7 +7,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History } from 'lucide-react';
+import { FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History, ExternalLink } from 'lucide-react';
 import { useAgentStore, selectAnswers, selectAgentOrder, selectSelectedAgent } from '../stores/agentStore';
 import type { Answer, AnswerWorkspace } from '../types';
 
@@ -32,6 +32,14 @@ interface AnswerWorkspacesResponse {
 
 // Map workspace name to agent ID (e.g., "workspace1" -> agent at index 0)
 function getAgentIdFromWorkspace(workspaceName: string, agentOrder: string[]): string | undefined {
+  const agentMatch = workspaceName.match(/agent_([a-z0-9_]+)/i);
+  if (agentMatch) {
+    const candidate = `agent_${agentMatch[1].toLowerCase()}`;
+    if (agentOrder.includes(candidate)) {
+      return candidate;
+    }
+  }
+
   const match = workspaceName.match(/workspace(\d+)/);
   if (match) {
     const index = parseInt(match[1], 10) - 1; // workspace1 = index 0
@@ -112,7 +120,7 @@ function buildFileTree(files: FileInfo[]): FileTreeNode[] {
 }
 
 function FileNode({ node, depth }: { node: FileTreeNode; depth: number }) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   return (
     <div>
@@ -179,7 +187,6 @@ export function InlineAnswerBrowser() {
   // Workspace state - per agent
   const [workspaces, setWorkspaces] = useState<WorkspacesResponse>({ current: [], historical: [] });
   const [selectedAgentWorkspace, setSelectedAgentWorkspace] = useState<string | null>(null); // agent ID
-  const [selectedHistoricalWorkspace, setSelectedHistoricalWorkspace] = useState<WorkspaceInfo | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<FileInfo[]>([]);
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -222,14 +229,23 @@ export function InlineAnswerBrowser() {
 
   // Get the currently active workspace to display
   const activeWorkspace = useMemo(() => {
-    if (selectedHistoricalWorkspace) {
-      return selectedHistoricalWorkspace;
+    if (selectedAgentWorkspace && selectedAnswerLabel !== 'current') {
+      const answerWs = answerWorkspaces.find(
+        (w) => w.agentId === selectedAgentWorkspace && w.answerLabel === selectedAnswerLabel
+      );
+      if (answerWs) {
+        return {
+          name: answerWs.answerLabel,
+          path: answerWs.workspacePath,
+          type: 'historical' as const,
+        };
+      }
     }
     if (selectedAgentWorkspace && workspacesByAgent[selectedAgentWorkspace]?.current) {
       return workspacesByAgent[selectedAgentWorkspace].current;
     }
     return null;
-  }, [selectedAgentWorkspace, selectedHistoricalWorkspace, workspacesByAgent]);
+  }, [selectedAgentWorkspace, selectedAnswerLabel, answerWorkspaces, workspacesByAgent]);
 
   // Fetch available workspaces from API
   const fetchWorkspaces = useCallback(async () => {
@@ -288,6 +304,23 @@ export function InlineAnswerBrowser() {
     }
   }, []);
 
+  // Open workspace in native file browser
+  const openWorkspaceInFinder = useCallback(async (workspacePath: string) => {
+    try {
+      const response = await fetch('/api/workspace/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: workspacePath }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        setWorkspaceError(data.error || 'Failed to open workspace');
+      }
+    } catch (err) {
+      setWorkspaceError(err instanceof Error ? err.message : 'Failed to open workspace');
+    }
+  }, []);
+
   // Fetch workspaces when tab switches to workspace
   useEffect(() => {
     if (activeTab === 'workspace') {
@@ -295,6 +328,7 @@ export function InlineAnswerBrowser() {
       fetchAnswerWorkspaces();
     }
   }, [activeTab, fetchWorkspaces, fetchAnswerWorkspaces]);
+
 
   // Fetch files when workspace is selected
   useEffect(() => {
@@ -325,7 +359,7 @@ export function InlineAnswerBrowser() {
   }, [answers]);
 
   const fileTree = useMemo(() => buildFileTree(workspaceFiles), [workspaceFiles]);
-  const totalWorkspaces = workspaces.current.length + workspaces.historical.length;
+  const totalWorkspaces = workspaces.current.length + answerWorkspaces.length;
 
   return (
     <div className="flex flex-col h-full">
@@ -467,7 +501,9 @@ export function InlineAnswerBrowser() {
                         key={agentId}
                         onClick={() => {
                           setSelectedAgentWorkspace(agentId);
-                          setSelectedHistoricalWorkspace(null); // Reset to current workspace
+                          setSelectedAnswerLabel('current');
+                          fetchWorkspaces();
+                          fetchAnswerWorkspaces();
                         }}
                         disabled={!hasCurrent && !hasHistorical}
                         className={`px-2 py-0.5 text-xs rounded transition-colors ${
@@ -495,23 +531,7 @@ export function InlineAnswerBrowser() {
                     onChange={(e) => {
                       const label = e.target.value;
                       setSelectedAnswerLabel(label);
-                      setSelectedHistoricalWorkspace(null);
-
-                      if (label === 'current') {
-                        // Use current workspace for this agent
-                        const ws = workspacesByAgent[selectedAgentWorkspace]?.current;
-                        if (ws) fetchWorkspaceFiles(ws);
-                      } else {
-                        // Find answer workspace by label
-                        const answerWs = answerWorkspaces.find(w => w.answerLabel === label);
-                        if (answerWs) {
-                          fetchWorkspaceFiles({
-                            name: answerWs.answerLabel,
-                            path: answerWs.workspacePath,
-                            type: 'historical'
-                          });
-                        }
-                      }
+                      // activeWorkspace effect will fetch the workspace files
                     }}
                     className="text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 text-gray-700 dark:text-gray-200"
                   >
@@ -527,12 +547,28 @@ export function InlineAnswerBrowser() {
                 </div>
               )}
 
+              {/* Open in Finder button */}
+              {activeWorkspace && (
+                <button
+                  onClick={() => openWorkspaceInFinder(activeWorkspace.path)}
+                  className="ml-auto flex items-center gap-1 px-2 py-0.5 bg-blue-600 hover:bg-blue-500 rounded text-white text-xs"
+                  title="Open workspace in file browser"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>Open</span>
+                </button>
+              )}
+
               <button
-                onClick={() => { fetchWorkspaces(); fetchAnswerWorkspaces(); }}
-                disabled={isLoadingWorkspaces}
-                className="ml-auto p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors text-gray-500"
+                onClick={() => {
+                  fetchWorkspaces();
+                  fetchAnswerWorkspaces();
+                  if (activeWorkspace) fetchWorkspaceFiles(activeWorkspace);
+                }}
+                disabled={isLoadingWorkspaces || isLoadingFiles}
+                className={`${!activeWorkspace ? 'ml-auto' : ''} p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors text-gray-500`}
               >
-                <RefreshCw className={`w-3 h-3 ${isLoadingWorkspaces ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3 h-3 ${isLoadingWorkspaces || isLoadingFiles ? 'animate-spin' : ''}`} />
               </button>
             </div>
 

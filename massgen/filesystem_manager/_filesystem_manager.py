@@ -61,6 +61,7 @@ class FilesystemManager:
         enable_audio_generation: bool = False,
         enable_file_generation: bool = False,
         exclude_file_operation_mcps: bool = False,
+        use_mcpwrapped_for_tool_filtering: bool = False,
         enable_code_based_tools: bool = False,
         custom_tools_path: Optional[str] = None,
         auto_discover_custom_tools: bool = False,
@@ -93,6 +94,10 @@ class FilesystemManager:
             command_line_docker_packages: Package management configuration dict
             exclude_file_operation_mcps: If True, exclude file operation MCP tools (filesystem and workspace_tools file ops).
                                          Agents use command-line tools instead. Keeps command execution, media generation, and planning MCPs.
+            use_mcpwrapped_for_tool_filtering: If True, use mcpwrapped to filter MCP tools at protocol level.
+                                              Required for Claude Code backend which doesn't support allowed_tools for MCP tools.
+                                              See: https://github.com/anthropics/claude-code/issues/7328
+                                              Requires: npm i -g mcpwrapped (https://github.com/VitoLin/mcpwrapped)
             enable_code_based_tools: If True, generate Python wrapper code for MCP tools in servers/ directory.
                                      Agents discover and call tools via filesystem (CodeAct paradigm).
             custom_tools_path: Optional path to custom tools directory to copy into workspace
@@ -112,6 +117,7 @@ class FilesystemManager:
         self.enable_image_generation = enable_image_generation
         self.enable_mcp_command_line = enable_mcp_command_line
         self.exclude_file_operation_mcps = exclude_file_operation_mcps
+        self.use_mcpwrapped_for_tool_filtering = use_mcpwrapped_for_tool_filtering
         self.enable_code_based_tools = enable_code_based_tools
         self.exclude_custom_tools = exclude_custom_tools if exclude_custom_tools else []
 
@@ -249,6 +255,7 @@ class FilesystemManager:
         agent_temporary_workspace: Optional[str] = None,
         skills_directory: Optional[str] = None,
         massgen_skills: Optional[List[str]] = None,
+        load_previous_session_skills: bool = False,
     ) -> None:
         """
         Setup orchestration-specific paths for snapshots and temporary workspace.
@@ -259,6 +266,7 @@ class FilesystemManager:
             snapshot_storage: Base path for storing workspace snapshots
             agent_temporary_workspace: Base path for temporary workspace during context sharing
             skills_directory: Path to skills directory to mount in Docker (e.g., .agent/skills)
+            load_previous_session_skills: If True, include evolving skills from previous sessions
         """
         logger.info(
             f"[FilesystemManager.setup_orchestration_paths] Called for agent_id={agent_id}, snapshot_storage={snapshot_storage}, "
@@ -298,6 +306,7 @@ class FilesystemManager:
                 skills_directory=skills_directory,
                 massgen_skills=massgen_skills,
                 shared_tools_directory=self.shared_tools_base,
+                load_previous_session_skills=load_previous_session_skills,
             )
             logger.info(f"[FilesystemManager] Docker container created for agent {self.agent_id}")
 
@@ -334,14 +343,20 @@ class FilesystemManager:
         temp_skills_dir = Path(tempfile.mkdtemp(prefix="massgen-skills-local-"))
         logger.info(f"[Local] Creating temp merged skills directory: {temp_skills_dir}")
 
-        # Copy user's .agent/skills if it exists
+        # Copy skills from home directory (~/.agent/skills/) first - this is where openskills installs
+        home_skills_path = Path.home() / ".agent" / "skills"
+        if home_skills_path.exists():
+            logger.info(f"[Local] Copying home skills from: {home_skills_path}")
+            shutil.copytree(home_skills_path, temp_skills_dir, dirs_exist_ok=True)
+
+        # Copy project skills (.agent/skills if it exists) - these override home skills
         if skills_directory:
             skills_path = Path(skills_directory).resolve()
             if skills_path.exists():
-                logger.info(f"[Local] Copying user skills from: {skills_path}")
+                logger.info(f"[Local] Copying project skills from: {skills_path}")
                 shutil.copytree(skills_path, temp_skills_dir, dirs_exist_ok=True)
             else:
-                logger.warning(f"[Local] User skills directory does not exist: {skills_path}")
+                logger.debug(f"[Local] Project skills directory does not exist: {skills_path}")
 
         # Copy massgen built-in skills (flat structure in massgen/skills/)
         massgen_skills_base = Path(__file__).parent.parent / "skills"
@@ -1019,7 +1034,11 @@ class FilesystemManager:
 
         return workspace
 
-    def get_mcp_filesystem_config(self, include_only_write_tools: bool = False) -> Dict[str, Any]:
+    def get_mcp_filesystem_config(
+        self,
+        include_only_write_tools: bool = False,
+        use_mcpwrapped: bool = False,
+    ) -> Dict[str, Any]:
         """
         Generate MCP filesystem server configuration.
 
@@ -1028,6 +1047,11 @@ class FilesystemManager:
                                      Used with code-based tools to provide clean file creation
                                      without shell escaping issues, while using command-line
                                      for other file operations.
+            use_mcpwrapped: If True, wrap the server with mcpwrapped to filter tools at the
+                           MCP protocol level. This hides tools from Claude's context entirely.
+                           Required for Claude Code backend since it doesn't support allowed_tools
+                           for MCP tools. See: https://github.com/anthropics/claude-code/issues/7328
+                           Uses: https://github.com/VitoLin/mcpwrapped
 
         Returns:
             Dictionary with MCP server configuration for filesystem access
@@ -1041,39 +1065,49 @@ class FilesystemManager:
 
         use_global = shutil.which("mcp-server-filesystem") is not None
 
-        # Build MCP server configuration with all managed paths
+        # Build base MCP server configuration
         if use_global:
-            # Use globally installed package (Docker with fixed zod version)
-            config = {
-                "name": "filesystem",
-                "type": "stdio",
-                "command": "mcp-server-filesystem",
-                "args": paths,
-                "cwd": str(self.cwd),
-            }
+            base_command = "mcp-server-filesystem"
+            base_args = paths
         else:
-            # Use npx for local development
+            base_command = "npx"
+            base_args = ["-y", "@modelcontextprotocol/server-filesystem"] + paths
+
+        # When filtering tools and using mcpwrapped, wrap the command
+        if include_only_write_tools and use_mcpwrapped:
+            # Use mcpwrapped to filter tools at the MCP protocol level
+            # This prevents filtered tools from appearing in Claude's context
+            # See: https://github.com/VitoLin/mcpwrapped
+            # We use npx to auto-download if not installed (like we do for server-filesystem)
+            visible_tools = "write_file,edit_file"
             config = {
                 "name": "filesystem",
                 "type": "stdio",
                 "command": "npx",
-                "args": [
-                    "-y",
-                    "@modelcontextprotocol/server-filesystem",
-                ]
-                + paths,
-                "cwd": str(self.cwd),  # Set working directory for filesystem server (important for relative paths)
+                "args": ["-y", "mcpwrapped@1.0.4", f"--visible_tools={visible_tools}", base_command] + base_args,
+                "cwd": str(self.cwd),
+            }
+            logger.info(
+                f"[FilesystemManager] Using mcpwrapped (via npx) to filter filesystem tools to: {visible_tools}",
+            )
+        else:
+            # Standard configuration without mcpwrapped
+            config = {
+                "name": "filesystem",
+                "type": "stdio",
+                "command": base_command,
+                "args": base_args,
+                "cwd": str(self.cwd),
             }
 
-        if include_only_write_tools:
-            # Code-based tools mode: Only include write_file and edit_file
-            # This avoids shell escaping nightmares when creating Python scripts
-            # Other file operations use command-line tools (more efficient for CodeAct)
-            config["allowed_tools"] = ["write_file", "edit_file"]
-        else:
-            # Normal mode: Exclude read_media_file since we have our own implementation
-            # Note: Tool names here are unprefixed (before server name is added)
-            config["exclude_tools"] = ["read_media_file"]
+            if include_only_write_tools:
+                # Code-based tools mode: Only include write_file and edit_file
+                # Note: This sets allowed_tools in config, but Claude Code SDK doesn't respect it
+                # for MCP tools. Use use_mcpwrapped=True for Claude Code backend.
+                config["allowed_tools"] = ["write_file", "edit_file"]
+            else:
+                # Normal mode: Exclude read_media_file since we have our own implementation
+                config["exclude_tools"] = ["read_media_file"]
 
         return config
 
@@ -1251,10 +1285,12 @@ class FilesystemManager:
                 mcp_servers.append(
                     self.get_mcp_filesystem_config(
                         include_only_write_tools=self.exclude_file_operation_mcps,
+                        use_mcpwrapped=self.use_mcpwrapped_for_tool_filtering,
                     ),
                 )
                 if self.exclude_file_operation_mcps:
-                    logger.info("[FilesystemManager.inject_filesystem_mcp] Added filesystem MCP with write_file and edit_file only (exclude_file_operation_mcps=True)")
+                    wrapper_note = " (using mcpwrapped)" if self.use_mcpwrapped_for_tool_filtering else ""
+                    logger.info(f"[FilesystemManager.inject_filesystem_mcp] Added filesystem MCP with write_file and edit_file only{wrapper_note}")
             else:
                 logger.warning("[FilesystemManager.inject_filesystem_mcp] Custom filesystem MCP server already present")
 
@@ -1598,20 +1634,50 @@ class FilesystemManager:
             workspace_name: Human-readable name for the workspace
             context: Additional context (e.g., "before execution", "after execution")
         """
+        from ._constants import MAX_LOG_DEPTH, MAX_LOG_ITEMS, SKIP_DIRS_FOR_LOGGING
+
         if not workspace_path or not workspace_path.exists():
             logger.info(f"[FilesystemManager.{workspace_name}] {context} - Workspace does not exist: {workspace_path}")
             return
 
         try:
-            files = list(workspace_path.rglob("*"))
-            file_paths = [str(f.relative_to(workspace_path)) for f in files if f.is_file()]
-            dir_paths = [str(f.relative_to(workspace_path)) for f in files if f.is_dir()]
+            # Collect paths while skipping large dependency directories
+            file_paths: list[str] = []
+            dir_paths: list[str] = []
+            skipped_dirs: list[str] = []
+
+            def collect_paths(base: Path, rel_prefix: str = "") -> None:
+                try:
+                    for item in base.iterdir():
+                        rel_path = f"{rel_prefix}/{item.name}" if rel_prefix else item.name
+                        if item.is_dir():
+                            if item.name in SKIP_DIRS_FOR_LOGGING:
+                                skipped_dirs.append(rel_path)
+                            else:
+                                dir_paths.append(rel_path)
+                                # Recurse but limit depth to avoid explosion
+                                if rel_path.count("/") < MAX_LOG_DEPTH:
+                                    collect_paths(item, rel_path)
+                        else:
+                            file_paths.append(rel_path)
+                except PermissionError:
+                    pass
+
+            collect_paths(workspace_path)
 
             logger.info(f"[FilesystemManager.{workspace_name}] {context} - Workspace: {workspace_path}")
+
+            # Truncate lists if too large
             if file_paths:
-                logger.info(f"[FilesystemManager.{workspace_name}] {context} - Files ({len(file_paths)}): {file_paths}")
+                display_files = file_paths[:MAX_LOG_ITEMS]
+                suffix = f" ... and {len(file_paths) - MAX_LOG_ITEMS} more" if len(file_paths) > MAX_LOG_ITEMS else ""
+                logger.info(f"[FilesystemManager.{workspace_name}] {context} - Files ({len(file_paths)}): {display_files}{suffix}")
             if dir_paths:
-                logger.info(f"[FilesystemManager.{workspace_name}] {context} - Directories ({len(dir_paths)}): {dir_paths}")
+                display_dirs = dir_paths[:MAX_LOG_ITEMS]
+                suffix = f" ... and {len(dir_paths) - MAX_LOG_ITEMS} more" if len(dir_paths) > MAX_LOG_ITEMS else ""
+                logger.info(f"[FilesystemManager.{workspace_name}] {context} - Directories ({len(dir_paths)}): {display_dirs}{suffix}")
+            if skipped_dirs:
+                logger.info(f"[FilesystemManager.{workspace_name}] {context} - Skipped large dirs: {skipped_dirs}")
             if not file_paths and not dir_paths:
                 logger.info(f"[FilesystemManager.{workspace_name}] {context} - Empty workspace")
         except Exception as e:

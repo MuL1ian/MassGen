@@ -1,25 +1,121 @@
-==========
-Python API
-==========
+=========================
+Python API & LiteLLM
+=========================
 
-MassGen provides a simple, async-first Python API for programmatic usage. This allows you to integrate MassGen's multi-agent capabilities directly into your Python applications.
+MassGen provides two ways to integrate into your Python applications:
+
+1. **LiteLLM Integration** (Recommended) - OpenAI-compatible interface, works with 100+ providers
+2. **Direct Python API** - Async-first API with ``massgen.run()`` and ``massgen.build_config()``
 
 .. note::
    **For Contributors:** Looking for internal API documentation? See :doc:`../api/index` for developer API reference of classes and modules.
 
-.. note::
-   MassGen is inherently asynchronous, so the API is naturally async. Use ``asyncio`` for sync contexts.
+.. contents:: On This Page
+   :local:
+   :depth: 2
 
-.. tip::
-   **Multiple Integration Options:** MassGen offers three ways to integrate: this Python API (``massgen.run()``), LiteLLM integration for OpenAI-compatible interfaces, and CLI for interactive use. See :doc:`../user_guide/integration/python_api` for comprehensive examples including LiteLLM.
+LiteLLM Integration
+===================
+
+The easiest way to use MassGen programmatically. Works with existing LiteLLM-based code.
 
 Quick Start
-===========
-
-Basic Usage
 -----------
 
-The simplest way to use MassGen from Python:
+.. code-block:: python
+
+   from dotenv import load_dotenv
+   load_dotenv()  # Load API keys from .env
+
+   import litellm
+   from massgen import register_with_litellm
+
+   # Register MassGen as a provider (call once at startup)
+   register_with_litellm()
+
+   # Multi-agent with different models
+   response = litellm.completion(
+       model="massgen/build",
+       messages=[{"role": "user", "content": "What is machine learning?"}],
+       optional_params={
+           "models": ["openai/gpt-5", "anthropic/claude-sonnet-4-5-20250929"],
+       }
+   )
+   print(response.choices[0].message.content)
+
+Model String Format
+-------------------
+
+- ``massgen/build`` - Build config dynamically from ``optional_params`` (most flexible)
+- ``massgen/<example-name>`` - Use built-in example config
+- ``massgen/model:<model-name>`` - Quick single-agent mode
+- ``massgen/path:<config-path>`` - Explicit config file path
+
+Optional Parameters
+-------------------
+
+Pass MassGen-specific options via ``optional_params``:
+
++----------------------+------------------+----------------------------------------------------+
+| Parameter            | Type             | Description                                        |
++======================+==================+====================================================+
+| ``models``           | list[str]        | List of models for multi-agent                     |
+|                      |                  | (e.g., ``["gpt-5", "claude-sonnet-4-5-20250929"]``)|
++----------------------+------------------+----------------------------------------------------+
+| ``model``            | str              | Single model name for all agents                   |
++----------------------+------------------+----------------------------------------------------+
+| ``num_agents``       | int              | Number of agents when using single model           |
++----------------------+------------------+----------------------------------------------------+
+| ``enable_filesystem``| bool             | Enable filesystem/MCP tools (default: True)        |
++----------------------+------------------+----------------------------------------------------+
+| ``context_paths``    | list             | Paths with permissions for file operations         |
++----------------------+------------------+----------------------------------------------------+
+| ``use_docker``       | bool             | Enable Docker execution mode (default: False)      |
++----------------------+------------------+----------------------------------------------------+
+| ``enable_logging``   | bool             | Enable logging and return log directory            |
++----------------------+------------------+----------------------------------------------------+
+| ``output_file``      | str              | Write final answer to this file path               |
++----------------------+------------------+----------------------------------------------------+
+
+Examples
+--------
+
+.. code-block:: python
+
+   # Multi-agent with filesystem access
+   response = litellm.completion(
+       model="massgen/build",
+       messages=[{"role": "user", "content": "Read the config and summarize"}],
+       optional_params={
+           "model": "gpt-5",
+           "context_paths": [
+               {"path": "/path/to/project", "permission": "read"},
+               {"path": "/path/to/output", "permission": "write"},
+           ],
+       }
+   )
+
+   # Lightweight mode (no filesystem, faster for simple queries)
+   response = litellm.completion(
+       model="massgen/build",
+       messages=[{"role": "user", "content": "What is 2+2?"}],
+       optional_params={
+           "model": "gpt-5-nano",
+           "enable_filesystem": False,
+       }
+   )
+
+   # Access coordination metadata
+   metadata = response._hidden_params
+   print(f"Winner: {metadata.get('massgen_selected_agent')}")
+   print(f"Votes: {metadata.get('massgen_vote_results', {}).get('vote_counts')}")
+
+For complete LiteLLM examples, see :doc:`../user_guide/integration/python_api`.
+
+Direct Python API
+=================
+
+For async workflows or more control, use ``massgen.run()`` directly.
 
 .. code-block:: python
 
@@ -27,17 +123,29 @@ The simplest way to use MassGen from Python:
    import massgen
 
    async def main():
-       # Quick single-agent query
+       # Single agent with filesystem support (default)
        result = await massgen.run(
            query="What is machine learning?",
-           model="gpt-5-mini"
+           model="gpt-5"
        )
        print(result['final_answer'])
 
-   # Run from sync context
-   asyncio.run(main())
+       # Multi-agent mode
+       result = await massgen.run(
+           query="Compare approaches",
+           models=["gpt-5", "claude-sonnet-4-5-20250929"]
+       )
+       print(result['final_answer'])
 
-That's it! MassGen handles all the complexity of backend initialization, agent creation, and orchestration.
+       # Lightweight mode (no filesystem)
+       result = await massgen.run(
+           query="What is 2+2?",
+           model="gpt-5-nano",
+           enable_filesystem=False
+       )
+       print(result['final_answer'])
+
+   asyncio.run(main())
 
 API Reference
 =============
@@ -45,45 +153,46 @@ API Reference
 massgen.run()
 -------------
 
-.. py:function:: async def run(query: str, config: str = None, model: str = None, **kwargs) -> dict
+.. code-block:: python
 
-   Run a MassGen query asynchronously.
+   async def run(
+       query: str,
+       config: str = None,
+       model: str = None,
+       models: list = None,
+       num_agents: int = None,
+       use_docker: bool = False,
+       enable_filesystem: bool = True,
+       enable_logging: bool = False,
+       output_file: str = None,
+       **kwargs
+   ) -> dict
 
-   This is the main entry point for using MassGen programmatically. It's a simple wrapper around
-   MassGen's CLI logic, providing the same functionality in a Python-friendly interface.
+**Parameters:**
 
-   :param query: The question or task for the agent(s)
-   :type query: str
-   :param config: Config file path or @examples/NAME (optional)
-   :type config: str, optional
-   :param model: Quick single-agent mode with model name (optional)
-   :type model: str, optional
-   :param \\**kwargs: Additional configuration options
-   :type \\**kwargs: dict
-   :return: Dictionary with 'final_answer' and metadata
-   :rtype: dict
+- ``query`` (str): The question or task for the agent(s)
+- ``config`` (str, optional): Config file path or ``@examples/NAME``
+- ``model`` (str, optional): Model name for agents
+- ``models`` (list, optional): List of models for multi-agent mode
+- ``num_agents`` (int, optional): Number of agents when using single model
+- ``use_docker`` (bool): Enable Docker execution (default: False)
+- ``enable_filesystem`` (bool): Enable filesystem/MCP tools (default: True)
+- ``enable_logging`` (bool): Enable logging (default: False)
+- ``output_file`` (str, optional): Write final answer to file
+- ``context_paths`` (list, optional): Paths with permissions for file operations
 
-   **Return Value:**
+**Returns:**
 
-   The function returns a dictionary with the following structure:
+.. code-block:: python
 
-   .. code-block:: python
-
-      {
-          'final_answer': str,      # The generated answer
-          'config_used': str,       # Path to config that was used
-      }
-
-   **Example:**
-
-   .. code-block:: python
-
-      result = await massgen.run(
-          query="Explain quantum computing",
-          model="gemini-2.5-flash"
-      )
-      print(result['final_answer'])
-      print(f"Used config: {result['config_used']}")
+   {
+       'final_answer': str,        # The generated answer
+       'config_used': str,         # Config path or description
+       'session_id': str,          # Session ID
+       'selected_agent': str,      # Winner (multi-agent)
+       'vote_results': dict,       # Voting details
+       'answers': list,            # All agent answers
+   }
 
 Usage Patterns
 ==============

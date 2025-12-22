@@ -67,6 +67,8 @@ class TestBackendCapabilitiesRegistry:
             "audio_understanding",
             "video_generation",
             "video_understanding",
+            "tool_search",  # Claude-specific
+            "programmatic_tool_calling",  # Claude-specific
         }
 
         for backend_type, caps in BACKEND_CAPABILITIES.items():
@@ -117,9 +119,10 @@ class TestCapabilityQueries:
         assert "openai" in web_search_backends
         assert "gemini" in web_search_backends
         assert "grok" in web_search_backends
+        assert "claude_code" in web_search_backends  # claude_code has WebSearch/WebFetch tools
 
         # Backends without web search should not be included
-        assert "claude_code" not in web_search_backends
+        assert "lmstudio" not in web_search_backends
 
 
 class TestBackendValidation:
@@ -138,12 +141,12 @@ class TestBackendValidation:
 
     def test_validate_invalid_capability(self):
         """Test validation catches unsupported capability."""
-        # Claude Code doesn't support web_search
+        # LM Studio doesn't support web_search
         config = {
-            "type": "claude_code",
+            "type": "lmstudio",
             "enable_web_search": True,
         }
-        errors = validate_backend_config("claude_code", config)
+        errors = validate_backend_config("lmstudio", config)
         assert len(errors) > 0
         assert any("web_search" in error for error in errors)
 

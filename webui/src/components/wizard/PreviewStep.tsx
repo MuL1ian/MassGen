@@ -2,10 +2,12 @@
  * Preview Step Component
  *
  * Final step - preview generated config and save.
+ * Allows editing both the filename and the YAML content.
  */
 
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { FileText, Check, AlertCircle, Loader2, Pencil, Code } from 'lucide-react';
 import { useWizardStore } from '../../stores/wizardStore';
 
 export function PreviewStep() {
@@ -13,6 +15,28 @@ export function PreviewStep() {
   const isLoading = useWizardStore((s) => s.isLoading);
   const error = useWizardStore((s) => s.error);
   const setupStatus = useWizardStore((s) => s.setupStatus);
+  const configFilename = useWizardStore((s) => s.configFilename);
+  const setConfigFilename = useWizardStore((s) => s.setConfigFilename);
+  const setGeneratedYaml = useWizardStore((s) => s.setGeneratedYaml);
+
+  // Toggle between view and edit mode
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedYaml, setEditedYaml] = useState(generatedYaml || '');
+
+  // Sync editedYaml when generatedYaml changes
+  if (generatedYaml && editedYaml === '' && generatedYaml !== editedYaml) {
+    setEditedYaml(generatedYaml);
+  }
+
+  const handleSaveEdit = () => {
+    setGeneratedYaml(editedYaml);
+    setIsEditing(false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditedYaml(generatedYaml || '');
+    setIsEditing(false);
+  };
 
   if (isLoading) {
     return (
@@ -47,6 +71,9 @@ export function PreviewStep() {
     );
   }
 
+  // Get the config directory from setupStatus
+  const configDir = setupStatus?.config_path?.replace(/\/[^/]+$/, '') || '~/.config/massgen';
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -59,22 +86,86 @@ export function PreviewStep() {
           Review Configuration
         </h2>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          This config will be saved to{' '}
-          <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded text-xs">
-            {setupStatus?.config_path || '~/.config/massgen/config.yaml'}
+          Review and customize your configuration before saving.
+        </p>
+      </div>
+
+      {/* Config Filename Input */}
+      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <Pencil className="w-4 h-4 inline mr-1" />
+          Config Name
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={configFilename}
+            onChange={(e) => setConfigFilename(e.target.value)}
+            placeholder="config"
+            className="flex-1 px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600
+                     rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <span className="text-gray-500 dark:text-gray-400 text-sm">.yaml</span>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Will be saved to:{' '}
+          <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">
+            {configDir}/{configFilename || 'config'}.yaml
           </code>
         </p>
       </div>
 
+      {/* YAML Content */}
       {generatedYaml && (
         <div className="bg-gray-900 rounded-lg overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-2 bg-gray-800 border-b border-gray-700">
-            <FileText className="w-4 h-4 text-gray-400" />
-            <span className="text-sm text-gray-300">config.yaml</span>
+          <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-gray-400" />
+              <span className="text-sm text-gray-300">{configFilename || 'config'}.yaml</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {isEditing ? (
+                <>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="px-3 py-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveEdit}
+                    className="px-3 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded transition-colors"
+                  >
+                    Apply Changes
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="flex items-center gap-1 px-3 py-1 text-xs text-gray-400 hover:text-gray-200
+                           bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                >
+                  <Code className="w-3 h-3" />
+                  Edit YAML
+                </button>
+              )}
+            </div>
           </div>
-          <pre className="p-4 text-sm text-gray-300 overflow-x-auto max-h-[400px] overflow-y-auto">
-            <code>{generatedYaml}</code>
-          </pre>
+
+          {isEditing ? (
+            <textarea
+              value={editedYaml}
+              onChange={(e) => setEditedYaml(e.target.value)}
+              className="w-full h-[350px] p-4 bg-gray-900 text-gray-300 font-mono text-sm
+                       resize-none focus:outline-none border-none"
+              spellCheck={false}
+            />
+          ) : (
+            <pre className="p-4 text-sm text-gray-300 overflow-x-auto max-h-[350px] overflow-y-auto">
+              <code>{generatedYaml}</code>
+            </pre>
+          )}
         </div>
       )}
 

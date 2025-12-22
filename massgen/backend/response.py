@@ -7,6 +7,7 @@ Supports image input (URL and base64) and image generation via tools.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 from io import BytesIO
@@ -172,12 +173,15 @@ class ResponseBackend(CustomToolAndMCPBackend):
             The function_call is already present from response.output to maintain
             reasoning item continuity.
         """
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
         # Only add function output message
         # function_call is already included from response.output (with reasoning items)
         function_output_msg = {
             "type": "function_call_output",
             "call_id": call.get("call_id", ""),
-            "output": str(result),
+            "output": result_text,
         }
         updated_messages.append(function_output_msg)
 
@@ -262,8 +266,16 @@ class ResponseBackend(CustomToolAndMCPBackend):
 
         api_params = await self.api_params_handler.build_api_params(current_messages, tools, all_params)
 
+        # Start API call timing
+        model = api_params.get("model", "unknown")
+        self.start_api_call_timing(model)
+
         # Start streaming
-        stream = await client.responses.create(**api_params)
+        try:
+            stream = await client.responses.create(**api_params)
+        except Exception as e:
+            self.end_api_call_timing(success=False, error=str(e))
+            raise
 
         # Track function calls in this iteration
         captured_function_calls = []
@@ -295,6 +307,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
 
                 # Handle regular content and other events
                 elif chunk.type == "response.output_text.delta":
+                    self.record_first_token()  # Record TTFT on first content
                     delta = getattr(chunk, "delta", "")
                     yield TextStreamChunk(
                         type=ChunkType.CONTENT,
@@ -328,9 +341,11 @@ class ResponseBackend(CustomToolAndMCPBackend):
                             logger.debug(f"Captured {len(response_output_items)} output items for reasoning continuity")
                     if captured_function_calls:
                         # Execute captured function calls and recurse
+                        self.end_api_call_timing(success=True)
                         break  # Exit chunk loop to execute functions
                     else:
                         # No function calls, we're done (base case)
+                        self.end_api_call_timing(success=True)
                         yield TextStreamChunk(type=ChunkType.DONE, source="response_api")
                         return
 
@@ -339,9 +354,45 @@ class ResponseBackend(CustomToolAndMCPBackend):
             # Categorize function calls using helper method
             mcp_calls, custom_calls, provider_calls = self._categorize_tool_calls(captured_function_calls)
 
-            # If there are provider calls (non-MCP, non-custom), let API handle them
+            # If there are provider calls (non-MCP, non-custom), emit them as tool_calls
+            # for the orchestrator to process (workflow tools like new_answer, vote)
             if provider_calls:
-                logger.info(f"Provider function calls detected: {[call['name'] for call in provider_calls]}. Ending local processing.")
+                logger.info(f"Provider function calls detected: {[call['name'] for call in provider_calls]}. Emitting for orchestrator.")
+
+                # Convert provider calls to tool_calls format for orchestrator
+                workflow_tool_calls = []
+                for call in provider_calls:
+                    tool_name = call.get("name", "")
+                    tool_args = call.get("arguments", {})
+
+                    # Parse arguments if they're a string
+                    if isinstance(tool_args, str):
+                        try:
+                            tool_args = json.loads(tool_args)
+                        except json.JSONDecodeError:
+                            tool_args = {}
+
+                    # Build tool call in standard format
+                    workflow_tool_calls.append(
+                        {
+                            "id": call.get("call_id", f"call_{len(workflow_tool_calls)}"),
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": tool_args,
+                            },
+                        },
+                    )
+
+                # Emit tool_calls chunk for orchestrator to process
+                if workflow_tool_calls:
+                    log_stream_chunk("backend.response", "tool_calls", workflow_tool_calls, kwargs.get("agent_id"))
+                    yield TextStreamChunk(
+                        type=ChunkType.TOOL_CALLS,
+                        tool_calls=workflow_tool_calls,
+                        source="response_api",
+                    )
+
                 yield TextStreamChunk(type=ChunkType.DONE, source="response_api")
                 return
 
@@ -791,12 +842,18 @@ class ResponseBackend(CustomToolAndMCPBackend):
         return converted_tools
 
     async def _process_stream(self, stream, all_params, agent_id=None):
+        first_content_recorded = False
         async for chunk in stream:
             processed = self._process_stream_chunk(chunk, agent_id)
+            # Record TTFT on first content
+            if not first_content_recorded and processed.type in [ChunkType.CONTENT, "content"]:
+                self.record_first_token()
+                first_content_recorded = True
             if processed.type == "complete_response":
                 # Yield the complete response first
                 yield processed
                 # Then signal completion with done chunk
+                self.end_api_call_timing(success=True)
                 log_stream_chunk("backend.response", "done", None, agent_id)
                 yield TextStreamChunk(type=ChunkType.DONE, source="response_api")
             else:

@@ -14,7 +14,7 @@ from ..logger_config import (
     log_backend_agent_message,
     log_stream_chunk,
 )
-from .base import LLMBackend, StreamChunk
+from .base import FilesystemSupport, LLMBackend, StreamChunk
 
 
 class AzureOpenAIBackend(LLMBackend):
@@ -100,6 +100,22 @@ class AzureOpenAIBackend(LLMBackend):
             # Modify messages to include workflow tool instructions if needed
             modified_messages = self._prepare_messages_with_workflow_tools(messages, workflow_tools) if has_workflow_tools else messages
 
+            # Filter out problematic tool messages for Azure OpenAI
+            modified_messages = self._filter_tool_messages_for_azure(modified_messages)
+
+            # Debug: Log workflow tools detection and system prompt
+            if has_workflow_tools:
+                log_backend_activity(
+                    self.get_provider_name(),
+                    "Workflow tools detected",
+                    {
+                        "workflow_tools_count": len(workflow_tools),
+                        "workflow_tool_names": [t.get("function", {}).get("name") for t in workflow_tools],
+                        "system_message_length": len(modified_messages[0]["content"]) if modified_messages and modified_messages[0]["role"] == "system" else 0,
+                    },
+                    agent_id=agent_id,
+                )
+
             # Log messages being sent
             log_backend_agent_message(
                 agent_id or "default",
@@ -121,9 +137,7 @@ class AzureOpenAIBackend(LLMBackend):
                 # Convert tools to Azure OpenAI format if needed
                 converted_tools = self._convert_tools_format(tools)
                 api_params["tools"] = converted_tools
-            else:
-                # Disable tool calling for simple queries
-                api_params["tool_choice"] = "none"
+            # Note: Don't set tool_choice when no tools are provided - Azure OpenAI doesn't allow it
 
             # Add other parameters (excluding model since we already set it)
             # Filter out unsupported Azure OpenAI parameters
@@ -133,6 +147,11 @@ class AzureOpenAIBackend(LLMBackend):
                 "messages",
                 "stream",
                 "tools",
+                "api_version",
+                "azure_endpoint",
+                "base_url",
+                "enable_web_search",
+                "enable_rate_limit",  # Add this line - not supported by Azure OpenAI
             }
             for key, value in kwargs.items():
                 if key not in excluded_params and value is not None:
@@ -199,6 +218,14 @@ class AzureOpenAIBackend(LLMBackend):
 
             # After streaming is complete, check if we have workflow tool calls
             if has_workflow_tools:
+                # Add debug logging to see raw response
+                log_backend_activity(
+                    self.get_provider_name(),
+                    "Raw response for tool extraction",
+                    {"complete_response": complete_response},
+                    agent_id=agent_id,
+                )
+
                 workflow_tool_calls = self._extract_workflow_tool_calls(complete_response)
                 if workflow_tool_calls:
                     log_stream_chunk(
@@ -209,6 +236,14 @@ class AzureOpenAIBackend(LLMBackend):
                     )
                     yield StreamChunk(type="tool_calls", tool_calls=workflow_tool_calls)
                     last_yield_type = "tool_calls"
+                else:
+                    # Log when no tool calls found
+                    log_backend_activity(
+                        self.get_provider_name(),
+                        "No workflow tool calls found in response",
+                        {"response_length": len(complete_response)},
+                        agent_id=agent_id,
+                    )
 
             # Ensure stream termination is signaled
             if last_yield_type != "done":
@@ -299,6 +334,26 @@ class AzureOpenAIBackend(LLMBackend):
 
         return "\n".join(system_parts)
 
+    def _filter_tool_messages_for_azure(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Filter out tool messages that don't follow Azure OpenAI requirements."""
+        filtered_messages = []
+        last_message_had_tool_calls = False
+
+        for message in messages:
+            role = message.get("role")
+
+            if role == "tool":
+                # Only include tool messages if the previous message had tool_calls
+                if last_message_had_tool_calls:
+                    filtered_messages.append(message)
+                # Otherwise skip this tool message
+            else:
+                filtered_messages.append(message)
+                # Check if this assistant message has tool_calls
+                last_message_had_tool_calls = role == "assistant" and "tool_calls" in message and message["tool_calls"]
+
+        return filtered_messages
+
     def _extract_workflow_tool_calls(self, content: str) -> List[Dict[str, Any]]:
         """Extract workflow tool calls from content."""
         try:
@@ -346,6 +401,23 @@ class AzureOpenAIBackend(LLMBackend):
                         return [tool_call]
                 except json.JSONDecodeError:
                     continue
+
+            # AZURE OPENAI FALLBACK: Handle {"content":"..."} format and convert to new_answer
+            azure_content_pattern = r'\{"content":"([^"]+)"\}'
+            azure_matches = re.findall(azure_content_pattern, content)
+
+            if azure_matches:
+                # Take the last content match and convert to new_answer tool call
+                answer_content = azure_matches[-1]
+                tool_call = {
+                    "id": f"call_{hash(answer_content) % 10000}",
+                    "type": "function",
+                    "function": {
+                        "name": "new_answer",
+                        "arguments": json.dumps({"content": answer_content}),
+                    },
+                }
+                return [tool_call]
 
             return []
 
@@ -399,3 +471,11 @@ class AzureOpenAIBackend(LLMBackend):
     def extract_tool_call_id(self, tool_call: Dict[str, Any]) -> str:
         """Extract tool call id from Chat Completions-style tool call."""
         return tool_call.get("id", "")
+
+    def get_filesystem_support(self) -> FilesystemSupport:
+        """OpenAI supports filesystem through MCP servers."""
+        return FilesystemSupport.MCP
+
+    def get_supported_builtin_tools(self) -> List[str]:
+        """Get list of builtin tools supported by OpenAI."""
+        return ["web_search", "code_interpreter"]

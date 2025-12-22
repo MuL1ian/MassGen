@@ -83,33 +83,50 @@ class ShadowAgentSpawner:
             broadcast_request,
         )
 
-        # 2. Copy conversation context (full history for context)
-        shadow_history = parent_agent.conversation_history.copy()
-
-        # 3. Replace/add system message with shadow prompt
-        # Remove existing system messages and add shadow prompt
-        shadow_history = [msg for msg in shadow_history if msg.get("role") != "system"]
-        shadow_history.insert(0, {"role": "system", "content": shadow_system_prompt})
-
-        # 4. Include current turn's full context (if any)
+        # 2. Get current turn context (if any)
         # This captures everything the parent agent has generated so far in the current turn
         # Including: text content, tool calls, reasoning, MCP tool calls
         current_turn_context = self._build_current_turn_context(parent_agent, shadow_id)
-        if current_turn_context:
+
+        # 3. Check if backend requires special handling (e.g., Claude Code can't accept assistant messages)
+        backend = parent_agent.backend
+        is_claude_code = hasattr(backend, "get_provider_name") and backend.get_provider_name() == "claude_code"
+
+        if is_claude_code:
+            # Claude Code maintains its own conversation history and can't accept assistant messages
+            # Instead, inject context as text within the user message
+            shadow_history = self._build_claude_code_compatible_history(
+                shadow_system_prompt,
+                parent_agent,
+                broadcast_request,
+                current_turn_context,
+                shadow_id,
+            )
+        else:
+            # Standard flow: copy parent history and inject context as messages
+            shadow_history = parent_agent.conversation_history.copy()
+
+            # Replace/add system message with shadow prompt
+            # Remove existing system messages and add shadow prompt
+            shadow_history = [msg for msg in shadow_history if msg.get("role") != "system"]
+            shadow_history.insert(0, {"role": "system", "content": shadow_system_prompt})
+
+            # Include current turn context as assistant message
+            if current_turn_context:
+                shadow_history.append(
+                    {
+                        "role": "assistant",
+                        "content": current_turn_context,
+                    },
+                )
+
+            # Add broadcast question as user message
             shadow_history.append(
                 {
-                    "role": "assistant",
-                    "content": current_turn_context,
+                    "role": "user",
+                    "content": self._format_broadcast_question(broadcast_request),
                 },
             )
-
-        # 5. Add broadcast question as user message
-        shadow_history.append(
-            {
-                "role": "user",
-                "content": self._format_broadcast_question(broadcast_request),
-            },
-        )
 
         # 6. Save debug context if --debug flag is enabled
         from .logger_config import _DEBUG_MODE, _LOG_SESSION_DIR
@@ -164,6 +181,14 @@ class ShadowAgentSpawner:
         # Get parent's identity/persona (user-configured system message)
         parent_identity = parent_agent.get_configurable_system_message() or ""
 
+        # Get response_depth from orchestrator config (controls test-time compute scaling)
+        response_depth = "medium"
+        if hasattr(self.orchestrator, "config") and hasattr(self.orchestrator.config, "coordination_config"):
+            response_depth = getattr(self.orchestrator.config.coordination_config, "response_depth", "medium")
+
+        # Build depth-specific instructions for test-time compute scaling
+        depth_instruction = self._get_depth_instruction(response_depth)
+
         # Build shadow prompt with identity but no workflow tools
         prompt_parts = []
 
@@ -172,26 +197,67 @@ class ShadowAgentSpawner:
             prompt_parts.append("\n---\n")
 
         prompt_parts.append(
-            """## BROADCAST RESPONSE MODE
+            f"""## BROADCAST RESPONSE MODE
 
 You are responding to a question from another agent in your team.
 
-**Your Task:**
-1. Read the question carefully
-2. Consider your current work context and knowledge
-3. Provide a helpful, relevant answer
+**Response Depth: {response_depth.upper()}**
+{depth_instruction}
 
-**Important:**
+**What You Know:**
+- Your own work context and conversation history (what YOU have been doing)
+- Your general knowledge and expertise
+- The question text from the asking agent
+
+**What You Do NOT Know:**
+- The asking agent's workspace, files, or current work
+- What the asking agent has discovered or built
 - You do NOT have access to any tools in this mode
-- Simply provide your answer as text
-- Be concise but thorough
-- Your response will be sent back to the asking agent
-- After responding, this session ends (single-turn)
 
-Focus on being helpful to your teammate.""",
+**Your Task:**
+1. Read the question carefully - the question text is your ONLY window into their work
+2. Draw on your own context and expertise to provide helpful guidance
+3. If the question lacks necessary context, provide general guidance and note what additional info would help
+4. Do NOT assume details about their project unless explicitly stated in the question
+
+**Format:**
+- Simply provide your answer as text
+- Your response will be sent back to the asking agent
+- After responding, this session ends (single-turn)""",
         )
 
         return "\n".join(prompt_parts)
+
+    def _get_depth_instruction(self, response_depth: str) -> str:
+        """Get depth-specific instruction for test-time compute scaling.
+
+        This controls how thorough/complex shadow agent responses should be,
+        implementing test-time compute scaling for multi-agent systems.
+
+        Args:
+            response_depth: "low", "medium", or "high"
+
+        Returns:
+            Depth-specific instruction string
+        """
+        if response_depth == "low":
+            return """Suggest SIMPLE, MINIMAL solutions:
+- Prefer basic technologies (vanilla HTML/CSS/JS, simple libraries)
+- Avoid complex frameworks or architectures
+- Focus on getting the job done with minimal dependencies
+- Keep responses brief and to the point"""
+        elif response_depth == "high":
+            return """Suggest SOPHISTICATED, COMPREHENSIVE solutions:
+- Recommend modern frameworks and best practices (React, Next.js, TypeScript, etc.)
+- Include architecture considerations (SSR, component libraries, testing, CI/CD)
+- Suggest professional-grade tooling and patterns
+- Provide thorough, detailed responses with examples"""
+        else:  # medium (default)
+            return """Suggest BALANCED solutions:
+- Use appropriate technology for the task complexity
+- Include standard best practices without over-engineering
+- Balance simplicity with maintainability
+- Be concise but thorough"""
 
     def _build_current_turn_context(
         self,
@@ -272,6 +338,69 @@ Focus on being helpful to your teammate.""",
         )
 
         return context
+
+    def _build_claude_code_compatible_history(
+        self,
+        shadow_system_prompt: str,
+        parent_agent: "SingleAgent",
+        broadcast_request: "BroadcastRequest",
+        current_turn_context: Optional[str],
+        shadow_id: str,
+    ) -> list:
+        """Build a conversation history compatible with Claude Code backend.
+
+        Claude Code maintains its own conversation history and cannot accept
+        pre-existing assistant messages. This method injects context as text
+        within a single user message instead.
+
+        Args:
+            shadow_system_prompt: The shadow agent's system prompt
+            parent_agent: The parent agent with conversation history
+            broadcast_request: The broadcast request to respond to
+            current_turn_context: Optional current turn context string
+            shadow_id: ID of the shadow agent for logging
+
+        Returns:
+            List of messages compatible with Claude Code (system + user only)
+        """
+        # Build context summary from parent's conversation history
+        context_parts = []
+
+        # Extract relevant context from parent's history (skip system messages)
+        parent_history = [msg for msg in parent_agent.conversation_history if msg.get("role") != "system"]
+
+        if parent_history:
+            context_parts.append("**Your Previous Work Context:**")
+            for msg in parent_history:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                if content:
+                    context_parts.append(f"[{role.upper()}]: {content}")
+            context_parts.append("")
+
+        # Add current turn context if available
+        if current_turn_context:
+            context_parts.append("**Current Work In Progress:**")
+            context_parts.append(current_turn_context)
+            context_parts.append("")
+
+        # Build the combined user message
+        context_text = "\n".join(context_parts) if context_parts else ""
+        broadcast_question = self._format_broadcast_question(broadcast_request)
+
+        if context_text:
+            user_content = f"{context_text}\n{broadcast_question}"
+        else:
+            user_content = broadcast_question
+
+        logger.info(
+            f"[{shadow_id}] Built Claude Code compatible history: " f"context_parts={len(context_parts)}, user_content={len(user_content)} chars",
+        )
+
+        return [
+            {"role": "system", "content": shadow_system_prompt},
+            {"role": "user", "content": user_content},
+        ]
 
     def _format_broadcast_question(self, broadcast_request: "BroadcastRequest") -> str:
         """Format the broadcast question as a user message.

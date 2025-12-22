@@ -11,6 +11,7 @@ import base64
 import json
 import mimetypes
 import time
+import types
 import uuid
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -95,6 +96,7 @@ class CustomToolChunk(NamedTuple):
     data: str  # Chunk data to stream to user
     completed: bool  # True for the last chunk only
     accumulated_result: str  # Final accumulated result (only when completed=True)
+    meta_info: Optional[Dict[str, Any]] = None  # Multimodal metadata (e.g., from read_media)
 
 
 class ExecutionContext(BaseModel):
@@ -104,6 +106,8 @@ class ExecutionContext(BaseModel):
     agent_system_message: Optional[str] = None
     agent_id: Optional[str] = None
     backend_name: Optional[str] = None
+    backend_type: Optional[str] = None  # Backend type for capability lookup (e.g., "openai", "claude")
+    model: Optional[str] = None  # Model name for capability lookup
     current_stage: Optional[CoordinationStage] = None
 
     # These will be computed after initialization
@@ -117,6 +121,8 @@ class ExecutionContext(BaseModel):
         agent_system_message: Optional[str] = None,
         agent_id: Optional[str] = None,
         backend_name: Optional[str] = None,
+        backend_type: Optional[str] = None,
+        model: Optional[str] = None,
         current_stage: Optional[CoordinationStage] = None,
     ):
         """Initialize execution context."""
@@ -125,6 +131,8 @@ class ExecutionContext(BaseModel):
             agent_system_message=agent_system_message,
             agent_id=agent_id,
             backend_name=backend_name,
+            backend_type=backend_type,
+            model=model,
             current_stage=current_stage,
         )
         # Now you can process messages after Pydantic initialization
@@ -282,6 +290,34 @@ class CustomToolAndMCPBackend(LLMBackend):
         if custom_tools:
             self._register_custom_tools(custom_tools)
 
+        # Register multimodal tools if enabled
+        enable_multimodal = self.config.get("enable_multimodal_tools", False) or kwargs.get("enable_multimodal_tools", False)
+        if enable_multimodal:
+            multimodal_tools = [
+                {
+                    "name": ["read_media"],
+                    "category": "multimodal",
+                    "path": "massgen/tool/_multimodal_tools/read_media.py",
+                    "function": ["read_media"],
+                },
+                {
+                    "name": ["generate_media"],
+                    "category": "multimodal",
+                    "path": "massgen/tool/_multimodal_tools/generation/generate_media.py",
+                    "function": ["generate_media"],
+                },
+            ]
+            self._register_custom_tools(multimodal_tools)
+            logger.info(f"[{self.backend_name}] Multimodal tools enabled: read_media, generate_media")
+
+        # Build multimodal config for injection into read_media and generate_media tools
+        # Priority: explicit multimodal_config > individual config variables
+        self._multimodal_config = self.config.get("multimodal_config", {}) or kwargs.get("multimodal_config", {})
+
+        # If not explicitly set, build from individual generation config variables
+        if not self._multimodal_config:
+            self._multimodal_config = self._build_multimodal_config_from_params()
+
         # MCP integration (filesystem MCP server may have been injected by base class)
         self.mcp_servers = self.config.get("mcp_servers", [])
 
@@ -358,6 +394,54 @@ class CustomToolAndMCPBackend(LLMBackend):
         # Initialize backend name and agent ID for MCP operations
         self.backend_name = self.get_provider_name()
         self.agent_id = kwargs.get("agent_id", None)
+
+    def _build_multimodal_config_from_params(self) -> Dict[str, Any]:
+        """Build multimodal_config from individual generation config variables.
+
+        Reads the following config variables and builds a structured config:
+        - image_generation_backend, image_generation_model
+        - video_generation_backend, video_generation_model
+        - audio_generation_backend, audio_generation_model
+
+        Returns:
+            Dict with structure: {"image": {"backend": ..., "model": ...}, ...}
+        """
+        multimodal_config: Dict[str, Any] = {}
+
+        # Image generation config
+        image_backend = self.config.get("image_generation_backend")
+        image_model = self.config.get("image_generation_model")
+        if image_backend or image_model:
+            multimodal_config["image"] = {}
+            if image_backend:
+                multimodal_config["image"]["backend"] = image_backend
+            if image_model:
+                multimodal_config["image"]["model"] = image_model
+
+        # Video generation config
+        video_backend = self.config.get("video_generation_backend")
+        video_model = self.config.get("video_generation_model")
+        if video_backend or video_model:
+            multimodal_config["video"] = {}
+            if video_backend:
+                multimodal_config["video"]["backend"] = video_backend
+            if video_model:
+                multimodal_config["video"]["model"] = video_model
+
+        # Audio generation config
+        audio_backend = self.config.get("audio_generation_backend")
+        audio_model = self.config.get("audio_generation_model")
+        if audio_backend or audio_model:
+            multimodal_config["audio"] = {}
+            if audio_backend:
+                multimodal_config["audio"]["backend"] = audio_backend
+            if audio_model:
+                multimodal_config["audio"]["model"] = audio_model
+
+        if multimodal_config:
+            logger.debug(f"[{self.backend_name}] Built multimodal_config from params: {multimodal_config}")
+
+        return multimodal_config
 
     def set_nlip_router(self, nlip_router, enabled: bool = True) -> None:
         """
@@ -776,14 +860,15 @@ class CustomToolAndMCPBackend(LLMBackend):
     async def _stream_execution_results(
         self,
         tool_request: Dict[str, Any],
-    ) -> AsyncGenerator[Tuple[str, bool], None]:
-        """Stream execution results from tool manager, yielding (data, is_log) tuples.
+    ) -> AsyncGenerator[Tuple[str, bool, Optional[Dict[str, Any]]], None]:
+        """Stream execution results from tool manager, yielding (data, is_log, meta_info) tuples.
 
         Args:
             tool_request: Tool request dictionary with name and input
 
         Yields:
-            Tuple of (data: str, is_log: bool) for each result block
+            Tuple of (data: str, is_log: bool, meta_info: Optional[Dict]) for each result block.
+            The meta_info contains multimodal data (e.g., from read_media tool).
         """
         try:
             async for result in self.custom_tool_manager.execute_tool(
@@ -791,6 +876,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 execution_context=self._execution_context.model_dump(),
             ):
                 is_log = getattr(result, "is_log", False)
+                meta_info = getattr(result, "meta_info", None)
 
                 if hasattr(result, "output_blocks"):
                     for block in result.output_blocks:
@@ -799,15 +885,16 @@ class CustomToolAndMCPBackend(LLMBackend):
                             data = str(block.data)
 
                         if data:
-                            yield (data, is_log)
+                            yield (data, is_log, meta_info)
 
         except Exception as e:
             logger.error(f"Error in custom tool execution: {e}")
-            yield (f"Error: {str(e)}", True)
+            yield (f"Error: {str(e)}", True, None)
 
     async def stream_custom_tool_execution(
         self,
         call: Dict[str, Any],
+        agent_id_override: Optional[str] = None,
     ) -> AsyncGenerator[CustomToolChunk, None]:
         """Stream custom tool execution with differentiation between logs and final results.
 
@@ -819,6 +906,9 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         Args:
             call: Function call dictionary with name and arguments
+            agent_id_override: Explicit agent ID for broadcast tools. Use this to avoid race
+                conditions when multiple agents run concurrently (shared _execution_context
+                can get overwritten). If not provided, falls back to _execution_context.
 
         Yields:
             CustomToolChunk instances for streaming to user
@@ -831,8 +921,16 @@ class CustomToolAndMCPBackend(LLMBackend):
         if tool_name in ("ask_others", "respond_to_broadcast", "check_broadcast_status", "get_broadcast_responses") and hasattr(self, "_broadcast_toolkit"):
             # Parse arguments
             arguments = call["arguments"] if isinstance(call["arguments"], str) else json.dumps(call["arguments"])
-            # Get agent_id from execution context (set in stream_with_tools from kwargs)
-            agent_id = self._execution_context.agent_id if self._execution_context and self._execution_context.agent_id else "unknown"
+            # Use explicit agent_id if provided, then instance agent_id, then execution context
+            # Priority: agent_id_override > self.agent_id > _execution_context
+            # This avoids race conditions when multiple agents run concurrently
+            # (the shared _execution_context can get overwritten by other agents)
+            if agent_id_override:
+                agent_id = agent_id_override
+            elif self.agent_id:
+                agent_id = self.agent_id
+            else:
+                agent_id = self._execution_context.agent_id if self._execution_context and self._execution_context.agent_id else "unknown"
 
             # Call broadcast toolkit method
             try:
@@ -871,15 +969,22 @@ class CustomToolAndMCPBackend(LLMBackend):
                 arguments["agent_cwd"] = self.filesystem_manager.cwd
                 logger.info(f"Dynamically injected agent_cwd at execution time: {self.filesystem_manager.cwd}")
 
+        # Inject multimodal_config if available (for read_media tool)
+        if hasattr(self, "_multimodal_config") and self._multimodal_config:
+            if "multimodal_config" not in arguments:
+                arguments["multimodal_config"] = self._multimodal_config
+                logger.debug(f"Injected multimodal_config: {self._multimodal_config}")
+
         tool_request = {
             "name": call["name"],
             "input": arguments,
         }
 
         accumulated_result = ""
+        accumulated_meta_info: Optional[Dict[str, Any]] = None
 
         # Stream all results and accumulate only is_log=True
-        async for data, is_log in self._stream_execution_results(tool_request):
+        async for data, is_log, meta_info in self._stream_execution_results(tool_request):
             # Yield streaming chunk to user
             yield CustomToolChunk(
                 data=data,
@@ -890,12 +995,16 @@ class CustomToolAndMCPBackend(LLMBackend):
             # Accumulate only final results for message history
             if not is_log:
                 accumulated_result += data
+                # Capture meta_info from non-log results (e.g., multimodal_inject from read_media)
+                if meta_info:
+                    accumulated_meta_info = meta_info
 
-        # Yield final chunk with accumulated result
+        # Yield final chunk with accumulated result and metadata
         yield CustomToolChunk(
             data="",
             completed=True,
             accumulated_result=accumulated_result or "Tool executed successfully",
+            meta_info=accumulated_meta_info,
         )
 
     def _get_custom_tools_schemas(self) -> List[Dict[str, Any]]:
@@ -1055,6 +1164,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 # Handle async generator (streaming custom tools)
                 if hasattr(callback_result, "__aiter__"):
                     # This is an async generator - stream intermediate results
+                    result_meta_info = None
                     async for chunk in callback_result:
                         # Yield intermediate chunks if available
                         if hasattr(chunk, "data") and chunk.data and not chunk.completed:
@@ -1066,9 +1176,17 @@ class CustomToolAndMCPBackend(LLMBackend):
                                 source=f"{config.source_prefix}{tool_name}",
                             )
                         elif hasattr(chunk, "completed") and chunk.completed:
-                            # Extract final accumulated result
+                            # Extract final accumulated result and metadata
                             result_str = chunk.accumulated_result
-                    result = result_str
+                            result_meta_info = getattr(chunk, "meta_info", None)
+                    # Wrap result with meta_info if multimodal data is present
+                    if result_meta_info:
+                        result = types.SimpleNamespace(
+                            text=result_str,
+                            meta_info=result_meta_info,
+                        )
+                    else:
+                        result = result_str
                 else:
                     # Handle regular await (non-streaming custom tools)
                     result = await callback_result
@@ -2256,6 +2374,8 @@ class CustomToolAndMCPBackend(LLMBackend):
             agent_system_message=kwargs.get("system_message", None),
             agent_id=agent_id or self.agent_id,  # Use kwargs agent_id, fallback to instance attribute
             backend_name=self.backend_name,
+            backend_type=self.get_provider_name(),  # For multimodal capability lookup
+            model=kwargs.get("model", ""),  # For model-specific multimodal capability lookup
             current_stage=self.coordination_stage,
         )
 
@@ -2388,26 +2508,34 @@ class CustomToolAndMCPBackend(LLMBackend):
                 non_mcp_tools.append(tool)
             api_params["tools"] = non_mcp_tools
 
-        if "openai" in self.get_provider_name().lower():
-            stream = await client.responses.create(**api_params)
-        elif "claude" in self.get_provider_name().lower():
-            if "betas" in api_params:
-                stream = await client.beta.messages.create(**api_params)
+        # Start API call timing
+        model = api_params.get("model", "unknown")
+        self.start_api_call_timing(model)
+
+        try:
+            if "openai" in self.get_provider_name().lower():
+                stream = await client.responses.create(**api_params)
+            elif "claude" in self.get_provider_name().lower():
+                if "betas" in api_params:
+                    stream = await client.beta.messages.create(**api_params)
+                else:
+                    stream = await client.messages.create(**api_params)
             else:
-                stream = await client.messages.create(**api_params)
-        else:
-            # Enable usage tracking in streaming responses (required for token counting)
-            # Chat Completions API (used by Grok, Groq, Together, Fireworks, etc.)
-            if api_params.get("stream"):
-                api_params["stream_options"] = {"include_usage": True}
+                # Enable usage tracking in streaming responses (required for token counting)
+                # Chat Completions API (used by Grok, Groq, Together, Fireworks, etc.)
+                if api_params.get("stream"):
+                    api_params["stream_options"] = {"include_usage": True}
 
-            # Track messages for interrupted stream estimation (multi-agent restart handling)
-            if hasattr(self, "_interrupted_stream_messages"):
-                self._interrupted_stream_messages = processed_messages.copy()
-                self._interrupted_stream_model = all_params.get("model", "gpt-4o")
-                self._stream_usage_received = False
+                # Track messages for interrupted stream estimation (multi-agent restart handling)
+                if hasattr(self, "_interrupted_stream_messages"):
+                    self._interrupted_stream_messages = processed_messages.copy()
+                    self._interrupted_stream_model = all_params.get("model", "gpt-4o")
+                    self._stream_usage_received = False
 
-            stream = await client.chat.completions.create(**api_params)
+                stream = await client.chat.completions.create(**api_params)
+        except Exception as e:
+            self.end_api_call_timing(success=False, error=str(e))
+            raise
 
         async for chunk in self._process_stream(stream, all_params, agent_id):
             yield chunk

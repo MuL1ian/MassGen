@@ -111,10 +111,10 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         # Emoji support detection
         self.emoji_support = self._detect_emoji_support()
+        self._terminal_type = self._detect_terminal_type()
 
         if self.refresh_rate is None:
-            terminal_type = self._detect_terminal_type()
-            self.refresh_rate = self._get_adaptive_refresh_rate(terminal_type)
+            self.refresh_rate = self._get_adaptive_refresh_rate(self._terminal_type)
         else:
             self.refresh_rate = int(self.refresh_rate)
 
@@ -124,9 +124,11 @@ class TextualTerminalDisplay(TerminalDisplay):
         # Buffering - derive default from refresh rate unless explicitly set
         default_buffer_flush = kwargs.get("buffer_flush_interval")
         if default_buffer_flush is None:
-            # Keep updates responsive while avoiding busy looping; clamp for smoother VSCode/Windows rendering
-            adaptive_flush = max(0.08, 1 / max(self.refresh_rate, 1))
-            default_buffer_flush = min(adaptive_flush, 0.12)
+            if self._terminal_type in ("vscode", "windows_terminal"):
+                default_buffer_flush = 0.3  # 300ms for smoother Windows/VSCode rendering
+            else:
+                adaptive_flush = max(0.1, 1 / max(self.refresh_rate, 1))
+                default_buffer_flush = min(adaptive_flush, 0.15)
         self.buffer_flush_interval = default_buffer_flush
         self._buffers = {agent_id: [] for agent_id in self.agent_ids}
         self._buffer_lock = threading.Lock()
@@ -225,13 +227,13 @@ class TextualTerminalDisplay(TerminalDisplay):
     def _get_adaptive_refresh_rate(self, terminal_type: str) -> int:
         """Get optimal refresh rate based on terminal."""
         rates = {
-            "ssh": 6,
-            "vscode": 8,
-            "iterm": 12,
-            "windows_terminal": 8,
-            "unknown": 10,
+            "ssh": 4,
+            "vscode": 4,
+            "iterm": 10,
+            "windows_terminal": 4,
+            "unknown": 6,
         }
-        return rates.get(terminal_type, 10)
+        return rates.get(terminal_type, 6)
 
     def _write_to_agent_file(self, agent_id: str, content: str):
         """Write content to agent's output file."""
@@ -817,6 +819,7 @@ if TEXTUAL_AVAILABLE:
             Binding("tab", "next_agent", "Next Agent"),
             Binding("shift+tab", "prev_agent", "Prev Agent"),
             Binding("s", "open_system_status", "System Log"),
+            Binding("o", "open_orchestrator", "Events"),
             Binding("i", "agent_selector", "Agent Selector"),
             Binding("c", "coordination_table", "Coordination Table"),
             Binding("v", "open_vote_results", "Vote Results"),
@@ -843,7 +846,6 @@ if TEXTUAL_AVAILABLE:
 
             # Widget references
             self.agent_widgets = {}
-            self.orchestrator_panel = None
             self.header_widget = None
             self.footer_widget = None
             self.post_eval_panel = None
@@ -855,6 +857,8 @@ if TEXTUAL_AVAILABLE:
             self._pending_flush = False
             self._resize_debounce_handle = None
             self._thread_id: Optional[int] = None
+            # Orchestrator event tracking
+            self._orchestrator_events: List[str] = []
 
             if not self._keyboard_interactive_mode:
                 self.BINDINGS = []
@@ -864,23 +868,21 @@ if TEXTUAL_AVAILABLE:
             return self.coordination_display.safe_keyboard_mode or not self._keyboard_interactive_mode
 
         def compose(self) -> ComposeResult:
-            """Compose the UI layout."""
+            """Compose the UI layout with adaptive agent arrangement."""
+            num_agents = len(self.coordination_display.agent_ids)
             # Header
             self.header_widget = HeaderWidget(self.question)
             yield self.header_widget
 
-            # Main container with agent columns and orchestrator panel
-            with Container(id="main_container"):
-                # Agent columns
-                with Container(id="agents_container"):
-                    for agent_id in self.coordination_display.agent_ids:
-                        agent_widget = AgentPanel(agent_id, self.coordination_display)
+            # Main container with adaptive agent layout
+            layout_class = self._get_layout_class(num_agents)
+            with Container(id="main_container", classes=layout_class):
+                # Agent columns with adaptive layout
+                with Container(id="agents_container", classes=layout_class):
+                    for idx, agent_id in enumerate(self.coordination_display.agent_ids):
+                        agent_widget = AgentPanel(agent_id, self.coordination_display, idx + 1)
                         self.agent_widgets[agent_id] = agent_widget
                         yield agent_widget
-
-                # Orchestrator panel (side-by-side layout)
-                self.orchestrator_panel = OrchestratorPanel()
-                yield self.orchestrator_panel
 
             # Post-evaluation panel (hidden until content arrives)
             self.post_eval_panel = PostEvaluationPanel()
@@ -897,6 +899,17 @@ if TEXTUAL_AVAILABLE:
             # Footer
             self.footer_widget = Footer()
             yield self.footer_widget
+
+        def _get_layout_class(self, num_agents: int) -> str:
+            """Return CSS class for adaptive layout based on agent count."""
+            if num_agents == 1:
+                return "single-agent"
+            elif num_agents == 2:
+                return "two-agents"
+            elif num_agents == 3:
+                return "three-agents"
+            else:
+                return "many-agents"
 
         async def on_mount(self):
             """Set up periodic buffer flushing when app starts."""
@@ -930,6 +943,8 @@ if TEXTUAL_AVAILABLE:
         async def _flush_buffers(self):
             """Flush buffered content to widgets (runs in asyncio event loop)."""
             self._pending_flush = False
+            # Collect all updates first, then apply in batch to reduce redraws
+            all_updates = []
             for agent_id in self.coordination_display.agent_ids:
                 with self._buffer_lock:
                     if not self._buffers[agent_id]:
@@ -937,19 +952,24 @@ if TEXTUAL_AVAILABLE:
                     buffer_copy = self._buffers[agent_id].copy()
                     self._buffers[agent_id].clear()
 
-                # Update widget
                 if buffer_copy and agent_id in self.agent_widgets:
-                    for item in buffer_copy:
-                        await self.update_agent_widget(
-                            agent_id,
-                            item["content"],
-                            item.get("type", "thinking"),
-                        )
-                        # Scroll to latest if status jump requested
-                        if item.get("force_jump"):
-                            widget = self.agent_widgets.get(agent_id)
-                            if widget:
-                                widget.jump_to_latest()
+                    all_updates.append((agent_id, buffer_copy))
+
+            # Apply all updates with refresh suppressed until done
+            if all_updates:
+                with self.batch_update():
+                    for agent_id, buffer_copy in all_updates:
+                        for item in buffer_copy:
+                            await self.update_agent_widget(
+                                agent_id,
+                                item["content"],
+                                item.get("type", "thinking"),
+                            )
+                            # Scroll to latest if status jump requested
+                            if item.get("force_jump"):
+                                widget = self.agent_widgets.get(agent_id)
+                                if widget:
+                                    widget.jump_to_latest()
 
         def request_flush(self):
             """Request a near-immediate flush (debounced)."""
@@ -976,9 +996,9 @@ if TEXTUAL_AVAILABLE:
                 self.agent_widgets[agent_id].jump_to_latest()
 
         def add_orchestrator_event(self, event: str):
-            """Add orchestrator event."""
-            if self.orchestrator_panel:
-                self.orchestrator_panel.add_event(event)
+            """Add orchestrator event to internal tracking."""
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            self._orchestrator_events.append(f"{timestamp} {event}")
 
         def show_final_presentation(
             self,
@@ -999,8 +1019,7 @@ if TEXTUAL_AVAILABLE:
             if self.post_eval_panel:
                 lines = list(self.coordination_display._post_evaluation_lines)
                 self.post_eval_panel.update_lines(agent_id, lines)
-            if self.orchestrator_panel:
-                self.orchestrator_panel.add_event(f"[POST-EVALUATION] {agent_id}: {content}")
+            self.add_orchestrator_event(f"[POST-EVALUATION] {agent_id}: {content}")
             if self.final_stream_panel:
                 self.final_stream_panel.end()
 
@@ -1044,8 +1063,7 @@ if TEXTUAL_AVAILABLE:
 
         def display_vote_results(self, formatted_results: str):
             """Display vote results."""
-            if self.orchestrator_panel:
-                self.orchestrator_panel.add_event("🗳️ Voting complete. Press 'i' to inspect details.")
+            self.add_orchestrator_event("🗳️ Voting complete. Press 'v' to inspect details.")
             self._latest_vote_results_text = formatted_results
 
             async def _show_modal():
@@ -1094,8 +1112,7 @@ if TEXTUAL_AVAILABLE:
             """Toggle safe keyboard mode to ignore hotkeys."""
             self.coordination_display.safe_keyboard_mode = not self.coordination_display.safe_keyboard_mode
             status = "ON" if self.coordination_display.safe_keyboard_mode else "OFF"
-            if self.orchestrator_panel:
-                self.orchestrator_panel.add_event(f"Keyboard safe mode {status}")
+            self.add_orchestrator_event(f"Keyboard safe mode {status}")
             self._update_safe_indicator()
 
         def action_agent_selector(self):
@@ -1140,6 +1157,22 @@ if TEXTUAL_AVAILABLE:
                 return
             self._show_system_status_modal()
 
+        def action_open_orchestrator(self):
+            """Open orchestrator events modal."""
+            if self._keyboard_locked():
+                return
+            self._show_orchestrator_modal()
+
+        def _show_orchestrator_modal(self):
+            """Display orchestrator events in a modal."""
+            events_text = "\n".join(self._orchestrator_events) if self._orchestrator_events else "No events yet."
+
+            async def _show_modal():
+                modal = OrchestratorEventsModal(events_text)
+                await self.push_screen(modal)
+
+            self.call_later(lambda: self.run_worker(_show_modal()))
+
         def on_key(self, event: events.Key):
             """Map number keys directly to agent inspection, mirroring Rich UI."""
             if self._keyboard_locked():
@@ -1161,6 +1194,11 @@ if TEXTUAL_AVAILABLE:
 
             if key.lower() == "s":
                 self.action_open_system_status()
+                event.stop()
+                return
+
+            if key.lower() == "o":
+                self.action_open_orchestrator()
                 event.stop()
                 return
 
@@ -1217,10 +1255,12 @@ if TEXTUAL_AVAILABLE:
                 except Exception:
                     pass
 
+            # Use longer debounce on Windows/VSCode to reduce flicker on resize
+            debounce_time = 0.15 if self.coordination_display._terminal_type in ("vscode", "windows_terminal") else 0.05
             try:
-                self._resize_debounce_handle = self.set_timer(0.05, self.refresh, layout=True)
+                self._resize_debounce_handle = self.set_timer(debounce_time, lambda: self.refresh(layout=True))
             except Exception:
-                self.refresh(layout=True)
+                self.call_later(lambda: self.refresh(layout=True))
 
     # Widget implementations
     class HeaderWidget(Static):
@@ -1265,12 +1305,14 @@ if TEXTUAL_AVAILABLE:
     class AgentPanel(ScrollableContainer):
         """Panel for individual agent output."""
 
-        def __init__(self, agent_id: str, display: TextualTerminalDisplay):
+        def __init__(self, agent_id: str, display: TextualTerminalDisplay, key_index: int = 0):
             self.agent_id = agent_id
             self.coordination_display = display
+            self.key_index = key_index
             self._dom_safe_id = self._make_dom_safe_id(agent_id)
             super().__init__(id=f"agent_{self._dom_safe_id}")
             self.status = "waiting"
+            self._start_time: Optional[datetime] = None
             self.content_log = RichLog(
                 id=f"log_{self._dom_safe_id}",
                 highlight=self.coordination_display.enable_syntax_highlighting,
@@ -1320,8 +1362,7 @@ if TEXTUAL_AVAILABLE:
                     # Keep the last partial line in buffer
                     self._line_buffer = lines[-1]
 
-                # Update the streaming label with current partial line immediately
-                # This ensures streaming is visible even without newlines
+                # Update the streaming label with current partial line
                 self.current_line_label.update(Text(self._line_buffer))
 
         def update_status(self, status: str):
@@ -1332,7 +1373,15 @@ if TEXTUAL_AVAILABLE:
                 self._line_buffer = ""
                 self.current_line_label.update(Text(""))
 
+            if status == "working" and self.status != "working":
+                self._start_time = datetime.now()
+            elif status in ("completed", "error", "waiting"):
+                self._start_time = None
+
             self.status = status
+            self.remove_class("status-waiting", "status-working", "status-streaming", "status-completed", "status-error")
+            self.add_class(f"status-{status}")
+
             header = self.query_one(f"#{self._header_dom_id}")
             header.update(self._header_text())
 
@@ -1347,10 +1396,35 @@ if TEXTUAL_AVAILABLE:
                     pass
 
         def _header_text(self) -> str:
-            """Compose header text with backend metadata and emoji fallback."""
+            """Compose header text with backend metadata, keyboard hint, and elapsed time."""
             backend = self.coordination_display._get_agent_backend_name(self.agent_id)
             status_icon = self._status_icon(self.status)
-            return f"{status_icon} {self.agent_id} ({backend}) [{self.status}]"
+
+            parts = [f"{status_icon} {self.agent_id}"]
+            if backend and backend != "Unknown":
+                parts.append(f"({backend})")
+            if self.key_index and 1 <= self.key_index <= 9:
+                parts.append(f"[{self.key_index}]")
+            if self._start_time and self.status in ("working", "streaming"):
+                elapsed = datetime.now() - self._start_time
+                elapsed_str = self._format_elapsed(elapsed.total_seconds())
+                parts.append(f"⏱{elapsed_str}")
+            parts.append(f"[{self.status}]")
+
+            return " ".join(parts)
+
+        def _format_elapsed(self, seconds: float) -> str:
+            """Format elapsed seconds into human-readable string."""
+            if seconds < 60:
+                return f"{int(seconds)}s"
+            elif seconds < 3600:
+                mins = int(seconds // 60)
+                secs = int(seconds % 60)
+                return f"{mins}m{secs}s"
+            else:
+                hours = int(seconds // 3600)
+                mins = int((seconds % 3600) // 60)
+                return f"{hours}h{mins}m"
 
         def _status_icon(self, status: str) -> str:
             """Return emoji (or fallback) for the given status."""
@@ -1404,27 +1478,28 @@ if TEXTUAL_AVAILABLE:
 
             return safe
 
-    class OrchestratorPanel(ScrollableContainer):
-        """Panel for orchestrator events."""
+    class OrchestratorEventsModal(ModalScreen):
+        """Modal to display orchestrator events."""
 
-        def __init__(self):
-            super().__init__(id="orchestrator_panel")
-            self.events_log = RichLog(
-                id="orchestrator_log",
-                highlight=True,
-                markup=True,
-                wrap=True,
-            )
+        def __init__(self, events_text: str):
+            super().__init__()
+            self.events_text = events_text
 
         def compose(self) -> ComposeResult:
-            with Vertical():
-                yield Label("📊 Orchestrator Events", id="orchestrator_header")
-                yield self.events_log
+            with Container(id="orchestrator_modal_container"):
+                yield Label("📋 Orchestrator Events", id="orchestrator_modal_header")
+                yield Label("Press 'o' anytime to view events", id="orchestrator_hint")
+                yield TextArea(self.events_text, id="orchestrator_events_content", read_only=True)
+                yield Button("Close (ESC)", id="close_orchestrator_button")
 
-        def add_event(self, event: str):
-            """Add orchestrator event."""
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            self.events_log.write(Text(f"{timestamp} {event}", style="dim"))
+        def on_button_pressed(self, event: Button.Pressed):
+            if event.button.id == "close_orchestrator_button":
+                self.dismiss()
+
+        def on_key(self, event: events.Key):
+            if event.key == "escape":
+                self.dismiss()
+                event.stop()
 
     class AgentSelectorModal(ModalScreen):
         """Interactive agent selection menu."""
@@ -1588,6 +1663,7 @@ if TEXTUAL_AVAILABLE:
             self._line_buffer = ""
             self._header_base = ""
             self._vote_summary = ""
+            self._is_streaming = False
             self.styles.display = "none"
 
         def compose(self) -> ComposeResult:
@@ -1598,13 +1674,15 @@ if TEXTUAL_AVAILABLE:
         def begin(self, agent_id: str, vote_results: Dict[str, Any]):
             """Reset panel with agent metadata."""
             self.styles.display = "block"
+            self._is_streaming = True
+            self.add_class("streaming-active")
             self._header_base = f"🎤 Final Presentation — {agent_id}"
             self._vote_summary = self._format_vote_summary(vote_results or {})
             header = self._header_base
             if self._vote_summary:
-                header = f"{header} | {self._vote_summary} | LIVE"
+                header = f"{header} | {self._vote_summary} | 🔴 LIVE"
             else:
-                header = f"{header} | LIVE"
+                header = f"{header} | 🔴 LIVE"
             self.agent_label.update(header)
             self.log_view.clear()
             self._line_buffer = ""
@@ -1627,7 +1705,7 @@ if TEXTUAL_AVAILABLE:
                 # Keep partial line
                 self._line_buffer = lines[-1]
 
-            # Update streaming label immediately
+            # Update streaming label
             self.current_line_label.update(self._line_buffer)
 
         def end(self):
@@ -1637,6 +1715,8 @@ if TEXTUAL_AVAILABLE:
                 self.log_view.write(self._line_buffer)
             self._line_buffer = ""
             self.current_line_label.update("")
+            self._is_streaming = False
+            self.remove_class("streaming-active")
 
             # Keep visible so user can read it with a strong completion marker
             header = self._header_base or str(self.agent_label.renderable)

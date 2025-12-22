@@ -1,0 +1,115 @@
+# MassGen Configuration: UI-TARS Computer Use (Browser)
+#
+# This configuration uses ByteDance's UI-TARS-1.5-7B vision-language model
+# for browser automation tasks via HuggingFace Inference Endpoints.
+#
+# Model: UI-TARS-1.5-7B
+# Provider: ByteDance via HuggingFace Endpoints
+# Performance: 42.5% OSWorld, 84.8% WebVoyager, 94.2% ScreenSpot-V2
+#
+# Your HuggingFace Endpoint:
+# URL: https://x1z03h47yuwrjfni.us-east-1.aws.endpoints.huggingface.cloud
+# Instance: Nvidia A100 80GB GPU ($2.5/hour while running)
+# Region: us-east-1 (AWS)
+# Status: Running
+#
+# Usage (with visible browser):
+#   DISPLAY=:20 massgen --config ui_tars_browser_example.yaml "Search for Python tutorials on Google"
+#
+# Usage (headless mode):
+#   Set headless: true in environment_config below
+
+# Agent Configuration
+agents:
+  - id: "uitars_browser_agent"
+    backend:
+      type: "openai"  # Use simple backend for orchestration
+      model: "gpt-4.1"
+      custom_tools:
+        - name: ["ui_tars_computer_use"]
+          category: "automation"
+          path: "massgen/tool/_ui_tars_computer_use/ui_tars_computer_use_tool.py"
+          function: ["ui_tars_computer_use"]
+          description: >
+            Automate browser tasks using ByteDance's UI-TARS-1.5-7B vision-language model.
+            Analyzes screenshots, provides reasoning, and generates actions. Supports clicking,
+            typing, keyboard shortcuts, scrolling, dragging, and complex multi-step workflows.
+          preset_args:
+            environment: "browser"
+            display_width: 1440
+            display_height: 900
+            max_iterations: 25
+            model: "ui-tars-1.5"
+            huggingface_endpoint: "https://x1z03h47yuwrjfni.us-east-1.aws.endpoints.huggingface.cloud"
+            environment_config:
+              headless: false
+              browser_type: "chromium"
+
+    system_message: |
+      You are an AI assistant with access to ByteDance's UI-TARS-1.5-7B vision-language model
+      for browser automation.
+
+      You have the ui_tars_computer_use tool which allows you to automate browser tasks.
+      This tool uses UI-TARS-1.5 model to analyze screenshots and generate actions to control
+      the browser autonomously.
+
+      When users ask you to browse websites, search for information, fill forms, or interact
+      with web pages, use the ui_tars_computer_use tool with a clear task description.
+
+      Example: ui_tars_computer_use("Search Google for Python tutorials and summarize the first result")
+
+      The tool will complete the task and return results with reasoning for each step.
+
+display:
+  type: "rich_terminal"
+
+# Setup Instructions:
+# ====================
+#
+# 1. Add to your .env file in MassGen root directory:
+#    UI_TARS_API_KEY=hf_xxxxxxxxxxxxx  # Your HuggingFace API token
+#    UI_TARS_ENDPOINT=https://x1z03h47yuwrjfni.us-east-1.aws.endpoints.huggingface.cloud
+#
+# 2. Install required dependencies:
+#    pip install playwright openai
+#    playwright install chromium
+#
+# 3. Optional - Install ui-tars package for advanced parsing:
+#    pip install ui-tars
+#
+# 4. For visible browser mode:
+#    - Set DISPLAY environment variable (e.g., export DISPLAY=:20)
+#    - Or set headless: false in environment_config above
+#
+# 5. Get your HuggingFace API token:
+#    - Go to https://huggingface.co/settings/tokens
+#    - Create a new token with "read" permissions
+#    - Copy and add to .env file
+
+# Example Usage:
+# ==============
+#
+# Simple search:
+#   massgen --config ui_tars_browser_example.yaml "Search for 'Python asyncio' on Google and summarize the first result"
+#
+# GitHub workflow:
+#   massgen --config ui_tars_browser_example.yaml "Go to GitHub, search for 'ui-tars', and tell me about the project"
+#
+# Form filling:
+#   massgen --config ui_tars_browser_example.yaml "Fill out the contact form on example.com with test data"
+#
+# Multi-step research:
+#   massgen --config ui_tars_browser_example.yaml "Visit Wikipedia, search for 'Machine Learning', and summarize the introduction"
+#
+# With visible browser:
+#   DISPLAY=:20 massgen --config ui_tars_browser_example.yaml "Browse to HackerNews and find top AI stories"
+
+# Cost Information:
+# =================
+# - Infrastructure: $2.50/hour while endpoint is running (A100 GPU)
+# - Per task: $0.05-0.20 depending on complexity (5-30 iterations)
+# - Scale-to-zero: Endpoint auto-stops after 1 hour of inactivity
+
+# Model Performance:
+# ==================
+# - OSWorld: 42.5% | WebVoyager: 84.8% | ScreenSpot-V2: 94.2%

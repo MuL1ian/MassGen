@@ -1,0 +1,22 @@
+# Test config for error respawn fix
+# One fake model (will error) + one functional model
+# Before fix: error_agent would infinitely respawn
+# After fix: error_agent gets killed, functional_agent completes normally
+
+agents:
+  - id: "agent_a"
+    backend:
+      type: "openai"
+      model: "fake-model-does-not-exist-12345"
+
+  - id: "agent_b"
+    backend:
+      type: "openai"
+      model: "gpt-4.1"
+
+timeout:
+  orchestrator_timeout_seconds: 60
+
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true

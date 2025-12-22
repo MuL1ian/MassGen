@@ -47,7 +47,8 @@ class ResponseFormatter(FormatterBase):
         converted_messages = []
 
         for message in cleaned_messages:
-            if message.get("type") == "reasoning":
+            if message.get("type") in ("reasoning", "web_search_call"):
+                converted_messages.append(message)
                 continue
 
             if message.get("role") == "tool":

@@ -11,7 +11,7 @@ interface UseFileContentReturn {
   content: FileContentResponse | null;
   isLoading: boolean;
   error: string | null;
-  fetchFile: (filePath: string, workspacePath: string) => Promise<void>;
+  fetchFile: (filePath: string, workspacePath: string, skipCache?: boolean) => Promise<void>;
   clearContent: () => void;
 }
 
@@ -23,15 +23,19 @@ export function useFileContent(): UseFileContentReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchFile = useCallback(async (filePath: string, workspacePath: string) => {
+  const fetchFile = useCallback(async (filePath: string, workspacePath: string, skipCache = false) => {
     const cacheKey = `${workspacePath}:${filePath}`;
 
-    // Check cache first
-    const cached = fileCache.get(cacheKey);
-    if (cached) {
-      setContent(cached);
-      setError(null);
-      return;
+    // Check cache first (unless skipping)
+    if (!skipCache) {
+      const cached = fileCache.get(cacheKey);
+      if (cached) {
+        setContent(cached);
+        setError(null);
+        return;
+      }
+    } else {
+      fileCache.delete(cacheKey);
     }
 
     setIsLoading(true);

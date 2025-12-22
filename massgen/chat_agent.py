@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
 
 from .backend.base import LLMBackend, StreamChunk
-from .logger_config import logger
+from .logger_config import log_streaming_debug, logger
 from .memory import ConversationMemory, PersistentMemoryBase
 from .stream_chunk import ChunkType
 from .utils import CoordinationStage
@@ -740,7 +740,7 @@ class SingleAgent(ChatAgent):
         )
 
         async for chunk in self._process_stream(backend_stream, tools):
-            logger.info(f"🔹 [chat] Yielding chunk: {chunk}")
+            log_streaming_debug(chunk)  # Full repr goes to streaming_debug.log
             yield chunk
 
     def _get_backend_params(self) -> Dict[str, Any]:

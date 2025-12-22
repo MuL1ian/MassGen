@@ -73,7 +73,7 @@ from .orchestrator import Orchestrator, create_orchestrator
 
 LITELLM_AVAILABLE = True
 
-__version__ = "0.1.24"
+__version__ = "0.1.28"
 __author__ = "MassGen Contributors"
 
 
@@ -84,7 +84,7 @@ def build_config(
     models: list = None,
     backends: list = None,
     use_docker: bool = False,
-    context_path: str = None,
+    context_paths: list = None,
 ) -> dict:
     """Build a MassGen configuration dict programmatically.
 
@@ -100,7 +100,9 @@ def build_config(
             - ['openai/gpt-5', 'groq/llama-3.3-70b'] (explicit backends)
         backends: List of backends, one per agent (e.g., ['openai', 'claude']) - optional if using slash format
         use_docker: Enable Docker execution mode (default: False for local mode)
-        context_path: Optional path to add as context for file operations
+        context_paths: List of context paths with permissions. Each entry can be:
+            - str: Path with default "write" permission
+            - dict: {"path": "/path", "permission": "read" or "write"}
 
     Returns:
         dict: Complete configuration dict ready to use with run()
@@ -122,6 +124,15 @@ def build_config(
         # Mixed: auto-detect + explicit
         >>> config = massgen.build_config(
         ...     models=["gpt-5", "groq/llama-3.3-70b-versatile"]
+        ... )
+
+        # With context paths (multiple paths with different permissions)
+        >>> config = massgen.build_config(
+        ...     models=["gpt-5", "claude-sonnet-4.5"],
+        ...     context_paths=[
+        ...         {"path": "/path/to/project", "permission": "write"},
+        ...         {"path": "/path/to/reference", "permission": "read"},
+        ...     ]
         ... )
 
         # Use with run()
@@ -192,7 +203,7 @@ def build_config(
             )
     else:
         # Default: 2 agents with gpt-5
-        default_model = "gpt-5"
+        default_model = "gpt-5.1-codex"
         default_backend = "openai"
         n = num_agents or 2
         provider_info = builder.PROVIDERS.get(default_backend, {})
@@ -206,10 +217,27 @@ def build_config(
                 },
             )
 
+    # Normalize context paths
+    normalized_context_paths = None
+    if context_paths:
+        normalized_context_paths = []
+        for entry in context_paths:
+            if isinstance(entry, str):
+                # Simple string path - default to write permission
+                normalized_context_paths.append({"path": entry, "permission": "write"})
+            elif isinstance(entry, dict):
+                # Dict with path and optional permission
+                normalized_context_paths.append(
+                    {
+                        "path": entry["path"],
+                        "permission": entry.get("permission", "write"),
+                    },
+                )
+
     # Generate full config
     config = builder._generate_quickstart_config(
         agents_config,
-        context_path=context_path,
+        context_paths=normalized_context_paths,
         use_docker=use_docker,
     )
 
@@ -225,6 +253,7 @@ async def run(
     models: list = None,
     num_agents: int = None,
     use_docker: bool = False,
+    enable_filesystem: bool = True,
     enable_logging: bool = False,
     output_file: str = None,
     verbose: bool = False,
@@ -244,12 +273,19 @@ async def run(
         models: List of models for multi-agent mode (e.g., ['gpt-4o', 'claude-sonnet-4-20250514'])
         num_agents: Number of agents when using single model (default: 2)
         use_docker: Enable Docker execution when building config (default: False)
+        enable_filesystem: Enable filesystem/MCP tools (default: True).
+            Set to False for lightweight agents without file operations.
         enable_logging: If True, enable logging and return log_directory (default: False)
         output_file: If provided, write final answer to this file path
         verbose: If True, show progress output to stdout (default: False for quiet mode)
         conversation_history: List of prior messages for multi-turn context (optional)
             Format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]
-        **kwargs: Additional configuration options (system_message, base_url, context_path)
+        **kwargs: Additional configuration options:
+            - system_message: Custom system prompt for agents
+            - base_url: Custom API endpoint
+            - context_paths: List of paths with permissions. Each entry can be:
+                - str: Path with default "write" permission
+                - dict: {"path": "/path", "permission": "read" or "write"}
 
     Returns:
         dict: Result with 'final_answer' and coordination metadata:
@@ -334,19 +370,19 @@ async def run(
         final_config_dict = build_config(
             models=models,
             use_docker=use_docker,
-            context_path=kwargs.get("context_path"),
+            context_paths=kwargs.get("context_paths"),
         )
         config_path_used = f"multi-agent:{','.join(models)}"
 
-    elif model and (num_agents and num_agents > 1):
-        # 3. Single model with multiple agents
+    elif model and enable_filesystem:
+        # 3. Model with filesystem support (default) - use full config
         final_config_dict = build_config(
-            num_agents=num_agents,
+            num_agents=num_agents or 1,
             model=model,
             use_docker=use_docker,
-            context_path=kwargs.get("context_path"),
+            context_paths=kwargs.get("context_paths"),
         )
-        config_path_used = f"multi-agent:{model}x{num_agents}"
+        config_path_used = f"agent:{model}x{num_agents or 1}"
 
     elif config:
         # 4. Config file path
@@ -357,7 +393,7 @@ async def run(
         config_path_used = str(resolved_path)
 
     elif model:
-        # 5. Quick single-agent mode
+        # 5. Lightweight mode (enable_filesystem=False) - no MCP/filesystem
         backend_type = get_backend_type_from_model(model)
         headless_ui_config = {
             "display_type": "simple",
@@ -370,7 +406,7 @@ async def run(
             base_url=kwargs.get("base_url"),
             ui_config=headless_ui_config,
         )
-        config_path_used = f"single-agent:{model}"
+        config_path_used = f"single-agent-light:{model}"
 
     else:
         # 6. Try default config

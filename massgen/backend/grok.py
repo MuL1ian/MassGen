@@ -93,12 +93,20 @@ class GrokBackend(ChatCompletionsBackend):
         # Add Grok-specific web search parameters via extra_body
         api_params = self._add_grok_search_params(api_params, all_params)
 
-        # Start streaming
-        stream = await client.chat.completions.create(**api_params)
+        # Start API call timing
+        model = all_params.get("model", "")
+        self.start_api_call_timing(model)
 
-        # Delegate to parent's stream processing
-        async for chunk in super()._process_stream(stream, all_params, self.agent_id):
-            yield chunk
+        try:
+            # Start streaming
+            stream = await client.chat.completions.create(**api_params)
+
+            # Delegate to parent's stream processing
+            async for chunk in super()._process_stream(stream, all_params, self.agent_id):
+                yield chunk
+        except Exception as e:
+            self.end_api_call_timing(success=False, error=str(e))
+            raise
 
     def get_provider_name(self) -> str:
         """Get the name of this provider."""

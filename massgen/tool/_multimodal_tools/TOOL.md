@@ -2,17 +2,17 @@
 name: multimodal-tools
 description: Understand images/screenshots/charts, transcribe audio/video, analyze PDFs with AI vision
 category: multimodal
-requires_api_keys: [OPENAI_API_KEY]
+requires_api_keys: [OPENAI_API_KEY, GOOGLE_API_KEY, OPENROUTER_API_KEY]
 tasks:
   - "Analyze and understand images with vision models"
   - "Understand and transcribe audio files"
   - "Analyze video content frame-by-frame"
   - "Process and understand various file formats (PDF, DOCX, etc.)"
-  - "Generate images from text descriptions"
-  - "Generate videos from text prompts"
-  - "Convert text to speech with natural voices"
+  - "Generate images from text descriptions (OpenAI, Google Imagen, OpenRouter)"
+  - "Generate videos from text prompts (OpenAI Sora, Google Veo)"
+  - "Convert text to speech with natural voices (OpenAI TTS)"
   - "Transform images to new variations"
-keywords: [vision, audio, video, multimodal, image-analysis, speech, transcription, generation, pdf, file-processing]
+keywords: [vision, audio, video, multimodal, image-analysis, speech, transcription, generation, pdf, file-processing, imagen, veo, sora, tts]
 ---
 
 # Multimodal Tools
@@ -110,8 +110,57 @@ result = await understand_file(
 
 ### Generation Tools
 
+#### `generate_media(prompt: str, mode: str, backend: str = "auto", ...) -> ExecutionResult`
+**Unified media generation tool** - Generate images, videos, or audio with automatic backend selection.
+
+This is the recommended tool for all media generation. It automatically selects the best available backend based on:
+1. Explicit `backend` parameter
+2. Available API keys
+3. Priority order (Google > OpenAI > OpenRouter)
+
+**Parameters:**
+- `prompt`: Text description of what to generate (or text to speak for audio)
+- `mode`: Type of media - `"image"`, `"video"`, or `"audio"`
+- `backend`: Preferred backend - `"auto"`, `"openai"`, `"google"`, or `"openrouter"`
+- `model`: Override default model
+- `duration`: For video/audio, length in seconds
+- `voice`: For audio, voice ID (e.g., `"alloy"`, `"nova"`, `"shimmer"`)
+- `aspect_ratio`: For image/video (e.g., `"16:9"`, `"1:1"`)
+- `storage_path`: Directory to save generated media
+
+**Supported Backends:**
+| Mode | Backends | Models |
+|------|----------|--------|
+| image | google, openai, openrouter | Imagen 3, GPT-4.1, Nano Banana |
+| video | google, openai | Veo 2, Sora-2 |
+| audio | openai | gpt-4o-mini-tts |
+
+**Examples:**
+```python
+# Generate an image with auto-selection
+result = await generate_media(
+    "A cat in space",
+    mode="image"
+)
+
+# Generate video with Google Veo
+result = await generate_media(
+    "A robot walking through a city",
+    mode="video",
+    backend="google",
+    duration=8
+)
+
+# Generate audio with specific voice
+result = await generate_media(
+    "Hello world!",
+    mode="audio",
+    voice="nova"
+)
+```
+
 #### `text_to_image_generation(prompt: str, output_path: str, ...) -> ExecutionResult`
-Generate images from text descriptions.
+Generate images from text descriptions. **(Alias for `generate_media(mode="image", backend="openai")`)**
 
 **Example:**
 ```python
@@ -138,7 +187,7 @@ result = await image_to_image_generation(
 ```
 
 #### `text_to_video_generation(prompt: str, output_path: str, ...) -> ExecutionResult`
-Generate videos from text descriptions.
+Generate videos from text descriptions. **(Alias for `generate_media(mode="video", backend="openai")`)**
 
 **Example:**
 ```python
@@ -149,10 +198,10 @@ result = await text_to_video_generation(
 # Saves: cat_video.mp4
 ```
 
-**Note:** Video generation may take significant time and credits.
+**Note:** Video generation may take significant time and credits. For Google Veo, use `generate_media(mode="video", backend="google")`.
 
 #### `text_to_speech_transcription_generation(text: str, output_path: str, ...) -> ExecutionResult`
-Convert text to natural speech.
+Convert text to natural speech. **(Alias for `generate_media(mode="audio", backend="openai")`)**
 
 **Example:**
 ```python
@@ -199,13 +248,23 @@ result = await text_to_file_generation(
 
 **Environment variables:**
 ```bash
+# Required for OpenAI backends (image, video, audio)
 export OPENAI_API_KEY="your-api-key"
+
+# Optional - for Google backends (Imagen, Veo)
+export GOOGLE_API_KEY="your-api-key"
+# or
+export GEMINI_API_KEY="your-api-key"
+
+# Optional - for OpenRouter image generation
+export OPENROUTER_API_KEY="your-api-key"
 ```
 
 **Optional dependencies:**
 ```bash
 pip install pillow  # For image processing
 pip install ffmpeg-python  # For video processing
+pip install google-genai  # For Google Imagen/Veo (already in requirements)
 ```
 
 ### YAML Config
@@ -217,6 +276,63 @@ custom_tools_path: "massgen/tool/_multimodal_tools"
 ```
 
 Or include specific tools in your tools list.
+
+### Generation Backend/Model Configuration
+
+You can configure default backends and models at the **orchestrator level** (applies to all agents) or per-agent:
+
+**Orchestrator-level defaults (recommended):**
+```yaml
+orchestrator:
+  # Enable multimodal tools for all agents
+  enable_multimodal_tools: true
+
+  # Set default backends for all agents
+  image_generation_backend: "openai"
+  video_generation_backend: "openai"
+  audio_generation_backend: "openai"
+
+  # Optionally set default models
+  image_generation_model: "imagen-3.0-generate-002"
+  video_generation_model: "veo-2.0-generate-001"
+  audio_generation_model: "gpt-4o-mini-tts"
+
+agents:
+  - id: "agent1"
+    backend:
+      type: "openai"
+      model: "gpt-4o"
+      cwd: "workspace1"
+      # Inherits orchestrator defaults automatically
+```
+
+**Per-agent override:**
+```yaml
+orchestrator:
+  enable_multimodal_tools: true
+  image_generation_backend: "google"
+
+agents:
+  - id: "agent1"
+    backend:
+      type: "openai"
+      model: "gpt-4o"
+      # Override orchestrator default for this agent only
+      image_generation_backend: "openai"
+```
+
+**Priority Order:**
+1. Explicit parameter in tool call (e.g., `generate_media(..., backend="google")`)
+2. Per-agent config setting (e.g., `image_generation_backend: "openai"`)
+3. Orchestrator-level config setting
+4. Auto-selection based on available API keys
+
+**Available Backends:**
+| Mode  | Backends                        | Default Models |
+|-------|--------------------------------|----------------|
+| image | google, openai, openrouter     | imagen-3.0-generate-002, gpt-4.1, gemini-2.5-flash-image-preview |
+| video | google, openai                 | veo-2.0-generate-001, sora-2 |
+| audio | openai                         | gpt-4o-mini-tts |
 
 ## Path Handling
 

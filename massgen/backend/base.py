@@ -14,7 +14,12 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from ..filesystem_manager import FilesystemManager, PathPermissionManagerHook
 from ..mcp_tools.hooks import FunctionHookManager, HookType
-from ..token_manager import RoundTokenUsage, TokenCostCalculator, TokenUsage
+from ..token_manager import (
+    APICallMetric,
+    RoundTokenUsage,
+    TokenCostCalculator,
+    TokenUsage,
+)
 from ..utils import CoordinationStage
 
 logger = logging.getLogger(__name__)
@@ -76,6 +81,12 @@ class LLMBackend(ABC):
         self._round_start_tool_count: int = 0
         self._round_used_fallback_estimation: bool = False  # Track if fallback was used in current round
 
+        # API call timing (pure LLM time, excluding tool execution)
+        self._api_call_history: List[APICallMetric] = []
+        self._current_api_call: Optional[APICallMetric] = None
+        self._api_call_index: int = 0
+        self._current_agent_id: Optional[str] = None
+
         # # Initialize tool manager
         # self.custom_tool_manager = ToolManager()
 
@@ -135,6 +146,7 @@ class LLMBackend(ABC):
                     "command_line_docker_packages": kwargs.get("command_line_docker_packages"),
                     "enable_audio_generation": kwargs.get("enable_audio_generation", False),
                     "exclude_file_operation_mcps": kwargs.get("exclude_file_operation_mcps", False),
+                    "use_mcpwrapped_for_tool_filtering": kwargs.get("use_mcpwrapped_for_tool_filtering", False),
                     "enable_code_based_tools": kwargs.get("enable_code_based_tools", False),
                     "custom_tools_path": kwargs.get("custom_tools_path"),
                     "auto_discover_custom_tools": kwargs.get("auto_discover_custom_tools", False),
@@ -255,6 +267,15 @@ class LLMBackend(ABC):
             "session_storage_base",
             # MCP configuration (handled by base class for MCP backends)
             "mcp_servers",
+            # Multimodal tools configuration (handled by CustomToolAndMCPBackend)
+            "enable_multimodal_tools",
+            "multimodal_config",
+            "image_generation_backend",
+            "image_generation_model",
+            "video_generation_backend",
+            "video_generation_model",
+            "audio_generation_backend",
+            "audio_generation_model",
         }
 
     @abstractmethod
@@ -442,6 +463,78 @@ class LLMBackend(ABC):
     def get_current_round_number(self) -> int:
         """Get the current round number."""
         return self._current_round_number
+
+    # ==============================================================
+    # API Call Timing
+    # ==============================================================
+
+    def set_current_agent_id(self, agent_id: str) -> None:
+        """Set the current agent ID for API call tracking."""
+        self._current_agent_id = agent_id
+
+    def start_api_call_timing(self, model: str) -> None:
+        """Start timing an API call.
+
+        Call this immediately before making the API request.
+
+        Args:
+            model: The model name being called
+        """
+        self._current_api_call = APICallMetric(
+            agent_id=self._current_agent_id or "unknown",
+            round_number=self._current_round_number,
+            call_index=self._api_call_index,
+            backend_name=self.get_provider_name(),
+            model=model,
+            start_time=time.time(),
+        )
+
+    def record_first_token(self) -> None:
+        """Record time to first token (TTFT).
+
+        Call this when the first content token is received from the stream.
+        Only records the first call per API request.
+        """
+        if self._current_api_call and self._current_api_call.time_to_first_token_ms == 0:
+            self._current_api_call.time_to_first_token_ms = (time.time() - self._current_api_call.start_time) * 1000
+
+    def end_api_call_timing(self, success: bool = True, error: Optional[str] = None) -> None:
+        """End timing and record the API call.
+
+        Call this when the stream completes or an error occurs.
+
+        Args:
+            success: Whether the API call completed successfully
+            error: Error message if the call failed
+        """
+        if self._current_api_call:
+            self._current_api_call.end_time = time.time()
+            self._current_api_call.success = success
+            self._current_api_call.error_message = error
+            self._api_call_history.append(self._current_api_call)
+            self._api_call_index += 1
+            logger.debug(
+                f"[{self.get_provider_name()}] API call completed: "
+                f"duration={self._current_api_call.duration_ms:.0f}ms, "
+                f"ttft={self._current_api_call.time_to_first_token_ms:.0f}ms, "
+                f"success={success}",
+            )
+            self._current_api_call = None
+
+    def get_api_call_history(self) -> List[APICallMetric]:
+        """Get all API call metrics.
+
+        Returns:
+            List of APICallMetric objects for all API calls made by this backend
+        """
+        return self._api_call_history
+
+    def reset_api_call_tracking_for_round(self) -> None:
+        """Reset API call index for a new round.
+
+        Call this at the start of each coordination round to reset the call index.
+        """
+        self._api_call_index = 0
 
     # ==============================================================
 

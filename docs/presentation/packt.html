@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MassGen presentation at M2L Summer School.">
+    <meta name="theme-color" content="#667eea">
+    <title>MassGen: Scaling AI Through Multi-Agent Collaboration | M2L Summer School</title>
+    <link rel="preconnect" href="https://docs.ag2.ai">
+    <link rel="preconnect" href="https://github.com">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            overflow: hidden;
+        }
+
+        .slideshow-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .slide {
+            display: none;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: white;
+            padding: 60px;
+            box-sizing: border-box;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        .slide.active {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(30px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .slide h1 {
+            font-size: 3.5em;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            text-align: center;
+            font-weight: 700;
+        }
+
+        .slide h2 {
+            font-size: 2.8em;
+            color: #34495e;
+            margin-bottom: 40px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .slide .subtitle {
+            font-size: 1.4em;
+            color: #7f8c8d;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .slide .speaker-info {
+            font-size: 1.3em;
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .slide .summit-info {
+            font-size: 1.1em;
+            color: #3498db;
+            text-align: center;
+            margin-bottom: 20px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .slide ul {
+            font-size: 1.8em;
+            line-height: 1.8;
+            color: #2c3e50;
+            list-style: none;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .slide li {
+            margin-bottom: 25px;
+            padding-left: 40px;
+            position: relative;
+        }
+
+        .slide li::before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #3498db;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 1000;
+        }
+
+        .nav-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            margin: 0 5px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-btn:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        .nav-btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .slide-counter {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .slide-nav {
+            position: fixed;
+            top: 30px;
+            right: 30px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        .nav-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            max-width: 250px;
+        }
+
+        .nav-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.3);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .nav-dot.active {
+            background: #3498db;
+            transform: scale(1.3);
+        }
+
+        .nav-dot:hover {
+            background: rgba(255,255,255,0.6);
+        }
+
+        .icon {
+            font-size: 4em;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .code-snippet {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            width: 95%;
+            max-width: 1200px;
+            font-size: 1.1em;
+            margin: 20px auto;
+        }
+
+        .highlight {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .architecture-diagram {
+            width: 100%;
+            height: 60vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .arch-flow {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        .arch-component {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            min-width: 180px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            transition: transform 0.3s ease;
+        }
+
+        .arch-component:hover {
+            transform: translateY(-3px);
+        }
+
+        .orchestrator {
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+        }
+
+        .agent {
+            background: linear-gradient(135deg, #fd79a8, #e84393);
+            min-width: 160px;
+            padding: 20px;
+        }
+
+        .hub {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+        }
+
+        .agents-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .agents-row {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .collaboration-note {
+            font-size: 1.2em;
+            color: #2c3e50;
+            font-weight: bold;
+            text-align: center;
+            background: rgba(116, 185, 255, 0.1);
+            padding: 10px 20px;
+            border-radius: 25px;
+            border: 2px dashed #74b9ff;
+        }
+
+        .component-icon {
+            font-size: 1.8em;
+            margin-bottom: 8px;
+        }
+
+        .component-title {
+            font-size: 1.1em;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        .component-desc {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .flow-arrow {
+            font-size: 3em;
+            color: #3498db;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .demo-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+            margin: 20px 0;
+        }
+
+        .demo-box {
+            background: linear-gradient(135deg, #fd79a8, #e84393);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            font-size: 1.1em;
+        }
+
+        .metrics-comparison {
+            display: flex;
+            justify-content: space-around;
+            margin: 30px 0;
+            gap: 30px;
+        }
+
+        .metrics-box {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            flex: 1;
+            border: 3px solid;
+        }
+
+        .metrics-box.single {
+            border-color: #3498db;
+        }
+
+        .metrics-box.multi {
+            border-color: #e74c3c;
+        }
+
+        .metrics-title {
+            font-weight: bold;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .metrics-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 15px 0;
+        }
+
+        .version-evolution {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 30px;
+            margin: 30px 0;
+        }
+
+        .version-box {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+        }
+
+        .version-box.current {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            transform: scale(1.05);
+        }
+
+        .call-to-action {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        .cta-links {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+
+        .cta-link {
+            background: rgba(255,255,255,0.2);
+            padding: 15px 30px;
+            border-radius: 25px;
+            text-decoration: none;
+            color: white;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+
+        .cta-link:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-3px);
+        }
+
+        .inline-link {
+            color: #3498db;
+            text-decoration: underline;
+            font-weight: bold;
+        }
+
+        .inline-link:hover {
+            color: #2980b9;
+        }
+
+        .version-badge {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            font-weight: bold;
+            display: inline-block;
+            margin-top: 20px;
+            animation: pulse 2s infinite;
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+            margin: 30px 0;
+        }
+
+        .feature-card {
+            background: rgba(255,255,255,0.1);
+            border: 2px solid #3498db;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+        }
+
+        .feature-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        .datahack-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        /* Mobile Responsive Design */
+        @media (max-width: 768px) {
+            .slide {
+                padding: 20px;
+                font-size: 14px;
+            }
+
+            .slide h1 {
+                font-size: 2.2em;
+                margin-bottom: 20px;
+            }
+
+            .slide h2 {
+                font-size: 1.8em;
+                margin-bottom: 25px;
+            }
+
+            .slide ul {
+                font-size: 1.2em;
+                max-width: 100%;
+            }
+
+            .slide li {
+                margin-bottom: 15px;
+                padding-left: 25px;
+            }
+
+            .navigation {
+                bottom: 15px;
+                right: 15px;
+            }
+
+            .nav-btn {
+                padding: 8px 12px;
+                font-size: 14px;
+                margin: 0 2px;
+            }
+
+            .slide-counter {
+                bottom: 15px;
+                left: 15px;
+                padding: 5px 10px;
+                font-size: 12px;
+            }
+
+            .slide-nav {
+                top: 15px;
+                right: 15px;
+                padding: 10px;
+            }
+
+            .nav-grid {
+                max-width: 200px;
+                gap: 6px;
+            }
+
+            .nav-dot {
+                width: 10px;
+                height: 10px;
+            }
+
+            .metrics-comparison {
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            .demo-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .version-evolution {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .architecture-diagram {
+                height: 50vh;
+                padding: 10px;
+            }
+
+            .arch-component {
+                min-width: 140px;
+                padding: 15px;
+                font-size: 0.9em;
+            }
+
+            .code-snippet {
+                font-size: 0.9em;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="slideshow-container">
+        <!-- Slide 6: Architecture -->
+        <div class="slide">
+            <div class="architecture-diagram" style="height: 70vh; margin-top: 0;">
+                <div class="arch-flow">
+                    <div class="arch-component orchestrator">
+                        <div class="component-icon">🚀</div>
+                        <div class="component-title" style="font-size: 1.8em;">MassGen Orchestrator</div>
+                        <div class="component-desc" style="font-size: 1.2em;">Task Distribution & Coordination</div>
+                    </div>
+
+                    <div class="flow-arrow">↓</div>
+
+                    <div class="agents-container">
+                        <div class="agents-row">
+                            <div class="arch-component agent">
+                                <div class="component-icon">🏗️</div>
+                                <div class="component-title" style="font-size: 1.4em;">Agent 1</div>
+                                <div class="component-desc" style="font-size: 1.1em;">Anthropic/Claude</div>
+                            </div>
+                            <div class="arch-component agent">
+                                <div class="component-icon">👨‍💻</div>
+                                <div class="component-title" style="font-size: 1.4em;">Agent 2</div>
+                                <div class="component-desc" style="font-size: 1.1em;">Claude Code</div>
+                            </div>
+                            <div class="arch-component agent">
+                                <div class="component-icon">🌟</div>
+                                <div class="component-title" style="font-size: 1.4em;">Agent 3</div>
+                                <div class="component-desc" style="font-size: 1.1em;">Google/Gemini</div>
+                            </div>
+                            <div class="arch-component agent">
+                                <div class="component-icon">🤖</div>
+                                <div class="component-title" style="font-size: 1.4em;">Agent 4</div>
+                                <div class="component-desc" style="font-size: 1.1em;">OpenAI/GPT</div>
+                            </div>
+                            <div class="arch-component agent">
+                                <div class="component-icon">⚡</div>
+                                <div class="component-title" style="font-size: 1.4em;">Agent 5</div>
+                                <div class="component-desc" style="font-size: 1.1em;">xAI/Grok</div>
+                            </div>
+                        </div>
+                        <div class="collaboration-note" style="font-size: 1.3em;">↕ Real-time Collaboration ↕</div>
+                    </div>
+
+                    <div class="flow-arrow">↓</div>
+
+                    <div class="arch-component hub">
+                        <div class="component-icon">🔄</div>
+                        <div class="component-title" style="font-size: 1.6em;">Shared Collaboration Hub</div>
+                        <div class="component-desc" style="font-size: 1.1em;">Real-time Notification & Consensus</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 13: Additional Context Paths -->
+        <div class="slide">
+            <div style="height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
+                <div style="text-align: center; width: 100%; max-width: 1000px;">
+                    <svg viewBox="0 0 700 520" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto;">
+                        <!-- Orchestrator -->
+                        <rect x="275" y="30" width="150" height="45" rx="8" fill="#9b59b6" stroke="#8e44ad" stroke-width="3"/>
+                        <text x="350" y="58" text-anchor="middle" font-family="Arial" font-size="17" font-weight="bold" fill="white">Orchestrator</text>
+
+                        <!-- Central Context Hub -->
+                        <rect x="150" y="90" width="400" height="140" rx="12" fill="#f8f9fa" stroke="#dee2e6" stroke-width="2"/>
+                        <text x="350" y="115" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#495057">Central Context Hub</text>
+
+                        <!-- Snapshot Storage -->
+                        <rect x="170" y="130" width="160" height="70" rx="8" fill="#e8f5e8" stroke="#27ae60" stroke-width="2"/>
+                        <text x="250" y="150" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#27ae60">Snapshot Storage</text>
+                        <rect x="185" y="165" width="50" height="25" rx="4" fill="#27ae60"/>
+                        <text x="210" y="181" text-anchor="middle" font-family="Arial" font-size="11" fill="white" font-weight="bold">agent1/</text>
+                        <rect x="245" y="165" width="50" height="25" rx="4" fill="#27ae60"/>
+                        <text x="270" y="181" text-anchor="middle" font-family="Arial" font-size="11" fill="white" font-weight="bold">agent2/</text>
+
+                        <!-- User Context Paths -->
+                        <rect x="370" y="130" width="160" height="70" rx="8" fill="#fff" stroke="#6c757d" stroke-width="2"/>
+                        <text x="450" y="150" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#495057">User Context Paths</text>
+                        <rect x="385" y="165" width="65" height="25" rx="4" fill="#e8f5e8" stroke="#27ae60" stroke-width="1"/>
+                        <text x="417" y="181" text-anchor="middle" font-family="Arial" font-size="9" font-weight="bold" fill="#155724">Read-Only</text>
+                        <rect x="460" y="165" width="55" height="25" rx="4" fill="#fce4ec" stroke="#e91e63" stroke-width="1"/>
+                        <text x="487" y="181" text-anchor="middle" font-family="Arial" font-size="9" font-weight="bold" fill="#ad1457">Write</text>
+
+                        <!-- Access control info -->
+                        <text x="350" y="220" text-anchor="middle" font-family="Arial" font-size="12" fill="#495057" font-weight="600"><tspan fill="#27ae60">Read: All agents</tspan> | <tspan fill="#e91e63">Write: Final agent only</tspan></text>
+
+                        <!-- Agents (preserved from slide 12) -->
+                        <rect x="75" y="260" width="120" height="90" rx="8" fill="#3498db" stroke="#2980b9" stroke-width="2"/>
+                        <text x="135" y="290" text-anchor="middle" font-family="Arial" font-size="16" fill="white" font-weight="bold">Agent 1</text>
+                        <rect x="95" y="305" width="80" height="28" rx="4" fill="#2980b9"/>
+                        <text x="135" y="323" text-anchor="middle" font-family="Arial" font-size="11" fill="white">Permanent</text>
+                        <rect x="95" y="333" width="80" height="17" rx="2" fill="#74b9ff"/>
+                        <text x="135" y="344" text-anchor="middle" font-family="Arial" font-size="11" fill="white">Temp Context</text>
+
+                        <rect x="505" y="260" width="120" height="90" rx="8" fill="#f39c12" stroke="#e67e22" stroke-width="2"/>
+                        <text x="565" y="290" text-anchor="middle" font-family="Arial" font-size="16" fill="white" font-weight="bold">Agent 2</text>
+                        <rect x="525" y="305" width="80" height="28" rx="4" fill="#e67e22"/>
+                        <text x="565" y="323" text-anchor="middle" font-family="Arial" font-size="11" fill="white">Permanent</text>
+                        <rect x="525" y="333" width="80" height="17" rx="2" fill="#fdcb6e"/>
+                        <text x="565" y="344" text-anchor="middle" font-family="Arial" font-size="11" fill="white">Temp Context</text>
+
+                        <!-- Flow arrows -->
+                        <!-- From Orchestrator to Context Hub -->
+                        <line x1="350" y1="75" x2="350" y2="90" stroke="#9b59b6" stroke-width="3" marker-end="url(#arrowhead-purple)"/>
+
+                        <!-- From Context Hub to Agents -->
+                        <path d="M 250 230 Q 200 245 135 260" stroke="#27ae60" stroke-width="3" fill="none" marker-end="url(#arrowhead-green)"/>
+                        <path d="M 450 230 Q 500 245 565 260" stroke="#27ae60" stroke-width="3" fill="none" marker-end="url(#arrowhead-green)"/>
+
+                        <!-- Final Agent Selection -->
+                        <rect x="225" y="370" width="250" height="55" rx="12" fill="#fff3e0" stroke="#ff9800" stroke-width="3"/>
+                        <text x="350" y="395" text-anchor="middle" font-family="Arial" font-size="15" font-weight="bold" fill="#e65100">Final Agent Selection</text>
+                        <text x="350" y="412" text-anchor="middle" font-family="Arial" font-size="12" fill="#f57c00" font-weight="600">Agent 2 → Write Access Granted ✅</text>
+
+                        <!-- Selection arrow from Agent 2 -->
+                        <path d="M 565 350 Q 520 360 475 370" stroke="#ff9800" stroke-width="4" fill="none" marker-end="url(#arrowhead-orange)"/>
+
+                        <!-- Key benefits -->
+                        <rect x="50" y="450" width="600" height="40" rx="8" fill="#d4edda" stroke="#27ae60" stroke-width="2"/>
+                        <text x="350" y="474" text-anchor="middle" font-family="Arial" font-size="13" font-weight="bold" fill="#155724">✅ Custom Context Integration + ✅ Granular Access Control + ✅ Direct Repository Access</text>
+
+                        <defs>
+                            <marker id="arrowhead-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                                <polygon points="0 0, 8 3, 0 6" fill="#27ae60"/>
+                            </marker>
+                            <marker id="arrowhead-orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                                <polygon points="0 0, 8 3, 0 6" fill="#ff9800"/>
+                            </marker>
+                            <marker id="arrowhead-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                                <polygon points="0 0, 8 3, 0 6" fill="#9b59b6"/>
+                            </marker>
+                        </defs>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 9: Tech Deep Dive - Backend Abstraction Challenges -->
+        <div class="slide">
+            <div class="icon">🔧</div>
+            <h2>Tech Deep Dive: Backend Abstraction Challenges</h2>
+            <div style="text-align: center; margin: 20px 0;">
+                <svg viewBox="0 0 1200 700" xmlns="http://www.w3.org/2000/svg" style="width: 100%; max-width: 1000px; height: auto;">
+                    <defs>
+                        <marker id="arrowhead2-slide9" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto">
+                            <polygon points="0 0, 12 5, 0 10" fill="#4a5568" />
+                        </marker>
+                        <filter id="shadow-slide9" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="4" dy="4" stdDeviation="6" flood-color="#00000025"/>
+                        </filter>
+                        <linearGradient id="abstractionGradient-slide9" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+
+                    <!-- Background -->
+                    <rect width="1200" height="700" fill="#f8f9fa"/>
+
+                    <!-- Title -->
+                    <text x="600" y="50" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="#2c3e50">
+                        🎭 Unified Interface Challenge
+                    </text>
+
+                    <!-- Backend Boxes - Better spaced horizontally -->
+                    <!-- Claude Code -->
+                    <rect x="80" y="110" width="220" height="120" rx="15" fill="#fff3cd" stroke="#f39c12" stroke-width="3" filter="url(#shadow-slide9)"/>
+                    <text x="190" y="145" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="#f39c12">Claude Code CLI</text>
+                    <text x="190" y="175" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#666">Context sharing</text>
+                    <text x="190" y="195" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#666">across agents</text>
+
+                    <!-- Gemini -->
+                    <rect x="340" y="110" width="220" height="120" rx="15" fill="#ffebee" stroke="#e74c3c" stroke-width="3" filter="url(#shadow-slide9)"/>
+                    <text x="450" y="145" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="#e74c3c">Gemini API</text>
+                    <text x="450" y="175" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#666">Can't mix builtin +</text>
+                    <text x="450" y="195" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#666">custom tools</text>
+
+                    <!-- GPT-5 -->
+                    <rect x="600" y="110" width="220" height="120" rx="15" fill="#e1f5fe" stroke="#0288d1" stroke-width="3" filter="url(#shadow-slide9)"/>
+                    <text x="710" y="145" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="#0288d1">GPT-5</text>
+                    <text x="710" y="175" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#666">API changes</text>
+                    <text x="710" y="195" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#666">(reasoning, streaming)</text>
+
+                    <!-- Most Backends -->
+                    <rect x="860" y="110" width="220" height="120" rx="15" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="3" filter="url(#shadow-slide9)"/>
+                    <text x="970" y="145" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="#7b1fa2">Most Backends</text>
+                    <text x="970" y="175" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#666">Unable to autonomously</text>
+                    <text x="970" y="195" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" fill="#666">collaborate</text>
+
+                    <!-- Simplified arrows - cleaner convergence -->
+                    <line x1="190" y1="240" x2="450" y2="320" stroke="#4a5568" stroke-width="4" marker-end="url(#arrowhead2-slide9)" opacity="0.8"/>
+                    <line x1="450" y1="240" x2="520" y2="320" stroke="#4a5568" stroke-width="4" marker-end="url(#arrowhead2-slide9)" opacity="0.8"/>
+                    <line x1="710" y1="240" x2="680" y2="320" stroke="#4a5568" stroke-width="4" marker-end="url(#arrowhead2-slide9)" opacity="0.8"/>
+                    <line x1="970" y1="240" x2="750" y2="320" stroke="#4a5568" stroke-width="4" marker-end="url(#arrowhead2-slide9)" opacity="0.8"/>
+
+                    <!-- Unified ChatAgent Protocol (Abstraction Layer) - More prominent -->
+                    <rect x="200" y="340" width="800" height="160" rx="25" fill="url(#abstractionGradient-slide9)" filter="url(#shadow-slide9)" stroke="#5a67d8" stroke-width="2"/>
+                    <text x="600" y="385" text-anchor="middle" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="white">
+                        🎯 Unified ChatAgent Protocol
+                    </text>
+
+                    <!-- Features inside protocol - Better spacing and typography -->
+                    <rect x="280" y="420" width="180" height="70" rx="12" fill="rgba(255,255,255,0.25)" stroke="white" stroke-width="2"/>
+                    <text x="370" y="450" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="white">⚙️ StreamChunk</text>
+                    <text x="370" y="470" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="white">Normalization</text>
+
+                    <rect x="510" y="420" width="180" height="70" rx="12" fill="rgba(255,255,255,0.25)" stroke="white" stroke-width="2"/>
+                    <text x="600" y="450" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="white">🔀 Workarounds</text>
+                    <text x="600" y="470" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="white">Backend-specific</text>
+
+                    <rect x="740" y="420" width="180" height="70" rx="12" fill="rgba(255,255,255,0.25)" stroke="white" stroke-width="2"/>
+                    <text x="830" y="450" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="white">🛠️ Tool Integration</text>
+                    <text x="830" y="470" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="white">MCP, Web, Code</text>
+
+                    <!-- Arrow to result -->
+                    <line x1="600" y1="535" x2="600" y2="550" stroke="#4a5568" stroke-width="5" marker-end="url(#arrowhead2-slide9)"/>
+
+                    <!-- Separate Result: Binary Decision Framework - Better positioned -->
+                    <rect x="200" y="565" width="800" height="90" rx="20" fill="#fff3cd" stroke="#f39c12" stroke-width="3" filter="url(#shadow-slide9)"/>
+                    <text x="600" y="595" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#f39c12">
+                        🧠 Binary Decision Framework
+                    </text>
+                    <text x="600" y="620" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#b7950b">
+                        Intelligent agent coordination and workspace sharing
+                    </text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Slide 10: Tech Deep Dive - Binary Decision Framework Solution -->
+        <div class="slide">
+            <div style="text-align: center; margin-bottom: 30px;">
+                <div style="font-size: 2.5em; margin-bottom: 10px;">🎯</div>
+                <h2 style="font-size: 2.8em; color: #2c3e50; margin-bottom: 15px;">Tech Deep Dive: Binary Decision Framework Solution</h2>
+                <div style="height: 4px; width: 120px; background: linear-gradient(135deg, #667eea, #764ba2); margin: 0 auto; border-radius: 2px;"></div>
+            </div>
+            <div style="height: 70vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                <div style="text-align: center; position: relative; width: 100%; max-width: 900px;">
+                    <svg viewBox="0 0 650 290" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto;">
+                        <!-- Agent labels (once) -->
+                        <text x="110" y="25" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#666">Agent 1</text>
+                        <text x="190" y="25" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#666">Agent 2</text>
+                        <text x="270" y="25" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#666">Agent 3</text>
+                        <text x="350" y="25" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#666">Agent 4</text>
+
+                        <!-- Current state -->
+                        <rect x="80" y="40" width="60" height="30" rx="5" fill="#00b894"/>
+                        <text x="110" y="59" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="white">Vote: 4</text>
+
+                        <rect x="160" y="40" width="60" height="30" rx="5" fill="#fd79a8"/>
+                        <text x="190" y="59" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="white">Writing</text>
+
+                        <rect x="240" y="40" width="60" height="30" rx="5" fill="#00b894"/>
+                        <text x="270" y="59" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="white">Vote: 4</text>
+
+                        <rect x="320" y="40" width="60" height="30" rx="5" fill="#a29bfe"/>
+                        <text x="350" y="59" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="white">Vote: 4</text>
+
+                        <text x="480" y="50" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#2e7d32">⚖️ Binary Choice:</text>
+                        <text x="480" y="68" text-anchor="middle" font-family="Arial" font-size="14" fill="#2e7d32">vote OR new_answer</text>
+
+                        <!-- Disruption -->
+                        <text x="325" y="100" text-anchor="middle" font-family="Arial" font-size="18" font-weight="bold" fill="#e74c3c">Agent 2 provides new_answer</text>
+                        <text x="325" y="120" text-anchor="middle" font-family="Arial" font-size="18" font-weight="bold" fill="#e74c3c">→ ALL VOTES RESET</text>
+
+                        <!-- After reset -->
+                        <text x="325" y="155" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#2c3e50">After Reset:</text>
+
+                        <rect x="80" y="170" width="60" height="30" rx="5" fill="#74b9ff"/>
+                        <text x="110" y="189" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="white">Deciding</text>
+
+                        <rect x="160" y="170" width="60" height="30" rx="5" fill="#74b9ff"/>
+                        <text x="190" y="189" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="white">Deciding</text>
+
+                        <rect x="240" y="170" width="60" height="30" rx="5" fill="#74b9ff"/>
+                        <text x="270" y="189" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="white">Deciding</text>
+
+                        <rect x="320" y="170" width="60" height="30" rx="5" fill="#74b9ff"/>
+                        <text x="350" y="189" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="white">Deciding</text>
+
+                        <!-- Results of async decisions -->
+                        <text x="325" y="220" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#2c3e50">Async Results:</text>
+
+                        <rect x="80" y="230" width="60" height="25" rx="5" fill="#00b894"/>
+                        <text x="110" y="246" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="white">Vote: 2</text>
+
+                        <rect x="160" y="230" width="60" height="25" rx="5" fill="#00b894"/>
+                        <text x="190" y="246" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="white">Vote: 2</text>
+
+                        <rect x="240" y="230" width="60" height="25" rx="5" fill="#fd79a8"/>
+                        <text x="270" y="246" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="white">Writing</text>
+
+                        <rect x="320" y="230" width="60" height="25" rx="5" fill="#74b9ff"/>
+                        <text x="350" y="246" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="white">Deciding</text>
+
+                        <!-- Cycle indication -->
+                        <text x="325" y="275" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#666">→ If new_answer: reset again</text>
+
+
+                        <!-- Enhanced markers -->
+                        <defs>
+                            <marker id="arrow-down" markerWidth="10" markerHeight="10" refX="5" refY="8" orient="auto">
+                                <path d="M 2 2 L 5 8 L 8 2" stroke="#e74c3c" stroke-width="2" fill="#e74c3c"/>
+                            </marker>
+                        </defs>
+                    </svg>
+                    <div style="margin-top: 30px; padding: 20px 35px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 20px; color: white; box-shadow: 0 15px 40px rgba(0,0,0,0.3);">
+                        <div style="font-size: 1.4em; font-weight: bold;">🎯 Key Innovation: Vote Invalidation Creates Dynamic Consensus</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide: Code-Based Tools (CodeAct) -->
+        <div class="slide">
+            <div class="icon">🧬</div>
+            <h2>Feature: Code-Based Tools (CodeAct)</h2>
+            <p style="text-align: center; font-size: 1.2em; color: #e74c3c; margin: -20px 0 25px 0; font-weight: 500;">MCP tool schemas don't cloud agent context — tools become discoverable Python code</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 25px; align-items: start;">
+                <div>
+                    <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                        <h3 style="margin: 0 0 12px 0; font-size: 1.15em; color: white;">Workspace Structure</h3>
+                        <div style="font-family: monospace; font-size: 0.85em; line-height: 1.5; color: white;">
+                            workspace/<br>
+                            ├── servers/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="opacity: 0.8;"># MCP tools</span><br>
+                            ├── custom_tools/ <span style="opacity: 0.8;"># User tools</span><br>
+                            ├── skills/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="opacity: 0.8;"># Openskills</span><br>
+                            └── utils/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="opacity: 0.8;"># Agent scripts</span>
+                        </div>
+                    </div>
+                    <div style="background: rgba(102, 126, 234, 0.1); padding: 15px; border-radius: 12px; font-size: 0.85em;">
+                        <strong style="color: #667eea;">Tool Discovery:</strong><br>
+                        Agents explore filesystem, read docstrings, import what they need
+                    </div>
+                </div>
+                <div>
+                    <div style="background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                        <h3 style="margin: 0 0 12px 0; font-size: 1.15em; color: white;">execute_command</h3>
+                        <p style="font-size: 0.9em; line-height: 1.4; margin: 0 0 10px 0; color: white;">
+                            Central MCP tool that runs agent-written Python scripts
+                        </p>
+                        <div style="font-size: 0.8em; opacity: 0.9;">
+                            → Docker execution<br>
+                            → Timeout &amp; security layers<br>
+                            → Workspace confinement
+                        </div>
+                    </div>
+                    <div style="background: rgba(231, 76, 60, 0.1); padding: 15px; border-radius: 12px; font-family: monospace; font-size: 0.8em;">
+                        <span style="color: #888;"># Agent runs their code</span><br>
+                        execute_command(<br>
+                        &nbsp;&nbsp;"python utils/report.py"<br>
+                        )
+                    </div>
+                </div>
+                <div>
+                    <div style="background: linear-gradient(135deg, #00b894, #00cec9); color: white; padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                        <h3 style="margin: 0 0 12px 0; font-size: 1.15em; color: white;">Why It Matters</h3>
+                        <ul style="font-size: 0.9em; line-height: 1.5; list-style: none; padding: 0; margin: 0; color: white;">
+                            <li style="margin-bottom: 6px;">→ Context reduction</li>
+                            <li style="margin-bottom: 6px;">→ Transparent tool access</li>
+                            <li style="margin-bottom: 6px;">→ Native Python composition</li>
+                            <li style="margin-bottom: 6px;">→ Parallel async execution</li>
+                        </ul>
+                    </div>
+                    <div style="background: rgba(0, 184, 148, 0.1); padding: 15px; border-radius: 12px; font-size: 0.85em;">
+                        <strong style="color: #00b894;">Research:</strong> Apple CodeAct, Cloudflare Code Mode, Anthropic MCP
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Slide: Advanced Coordination -->
+        <div class="slide">
+            <div class="icon">🔄</div>
+            <h2>Advanced Coordination Features</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px;">
+                <div style="background: linear-gradient(135deg, #3498db, #2980b9); color: white; padding: 25px; border-radius: 15px;">
+                    <h3 style="margin: 0 0 15px 0; font-size: 1.2em; color: white;">Task Planning</h3>
+                    <p style="font-size: 0.95em; line-height: 1.5; margin: 0; color: white;">
+                        Agents create <strong>structured task plans</strong> with automatic dependency tracking.
+                    </p>
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.3); font-size: 0.9em;">
+                        → 8 MCP planning tools<br>
+                        → Dependency management<br>
+                        → Progress: pending → done
+                    </div>
+                </div>
+                <div style="background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white; padding: 25px; border-radius: 15px;">
+                    <h3 style="margin: 0 0 15px 0; font-size: 1.2em; color: white;">Orchestration Restart</h3>
+                    <p style="font-size: 0.95em; line-height: 1.5; margin: 0; color: white;">
+                        Winner evaluates its own answer. If incomplete, <strong>auto-restarts</strong> with improvement instructions.
+                    </p>
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.3); font-size: 0.9em;">
+                        → Self-correcting feedback loop<br>
+                        → Configurable max attempts<br>
+                        → Tailored guidance per retry
+                    </div>
+                </div>
+                <div style="background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; padding: 25px; border-radius: 15px;">
+                    <h3 style="margin: 0 0 15px 0; font-size: 1.2em; color: white;">And Many More...</h3>
+                    <div style="font-size: 0.95em; line-height: 1.7; color: white;">
+                        → <strong>Broadcasting</strong> - Human or LLM answers<br>
+                        → <strong>Diversity</strong> - Question paraphrasing<br>
+                        → <strong>Novelty</strong> - No lazy rephrasing<br>
+                        → <strong>Multi-Turn</strong> - Persistent sessions<br>
+                        → <strong>WebUI</strong> - Real-time visualization
+                    </div>
+                </div>
+            </div>
+            <div style="background: rgba(52, 73, 94, 0.1); padding: 20px; border-radius: 15px; margin-top: 25px; text-align: center;">
+                <strong style="color: #2c3e50;">Result:</strong> <span style="color: #34495e;">Sophisticated coordination that goes beyond simple voting — agents plan, adapt, and execute without conflicts.</span>
+            </div>
+        </div>
+
+
+        <!-- Slide 19: Evolution from v0.0.1 -->
+        <div class="slide">
+            <div class="icon">🚀</div>
+            <h2>MassGen Evolution</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 50px; margin: 50px 0; align-items: center; justify-items: center;">
+                <div style="background: linear-gradient(135deg, #74b9ff, #0984e3); color: white; padding: 40px; border-radius: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); max-width: 350px; text-align: center;">
+                    <div style="font-size: 3em; margin-bottom: 20px;">🏗️</div>
+                    <h3 style="margin: 0 0 15px 0; font-size: 1.6em;">Foundation Era</h3>
+                    <div style="font-size: 1.1em; opacity: 0.9; margin-bottom: 25px;">v0.0.1 - v0.0.3</div>
+                    <div style="font-size: 1.1em; line-height: 1.6;">
+                        Core framework, basic streaming,<br>
+                        Claude, Gemini, GPT/o, Grok
+                    </div>
+                </div>
+                <div style="background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; padding: 40px; border-radius: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); max-width: 400px; text-align: center; position: relative;">
+                    <div style="position: absolute; top: -15px; right: -15px; background: #f39c12; color: white; padding: 8px 20px; border-radius: 25px; font-size: 0.9em; font-weight: bold; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">LATEST</div>
+                    <div style="font-size: 3em; margin-bottom: 20px;">🚀</div>
+                    <h3 style="margin: 0 0 15px 0; font-size: 1.6em;">Rapid Evolution</h3>
+                    <div style="font-size: 1.1em; opacity: 0.9; margin-bottom: 25px;">v0.0.3 → v0.1.23</div>
+                    <div style="font-size: 1.1em; line-height: 1.6;">
+                        Models, agents, agent frameworks<br>
+                        MCP, browsing, coding, computer use, multimodal<br>
+                        Memory, skills, automation, evolution<br>
+                        Web UI, terminal UI, interactive sessions<br>
+                        <!-- Industrial & academic adoption -->
+                    </div>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 40px;">
+                <div style="display: inline-flex; gap: 40px; align-items: center; font-size: 1.3em; color: #2c3e50;">
+                    <div><strong style="color: #e74c3c;">55</strong> Releases</div>
+                    <div style="color: #bdc3c7;">•</div>
+                    <div><strong style="color: #e74c3c;">Foundation→Expansion</strong></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 20: Early Adopters -->
+        <div class="slide">
+            <div class="icon">🌟</div>
+            <h2>Early Adopters & Community Growth</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center;">
+                <div>
+                    <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 25px; border-radius: 15px; margin-bottom: 20px;">
+                        <h3 style="margin: 0 0 15px 0; font-size: 1.4em;">🏢 Industrial Institutions</h3>
+                        <ul style="font-size: 1.1em; line-height: 1.6; list-style: none; padding: 0;">
+                            <li style="margin-bottom: 8px;"><strong>Microsoft Azure</strong></li>
+                            <li style="margin-bottom: 8px;"><strong>Gradient</strong></li>
+                            <li style="margin-bottom: 8px;"><strong>Sparsity</strong></li>
+                            <li style="margin-bottom: 8px;"><strong>Leading Trading Firm</strong></li>
+                            <li style="margin-bottom: 8px;"><strong>AgentWeb</strong></li>
+                        </ul>
+                    </div>
+                </div>
+                <div>
+                    <div style="background: linear-gradient(135deg, #74b9ff, #0984e3); color: white; padding: 25px; border-radius: 15px; margin-bottom: 20px;">
+                        <h3 style="margin: 0 0 15px 0; font-size: 1.4em;">🎓 Academic Institutions</h3>
+                        <ul style="font-size: 1.1em; line-height: 1.6; list-style: none; padding: 0;">
+                            <li style="margin-bottom: 8px;"><strong>Simon Fraser University</strong></li>
+                            <li style="margin-bottom: 8px;"><strong>UC Berkeley & Santa Cruz</strong></li>
+                            <li style="margin-bottom: 8px;"><strong>University of Pennsylvania</strong></li>
+                            <li style="margin-bottom: 8px;"><strong>University of Sydney</strong></li>
+                            <li style="margin-bottom: 8px;"><strong>University of Toronto</strong></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div style="background: linear-gradient(135deg, #00b894, #00cec9); color: white; padding: 25px; border-radius: 15px; text-align: center;">
+                <h3 style="margin: 0 0 15px 0; font-size: 1.4em;">🚀 Open Source Community</h3>
+                <div style="display: flex; justify-content: center; gap: 40px; font-size: 1.2em; margin-bottom: 20px;">
+                    <div><strong>Active</strong> development</div>
+                    <div><strong>Growing</strong> contributor base</div>
+                    <div><strong>Global</strong> adoption</div>
+                    <div><strong>Research</strong> partnerships</div>
+                </div>
+                <div style="text-align: center;">
+                    <img src="https://contrib.rocks/image?repo=Leezekun/MassGen" alt="MassGen Contributors Wall" style="max-width: 600px; width: 100%; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);" loading="lazy">
+                    <div style="font-size: 0.9em; margin-top: 10px; opacity: 0.9;">
+                        🤝 Community Contributors - Thank you!
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 23: Getting Started -->
+        <div class="slide">
+            <div class="icon">⚡</div>
+            <h2>Get Started in 60 Seconds</h2>
+            <div class="code-snippet">
+                # Install and run<br>
+                uv pip install massgen && uv run massgen<br><br>
+
+                # First run: Setup wizard guides you through:<br>
+                #   → API key configuration<br>
+                #   → Creates your default config<br>
+                #   → Downloads skills &amp; containers as needed<br><br>
+
+                # Future runs: uses your default config, or specify another<br>
+                uv run massgen "Your question"<br>
+                uv run massgen --config @examples/basic/multi/three_agents_default "..."  # No Docker<br>
+                uv run massgen --config @examples/tools/filesystem/code_based "..."      # With Docker<br><br>
+
+                # Web UI: Real-time visualization of agent coordination<br>
+                uv run massgen --web
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 25px; margin-top: 30px;">
+                <div style="text-align: center; padding: 20px; background: rgba(46, 204, 113, 0.1); border-radius: 15px;">
+                    <h3 style="color: #27ae60; margin-bottom: 15px;">✅ Supported Models & Providers</h3>
+                    <div style="font-size: 1em; line-height: 1.5;">
+                        <div style="font-weight: bold; margin-bottom: 8px;">🏢 Major Providers:</div>
+                        <div>Anthropic Claude • Google Gemini • OpenAI GPT/Codex • xAI Grok • ZAI GLM</div>
+                        <div style="font-weight: bold; margin: 12px 0 8px 0;">🏠 Local & Extended:</div>
+                        <div>Cerebras • Fireworks • Groq • LM Studio • OpenRouter • SGLang • Together • vLLM...</div>
+                    </div>
+                </div>
+                <div style="text-align: center; padding: 20px; background: rgba(155, 89, 182, 0.1); border-radius: 15px;">
+                    <h3 style="color: #8e44ad; margin-bottom: 15px;">🤖 Agents & Frameworks</h3>
+                    <div style="font-size: 1.1em;">AG2 • AgentScope • Claude Code CLI • LangGraph • NLIP • Smolagent</div>
+                </div>
+                <div style="text-align: center; padding: 20px; background: rgba(52, 152, 219, 0.1); border-radius: 15px;">
+                    <h3 style="color: #3498db; margin-bottom: 15px;">🛠️ Advanced Tools</h3>
+                    <div style="font-size: 1.1em;">Browser Automation • Code Execution • Computer Use • File Operations • MCP • Memory • Multimodal • Skills • Web Search</div>
+                </div>
+            </div>
+            <div style="text-align: center; padding: 20px; margin-top: 25px; background: rgba(241, 196, 15, 0.1); border-radius: 15px;">
+                <h3 style="color: #f39c12; margin-bottom: 15px;">🎨 UI/UX Interfaces</h3>
+                <div style="font-size: 1.1em;">Web UI (React + WebSocket) • Terminal UI (Textual) • CLI Streaming Display • Interactive Multi-Turn • Quickstart Wizard • Session Resumption</div>
+            </div>
+        </div>
+
+        <!-- Slide: Community Call to Action -->
+        <div class="slide">
+            <div class="icon">🚀</div>
+            <h2>Join the MassGen Community</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; max-width: 1100px; margin: 0 auto; align-items: stretch;">
+                <div style="background: linear-gradient(135deg, #5865F2, #7289DA); color: white; padding: 30px; border-radius: 15px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
+                    <div>
+                        <h3 style="margin: 0 0 15px 0; font-size: 1.4em; color: white;">💬 Join our Discord!</h3>
+                        <p style="font-size: 1em; line-height: 1.5; margin: 0; color: white;">
+                            Want to contribute to MassGen development or research? Contact <strong>@Yu</strong> in the Discord channel.
+                        </p>
+                    </div>
+                    <img src="massgendiscord.svg" alt="Discord QR" style="width: 180px; height: 180px; margin: 20px auto 0 auto;">
+                </div>
+                <div style="background: linear-gradient(135deg, #24292e, #4a4a4a); color: white; padding: 30px; border-radius: 15px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
+                    <div>
+                        <h3 style="margin: 0 0 15px 0; font-size: 1.4em; color: white;">⭐ Try MassGen Today</h3>
+                        <p style="font-size: 1em; line-height: 1.5; margin: 0; color: white;">
+                            Check out the repo and give us a star if you find it useful!
+                        </p>
+                    </div>
+                    <img src="massgenrepo.svg" alt="GitHub QR" style="width: 180px; height: 180px; margin: 20px auto 0 auto;">
+                </div>
+            </div>
+        </div>
+
+    </div>
+<!-- Navigation -->
+    <div class="slide-counter">
+        <span id="current-slide">1</span> / <span id="total-slides">24</span>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+
+        // Slide titles for navigation
+        const slideTitles = [
+            "Architecture - System Design",
+            "Additional Context Paths",
+            "Tech - Backend Challenges",
+            "Tech - Binary Decision Framework",
+            "Code-Based Tools (CodeAct)",
+            "Advanced Coordination",
+            "Evolution",
+            "Early Adopters - Community Growth",
+            "Getting Started - 60 Seconds",
+            "Community - Join Us"
+        ];
+
+        document.getElementById('total-slides').textContent = totalSlides;
+
+        function showSlide(n) {
+            slides[currentSlide].classList.remove('active');
+            currentSlide = (n + totalSlides) % totalSlides;
+            slides[currentSlide].classList.add('active');
+
+            document.getElementById('current-slide').textContent = currentSlide + 1;
+        }
+
+        function changeSlide(direction) {
+            if (direction === 1 && currentSlide < totalSlides - 1) {
+                showSlide(currentSlide + 1);
+            } else if (direction === -1 && currentSlide > 0) {
+                showSlide(currentSlide - 1);
+            }
+        }
+
+        // Navigation visibility toggle
+        let navigationVisible = true;
+
+        function toggleNavigation() {
+            navigationVisible = !navigationVisible;
+            const slideCounter = document.querySelector('.slide-counter');
+
+            if (slideCounter) slideCounter.style.display = navigationVisible ? '' : 'none';
+
+            console.log(navigationVisible ? 'Navigation shown' : 'Navigation hidden');
+        }
+
+        // Enhanced keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            // Prevent default behavior if we handle the key
+            const handledKeys = ['ArrowRight', 'ArrowLeft', ' ', 'Home', 'End', 'n', 'N'];
+            const numberKeys = e.key >= '1' && e.key <= '9';
+
+            if (handledKeys.includes(e.key) || numberKeys) {
+                e.preventDefault();
+            }
+
+            switch(e.key) {
+                case 'ArrowRight':
+                case ' ':
+                    changeSlide(1);
+                    break;
+                case 'ArrowLeft':
+                    changeSlide(-1);
+                    break;
+                case 'Home':
+                    showSlide(0);
+                    break;
+                case 'End':
+                    showSlide(totalSlides - 1);
+                    break;
+                case 'n':
+                case 'N':
+                    toggleNavigation();
+                    break;
+                default:
+                    if (numberKeys) {
+                        const slideNum = parseInt(e.key) - 1;
+                        if (slideNum < totalSlides) {
+                            showSlide(slideNum);
+                        }
+                    }
+            }
+        });
+
+        // Initialize
+        showSlide(0);
+    </script>
+</body>
+</html>

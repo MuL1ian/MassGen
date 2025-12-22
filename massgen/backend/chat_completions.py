@@ -120,10 +120,13 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             result: Tool execution result
             tool_type: "custom" or "mcp"
         """
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
         function_output_msg = {
             "role": "tool",
             "tool_call_id": call.get("call_id", ""),
-            "content": str(result),
+            "content": result_text,
         }
         updated_messages.append(function_output_msg)
 
@@ -203,8 +206,16 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                 api_params["tools"] = []
             api_params["tools"].extend(provider_tools)
 
+        # Start API call timing
+        model = api_params.get("model", "unknown")
+        self.start_api_call_timing(model)
+
         # Start streaming
-        stream = await client.chat.completions.create(**api_params)
+        try:
+            stream = await client.chat.completions.create(**api_params)
+        except Exception as e:
+            self.end_api_call_timing(success=False, error=str(e))
+            raise
 
         # Track function calls in this iteration
         captured_function_calls = []
@@ -213,6 +224,8 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         content = ""
         finish_reason_received = None  # Track finish reason to know when to expect usage
         usage_received_this_request = False  # Track if API returned usage for this specific request
+        # Track reasoning_details for OpenRouter Gemini models
+        reasoning_details = []
 
         async for chunk in stream:
             try:
@@ -223,8 +236,13 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
 
+                        # Capture reasoning_details from delta
+                        if getattr(delta, "reasoning_details", None):
+                            reasoning_details.extend(delta.reasoning_details)
+
                         # Plain text content
                         if getattr(delta, "content", None):
+                            self.record_first_token()  # Record TTFT on first content
                             content_chunk = delta.content
                             content += content_chunk
                             yield StreamChunk(type="content", content=content_chunk)
@@ -313,9 +331,11 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                     )
                     # Now we can safely exit or continue based on finish reason
                     if finish_reason_received in ["stop", "length"]:
+                        self.end_api_call_timing(success=True)
                         yield StreamChunk(type="done")
                         return
                     elif finish_reason_received == "tool_calls":
+                        self.end_api_call_timing(success=True)
                         break  # Exit to execute functions
 
             except Exception as chunk_error:
@@ -333,6 +353,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                     content,
                     all_params.get("model", "unknown"),
                 )
+            self.end_api_call_timing(success=True)
             yield StreamChunk(type="done")
             return
 
@@ -406,6 +427,9 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                         "content": content.strip() if content.strip() else None,
                         "tool_calls": all_tool_calls,
                     }
+                    # Preserve reasoning_details for OpenRouter Gemini models
+                    if reasoning_details:
+                        assistant_message["reasoning_details"] = reasoning_details
                     updated_messages.append(assistant_message)
 
             # Create tool execution configuration objects
@@ -589,6 +613,8 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         provider_name = self.get_provider_name()
         enable_web_search = all_params.get("enable_web_search", False)
         log_prefix = f"backend.{provider_name.lower().replace(' ', '_')}"
+        # Track reasoning_details for OpenRouter Gemini models
+        reasoning_details = []
 
         async for chunk in stream:
             try:
@@ -599,8 +625,13 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
 
+                        # Capture reasoning_details from delta
+                        if getattr(delta, "reasoning_details", None):
+                            reasoning_details.extend(delta.reasoning_details)
+
                         # Plain text content
                         if getattr(delta, "content", None):
+                            self.record_first_token()  # Record TTFT on first content
                             # handle reasoning first
                             reasoning_chunk = self._handle_reasoning_transition(log_prefix, agent_id)
                             if reasoning_chunk:
@@ -700,6 +731,9 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                                 "content": content.strip(),
                                 "tool_calls": final_tool_calls,
                             }
+                            # Preserve reasoning_details for OpenRouter Gemini models
+                            if reasoning_details:
+                                complete_message["reasoning_details"] = reasoning_details
 
                             yield StreamChunk(
                                 type="complete_message",
@@ -765,6 +799,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
 
                     # After receiving usage, yield done and exit
                     # (this is the final chunk that comes after finish_reason)
+                    self.end_api_call_timing(success=True)
                     log_stream_chunk(log_prefix, "done", None, agent_id)
                     yield StreamChunk(type="done")
                     return  # Exit completely after usage is captured
@@ -787,6 +822,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             )
 
         # Fallback in case stream ends without finish_reason
+        self.end_api_call_timing(success=True)
         log_stream_chunk(log_prefix, "done", None, agent_id)
         yield StreamChunk(type="done")
 

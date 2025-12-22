@@ -357,6 +357,98 @@ At the bottom of the coordination table:
 Accessing Logs
 --------------
 
+Log Analysis Commands
+~~~~~~~~~~~~~~~~~~~~~
+
+MassGen provides the ``massgen logs`` command for quick log analysis without manual file navigation.
+
+**Summary of most recent run:**
+
+.. code-block:: bash
+
+   massgen logs
+
+   # Example output:
+   # ╭──────────────────────────── MassGen Run Summary ─────────────────────────────╮
+   # │ Create a website about Bob Dylan                                             │
+   # │                                                                               │
+   # │ Winner: agent_a | Agents: 1 | Duration: 7.2m | Cost: $0.54                   │
+   # ╰───────────────────────────────────────────────────────────────────────────────╯
+   #
+   # Tokens: Input: 6,035,629 | Output: 21,279 | Reasoning: 7,104
+   #
+   # Rounds (5): answer: 1 | vote: 1 | presentation: 2 | post_evaluation: 1
+   #   Errors: 0 | Timeouts: 0
+   #
+   # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━━┓
+   # ┃ Tool                                      ┃ Calls ┃  Time ┃  Avg ┃ Fail ┃
+   # ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━━┩
+   # │ mcp__command_line__execute_command        │    47 │  4.4s │ 94ms │      │
+   # │ mcp__planning__update_task_status         │    13 │ 228ms │ 18ms │      │
+   # └───────────────────────────────────────────┴───────┴───────┴──────┴──────┘
+
+**Available subcommands:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Command
+     - Description
+   * - ``massgen logs`` or ``massgen logs summary``
+     - Display run summary with tokens, rounds, and top tools
+   * - ``massgen logs tools``
+     - Full tool breakdown table sorted by execution time
+   * - ``massgen logs tools --sort calls``
+     - Sort tools by call count instead of time
+   * - ``massgen logs list``
+     - List recent runs with timestamps, costs, and questions
+   * - ``massgen logs list --limit 20``
+     - Show more runs (default: 10)
+   * - ``massgen logs open``
+     - Open log directory in system file manager (Finder/Explorer)
+
+**Common options:**
+
+.. code-block:: bash
+
+   # Analyze a specific log directory
+   massgen logs --log-dir .massgen/massgen_logs/log_20251218_134125_867383/turn_1/attempt_1
+
+   # Output raw JSON for scripting
+   massgen logs summary --json
+
+**Tool breakdown example:**
+
+.. code-block:: bash
+
+   massgen logs tools
+
+   # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━━┓
+   # ┃ Tool                                      ┃ Calls ┃  Time ┃  Avg ┃ Fail ┃
+   # ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━━┩
+   # │ mcp__command_line__execute_command        │    47 │  4.4s │ 94ms │      │
+   # │ mcp__planning__update_task_status         │    13 │ 228ms │ 18ms │      │
+   # │ mcp__filesystem__write_file               │     7 │ 181ms │ 26ms │      │
+   # │ mcp__planning__create_task_plan           │     2 │  36ms │ 18ms │      │
+   # ├───────────────────────────────────────────┼───────┼───────┼──────┼──────┤
+   # │ TOTAL                                     │    69 │  4.8s │      │      │
+   # └───────────────────────────────────────────┴───────┴───────┴──────┴──────┘
+
+**List recent runs:**
+
+.. code-block:: bash
+
+   massgen logs list --limit 5
+
+   # ┏━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+   # ┃ # ┃ Timestamp        ┃ Duration ┃  Cost ┃ Question                           ┃
+   # ┡━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+   # │ 1 │ 2025-12-18 13:41 │     7.2m │ $0.54 │ Create a website about Bob Dylan   │
+   # │ 2 │ 2025-12-17 23:01 │    16.2m │ $1.23 │ Build a REST API...                │
+   # │ 3 │ 2025-12-17 22:30 │     3.1m │ $0.12 │ Explain quantum computing...       │
+   # └───┴──────────────────┴──────────┴───────┴────────────────────────────────────┘
+
 During Execution
 ~~~~~~~~~~~~~~~~
 
@@ -369,6 +461,10 @@ After Execution
 
 .. code-block:: bash
 
+   # Using massgen logs open (recommended)
+   massgen logs open
+
+   # Or manually
    ls -t .massgen/massgen_logs/ | head -1
 
 **View coordination table:**
@@ -519,6 +615,117 @@ MassGen exits with status 0 on success, non-zero on failure.
 .. code-block:: bash
 
    uv run python -m massgen.cli --config config.yaml "Question" && echo "Success"
+
+Sharing Sessions
+----------------
+
+MassGen allows you to share session logs via GitHub Gist for easy collaboration and review.
+
+Prerequisites
+~~~~~~~~~~~~~
+
+Sharing requires the **GitHub CLI (gh)** to be installed and authenticated:
+
+1. **Install GitHub CLI**:
+
+   - macOS: ``brew install gh``
+   - Windows: ``winget install --id GitHub.cli``
+   - Linux: See https://cli.github.com/
+
+2. **Authenticate with GitHub**:
+
+   .. code-block:: bash
+
+      gh auth login
+
+   Follow the prompts to authenticate. This is required for creating gists.
+
+Sharing a Session
+~~~~~~~~~~~~~~~~~
+
+Use the ``massgen export`` command to share a session:
+
+.. code-block:: bash
+
+   # Share the most recent session
+   massgen export
+
+   # Share a specific session by log directory name
+   massgen export log_20251218_134125_867383
+
+   # Share a specific session by full path
+   massgen export /path/to/.massgen/massgen_logs/log_20251218_134125_867383
+
+**Output:**
+
+.. code-block:: text
+
+   Sharing session from: /path/to/.massgen/massgen_logs/log_20251218_134125/turn_1/attempt_1
+   Collecting files...
+   Uploading 45 files (1,234,567 bytes)...
+
+   Share URL: https://massgen.github.io/MassGen-Viewer/?gist=abc123def456
+
+   Anyone with this link can view the session (no login required).
+
+The share URL opens the **MassGen Viewer**, a web-based session viewer that displays:
+
+- Session summary (question, winner, cost, duration)
+- Agent activity and coordination timeline
+- Answers and votes with full content
+- Tool usage breakdown
+- Configuration used
+
+**What gets uploaded:**
+
+- Metrics and status files
+- Coordination events and votes
+- Agent answers (intermediate and final)
+- Execution metadata (with API keys redacted)
+- Small workspace files (code, text, configs)
+
+**What is excluded:**
+
+- Large files (>10MB)
+- Debug logs (``massgen.log``)
+- Binary files and caches
+- Sensitive data (API keys are automatically redacted)
+
+Managing Shared Sessions
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+**List your shared sessions:**
+
+.. code-block:: bash
+
+   massgen shares list
+
+**Delete a shared session:**
+
+.. code-block:: bash
+
+   massgen shares delete <gist_id>
+
+Authentication Errors
+~~~~~~~~~~~~~~~~~~~~~
+
+If you see authentication errors when sharing:
+
+.. code-block:: text
+
+   Error: Not authenticated with GitHub.
+   Run 'gh auth login' to enable sharing.
+
+**Solution:** Run ``gh auth login`` and complete the authentication flow.
+
+If the GitHub CLI is not installed:
+
+.. code-block:: text
+
+   Error: GitHub CLI (gh) not found.
+   Install it from https://cli.github.com/
+
+**Solution:** Install the GitHub CLI for your platform.
 
 See Also
 --------

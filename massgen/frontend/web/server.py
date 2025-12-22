@@ -5,15 +5,17 @@ FastAPI Web Server for MassGen Web UI
 Provides WebSocket endpoints for real-time coordination updates
 and serves the React frontend.
 """
+
 from __future__ import annotations
 
 import asyncio
+import base64
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 try:
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
@@ -43,8 +45,15 @@ class ConnectionManager:
         self.session_configs: Dict[str, str] = {}
         # Completed sessions: session_id -> metadata (persists after disconnect)
         self.completed_sessions: Dict[str, Dict[str, Any]] = {}
+        # session_id -> orchestrator instance (for cancellation)
+        self.orchestrators: Dict[str, Any] = {}
 
-    def mark_session_completed(self, session_id: str, question: str = None, config: str = None) -> None:
+    def mark_session_completed(
+        self,
+        session_id: str,
+        question: str = None,
+        config: str = None,
+    ) -> None:
         """Mark a session as completed so it persists in the session list."""
         import time
 
@@ -88,7 +97,12 @@ class ConnectionManager:
         """Get the WebDisplay for a session."""
         return self.displays.get(session_id)
 
-    def create_display(self, session_id: str, agent_ids: list, agent_models: Optional[Dict[str, str]] = None) -> WebDisplay:
+    def create_display(
+        self,
+        session_id: str,
+        agent_ids: list,
+        agent_models: Optional[Dict[str, str]] = None,
+    ) -> WebDisplay:
         """Create a new WebDisplay for a session."""
 
         async def broadcast_fn(message: Dict[str, Any]) -> None:
@@ -122,7 +136,10 @@ def get_default_config() -> Optional[str]:
     return _default_config_path
 
 
-def create_app(config_path: Optional[str] = None, automation_mode: bool = False) -> "FastAPI":
+def create_app(
+    config_path: Optional[str] = None,
+    automation_mode: bool = False,
+) -> "FastAPI":
     """Create and configure the FastAPI application.
 
     Args:
@@ -277,35 +294,416 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
     @app.get("/api/setup/status")
     async def get_setup_status():
         """Check if setup is needed (no config exists) and Docker availability."""
-        import subprocess
         from pathlib import Path
+
+        from massgen.utils.docker_diagnostics import diagnose_docker
 
         # Check if default config exists
         config_path = Path.home() / ".config" / "massgen" / "config.yaml"
         has_config = config_path.exists()
 
-        # Check Docker availability
-        docker_available = False
-        try:
-            result = subprocess.run(
-                ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                images = result.stdout.strip().split("\n")
-                # Check for our runtime image
-                docker_available = any("mcp-runtime" in img for img in images)
-        except Exception:
-            docker_available = False
+        # Check Docker using diagnostics
+        diagnostics = diagnose_docker()
 
         return {
             "needs_setup": not has_config,
             "has_config": has_config,
             "config_path": str(config_path),
-            "docker_available": docker_available,
+            "docker_available": diagnostics.is_available,
+            "docker_status": diagnostics.status.value,
+            "docker_error": diagnostics.error_message if not diagnostics.is_available else None,
+            "docker_resolution": diagnostics.resolution_steps if not diagnostics.is_available else None,
         }
+
+    @app.get("/api/docker/diagnostics")
+    async def get_docker_diagnostics():
+        """Get comprehensive Docker diagnostics.
+
+        Returns detailed information about Docker installation status,
+        daemon availability, permissions, and installed images.
+        """
+        from massgen.utils.docker_diagnostics import diagnose_docker
+
+        diagnostics = diagnose_docker()
+        return diagnostics.to_dict()
+
+    @app.get("/api/setup/env-status")
+    async def get_env_status():
+        """Check which .env files exist and their locations."""
+        from pathlib import Path
+
+        home_env = Path.home() / ".massgen" / ".env"
+        local_env = Path.cwd() / ".env"
+
+        return {
+            "global_env": {
+                "path": str(home_env),
+                "exists": home_env.exists(),
+            },
+            "local_env": {
+                "path": str(local_env),
+                "exists": local_env.exists(),
+            },
+            "recommended": "global",
+        }
+
+    @app.post("/api/setup/api-keys")
+    async def save_api_keys(request_data: dict):
+        """Save API keys to .env file.
+
+        Request body:
+        {
+            "keys": {
+                "OPENAI_API_KEY": "sk-...",
+                "ANTHROPIC_API_KEY": "sk-ant-..."
+            },
+            "save_location": "global" | "local"
+        }
+
+        Returns:
+            {"success": true, "saved_to": "...", "saved_keys": ["OPENAI_API_KEY", ...]}
+        """
+        import os
+        from pathlib import Path
+
+        keys = request_data.get("keys", {})
+        save_location = request_data.get("save_location", "global")
+
+        if not keys:
+            return JSONResponse(
+                {"error": "No API keys provided"},
+                status_code=400,
+            )
+
+        # Validate keys format (basic sanity checks)
+        for key_name, key_value in keys.items():
+            if not key_name or not isinstance(key_name, str):
+                return JSONResponse(
+                    {"error": f"Invalid key name: {key_name}"},
+                    status_code=400,
+                )
+            if not key_value or not isinstance(key_value, str):
+                return JSONResponse(
+                    {"error": f"Invalid value for {key_name}"},
+                    status_code=400,
+                )
+
+        # Determine save path
+        if save_location == "global":
+            env_dir = Path.home() / ".massgen"
+            env_path = env_dir / ".env"
+        else:
+            env_dir = Path.cwd()
+            env_path = env_dir / ".env"
+
+        try:
+            # Create directory if needed
+            env_dir.mkdir(parents=True, exist_ok=True)
+
+            # Load existing env vars if file exists
+            existing_vars = {}
+            if env_path.exists():
+                with open(env_path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            name, _, value = line.partition("=")
+                            existing_vars[name.strip()] = value.strip().strip('"').strip("'")
+
+            # Merge new keys (overwrite existing)
+            existing_vars.update(keys)
+
+            # Write back
+            with open(env_path, "w") as f:
+                f.write("# MassGen API Keys\n")
+                f.write("# Generated by MassGen WebUI Setup\n\n")
+                for name, value in sorted(existing_vars.items()):
+                    f.write(f'{name}="{value}"\n')
+
+            # Set file permissions (600 - owner read/write only)
+            os.chmod(env_path, 0o600)
+
+            # Reload into current environment
+            for name, value in keys.items():
+                os.environ[name] = value
+
+            return {
+                "success": True,
+                "saved_to": str(env_path),
+                "saved_keys": list(keys.keys()),
+                "message": f"Saved {len(keys)} API key(s) to {env_path}",
+            }
+
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to save API keys: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/docker/pull")
+    async def start_docker_pull(request_data: dict):
+        """Start pulling Docker images.
+
+        Request body:
+        {
+            "images": ["ghcr.io/massgen/mcp-runtime-sudo:latest"]
+        }
+
+        Returns:
+            {"job_id": "uuid", "status": "started"}
+        """
+        images = request_data.get("images", [])
+
+        if not images:
+            return JSONResponse(
+                {"error": "No images specified"},
+                status_code=400,
+            )
+
+        job_id = str(uuid.uuid4())
+
+        # Store job info for tracking
+        if not hasattr(app, "_docker_pull_jobs"):
+            app._docker_pull_jobs = {}
+
+        app._docker_pull_jobs[job_id] = {
+            "images": images,
+            "status": "started",
+            "progress": {},
+            "completed": False,
+            "error": None,
+        }
+
+        return {
+            "job_id": job_id,
+            "status": "started",
+            "images": images,
+        }
+
+    @app.get("/api/docker/pull/{job_id}/stream")
+    async def stream_docker_pull(job_id: str):
+        """Stream Docker pull progress via Server-Sent Events.
+
+        Returns SSE stream with progress updates.
+        """
+        from starlette.responses import StreamingResponse
+
+        if not hasattr(app, "_docker_pull_jobs"):
+            app._docker_pull_jobs = {}
+
+        job = app._docker_pull_jobs.get(job_id)
+        if not job:
+            return JSONResponse(
+                {"error": "Job not found"},
+                status_code=404,
+            )
+
+        async def generate():
+            import json
+
+            try:
+                import docker
+
+                client = docker.from_env()
+            except Exception as e:
+                yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+                return
+
+            images = job["images"]
+
+            for image in images:
+                yield f"data: {json.dumps({'event': 'start', 'image': image})}\n\n"
+
+                try:
+                    # Pull with streaming progress
+                    for line in client.api.pull(image, stream=True, decode=True):
+                        status = line.get("status", "")
+                        progress = line.get("progress", "")
+                        layer_id = line.get("id", "")
+
+                        yield f"data: {json.dumps({'event': 'progress', 'image': image, 'status': status, 'progress': progress, 'layer_id': layer_id})}\n\n"
+
+                    yield f"data: {json.dumps({'event': 'complete', 'image': image, 'success': True})}\n\n"
+
+                except Exception as e:
+                    yield f"data: {json.dumps({'event': 'error', 'image': image, 'error': str(e)})}\n\n"
+
+            yield f"data: {json.dumps({'event': 'done', 'all_complete': True})}\n\n"
+
+            # Clean up job
+            if job_id in app._docker_pull_jobs:
+                del app._docker_pull_jobs[job_id]
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @app.get("/api/skills")
+    async def list_skills():
+        """List all available skills (built-in, user-installed, and project).
+
+        Returns skills from:
+        - Built-in: massgen/skills/
+        - User: ~/.agent/skills/ (home directory - where openskills installs)
+        - Project: .agent/skills/ (current working directory)
+        """
+        from pathlib import Path
+
+        import massgen
+
+        skills = []
+        seen_names = set()  # Track seen skill names to avoid duplicates
+
+        def add_skills_from_dir(skills_dir: Path, location: str) -> None:
+            """Helper to add skills from a directory."""
+            if not skills_dir.exists():
+                return
+
+            for skill_dir in skills_dir.iterdir():
+                if skill_dir.is_dir() and skill_dir.name not in seen_names:
+                    skill_md = skill_dir / "SKILL.md"
+                    if skill_md.exists():
+                        description = ""
+                        try:
+                            content = skill_md.read_text()
+                            lines = content.strip().split("\n")
+                            for line in lines:
+                                if line.strip() and not line.startswith("#") and not line.startswith("---"):
+                                    description = line.strip()[:200]
+                                    break
+                        except Exception:
+                            pass
+
+                        skills.append(
+                            {
+                                "name": skill_dir.name,
+                                "description": description,
+                                "location": location,
+                                "path": str(skill_dir),
+                                "installed": True,
+                            },
+                        )
+                        seen_names.add(skill_dir.name)
+
+        # Find built-in skills
+        massgen_path = Path(massgen.__file__).parent
+        add_skills_from_dir(massgen_path / "skills", "builtin")
+
+        # Find user-installed skills (~/.agent/skills/ - where openskills/crawl4ai install)
+        add_skills_from_dir(Path.home() / ".agent" / "skills", "user")
+
+        # Find project skills (.agent/skills/ in current directory)
+        add_skills_from_dir(Path.cwd() / ".agent" / "skills", "project")
+
+        return {
+            "skills": skills,
+            "builtin_count": len([s for s in skills if s["location"] == "builtin"]),
+            "user_count": len([s for s in skills if s["location"] == "user"]),
+            "project_count": len([s for s in skills if s["location"] == "project"]),
+        }
+
+    @app.get("/api/skills/{skill_name}")
+    async def get_skill_detail(skill_name: str):
+        """Get detailed information about a skill including SKILL.md content."""
+        from pathlib import Path
+
+        import massgen
+
+        # Search in built-in skills first
+        massgen_path = Path(massgen.__file__).parent
+        builtin_skill = massgen_path / "skills" / skill_name
+
+        if builtin_skill.exists():
+            skill_md = builtin_skill / "SKILL.md"
+            content = skill_md.read_text() if skill_md.exists() else ""
+            return {
+                "name": skill_name,
+                "location": "builtin",
+                "path": str(builtin_skill),
+                "content": content,
+            }
+
+        # Search in project skills
+        project_skill = Path.cwd() / ".agent" / "skills" / skill_name
+        if project_skill.exists():
+            skill_md = project_skill / "SKILL.md"
+            content = skill_md.read_text() if skill_md.exists() else ""
+            return {
+                "name": skill_name,
+                "location": "project",
+                "path": str(project_skill),
+                "content": content,
+            }
+
+        return JSONResponse(
+            {"error": f"Skill '{skill_name}' not found"},
+            status_code=404,
+        )
+
+    @app.post("/api/skills/install")
+    async def install_skill_package(request_data: dict):
+        """Install a skill package (anthropic or crawl4ai).
+
+        Request body:
+        {
+            "package": "anthropic" | "crawl4ai"
+        }
+
+        Returns:
+            {"success": true, "message": "..."} or {"error": "..."}
+        """
+        from massgen.utils.skills_installer import (
+            install_anthropic_skills,
+            install_crawl4ai_skill,
+            install_openskills_cli,
+        )
+
+        package_id = request_data.get("package")
+
+        if package_id == "anthropic":
+            # First ensure openskills CLI is installed
+            if not install_openskills_cli():
+                return JSONResponse(
+                    {
+                        "error": "Failed to install openskills CLI. Ensure npm/Node.js is installed.",
+                    },
+                    status_code=500,
+                )
+            # Then install Anthropic skills
+            if install_anthropic_skills():
+                return {
+                    "success": True,
+                    "message": "Anthropic skills installed successfully",
+                }
+            else:
+                return JSONResponse(
+                    {"error": "Failed to install Anthropic skills"},
+                    status_code=500,
+                )
+
+        elif package_id == "crawl4ai":
+            if install_crawl4ai_skill():
+                return {
+                    "success": True,
+                    "message": "Crawl4AI skill installed successfully",
+                }
+            else:
+                return JSONResponse(
+                    {"error": "Failed to install Crawl4AI skill"},
+                    status_code=500,
+                )
+
+        else:
+            return JSONResponse(
+                {"error": f"Unknown package: {package_id}"},
+                status_code=400,
+            )
 
     @app.get("/api/providers")
     async def get_providers():
@@ -318,16 +716,30 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         for backend_type, caps in BACKEND_CAPABILITIES.items():
             # Skip generic/advanced backends for quickstart
             # Also skip ag2 as it's not a realistic standalone backend
-            if backend_type in ["chatcompletion", "inference", "lmstudio", "vllm", "sglang", "ag2"]:
+            if backend_type in [
+                "chatcompletion",
+                "inference",
+                "lmstudio",
+                "vllm",
+                "sglang",
+                "ag2",
+            ]:
                 continue
 
-            # Check if API key is available
+            # Check if API key is available (and not a placeholder)
             has_api_key = False
-            if caps.env_var:
-                has_api_key = bool(os.getenv(caps.env_var))
-            elif backend_type == "claude_code":
-                # Claude Code works with CLI login or API key
+            if backend_type == "claude_code":
+                # Claude Code always shows - works with CLI login, CLAUDE_CODE_API_KEY, or ANTHROPIC_API_KEY
+                # Mark as available but the notes will explain auth requirements
                 has_api_key = True
+            elif caps.env_var:
+                api_key = os.getenv(caps.env_var, "")
+                # Check it's not empty and not a placeholder from .env.example
+                # All placeholders follow pattern: your-*-key-here
+                is_placeholder = api_key.lower().startswith(
+                    "your-",
+                ) and api_key.lower().endswith("-key-here")
+                has_api_key = bool(api_key) and not is_placeholder
             else:
                 # Local backends don't need keys
                 has_api_key = True
@@ -365,11 +777,24 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         static_models = caps.models if caps else []
 
         # For providers with dynamic model lists, fetch from API
-        dynamic_providers = ["openrouter", "groq", "together", "fireworks", "cerebras", "nebius", "moonshot", "qwen", "poe"]
+        dynamic_providers = [
+            "openrouter",
+            "groq",
+            "together",
+            "fireworks",
+            "cerebras",
+            "nebius",
+            "moonshot",
+            "qwen",
+            "poe",
+        ]
 
         if provider_id in dynamic_providers:
             try:
-                dynamic_models = await get_models_for_provider(provider_id, use_cache=True)
+                dynamic_models = await get_models_for_provider(
+                    provider_id,
+                    use_cache=True,
+                )
                 if dynamic_models:
                     return {
                         "provider_id": provider_id,
@@ -385,6 +810,32 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             "source": "static",
         }
 
+    @app.get("/api/providers/{provider_id}/capabilities")
+    async def get_provider_capabilities(provider_id: str):
+        """Get capabilities for a specific provider.
+
+        Returns information about what features the provider supports,
+        such as web search, code execution, etc.
+        """
+        from massgen.backend.capabilities import BACKEND_CAPABILITIES
+
+        caps = BACKEND_CAPABILITIES.get(provider_id)
+        if not caps:
+            return JSONResponse(
+                {"error": f"Unknown provider: {provider_id}"},
+                status_code=404,
+            )
+
+        return {
+            "provider_id": provider_id,
+            "supports_web_search": "web_search" in caps.supported_capabilities,
+            "supports_code_execution": "code_execution" in caps.supported_capabilities,
+            "supports_mcp": "mcp" in caps.supported_capabilities,
+            "builtin_tools": caps.builtin_tools,
+            "filesystem_support": caps.filesystem_support,
+            "all_capabilities": list(caps.supported_capabilities),
+        }
+
     @app.post("/api/config/generate")
     async def generate_config(request_data: dict):
         """Generate a config YAML from wizard selections.
@@ -392,11 +843,16 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         Request body:
         {
             "agents": [
-                {"id": "agent_a", "provider": "openai", "model": "gpt-4o"},
-                {"id": "agent_b", "provider": "claude", "model": "claude-sonnet-4-5-20250929"}
+                {"id": "agent_a", "provider": "openai", "model": "gpt-4o", "enable_web_search": true},
+                {"id": "agent_b", "provider": "claude", "model": "claude-sonnet-4-5-20250929", "enable_web_search": false}
             ],
             "use_docker": true,
-            "context_path": "/path/to/project"  // optional
+            "context_path": "/path/to/project",  // optional
+            "coordination": {  // optional
+                "voting_sensitivity": "balanced",  // lenient, balanced, strict
+                "answer_novelty_requirement": "lenient",  // lenient, balanced, strict
+                "max_new_answers_per_agent": 5  // optional, limit answers per agent
+            }
         }
 
         Returns:
@@ -409,6 +865,13 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         agents_config = request_data.get("agents", [])
         use_docker = request_data.get("use_docker", True)
         context_path = request_data.get("context_path")
+        context_paths_raw = request_data.get("context_paths", [])
+        coordination = request_data.get("coordination", {})
+
+        # Transform frontend context_paths format to backend format
+        # Frontend: {path, type: 'read'|'write'}
+        # Backend: {path, permission: 'read'|'write'}
+        context_paths = [{"path": cp.get("path", ""), "permission": cp.get("type", "read")} for cp in context_paths_raw if cp.get("path")] if context_paths_raw else None
 
         if not agents_config:
             return JSONResponse(
@@ -418,35 +881,172 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
         # Convert to format expected by _generate_quickstart_config
         formatted_agents = []
+        agent_tools = {}  # Per-agent tool settings
+        agent_system_messages = {}  # Per-agent system messages
         for agent in agents_config:
+            agent_id = agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}")
             formatted_agents.append(
                 {
-                    "id": agent.get("id", f"agent_{chr(ord('a') + len(formatted_agents))}"),
+                    "id": agent_id,
                     "type": agent.get("provider", "openai"),
                     "model": agent.get("model", "gpt-4o"),
                 },
             )
+            # Collect per-agent tool settings
+            tool_settings = {}
+            if agent.get("enable_web_search") is not None:
+                tool_settings["enable_web_search"] = agent.get("enable_web_search")
+            if agent.get("enable_code_execution") is not None:
+                tool_settings["enable_code_execution"] = agent.get(
+                    "enable_code_execution",
+                )
+            if tool_settings:
+                agent_tools[agent_id] = tool_settings
+            # Collect per-agent system messages
+            if agent.get("system_message"):
+                agent_system_messages[agent_id] = agent.get("system_message")
 
         # Use ConfigBuilder to generate config
         builder = ConfigBuilder()
         config = builder._generate_quickstart_config(
             formatted_agents,
             context_path=context_path,
+            context_paths=context_paths,
             use_docker=use_docker,
+            agent_tools=agent_tools,
+            agent_system_messages=agent_system_messages,
+            coordination_settings=coordination,
         )
 
         # Convert to YAML string for preview
-        yaml_str = yaml.dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        yaml_str = yaml.dump(
+            config,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+        )
 
         return {"config": config, "yaml": yaml_str}
 
     @app.post("/api/config/save")
     async def save_config(request_data: dict):
-        """Save the generated config to ~/.config/massgen/config.yaml.
+        """Save the generated config to a file.
 
         Request body:
         {
-            "config": {...}  // The config object from generate_config
+            "config": {...},  // The config object from generate_config (optional if yaml_content provided)
+            "yaml_content": "...",  // Raw YAML string (optional, takes priority if provided)
+            "filename": "my_config.yaml"  // Optional custom filename (defaults to config.yaml)
+        }
+
+        Returns:
+            {"success": true, "path": "..."}
+        """
+        import re
+        from pathlib import Path
+
+        import yaml
+
+        config = request_data.get("config")
+        yaml_content = request_data.get("yaml_content")
+
+        if not config and not yaml_content:
+            return JSONResponse(
+                {"error": "No config or yaml_content provided"},
+                status_code=400,
+            )
+
+        # Get custom filename or use default
+        filename = request_data.get("filename", "config.yaml")
+        # Sanitize filename - only allow alphanumeric, underscore, dash, and .yaml extension
+        if not re.match(r"^[\w\-]+\.ya?ml$", filename):
+            # If invalid, sanitize it
+            base_name = re.sub(
+                r"[^\w\-]",
+                "_",
+                filename.replace(".yaml", "").replace(".yml", ""),
+            )
+            filename = f"{base_name}.yaml"
+
+        # Save to user config location
+        config_dir = Path.home() / ".config" / "massgen"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = config_dir / filename
+
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                if yaml_content:
+                    # Write raw YAML content (user edited)
+                    f.write(yaml_content)
+                else:
+                    # Serialize config object to YAML
+                    yaml.dump(
+                        config,
+                        f,
+                        default_flow_style=False,
+                        sort_keys=False,
+                        allow_unicode=True,
+                    )
+
+            return {
+                "success": True,
+                "path": str(config_path),
+                "filename": filename,
+                "message": f"Config saved to {config_path}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to save config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.get("/api/config/user-configs")
+    async def list_user_configs():
+        """List all user config files in ~/.config/massgen/.
+
+        Returns:
+            {"configs": [{"name": "config.yaml", "path": "...", "modified": timestamp}, ...]}
+        """
+        from pathlib import Path
+
+        config_dir = Path.home() / ".config" / "massgen"
+        configs = []
+
+        if config_dir.exists():
+            for yaml_file in config_dir.glob("*.yaml"):
+                stat = yaml_file.stat()
+                configs.append(
+                    {
+                        "name": yaml_file.name,
+                        "path": str(yaml_file),
+                        "modified": stat.st_mtime,
+                        "size": stat.st_size,
+                    },
+                )
+            for yml_file in config_dir.glob("*.yml"):
+                stat = yml_file.stat()
+                configs.append(
+                    {
+                        "name": yml_file.name,
+                        "path": str(yml_file),
+                        "modified": stat.st_mtime,
+                        "size": stat.st_size,
+                    },
+                )
+
+        # Sort by modification time (newest first)
+        configs.sort(key=lambda x: x["modified"], reverse=True)
+
+        return {"configs": configs, "config_dir": str(config_dir)}
+
+    @app.put("/api/config/update")
+    async def update_config(request_data: dict):
+        """Update an existing config file with new content.
+
+        Request body:
+        {
+            "path": "/path/to/config.yaml",  // Full path to the config file
+            "content": "yaml content string"  // New YAML content
         }
 
         Returns:
@@ -456,30 +1056,201 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
         import yaml
 
-        config = request_data.get("config")
-        if not config:
+        config_path = request_data.get("path")
+        content = request_data.get("content")
+
+        if not config_path:
             return JSONResponse(
-                {"error": "No config provided"},
+                {"error": "No path provided"},
                 status_code=400,
             )
 
-        # Save to default config location
-        config_dir = Path.home() / ".config" / "massgen"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        config_path = config_dir / "config.yaml"
+        if content is None:
+            return JSONResponse(
+                {"error": "No content provided"},
+                status_code=400,
+            )
+
+        config_path = Path(config_path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {"error": "Access denied: can only edit configs in ~/.config/massgen/"},
+                status_code=403,
+            )
+
+        # Validate YAML syntax before saving
+        try:
+            yaml.safe_load(content)
+        except yaml.YAMLError as e:
+            return JSONResponse(
+                {"error": f"Invalid YAML syntax: {str(e)}"},
+                status_code=400,
+            )
 
         try:
-            with open(config_path, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as f:
+                f.write(content)
 
             return {
                 "success": True,
                 "path": str(config_path),
-                "message": f"Config saved to {config_path}",
+                "message": f"Config updated: {config_path}",
             }
         except Exception as e:
             return JSONResponse(
                 {"error": f"Failed to save config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/config/rename")
+    async def rename_config(request_data: dict):
+        """Rename a config file.
+
+        Request body:
+        {
+            "path": "/path/to/old_config.yaml",
+            "new_name": "new_config.yaml"
+        }
+
+        Returns:
+            {"success": true, "old_path": "...", "new_path": "..."}
+        """
+        import re
+        from pathlib import Path
+
+        old_path = request_data.get("path")
+        new_name = request_data.get("new_name")
+
+        if not old_path:
+            return JSONResponse(
+                {"error": "No path provided"},
+                status_code=400,
+            )
+
+        if not new_name:
+            return JSONResponse(
+                {"error": "No new name provided"},
+                status_code=400,
+            )
+
+        old_path = Path(old_path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(old_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {
+                    "error": "Access denied: can only rename configs in ~/.config/massgen/",
+                },
+                status_code=403,
+            )
+
+        if not old_path.exists():
+            return JSONResponse(
+                {"error": "Config file not found"},
+                status_code=404,
+            )
+
+        # Sanitize new filename
+        if not re.match(r"^[\w\-]+\.ya?ml$", new_name):
+            base_name = re.sub(
+                r"[^\w\-]",
+                "_",
+                new_name.replace(".yaml", "").replace(".yml", ""),
+            )
+            new_name = f"{base_name}.yaml"
+
+        new_path = old_path.parent / new_name
+
+        if new_path.exists():
+            return JSONResponse(
+                {"error": f"A config with name '{new_name}' already exists"},
+                status_code=409,
+            )
+
+        try:
+            old_path.rename(new_path)
+            return {
+                "success": True,
+                "old_path": str(old_path),
+                "new_path": str(new_path),
+                "new_name": new_name,
+                "message": f"Config renamed to {new_name}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to rename config: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.delete("/api/config/delete")
+    async def delete_config(path: str):
+        """Delete a config file.
+
+        Query params:
+            path: Full path to the config file to delete
+
+        Returns:
+            {"success": true, "path": "..."}
+        """
+        from pathlib import Path
+
+        if not path:
+            return JSONResponse(
+                {"error": "No path provided"},
+                status_code=400,
+            )
+
+        config_path = Path(path).resolve()
+
+        # Security: ensure path is within allowed locations
+        allowed_paths = [
+            Path.home() / ".config" / "massgen",
+        ]
+        is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
+        if not is_allowed:
+            return JSONResponse(
+                {
+                    "error": "Access denied: can only delete configs in ~/.config/massgen/",
+                },
+                status_code=403,
+            )
+
+        if not config_path.exists():
+            return JSONResponse(
+                {"error": "Config file not found"},
+                status_code=404,
+            )
+
+        # Don't allow deleting the last config
+        config_dir = Path.home() / ".config" / "massgen"
+        yaml_files = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
+        if len(yaml_files) <= 1:
+            return JSONResponse(
+                {"error": "Cannot delete the last config file"},
+                status_code=400,
+            )
+
+        try:
+            config_path.unlink()
+            return {
+                "success": True,
+                "path": str(config_path),
+                "message": f"Config deleted: {config_path.name}",
+            }
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to delete config: {str(e)}"},
                 status_code=500,
             )
 
@@ -495,7 +1266,9 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             sessions.append(
                 {
                     "session_id": session_id,
-                    "connections": len(manager.active_connections.get(session_id, set())),
+                    "connections": len(
+                        manager.active_connections.get(session_id, set()),
+                    ),
                     "has_display": display is not None,
                     "is_running": task is not None and not task.done() if task else False,
                     "question": display.question if display and hasattr(display, "question") else None,
@@ -541,36 +1314,92 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                 status_code=404,
             )
 
-        # Get workspace path from display if available
-        workspace_path = getattr(display, "_workspace_path", None)
-        if workspace_path:
-            agent_workspace = Path(workspace_path) / agent_id
-        else:
-            # Fall back to default workspace pattern
-            agent_workspace = Path.cwd() / f"workspace_{agent_id}"
+        # Try to get workspace path from status.json first (more reliable during active coordination)
+        agent_workspace = None
+        if display.log_session_dir:
+            try:
+                import json
+
+                from massgen.logger_config import get_log_session_dir
+
+                log_dir = get_log_session_dir()
+                if log_dir:
+                    status_file = log_dir / "status.json"
+                    if status_file.exists():
+                        with open(status_file, "r") as f:
+                            status_data = json.load(f)
+
+                        # Get workspace path from status.json
+                        agents_data = status_data.get("agents", {})
+                        agent_data = agents_data.get(agent_id, {})
+                        workspace_paths = agent_data.get("workspace_paths", {})
+                        workspace_str = workspace_paths.get("workspace")
+
+                        if workspace_str:
+                            agent_workspace = Path(workspace_str)
+            except Exception as e:
+                print(f"[WebUI] Warning: Could not read workspace path from status.json: {e}")
+
+        # Fall back to display workspace path or default pattern
+        if not agent_workspace:
+            workspace_path = getattr(display, "_workspace_path", None)
+            if workspace_path:
+                agent_workspace = Path(workspace_path) / agent_id
+            else:
+                # Fall back to default workspace pattern
+                agent_workspace = Path.cwd() / f"workspace_{agent_id}"
 
         files = []
-        if agent_workspace.exists():
+        if agent_workspace and agent_workspace.exists():
             try:
-                for file_path in agent_workspace.rglob("*"):
-                    if file_path.is_file():
-                        rel_path = file_path.relative_to(agent_workspace)
-                        stat = file_path.stat()
-                        files.append(
-                            {
-                                "path": str(rel_path),
-                                "size": stat.st_size,
-                                "modified": stat.st_mtime,
-                                "operation": "create",  # For compatibility
-                            },
-                        )
+                # Use iterdir with limit instead of rglob to avoid scanning huge trees
+                # Limit to first 1000 files to prevent timeout
+                file_count = 0
+                max_files = 1000
+
+                def scan_directory(directory: Path, max_depth: int = 10, current_depth: int = 0):
+                    """Recursively scan directory with depth limit and file count limit."""
+                    nonlocal file_count
+
+                    if current_depth > max_depth or file_count >= max_files:
+                        return
+
+                    try:
+                        for item in directory.iterdir():
+                            if file_count >= max_files:
+                                break
+
+                            if item.is_file():
+                                rel_path = item.relative_to(agent_workspace)
+                                stat = item.stat()
+                                files.append(
+                                    {
+                                        "path": str(rel_path),
+                                        "size": stat.st_size,
+                                        "modified": stat.st_mtime,
+                                        "operation": "create",
+                                    },
+                                )
+                                file_count += 1
+                            elif item.is_dir():
+                                # Skip hidden directories and common ignore patterns
+                                if not item.name.startswith(".") and item.name not in ["__pycache__", "node_modules", ".git"]:
+                                    scan_directory(item, max_depth, current_depth + 1)
+                    except PermissionError:
+                        pass  # Skip directories we can't read
+
+                scan_directory(agent_workspace)
+
+                if file_count >= max_files:
+                    print(f"[WebUI] Warning: File limit reached for {agent_id} workspace. Showing first {max_files} files.")
+
             except Exception as e:
                 return JSONResponse(
                     {"error": str(e), "files": []},
                     status_code=500,
                 )
 
-        return {"files": files, "workspace_path": str(agent_workspace)}
+        return {"files": files, "workspace_path": str(agent_workspace) if agent_workspace else None}
 
     @app.get("/api/workspaces")
     async def list_workspaces():
@@ -597,22 +1426,58 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                     },
                 )
 
-        # Find historical workspaces in logs directory
-        logs_dir = cwd / "logs"
-        if logs_dir.exists():
-            for date_dir in sorted(logs_dir.iterdir(), reverse=True):
-                if date_dir.is_dir():
-                    # Look for workspace directories within dated logs
-                    for ws_dir in date_dir.iterdir():
-                        if ws_dir.is_dir() and "workspace" in ws_dir.name.lower():
-                            workspaces["historical"].append(
-                                {
-                                    "name": f"{date_dir.name}/{ws_dir.name}",
-                                    "path": str(ws_dir),
-                                    "type": "historical",
-                                    "date": date_dir.name,
-                                },
-                            )
+        def add_historical_workspaces(
+            log_root: Path,
+            max_depth: int = 5,
+            max_results: int = 400,
+        ):
+            """
+            Walk historical logs (including nested turn/attempt/agent folders) and collect workspace dirs
+            without scanning the entire tree indefinitely.
+            """
+            if not log_root.exists():
+                return
+
+            results = 0
+            for date_dir in sorted(log_root.iterdir(), reverse=True):
+                if not date_dir.is_dir():
+                    continue
+
+                # Depth-limited traversal using a stack to avoid unbounded rglob
+                stack = [(date_dir, 0)]
+                while stack and results < max_results:
+                    current, depth = stack.pop()
+                    if depth > max_depth:
+                        continue
+                    try:
+                        for child in current.iterdir():
+                            if not child.is_dir():
+                                continue
+                            # If this directory looks like a workspace, record it
+                            if "workspace" in child.name.lower():
+                                rel = child.relative_to(log_root)
+                                workspaces["historical"].append(
+                                    {
+                                        "name": str(rel),
+                                        "path": str(child),
+                                        "type": "historical",
+                                        "date": date_dir.name,
+                                    },
+                                )
+                                results += 1
+                                if results >= max_results:
+                                    break
+                            # Continue traversal
+                            stack.append((child, depth + 1))
+                    except Exception:
+                        # Skip unreadable directories
+                        continue
+                if results >= max_results:
+                    break
+
+        # Find historical workspaces in legacy logs dir and new .massgen/massgen_logs
+        add_historical_workspaces(cwd / "logs")
+        add_historical_workspaces(cwd / ".massgen" / "massgen_logs")
 
         return workspaces
 
@@ -638,6 +1503,7 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             )
 
         files = []
+        workspace_mtime = workspace_path.stat().st_mtime
         try:
             for file_path in workspace_path.rglob("*"):
                 if file_path.is_file():
@@ -657,92 +1523,179 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                 status_code=500,
             )
 
-        return {"files": files, "workspace_path": str(workspace_path)}
+        return {
+            "files": files,
+            "workspace_path": str(workspace_path),
+            "workspace_mtime": workspace_mtime,
+        }
 
-    @app.get("/api/sessions/{session_id}/answer-workspaces")
-    async def get_answer_workspaces(session_id: str):
-        """Get workspaces linked to specific answer versions.
-
-        Uses snapshot_mappings.json from log directory if available,
-        otherwise scans the log directory structure.
-        """
+    @app.get("/api/sessions/{session_id}/status")
+    async def get_session_status(session_id: str, log_dir: str = None):
+        """Get session status.json with workspace paths and agent information."""
         import json
 
+        from massgen.logger_config import get_log_session_dir
+
+        display = manager.get_display(session_id)
+
+        # Determine log session dir
+        if log_dir:
+            log_session_dir = Path(log_dir).resolve()
+        elif display and getattr(display, "log_session_dir", None):
+            log_session_dir = Path(display.log_session_dir).resolve()
+        else:
+            log_session_dir = get_log_session_dir()
+
+        # Look for status.json in various locations
+        status_paths = []
+        if log_session_dir and log_session_dir.exists():
+            # Direct status.json
+            direct_status = log_session_dir / "status.json"
+            if direct_status.exists():
+                status_paths.append(direct_status)
+
+            # Look in turn_X/attempt_Y subdirectories
+            for turn_dir in log_session_dir.glob("turn_*"):
+                if turn_dir.is_dir():
+                    turn_status = turn_dir / "status.json"
+                    if turn_status.exists():
+                        status_paths.append(turn_status)
+
+                    for attempt_dir in turn_dir.glob("attempt_*"):
+                        if attempt_dir.is_dir():
+                            attempt_status = attempt_dir / "status.json"
+                            if attempt_status.exists():
+                                status_paths.append(attempt_status)
+
+        # Return the most recent status.json (based on path depth and modification time)
+        if status_paths:
+            # Sort by modification time, most recent first
+            status_paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            status_file = status_paths[0]
+
+            try:
+                with open(status_file) as f:
+                    status_data = json.load(f)
+
+                return {
+                    "status": status_data,
+                    "status_file": str(status_file),
+                    "log_dir_used": str(log_session_dir) if log_session_dir else "",
+                }
+            except Exception as e:
+                return JSONResponse(
+                    {"error": f"Failed to read status.json: {e}", "status": None},
+                    status_code=500,
+                )
+
+        return {
+            "status": None,
+            "status_file": None,
+            "log_dir_used": str(log_session_dir) if log_session_dir else "",
+            "error": "No status.json found",
+        }
+
+    @app.get("/api/sessions/{session_id}/answer-workspaces")
+    async def get_answer_workspaces(session_id: str, log_dir: str = None):
+        """Get workspaces linked to specific answer versions.
+
+        Uses status.json as the single source of truth:
+        - agents.{id}.workspace_paths.workspace for current workspaces
+        - historical_workspaces for historical answer snapshots
+
+        Falls back to directory scanning only if status.json is unavailable.
+        """
         from massgen.logger_config import get_log_session_dir
 
         display = manager.get_display(session_id)
         agent_ids = display.agent_ids if display else []
 
         workspaces = []
-        log_session_dir = get_log_session_dir()
+        cwd = Path.cwd()
+        sources = []
 
-        if not log_session_dir or not log_session_dir.exists():
-            return {"workspaces": [], "current": []}
+        # Determine log session dir
+        log_session_dir = None
+        if log_dir:
+            log_session_dir = Path(log_dir).resolve()
+        elif display and getattr(display, "log_session_dir", None):
+            log_session_dir = Path(display.log_session_dir).resolve()
+        else:
+            log_session_dir = get_log_session_dir()
 
-        # Try to use snapshot_mappings.json for accurate workspace info
-        snapshot_mappings_file = log_session_dir / "snapshot_mappings.json"
-        if snapshot_mappings_file.exists():
-            try:
-                with open(snapshot_mappings_file) as f:
-                    snapshot_mappings = json.load(f)
+        # PRIMARY SOURCE: Read from status.json
+        status_data = None
+        try:
+            status_response = await get_session_status(session_id, log_dir)
+            status_data = status_response.get("status")
+        except Exception as e:
+            print(f"[WARNING] Failed to get status.json: {e}")
 
-                for label, mapping in snapshot_mappings.items():
-                    # Only include answers (not votes or final)
-                    if mapping.get("type") != "answer":
-                        continue
-
-                    agent_id = mapping.get("agent_id", "")
-                    timestamp = mapping.get("timestamp", "")
-
-                    # Build workspace path from mapping
-                    workspace_path = log_session_dir / agent_id / timestamp / "workspace"
-                    if workspace_path.exists():
+        if status_data:
+            # Extract historical workspaces (answer snapshots)
+            if "historical_workspaces" in status_data:
+                for ws_data in status_data["historical_workspaces"]:
+                    workspace_path = ws_data.get("workspacePath")
+                    if workspace_path and Path(workspace_path).exists():
                         workspaces.append(
                             {
-                                "answerId": f"{agent_id}-{timestamp}",
-                                "agentId": agent_id,
-                                "answerNumber": mapping.get("round", 1),
-                                "answerLabel": label,  # Use the canonical label from mappings
-                                "timestamp": timestamp,
-                                "workspacePath": str(workspace_path),
+                                "answerId": ws_data.get("answerId"),
+                                "agentId": ws_data.get("agentId"),
+                                "answerNumber": ws_data.get("answerNumber", 1),
+                                "answerLabel": ws_data.get("answerLabel"),
+                                "timestamp": ws_data.get("timestamp", ""),
+                                "workspacePath": workspace_path,
                             },
                         )
-            except Exception as e:
-                print(f"[WARNING] Failed to load snapshot_mappings.json: {e}")
-                # Fall through to directory scanning
+                if workspaces:
+                    sources.append("status_json")
 
-        # Fallback: Scan log directory structure if no mappings found
-        if not workspaces:
-            for entry in log_session_dir.iterdir():
-                if not entry.is_dir():
-                    continue
+        # FALLBACK: Directory scanning if no status.json data
+        if not workspaces and log_session_dir and log_session_dir.exists():
+            # Helper to scan a directory for agent workspaces
+            # Only includes directories that have answer.txt (not update_message.txt or vote.json)
+            def scan_for_workspaces(base_dir: Path):
+                found = []
+                agent_dirs = [p for p in base_dir.iterdir() if p.is_dir() and p.name.startswith("agent_")]
+                for agent_dir in agent_dirs:
+                    agent_id = agent_dir.name
+                    agent_index = (agent_ids.index(agent_id) + 1) if agent_id in agent_ids else 0
+                    answer_count = 0
+                    for ts_dir in sorted(agent_dir.iterdir(), key=lambda x: x.name):
+                        ws_path = ts_dir / "workspace"
+                        answer_file = ts_dir / "answer.txt"
+                        # Only include if both workspace dir AND answer.txt exist
+                        if ts_dir.is_dir() and ws_path.exists() and answer_file.exists():
+                            answer_count += 1
+                            found.append(
+                                {
+                                    "answerId": f"{agent_id}-{ts_dir.name}",
+                                    "agentId": agent_id,
+                                    "answerNumber": answer_count,
+                                    "answerLabel": f"agent{agent_index}.{answer_count}",
+                                    "timestamp": ts_dir.name,
+                                    "workspacePath": str(ws_path),
+                                },
+                            )
+                return found
 
-                # Check for turn directories (turn_1, turn_2, etc.)
-                if entry.name.startswith("turn_"):
-                    for agent_dir in entry.iterdir():
-                        if not agent_dir.is_dir():
-                            continue
-                        agent_id = agent_dir.name
-                        agent_index = (agent_ids.index(agent_id) + 1) if agent_id in agent_ids else 0
+            # Try direct agent_* directories first
+            workspaces = scan_for_workspaces(log_session_dir)
 
-                        # Find timestamp directories with workspaces
-                        answer_count = 0
-                        for ts_dir in sorted(agent_dir.iterdir(), key=lambda x: x.name):
-                            if ts_dir.is_dir() and (ts_dir / "workspace").exists():
-                                answer_count += 1
-                                workspaces.append(
-                                    {
-                                        "answerId": f"{agent_id}-{ts_dir.name}",
-                                        "agentId": agent_id,
-                                        "answerNumber": answer_count,
-                                        "answerLabel": f"agent{agent_index}.{answer_count}",
-                                        "timestamp": ts_dir.name,
-                                        "workspacePath": str(ts_dir / "workspace"),
-                                    },
-                                )
+            # If not found, try turn_*/attempt_* subdirectories
+            if not workspaces:
+                for turn_dir in sorted(log_session_dir.glob("turn_*")):
+                    for attempt_dir in sorted(turn_dir.glob("attempt_*")):
+                        workspaces = scan_for_workspaces(attempt_dir)
+                        if workspaces:
+                            break
+                    if workspaces:
+                        break
 
-        # Also include current workspaces from cwd
-        cwd = Path.cwd()
+            if workspaces:
+                sources.append("log_dir_scan")
+
+        # Include current workspaces from cwd
         current = []
         for path in cwd.iterdir():
             if path.is_dir() and path.name.startswith("workspace"):
@@ -753,8 +1706,15 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                         "type": "current",
                     },
                 )
+        if current:
+            sources.append("cwd_current")
 
-        return {"workspaces": workspaces, "current": current}
+        return {
+            "workspaces": workspaces,
+            "current": current,
+            "sources": sources,
+            "log_dir_used": str(log_session_dir) if log_session_dir else "",
+        }
 
     @app.get("/api/workspace/file")
     async def get_file_content(path: str, workspace: str):
@@ -871,8 +1831,24 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             is_binary = b"\x00" in chunk
 
             if is_binary:
+                # For binary files, read and base64 encode the content
+                # Limit binary files to 10MB
+                max_binary_size = 10 * 1024 * 1024
+                if size > max_binary_size:
+                    return {
+                        "content": "",
+                        "binary": True,
+                        "size": size,
+                        "mimeType": mime_type,
+                        "language": language,
+                        "error": f"File too large for preview ({size} bytes, max {max_binary_size})",
+                    }
+
+                with open(file_path, "rb") as f:
+                    binary_content = f.read()
+
                 return {
-                    "content": "",
+                    "content": base64.b64encode(binary_content).decode("utf-8"),
                     "binary": True,
                     "size": size,
                     "mimeType": mime_type,
@@ -900,6 +1876,535 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         except Exception as e:
             return JSONResponse(
                 {"error": f"Failed to read file: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/convert/document")
+    async def convert_document_to_pdf(request: Request):
+        """Convert DOCX/PPTX/XLSX to PDF using the MassGen Docker container.
+
+        This endpoint uses LibreOffice inside the MassGen container to convert
+        Office documents to PDF format for preview in the webui.
+
+        Request body:
+            {
+                "path": str,        # Relative path to file within workspace
+                "workspace": str,   # Absolute path to workspace directory
+            }
+
+        Returns:
+            {
+                "content": str,     # Base64-encoded PDF content
+                "success": bool,    # Whether conversion succeeded
+                "error": str,       # Error message if failed
+            }
+        """
+        import base64
+        import tempfile
+
+        try:
+            data = await request.json()
+            file_path_str = data.get("path")
+            workspace = data.get("workspace")
+
+            if not file_path_str or not workspace:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": "Both 'path' and 'workspace' are required",
+                    },
+                    status_code=400,
+                )
+
+            workspace_path = Path(workspace).resolve()
+            file_path = (workspace_path / file_path_str).resolve()
+
+            # Security: Ensure file is within workspace
+            try:
+                file_path.relative_to(workspace_path)
+            except ValueError:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": "Access denied: path outside workspace",
+                    },
+                    status_code=403,
+                )
+
+            if not file_path.exists():
+                return JSONResponse(
+                    {"success": False, "error": "File not found"},
+                    status_code=404,
+                )
+
+            # Check file extension
+            suffix = file_path.suffix.lower()
+            if suffix not in [
+                ".docx",
+                ".pptx",
+                ".xlsx",
+                ".doc",
+                ".ppt",
+                ".xls",
+                ".odt",
+                ".odp",
+                ".ods",
+            ]:
+                return JSONResponse(
+                    {"success": False, "error": f"Unsupported file type: {suffix}"},
+                    status_code=400,
+                )
+
+            # Check if Docker is available
+            try:
+                import docker
+
+                client = docker.from_env()
+                client.ping()
+            except Exception:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": "Docker is not available. Install Docker and pull the MassGen container to enable document preview.",
+                        "docker_required": True,
+                    },
+                    status_code=503,
+                )
+
+            # Check if MassGen image exists
+            massgen_image = "ghcr.io/massgen/mcp-runtime:latest"
+            try:
+                client.images.get(massgen_image)
+            except docker.errors.ImageNotFound:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": f"MassGen Docker image not found. Run: docker pull {massgen_image}",
+                        "docker_required": True,
+                    },
+                    status_code=503,
+                )
+
+            # Create temp directory for output
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_dir_path = Path(temp_dir)
+
+                # Run LibreOffice conversion in container
+                # Mount the file's parent directory and temp output directory
+                input_dir = file_path.parent
+                input_filename = file_path.name
+                output_filename = file_path.stem + ".pdf"
+
+                try:
+                    # Run soffice in container
+                    result = client.containers.run(
+                        massgen_image,
+                        command=[
+                            "/bin/sh",
+                            "-c",
+                            f"soffice --headless --convert-to pdf --outdir /output '/input/{input_filename}'",
+                        ],
+                        volumes={
+                            str(input_dir): {"bind": "/input", "mode": "ro"},
+                            str(temp_dir_path): {"bind": "/output", "mode": "rw"},
+                        },
+                        remove=True,
+                        user="root",  # LibreOffice needs write access to home dir
+                        stderr=True,
+                        stdout=True,
+                    )
+
+                    # Check if PDF was created
+                    output_pdf = temp_dir_path / output_filename
+                    if not output_pdf.exists():
+                        # Try alternate output name (sometimes LibreOffice changes case)
+                        for f in temp_dir_path.iterdir():
+                            if f.suffix.lower() == ".pdf":
+                                output_pdf = f
+                                break
+
+                    if not output_pdf.exists():
+                        return JSONResponse(
+                            {
+                                "success": False,
+                                "error": "Conversion failed: PDF not generated",
+                                "details": result.decode("utf-8") if isinstance(result, bytes) else str(result),
+                            },
+                            status_code=500,
+                        )
+
+                    # Read and encode the PDF
+                    with open(output_pdf, "rb") as f:
+                        pdf_content = base64.b64encode(f.read()).decode("utf-8")
+
+                    return {
+                        "success": True,
+                        "content": pdf_content,
+                        "mimeType": "application/pdf",
+                    }
+
+                except docker.errors.ContainerError as e:
+                    return JSONResponse(
+                        {
+                            "success": False,
+                            "error": f"Container error: {e.stderr.decode() if e.stderr else str(e)}",
+                        },
+                        status_code=500,
+                    )
+
+        except Exception as e:
+            return JSONResponse(
+                {"success": False, "error": f"Conversion failed: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/tester/upload")
+    async def upload_test_file(request: Request):
+        """Upload a file temporarily for testing artifact preview with Docker conversion.
+
+        This endpoint saves a base64-encoded file to a temp directory so the
+        artifact tester can test Docker-based document conversion.
+
+        Request body:
+            {
+                "fileName": str,    # Original file name
+                "content": str,     # Base64-encoded file content
+            }
+
+        Returns:
+            {
+                "success": bool,
+                "workspacePath": str,   # Temp directory path
+                "filePath": str,        # Relative file path within workspace
+            }
+        """
+        import base64
+        import tempfile
+
+        try:
+            data = await request.json()
+            file_name = data.get("fileName")
+            content_b64 = data.get("content")
+
+            if not file_name or not content_b64:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": "Both 'fileName' and 'content' are required",
+                    },
+                    status_code=400,
+                )
+
+            # Create a persistent temp directory (won't be auto-deleted)
+            # We use a fixed location so files persist across requests
+            temp_base = Path(tempfile.gettempdir()) / "massgen_artifact_tester"
+            temp_base.mkdir(exist_ok=True)
+
+            # Create a unique subdirectory for this upload
+            import uuid
+
+            upload_id = str(uuid.uuid4())[:8]
+            workspace_path = temp_base / upload_id
+            workspace_path.mkdir(exist_ok=True)
+
+            # Decode and save the file
+            try:
+                file_bytes = base64.b64decode(content_b64)
+            except Exception as e:
+                return JSONResponse(
+                    {"success": False, "error": f"Invalid base64 content: {str(e)}"},
+                    status_code=400,
+                )
+
+            file_path = workspace_path / file_name
+            with open(file_path, "wb") as f:
+                f.write(file_bytes)
+
+            return {
+                "success": True,
+                "workspacePath": str(workspace_path),
+                "filePath": file_name,
+            }
+
+        except Exception as e:
+            return JSONResponse(
+                {"success": False, "error": f"Upload failed: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/workspace/open")
+    async def open_workspace_in_finder(request: Request):
+        """Open a workspace folder in the native file browser.
+
+        Args:
+            request body: { "path": str }  # Absolute path to workspace directory
+
+        Returns:
+            { "success": bool, "message": str }
+        """
+        import platform
+        import subprocess
+
+        try:
+            data = await request.json()
+            workspace_path = data.get("path")
+
+            if not workspace_path:
+                return JSONResponse(
+                    {"error": "Path is required"},
+                    status_code=400,
+                )
+
+            path = Path(workspace_path).resolve()
+
+            if not path.exists():
+                return JSONResponse(
+                    {"error": f"Path does not exist: {workspace_path}"},
+                    status_code=404,
+                )
+
+            if not path.is_dir():
+                return JSONResponse(
+                    {"error": "Path is not a directory"},
+                    status_code=400,
+                )
+
+            # Open in native file browser based on platform
+            system = platform.system()
+
+            if system == "Darwin":  # macOS
+                subprocess.Popen(["open", str(path)])
+            elif system == "Windows":
+                subprocess.Popen(["explorer", str(path)])
+            elif system == "Linux":
+                # Try common Linux file managers
+                for cmd in ["xdg-open", "nautilus", "dolphin", "thunar", "pcmanfm"]:
+                    try:
+                        subprocess.Popen([cmd, str(path)])
+                        break
+                    except FileNotFoundError:
+                        continue
+                else:
+                    return JSONResponse(
+                        {"error": "No supported file browser found on Linux"},
+                        status_code=500,
+                    )
+            else:
+                return JSONResponse(
+                    {"error": f"Unsupported platform: {system}"},
+                    status_code=500,
+                )
+
+            return {"success": True, "message": f"Opened {path}"}
+
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to open workspace: {str(e)}"},
+                status_code=500,
+            )
+
+    @app.post("/api/browse/files")
+    async def browse_files(request: Request):
+        """Open a native file picker dialog and return selected paths.
+
+        Request body:
+        {
+            "mode": "files" | "directory",  # What to select
+            "multiple": bool,  # Allow multiple selection (files only)
+            "title": str  # Optional dialog title
+        }
+
+        Returns:
+            { "paths": [str, ...] }  # List of selected absolute paths
+        """
+        import platform
+        import subprocess
+
+        try:
+            data = await request.json()
+            mode = data.get("mode", "files")
+            multiple = data.get("multiple", True)
+            title = data.get(
+                "title",
+                "Select Files" if mode == "files" else "Select Directory",
+            )
+
+            system = platform.system()
+            paths = []
+
+            if system == "Darwin":
+                # macOS - use AppleScript
+                if mode == "directory":
+                    script = f"""
+                    tell application "System Events"
+                        activate
+                    end tell
+                    set chosenFolder to choose folder with prompt "{title}"
+                    return POSIX path of chosenFolder
+                    """
+                else:
+                    if multiple:
+                        script = f"""
+                        tell application "System Events"
+                            activate
+                        end tell
+                        set chosenFiles to choose file with prompt "{title}" with multiple selections allowed
+                        set posixPaths to {{}}
+                        repeat with aFile in chosenFiles
+                            set end of posixPaths to POSIX path of aFile
+                        end repeat
+                        set AppleScript's text item delimiters to linefeed
+                        return posixPaths as text
+                        """
+                    else:
+                        script = f"""
+                        tell application "System Events"
+                            activate
+                        end tell
+                        set chosenFile to choose file with prompt "{title}"
+                        return POSIX path of chosenFile
+                        """
+
+                result = subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+
+                if result.returncode == 0 and result.stdout.strip():
+                    # Parse the output - may be multiple paths separated by newlines
+                    paths = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+
+            elif system == "Linux":
+                # Linux - try zenity first, then kdialog
+                try:
+                    if mode == "directory":
+                        result = subprocess.run(
+                            [
+                                "zenity",
+                                "--file-selection",
+                                "--directory",
+                                "--title",
+                                title,
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=300,
+                        )
+                    else:
+                        cmd = ["zenity", "--file-selection", "--title", title]
+                        if multiple:
+                            cmd.append("--multiple")
+                            cmd.extend(["--separator", "\n"])
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=300,
+                        )
+
+                    if result.returncode == 0 and result.stdout.strip():
+                        paths = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+                except FileNotFoundError:
+                    # Try kdialog as fallback
+                    try:
+                        if mode == "directory":
+                            result = subprocess.run(
+                                [
+                                    "kdialog",
+                                    "--getexistingdirectory",
+                                    ".",
+                                    "--title",
+                                    title,
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=300,
+                            )
+                        else:
+                            cmd = [
+                                "kdialog",
+                                "--getopenfilename",
+                                ".",
+                                "--title",
+                                title,
+                            ]
+                            if multiple:
+                                cmd = [
+                                    "kdialog",
+                                    "--getopenfilename",
+                                    ".",
+                                    "--multiple",
+                                    "--title",
+                                    title,
+                                ]
+                            result = subprocess.run(
+                                cmd,
+                                capture_output=True,
+                                text=True,
+                                timeout=300,
+                            )
+
+                        if result.returncode == 0 and result.stdout.strip():
+                            paths = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+                    except FileNotFoundError:
+                        return JSONResponse(
+                            {
+                                "error": "No file dialog available. Please install zenity or kdialog.",
+                            },
+                            status_code=500,
+                        )
+
+            elif system == "Windows":
+                # Windows - use PowerShell
+                if mode == "directory":
+                    ps_script = """
+                    Add-Type -AssemblyName System.Windows.Forms
+                    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+                    $dialog.Description = "{}"
+                    if ($dialog.ShowDialog() -eq 'OK') {{ $dialog.SelectedPath }}
+                    """.format(
+                        title,
+                    )
+                else:
+                    ps_script = """
+                    Add-Type -AssemblyName System.Windows.Forms
+                    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+                    $dialog.Title = "{}"
+                    $dialog.Multiselect = ${}
+                    if ($dialog.ShowDialog() -eq 'OK') {{ $dialog.FileNames -join "`n" }}
+                    """.format(
+                        title,
+                        "true" if multiple else "false",
+                    )
+
+                result = subprocess.run(
+                    ["powershell", "-Command", ps_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+
+                if result.returncode == 0 and result.stdout.strip():
+                    paths = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+
+            else:
+                return JSONResponse(
+                    {"error": f"Unsupported platform: {system}"},
+                    status_code=500,
+                )
+
+            return {"paths": paths}
+
+        except subprocess.TimeoutExpired:
+            return JSONResponse(
+                {"error": "Dialog timed out"},
+                status_code=408,
+            )
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"Failed to open file dialog: {str(e)}"},
                 status_code=500,
             )
 
@@ -985,17 +2490,23 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
         print(f"[DEBUG] get_final_answer: session_id={session_id}")
         print(f"[DEBUG] get_final_answer: display={display}")
-        print(f"[DEBUG] get_final_answer: log_session_dir from display={log_session_dir}")
+        print(
+            f"[DEBUG] get_final_answer: log_session_dir from display={log_session_dir}",
+        )
 
         # Fallback to global log session dir if display doesn't have it
         if not log_session_dir:
             from massgen.logger_config import get_log_session_dir
 
             log_session_dir = get_log_session_dir()
-            print(f"[DEBUG] get_final_answer: log_session_dir from global={log_session_dir}")
+            print(
+                f"[DEBUG] get_final_answer: log_session_dir from global={log_session_dir}",
+            )
 
         if not log_session_dir or not log_session_dir.exists():
-            print("[DEBUG] get_final_answer: log_session_dir not found or doesn't exist")
+            print(
+                "[DEBUG] get_final_answer: log_session_dir not found or doesn't exist",
+            )
             return JSONResponse(
                 {"error": "Log directory not found", "answer": None},
                 status_code=404,
@@ -1018,7 +2529,9 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                 if answer_file.exists():
                     try:
                         answer_content = answer_file.read_text(encoding="utf-8")
-                        print(f"[DEBUG] get_final_answer: Found answer! Length={len(answer_content)}")
+                        print(
+                            f"[DEBUG] get_final_answer: Found answer! Length={len(answer_content)}",
+                        )
                         return {
                             "answer": answer_content,
                             "agent_id": agent_dir.name,
@@ -1034,7 +2547,10 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
         result = find_answer_in_final_dir(final_dir)
         if result:
             if "error" in result:
-                return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                return JSONResponse(
+                    {"error": result["error"], "answer": None},
+                    status_code=500,
+                )
             return result
 
         # Try 2: Check for attempt_N subdirectories (log_session_dir/attempt_N/final)
@@ -1047,7 +2563,10 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             result = find_answer_in_final_dir(final_dir)
             if result:
                 if "error" in result:
-                    return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                    return JSONResponse(
+                        {"error": result["error"], "answer": None},
+                        status_code=500,
+                    )
                 return result
 
         # Fallback: search in turn subdirectories (for older log structure or if log_session_dir is base)
@@ -1060,23 +2579,82 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
             result = find_answer_in_final_dir(turn_dir / "final")
             if result:
                 if "error" in result:
-                    return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                    return JSONResponse(
+                        {"error": result["error"], "answer": None},
+                        status_code=500,
+                    )
                 return result
 
             # Check attempt_N subdirectories within turn dir
             for attempt_dir in sorted(turn_dir.iterdir(), reverse=True):
-                if not attempt_dir.is_dir() or not attempt_dir.name.startswith("attempt_"):
+                if not attempt_dir.is_dir() or not attempt_dir.name.startswith(
+                    "attempt_",
+                ):
                     continue
                 result = find_answer_in_final_dir(attempt_dir / "final")
                 if result:
                     if "error" in result:
-                        return JSONResponse({"error": result["error"], "answer": None}, status_code=500)
+                        return JSONResponse(
+                            {"error": result["error"], "answer": None},
+                            status_code=500,
+                        )
                     return result
 
         return JSONResponse(
             {"error": "Final answer not found", "answer": None},
             status_code=404,
         )
+
+    @app.post("/api/sessions/{session_id}/share")
+    async def share_session_gist(session_id: str):
+        """Upload session to GitHub Gist and return viewer URL.
+
+        Requires GitHub CLI (gh) to be installed and authenticated.
+        Returns the viewer URL for the shared session.
+        """
+        from massgen.share import ShareError, share_session
+
+        # Get the log session dir from the display
+        display = manager.get_display(session_id)
+        log_session_dir = getattr(display, "log_session_dir", None) if display else None
+
+        # Fallback to global log session dir
+        if not log_session_dir:
+            from massgen.logger_config import get_log_session_dir
+
+            log_session_dir = get_log_session_dir()
+
+        if not log_session_dir or not log_session_dir.exists():
+            return JSONResponse(
+                {"error": "Log directory not found. Session may not have started yet."},
+                status_code=404,
+            )
+
+        try:
+            # Share the session (creates gist and returns viewer URL)
+            viewer_url = share_session(log_session_dir, console=None)
+
+            return JSONResponse(
+                {
+                    "success": True,
+                    "viewer_url": viewer_url,
+                    "message": "Session shared successfully!",
+                },
+            )
+
+        except ShareError as e:
+            return JSONResponse(
+                {"error": str(e)},
+                status_code=400,
+            )
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            return JSONResponse(
+                {"error": f"Failed to share session: {str(e)}"},
+                status_code=500,
+            )
 
     @app.post("/api/sessions/{session_id}/start")
     async def start_coordination(session_id: str, request: dict):
@@ -1093,7 +2671,9 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
 
         if not cfg_path:
             return JSONResponse(
-                {"error": "No config specified. Use --config flag or provide in request."},
+                {
+                    "error": "No config specified. Use --config flag or provide in request.",
+                },
                 status_code=400,
             )
 
@@ -1108,6 +2688,87 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                 "status": "started",
                 "session_id": session_id,
                 "config": cfg_path,
+            },
+        )
+
+    @app.post("/api/sessions/{session_id}/cancel")
+    async def cancel_coordination(session_id: str):
+        """Cancel an active coordination session."""
+        task = manager.tasks.get(session_id)
+
+        if not task:
+            return JSONResponse(
+                {"error": "No active session found", "session_id": session_id},
+                status_code=404,
+            )
+
+        if task.done():
+            return JSONResponse(
+                {
+                    "status": "already_completed",
+                    "session_id": session_id,
+                    "message": "Coordination has already completed",
+                },
+            )
+
+        # Set cancellation flag on orchestrator first (for graceful stop)
+        orchestrator = manager.orchestrators.get(session_id)
+        if orchestrator:
+            if hasattr(orchestrator, "cancellation_manager") and orchestrator.cancellation_manager:
+                orchestrator.cancellation_manager._cancelled = True
+                print(f"[WebUI] Set cancellation flag for session {session_id}")
+            # Also cancel the background status update task if it exists
+            if hasattr(orchestrator, "_status_update_task") and orchestrator._status_update_task:
+                orchestrator._status_update_task.cancel()
+
+        # Also cancel the asyncio task
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        # Update status.json to show cancelled state
+        try:
+            from massgen.logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir()
+            if log_dir:
+                status_file = log_dir / "status.json"
+                if status_file.exists():
+                    import json
+                    import time
+
+                    with open(status_file, "r") as f:
+                        status_data = json.load(f)
+                    status_data["coordination"] = status_data.get("coordination", {})
+                    status_data["coordination"]["phase"] = "cancelled"
+                    status_data["coordination"]["cancelled"] = True
+                    status_data["coordination"]["cancelled_at"] = time.time()
+                    with open(status_file, "w") as f:
+                        json.dump(status_data, f, indent=2)
+        except Exception as status_err:
+            print(f"[WebUI] Warning: Could not update status.json: {status_err}")
+
+        # Cleanup orchestrator reference
+        if session_id in manager.orchestrators:
+            del manager.orchestrators[session_id]
+
+        # Notify connected clients
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "coordination_cancelled",
+                "session_id": session_id,
+                "message": "Coordination cancelled by user",
+            },
+        )
+
+        return JSONResponse(
+            {
+                "status": "cancelled",
+                "session_id": session_id,
+                "message": "Coordination cancelled successfully",
             },
         )
 
@@ -1257,6 +2918,46 @@ def create_app(config_path: Optional[str] = None, automation_mode: bool = False)
                         },
                     )
 
+                elif action == "cancel":
+                    # Cancel the running coordination task
+                    task = manager.tasks.get(session_id)
+                    if task and not task.done():
+                        # Set cancellation flag on orchestrator first (for graceful stop)
+                        orchestrator = manager.orchestrators.get(session_id)
+                        if orchestrator:
+                            if hasattr(orchestrator, "cancellation_manager") and orchestrator.cancellation_manager:
+                                orchestrator.cancellation_manager._cancelled = True
+                                print(f"[WebUI] Set cancellation flag for session {session_id}")
+                            # Also cancel the background status update task if it exists
+                            if hasattr(orchestrator, "_status_update_task") and orchestrator._status_update_task:
+                                orchestrator._status_update_task.cancel()
+
+                        # Also cancel the asyncio task
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+
+                        # Cleanup orchestrator reference
+                        if session_id in manager.orchestrators:
+                            del manager.orchestrators[session_id]
+
+                        await websocket.send_json(
+                            {
+                                "type": "coordination_cancelled",
+                                "session_id": session_id,
+                                "message": "Coordination cancelled by user",
+                            },
+                        )
+                    else:
+                        await websocket.send_json(
+                            {
+                                "type": "info",
+                                "message": "No active coordination to cancel",
+                            },
+                        )
+
         except WebSocketDisconnect:
             manager.disconnect(websocket, session_id)
         except Exception as e:
@@ -1363,7 +3064,9 @@ async def _save_session_metadata(
         turn_dir = get_log_session_dir_base()
         session_dir = get_log_session_root()
 
-        print(f"[WebUI] Saving metadata: turn_dir={turn_dir}, session_dir={session_dir}")
+        print(
+            f"[WebUI] Saving metadata: turn_dir={turn_dir}, session_dir={session_dir}",
+        )
 
         # Save metadata.json at turn level (CLI-compatible format)
         metadata = {
@@ -1388,7 +3091,9 @@ async def _save_session_metadata(
         history_file = session_dir / "winning_agents_history.json"
         if history_file.exists():
             try:
-                winning_agents_history = json.loads(history_file.read_text(encoding="utf-8"))
+                winning_agents_history = json.loads(
+                    history_file.read_text(encoding="utf-8"),
+                )
             except (json.JSONDecodeError, IOError):
                 pass
 
@@ -1400,7 +3105,10 @@ async def _save_session_metadata(
                 "timestamp": datetime.now().isoformat(),
             },
         )
-        history_file.write_text(json.dumps(winning_agents_history, indent=2), encoding="utf-8")
+        history_file.write_text(
+            json.dumps(winning_agents_history, indent=2),
+            encoding="utf-8",
+        )
 
         # Register session with SessionRegistry for `massgen --list-sessions` compatibility
         try:
@@ -1423,7 +3131,9 @@ async def _save_session_metadata(
         manager.session_turns[session_id] = turn_number
         manager.session_configs[session_id] = config_path
 
-        print(f"[WebUI] Saved session metadata: turn={turn_number}, winner={winning_agent}")
+        print(
+            f"[WebUI] Saved session metadata: turn={turn_number}, winner={winning_agent}",
+        )
 
     except Exception as e:
         print(f"[WebUI] Error saving session metadata: {e}")
@@ -1466,6 +3176,7 @@ async def run_coordination_with_history(
         from massgen.frontend.coordination_ui import CoordinationUI
         from massgen.logger_config import (
             get_log_session_dir,
+            save_execution_metadata,
             set_log_base_session_dir,
             set_log_turn,
         )
@@ -1473,7 +3184,9 @@ async def run_coordination_with_history(
 
         # IMPORTANT: Set the base session dir to reuse the existing session log directory
         # This must happen before set_log_turn() or get_log_session_dir() is called
-        set_log_base_session_dir(session_log_dir.name)  # e.g., "log_20251202_235530_074788"
+        set_log_base_session_dir(
+            session_log_dir.name,
+        )  # e.g., "log_20251202_235530_074788"
 
         # Restore session state from previous turns
         previous_turns = []
@@ -1485,21 +3198,33 @@ async def run_coordination_with_history(
 
             # The session_log_dir is the base log dir (e.g., .massgen/massgen_logs/log_xxx)
             # We need to tell restore_session to look in the massgen_logs directory
-            print(f"[WebUI] Attempting to restore session: session_log_dir={session_log_dir}")
-            print(f"[WebUI] session_log_dir.name={session_log_dir.name}, parent={session_log_dir.parent}")
+            print(
+                f"[WebUI] Attempting to restore session: session_log_dir={session_log_dir}",
+            )
+            print(
+                f"[WebUI] session_log_dir.name={session_log_dir.name}, parent={session_log_dir.parent}",
+            )
             session_state = restore_session(
                 session_log_dir.name,  # e.g., "log_20251130_211636_581944"
-                session_storage=str(session_log_dir.parent),  # e.g., ".massgen/massgen_logs"
+                session_storage=str(
+                    session_log_dir.parent,
+                ),  # e.g., ".massgen/massgen_logs"
             )
             if session_state:
                 previous_turns = session_state.previous_turns
                 winning_agents_history = session_state.winning_agents_history
                 conversation_history = session_state.conversation_history or []
-                print(f"[WebUI] Restored {len(previous_turns)} previous turns, {len(winning_agents_history)} winners, {len(conversation_history)} history messages")
+                print(
+                    f"[WebUI] Restored {len(previous_turns)} previous turns, {len(winning_agents_history)} winners, {len(conversation_history)} history messages",
+                )
                 if conversation_history:
-                    print(f"[WebUI] Conversation history preview: {conversation_history[0] if conversation_history else 'empty'}")
+                    print(
+                        f"[WebUI] Conversation history preview: {conversation_history[0] if conversation_history else 'empty'}",
+                    )
             else:
-                print(f"[WebUI] restore_session returned None for {session_log_dir.name}")
+                print(
+                    f"[WebUI] restore_session returned None for {session_log_dir.name}",
+                )
         except Exception as e:
             print(f"[WebUI] ERROR restoring session state: {e}")
             traceback.print_exc()
@@ -1537,7 +3262,10 @@ async def run_coordination_with_history(
                 },
             )
 
-        await emit_preparation_status("Initializing agents...", f"{num_agents} agent{'s' if num_agents != 1 else ''}")
+        await emit_preparation_status(
+            "Initializing agents...",
+            f"{num_agents} agent{'s' if num_agents != 1 else ''}",
+        )
 
         def progress_callback(status: str, detail: str) -> None:
             """Thread-safe callback to queue progress updates."""
@@ -1599,19 +3327,39 @@ async def run_coordination_with_history(
                     "planning_mode_instruction",
                     "During coordination, describe what you would do without actually executing actions.",
                 ),
-                max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
-                enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
+                max_orchestration_restarts=coord_cfg.get(
+                    "max_orchestration_restarts",
+                    0,
+                ),
+                enable_agent_task_planning=coord_cfg.get(
+                    "enable_agent_task_planning",
+                    False,
+                ),
                 max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
                 broadcast=coord_cfg.get("broadcast", False),
                 broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                response_depth=coord_cfg.get("response_depth", "medium"),
                 broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
-                broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+                broadcast_wait_by_default=coord_cfg.get(
+                    "broadcast_wait_by_default",
+                    True,
+                ),
                 max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
-                task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
-                enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
+                task_planning_filesystem_mode=coord_cfg.get(
+                    "task_planning_filesystem_mode",
+                    False,
+                ),
+                enable_memory_filesystem_mode=coord_cfg.get(
+                    "enable_memory_filesystem_mode",
+                    False,
+                ),
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coord_cfg.get(
+                    "load_previous_session_skills",
+                    False,
+                ),
             )
 
         # Get context sharing parameters
@@ -1629,9 +3377,44 @@ async def run_coordination_with_history(
             winning_agents_history=winning_agents_history,
         )
 
+        # Set up cancellation manager for WebUI cancellation support
+        from massgen.cancellation import CancellationManager
+
+        cancellation_mgr = CancellationManager()
+        # Don't register signal handlers (WebUI uses API-based cancellation)
+        # Just set the basic attributes so the orchestrator can check is_cancelled
+        cancellation_mgr._orchestrator = orchestrator
+        cancellation_mgr._cancelled = False
+        orchestrator.cancellation_manager = cancellation_mgr
+
+        # Store orchestrator reference for cancellation support
+        manager.orchestrators[session_id] = orchestrator
+
         # Store the log session directory in the display
         display.log_session_dir = get_log_session_dir()
-        print(f"[WebUI] run_coordination_with_history: turn={turn_number}, log_dir={display.log_session_dir}")
+        print(
+            f"[WebUI] run_coordination_with_history: turn={turn_number}, log_dir={display.log_session_dir}",
+        )
+
+        # Save execution metadata for session export/sharing (same as CLI)
+        if display.log_session_dir:
+            save_execution_metadata(
+                query=question,
+                config_path=str(resolved_path),
+                config_content=config,
+            )
+
+            # IMPORTANT: Save initial status.json with workspace paths immediately
+            # This allows the WebUI to display workspace files right away without waiting
+            # for coordination to start
+            try:
+                orchestrator.coordination_tracker.save_status_file(
+                    display.log_session_dir,
+                    orchestrator=orchestrator,
+                )
+                print("[WebUI] Saved initial status.json with workspace paths")
+            except Exception as e:
+                print(f"[WebUI] Warning: Could not save initial status.json: {e}")
 
         # Create coordination UI with web display
         ui = CoordinationUI(
@@ -1646,7 +3429,9 @@ async def run_coordination_with_history(
 
         if len(messages) > 1:
             # Multi-turn: use coordinate_with_context so agents see previous conversation
-            print(f"[WebUI] Running coordination with {len(conversation_history)} history messages")
+            print(
+                f"[WebUI] Running coordination with {len(conversation_history)} history messages",
+            )
             await ui.coordinate_with_context(orchestrator, question, messages)
         else:
             # First turn: standard coordination
@@ -1679,11 +3464,61 @@ async def run_coordination_with_history(
             config=str(resolved_path) if resolved_path else None,
         )
 
+        # Cleanup orchestrator reference on completion
+        if session_id in manager.orchestrators:
+            del manager.orchestrators[session_id]
+
+    except asyncio.CancelledError:
+        # Task was cancelled by user - don't broadcast completion or error
+        print(f"[WebUI] Coordination cancelled for session {session_id} (turn {turn_number})")
+
+        # Update status.json to show cancelled state
+        try:
+            from massgen.logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir()
+            if log_dir:
+                status_file = log_dir / "status.json"
+                if status_file.exists():
+                    import json
+
+                    with open(status_file, "r") as f:
+                        status_data = json.load(f)
+                    status_data["coordination"] = status_data.get("coordination", {})
+                    status_data["coordination"]["phase"] = "cancelled"
+                    status_data["coordination"]["cancelled"] = True
+                    status_data["coordination"]["cancelled_at"] = __import__("time").time()
+                    with open(status_file, "w") as f:
+                        json.dump(status_data, f, indent=2)
+        except Exception as status_err:
+            print(f"[WebUI] Warning: Could not update status.json: {status_err}")
+
+        # Cleanup orchestrator reference
+        if session_id in manager.orchestrators:
+            del manager.orchestrators[session_id]
+
+        # Broadcast cancellation
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "coordination_cancelled",
+                "session_id": session_id,
+                "turn": turn_number,
+                "message": "Coordination cancelled by user",
+            },
+        )
+        # Re-raise to properly terminate the task
+        raise
+
     except Exception as e:
         # Log the full traceback for debugging
         error_msg = f"{type(e).__name__}: {str(e)}"
         print(f"[WebUI Error] {error_msg}")
         traceback.print_exc()
+
+        # Cleanup orchestrator reference on error
+        if session_id in manager.orchestrators:
+            del manager.orchestrators[session_id]
 
         # Broadcast error
         await manager.broadcast(
@@ -1709,6 +3544,19 @@ async def run_coordination(
         config_path: Optional path to config YAML
     """
     import traceback
+
+    async def send_init_status(message: str, step: str, progress: int = 0) -> None:
+        """Send initialization status to WebSocket clients."""
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "init_status",
+                "message": message,
+                "step": step,
+                "progress": progress,
+                "session_id": session_id,
+            },
+        )
 
     async def emit_preparation_status(status: str, detail: str = "") -> None:
         """Emit preparation status update to web clients."""
@@ -1736,6 +3584,9 @@ async def run_coordination(
         from massgen.frontend.coordination_ui import CoordinationUI
         from massgen.orchestrator import Orchestrator
 
+        # Send initial status
+        await send_init_status("Loading configuration...", "config", 10)
+
         # Load config from YAML file
         if not config_path:
             raise ValueError("Config path is required")
@@ -1750,14 +3601,24 @@ async def run_coordination(
         # Extract orchestrator config dict from YAML
         orchestrator_cfg = config.get("orchestrator", {})
 
+        # Send agent setup status (this is the slow part - Docker containers, etc.)
+        agent_configs = config.get("agents", [])
+        num_agents = len(agent_configs)
+        await send_init_status(f"Setting up {num_agents} agents...", "agents", 30)
+
         # Check if Docker is being used
         uses_docker = config.get("execution", {}).get("use_docker", False)
         if uses_docker:
-            await emit_preparation_status("Preparing Docker environment...", "Setting up isolated containers")
+            await emit_preparation_status(
+                "Preparing Docker environment...",
+                "Setting up isolated containers",
+            )
 
         # Create agents from config with progress updates
-        num_agents = len(config.get("agents", []))
-        await emit_preparation_status("Initializing agents...", f"{num_agents} agent{'s' if num_agents != 1 else ''}")
+        await emit_preparation_status(
+            "Initializing agents...",
+            f"{num_agents} agent{'s' if num_agents != 1 else ''}",
+        )
 
         # Create progress callback that sends WebSocket updates
         # We run agent creation in a thread so progress updates can be sent in real-time
@@ -1797,11 +3658,22 @@ async def run_coordination(
             if model_name:
                 agent_models[agent_id] = model_name
 
+        await send_init_status(
+            f"Agents ready: {', '.join(agent_ids)}",
+            "agents_ready",
+            60,
+        )
+
         # Emit status about loaded agents
-        await emit_preparation_status("Configuring orchestrator...", ", ".join(agent_ids))
+        await emit_preparation_status(
+            "Configuring orchestrator...",
+            ", ".join(agent_ids),
+        )
 
         # Create web display with agent_models
         display = manager.create_display(session_id, agent_ids, agent_models)
+
+        await send_init_status("Initializing orchestrator...", "orchestrator", 80)
 
         # Build AgentConfig object for orchestrator (required by Orchestrator)
         orchestrator_config = AgentConfig()
@@ -1827,19 +3699,39 @@ async def run_coordination(
                     "planning_mode_instruction",
                     "During coordination, describe what you would do without actually executing actions.",
                 ),
-                max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
-                enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
+                max_orchestration_restarts=coord_cfg.get(
+                    "max_orchestration_restarts",
+                    0,
+                ),
+                enable_agent_task_planning=coord_cfg.get(
+                    "enable_agent_task_planning",
+                    False,
+                ),
                 max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
                 broadcast=coord_cfg.get("broadcast", False),
                 broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                response_depth=coord_cfg.get("response_depth", "medium"),
                 broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
-                broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+                broadcast_wait_by_default=coord_cfg.get(
+                    "broadcast_wait_by_default",
+                    True,
+                ),
                 max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
-                task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
-                enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
+                task_planning_filesystem_mode=coord_cfg.get(
+                    "task_planning_filesystem_mode",
+                    False,
+                ),
+                enable_memory_filesystem_mode=coord_cfg.get(
+                    "enable_memory_filesystem_mode",
+                    False,
+                ),
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coord_cfg.get(
+                    "load_previous_session_skills",
+                    False,
+                ),
             )
 
         # Get context sharing parameters
@@ -1855,17 +3747,51 @@ async def run_coordination(
             agent_temporary_workspace=agent_temporary_workspace,
         )
 
+        # Set up cancellation manager for WebUI cancellation support
+        from massgen.cancellation import CancellationManager
+
+        cancellation_mgr = CancellationManager()
+        # Don't register signal handlers (WebUI uses API-based cancellation)
+        # Just set the basic attributes so the orchestrator can check is_cancelled
+        cancellation_mgr._orchestrator = orchestrator
+        cancellation_mgr._cancelled = False
+        orchestrator.cancellation_manager = cancellation_mgr
+
+        # Store orchestrator reference for cancellation support
+        manager.orchestrators[session_id] = orchestrator
+
         # Store the log session directory in the display BEFORE coordination
         # This ensures the API can find it when coordination_complete is sent
-        from massgen.logger_config import get_log_session_dir
+        from massgen.logger_config import get_log_session_dir, save_execution_metadata
 
         display.log_session_dir = get_log_session_dir()
-        print(f"[DEBUG] run_coordination: Set display.log_session_dir = {display.log_session_dir}")
+        print(
+            f"[DEBUG] run_coordination: Set display.log_session_dir = {display.log_session_dir}",
+        )
 
         # Print status.json location for automation mode monitoring
         if display.log_session_dir:
             print(f"LOG_DIR: {display.log_session_dir}")
             print(f"STATUS: {display.log_session_dir / 'status.json'}")
+
+            # Save execution metadata for session export/sharing (same as CLI)
+            save_execution_metadata(
+                query=question,
+                config_path=str(resolved_path),
+                config_content=config,
+            )
+
+            # IMPORTANT: Save initial status.json with workspace paths immediately
+            # This allows the WebUI to display workspace files right away without waiting
+            # for coordination to start
+            try:
+                orchestrator.coordination_tracker.save_status_file(
+                    display.log_session_dir,
+                    orchestrator=orchestrator,
+                )
+                print("[WebUI] Saved initial status.json with workspace paths")
+            except Exception as e:
+                print(f"[WebUI] Warning: Could not save initial status.json: {e}")
 
         # Create coordination UI with web display
         ui = CoordinationUI(
@@ -1873,8 +3799,13 @@ async def run_coordination(
             display_type="web",
         )
 
+        await send_init_status("Starting coordination...", "starting", 100)
+
         # Final preparation status before starting
-        await emit_preparation_status("Launching agents...", "Agents will appear momentarily")
+        await emit_preparation_status(
+            "Launching agents...",
+            "Agents will appear momentarily",
+        )
 
         # Run coordination
         await ui.coordinate(orchestrator, question)
@@ -1904,11 +3835,60 @@ async def run_coordination(
             config=str(resolved_path) if resolved_path else None,
         )
 
+        # Cleanup orchestrator reference on completion
+        if session_id in manager.orchestrators:
+            del manager.orchestrators[session_id]
+
+    except asyncio.CancelledError:
+        # Task was cancelled by user - don't broadcast completion or error
+        print(f"[WebUI] Coordination cancelled for session {session_id}")
+
+        # Update status.json to show cancelled state
+        try:
+            from massgen.logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir()
+            if log_dir:
+                status_file = log_dir / "status.json"
+                if status_file.exists():
+                    import json
+
+                    with open(status_file, "r") as f:
+                        status_data = json.load(f)
+                    status_data["coordination"] = status_data.get("coordination", {})
+                    status_data["coordination"]["phase"] = "cancelled"
+                    status_data["coordination"]["cancelled"] = True
+                    status_data["coordination"]["cancelled_at"] = __import__("time").time()
+                    with open(status_file, "w") as f:
+                        json.dump(status_data, f, indent=2)
+        except Exception as status_err:
+            print(f"[WebUI] Warning: Could not update status.json: {status_err}")
+
+        # Cleanup orchestrator reference
+        if session_id in manager.orchestrators:
+            del manager.orchestrators[session_id]
+
+        # Broadcast cancellation (already done by cancel endpoint, but ensure it's sent)
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "coordination_cancelled",
+                "session_id": session_id,
+                "message": "Coordination cancelled by user",
+            },
+        )
+        # Re-raise to properly terminate the task
+        raise
+
     except Exception as e:
         # Log the full traceback for debugging
         error_msg = f"{type(e).__name__}: {str(e)}"
         print(f"[WebUI Error] {error_msg}")
         traceback.print_exc()
+
+        # Cleanup orchestrator reference on error
+        if session_id in manager.orchestrators:
+            del manager.orchestrators[session_id]
 
         # Broadcast error
         await manager.broadcast(
@@ -1961,8 +3941,16 @@ def run_server(
         logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
 
         # Suppress websockets deprecation warnings
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets")
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="uvicorn.protocols.websockets")
+        warnings.filterwarnings(
+            "ignore",
+            category=DeprecationWarning,
+            module="websockets",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            category=DeprecationWarning,
+            module="uvicorn.protocols.websockets",
+        )
 
         uvicorn.run(
             app,

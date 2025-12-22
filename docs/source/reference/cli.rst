@@ -77,6 +77,8 @@ CLI Parameters
      - Port for the WebUI server (default: ``8000``)
    * - ``--no-browser``
      - Don't auto-open browser when using ``--web`` with a question. Useful for automation or when running on servers
+   * - ``--output-file PATH``
+     - Write final answer to specified file path. Works in any mode (automation, interactive, etc.). Useful for capturing agent responses in scripts or pipelines
    * - ``"<your question>"``
      - Optional single-question input. If omitted, MassGen enters interactive chat mode
 
@@ -213,9 +215,126 @@ WebUI Mode
    # Combine with debug mode
    massgen --web --debug --config my_config.yaml
 
+Output to File
+~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Save agent response to a file
+   massgen --output-file results.txt "Summarize the key points of machine learning"
+
+   # With config and output file
+   massgen --config my_config.yaml --output-file report.md "Generate a project report"
+
+
+Additional Commands
+-------------------
+
+Log Analysis (``massgen logs``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Analyze and browse session logs without manual file navigation.
+
+.. code-block:: bash
+
+   # Summary of most recent run
+   massgen logs
+
+   # Full tool breakdown
+   massgen logs tools
+
+   # List recent runs
+   massgen logs list
+
+   # Open log directory in file manager
+   massgen logs open
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Subcommand
+     - Description
+   * - ``massgen logs`` or ``massgen logs summary``
+     - Display run summary with tokens, rounds, and top tools
+   * - ``massgen logs tools``
+     - Full tool breakdown table sorted by execution time
+   * - ``massgen logs tools --sort calls``
+     - Sort tools by call count instead of time
+   * - ``massgen logs list``
+     - List recent runs with timestamps, costs, and questions
+   * - ``massgen logs list --limit 20``
+     - Show more runs (default: 10)
+   * - ``massgen logs open``
+     - Open log directory in system file manager
+
+**Options:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Option
+     - Description
+   * - ``--log-dir PATH``
+     - Analyze a specific log directory instead of the most recent
+   * - ``--json``
+     - Output raw JSON for scripting
+
+Share Session (``massgen export``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Share a session via GitHub Gist for easy collaboration.
+
+.. code-block:: bash
+
+   # Share the most recent session
+   massgen export
+
+   # Share a specific session
+   massgen export log_20251218_134125_867383
+
+**Prerequisites:** Requires GitHub CLI (``gh``) to be installed and authenticated.
+
+.. code-block:: bash
+
+   # Install gh (macOS)
+   brew install gh
+
+   # Authenticate
+   gh auth login
+
+**Output:**
+
+.. code-block:: text
+
+   Sharing session from: .massgen/massgen_logs/log_20251218_134125/turn_1/attempt_1
+   Collecting files...
+   Uploading 45 files (1,234,567 bytes)...
+
+   Share URL: https://massgen.github.io/MassGen-Viewer/?gist=abc123def456
+
+   Anyone with this link can view the session (no login required).
+
+The URL opens the MassGen Viewer with the session's coordination timeline, answers, votes, and tool usage.
+
+Manage Shared Sessions (``massgen shares``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+List and manage your shared sessions.
+
+.. code-block:: bash
+
+   # List your shared sessions
+   massgen shares list
+
+   # Delete a shared session
+   massgen shares delete <gist_id>
+
 See Also
 --------
 
 * :doc:`../quickstart/running-massgen` - Detailed usage examples
 * :doc:`yaml_schema` - YAML configuration reference
 * :doc:`supported_models` - Available models and backends
+* :doc:`../user_guide/logging` - Complete logging and debugging guide

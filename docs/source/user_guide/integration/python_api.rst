@@ -125,6 +125,10 @@ The main async function for running MassGen programmatically.
        query: str,
        config: str = None,
        model: str = None,
+       models: list = None,
+       num_agents: int = None,
+       use_docker: bool = False,
+       enable_filesystem: bool = True,
        enable_logging: bool = False,
        output_file: str = None,
        **kwargs,
@@ -134,10 +138,14 @@ The main async function for running MassGen programmatically.
 
 - ``query`` (str): The question or task for the agent(s)
 - ``config`` (str, optional): Config file path or ``@examples/NAME``
-- ``model`` (str, optional): Quick single-agent mode with model name
+- ``model`` (str, optional): Model name for agents (e.g., 'gpt-5')
+- ``models`` (list, optional): List of models for multi-agent mode
+- ``num_agents`` (int, optional): Number of agents when using single model
+- ``use_docker`` (bool): Enable Docker execution mode (default: False)
+- ``enable_filesystem`` (bool): Enable filesystem/MCP tools (default: True). Set to False for lightweight agents.
 - ``enable_logging`` (bool): Enable logging and return ``log_directory`` in result
 - ``output_file`` (str, optional): Write final answer to this file path
-- ``**kwargs``: Additional configuration options (e.g., ``system_message``, ``base_url``)
+- ``**kwargs``: Additional options including ``context_paths`` (list of paths with permissions)
 
 **Returns:**
 
@@ -257,7 +265,7 @@ Build a MassGen configuration dict programmatically, similar to ``--quickstart``
        models: list = None,
        backends: list = None,
        use_docker: bool = False,
-       context_path: str = None,
+       context_paths: list = None,
    ) -> dict
 
 **Parameters:**
@@ -268,7 +276,10 @@ Build a MassGen configuration dict programmatically, similar to ``--quickstart``
 - ``models`` (list, optional): List of model names, one per agent (e.g., ['gpt-4o', 'claude-sonnet-4-20250514'])
 - ``backends`` (list, optional): List of backends, one per agent (e.g., ['openai', 'anthropic'])
 - ``use_docker`` (bool): Enable Docker execution mode (default: False)
-- ``context_path`` (str, optional): Path to add as context for file operations
+- ``context_paths`` (list, optional): List of paths with permissions for file operations. Each entry can be:
+
+  - A string path (defaults to "write" permission)
+  - A dict: ``{"path": "/path", "permission": "read" or "write"}``
 
 **Returns:**
 
@@ -463,6 +474,29 @@ Use ``massgen/build`` to create multi-agent configurations on-the-fly.
        }
    )
 
+   # With filesystem access to specific paths
+   response = litellm.completion(
+       model="massgen/build",
+       messages=[{"role": "user", "content": "Read the config file and summarize it"}],
+       optional_params={
+           "model": "gpt-5",
+           "context_paths": [
+               {"path": "/path/to/project", "permission": "read"},
+               {"path": "/path/to/output", "permission": "write"},
+           ],
+       }
+   )
+
+   # Lightweight mode without filesystem (faster for simple queries)
+   response = litellm.completion(
+       model="massgen/build",
+       messages=[{"role": "user", "content": "What is 2+2?"}],
+       optional_params={
+           "model": "gpt-5-nano",
+           "enable_filesystem": False,
+       }
+   )
+
 **Supported Backends:** ``openai``, ``claude``, ``gemini``, ``grok``, ``groq``, ``cerebras``, ``together``, ``fireworks``, ``openrouter``, and more.
 
 .. tip::
@@ -509,24 +543,27 @@ Pass MassGen-specific options via ``optional_params``:
 
 **Available Parameters:**
 
-+------------------+------------------+----------------------------------------------------+
-| Parameter        | Type             | Description                                        |
-+==================+==================+====================================================+
-| ``models``       | list[str]        | List of model names for multi-agent mode           |
-|                  |                  | (e.g., ``["gpt-4o", "claude-sonnet-4-20250514"]``) |
-+------------------+------------------+----------------------------------------------------+
-| ``model``        | str              | Single model name for all agents                   |
-+------------------+------------------+----------------------------------------------------+
-| ``num_agents``   | int              | Number of agents when using single model           |
-+------------------+------------------+----------------------------------------------------+
-| ``use_docker``   | bool             | Enable Docker execution mode (default: False)      |
-+------------------+------------------+----------------------------------------------------+
-| ``context_path`` | str              | Path to add as context for file operations         |
-+------------------+------------------+----------------------------------------------------+
-| ``enable_logging``| bool            | Enable logging and return log directory            |
-+------------------+------------------+----------------------------------------------------+
-| ``output_file``  | str              | Write final answer to this file path               |
-+------------------+------------------+----------------------------------------------------+
++----------------------+------------------+----------------------------------------------------+
+| Parameter            | Type             | Description                                        |
++======================+==================+====================================================+
+| ``models``           | list[str]        | List of model names for multi-agent mode           |
+|                      |                  | (e.g., ``["gpt-4o", "claude-sonnet-4-20250514"]``) |
++----------------------+------------------+----------------------------------------------------+
+| ``model``            | str              | Single model name for all agents                   |
++----------------------+------------------+----------------------------------------------------+
+| ``num_agents``       | int              | Number of agents when using single model           |
++----------------------+------------------+----------------------------------------------------+
+| ``use_docker``       | bool             | Enable Docker execution mode (default: False)      |
++----------------------+------------------+----------------------------------------------------+
+| ``enable_filesystem``| bool             | Enable filesystem/MCP tools (default: True)        |
++----------------------+------------------+----------------------------------------------------+
+| ``context_paths``    | list             | Paths with permissions for file operations.        |
+|                      |                  | Each entry: str or {"path": str, "permission": str}|
++----------------------+------------------+----------------------------------------------------+
+| ``enable_logging``   | bool             | Enable logging and return log directory            |
++----------------------+------------------+----------------------------------------------------+
+| ``output_file``      | str              | Write final answer to this file path               |
++----------------------+------------------+----------------------------------------------------+
 
 .. note::
    When using ``massgen/build``, either ``models`` (list) or ``model`` (single) should be provided.

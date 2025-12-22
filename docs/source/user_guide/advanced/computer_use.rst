@@ -14,10 +14,7 @@ MassGen provides powerful computer use tools that allow AI agents to autonomousl
 
      - WARNING: OpenAI Computer Use model has not gone through sophisticated testing due to access restrictions on computer-use-preview model. Performance is not guaranteed. Be cautious while using.
 
-   **Incoming Tools:**
-
-   * ``UI-TARS_computer_use`` - From ByteDance, open sourced.
-   * ``qwen_computer_use`` - From Alibaba Qwen, open sourced.
+   * ``ui_tars_computer_use`` - UI-TARS Computer Use from ByteDance (open-sourced)
 
 **Environments:**
 

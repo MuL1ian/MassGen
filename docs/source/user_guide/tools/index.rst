@@ -42,6 +42,20 @@ Different model providers offer built-in capabilities that agents can enable via
 * **Code Execution**: Run Python code and scripts (OpenAI, Claude, Gemini, AG2)
 * **File Operations**: Read, write, and modify files (Claude Code natively, others via MCP)
 
+.. important::
+   **Code Execution: Two Different Options**
+
+   MassGen supports two distinct code execution approaches:
+
+   1. **Backend Built-in** (``enable_code_execution``/``enable_code_interpreter``): Runs in the provider's sandbox (OpenAI, Claude, Gemini). **Does NOT integrate with your local filesystem** - code runs in an isolated cloud environment.
+
+   2. **MCP-based** (``enable_mcp_command_line``): Runs on your local machine or Docker container. **Full filesystem access** - agents can read/write files in your project.
+
+   **Use backend built-in** for quick calculations and isolated code snippets.
+   **Use MCP-based** for code that needs to interact with your project files.
+
+   See :doc:`code_execution` for detailed comparison and configuration.
+
 **Quick Example:**
 
 .. code-block:: yaml

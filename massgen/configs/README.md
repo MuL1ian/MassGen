@@ -227,7 +227,108 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.24 - Latest
+### v0.1.28 - Latest
+**New Features:** Unified Multimodal Tools, Web UI Artifact Previewer
+
+**Key Features:**
+- **Unified Multimodal Tools**: Consolidated `read_media` for understanding and `generate_media` for generation (images, audio, video)
+- **Web UI Artifact Previewer**: Preview PDFs, DOCX, PPTX, images, HTML, SVG, Markdown, and Mermaid diagrams
+- **OpenRouter Model Filtering**: Automatic filtering to only show tool-capable models
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Unified multimodal tools - generate and analyze images, audio, video
+massgen --config @examples/tools/custom_tools/multimodal_tools/unified_multimodal \
+  "Create an image of two AI chatting with a human and then describe it in detail"
+
+# Multi-agent collaboration
+massgen --config @examples/basic/multi/three_agents_default \
+  "Compare different approaches to building AI agents"
+```
+
+### v0.1.27
+**New Features:** Session Sharing, Log Analysis CLI, Per-LLM Call Timing, Gemini 3 Flash
+
+**Key Features:**
+- **Session Sharing via GitHub Gist**: Share sessions with `massgen export`, manage with `massgen shares list/delete`
+- **Log Analysis CLI**: New `massgen logs` command for viewing, filtering, and exporting run logs
+- **Per-LLM Call Timing**: Detailed timing metrics for individual LLM API calls across all backends
+- **Gemini 3 Flash Model**: Google's Gemini 3 Flash model added to provider registry
+- **CLI Config Builder**: Per-agent web search toggle, system messages, coordination settings
+- **Web UI Context Paths Wizard**: New `ContextPathsStep` component for workspace configuration
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Share a session via GitHub Gist (requires gh CLI)
+massgen export                            # Share most recent session
+massgen export log_20251218_134125        # Share specific session
+massgen shares list                       # List your shared sessions
+
+# Analyze your run logs
+massgen logs list                         # List all runs
+massgen logs view <log_id>                # View detailed run info with LLM timing
+
+# Try Gemini 3 Flash
+massgen --config @examples/providers/gemini/gemini_3_flash \
+  "Create a simple Python script that demonstrates async programming"
+```
+
+### v0.1.26
+**New Features:** Docker Diagnostics Module, Web UI Setup System, Shadow Agent Response Depth
+
+**Key Features:**
+- **Docker Diagnostics Module**: Comprehensive error detection with platform-specific resolution steps for Docker issues
+- **Web UI Setup System**: Guided first-run setup with API key management and environment checks
+- **Shadow Agent Response Depth**: Test-time compute scaling via `response_depth` parameter (`low`/`medium`/`high`)
+- **Model Registry Updates**: GPT-5.1-Codex family, Claude alias notation, updated defaults
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Use response depth for test-time compute scaling in agent broadcasts
+massgen --config @examples/broadcast/test_broadcast_agents \
+  "Create a website about Bob Dylan. Please ask_others for what framework to use first"
+
+# Launch Web UI with setup wizard
+massgen --web
+```
+
+### v0.1.25
+**New Features:** UI-TARS Custom Tool, GPT-5.2 Support, Evolving Skills
+
+**Key Features:**
+- **UI-TARS Custom Tool**: ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
+- **GPT-5.2 Model**: OpenAI's latest model added as new default
+- **Evolving Skills**: Create reusable workflow plans that improve through iteration
+- **Textual Terminal Enhancement**: Improved adaptive layouts and dark/light themes
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Try UI-TARS computer use (requires UI_TARS_API_KEY and UI_TARS_ENDPOINT)
+massgen --config @examples/tools/custom_tools/ui_tars_browser_example \
+  "Search for 'Python asyncio' on Google and summarize the first result"
+
+# Use the new Textual terminal display
+massgen --config @examples/basic/single_agent_textual \
+  "What is the transformers in deep learning?"
+
+# Create evolving skills with previous session discovery
+massgen --config @examples/skills/skills_with_previous_sessions \
+  "Create a web scraping workflow that extracts article titles from news sites"
+```
+
+### v0.1.24
 **New Features:** Enhanced Cost Tracking Across Multiple Backends
 
 **Key Features:**

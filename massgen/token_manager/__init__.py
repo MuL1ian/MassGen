@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from .token_manager import (
+    APICallMetric,
     RoundTokenUsage,
     TokenCostCalculator,
     TokenUsage,
@@ -11,4 +12,5 @@ __all__ = [
     "TokenCostCalculator",
     "ToolExecutionMetric",
     "RoundTokenUsage",
+    "APICallMetric",
 ]

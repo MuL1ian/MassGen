@@ -9,7 +9,7 @@ import { Users, Check } from 'lucide-react';
 import { useWizardStore } from '../../stores/wizardStore';
 
 const agentOptions = [
-  { count: 1, label: '1 agent', description: 'Single agent, no voting' },
+  { count: 1, label: '1 agent', description: 'Single agent' },
   { count: 2, label: '2 agents', description: 'Basic collaboration' },
   { count: 3, label: '3 agents', description: 'Recommended for most tasks', recommended: true },
   { count: 4, label: '4 agents', description: 'More diverse perspectives' },

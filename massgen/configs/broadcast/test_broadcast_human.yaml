@@ -31,6 +31,7 @@ orchestrator:
   coordination:
     broadcast: "human"  # Human will be prompted for responses
     broadcast_sensitivity: "high"  # Options: "low" | "medium" | "high" (how frequently agents use ask_others)
+    response_depth: "medium"  # Options: "low" | "medium" | "high" (test-time compute scaling for shadow agents)
     broadcast_timeout: 60  # Shorter timeout for testing
     broadcast_wait_by_default: true
     max_broadcasts_per_agent: 5

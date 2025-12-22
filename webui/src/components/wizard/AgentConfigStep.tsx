@@ -2,141 +2,125 @@
  * Agent Config Step Component
  *
  * Fourth step - configure provider and model for each agent.
- * Uses searchable combobox for both provider and model selection.
+ * Full-page scrollable layout with large, visible cards for easy selection.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, Key, AlertCircle } from 'lucide-react';
-import { useWizardStore, ProviderInfo } from '../../stores/wizardStore';
-import { SearchableCombobox } from './SearchableCombobox';
+import { Bot, AlertCircle, Check, Search, Sparkles, X, Globe, Code, MessageSquare } from 'lucide-react';
+import { useWizardStore, ProviderInfo, ProviderCapabilities } from '../../stores/wizardStore';
 
-interface AgentConfigRowProps {
-  agentId: string;
-  provider: string;
-  model: string;
-  providers: ProviderInfo[];
-  onProviderChange: (provider: string) => void;
-  onModelChange: (model: string) => void;
+interface ProviderCardProps {
+  provider: ProviderInfo;
+  isSelected: boolean;
+  onSelect: () => void;
+  disabled?: boolean;
 }
 
-function AgentConfigRow({
-  agentId,
-  provider,
-  model,
-  providers,
-  onProviderChange,
-  onModelChange,
-}: AgentConfigRowProps) {
-  const dynamicModels = useWizardStore((s) => s.dynamicModels);
-  const loadingModels = useWizardStore((s) => s.loadingModels);
-  const fetchDynamicModels = useWizardStore((s) => s.fetchDynamicModels);
-
-  const selectedProvider = providers.find((p) => p.id === provider);
-  const agentLetter = agentId.replace('agent_', '').toUpperCase();
-
-  // Fetch dynamic models when provider changes
-  useEffect(() => {
-    if (provider && !dynamicModels[provider]) {
-      fetchDynamicModels(provider);
-    }
-  }, [provider, dynamicModels, fetchDynamicModels]);
-
-  // Get models for this provider (dynamic if available, otherwise static)
-  const availableModels = provider
-    ? dynamicModels[provider] || selectedProvider?.models || []
-    : [];
-
-  // Build provider options
-  const availableProviders = providers.filter((p) => p.has_api_key);
-  const unavailableProviders = providers.filter((p) => !p.has_api_key);
-
-  const providerOptions = [
-    ...availableProviders.map((p) => ({
-      value: p.id,
-      label: p.name,
-      group: 'Available',
-    })),
-    ...unavailableProviders.map((p) => ({
-      value: p.id,
-      label: `${p.name} (needs ${p.env_var})`,
-      disabled: true,
-      group: 'Unavailable (no API key)',
-    })),
-  ];
-
-  // Build model options - filter out "custom" placeholder and show all real models
-  const modelOptions = availableModels
-    .filter((m) => m !== 'custom')  // Don't show "custom" as an option
-    .map((m) => ({
-      value: m,
-      label: m === selectedProvider?.default_model ? `${m} (default)` : m,
-    }));
-
+function ProviderCard({ provider, isSelected, onSelect, disabled }: ProviderCardProps) {
   return (
-    <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
-      <div className="flex items-center gap-2 mb-4">
-        <Bot className="w-5 h-5 text-blue-500" />
-        <span className="font-medium text-gray-800 dark:text-gray-200">
-          Agent {agentLetter}
-        </span>
-        {model ? (
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            ({model})
-          </span>
-        ) : !provider ? (
-          <span className="text-xs text-amber-500 flex items-center gap-1">
-            <Key className="w-3 h-3" />
-            Not configured
-          </span>
-        ) : null}
+    <button
+      onClick={onSelect}
+      disabled={disabled}
+      className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
+        disabled
+          ? 'opacity-50 cursor-not-allowed border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/50'
+          : isSelected
+          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 ring-2 ring-blue-500/20'
+          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <div className="font-semibold text-gray-800 dark:text-gray-200">
+          {provider.name}
+        </div>
+        {isSelected && (
+          <div className="flex-shrink-0 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+            <Check className="w-4 h-4 text-white" />
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Provider
-          </label>
-          <SearchableCombobox
-            options={providerOptions}
-            value={provider}
-            onChange={(newProvider) => {
-              // Parent's onProviderChange handles setting both provider and default model
-              onProviderChange(newProvider);
-            }}
-            placeholder="Search providers..."
-            allowCustom={false}
-          />
+      {disabled && (
+        <div className="mt-1 text-xs text-red-500">
+          Needs {provider.env_var}
         </div>
+      )}
+    </button>
+  );
+}
 
+interface ModelCardProps {
+  model: string;
+  isSelected: boolean;
+  isDefault: boolean;
+  onSelect: () => void;
+}
+
+function ModelCard({ model, isSelected, isDefault, onSelect }: ModelCardProps) {
+  return (
+    <button
+      onClick={onSelect}
+      className={`w-full p-3 rounded-lg border-2 text-left transition-all ${
+        isSelected
+          ? 'border-green-500 bg-green-50 dark:bg-green-900/30 ring-2 ring-green-500/20'
+          : 'border-gray-200 dark:border-gray-700 hover:border-green-300 dark:hover:border-green-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-gray-800 dark:text-gray-200 text-sm">
+            {model}
+          </span>
+          {isDefault && (
+            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full">
+              <Sparkles className="w-3 h-3" />
+              Recommended
+            </span>
+          )}
+        </div>
+        {isSelected && (
+          <div className="flex-shrink-0 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+            <Check className="w-3 h-3 text-white" />
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// Per-agent option toggle component
+interface OptionToggleProps {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+  icon: React.ReactNode;
+  label: string;
+  description?: string;
+}
+
+function OptionToggle({ enabled, onChange, icon, label, description }: OptionToggleProps) {
+  return (
+    <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+      <div className="flex items-center gap-3">
+        <div className="text-gray-500 dark:text-gray-400">{icon}</div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Model {modelOptions.length > 0 && (
-              <span className="text-xs text-gray-500 font-normal ml-1">
-                ({modelOptions.length} available)
-              </span>
-            )}
-          </label>
-          <SearchableCombobox
-            options={modelOptions}
-            value={model}
-            onChange={onModelChange}
-            placeholder={
-              !provider
-                ? 'Select provider first'
-                : loadingModels[provider]
-                ? 'Loading models...'
-                : modelOptions.length > 0
-                ? `Search ${modelOptions.length} models...`
-                : 'Type a model name...'
-            }
-            disabled={!provider}
-            loading={loadingModels[provider] || false}
-            allowCustom={true}  // Allow custom model names
-          />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
+          {description && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
+          )}
         </div>
       </div>
-    </div>
+      <div className="relative">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className="sr-only peer"
+        />
+        <div className="w-10 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-blue-500 transition-colors" />
+        <div className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-4 transition-transform" />
+      </div>
+    </label>
   );
 }
 
@@ -144,10 +128,137 @@ export function AgentConfigStep() {
   const providers = useWizardStore((s) => s.providers);
   const agents = useWizardStore((s) => s.agents);
   const setupMode = useWizardStore((s) => s.setupMode);
+  const useDocker = useWizardStore((s) => s.useDocker);
   const setAgentConfig = useWizardStore((s) => s.setAgentConfig);
   const setAllAgentsConfig = useWizardStore((s) => s.setAllAgentsConfig);
+  const setAgentWebSearch = useWizardStore((s) => s.setAgentWebSearch);
+  const setAgentCodeExecution = useWizardStore((s) => s.setAgentCodeExecution);
+  const setAgentSystemMessage = useWizardStore((s) => s.setAgentSystemMessage);
+  const dynamicModels = useWizardStore((s) => s.dynamicModels);
+  const loadingModels = useWizardStore((s) => s.loadingModels);
+  const fetchDynamicModels = useWizardStore((s) => s.fetchDynamicModels);
+  const providerCapabilities = useWizardStore((s) => s.providerCapabilities);
+  const loadingCapabilities = useWizardStore((s) => s.loadingCapabilities);
+  const fetchProviderCapabilities = useWizardStore((s) => s.fetchProviderCapabilities);
+
+  // Search/filter state
+  const [providerSearch, setProviderSearch] = useState('');
+  const [modelSearch, setModelSearch] = useState('');
+
+  // For multi-agent different config, track which agent we're configuring
+  const [activeAgentIndex, setActiveAgentIndex] = useState(0);
 
   const availableProviders = providers.filter((p) => p.has_api_key);
+  const unavailableProviders = providers.filter((p) => !p.has_api_key);
+
+  // Get current agent's config
+  const currentAgent = setupMode === 'same' ? agents[0] : agents[activeAgentIndex];
+  const selectedProvider = providers.find((p) => p.id === currentAgent?.provider);
+
+  // Fetch models when provider changes
+  useEffect(() => {
+    if (currentAgent?.provider && !dynamicModels[currentAgent.provider]) {
+      fetchDynamicModels(currentAgent.provider);
+    }
+  }, [currentAgent?.provider, dynamicModels, fetchDynamicModels]);
+
+  // Fetch capabilities when provider changes
+  useEffect(() => {
+    if (currentAgent?.provider && !providerCapabilities[currentAgent.provider]) {
+      fetchProviderCapabilities(currentAgent.provider);
+    }
+  }, [currentAgent?.provider, providerCapabilities, fetchProviderCapabilities]);
+
+  // Get current provider's capabilities
+  const currentCapabilities: ProviderCapabilities | null = currentAgent?.provider
+    ? providerCapabilities[currentAgent.provider] || null
+    : null;
+  const isLoadingCapabilities = currentAgent?.provider
+    ? loadingCapabilities[currentAgent.provider] || false
+    : false;
+
+  // Get available models for selected provider
+  const availableModels = currentAgent?.provider
+    ? (dynamicModels[currentAgent.provider] || selectedProvider?.models || []).filter(m => m !== 'custom')
+    : [];
+
+  // Filter providers by search
+  const filteredAvailableProviders = providerSearch
+    ? availableProviders.filter(p =>
+        p.name.toLowerCase().includes(providerSearch.toLowerCase()) ||
+        p.id.toLowerCase().includes(providerSearch.toLowerCase())
+      )
+    : availableProviders;
+
+  const filteredUnavailableProviders = providerSearch
+    ? unavailableProviders.filter(p =>
+        p.name.toLowerCase().includes(providerSearch.toLowerCase()) ||
+        p.id.toLowerCase().includes(providerSearch.toLowerCase())
+      )
+    : unavailableProviders;
+
+  // Filter models by search
+  const filteredModels = modelSearch
+    ? availableModels.filter(m => m.toLowerCase().includes(modelSearch.toLowerCase()))
+    : availableModels;
+
+  // Handle provider selection
+  const handleProviderSelect = (providerId: string) => {
+    const providerInfo = providers.find((p) => p.id === providerId);
+    const defaultModel = providerInfo?.default_model === 'custom' ? '' : (providerInfo?.default_model || '');
+
+    if (setupMode === 'same') {
+      setAllAgentsConfig(providerId, defaultModel, false); // Reset web search to false when provider changes
+    } else {
+      setAgentConfig(activeAgentIndex, providerId, defaultModel, false);
+    }
+    setModelSearch(''); // Clear model search when provider changes
+  };
+
+  // Handle web search toggle
+  const handleWebSearchToggle = (enabled: boolean) => {
+    if (setupMode === 'same') {
+      // Update all agents
+      agents.forEach((_, index) => {
+        setAgentWebSearch(index, enabled);
+      });
+    } else {
+      setAgentWebSearch(activeAgentIndex, enabled);
+    }
+  };
+
+  // Handle code execution toggle
+  const handleCodeExecutionToggle = (enabled: boolean) => {
+    if (setupMode === 'same') {
+      // Update all agents
+      agents.forEach((_, index) => {
+        setAgentCodeExecution(index, enabled);
+      });
+    } else {
+      setAgentCodeExecution(activeAgentIndex, enabled);
+    }
+  };
+
+  // Handle system message change
+  const handleSystemMessageChange = (message: string) => {
+    if (setupMode === 'same') {
+      // Update all agents
+      agents.forEach((_, index) => {
+        setAgentSystemMessage(index, message);
+      });
+    } else {
+      setAgentSystemMessage(activeAgentIndex, message);
+    }
+  };
+
+  // Handle model selection
+  const handleModelSelect = (model: string) => {
+    if (setupMode === 'same') {
+      setAllAgentsConfig(currentAgent?.provider || '', model);
+    } else {
+      setAgentConfig(activeAgentIndex, currentAgent?.provider || '', model);
+    }
+  };
 
   if (availableProviders.length === 0) {
     return (
@@ -177,44 +288,6 @@ export function AgentConfigStep() {
     );
   }
 
-  // Same config for all agents
-  if (setupMode === 'same' && agents.length > 1) {
-    const firstAgent = agents[0] || { id: 'agent_a', provider: '', model: '' };
-
-    return (
-      <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: -20 }}
-        className="space-y-6"
-      >
-        <div>
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
-            Configure All Agents
-          </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            All {agents.length} agents will use the same configuration.
-          </p>
-        </div>
-
-        <AgentConfigRow
-          agentId="all_agents"
-          provider={firstAgent.provider}
-          model={firstAgent.model}
-          providers={providers}
-          onProviderChange={(provider) => {
-            const providerInfo = providers.find((p) => p.id === provider);
-            // For providers with dynamic model lists (like OpenRouter), don't set "custom" as default
-            const defaultModel = providerInfo?.default_model === 'custom' ? '' : (providerInfo?.default_model || '');
-            setAllAgentsConfig(provider, defaultModel);
-          }}
-          onModelChange={(model) => setAllAgentsConfig(firstAgent.provider, model)}
-        />
-      </motion.div>
-    );
-  }
-
-  // Different config per agent
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -222,32 +295,322 @@ export function AgentConfigStep() {
       exit={{ opacity: 0, x: -20 }}
       className="space-y-6"
     >
+      {/* Header */}
       <div>
         <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
-          Configure Each Agent
+          {setupMode === 'same' ? 'Configure All Agents' : 'Configure Each Agent'}
         </h2>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          Select a provider and model for each agent. Type to search or enter a custom model name.
+          {setupMode === 'same'
+            ? `All ${agents.length} agents will use the same provider and model.`
+            : 'Select a provider and model for each agent.'}
         </p>
       </div>
 
-      <div className="space-y-4">
-        {agents.map((agent, index) => (
-          <AgentConfigRow
-            key={agent.id}
-            agentId={agent.id}
-            provider={agent.provider}
-            model={agent.model}
-            providers={providers}
-            onProviderChange={(provider) => {
-              const providerInfo = providers.find((p) => p.id === provider);
-              // For providers with dynamic model lists (like OpenRouter), don't set "custom" as default
-              const defaultModel = providerInfo?.default_model === 'custom' ? '' : (providerInfo?.default_model || '');
-              setAgentConfig(index, provider, defaultModel);
-            }}
-            onModelChange={(model) => setAgentConfig(index, agent.provider, model)}
-          />
-        ))}
+      {/* Agent tabs for different config mode */}
+      {setupMode === 'different' && agents.length > 1 && (
+        <div className="flex gap-2 flex-wrap">
+          {agents.map((agent, index) => {
+            const letter = agent.id.replace('agent_', '').toUpperCase();
+            const isConfigured = agent.provider && agent.model;
+            return (
+              <button
+                key={agent.id}
+                onClick={() => setActiveAgentIndex(index)}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 ${
+                  activeAgentIndex === index
+                    ? 'bg-blue-500 text-white'
+                    : isConfigured
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-700'
+                }`}
+              >
+                <Bot className="w-4 h-4" />
+                Agent {letter}
+                {isConfigured && activeAgentIndex !== index && (
+                  <Check className="w-4 h-4" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Current selection summary */}
+      {currentAgent?.provider && (
+        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Bot className="w-5 h-5 text-blue-500" />
+            <div>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Current selection: </span>
+              <span className="font-medium text-gray-800 dark:text-gray-200">
+                {selectedProvider?.name || currentAgent.provider}
+              </span>
+              {currentAgent.model && (
+                <>
+                  <span className="text-gray-400 mx-2">/</span>
+                  <span className="font-medium text-green-600 dark:text-green-400">
+                    {currentAgent.model}
+                  </span>
+                </>
+              )}
+              {currentAgent.enable_web_search && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full">
+                  <Globe className="w-3 h-3" />
+                  Web Search
+                </span>
+              )}
+              {currentAgent.enable_code_execution && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-full">
+                  <Code className="w-3 h-3" />
+                  Code Execution
+                </span>
+              )}
+              {currentAgent.system_message && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded-full">
+                  <MessageSquare className="w-3 h-3" />
+                  Custom Instructions
+                </span>
+              )}
+            </div>
+          </div>
+          {currentAgent.provider && currentAgent.model && (
+            <div className="flex items-center gap-1 text-green-500">
+              <Check className="w-5 h-5" />
+              <span className="text-sm font-medium">Ready</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Two-column layout: Providers | Models */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Providers Column */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200">
+              1. Select Provider
+            </h3>
+            <span className="text-xs text-gray-500">
+              {availableProviders.length} available
+            </span>
+          </div>
+
+          {/* Provider search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={providerSearch}
+              onChange={(e) => setProviderSearch(e.target.value)}
+              placeholder="Search providers..."
+              className="w-full pl-10 pr-10 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600
+                       rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            {providerSearch && (
+              <button
+                onClick={() => setProviderSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Provider list - scrollable */}
+          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+            {filteredAvailableProviders.map((provider) => (
+              <ProviderCard
+                key={provider.id}
+                provider={provider}
+                isSelected={currentAgent?.provider === provider.id}
+                onSelect={() => handleProviderSelect(provider.id)}
+              />
+            ))}
+
+            {filteredUnavailableProviders.length > 0 && (
+              <>
+                <div className="text-xs text-gray-500 uppercase tracking-wide pt-4 pb-2">
+                  Unavailable (need API key)
+                </div>
+                {filteredUnavailableProviders.map((provider) => (
+                  <ProviderCard
+                    key={provider.id}
+                    provider={provider}
+                    isSelected={false}
+                    onSelect={() => {}}
+                    disabled
+                  />
+                ))}
+              </>
+            )}
+
+            {filteredAvailableProviders.length === 0 && filteredUnavailableProviders.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                No providers match "{providerSearch}"
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Models Column */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200">
+              2. Select Model
+            </h3>
+            {availableModels.length > 0 && (
+              <span className="text-xs text-gray-500">
+                {availableModels.length} models
+              </span>
+            )}
+          </div>
+
+          {!currentAgent?.provider ? (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 dark:bg-gray-800/50 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700">
+              <Bot className="w-12 h-12 mb-3 opacity-50" />
+              <p className="text-sm">Select a provider first</p>
+            </div>
+          ) : loadingModels[currentAgent.provider] ? (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
+              <p className="text-sm">Loading models...</p>
+            </div>
+          ) : (
+            <>
+              {/* Model search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={modelSearch}
+                  onChange={(e) => setModelSearch(e.target.value)}
+                  placeholder="Search models or type custom name..."
+                  className="w-full pl-10 pr-10 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600
+                           rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && modelSearch.trim()) {
+                      handleModelSelect(modelSearch.trim());
+                    }
+                  }}
+                />
+                {modelSearch && (
+                  <button
+                    onClick={() => setModelSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Custom model hint */}
+              {modelSearch && !filteredModels.includes(modelSearch) && (
+                <button
+                  onClick={() => handleModelSelect(modelSearch.trim())}
+                  className="w-full p-3 rounded-lg border-2 border-dashed border-blue-300 dark:border-blue-700
+                           bg-blue-50 dark:bg-blue-900/20 text-left hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-600 dark:text-blue-400 text-sm">
+                      Press Enter or click to use custom model:
+                    </span>
+                    <span className="font-medium text-blue-700 dark:text-blue-300">
+                      {modelSearch}
+                    </span>
+                  </div>
+                </button>
+              )}
+
+              {/* Model list - scrollable */}
+              <div className="space-y-2 max-h-[350px] overflow-y-auto pr-2">
+                {filteredModels.map((model) => (
+                  <ModelCard
+                    key={model}
+                    model={model}
+                    isSelected={currentAgent?.model === model}
+                    isDefault={model === selectedProvider?.default_model}
+                    onSelect={() => handleModelSelect(model)}
+                  />
+                ))}
+
+                {filteredModels.length === 0 && modelSearch && (
+                  <div className="text-center py-4 text-gray-500 text-sm">
+                    No models match "{modelSearch}"
+                  </div>
+                )}
+              </div>
+
+              {/* Per-agent options - show after model is selected */}
+              {currentAgent?.model && (
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    3. Agent Options
+                  </h4>
+                  {isLoadingCapabilities ? (
+                    <div className="flex items-center gap-2 text-gray-400 text-sm p-3">
+                      <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+                      <span>Loading options...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {/* Tool toggles - code execution only shown when Docker is NOT enabled */}
+                      {(currentCapabilities?.supports_web_search || (!useDocker && currentCapabilities?.supports_code_execution)) && (
+                        <div className="space-y-2">
+                          {currentCapabilities?.supports_web_search && (
+                            <OptionToggle
+                              enabled={currentAgent.enable_web_search ?? false}
+                              onChange={handleWebSearchToggle}
+                              icon={<Globe className="w-4 h-4" />}
+                              label="Web Search"
+                              description="Search the web for up-to-date information"
+                            />
+                          )}
+                          {/* Only show code execution when Docker is NOT enabled - Docker mode has its own code execution */}
+                          {!useDocker && currentCapabilities?.supports_code_execution && (
+                            <OptionToggle
+                              enabled={currentAgent.enable_code_execution ?? false}
+                              onChange={handleCodeExecutionToggle}
+                              icon={<Code className="w-4 h-4" />}
+                              label="Code Execution"
+                              description="Run code in provider's cloud sandbox"
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      {/* System message */}
+                      <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MessageSquare className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            System Message
+                          </span>
+                          <span className="text-xs text-gray-400">(optional)</span>
+                        </div>
+                        <textarea
+                          value={currentAgent.system_message ?? ''}
+                          onChange={(e) => handleSystemMessageChange(e.target.value)}
+                          placeholder="Add custom instructions for this agent..."
+                          rows={3}
+                          className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600
+                                   rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                                   resize-none placeholder-gray-400 dark:placeholder-gray-500"
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Custom instructions to guide the agent's behavior and responses
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </motion.div>
   );

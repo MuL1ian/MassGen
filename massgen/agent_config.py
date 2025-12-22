@@ -56,6 +56,11 @@ class CoordinationConfig:
                              - "low": Only for critical decisions/when blocked
                              - "medium": For significant decisions and design choices (default)
                              - "high": Frequently - whenever considering options or proposing approaches
+        response_depth: Controls test-time compute scaling for shadow agent responses.
+                       Determines how thorough/complex suggested solutions should be.
+                       - "low": Quick, simple responses; minimal solutions (e.g., basic HTML/CSS)
+                       - "medium": Balanced effort; standard solutions (default)
+                       - "high": Thorough responses; sophisticated solutions (e.g., React + Next.js)
         broadcast_timeout: Maximum time to wait for broadcast responses (seconds).
         broadcast_wait_by_default: If True, ask_others() blocks until responses collected (blocking mode).
                                    If False, ask_others() returns immediately for polling (polling mode).
@@ -75,6 +80,8 @@ class CoordinationConfig:
                        When workspace/ is needed for file operations, it is created automatically.
         skills_directory: Path to the skills directory. Default is .agent/skills which is where
                          openskills installs skills. This directory is scanned for available skills.
+        load_previous_session_skills: If True, scan .massgen/massgen_logs/ for SKILL.md files from
+                                     previous sessions and include them as available skills.
         persona_generator: Configuration for automatic persona generation to increase agent diversity.
                           When enabled, an LLM generates diverse system message personas for each agent.
         enable_subagents: If True, agents receive subagent MCP tools for spawning independent
@@ -97,6 +104,7 @@ class CoordinationConfig:
     max_tasks_per_plan: int = 10
     broadcast: Any = False  # False | "agents" | "human"
     broadcast_sensitivity: str = "medium"  # "low" | "medium" | "high" - Used in BroadcastCommunicationSection system prompts
+    response_depth: str = "medium"  # "low" | "medium" | "high" - Controls test-time compute scaling for shadow agents
     broadcast_timeout: int = 300
     broadcast_wait_by_default: bool = True
     max_broadcasts_per_agent: int = 10
@@ -105,6 +113,7 @@ class CoordinationConfig:
     use_skills: bool = False
     massgen_skills: List[str] = field(default_factory=list)
     skills_directory: str = ".agent/skills"
+    load_previous_session_skills: bool = False
     persona_generator: PersonaGeneratorConfig = field(default_factory=PersonaGeneratorConfig)
     enable_subagents: bool = False
     subagent_default_timeout: int = 300
@@ -127,6 +136,10 @@ class CoordinationConfig:
             # Validate sensitivity
             if self.broadcast_sensitivity not in ["low", "medium", "high"]:
                 raise ValueError(f"Invalid broadcast_sensitivity: {self.broadcast_sensitivity}. Must be 'low', 'medium', or 'high'")
+
+            # Validate response_depth
+            if self.response_depth not in ["low", "medium", "high"]:
+                raise ValueError(f"Invalid response_depth: {self.response_depth}. Must be 'low', 'medium', or 'high'")
 
             # Warn if both task planning and high-sensitivity broadcasts enabled
             if self.enable_agent_task_planning and self.broadcast_sensitivity == "high":
@@ -917,7 +930,6 @@ class AgentConfig:
             coordination_config=coordination_config,
         )
         config.debug_final_answer = debug_final_answer
-        return config
 
         # Set custom_system_instruction separately to avoid deprecation warning
         if custom_system_instruction is not None:

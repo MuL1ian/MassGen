@@ -9,16 +9,204 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
-**v0.1.24 (December 12, 2025)** - Enhanced Cost Tracking
-Expanded real-time cost tracking across multiple backends (OpenRouter, xAI, Gemini, Grok, Claude Code) with per-agent token breakdown, cost inspection command, and aggregated session totals.
+**v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
+Unified multimodal understanding via `read_media` tool and generation via `generate_media` tool. Web UI artifact previewer for documents, images, PDFs, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
 
-**v0.1.23 (December 10, 2025)** - Async Consistency & Web UI Automation Mode
-Enhanced multi-turn experience with persistent Docker containers, improved cancellation handling, turn history inspection commands, and Web UI automation mode for programmatic workflows.
+**v0.1.27 (December 19, 2025)** - Session Sharing, Log Analysis & Config Builder Enhancements
+Session sharing via GitHub Gist with `massgen export`. New `massgen logs` CLI command for run log analysis. Per-LLM call time tracking. Gemini 3 Flash model support. CLI config builder with per-agent web search, system messages, and coordination settings. Web UI context paths wizard and "Open in Browser" button.
 
-**v0.1.22 (December 8, 2025)** - Shadow Agent Architecture for Broadcast Responses
-Shadow agents now handle broadcast responses in parallel without interrupting parent agents. Each shadow inherits full conversation history and current turn context for context-aware responses.
+**v0.1.26 (December 17, 2025)** - Web UI Setup & Shadow Agent Depth Scaling
+New Web UI setup wizard for guided first-run configuration, Docker diagnostics module with platform-specific resolution, and shadow agent response depth for test-time compute scaling.
 
 ---
+
+## [0.1.28] - 2025-12-22
+
+### Added
+- **Web UI Artifact Previewer**: Preview workspace artifacts directly in the web interface
+  - Support for multiple formats: PDF, DOCX, PPTX, XLSX, images, HTML, SVG, Markdown, Mermaid diagrams
+  - New `ArtifactPreviewModal` and `InlineArtifactPreview` components with Sandpack code preview
+
+### Changed
+- **Unified Multimodal Tools**: Consolidated `read_media` for understanding and `generate_media` for generation
+  - Understanding: Image, audio, and video analysis with backend selector routing to Gemini, OpenAI, or OpenRouter
+  - Generation: Create images (gpt-image-1, Imagen), videos (Sora, Veo), and audio (TTS) with provider selection
+  - New `generation/` module with modular `_image.py`, `_video.py`, `_audio.py` implementations
+
+- **OpenRouter Tool-Capable Model Filtering**: Model list now filters to only show models supporting tool calling
+  - Checks `supported_parameters` for "tools" capability before including models
+
+### Fixed
+- **Azure OpenAI Tool Calls and Workflow Integration**: Comprehensive fixes for Azure OpenAI backend
+  - Parameter filtering to exclude unsupported Azure parameters (`api_version`, `azure_endpoint`, `enable_rate_limit`)
+  - Fixed `tool_choice` parameter handling (only set when tools are provided)
+  - Message filtering for Azure's tool message validation requirements
+  - Fallback extraction for Azure's `{"content":"..."}` response format
+
+- **Web UI Display and Cancellation**: Fixed display issues and proper cancellation handling
+  - Coordination tracker display fixes
+  - Proper cancellation propagation in web server
+
+- **Docker Background Shell**: Fixed background shell execution in Docker environments
+
+- **Docker Sudo Configuration**: Fixed `Dockerfile.sudo` configuration
+
+### Documentations, Configurations and Resources
+
+- **Multimodal Tools Documentation**: Updated `massgen/tool/_multimodal_tools/TOOL.md` with generation capabilities
+- **Web UI Components**: New artifact renderer components in `webui/src/components/artifactRenderers/`
+
+### Technical Details
+- **Major Focus**: Multimodal backend integration, artifact preview system, Azure OpenAI compatibility
+- **Contributors**: @ncrispino @shubham2345 @AbhimanyuAryan and the MassGen team
+
+## [0.1.27] - 2025-12-19
+
+### Added
+- **Session Sharing via GitHub Gist**: Share MassGen sessions with collaborators using `massgen export` (MAS-16)
+  - Uploads session logs to GitHub Gist (requires `gh` CLI authenticated)
+  - Returns shareable URL to MassGen Viewer (`https://massgen.github.io/MassGen-Viewer/?gist=...`)
+  - Manage shares with `massgen shares list` and `massgen shares delete <gist_id>`
+  - Auto-excludes large files, debug logs, and redacts API keys
+  - New `massgen/share.py` module (373 lines)
+  - New `massgen/session_exporter.py` for session export logic
+
+- **Log Analysis CLI Command**: New `massgen logs` command for analyzing run logs with metrics visualization, tool breakdown, and export to JSON/CSV formats
+  - New `massgen/logs_analyzer.py` with `LogAnalyzer` class (433 lines)
+  - Enhanced `massgen/cli.py` with logs subcommand integration
+
+- **Per-LLM Call Time Tracking**: Detailed timing metrics for individual LLM API calls
+  - Track time spent on each API call across all backends (Claude, Gemini, OpenAI, Grok)
+  - Aggregate timing statistics in metrics summary
+  - Enhanced `massgen/backend/base.py` with timing instrumentation
+  - New timing fields in `massgen/backend/response.py`
+
+- **Gemini 3 Flash Model Support**: Added `gemini-3-flash-preview` model
+  - Enhanced `massgen/backend/capabilities.py` with new models and release dates
+  - New config: `massgen/configs/providers/gemini/gemini_3_flash.yaml`
+
+- **Web UI Context Paths Wizard**: New `ContextPathsStep` component in quickstart wizard for configuring file context paths
+
+- **Web UI "Open in Browser" Button**: Added button to open workspaces directly in browser from answer views
+  - Enhanced `massgen/frontend/web/server.py` with browser open endpoint
+
+### Changed
+- **CLI Config Builder Enhancements**: Per-agent web search toggles, system message configuration, and improved default model selection
+  - Enhanced `massgen/config_builder.py` with `_get_provider_capabilities()` helper (+234 lines)
+  - Added per-agent `enable_web_search` toggle and system message prompts during quickstart
+
+- **Logging System Improvements**: Enhanced logger configuration with better formatting and file output (`logger_config.py`)
+
+### Fixed
+- **Web Search Call Message Preservation**: Fixed response formatter to preserve `web_search_call` messages like reasoning messages (`_response_formatter.py`)
+
+- **Claude Code Tool Permissions**: Fixed tool allow issue for Claude Code backend
+  - Fixed `massgen/backend/claude_code.py`
+  - Fixed `massgen/filesystem_manager/_filesystem_manager.py`
+
+- **Orchestrator Workflow Timeout**: Fixed timeout handling in orchestrator error respawn logic (`massgen/orchestrator.py`)
+
+- **Workflow Restart Loop**: Fixed issue where workflow would search first then keep running into workflow restarted errors (`massgen/backend/response.py`)
+
+### Documentations, Configurations and Resources
+
+- **Session Sharing Documentation**:
+  - Updated `docs/source/user_guide/logging.rst`: Sharing sessions guide
+  - Updated `docs/source/reference/cli.rst`: Export and shares CLI reference
+  - Updated `docs/source/quickstart/running-massgen.rst`: Quickstart sharing guide
+
+- **Log Analysis Documentation**:
+  - Updated `docs/source/user_guide/logging.rst`: `massgen logs` command guide
+
+- **Configuration Examples**:
+  - `massgen/configs/providers/gemini/gemini_3_flash.yaml`: Gemini 3 Flash configuration
+  - `massgen/configs/debug/error_respawn_test.yaml`: Orchestrator error respawn testing
+
+- **Web UI Components**:
+  - New `webui/src/components/wizard/ContextPathsStep.tsx` (234 lines): Context paths wizard step
+  - Enhanced `webui/src/stores/wizardStore.ts`: Context path state management
+  - Enhanced `webui/src/components/FinalAnswerView.tsx`: Share and open in browser buttons
+
+### Technical Details
+- **Major Focus**: Session sharing, log analysis tooling, per-LLM timing, CLI config builder UX, Web UI enhancements
+- **Contributors**: @ncrispino @praneeth999 and the MassGen team
+
+## [0.1.26] - 2025-12-17
+
+### Added
+- **Docker Diagnostics Module**: Comprehensive error detection with platform-specific resolution steps for Docker issues (binary not installed, daemon not running, permission denied, images missing)
+
+- **Web UI Setup & Configuration System**: Guided first-run experience with new `SetupPage`, `ConfigEditorModal`, `CoordinationStep` components, enhanced wizard flow, and backend API endpoints for API key management and environment checks
+
+- **Shadow Agent Response Depth**: Test-time compute scaling via `response_depth` parameter (`low`/`medium`/`high`) controlling solution complexity in broadcast responses
+
+### Changed
+- **Model Registry Updates**: Added GPT-5.1-Codex family (`gpt-5.1-codex-max`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`), updated Claude model naming to alias notation (`claude-sonnet-4-5`), changed defaults to `gpt-5.1-codex` and `claude-opus-4-5`
+
+- **Shadow Agent Claude Code Compatibility**: Special handling for Claude Code backend conversation history in shadow agent spawning
+
+### Fixed
+- **Claude Code API Key Handling**: Fixed API key configuration and environment variable handling
+
+- **Web UI Asset Loading**: Fixed configuration and static asset paths (MAS-160)
+
+- **Package Dependencies**: Fixed pyproject.toml dependency specification (MAS-161)
+
+### Documentations, Configurations and Resources
+
+- Updated agent communication docs with response depth and Claude Code limitation notice; added Claude Code API key examples to backend docs; updated broadcast config examples with `response_depth`
+
+### Technical Details
+- **Major Focus**: Web UI setup experience, Docker diagnostics, shadow agent test-time compute scaling
+- **Contributors**: @ncrispino and the MassGen team
+
+## [0.1.25] - 2025-12-15
+
+### Added
+- **UI-TARS Custom Tool**: New custom tool for ByteDance's UI-TARS-1.5-7B model for GUI automation with vision and reasoning
+  - Connects to UI-TARS via HuggingFace Inference Endpoints
+  - Image understanding capabilities for browser and desktop automation workflows
+
+- **GPT-5.2 Model Support**: Added OpenAI's latest GPT-5.2 model as new default (replacing gpt-5.1)
+
+- **Evolving Skill Creator System**: Framework for creating and iterating on reusable workflow plans
+  - Skills capture steps, Python scripts, and learnings that improve through iteration
+  - Support for loading skills from previous sessions
+  - Enhanced system message builder (+67 lines) and system prompt sections (+130 lines)
+
+### Changed
+- **Textual Terminal Display Enhancement**: Improved terminal UI with adaptive layouts and dark/light theming
+  - Adaptive layout management for different terminal sizes and agent states
+  - Enhanced modal and panel components for better agent coordination visualization
+
+### Fixed
+- **OpenRouter Gemini Reasoning Details**: Preserved reasoning_details in streaming responses for complete reasoning chain
+
+- **LiteLLM Provider Context Paths**: Fixed file path handling for configuration and documentation references
+
+### Documentations, Configurations and Resources
+
+- **UI-TARS Configuration Examples**:
+  - `massgen/configs/tools/custom_tools/ui_tars_browser_example.yaml`: Browser automation example
+  - `massgen/configs/tools/custom_tools/ui_tars_docker_example.yaml`: Docker automation example
+
+- **Evolving Skills Documentation**:
+  - `massgen/configs/skills/skills_with_previous_sessions.yaml`: Previous session skills configuration
+  - `massgen/skills/evolving-skill-creator/SKILL.md` (209 lines): Skill creator guide
+  - Updated `docs/source/user_guide/tools/skills.rst` (+112 lines): Code mode guide
+
+- **Textual Terminal Themes**:
+  - `massgen/frontend/displays/textual_terminal/dark.tcss` (+164 lines)
+  - `massgen/frontend/displays/textual_terminal/light.tcss` (+180 lines)
+
+- **Documentation Updates**:
+  - Updated `docs/source/reference/python_api.rst` (+158 lines): LiteLLM provider guide
+  - Updated `docs/source/reference/supported_models.rst`: GPT-5.2 model entry
+  - Updated `docs/source/user_guide/backends.rst` (+11 lines): Backend updates
+
+### Technical Details
+- **Major Focus**: UI-TARS computer use backend, evolving skills framework, Textual terminal UI improvements
+- **Contributors**: @ncrispino @praneeth999 @franklinnwren and the MassGen team
 
 ## [0.1.24] - 2025-12-12
 

@@ -28,6 +28,8 @@ import json
 import os
 import shutil
 import sys
+import threading
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -794,6 +796,30 @@ def create_agents_from_config(
 
                 backend_config["context_paths"] = merged_paths
 
+            # Inherit enable_multimodal_tools from orchestrator if not set per-agent
+            if "enable_multimodal_tools" in orchestrator_config:
+                if "enable_multimodal_tools" not in backend_config:
+                    backend_config["enable_multimodal_tools"] = orchestrator_config["enable_multimodal_tools"]
+
+            # Inherit generation config from orchestrator if not set per-agent
+            # These set default backends/models for image/video/audio generation
+            generation_config_keys = [
+                "image_generation_backend",
+                "image_generation_model",
+                "video_generation_backend",
+                "video_generation_model",
+                "audio_generation_backend",
+                "audio_generation_model",
+            ]
+            for key in generation_config_keys:
+                if key in orchestrator_config and key not in backend_config:
+                    backend_config[key] = orchestrator_config[key]
+
+            # Also support nested multimodal_config from orchestrator
+            if "multimodal_config" in orchestrator_config:
+                if "multimodal_config" not in backend_config:
+                    backend_config["multimodal_config"] = orchestrator_config["multimodal_config"]
+
         # Add config path for better error messages
         if config_path:
             backend_config["_config_path"] = config_path
@@ -1472,6 +1498,7 @@ async def run_question_with_history(
             max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
             broadcast=coord_cfg.get("broadcast", False),
             broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+            response_depth=coord_cfg.get("response_depth", "medium"),
             broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
             broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
             max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
@@ -1480,6 +1507,7 @@ async def run_question_with_history(
             use_skills=coord_cfg.get("use_skills", False),
             massgen_skills=coord_cfg.get("massgen_skills", []),
             skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+            load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
             persona_generator=persona_generator_config,
             enable_subagents=coord_cfg.get("enable_subagents", False),
             subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
@@ -1566,6 +1594,7 @@ async def run_question_with_history(
                 max_tasks_per_plan=coordination_settings.get("max_tasks_per_plan", 10),
                 broadcast=coordination_settings.get("broadcast", False),
                 broadcast_sensitivity=coordination_settings.get("broadcast_sensitivity", "medium"),
+                response_depth=coordination_settings.get("response_depth", "medium"),
                 broadcast_timeout=coordination_settings.get("broadcast_timeout", 300),
                 broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
                 max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
@@ -1574,6 +1603,7 @@ async def run_question_with_history(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coordination_settings.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
                 enable_subagents=coordination_settings.get("enable_subagents", False),
                 subagent_default_timeout=coordination_settings.get("subagent_default_timeout", 300),
@@ -1926,6 +1956,7 @@ async def run_single_question(
                 max_tasks_per_plan=coordination_settings.get("max_tasks_per_plan", 10),
                 broadcast=coordination_settings.get("broadcast", False),
                 broadcast_sensitivity=coordination_settings.get("broadcast_sensitivity", "medium"),
+                response_depth=coordination_settings.get("response_depth", "medium"),
                 broadcast_timeout=coordination_settings.get("broadcast_timeout", 300),
                 broadcast_wait_by_default=coordination_settings.get("broadcast_wait_by_default", True),
                 max_broadcasts_per_agent=coordination_settings.get("max_broadcasts_per_agent", 10),
@@ -1934,6 +1965,7 @@ async def run_single_question(
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coordination_settings.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
                 enable_subagents=coordination_settings.get("enable_subagents", False),
                 subagent_default_timeout=coordination_settings.get("subagent_default_timeout", 300),
@@ -2010,6 +2042,7 @@ async def run_single_question(
                 max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
                 broadcast=coord_cfg.get("broadcast", False),
                 broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                response_depth=coord_cfg.get("response_depth", "medium"),
                 broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
                 broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
                 max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
@@ -2018,6 +2051,7 @@ async def run_single_question(
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+                load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
                 enable_subagents=coord_cfg.get("enable_subagents", False),
                 subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
@@ -2818,99 +2852,70 @@ def check_docker_available() -> bool:
     Returns:
         True if Docker is ready with MassGen images, False otherwise
     """
-    import subprocess
+    from massgen.utils.docker_diagnostics import diagnose_docker
 
-    # Check if Docker is installed and running
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    diagnostics = diagnose_docker()
+    return diagnostics.is_available
 
-    # Check if MassGen sudo image exists
-    try:
-        result = subprocess.run(
-            ["docker", "images", "-q", "ghcr.io/massgen/mcp-runtime-sudo:latest"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
 
-    return False
+def get_docker_diagnostics():
+    """Get detailed Docker diagnostics for error reporting.
+
+    Returns:
+        DockerDiagnostics object with full diagnostic information
+    """
+    from massgen.utils.docker_diagnostics import diagnose_docker
+
+    return diagnose_docker()
 
 
 def setup_docker() -> None:
     """Pull MassGen Docker executor images from GitHub Container Registry.
 
-    Allows interactive selection of which images to install.
-    Sudo image is recommended and selected by default.
+    Shows full diagnostics checklist and only offers to pull missing images.
     """
     import subprocess
 
     import questionary
     from questionary import Style
 
+    from massgen.utils.docker_diagnostics import diagnose_docker
+
     print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
     print(f"{BRIGHT_CYAN}  🐳  MassGen Docker Setup{RESET}")
     print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}\n")
 
-    # Check if Docker is installed
-    print(f"{BRIGHT_CYAN}Checking Docker installation...{RESET}", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            ["docker", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            print(f"{BRIGHT_RED}✗{RESET}")
-            print(f"\n{BRIGHT_RED}Error: Docker is not installed or not in PATH{RESET}")
-            print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
-            return
-        print(f"{BRIGHT_GREEN}✓{RESET}")
-    except FileNotFoundError:
-        print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker is not installed{RESET}")
-        print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
-        return
-    except subprocess.TimeoutExpired:
-        print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker command timed out{RESET}\n")
-        return
+    # Run comprehensive diagnostics INCLUDING image check
+    print(f"{BRIGHT_CYAN}Checking Docker status...{RESET}\n")
+    diagnostics = diagnose_docker(check_images=True)
 
-    # Check if Docker daemon is running
-    print(f"{BRIGHT_CYAN}Checking Docker daemon...{RESET}", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            print(f"{BRIGHT_RED}✗{RESET}")
-            print(f"\n{BRIGHT_RED}Error: Docker daemon is not running{RESET}")
-            print(f"{BRIGHT_YELLOW}Please start Docker and try again{RESET}\n")
-            return
-        print(f"{BRIGHT_GREEN}✓{RESET}")
-    except subprocess.TimeoutExpired:
-        print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker daemon check timed out{RESET}\n")
+    # Display full diagnostics checklist
+    version_info = f" ({diagnostics.docker_version})" if diagnostics.docker_version else ""
+    binary_status = f"{BRIGHT_GREEN}✓{RESET}" if diagnostics.binary_installed else f"{BRIGHT_RED}✗{RESET}"
+    print(f"  {binary_status} Docker binary installed{version_info}")
+
+    pip_status = f"{BRIGHT_GREEN}✓{RESET}" if diagnostics.pip_library_installed else f"{BRIGHT_RED}✗{RESET}"
+    print(f"  {pip_status} Docker Python library")
+
+    daemon_status = f"{BRIGHT_GREEN}✓{RESET}" if diagnostics.daemon_running else f"{BRIGHT_RED}✗{RESET}"
+    print(f"  {daemon_status} Docker daemon running")
+
+    perm_status = f"{BRIGHT_GREEN}✓{RESET}" if diagnostics.has_permissions else f"{BRIGHT_RED}✗{RESET}"
+    print(f"  {perm_status} Permissions OK")
+
+    # If not available, show error and resolution steps
+    if not diagnostics.is_available:
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
         return
 
     # Define available images with metadata
-    # Future: Add more images here as needed
     AVAILABLE_IMAGES = [
         {
             "name": "ghcr.io/massgen/mcp-runtime-sudo:latest",
@@ -2923,6 +2928,24 @@ def setup_docker() -> None:
             "default": False,
         },
     ]
+
+    # Show installed images status
+    print(f"\n{BRIGHT_CYAN}Installed Images:{RESET}")
+    installed_images = []
+    missing_images = []
+    for img in AVAILABLE_IMAGES:
+        img_name = img["name"]
+        if diagnostics.images_available.get(img_name, False):
+            print(f"  {BRIGHT_GREEN}✓{RESET} {img_name}")
+            installed_images.append(img_name)
+        else:
+            print(f"  {BRIGHT_RED}✗{RESET} {img_name}")
+            missing_images.append(img)
+
+    # If all images are installed, we're done
+    if not missing_images:
+        print(f"\n{BRIGHT_GREEN}✅ All Docker images are already installed!{RESET}\n")
+        return
 
     # Create questionary style matching the rest of the CLI
     custom_style = Style(
@@ -2938,18 +2961,19 @@ def setup_docker() -> None:
         ],
     )
 
-    # Let user select which images to install
-    print(f"{BRIGHT_CYAN}Select Docker images to install:{RESET}")
+    # Only offer to pull MISSING images
+    print(f"\n{BRIGHT_CYAN}Pull missing images?{RESET}")
     print(f"{BRIGHT_YELLOW}(Use Space to select/deselect, Enter to confirm){RESET}\n")
 
     try:
+        # Only show missing images in the selection
         choices = [
             questionary.Choice(
                 title=f"{img['description']}",
                 value=img["name"],
                 checked=img["default"],
             )
-            for img in AVAILABLE_IMAGES
+            for img in missing_images
         ]
 
         selected_images = questionary.checkbox(
@@ -3045,50 +3069,56 @@ def setup_computer_use_docker() -> bool:
     import tempfile
     from pathlib import Path
 
+    from massgen.utils.docker_diagnostics import diagnose_docker
+
     print(f"\n{BRIGHT_CYAN}{'=' * 60}{RESET}")
     print(f"{BRIGHT_CYAN}  🖥️  Computer Use Docker Container Setup{RESET}")
     print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}\n")
 
-    # Check if Docker is available
-    print(f"{BRIGHT_CYAN}Checking Docker installation...{RESET}", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            ["docker", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            print(f"{BRIGHT_RED}✗{RESET}")
-            print(f"\n{BRIGHT_RED}Error: Docker is not installed{RESET}")
-            print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
-            return False
-        print(f"{BRIGHT_GREEN}✓{RESET}")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    # Run comprehensive diagnostics (skip image check since we're setting up)
+    print(f"{BRIGHT_CYAN}Checking Docker...{RESET}", end=" ", flush=True)
+    diagnostics = diagnose_docker(check_images=False)
+
+    # Check if Docker is ready (binary, pip library, permissions, daemon)
+    if not diagnostics.binary_installed or not diagnostics.pip_library_installed:
         print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker is not available{RESET}")
-        print(f"{BRIGHT_YELLOW}Please install Docker: https://docs.docker.com/get-docker/{RESET}\n")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
         return False
 
-    # Check if Docker daemon is running
-    print(f"{BRIGHT_CYAN}Checking Docker daemon...{RESET}", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            print(f"{BRIGHT_RED}✗{RESET}")
-            print(f"\n{BRIGHT_RED}Error: Docker daemon is not running{RESET}")
-            print(f"{BRIGHT_YELLOW}Please start Docker and try again{RESET}\n")
-            return False
-        print(f"{BRIGHT_GREEN}✓{RESET}")
-    except subprocess.TimeoutExpired:
+    if not diagnostics.has_permissions:
         print(f"{BRIGHT_RED}✗{RESET}")
-        print(f"\n{BRIGHT_RED}Error: Docker daemon check timed out{RESET}\n")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
         return False
+
+    if not diagnostics.daemon_running:
+        print(f"{BRIGHT_RED}✗{RESET}")
+        print(f"\n{BRIGHT_RED}Error: {diagnostics.error_message}{RESET}")
+        print(f"\n{BRIGHT_YELLOW}To fix this:{RESET}")
+        for i, step in enumerate(diagnostics.resolution_steps, 1):
+            if step.startswith("  "):
+                print(f"{BRIGHT_YELLOW}{step}{RESET}")
+            else:
+                print(f"{BRIGHT_YELLOW}  {i}. {step}{RESET}")
+        print()
+        return False
+
+    print(f"{BRIGHT_GREEN}✓{RESET}")
+    if diagnostics.docker_version:
+        print(f"{BRIGHT_CYAN}  Docker version: {diagnostics.docker_version}{RESET}")
 
     # Check if container already exists
     print(f"{BRIGHT_CYAN}Checking for existing container...{RESET}", end=" ", flush=True)
@@ -3258,7 +3288,6 @@ CMD ["/start.sh"]
             print("  Browsers: Firefox, Chromium")
             print(f"\n{BRIGHT_CYAN}You can now run computer use examples:{RESET}")
             print('  massgen --config @examples/tools/computer_use_docker_example.yaml "Open Firefox"')
-            print('  massgen --config massgen/configs/tools/custom_tools/qwen_computer_use_docker_example.yaml "..."')
             print('  massgen --config massgen/configs/tools/custom_tools/ui_tars_docker_example.yaml "..."\n')
             return True
         else:
@@ -4791,6 +4820,89 @@ async def main(args):
 
 def cli_main():
     """Synchronous wrapper for CLI entry point."""
+    # Handle 'logs' subcommand specially before main argument parsing
+    # This avoids conflict with the positional 'question' argument
+    if len(sys.argv) >= 2 and sys.argv[1] == "logs":
+        from .logs_analyzer import logs_command
+
+        # Create a separate parser just for logs subcommand
+        logs_parser = argparse.ArgumentParser(
+            prog="massgen logs",
+            description="Analyze and display MassGen run logs",
+        )
+        logs_subparsers = logs_parser.add_subparsers(dest="logs_command", help="Log analysis commands")
+
+        # logs summary (default)
+        summary_parser = logs_subparsers.add_parser("summary", help="Display run summary (default)")
+        summary_parser.add_argument("--log-dir", type=str, help="Path to specific log directory")
+        summary_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+        # logs tools
+        tools_parser = logs_subparsers.add_parser("tools", help="Display tool breakdown")
+        tools_parser.add_argument("--sort", choices=["time", "calls"], default="time", help="Sort by time or calls")
+        tools_parser.add_argument("--log-dir", type=str, help="Path to specific log directory")
+        tools_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+        # logs list
+        list_parser = logs_subparsers.add_parser("list", help="List recent runs")
+        list_parser.add_argument("--limit", type=int, default=10, help="Number of runs to show")
+        list_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+        # logs open
+        open_parser = logs_subparsers.add_parser("open", help="Open log directory in file manager")
+        open_parser.add_argument("--log-dir", type=str, help="Path to specific log directory")
+
+        # Parse logs arguments (skip 'massgen logs')
+        logs_args = logs_parser.parse_args(sys.argv[2:])
+        sys.exit(logs_command(logs_args))
+
+    # Handle 'export' subcommand specially before main argument parsing
+    if len(sys.argv) >= 2 and sys.argv[1] == "export":
+        from .session_exporter import export_command
+
+        export_parser = argparse.ArgumentParser(
+            prog="massgen export",
+            description="Share MassGen session via GitHub Gist (requires gh CLI)",
+        )
+        export_parser.add_argument(
+            "log_dir",
+            nargs="?",
+            help="Log directory to export (default: latest). Can be full path or log name.",
+        )
+
+        export_args = export_parser.parse_args(sys.argv[2:])
+        sys.exit(export_command(export_args))
+
+    # Handle 'shares' subcommand for managing shared sessions
+    if len(sys.argv) >= 2 and sys.argv[1] == "shares":
+        from rich.console import Console
+
+        from .share import delete_share, list_shares
+
+        shares_parser = argparse.ArgumentParser(
+            prog="massgen shares",
+            description="Manage shared MassGen sessions",
+        )
+        shares_subparsers = shares_parser.add_subparsers(dest="shares_command")
+
+        # massgen shares list
+        shares_subparsers.add_parser("list", help="List your shared sessions")
+
+        # massgen shares delete <gist_id>
+        delete_parser = shares_subparsers.add_parser("delete", help="Delete a shared session")
+        delete_parser.add_argument("gist_id", help="Gist ID to delete")
+
+        shares_args = shares_parser.parse_args(sys.argv[2:])
+        console = Console()
+
+        if shares_args.shares_command == "list":
+            sys.exit(list_shares(console))
+        elif shares_args.shares_command == "delete":
+            sys.exit(delete_share(shares_args.gist_id, console))
+        else:
+            shares_parser.print_help()
+            sys.exit(1)
+
     parser = argparse.ArgumentParser(
         description="MassGen - Multi-Agent Coordination CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -5134,6 +5246,8 @@ Environment Variables:
             print(f"📄 Using config from session: {session_config_path}")
 
     # Handle special commands first (before logging setup to avoid creating log dirs)
+    # Note: 'logs' subcommand is handled at the very start of cli_main()
+
     if args.list_sessions:
         from massgen.session import SessionRegistry, format_session_list
 
@@ -5185,7 +5299,8 @@ Environment Variables:
         logger.debug(f"Command line arguments: {vars(args)}")
 
     # Launch interactive API key setup if requested
-    if args.setup:
+    # Skip terminal setup if --web is also provided (web UI will handle setup)
+    if args.setup and not args.web:
         builder = ConfigBuilder()
         api_keys = builder.interactive_api_key_setup()
 
@@ -5204,12 +5319,14 @@ Environment Variables:
         except (KeyboardInterrupt, EOFError):
             print()
 
-        # Offer to install skills
+        # Show skills summary and offer to install more
         try:
-            skills_choice = input(f"{BRIGHT_CYAN}Would you like to install skills (openskills, Anthropic collection)? [Y/n]: {RESET}").strip().lower()
-            if skills_choice in ["y", "yes", ""]:
-                from .utils.skills_installer import install_skills
+            from .utils.skills_installer import display_skills_summary, install_skills
 
+            display_skills_summary()
+
+            skills_choice = input(f"{BRIGHT_CYAN}Would you like to install additional skills (openskills, Anthropic collection)? [Y/n]: {RESET}").strip().lower()
+            if skills_choice in ["y", "yes", ""]:
                 install_skills()
         except (KeyboardInterrupt, EOFError):
             print()
@@ -5246,16 +5363,17 @@ Environment Variables:
             else:
                 print(f"{BRIGHT_YELLOW}   No config specified - use --config or select in UI{RESET}")
 
-            # Build auto-launch URL if question is provided
-            auto_url = None
-            if question:
-                import urllib.parse
+            # Build auto-launch URL with question and/or config if provided
+            import urllib.parse
 
-                prompt_encoded = urllib.parse.quote(question)
-                auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
-                if config_path:
-                    config_encoded = urllib.parse.quote(config_path)
-                    auto_url += f"&config={config_encoded}"
+            base_url = f"http://{args.web_host}:{args.web_port}/"
+            url_params = []
+            if question:
+                url_params.append(f"prompt={urllib.parse.quote(question)}")
+            if config_path:
+                url_params.append(f"config={urllib.parse.quote(config_path)}")
+            auto_url = f"{base_url}?{'&'.join(url_params)}" if url_params else base_url
+            if url_params:
                 print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
 
             if automation_mode:
@@ -5269,11 +5387,16 @@ Environment Variables:
             # Auto-open browser (unless --no-browser or automation mode)
             no_browser = getattr(args, "no_browser", False)
             if not no_browser and not automation_mode:
-                import threading
-                import webbrowser
-
                 # Use auto_url if available, otherwise just open the base URL
                 browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+                # Remove trailing slash to avoid double slashes
+                browser_url = browser_url.rstrip("/")
+
+                # Check for --setup or --quickstart flags to open specific pages
+                if getattr(args, "setup", False):
+                    browser_url += "/setup"
+                elif getattr(args, "quickstart", False):
+                    browser_url += "/?wizard=open"
 
                 def open_browser():
                     import time
@@ -5333,7 +5456,8 @@ Environment Variables:
             return
 
     # Launch quickstart if requested
-    if args.quickstart:
+    # Skip terminal quickstart if --web is also provided (web UI will show wizard directly)
+    if args.quickstart and not args.web:
         builder = ConfigBuilder()
         result = builder.run_quickstart()
 
@@ -5344,10 +5468,48 @@ Environment Variables:
             interface_choice = result[2] if len(result) >= 3 else "terminal"
 
             if filepath and interface_choice == "web":
-                # Launch web UI
-                args.config = filepath
-                args.web = True
-                # Let the web launch code handle it below
+                # Launch web UI directly (web launch code above has already been evaluated)
+                try:
+                    from .frontend.web import run_server
+
+                    config_path = filepath
+                    # Use the question from quickstart if provided
+                    prompt_question = question if question else None
+
+                    print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+                    print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+                    print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+
+                    # Build auto-launch URL if question is provided
+                    auto_url = None
+                    if prompt_question:
+                        import urllib.parse
+
+                        prompt_encoded = urllib.parse.quote(prompt_question)
+                        auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                        config_encoded = urllib.parse.quote(config_path)
+                        auto_url += f"&config={config_encoded}"
+                        print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+                    print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+                    # Auto-open browser
+                    browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+
+                    def open_browser():
+                        import time
+
+                        time.sleep(0.5)  # Wait for server to start
+                        webbrowser.open(browser_url)
+
+                    threading.Thread(target=open_browser, daemon=True).start()
+                    run_server(host=args.web_host, port=args.web_port, config_path=config_path, automation_mode=False)
+                except ImportError as e:
+                    print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+                    print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+                    logger.debug(f"Import error: {e}")
+                    sys.exit(1)
+                return
             elif filepath and question:
                 # Update args to use the newly created config and launch interactive mode with initial question
                 args.config = filepath
@@ -5499,8 +5661,47 @@ Environment Variables:
 
                     # Check if user chose web interface
                     if interface_choice == "web":
-                        args.web = True
-                        # Let the web launch code handle it below
+                        # Launch web UI directly (web launch code above has already been evaluated)
+                        try:
+                            from .frontend.web import run_server
+
+                            config_path = filepath
+                            prompt_question = question if question else None
+
+                            print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+                            print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+                            print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+
+                            # Build auto-launch URL if question is provided
+                            auto_url = None
+                            if prompt_question:
+                                import urllib.parse
+
+                                prompt_encoded = urllib.parse.quote(prompt_question)
+                                auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                                config_encoded = urllib.parse.quote(config_path)
+                                auto_url += f"&config={config_encoded}"
+                                print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+                            print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+                            # Auto-open browser
+                            browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+
+                            def open_browser():
+                                import time
+
+                                time.sleep(0.5)
+                                webbrowser.open(browser_url)
+
+                            threading.Thread(target=open_browser, daemon=True).start()
+                            run_server(host=args.web_host, port=args.web_port, config_path=config_path, automation_mode=False)
+                        except ImportError as e:
+                            print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+                            print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+                            logger.debug(f"Import error: {e}")
+                            sys.exit(1)
+                        return
                     elif question:
                         # If user provided a question, set it
                         args.question = question

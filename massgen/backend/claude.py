@@ -569,11 +569,37 @@ class ClaudeBackend(CustomToolAndMCPBackend):
             else:
                 api_params.pop("tools", None)
 
+        # Add custom tool schemas (they were filtered out above, now add them back)
+        if self._custom_tool_names:
+            custom_tool_schemas = self._get_custom_tools_schemas()
+            if custom_tool_schemas:
+                if "tools" not in api_params:
+                    api_params["tools"] = []
+                # Convert from OpenAI format to Claude format
+                for schema in custom_tool_schemas:
+                    if schema.get("type") == "function":
+                        func = schema.get("function", {})
+                        claude_tool = {
+                            "name": func.get("name"),
+                            "description": func.get("description", ""),
+                            "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+                        }
+                        api_params["tools"].append(claude_tool)
+                logger.debug(f"[Claude] Added {len(custom_tool_schemas)} custom tool schemas")
+
+        # Start API call timing
+        model = api_params.get("model", "unknown")
+        self.start_api_call_timing(model)
+
         # Create stream (handle betas)
-        if "betas" in api_params:
-            stream = await client.beta.messages.create(**api_params)
-        else:
-            stream = await client.messages.create(**api_params)
+        try:
+            if "betas" in api_params:
+                stream = await client.beta.messages.create(**api_params)
+            else:
+                stream = await client.messages.create(**api_params)
+        except Exception as e:
+            self.end_api_call_timing(success=False, error=str(e))
+            raise
 
         # Process stream chunks
         async for chunk in self._process_stream(stream, all_params, agent_id):
@@ -596,12 +622,15 @@ class ClaudeBackend(CustomToolAndMCPBackend):
 
         Note:
             Claude uses tool_result format with tool_use_id.
-            All tool_result blocks for a given assistant turn MUST be in a SINGLE user message immediately after the assistant message with tool_use blocks
+            All tool_result blocks for a given assistant turn MUST be in a SINGLE user message immediately after the assistant message with tool_use blocks.
         """
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
         tool_result_block = {
             "type": "tool_result",
             "tool_use_id": call.get("call_id", "") or call.get("id", ""),
-            "content": str(result),
+            "content": result_text,
         }
 
         tool_result_msg_idx = None
@@ -773,11 +802,19 @@ class ClaudeBackend(CustomToolAndMCPBackend):
             )
             kwargs["_strict_tool_use_logged"] = True
 
+        # Start API call timing
+        model = api_params.get("model", "unknown")
+        self.start_api_call_timing(model)
+
         # Create stream (handle code execution beta)
-        if "betas" in api_params:
-            stream = await client.beta.messages.create(**api_params)
-        else:
-            stream = await client.messages.create(**api_params)
+        try:
+            if "betas" in api_params:
+                stream = await client.beta.messages.create(**api_params)
+            else:
+                stream = await client.messages.create(**api_params)
+        except Exception as e:
+            self.end_api_call_timing(success=False, error=str(e))
+            raise
 
         content = ""
         current_tool_uses: Dict[str, Dict[str, Any]] = {}
@@ -872,6 +909,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                 elif event.type == "content_block_delta":
                     if hasattr(event, "delta"):
                         if event.delta.type == "text_delta":
+                            self.record_first_token()  # Record TTFT on first content
                             text_chunk = event.delta.text
                             content += text_chunk
                             log_backend_agent_message(
@@ -1029,6 +1067,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                     if non_mcp_non_custom_tool_calls:
                         log_stream_chunk("backend.claude", "tool_calls", non_mcp_non_custom_tool_calls, agent_id)
                         yield StreamChunk(type="tool_calls", tool_calls=non_mcp_non_custom_tool_calls)
+                    self.end_api_call_timing(success=True)
                     response_completed = True
                     break
             except Exception as event_error:
@@ -1347,6 +1386,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                 elif chunk.type == "content_block_delta":
                     if hasattr(chunk, "delta"):
                         if chunk.delta.type == "text_delta":
+                            self.record_first_token()  # Record TTFT on first content
                             text_chunk = chunk.delta.text
                             content_local += text_chunk
                             log_backend_agent_message(
@@ -1497,6 +1537,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                     if all_params.get("enable_code_execution", False):
                         self.code_session_hours += 0.083
 
+                    self.end_api_call_timing(success=True)
                     log_stream_chunk("backend.claude", "done", None, agent_id)
                     yield StreamChunk(type="done")
                     return
@@ -1619,8 +1660,6 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         compatible_patterns = [
             "claude-opus-4-5",
             "claude-sonnet-4-5",
-            "claude-opus-4.5",
-            "claude-sonnet-4.5",
         ]
         is_compatible = any(pattern in model for pattern in compatible_patterns)
 

@@ -9,21 +9,25 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight, Loader2, Wand2 } from 'lucide-react';
 import { useWizardStore, WizardStep } from '../stores/wizardStore';
 import {
+  ContextPathsStep,
   DockerStep,
   ApiKeyStep,
   AgentCountStep,
   SetupModeStep,
   AgentConfigStep,
+  CoordinationStep,
   PreviewStep,
 } from './wizard';
 
 const stepConfig: Record<WizardStep, { title: string; subtitle: string }> = {
-  docker: { title: 'Execution Mode', subtitle: 'Step 1 of 6' },
-  apiKeys: { title: 'API Keys', subtitle: 'Step 2 of 6' },
-  agentCount: { title: 'Number of Agents', subtitle: 'Step 3 of 6' },
-  setupMode: { title: 'Setup Mode', subtitle: 'Step 4 of 6' },
-  agentConfig: { title: 'Agent Configuration', subtitle: 'Step 5 of 6' },
-  preview: { title: 'Review & Save', subtitle: 'Step 6 of 6' },
+  docker: { title: 'Execution Mode', subtitle: 'Step 1 of 8' },
+  apiKeys: { title: 'API Keys', subtitle: 'Step 2 of 8' },
+  agentCount: { title: 'Number of Agents', subtitle: 'Step 3 of 8' },
+  setupMode: { title: 'Setup Mode', subtitle: 'Step 4 of 8' },
+  agentConfig: { title: 'Agent Configuration', subtitle: 'Step 5 of 8' },
+  coordination: { title: 'Coordination Settings', subtitle: 'Step 6 of 8' },
+  context: { title: 'Context Paths', subtitle: 'Step 7 of 8' },
+  preview: { title: 'Review & Save', subtitle: 'Step 8 of 8' },
 };
 
 interface QuickstartWizardProps {
@@ -66,6 +70,8 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
   // Check if we can proceed to next step
   const canProceed = useCallback(() => {
     switch (currentStep) {
+      case 'context':
+        return true; // Context paths are optional
       case 'docker':
         return true; // Always can proceed from docker step
       case 'apiKeys':
@@ -78,6 +84,8 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
       case 'agentConfig':
         // All agents must have provider and model selected
         return agents.every((agent) => agent.provider && agent.model);
+      case 'coordination':
+        return true; // Coordination settings are optional, defaults are fine
       case 'preview':
         return true;
       default:
@@ -88,6 +96,8 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
   // Render current step content
   const renderStep = () => {
     switch (currentStep) {
+      case 'context':
+        return <ContextPathsStep />;
       case 'docker':
         return <DockerStep />;
       case 'apiKeys':
@@ -98,6 +108,8 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
         return <SetupModeStep />;
       case 'agentConfig':
         return <AgentConfigStep />;
+      case 'coordination':
+        return <CoordinationStep />;
       case 'preview':
         return <PreviewStep />;
       default:
@@ -122,7 +134,7 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
-            className="relative w-full max-w-4xl max-h-[90vh] bg-white dark:bg-gray-900
+            className="relative w-full max-w-6xl mx-4 h-[90vh] bg-white dark:bg-gray-900
                        rounded-xl shadow-2xl flex flex-col"
           >
             {/* Header */}
@@ -152,8 +164,8 @@ export function QuickstartWizard({ onConfigSaved }: QuickstartWizardProps) {
             {/* Progress Bar */}
             <div className="px-6 py-2 bg-gray-50 dark:bg-gray-800/50">
               <div className="flex items-center gap-2">
-                {['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'preview'].map((step, index) => {
-                  const allSteps = ['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'preview'];
+                {['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'coordination', 'context', 'preview'].map((step, index) => {
+                  const allSteps = ['docker', 'apiKeys', 'agentCount', 'setupMode', 'agentConfig', 'coordination', 'context', 'preview'];
                   const stepIndex = allSteps.indexOf(currentStep);
                   const isActive = index === stepIndex;
                   const isComplete = index < stepIndex;

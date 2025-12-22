@@ -59,7 +59,7 @@ interface FileNodeProps {
 }
 
 function FileNode({ node, depth }: FileNodeProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const operationIcon = {
     create: <Plus className="w-3 h-3 text-green-500" />,

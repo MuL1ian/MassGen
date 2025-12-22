@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..logger_config import logger
 from ..mcp_tools.hooks import HookResult
 from ._base import Permission
+from ._constants import BINARY_FILE_EXTENSIONS, DEFAULT_EXCLUDED_DIRS
 from ._file_operation_tracker import FileOperationTracker
 from ._workspace_tools_server import get_copy_file_pairs
 
@@ -75,82 +76,12 @@ class PathPermissionManager:
     - Path access control
     """
 
-    DEFAULT_EXCLUDED_PATTERNS = [
-        ".massgen",
-        ".env",
-        ".git",
-        "node_modules",
-        "__pycache__",
-        ".venv",
-        "venv",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        ".DS_Store",
-        "massgen_logs",
-    ]
+    # Use centralized constants
+    DEFAULT_EXCLUDED_PATTERNS = list(DEFAULT_EXCLUDED_DIRS)
 
     # Binary file extensions that should not be read by text-based tools
     # These files should be handled by specialized tools (understand_image, understand_video, etc.)
-    BINARY_FILE_EXTENSIONS = {
-        # Images
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".gif",
-        ".bmp",
-        ".ico",
-        ".svg",
-        ".webp",
-        ".tiff",
-        ".tif",
-        # Videos
-        ".mp4",
-        ".avi",
-        ".mov",
-        ".mkv",
-        ".flv",
-        ".wmv",
-        ".webm",
-        ".m4v",
-        ".mpg",
-        ".mpeg",
-        # Audio
-        ".mp3",
-        ".wav",
-        ".ogg",
-        ".flac",
-        ".aac",
-        ".m4a",
-        ".wma",
-        # Archives
-        ".zip",
-        ".tar",
-        ".gz",
-        ".bz2",
-        ".7z",
-        ".rar",
-        ".xz",
-        # Executables and binaries
-        ".exe",
-        ".bin",
-        ".dll",
-        ".so",
-        ".dylib",
-        ".o",
-        ".a",
-        ".pyc",
-        ".class",
-        ".jar",
-        # Office documents (binary formats - use understand_file tool)
-        ".doc",  # Old Word (not supported by understand_file)
-        ".xls",  # Old Excel (not supported by understand_file)
-        ".ppt",  # Old PowerPoint (not supported by understand_file)
-        ".pdf",  # PDF (supported by understand_file with PyPDF2)
-        ".docx",  # Word (supported by understand_file with python-docx)
-        ".xlsx",  # Excel (supported by understand_file with openpyxl)
-        ".pptx",  # PowerPoint (supported by understand_file with python-pptx)
-    }
+    BINARY_FILE_EXTENSIONS = BINARY_FILE_EXTENSIONS
 
     def __init__(
         self,

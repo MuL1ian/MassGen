@@ -10,6 +10,7 @@ from ._file_handlers import append_file_content, read_file_content, save_file_co
 from ._gemini_computer_use import gemini_computer_use
 from ._manager import ToolManager
 from ._result import ExecutionResult
+from ._ui_tars_computer_use import ui_tars_computer_use
 from .workflow_toolkits import (
     BaseToolkit,
     NewAnswerToolkit,
@@ -33,6 +34,7 @@ __all__ = [
     "computer_use",
     "claude_computer_use",
     "gemini_computer_use",
+    "ui_tars_computer_use",
     "browser_automation",
     "simple_browser_automation",
     "dashscope_generate_image",

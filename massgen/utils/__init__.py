@@ -73,12 +73,12 @@ MODEL_MAPPINGS = {
         "o4-mini-high",
     ],
     "claude": [
-        # Claude 4.5 variants (dot notation for OpenRouter/LiteLLM, date notation for direct API)
-        "claude-sonnet-4.5",
+        # Claude 4.5 variants
+        "claude-sonnet-4-5",
         "claude-sonnet-4-5-20250929",
-        "claude-opus-4.5",
+        "claude-opus-4-5",
         "claude-opus-4-5-20251101",
-        "claude-haiku-4.5",
+        "claude-haiku-4-5",
         "claude-haiku-4-5-20251001",
         # Claude 4 variants
         "claude-opus-4",
@@ -87,10 +87,10 @@ MODEL_MAPPINGS = {
         "claude-sonnet-4",
         "claude-sonnet-4-20250514",
         # Claude 3.7 variants
-        "claude-3.7-sonnet",
+        "claude-3-7-sonnet",
         "claude-3-7-sonnet-20250219",
         # Claude 3.5 variants
-        "claude-3.5-sonnet",
+        "claude-3-5-sonnet",
         "claude-3-5-sonnet-latest",
         "claude-3-5-haiku-latest",
         "claude-3-5-sonnet-20250114",

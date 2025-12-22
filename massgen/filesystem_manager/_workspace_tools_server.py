@@ -30,6 +30,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import fastmcp
 
+from massgen.filesystem_manager._constants import CRITICAL_DIRS
+
 
 def get_copy_file_pairs(
     allowed_paths: List[Path],
@@ -168,20 +170,6 @@ def _is_critical_path(path: Path, allowed_paths: List[Path] = None) -> bool:
         _is_critical_path(Path("/home/.massgen/workspaces/workspace1/user_dir"), [workspace])  → False (allowed)
         _is_critical_path(Path("/home/.massgen/workspaces/workspace1/.git"), [workspace])  → True (blocked)
     """
-    CRITICAL_PATTERNS = [
-        ".git",
-        ".env",
-        ".massgen",
-        "node_modules",
-        "__pycache__",
-        ".venv",
-        "venv",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        "massgen_logs",
-    ]
-
     resolved_path = path.resolve()
 
     # If path is within an allowed workspace, only check for critical patterns
@@ -193,10 +181,10 @@ def _is_critical_path(path: Path, allowed_paths: List[Path] = None) -> bool:
                 rel_path = resolved_path.relative_to(allowed_path.resolve())
                 # Only check parts within the workspace
                 for part in rel_path.parts:
-                    if part in CRITICAL_PATTERNS:
+                    if part in CRITICAL_DIRS:
                         return True
                 # Check if the file name itself is critical
-                if resolved_path.name in CRITICAL_PATTERNS:
+                if resolved_path.name in CRITICAL_DIRS:
                     return True
                 # Path is within workspace and not critical
                 return False
@@ -207,11 +195,11 @@ def _is_critical_path(path: Path, allowed_paths: List[Path] = None) -> bool:
     # Path is not within any allowed workspace, check entire path
     parts = resolved_path.parts
     for part in parts:
-        if part in CRITICAL_PATTERNS:
+        if part in CRITICAL_DIRS:
             return True
 
     # Check if the file name itself is critical
-    if resolved_path.name in CRITICAL_PATTERNS:
+    if resolved_path.name in CRITICAL_DIRS:
         return True
 
     return False

@@ -1,43 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 Convert text (transcription) directly to speech using OpenAI's TTS API with streaming response.
+
+This module is an alias for the unified generate_media tool.
+For new code, prefer using generate_media(prompt, mode="audio") directly.
 """
 
-import json
-import os
-from datetime import datetime
-from pathlib import Path
 from typing import List, Optional
 
-from dotenv import load_dotenv
-from openai import OpenAI
+from massgen.tool._result import ExecutionResult
 
-from massgen.tool._result import ExecutionResult, TextContent
-
-
-def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None) -> None:
-    """
-    Validate that a path is within allowed directories.
-
-    Args:
-        path: Path to validate
-        allowed_paths: List of allowed base paths (optional)
-        agent_cwd: Agent\'s current working directory (automatically injected)
-
-    Raises:
-        ValueError: If path is not within allowed directories
-    """
-    if not allowed_paths:
-        return  # No restrictions
-
-    for allowed_path in allowed_paths:
-        try:
-            path.relative_to(allowed_path)
-            return  # Path is within this allowed directory
-        except ValueError:
-            continue
-
-    raise ValueError(f"Path not in allowed directories: {path}")
+from .generation import generate_media
 
 
 async def text_to_speech_transcription_generation(
@@ -53,9 +26,8 @@ async def text_to_speech_transcription_generation(
     """
     Convert text (transcription) directly to speech using OpenAI's TTS API with streaming response.
 
-    This tool converts text directly to speech audio using OpenAI's Text-to-Speech API,
-    designed specifically for converting transcriptions or any text content to spoken audio.
-    Uses streaming response for efficient file handling.
+    This is an alias for generate_media(mode="audio", backend="openai").
+    For new code, prefer using generate_media directly.
 
     Args:
         input_text: The text content to convert to speech (e.g., transcription text)
@@ -73,24 +45,23 @@ async def text_to_speech_transcription_generation(
         audio_format: Output audio format (default: "mp3")
                      Options: "mp3", "opus", "aac", "flac", "wav", "pcm"
         allowed_paths: List of allowed base paths for validation (optional)
-        agent_cwd: Agent\'s current working directory (automatically injected)
+        agent_cwd: Agent's current working directory (automatically injected)
 
     Returns:
         ExecutionResult containing:
         - success: Whether operation succeeded
-        - operation: "convert_text_to_speech"
-        - audio_file: Generated audio file with path and metadata
+        - operation: "generate_media"
+        - mode: "audio"
+        - file_path: Path to generated audio file
+        - backend: "openai"
         - model: TTS model used
-        - voice: Voice used
-        - format: Audio format used
-        - text_length: Length of input text
-        - instructions: Speaking instructions if provided
+        - metadata: Contains voice, format, text_length, instructions
 
     Examples:
-        convert_text_to_speech("Hello world, this is a test.")
+        text_to_speech_transcription_generation("Hello world, this is a test.")
         → Converts text to speech and saves as MP3
 
-        convert_text_to_speech(
+        text_to_speech_transcription_generation(
             "Today is a wonderful day to build something people love!",
             voice="coral",
             instructions="Speak in a cheerful and positive tone."
@@ -101,117 +72,21 @@ async def text_to_speech_transcription_generation(
         - Requires valid OpenAI API key
         - Files are saved to specified path within workspace
         - Path must be within allowed directories
+
+    Note:
+        This function is an alias for the unified generate_media tool.
+        For new implementations, prefer using:
+            generate_media(text, mode="audio", voice="alloy", instructions="...")
     """
-    try:
-        # Convert allowed_paths from strings to Path objects
-        allowed_paths_list = [Path(p) for p in allowed_paths] if allowed_paths else None
-
-        # Use agent_cwd if available, otherwise fall back to base_dir
-        base_dir = Path(agent_cwd) if agent_cwd else Path.cwd()
-
-        # Load environment variables
-        script_dir = Path(__file__).parent.parent.parent.parent
-        env_path = script_dir / ".env"
-        if env_path.exists():
-            load_dotenv(env_path)
-        else:
-            load_dotenv()
-
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-
-        if not openai_api_key:
-            result = {
-                "success": False,
-                "operation": "convert_text_to_speech",
-                "error": "OpenAI API key not found. Please set OPENAI_API_KEY in .env file or environment variable.",
-            }
-            return ExecutionResult(
-                output_blocks=[TextContent(data=json.dumps(result, indent=2))],
-            )
-
-        # Initialize OpenAI client
-        client = OpenAI(api_key=openai_api_key)
-
-        # Determine storage directory
-        if storage_path:
-            if Path(storage_path).is_absolute():
-                storage_dir = Path(storage_path).resolve()
-            else:
-                storage_dir = (base_dir / storage_path).resolve()
-        else:
-            storage_dir = base_dir
-
-        # Validate storage directory is within allowed paths
-        _validate_path_access(storage_dir, allowed_paths_list)
-
-        # Create directory if it doesn't exist
-        storage_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Clean text for filename (first 30 chars)
-        clean_text = "".join(c for c in input_text[:30] if c.isalnum() or c in (" ", "-", "_")).strip()
-        clean_text = clean_text.replace(" ", "_")
-
-        filename = f"speech_{timestamp}_{clean_text}.{audio_format}"
-        file_path = storage_dir / filename
-
-        try:
-            # Prepare request parameters
-            request_params = {
-                "model": model,
-                "voice": voice,
-                "input": input_text,
-            }
-
-            # Add instructions if provided (only for models that support it)
-            if instructions and model in ["gpt-4o-mini-tts"]:
-                request_params["instructions"] = instructions
-
-            # Use streaming response for efficient file handling
-            with client.audio.speech.with_streaming_response.create(**request_params) as response:
-                # Stream directly to file
-                response.stream_to_file(file_path)
-
-            # Get file size
-            file_size = file_path.stat().st_size
-
-            result = {
-                "success": True,
-                "operation": "convert_text_to_speech",
-                "audio_file": {
-                    "file_path": str(file_path),
-                    "filename": filename,
-                    "size": file_size,
-                    "format": audio_format,
-                },
-                "model": model,
-                "voice": voice,
-                "format": audio_format,
-                "text_length": len(input_text),
-                "instructions": instructions if instructions else None,
-            }
-            return ExecutionResult(
-                output_blocks=[TextContent(data=json.dumps(result, indent=2))],
-            )
-
-        except Exception as api_error:
-            result = {
-                "success": False,
-                "operation": "convert_text_to_speech",
-                "error": f"OpenAI TTS API error: {str(api_error)}",
-            }
-            return ExecutionResult(
-                output_blocks=[TextContent(data=json.dumps(result, indent=2))],
-            )
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "operation": "convert_text_to_speech",
-            "error": f"Failed to convert text to speech: {str(e)}",
-        }
-        return ExecutionResult(
-            output_blocks=[TextContent(data=json.dumps(result, indent=2))],
-        )
+    return await generate_media(
+        prompt=input_text,
+        mode="audio",
+        storage_path=storage_path,
+        backend="openai",
+        model=model,
+        voice=voice,
+        instructions=instructions,
+        audio_format=audio_format,
+        allowed_paths=allowed_paths,
+        agent_cwd=agent_cwd,
+    )

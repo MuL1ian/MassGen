@@ -38,7 +38,7 @@ Usage:
         model="massgen/build",
         messages=[{"role": "user", "content": "Your question"}],
         optional_params={
-            "models": ["gpt-5", "claude-sonnet-4.5"],  # backends auto-detected
+            "models": ["gpt-5", "claude-sonnet-4-5"],  # backends auto-detected
         }
     )
 
@@ -137,7 +137,10 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
                 - model: Single model name for all agents
                 - num_agents: Number of agents when using single model
                 - use_docker: Enable Docker execution mode
-                - context_path: Path to add as context for file operations
+                - enable_filesystem: Enable filesystem/MCP tools (default: True)
+                - context_paths: List of paths with permissions. Each entry can be:
+                    - str: Path with default "write" permission
+                    - dict: {"path": "/path", "permission": "read" or "write"}
                 - enable_logging: Enable logging
                 - output_file: Write final answer to file
             **kwargs: Additional arguments (passed to MassGen)
@@ -192,8 +195,10 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
 
             if "use_docker" in opts:
                 run_kwargs["use_docker"] = opts["use_docker"]
-            if "context_path" in opts:
-                run_kwargs["context_path"] = opts["context_path"]
+            if "enable_filesystem" in opts:
+                run_kwargs["enable_filesystem"] = opts["enable_filesystem"]
+            if "context_paths" in opts:
+                run_kwargs["context_paths"] = opts["context_paths"]
         else:
             # Standard mode: use parsed config/model
             if config:
@@ -239,7 +244,10 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
                 - model: Single model name for all agents
                 - num_agents: Number of agents when using single model
                 - use_docker: Enable Docker execution mode
-                - context_path: Path to add as context for file operations
+                - enable_filesystem: Enable filesystem/MCP tools (default: True)
+                - context_paths: List of paths with permissions. Each entry can be:
+                    - str: Path with default "write" permission
+                    - dict: {"path": "/path", "permission": "read" or "write"}
                 - enable_logging: Enable logging
                 - output_file: Write final answer to file
             **kwargs: Additional arguments (passed to MassGen)
@@ -294,8 +302,10 @@ class MassGenLLM(CustomLLM if LITELLM_AVAILABLE else object):
 
             if "use_docker" in opts:
                 run_kwargs["use_docker"] = opts["use_docker"]
-            if "context_path" in opts:
-                run_kwargs["context_path"] = opts["context_path"]
+            if "enable_filesystem" in opts:
+                run_kwargs["enable_filesystem"] = opts["enable_filesystem"]
+            if "context_paths" in opts:
+                run_kwargs["context_paths"] = opts["context_paths"]
         else:
             # Standard mode: use parsed config/model
             if config:

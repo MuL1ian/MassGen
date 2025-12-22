@@ -263,10 +263,12 @@ class Orchestrator(ChatAgent):
         # Get skills configuration if skills are enabled
         skills_directory = None
         massgen_skills = []
+        load_previous_session_skills = False
         if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "use_skills"):
             if self.config.coordination_config.use_skills:
                 skills_directory = self.config.coordination_config.skills_directory
                 massgen_skills = self.config.coordination_config.massgen_skills
+                load_previous_session_skills = getattr(self.config.coordination_config, "load_previous_session_skills", False)
 
         for agent_id, agent in self.agents.items():
             if agent.backend.filesystem_manager:
@@ -276,6 +278,7 @@ class Orchestrator(ChatAgent):
                     agent_temporary_workspace=self._agent_temporary_workspace,
                     skills_directory=skills_directory,
                     massgen_skills=massgen_skills,
+                    load_previous_session_skills=load_previous_session_skills,
                 )
                 # Setup workspace directories for massgen skills
                 if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "massgen_skills"):
@@ -478,13 +481,18 @@ class Orchestrator(ChatAgent):
             backend = agent.backend
 
             # Check if backend supports custom tool registration
-            if not hasattr(backend, "custom_tool_manager"):
+            # Note: Some backends use custom_tool_manager, others use _custom_tool_manager
+            has_tool_manager = hasattr(backend, "custom_tool_manager") or hasattr(backend, "_custom_tool_manager")
+            if not has_tool_manager:
                 logger.warning(f"[Orchestrator] Agent {agent_id} backend doesn't support custom tool manager - broadcast tools will use orchestrator handling")
                 continue
 
             # Register ask_others as a custom tool
             if not hasattr(backend, "_broadcast_toolkit"):
                 backend._broadcast_toolkit = broadcast_toolkit
+                # Ensure _custom_tool_names exists (some backends may not have it)
+                if not hasattr(backend, "_custom_tool_names"):
+                    backend._custom_tool_names = set()
                 backend._custom_tool_names.add("ask_others")
                 logger.info(f"[Orchestrator] Registered ask_others as custom tool for agent {agent_id}")
 
@@ -1650,6 +1658,55 @@ class Orchestrator(ChatAgent):
             subagents_summary = self._collect_subagent_costs(log_dir)
             subagent_total_cost = subagents_summary.get("total_estimated_cost", 0.0)
 
+            # Aggregate API call timing metrics
+            api_timing = {
+                "total_calls": 0,
+                "total_time_ms": 0.0,
+                "avg_time_ms": 0.0,
+                "avg_ttft_ms": 0.0,
+                "by_round": {},
+                "by_backend": {},
+            }
+            total_ttft_ms = 0.0
+
+            for agent_id, agent in self.agents.items():
+                if hasattr(agent, "backend") and agent.backend:
+                    backend = agent.backend
+                    if hasattr(backend, "get_api_call_history"):
+                        for metric in backend.get_api_call_history():
+                            api_timing["total_calls"] += 1
+                            api_timing["total_time_ms"] += metric.duration_ms
+                            total_ttft_ms += metric.time_to_first_token_ms
+
+                            # By round
+                            round_key = f"round_{metric.round_number}"
+                            if round_key not in api_timing["by_round"]:
+                                api_timing["by_round"][round_key] = {"calls": 0, "time_ms": 0.0, "ttft_ms": 0.0}
+                            api_timing["by_round"][round_key]["calls"] += 1
+                            api_timing["by_round"][round_key]["time_ms"] += metric.duration_ms
+                            api_timing["by_round"][round_key]["ttft_ms"] += metric.time_to_first_token_ms
+
+                            # By backend
+                            if metric.backend_name not in api_timing["by_backend"]:
+                                api_timing["by_backend"][metric.backend_name] = {"calls": 0, "time_ms": 0.0, "ttft_ms": 0.0}
+                            api_timing["by_backend"][metric.backend_name]["calls"] += 1
+                            api_timing["by_backend"][metric.backend_name]["time_ms"] += metric.duration_ms
+                            api_timing["by_backend"][metric.backend_name]["ttft_ms"] += metric.time_to_first_token_ms
+
+            # Calculate averages
+            if api_timing["total_calls"] > 0:
+                api_timing["avg_time_ms"] = round(api_timing["total_time_ms"] / api_timing["total_calls"], 2)
+                api_timing["avg_ttft_ms"] = round(total_ttft_ms / api_timing["total_calls"], 2)
+
+            # Round timing values
+            api_timing["total_time_ms"] = round(api_timing["total_time_ms"], 2)
+            for round_data in api_timing["by_round"].values():
+                round_data["time_ms"] = round(round_data["time_ms"], 2)
+                round_data["ttft_ms"] = round(round_data["ttft_ms"], 2)
+            for backend_data in api_timing["by_backend"].values():
+                backend_data["time_ms"] = round(backend_data["time_ms"], 2)
+                backend_data["ttft_ms"] = round(backend_data["ttft_ms"], 2)
+
             # Save summary file
             summary_file = log_dir / "metrics_summary.json"
             summary_data = {
@@ -1670,6 +1727,7 @@ class Orchestrator(ChatAgent):
                 },
                 "tools": tools_summary,
                 "rounds": rounds_summary,
+                "api_timing": api_timing,
                 "agents": agent_metrics,
                 "subagents": subagents_summary,
             }
@@ -2043,7 +2101,18 @@ Your answer:"""
         """
         try:
             while True:
+                # Check for cancellation before sleeping
+                if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                    logger.info("Cancellation detected in status update task - stopping")
+                    break
+
                 await asyncio.sleep(2)  # Update every 2 seconds
+
+                # Check for cancellation after sleeping
+                if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                    logger.info("Cancellation detected in status update task - stopping")
+                    break
+
                 log_session_dir = get_log_session_dir()
                 if log_session_dir:
                     try:
@@ -2163,6 +2232,13 @@ Your answer:"""
                 yield chunk
             return
 
+        # Emit startup status update for UI
+        yield StreamChunk(
+            type="system_status",
+            content="Initializing coordination...",
+            source=self.orchestrator_id,
+        )
+
         log_stream_chunk(
             "orchestrator",
             "content",
@@ -2175,8 +2251,17 @@ Your answer:"""
             source=self.orchestrator_id,
         )
 
+        # Emit status update: preparing agent environments
+        yield StreamChunk(
+            type="system_status",
+            content=f"Preparing {len(self.agents)} agent environments...",
+            source=self.orchestrator_id,
+        )
+
         # Start background status update task for real-time monitoring
         status_update_task = asyncio.create_task(self._continuous_status_updates())
+        # Store reference so it can be cancelled from outside if needed
+        self._status_update_task = status_update_task
 
         votes = {}  # Track votes: voter_id -> {"agent_id": voted_for, "reason": reason}
 
@@ -2184,6 +2269,15 @@ Your answer:"""
         for agent_id in self.agents.keys():
             self.agent_states[agent_id].has_voted = False
             self.agent_states[agent_id].restart_pending = True
+
+        # Emit status update: checking MCP/tool availability
+        has_mcp_agents = any(hasattr(agent, "backend") and hasattr(agent.backend, "config") and agent.backend.config.get("mcp_servers") for agent in self.agents.values())
+        if has_mcp_agents:
+            yield StreamChunk(
+                type="system_status",
+                content="Connecting to MCP servers...",
+                source=self.orchestrator_id,
+            )
 
         log_stream_chunk(
             "orchestrator",
@@ -2194,6 +2288,13 @@ Your answer:"""
         yield StreamChunk(
             type="content",
             content="## 📋 Agents Coordinating\n",
+            source=self.orchestrator_id,
+        )
+
+        # Emit status update: coordination started
+        yield StreamChunk(
+            type="system_status",
+            content="Agents working on task...",
             source=self.orchestrator_id,
         )
 
@@ -2270,6 +2371,11 @@ Your answer:"""
             # Start new coordination iteration
             self.coordination_tracker.start_new_iteration()
 
+            # Check for cancellation - stop coordination immediately
+            if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                logger.info("Cancellation detected in main coordination loop - stopping")
+                break
+
             # Check for orchestrator timeout - stop spawning new agents
             if self.is_orchestrator_timeout:
                 break
@@ -2300,6 +2406,14 @@ Your answer:"""
                 break
 
             done, _ = await asyncio.wait(active_tasks.values(), return_when=asyncio.FIRST_COMPLETED)
+
+            # Check for cancellation after wait
+            if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                logger.info("Cancellation detected after asyncio.wait - cleaning up")
+                # Cancel remaining tasks
+                for task in active_tasks.values():
+                    task.cancel()
+                break
 
             # Collect results from completed agents
             reset_signal = False
@@ -2528,6 +2642,8 @@ Your answer:"""
                             agent.backend.end_round_tracking("error")
                         # Error ends the agent's current stream
                         completed_agent_ids.add(agent_id)
+                        # Mark agent as killed to prevent respawning in the while loop
+                        self.agent_states[agent_id].is_killed = True
                         log_stream_chunk("orchestrator", "error", chunk_data, agent_id)
                         yield StreamChunk(type="content", content=f"❌ {chunk_data}", source=agent_id)
                         log_stream_chunk("orchestrator", "agent_status", "completed", agent_id)
@@ -2573,6 +2689,8 @@ Your answer:"""
                     if agent and hasattr(agent.backend, "end_round_tracking"):
                         agent.backend.end_round_tracking("error")
                     completed_agent_ids.add(agent_id)
+                    # Mark agent as killed to prevent respawning in the while loop
+                    self.agent_states[agent_id].is_killed = True
                     log_stream_chunk("orchestrator", "error", f"❌ Stream error - {e}", agent_id)
                     yield StreamChunk(
                         type="content",
@@ -2753,10 +2871,36 @@ Your answer:"""
                     # Get current state for context
                     current_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
 
-                    # Create anonymous agent mapping
+                    # Create anonymous agent mapping (agent1, agent2, etc.)
                     agent_mapping = {}
                     for i, real_id in enumerate(sorted(self.agents.keys()), 1):
                         agent_mapping[f"agent{i}"] = real_id
+
+                    # Get answer labels from coordination tracker (e.g., "agent1.2", "agent2.1")
+                    # Use the voter's context labels (what they were shown) to avoid race conditions
+                    # in parallel execution where new answers may arrive while voting
+                    available_answer_labels = []
+                    answer_label_to_agent = {}  # Maps "agent1.2" -> "agent_a"
+                    voted_for_label = None
+                    voted_for_agent = vote_data.get("agent_id", "unknown")
+
+                    if self.coordination_tracker:
+                        # Get labels from voter's context (what they actually saw)
+                        voter_context = self.coordination_tracker.get_agent_context_labels(agent_id)
+                        for label in voter_context:
+                            available_answer_labels.append(label)
+                            # Extract agent number from label (e.g., "agent1.2" -> 1)
+                            # and map back to agent ID
+                            for aid in current_answers.keys():
+                                aid_label = self.coordination_tracker.get_voted_for_label(agent_id, aid)
+                                if aid_label == label:
+                                    answer_label_to_agent[label] = aid
+
+                        # Get the specific label for the voted-for agent
+                        voted_for_label = self.coordination_tracker.get_voted_for_label(
+                            agent_id,
+                            voted_for_agent,
+                        )
 
                     # Build comprehensive vote data
                     comprehensive_vote_data = {
@@ -2765,9 +2909,10 @@ Your answer:"""
                             (anon for anon, real in agent_mapping.items() if real == agent_id),
                             agent_id,
                         ),
-                        "voted_for": vote_data.get("agent_id", "unknown"),
+                        "voted_for": voted_for_agent,
+                        "voted_for_label": voted_for_label,  # e.g., "agent1.2"
                         "voted_for_anon": next(
-                            (anon for anon, real in agent_mapping.items() if real == vote_data.get("agent_id")),
+                            (anon for anon, real in agent_mapping.items() if real == voted_for_agent),
                             "unknown",
                         ),
                         "reason": vote_data.get("reason", ""),
@@ -2775,7 +2920,9 @@ Your answer:"""
                         "unix_timestamp": time.time(),
                         "iteration": self.coordination_tracker.current_iteration if self.coordination_tracker else None,
                         "coordination_round": self.coordination_tracker.max_round if self.coordination_tracker else None,
-                        "available_options": list(current_answers.keys()),
+                        "available_options": list(current_answers.keys()),  # agent IDs for backwards compatibility
+                        "available_options_labels": available_answer_labels,  # e.g., ["agent1.2", "agent2.1"]
+                        "answer_label_to_agent": answer_label_to_agent,  # Maps label -> agent_id
                         "available_options_anon": [
                             next(
                                 (anon for anon, real in agent_mapping.items() if real == aid),
@@ -3036,6 +3183,13 @@ Your answer:"""
             agent_id,
             ActionType.UPDATE_INJECTED,
             f"Received update with {len(new_answers)} NEW answer(s) from: {answer_providers}",
+        )
+
+        # Update the agent's context labels to include the new answers
+        # This ensures vote label resolution uses the correct labels
+        self.coordination_tracker.update_agent_context_with_new_answers(
+            agent_id,
+            list(new_answers.keys()),
         )
 
         # Clear the coordination tracker's pending restart flag (injection satisfies the need for update)
@@ -4143,16 +4297,50 @@ Your answer:"""
                             yield ("done", None)
                             return
                         elif tool_name in ("ask_others", "check_broadcast_status", "get_broadcast_responses"):
-                            # Broadcast tools are now handled as custom tools by the backend
-                            # Backend will execute them recursively, no orchestrator handling needed
-                            pass
+                            # Broadcast tools - check if backend already executed it
+                            # For most backends, custom tools are executed during streaming
+                            # For Claude Code, tools are parsed from text and need orchestrator execution
+                            is_claude_code = hasattr(agent.backend, "get_provider_name") and agent.backend.get_provider_name() == "claude_code"
+
+                            if is_claude_code and hasattr(agent.backend, "_broadcast_toolkit"):
+                                # Claude Code: Execute broadcast tool here since backend doesn't execute it
+                                import json
+
+                                broadcast_toolkit = agent.backend._broadcast_toolkit
+
+                                if tool_name == "ask_others":
+                                    args_json = json.dumps(tool_args)
+                                    yield ("content", f"📢 Asking others: {tool_args.get('question', '')[:80]}...\n")
+                                    result = await broadcast_toolkit.execute_ask_others(args_json, agent_id)
+                                    # Inject result back to agent's conversation
+                                    result_msg = {"role": "user", "content": f"[Broadcast Response]\n{result}"}
+                                    conversation_messages.append(result_msg)
+                                    yield ("content", "📢 Received broadcast responses\n")
+                                elif tool_name == "check_broadcast_status":
+                                    args_json = json.dumps(tool_args)
+                                    result = await broadcast_toolkit.execute_check_broadcast_status(args_json, agent_id)
+                                    result_msg = {"role": "user", "content": f"[Broadcast Status]\n{result}"}
+                                    conversation_messages.append(result_msg)
+                                elif tool_name == "get_broadcast_responses":
+                                    args_json = json.dumps(tool_args)
+                                    result = await broadcast_toolkit.execute_get_broadcast_responses(args_json, agent_id)
+                                    result_msg = {"role": "user", "content": f"[Broadcast Responses]\n{result}"}
+                                    conversation_messages.append(result_msg)
+
+                            # Mark as workflow tool found to avoid retry enforcement
+                            # The agent will continue and provide new_answer or vote after receiving broadcast response
+                            workflow_tool_found = True
+                            # Don't return - let the loop continue so agent can process broadcast result
+                            # and provide a proper workflow response (new_answer or vote)
                         elif tool_name.startswith("mcp") or "__" in tool_name:
                             # MCP tools (with or without mcp__ prefix) and custom tools are handled by the backend
                             # Tool results are streamed separately via StreamChunks
-                            pass
+                            # Mark as workflow progress to avoid retry enforcement while agent is doing work
+                            workflow_tool_found = True
                         elif tool_name.startswith("custom_tool"):
                             # Custom tools are handled by the backend and their results are streamed separately
-                            pass
+                            # Mark as workflow progress to avoid retry enforcement while agent is doing work
+                            workflow_tool_found = True
                         else:
                             # Non-workflow tools not yet implemented
                             yield (
