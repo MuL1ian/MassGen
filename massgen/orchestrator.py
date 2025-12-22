@@ -4065,38 +4065,21 @@ Your answer:"""
                         error_msg = getattr(chunk, "error", str(chunk.content)) if hasattr(chunk, "error") else str(chunk.content)
                         yield ("content", f"❌ Error: {error_msg}\n")
 
-                # Check for multiple vote calls before processing
+                # Handle multiple vote calls - take the last vote (agent's final decision)
                 vote_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) == "vote"]
                 if len(vote_calls) > 1:
-                    if attempt < max_attempts - 1:
-                        if self._check_restart_pending(agent_id):
-                            should_continue = await self._inject_update_and_continue(
-                                agent_id,
-                                answers,
-                                conversation_messages,
-                            )
-                            if should_continue:
-                                yield ("content", f"📨 [{agent_id}] receiving update with new answers\n")
-                                continue  # Agent continues working with update
-                            # else: No new answers, proceed with normal error handling
-                        error_msg = f"Multiple vote calls not allowed. Made {len(vote_calls)} calls but must make exactly 1. Call vote tool once with chosen agent."
-                        yield ("content", f"❌ {error_msg}")
+                    # Take the last vote - represents the agent's final, most refined decision
+                    num_votes = len(vote_calls)
+                    final_vote_call = vote_calls[-1]
+                    final_vote_args = agent.backend.extract_tool_arguments(final_vote_call)
+                    final_voted_agent = final_vote_args.get("agent_id", "unknown")
 
-                        # Send tool error response for all tool calls
-                        enforcement_msg = self._create_tool_error_messages(
-                            agent,
-                            tool_calls,
-                            error_msg,
-                            "Vote rejected due to multiple votes.",
-                        )
-                        continue  # Retry this attempt
-                    else:
-                        yield (
-                            "error",
-                            f"Agent made {len(vote_calls)} vote calls in single response after max attempts",
-                        )
-                        yield ("done", None)
-                        return
+                    # Replace tool_calls with deduplicated list (all non-votes + final vote)
+                    vote_calls = [final_vote_call]
+                    tool_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) != "vote"] + [final_vote_call]
+
+                    logger.info(f"[Orchestrator] Agent {agent_id} made {num_votes} votes - using last vote: {final_voted_agent}")
+                    yield ("content", f"⚠️ Agent made {num_votes} votes - using last (final decision): {final_voted_agent}\n")
 
                 # Check for mixed new_answer and vote calls - violates binary decision framework
                 new_answer_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) == "new_answer"]
