@@ -51,6 +51,7 @@ export interface AgentConfig {
 export interface CoordinationSettings {
   voting_sensitivity: 'lenient' | 'balanced' | 'strict';
   answer_novelty_requirement: 'lenient' | 'balanced' | 'strict';
+  max_new_answers_per_agent?: number;
 }
 
 export interface SetupStatus {

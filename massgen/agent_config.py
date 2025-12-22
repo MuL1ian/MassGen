@@ -916,7 +916,6 @@ class AgentConfig:
             coordination_config=coordination_config,
         )
         config.debug_final_answer = debug_final_answer
-        return config
 
         # Set custom_system_instruction separately to avoid deprecation warning
         if custom_system_instruction is not None:

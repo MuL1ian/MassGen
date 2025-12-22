@@ -173,12 +173,15 @@ class ResponseBackend(CustomToolAndMCPBackend):
             The function_call is already present from response.output to maintain
             reasoning item continuity.
         """
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
         # Only add function output message
         # function_call is already included from response.output (with reasoning items)
         function_output_msg = {
             "type": "function_call_output",
             "call_id": call.get("call_id", ""),
-            "output": str(result),
+            "output": result_text,
         }
         updated_messages.append(function_output_msg)
 

@@ -440,6 +440,8 @@ class GeminiBackend(CustomToolAndMCPBackend):
             agent_system_message=kwargs.get("system_message", None),
             agent_id=self.agent_id,
             backend_name="gemini",
+            backend_type="gemini",  # For multimodal capability lookup
+            model=kwargs.get("model", ""),  # For model-specific multimodal capability lookup
             current_stage=self.coordination_stage,
         )
 
@@ -1187,45 +1189,60 @@ class GeminiBackend(CustomToolAndMCPBackend):
                         response_parts = []
                         for call in real_function_calls:
                             call_id = call.get("call_id")
-                            result_text = tool_results.get(call_id or "", "No result")
+                            result_data = tool_results.get(call_id or "", "No result")
+
+                            rd_type = type(result_data).__name__
+                            rd_is_dict = isinstance(result_data, dict)
+                            rd_keys = result_data.keys() if rd_is_dict else "N/A"
+                            logger.info(
+                                f"[Gemini MM] result_data type={rd_type}, " f"is_dict={rd_is_dict}, keys={rd_keys}",
+                            )
+
+                            # Plain text result
+                            result_text = result_data if isinstance(result_data, str) else str(result_data)
                             response_parts.append(
                                 types.Part.from_function_response(
                                     name=call.get("name", ""),
                                     response={"result": result_text},
                                 ),
                             )
+                        logger.info(f"[Gemini MM] real_function_calls={len(real_function_calls)}, response_parts={len(response_parts)}")
                         if response_parts:
                             conversation_history.append(types.Content(parts=response_parts, role="user"))
 
                     # For structured output calls (like ask_others from JSON), inject results as text
                     # These don't have thought_signature and can't use function call/response format
                     if structured_output_calls:
+                        logger.info(f"[Gemini MM] structured_output_calls={len(structured_output_calls)}")
                         # Build text representation of tool results
                         text_results = []
                         for call in structured_output_calls:
                             call_id = call.get("call_id")
                             tool_name = call.get("name", "unknown")
-                            result_text = tool_results.get(call_id or "", "No result")
+                            result_data = tool_results.get(call_id or "", "No result")
+                            # Extract text from result
+                            if isinstance(result_data, dict) and "text" in result_data:
+                                result_text = result_data["text"]
+                            else:
+                                result_text = result_data if isinstance(result_data, str) else str(result_data)
                             text_results.append(f"[Tool Result: {tool_name}]\n{result_text}")
 
                         # Add as model response (assistant acknowledging tool execution)
                         model_text = "I executed the following tool(s) and received these results:\n\n" + "\n\n".join(text_results)
                         conversation_history.append(types.Content(parts=[types.Part(text=model_text)], role="model"))
 
-                        # Add user message to prompt continuation
-                        conversation_history.append(
-                            types.Content(
-                                parts=[
-                                    types.Part(
-                                        text=(
-                                            "Based on the tool results above, please continue with your response. "
-                                            "Remember to use the appropriate coordination action "
-                                            "(vote, new_answer, or ask_others) when ready."
-                                        ),
-                                    ),
-                                ],
-                                role="user",
+                        # Add user message prompting continuation
+                        user_parts = [
+                            types.Part(
+                                text=(
+                                    "Based on the tool results above, please continue with your response. "
+                                    "Remember to use the appropriate coordination action "
+                                    "(vote, new_answer, or ask_others) when ready."
+                                ),
                             ),
+                        ]
+                        conversation_history.append(
+                            types.Content(parts=user_parts, role="user"),
                         )
 
                 last_continuation_chunk = None
@@ -1601,7 +1618,10 @@ class GeminiBackend(CustomToolAndMCPBackend):
                             response_parts = []
                             for call in real_function_calls:
                                 call_id = call.get("call_id")
-                                result_text = new_tool_results.get(call_id or "", "No result")
+                                result_data = new_tool_results.get(call_id or "", "No result")
+
+                                # Plain text result
+                                result_text = result_data if isinstance(result_data, str) else str(result_data)
                                 response_parts.append(
                                     types.Part.from_function_response(
                                         name=call.get("name", ""),
@@ -1618,22 +1638,26 @@ class GeminiBackend(CustomToolAndMCPBackend):
                             for call in structured_output_calls:
                                 call_id = call.get("call_id")
                                 tool_name = call.get("name", "unknown")
-                                result_text = new_tool_results.get(call_id or "", "No result")
+                                result_data = new_tool_results.get(call_id or "", "No result")
+                                # Extract text from result
+                                if isinstance(result_data, dict) and "text" in result_data:
+                                    result_text = result_data["text"]
+                                else:
+                                    result_text = result_data if isinstance(result_data, str) else str(result_data)
                                 text_results.append(f"[Tool Result: {tool_name}]\n{result_text}")
 
                             model_text = "I executed the following tool(s) and received these results:\n\n" + "\n\n".join(text_results)
                             conversation_history.append(types.Content(parts=[types.Part(text=model_text)], role="model"))
 
-                            conversation_history.append(
-                                types.Content(
-                                    parts=[
-                                        types.Part(
-                                            text="Based on the tool results above, please continue with your response. "
-                                            "Remember to use the appropriate coordination action (vote, new_answer, or ask_others) when ready.",
-                                        ),
-                                    ],
-                                    role="user",
+                            # Add user message prompting continuation
+                            user_parts = [
+                                types.Part(
+                                    text="Based on the tool results above, please continue with your response. "
+                                    "Remember to use the appropriate coordination action (vote, new_answer, or ask_others) when ready.",
                                 ),
+                            ]
+                            conversation_history.append(
+                                types.Content(parts=user_parts, role="user"),
                             )
 
             # ====================================================================
@@ -1938,18 +1962,22 @@ class GeminiBackend(CustomToolAndMCPBackend):
             call: Tool call dictionary with call_id, name, arguments
             result: Tool execution result
             tool_type: "custom" or "mcp"
+
         """
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
         tool_result_msg = {
             "role": "tool",
             "name": call.get("name", ""),
-            "content": str(result),
+            "content": result_text,
         }
         updated_messages.append(tool_result_msg)
 
         tool_results_store = getattr(self, "_active_tool_result_store", None)
         call_id = call.get("call_id")
         if isinstance(tool_results_store, dict) and call_id:
-            tool_results_store[call_id] = str(result)
+            tool_results_store[call_id] = result_text
 
     def _append_tool_error_message(
         self,

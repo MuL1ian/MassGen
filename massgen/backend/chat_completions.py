@@ -120,10 +120,13 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             result: Tool execution result
             tool_type: "custom" or "mcp"
         """
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
         function_output_msg = {
             "role": "tool",
             "tool_call_id": call.get("call_id", ""),
-            "content": str(result),
+            "content": result_text,
         }
         updated_messages.append(function_output_msg)
 

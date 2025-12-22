@@ -1,16 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-Transcribe audio file(s) to text using OpenAI's Transcription API.
+Transcribe audio file(s) to text using OpenAI's Transcription API or Gemini.
+
+Supports multiple backends with automatic selection:
+- Gemini: Uses native audio understanding with inline_data (preferred)
+- OpenAI: Uses Whisper transcription API
+
+Backend Selection Priority:
+1. Same backend as the calling agent (if specified and has API key)
+2. Default priority list: Gemini → OpenAI (first with available API key)
+
+This can be configured via the multimodal settings in agent config.
 """
 
 import json
+import mimetypes
 import os
 from pathlib import Path
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
+from massgen.logger_config import logger
+from massgen.tool._multimodal_tools.backend_selector import get_backend
 from massgen.tool._result import ExecutionResult, TextContent
 
 
@@ -38,43 +50,167 @@ def _validate_path_access(path: Path, allowed_paths: Optional[List[Path]] = None
     raise ValueError(f"Path not in allowed directories: {path}")
 
 
+def _get_mime_type(file_path: Path) -> str:
+    """Get MIME type for an audio file."""
+    mime_type, _ = mimetypes.guess_type(str(file_path))
+    if mime_type:
+        return mime_type
+    # Fallback
+    ext = file_path.suffix.lower()
+    fallbacks = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+        ".aac": "audio/aac",
+    }
+    return fallbacks.get(ext, "audio/mpeg")
+
+
+async def _process_with_gemini(
+    audio_path: Path,
+    prompt: str,
+    model: str = "gemini-3-flash-preview",
+) -> str:
+    """
+    Process audio using Gemini's native audio understanding.
+
+    Args:
+        audio_path: Path to the audio file
+        prompt: Prompt for analysis (string or dict with 'question' key)
+        model: Gemini model to use
+
+    Returns:
+        Text transcription/analysis from Gemini
+    """
+    from google import genai
+    from google.genai import types
+
+    # Handle dict prompt (model sometimes outputs {"question": "..."})
+    if isinstance(prompt, dict):
+        prompt = prompt.get("question", str(prompt))
+
+    # Read audio data
+    with open(audio_path, "rb") as f:
+        audio_data = f.read()
+    mime_type = _get_mime_type(audio_path)
+
+    # Create Gemini client
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY or GEMINI_API_KEY not found in environment")
+
+    client = genai.Client(api_key=api_key)
+
+    logger.info(f"[understand_audio] Using Gemini {model} for audio: {audio_path.name}")
+
+    # Use types.Part for proper SDK format
+    contents = [
+        types.Part.from_text(text=prompt),
+        types.Part.from_bytes(data=audio_data, mime_type=mime_type),
+    ]
+
+    # Make API call
+    response = client.models.generate_content(
+        model=model,
+        contents=contents,
+    )
+
+    return response.text
+
+
+async def _process_with_openai(
+    audio_path: Path,
+    prompt: Optional[str] = None,
+    model: str = "gpt-4o-transcribe",
+) -> str:
+    """
+    Process audio using OpenAI's Whisper transcription API.
+
+    Args:
+        audio_path: Path to the audio file
+        prompt: Optional prompt (not used for Whisper, but included for API consistency)
+        model: OpenAI model to use
+
+    Returns:
+        Text transcription from OpenAI
+    """
+    from openai import OpenAI
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY not found in environment")
+
+    client = OpenAI(api_key=api_key)
+
+    logger.info(f"[understand_audio] Using OpenAI {model} for audio: {audio_path.name}")
+
+    with open(audio_path, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model=model,
+            file=audio_file,
+            response_format="text",
+        )
+
+    return transcription
+
+
 async def understand_audio(
     audio_paths: List[str],
-    model: str = "gpt-4o-transcribe",
+    prompt: Optional[str] = None,
+    model: Optional[str] = None,
+    backend_type: Optional[str] = None,
     allowed_paths: Optional[List[str]] = None,
     agent_cwd: Optional[str] = None,
 ) -> ExecutionResult:
     """
-    Transcribe audio file(s) to text using OpenAI's Transcription API.
+    Transcribe/analyze audio file(s) using the best available backend.
 
-    This tool processes one or more audio files through OpenAI's Transcription API
-    to extract the text content from the audio. Each file is processed separately.
+    Backend Selection Priority:
+    1. Same backend as the calling agent (if backend_type specified and has API key)
+    2. Default priority list: Gemini → OpenAI (first with available API key)
+
+    Supports multiple backends:
+    - Gemini: Uses native audio understanding with inline_data (preferred)
+    - OpenAI: Uses Whisper transcription API
 
     Args:
         audio_paths: List of paths to input audio files (WAV, MP3, M4A, etc.)
                     - Relative path: Resolved relative to workspace
                     - Absolute path: Must be within allowed directories
-        model: Model to use (default: "gpt-4o-transcribe")
+        prompt: Optional prompt for audio analysis (used with Gemini for
+                richer analysis; ignored for OpenAI Whisper)
+        model: Model to use. If not specified, uses default from backend selector:
+               - Gemini: "gemini-3-flash-preview"
+               - OpenAI: "gpt-4o-transcribe"
+        backend_type: Preferred backend ("gemini" or "openai"). If specified and
+                      has API key, this backend is used. Otherwise falls through
+                      to priority list.
         allowed_paths: List of allowed base paths for validation (optional)
         agent_cwd: Current working directory of the agent (optional)
 
     Returns:
         ExecutionResult containing:
         - success: Whether operation succeeded
-        - operation: "generate_text_with_input_audio"
+        - operation: "understand_audio"
         - transcriptions: List of transcription results for each file
         - audio_files: List of paths to the input audio files
         - model: Model used
+        - backend: Backend used ("gemini" or "openai")
 
     Examples:
-        generate_text_with_input_audio(["recording.wav"])
-        → Returns transcription for recording.wav
+        understand_audio(["recording.wav"])
+        → Returns transcription using best available backend
 
-        generate_text_with_input_audio(["interview1.mp3", "interview2.mp3"])
-        → Returns separate transcriptions for each file
+        understand_audio(["interview.mp3"], backend_type="gemini")
+        → Prefers Gemini if available, otherwise falls back to OpenAI
+
+        understand_audio(["podcast.mp3"], prompt="Summarize the key points")
+        → Gemini will analyze with prompt; OpenAI will just transcribe
 
     Security:
-        - Requires valid OpenAI API key
+        - Requires valid API key for the chosen backend
         - All input audio files must exist and be readable
     """
     try:
@@ -89,20 +225,30 @@ async def understand_audio(
         else:
             load_dotenv()
 
-        openai_api_key = os.getenv("OPENAI_API_KEY")
+        # Use backend selector to choose the best available backend
+        # This prioritizes the caller's backend if specified, then falls through priority list
+        backend_config = get_backend(
+            media_type="audio",
+            preferred_backend=backend_type,
+            preferred_model=model,
+        )
 
-        if not openai_api_key:
+        if not backend_config:
             result = {
                 "success": False,
-                "operation": "generate_text_with_input_audio",
-                "error": "OpenAI API key not found. Please set OPENAI_API_KEY in .env file or environment variable.",
+                "operation": "understand_audio",
+                "error": "No audio backend available. Please set GOOGLE_API_KEY/GEMINI_API_KEY or OPENAI_API_KEY.",
             }
             return ExecutionResult(
                 output_blocks=[TextContent(data=json.dumps(result, indent=2))],
             )
 
-        # Initialize OpenAI client
-        client = OpenAI(api_key=openai_api_key)
+        selected_backend = backend_config.name
+        selected_model = backend_config.model
+
+        logger.info(
+            f"[understand_audio] Selected backend: {selected_backend}/{selected_model} " f"(preferred: {backend_type})",
+        )
 
         # Validate and process input audio files
         validated_audio_paths = []
@@ -110,7 +256,6 @@ async def understand_audio(
 
         for audio_path_str in audio_paths:
             # Resolve audio path
-            # Use agent_cwd if available, otherwise fall back to Path.cwd()
             base_dir = Path(agent_cwd) if agent_cwd else Path.cwd()
 
             if Path(audio_path_str).is_absolute():
@@ -124,7 +269,7 @@ async def understand_audio(
             if not audio_path.exists():
                 result = {
                     "success": False,
-                    "operation": "generate_text_with_input_audio",
+                    "operation": "understand_audio",
                     "error": f"Audio file does not exist: {audio_path}",
                 }
                 return ExecutionResult(
@@ -135,21 +280,21 @@ async def understand_audio(
             if audio_path.suffix.lower() not in audio_extensions:
                 result = {
                     "success": False,
-                    "operation": "generate_text_with_input_audio",
+                    "operation": "understand_audio",
                     "error": f"File does not appear to be an audio file: {audio_path}",
                 }
                 return ExecutionResult(
                     output_blocks=[TextContent(data=json.dumps(result, indent=2))],
                 )
 
-            # Check file size (OpenAI Whisper API has 25MB limit)
+            # Check file size (25MB limit for most APIs)
             file_size = audio_path.stat().st_size
             max_size = 25 * 1024 * 1024  # 25MB
             if file_size > max_size:
                 result = {
                     "success": False,
-                    "operation": "generate_text_with_input_audio",
-                    "error": f"Audio file too large: {audio_path} ({file_size/1024/1024:.1f}MB > 25MB). " "Please use a smaller file or compress the audio.",
+                    "operation": "understand_audio",
+                    "error": (f"Audio file too large: {audio_path} ({file_size/1024/1024:.1f}MB > 25MB). " "Please use a smaller file or compress the audio."),
                 }
                 return ExecutionResult(
                     output_blocks=[TextContent(data=json.dumps(result, indent=2))],
@@ -157,21 +302,25 @@ async def understand_audio(
 
             validated_audio_paths.append(audio_path)
 
-        # Process each audio file separately using OpenAI Transcription API
+        # Process each audio file with the selected backend
         transcriptions = []
+        default_prompt = prompt or "Transcribe this audio file. Include speaker identification if multiple speakers are present."
 
         for audio_path in validated_audio_paths:
             try:
-                # Open audio file
-                with open(audio_path, "rb") as audio_file:
-                    # Basic transcription without prompt
-                    transcription = client.audio.transcriptions.create(
-                        model=model,
-                        file=audio_file,
-                        response_format="text",
+                if selected_backend == "gemini":
+                    transcription = await _process_with_gemini(
+                        audio_path=audio_path,
+                        prompt=default_prompt,
+                        model=selected_model,
+                    )
+                else:  # openai
+                    transcription = await _process_with_openai(
+                        audio_path=audio_path,
+                        prompt=default_prompt,
+                        model=selected_model,
                     )
 
-                # Add transcription to list
                 transcriptions.append(
                     {
                         "file": str(audio_path),
@@ -182,8 +331,8 @@ async def understand_audio(
             except Exception as api_error:
                 result = {
                     "success": False,
-                    "operation": "generate_text_with_input_audio",
-                    "error": f"Transcription API error for file {audio_path}: {str(api_error)}",
+                    "operation": "understand_audio",
+                    "error": f"Audio processing error for {audio_path}: {str(api_error)}",
                 }
                 return ExecutionResult(
                     output_blocks=[TextContent(data=json.dumps(result, indent=2))],
@@ -191,10 +340,11 @@ async def understand_audio(
 
         result = {
             "success": True,
-            "operation": "generate_text_with_input_audio",
+            "operation": "understand_audio",
             "transcriptions": transcriptions,
             "audio_files": [str(p) for p in validated_audio_paths],
-            "model": model,
+            "model": selected_model,
+            "backend": selected_backend,
         }
         return ExecutionResult(
             output_blocks=[TextContent(data=json.dumps(result, indent=2))],
@@ -203,8 +353,8 @@ async def understand_audio(
     except Exception as e:
         result = {
             "success": False,
-            "operation": "generate_text_with_input_audio",
-            "error": f"Failed to transcribe audio: {str(e)}",
+            "operation": "understand_audio",
+            "error": f"Failed to process audio: {str(e)}",
         }
         return ExecutionResult(
             output_blocks=[TextContent(data=json.dumps(result, indent=2))],

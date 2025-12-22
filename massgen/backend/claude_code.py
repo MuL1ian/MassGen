@@ -161,6 +161,43 @@ class ClaudeCodeBackend(LLMBackend):
         # Custom tools support - initialize ToolManager if custom_tools are provided
         self._custom_tool_manager: Optional[ToolManager] = None
         custom_tools = kwargs.get("custom_tools", [])
+
+        # Register multimodal tools if enabled
+        enable_multimodal = self.config.get("enable_multimodal_tools", False) or kwargs.get("enable_multimodal_tools", False)
+
+        # Build multimodal config - priority: explicit multimodal_config > individual config variables
+        self._multimodal_config = self.config.get("multimodal_config", {}) or kwargs.get("multimodal_config", {})
+        if not self._multimodal_config:
+            # Build from individual generation config variables
+            self._multimodal_config = {}
+            for media_type in ["image", "video", "audio"]:
+                backend = self.config.get(f"{media_type}_generation_backend")
+                model = self.config.get(f"{media_type}_generation_model")
+                if backend or model:
+                    self._multimodal_config[media_type] = {}
+                    if backend:
+                        self._multimodal_config[media_type]["backend"] = backend
+                    if model:
+                        self._multimodal_config[media_type]["model"] = model
+
+        if enable_multimodal:
+            multimodal_tools = [
+                {
+                    "name": ["read_media"],
+                    "category": "multimodal",
+                    "path": "massgen/tool/_multimodal_tools/read_media.py",
+                    "function": ["read_media"],
+                },
+                {
+                    "name": ["generate_media"],
+                    "category": "multimodal",
+                    "path": "massgen/tool/_multimodal_tools/generation/generate_media.py",
+                    "function": ["generate_media"],
+                },
+            ]
+            custom_tools = list(custom_tools) + multimodal_tools
+            logger.info("[ClaudeCode] Multimodal tools enabled: read_media, generate_media")
+
         if custom_tools:
             self._custom_tool_manager = ToolManager()
             self._register_custom_tools(custom_tools)
@@ -826,6 +863,17 @@ class ClaudeCodeBackend(LLMBackend):
                 ],
             }
 
+        # Inject multimodal_config if available (for read_media tool)
+        if hasattr(self, "_multimodal_config") and self._multimodal_config:
+            if "multimodal_config" not in args:
+                args["multimodal_config"] = self._multimodal_config
+
+        # Inject backend context for tools that need it
+        if "backend_type" not in args:
+            args["backend_type"] = "claude_code"
+        if "model" not in args:
+            args["model"] = self.config.get("model", "claude-sonnet-4-5-20250929")
+
         tool_request = {
             "name": tool_name,
             "input": args,
@@ -1244,6 +1292,8 @@ class ClaudeCodeBackend(LLMBackend):
             "enable_web_search",  # Handled above - controls WebSearch/WebFetch tool availability
             "use_default_prompt",  # Handled in stream_with_tools - controls system prompt mode
             "use_mcpwrapped_for_tool_filtering",  # MassGen internal - used by FilesystemManager
+            "enable_multimodal_tools",  # Handled by base class - registers read_media tool
+            "multimodal_config",  # Handled by base class - per-modality backend/model overrides
             # Note: system_prompt is NOT excluded - it's needed for internal workflow prompt injection
             # Validation prevents it from being set in YAML backend config
         }

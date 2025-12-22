@@ -10,7 +10,12 @@ from typing import Any, Dict, List, Optional
 class MessageTemplates:
     """Message templates implementing the proven MassGen approach."""
 
-    def __init__(self, voting_sensitivity: str = "lenient", answer_novelty_requirement: str = "lenient", **template_overrides):
+    def __init__(
+        self,
+        voting_sensitivity: str = "lenient",
+        answer_novelty_requirement: str = "lenient",
+        **template_overrides,
+    ):
         """Initialize with optional template overrides.
 
         Args:

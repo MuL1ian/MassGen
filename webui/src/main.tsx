@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import SetupPage from './pages/SetupPage';
+import ArtifactTester from './pages/ArtifactTester';
 import './styles/globals.css';
 
 // Simple routing based on URL path with first-time setup detection
@@ -43,6 +44,11 @@ function Router() {
   // Route to setup page explicitly
   if (path === '/setup' || path === '/setup/') {
     return <SetupPage />;
+  }
+
+  // Route to artifact tester page
+  if (path === '/artifact-tester' || path === '/artifact-tester/') {
+    return <ArtifactTester />;
   }
 
   // Show loading while checking setup status

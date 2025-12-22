@@ -1868,7 +1868,18 @@ Your answer:"""
         """
         try:
             while True:
+                # Check for cancellation before sleeping
+                if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                    logger.info("Cancellation detected in status update task - stopping")
+                    break
+
                 await asyncio.sleep(2)  # Update every 2 seconds
+
+                # Check for cancellation after sleeping
+                if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                    logger.info("Cancellation detected in status update task - stopping")
+                    break
+
                 log_session_dir = get_log_session_dir()
                 if log_session_dir:
                     try:
@@ -2016,6 +2027,8 @@ Your answer:"""
 
         # Start background status update task for real-time monitoring
         status_update_task = asyncio.create_task(self._continuous_status_updates())
+        # Store reference so it can be cancelled from outside if needed
+        self._status_update_task = status_update_task
 
         votes = {}  # Track votes: voter_id -> {"agent_id": voted_for, "reason": reason}
 
@@ -2125,6 +2138,11 @@ Your answer:"""
             # Start new coordination iteration
             self.coordination_tracker.start_new_iteration()
 
+            # Check for cancellation - stop coordination immediately
+            if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                logger.info("Cancellation detected in main coordination loop - stopping")
+                break
+
             # Check for orchestrator timeout - stop spawning new agents
             if self.is_orchestrator_timeout:
                 break
@@ -2155,6 +2173,14 @@ Your answer:"""
                 break
 
             done, _ = await asyncio.wait(active_tasks.values(), return_when=asyncio.FIRST_COMPLETED)
+
+            # Check for cancellation after wait
+            if hasattr(self, "cancellation_manager") and self.cancellation_manager and self.cancellation_manager.is_cancelled:
+                logger.info("Cancellation detected after asyncio.wait - cleaning up")
+                # Cancel remaining tasks
+                for task in active_tasks.values():
+                    task.cancel()
+                break
 
             # Collect results from completed agents
             reset_signal = False

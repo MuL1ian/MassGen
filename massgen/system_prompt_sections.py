@@ -1805,6 +1805,13 @@ Python scripts you'll write. Document BEFORE writing them:
 - Files this workflow produces
 - Formats and locations
 
+## Verification & Improvement
+How to verify and iterate on output (output-first approach):
+- For code: Run it, fix issues, rerun until working correctly
+- For websites: Screenshot and view, adjust layout/styling, re-screenshot until polished
+- For files: Open and inspect, refine content, re-check until quality meets bar
+- For data: Validate format/values, fix accuracy issues, re-validate until correct
+
 ## Learnings
 (Add after execution)
 
@@ -1844,14 +1851,117 @@ After execution, the actual scripts live in `scripts/` and can be reused.
 
 1. **BEFORE starting work**: Create `tasks/evolving_skill/SKILL.md` with your workflow plan
 2. **During execution**: Follow your plan, create scripts as documented
-3. **AFTER completing work**: Update SKILL.md with Learnings section
+3. **BEFORE answering**: Verify outputs work (run code, view visuals, check files)
+4. **AFTER completing work**: Update SKILL.md with Learnings section
 
 ### Key Principles
 
 1. **Be specific** - Workflow steps should be actionable, not vague
 2. **Document tools upfront** - Plan scripts before writing them
-3. **Update with learnings** - The skill improves through use
-4. **Keep scripts reusable** - Design tools to work in similar future tasks"""
+3. **Verify outputs first** - Test the result as a user would (run code, view websites, check files)
+4. **Update with learnings** - The skill improves through use
+5. **Keep scripts reusable** - Design tools to work in similar future tasks"""
+
+
+class OutputFirstVerificationSection(SystemPromptSection):
+    """
+    Core principle: verify outcomes and iterate improvements.
+
+    HIGH priority - fundamental operating principle for quality work.
+    This is not just about checking if something works (for voting),
+    but actively improving outputs through iteration.
+    Always included regardless of tools available.
+    """
+
+    def __init__(self):
+        super().__init__(
+            title="Output-First Iteration",
+            priority=Priority.HIGH,
+            xml_tag="output_first_iteration",
+        )
+
+    def build_content(self) -> str:
+        return """## Output-First Iteration
+
+**Core Principle: Experience your work as a user would, then iterate until the outcome is excellent.**
+
+This is an **improvement loop**, not just a verification step:
+1. Run/view output → 2. Identify gaps or issues → 3. Fix and enhance → 4. Re-run → 5. Confirm improvements → 6. Repeat until excellent
+
+| Artifact Type | Experience It (user view) | Then Improve (iterate) |
+|--------------|---------------------------|------------------------|
+| Script/Code | Run it, observe output | Fix errors, enhance behavior |
+| Website/App | View it in browser | Adjust layout, styling, UX |
+| Generated files | Open and read contents | Refine content, fix formatting |
+| API integration | Make test calls | Handle edge cases, improve responses |
+| Data processing | Check output data | Fix accuracy, optimize pipeline |
+
+**Why this matters:**
+- Code that "looks correct" but crashes needs **fixing**
+- A file generator that runs but produces weak content needs **improvement**
+- An API call that executes but has poor error handling needs **enhancement**
+
+**The goal is to iterate on OUTCOMES until they meet or exceed the task requirements.**
+
+### Apply at every stage:
+1. **During development** - short loops: run/view, improve, rerun
+2. **Before answering** - final iteration pass on the actual output
+3. **During evaluation** - judge by results, improve if gaps found
+
+### Iteration examples:
+- **Code**: `python script.py` → output missing edge case → add handling → rerun → confirm fixed
+- **Files**: Read generated file → content unclear → rewrite section → re-read → confirm improved
+- **Websites**: View in browser → layout broken on mobile → fix CSS → re-screenshot → confirm responsive
+- **APIs**: Test request → error handling weak → add try/catch → re-test → confirm robust
+
+### Finalization:
+- Use `new_answer` when you produced work or iterated improvements based on output review.
+- Use `vote` only when an existing answer already meets the bar without needing changes."""
+
+
+class MultimodalToolsSection(SystemPromptSection):
+    """
+    Guidance for using read_media to verify visual artifacts.
+
+    MEDIUM priority - extends output-first verification to visual content.
+    Only included when multimodal tools are enabled.
+    """
+
+    def __init__(self):
+        super().__init__(
+            title="Visual Verification Tools",
+            priority=Priority.MEDIUM,
+            xml_tag="visual_verification_tools",
+        )
+
+    def build_content(self) -> str:
+        return """## Visual Verification with read_media
+
+For visual artifacts, use `read_media` to apply output-first verification:
+
+### When to use read_media:
+- **Websites/UIs**: Screenshot and analyze layout, styling, content
+- **Diagrams/Charts**: Verify labels are readable, data is correct
+- **Generated images**: Check quality and correctness
+- **Videos**: Verify content matches requirements
+
+### Tool usage:
+```
+read_media(file_path="screenshot.png", prompt="Does the layout look correct?")
+read_media(file_path="diagram.png", prompt="Are all labels readable?")
+read_media(file_path="output.mp4", prompt="Does this show the expected content?")
+```
+
+**Supported formats:**
+- Images: png, jpg, jpeg, gif, webp, bmp
+- Audio: mp3, wav, m4a, ogg, flac, aac
+- Video: mp4, mov, avi, mkv, webm
+
+### Website verification workflow:
+1. Start server or open HTML file
+2. Take screenshot (Playwright or screenshot command)
+3. Analyze: `read_media(file_path="screenshot.png", prompt="Does this look professional?")`
+4. Fix issues based on what you SEE, not what code suggests"""
 
 
 class SystemPromptBuilder:

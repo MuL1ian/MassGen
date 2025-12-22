@@ -569,6 +569,24 @@ class ClaudeBackend(CustomToolAndMCPBackend):
             else:
                 api_params.pop("tools", None)
 
+        # Add custom tool schemas (they were filtered out above, now add them back)
+        if self._custom_tool_names:
+            custom_tool_schemas = self._get_custom_tools_schemas()
+            if custom_tool_schemas:
+                if "tools" not in api_params:
+                    api_params["tools"] = []
+                # Convert from OpenAI format to Claude format
+                for schema in custom_tool_schemas:
+                    if schema.get("type") == "function":
+                        func = schema.get("function", {})
+                        claude_tool = {
+                            "name": func.get("name"),
+                            "description": func.get("description", ""),
+                            "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+                        }
+                        api_params["tools"].append(claude_tool)
+                logger.debug(f"[Claude] Added {len(custom_tool_schemas)} custom tool schemas")
+
         # Start API call timing
         model = api_params.get("model", "unknown")
         self.start_api_call_timing(model)
@@ -604,12 +622,15 @@ class ClaudeBackend(CustomToolAndMCPBackend):
 
         Note:
             Claude uses tool_result format with tool_use_id.
-            All tool_result blocks for a given assistant turn MUST be in a SINGLE user message immediately after the assistant message with tool_use blocks
+            All tool_result blocks for a given assistant turn MUST be in a SINGLE user message immediately after the assistant message with tool_use blocks.
         """
+        # Extract text from result - handle SimpleNamespace wrapper or string
+        result_text = getattr(result, "text", None) or str(result)
+
         tool_result_block = {
             "type": "tool_result",
             "tool_use_id": call.get("call_id", "") or call.get("id", ""),
-            "content": str(result),
+            "content": result_text,
         }
 
         tool_result_msg_idx = None

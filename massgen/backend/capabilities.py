@@ -260,6 +260,8 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "code_execution",
             "mcp",
             "image_understanding",
+            "image_generation",
+            "video_generation",
         },
         builtin_tools=["google_search_retrieval", "code_execution"],
         filesystem_support="mcp",
@@ -271,7 +273,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         default_model="gemini-3-flash-preview",
         env_var="GEMINI_API_KEY",
-        notes="Google Search Retrieval provides web search. Image understanding capabilities.",
+        notes="Google Search Retrieval provides web search. Image understanding. Image generation via Imagen 3 (nanobanana). Video generation via Veo 2.",
         model_release_dates={
             "gemini-3-flash-preview": "2025-12",
             "gemini-3-pro-preview": "2025-11",
@@ -285,6 +287,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         supported_capabilities={
             "web_search",
             "mcp",
+            "image_understanding",
         },
         builtin_tools=["web_search"],
         filesystem_support="mcp",
@@ -299,7 +302,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         default_model="grok-4-1-fast-reasoning",
         env_var="XAI_API_KEY",
-        notes="Web search includes real-time data access.",
+        notes="Web search includes real-time data access. Image understanding capabilities.",
         model_release_dates={
             "grok-4-1-fast-reasoning": "2025-11",
             "grok-4-1-fast-non-reasoning": "2025-11",
@@ -496,13 +499,14 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "mcp",
             "audio_understanding",
             "video_understanding",
+            "image_generation",
         },
         builtin_tools=[],
         filesystem_support="mcp",
         models=["custom"],  # OpenRouter supports 300+ models
         default_model="custom",
         env_var="OPENROUTER_API_KEY",
-        notes="OpenAI-compatible API. Unified access to 300+ AI models.",
+        notes="OpenAI-compatible API. Unified access to 300+ AI models. Image generation via Nano Banana (Gemini) and other providers.",
         base_url="https://openrouter.ai/api/v1",
     ),
     "moonshot": BackendCapabilities(

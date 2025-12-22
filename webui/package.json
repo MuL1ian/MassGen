@@ -10,11 +10,18 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@codesandbox/sandpack-react": "^2.19.0",
+    "@codesandbox/sandpack-themes": "^2.0.21",
     "framer-motion": "^11.15.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
+    "mammoth": "^1.8.0",
+    "marked": "^15.0.4",
+    "mermaid": "^11.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "shiki": "^1.29.2",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

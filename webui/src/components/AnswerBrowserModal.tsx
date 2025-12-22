@@ -5,13 +5,16 @@
  * Includes tabs for Answers and Workspace views.
  */
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History, Vote, ArrowRight, Eye, GitBranch, ExternalLink } from 'lucide-react';
+import { X, FileText, User, Clock, ChevronDown, Trophy, Folder, File, ChevronRight, RefreshCw, History, Vote, ArrowRight, Eye, GitBranch, ExternalLink, Bell } from 'lucide-react';
 import { useAgentStore, selectAnswers, selectAgents, selectAgentOrder, selectSelectedAgent, selectFinalAnswer, selectVoteDistribution, resolveAnswerContent } from '../stores/agentStore';
 import type { Answer, AnswerWorkspace, TimelineNode as TimelineNodeType } from '../types';
-import { FileViewerModal } from './FileViewerModal';
+import { ArtifactPreviewModal } from './ArtifactPreviewModal';
+import { InlineArtifactPreview } from './InlineArtifactPreview';
 import { TimelineView } from './timeline';
+import { canPreviewFile } from '../utils/artifactTypes';
+import { clearFileCache } from '../hooks/useFileContent';
 
 // Types for workspace API responses
 interface WorkspaceInfo {
@@ -30,10 +33,21 @@ interface WorkspacesResponse {
 interface AnswerWorkspacesResponse {
   workspaces: AnswerWorkspace[];
   current: WorkspaceInfo[];
+  sources?: string[];
+  log_dir_used?: string;
 }
 
 // Map workspace name to agent ID (e.g., "workspace1" -> agent at index 0)
 function getAgentIdFromWorkspace(workspaceName: string, agentOrder: string[]): string | undefined {
+  // Try agent_X pattern inside full path
+  const agentMatch = workspaceName.match(/agent_([a-z0-9_]+)/i);
+  if (agentMatch) {
+    const candidate = `agent_${agentMatch[1].toLowerCase()}`;
+    if (agentOrder.includes(candidate)) {
+      return candidate;
+    }
+  }
+
   const match = workspaceName.match(/workspace(\d+)/);
   if (match) {
     const index = parseInt(match[1], 10) - 1; // workspace1 = index 0
@@ -47,6 +61,12 @@ interface FileInfo {
   size: number;
   modified: number;
   operation?: 'create' | 'modify' | 'delete';
+}
+
+interface BrowseResponse {
+  files: FileInfo[];
+  workspace_path: string;
+  workspace_mtime?: number;
 }
 
 interface AnswerBrowserModalProps {
@@ -135,6 +155,7 @@ function formatFileSize(bytes: number): string {
 
 function FileNode({ node, depth, onFileClick }: FileNodeProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const isPreviewable = !node.isDirectory && canPreviewFile(node.name);
 
   const handleClick = () => {
     if (node.isDirectory) {
@@ -153,6 +174,7 @@ function FileNode({ node, depth, onFileClick }: FileNodeProps) {
           flex items-center gap-1 py-1 px-2 hover:bg-gray-700/30 dark:hover:bg-gray-700/30 rounded cursor-pointer
           text-sm text-gray-700 dark:text-gray-300
           ${!node.isDirectory && onFileClick ? 'hover:bg-blue-900/30' : ''}
+          ${isPreviewable ? 'text-violet-400' : ''}
         `}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
@@ -170,21 +192,23 @@ function FileNode({ node, depth, onFileClick }: FileNodeProps) {
         {node.isDirectory ? (
           <Folder className="w-4 h-4 text-blue-400" />
         ) : (
-          <File className="w-4 h-4 text-gray-400" />
+          <File className={`w-4 h-4 ${isPreviewable ? 'text-violet-400' : 'text-gray-400'}`} />
         )}
 
         <span className="flex-1">{node.name}</span>
+
+        {/* Preview icon for previewable files */}
+        {isPreviewable && (
+          <span title="Rich preview available">
+            <Eye className="w-3.5 h-3.5 text-violet-400" />
+          </span>
+        )}
 
         {/* File size for non-directories */}
         {!node.isDirectory && node.size !== undefined && (
           <span className="text-xs text-gray-500 dark:text-gray-500">
             {formatFileSize(node.size)}
           </span>
-        )}
-
-        {/* View icon for files */}
-        {!node.isDirectory && onFileClick && (
-          <Eye className="w-3.5 h-3.5 text-gray-500 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
         )}
       </motion.div>
 
@@ -217,6 +241,7 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
   const selectedAgent = useAgentStore(selectSelectedAgent);
   const finalAnswer = useAgentStore(selectFinalAnswer);
   const voteDistribution = useAgentStore(selectVoteDistribution);
+  const sessionId = useAgentStore((s) => s.sessionId);
 
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
 
@@ -243,13 +268,15 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
   // Workspace state - now fetched from API
   const [workspaces, setWorkspaces] = useState<WorkspacesResponse>({ current: [], historical: [] });
   const [workspaceFiles, setWorkspaceFiles] = useState<FileInfo[]>([]);
+  const [workspaceMtime, setWorkspaceMtime] = useState<number | null>(null);
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [missingVersion, setMissingVersion] = useState<string | null>(null);
+  const [logDirOverride, setLogDirOverride] = useState<string | null>(null);
 
   // Per-agent workspace selection state
   const [selectedAgentWorkspace, setSelectedAgentWorkspace] = useState<string | null>(null);
-  const [selectedHistoricalWorkspace, setSelectedHistoricalWorkspace] = useState<WorkspaceInfo | null>(null);
 
   // Answer-linked workspace state
   const [answerWorkspaces, setAnswerWorkspaces] = useState<AnswerWorkspace[]>([]);
@@ -258,11 +285,108 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
   // File viewer modal state
   const [fileViewerOpen, setFileViewerOpen] = useState(false);
   const [selectedFilePath, setSelectedFilePath] = useState<string>('');
+  const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
 
-  // Handle file click from workspace browser
+  // Track if we've auto-previewed for the current workspace
+  const hasAutoPreviewedRef = useRef<string | null>(null);
+  // Track previous workspace path to detect changes
+  const prevWorkspacePathRef = useRef<string | null>(null);
+  // Track last browsed workspace path to avoid repeated empty fetch loops
+  const lastBrowsedPathRef = useRef<string | null>(null);
+
+  // New answer notification state
+  const [newAnswerNotification, setNewAnswerNotification] = useState<{
+    show: boolean;
+    answerLabel: string;
+    agentId: string;
+    workspacePath: string;
+  } | null>(null);
+  const lastKnownAnswerCountRef = useRef<number>(0);
+
+  // Clear workspace/browser state when session changes to avoid stale paths/files
+  useEffect(() => {
+    setWorkspaces({ current: [], historical: [] });
+    setWorkspaceFiles([]);
+    setSelectedAgentWorkspace(null);
+    setSelectedFilePath('');
+    setSelectedAnswerLabel('current');
+    setWorkspaceError(null);
+    setIsLoadingFiles(false);
+    setIsLoadingWorkspaces(false);
+    hasAutoPreviewedRef.current = null;
+    prevWorkspacePathRef.current = null;
+    clearFileCache();
+    setMissingVersion(null);
+  }, [sessionId]);
+
+  // Read ?log_dir override from URL once
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const logDir = url.searchParams.get('log_dir');
+    if (logDir) {
+      setLogDirOverride(logDir);
+    }
+  }, []);
+
+  // Track new answers while on workspace tab
+  useEffect(() => {
+    if (activeTab === 'workspace' && isOpen) {
+      // If we have more answers than before, show notification
+      if (answers.length > lastKnownAnswerCountRef.current && lastKnownAnswerCountRef.current > 0) {
+        // Find the newest answer
+        const newestAnswer = [...answers].sort((a, b) => b.timestamp - a.timestamp)[0];
+        if (newestAnswer) {
+          const agentIdx = agentOrder.indexOf(newestAnswer.agentId) + 1;
+          const answerLabel = newestAnswer.answerNumber === 0
+            ? 'Final Answer'
+            : `Agent ${agentIdx} Answer ${newestAnswer.answerNumber}`;
+
+          setNewAnswerNotification({
+            show: true,
+            answerLabel,
+            agentId: newestAnswer.agentId,
+            workspacePath: '', // Will be populated from answerWorkspaces
+          });
+        }
+      }
+      lastKnownAnswerCountRef.current = answers.length;
+    }
+  }, [answers.length, activeTab, isOpen, agentOrder, answers]);
+
+  // Update answer count when switching tabs
+  useEffect(() => {
+    if (activeTab === 'workspace') {
+      lastKnownAnswerCountRef.current = answers.length;
+    }
+  }, [activeTab, answers.length]);
+
+  // Handle notification actions
+  const handleViewNewAnswer = useCallback(() => {
+    if (newAnswerNotification) {
+      // Switch to answers tab
+      setActiveTab('answers');
+      setNewAnswerNotification(null);
+    }
+  }, [newAnswerNotification]);
+
+  const handleDismissNotification = useCallback(() => {
+    setNewAnswerNotification(null);
+  }, []);
+
+  // Handle file click from workspace browser - sets file for inline preview
   const handleFileClick = useCallback((filePath: string) => {
     setSelectedFilePath(filePath);
-    setFileViewerOpen(true);
+    // Don't open modal - use inline preview in workspace tab
+  }, []);
+
+  // Handle closing inline preview
+  const handleInlinePreviewClose = useCallback(() => {
+    setSelectedFilePath('');
+  }, []);
+
+  // Handle preview close for modal (used by other tabs)
+  const handlePreviewClose = useCallback(() => {
+    setFileViewerOpen(false);
   }, []);
 
   // Handle timeline node click - navigate to appropriate tab
@@ -295,7 +419,7 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
     try {
       const response = await fetch('/api/workspaces');
       if (!response.ok) {
-        throw new Error('Failed to fetch workspaces');
+        throw new Error(`Failed to fetch workspaces (${response.status})`);
       }
       const data: WorkspacesResponse = await response.json();
       setWorkspaces(data);
@@ -307,6 +431,11 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
         if (agentId) {
           setSelectedAgentWorkspace(agentId);
         }
+      } else if (data.current.length === 0) {
+        // No current workspaces – clear selection to avoid stale paths
+        setSelectedAgentWorkspace(null);
+        setSelectedFilePath('');
+        hasAutoPreviewedRef.current = null;
       }
     } catch (err) {
       setWorkspaceError(err instanceof Error ? err.message : 'Failed to load workspaces');
@@ -317,15 +446,21 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
 
   // Fetch files for selected workspace
   const fetchWorkspaceFiles = useCallback(async (workspace: WorkspaceInfo) => {
+    lastBrowsedPathRef.current = workspace.path;
     setIsLoadingFiles(true);
     setWorkspaceError(null);
     try {
       const response = await fetch(`/api/workspace/browse?path=${encodeURIComponent(workspace.path)}`);
       if (!response.ok) {
-        throw new Error('Failed to fetch workspace files');
+        const data = await response.json().catch(() => ({}));
+        const apiError = (data && data.error) ? `: ${data.error}` : '';
+        throw new Error(`Failed to fetch workspace files (${response.status})${apiError}`);
       }
-      const data = await response.json();
+      const data: BrowseResponse = await response.json();
       setWorkspaceFiles(data.files || []);
+      if (data.workspace_mtime) {
+        setWorkspaceMtime(data.workspace_mtime);
+      }
     } catch (err) {
       setWorkspaceError(err instanceof Error ? err.message : 'Failed to load files');
       setWorkspaceFiles([]);
@@ -339,7 +474,11 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
     const sessionId = useAgentStore.getState().sessionId;
     if (!sessionId) return;
     try {
-      const response = await fetch(`/api/sessions/${sessionId}/answer-workspaces`);
+      const params = new URLSearchParams();
+      if (logDirOverride) {
+        params.set('log_dir', logDirOverride);
+      }
+      const response = await fetch(`/api/sessions/${sessionId}/answer-workspaces?${params.toString()}`);
       if (response.ok) {
         const data: AnswerWorkspacesResponse = await response.json();
         setAnswerWorkspaces(data.workspaces || []);
@@ -347,7 +486,7 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
     } catch (err) {
       console.error('Failed to fetch answer workspaces:', err);
     }
-  }, []);
+  }, [logDirOverride]);
 
   // Open workspace in native file browser
   const openWorkspaceInFinder = useCallback(async (workspacePath: string) => {
@@ -397,9 +536,29 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
   // Compute active workspace to display
   const activeWorkspace = useMemo(() => {
     if (!selectedAgentWorkspace) return null;
-    if (selectedHistoricalWorkspace) return selectedHistoricalWorkspace;
+
+    // If a historical answer version is selected, use that workspace path from answerWorkspaces
+    if (selectedAnswerLabel !== 'current') {
+      const answerWs = answerWorkspaces.find(
+        (w) => w.agentId === selectedAgentWorkspace && w.answerLabel === selectedAnswerLabel
+      );
+      if (answerWs) {
+        setMissingVersion(null);
+        return {
+          name: answerWs.answerLabel,
+          path: answerWs.workspacePath,
+          type: 'historical' as const,
+        };
+      }
+      // Selected a version but no mapping yet; avoid falling back to current
+      setMissingVersion(`Workspace for version "${selectedAnswerLabel}" not available yet`);
+      return null;
+    }
+    setMissingVersion(null);
+
+    // Fallback to current workspace for the agent
     return workspacesByAgent[selectedAgentWorkspace]?.current || null;
-  }, [selectedAgentWorkspace, selectedHistoricalWorkspace, workspacesByAgent]);
+  }, [selectedAgentWorkspace, selectedAnswerLabel, answerWorkspaces, workspacesByAgent]);
 
   // Fetch workspaces when modal opens or tab switches to workspace
   useEffect(() => {
@@ -407,15 +566,152 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
       fetchWorkspaces();
       fetchAnswerWorkspaces();
     }
-  }, [isOpen, activeTab, fetchWorkspaces, fetchAnswerWorkspaces]);
+  }, [isOpen, activeTab, fetchWorkspaces, fetchAnswerWorkspaces, sessionId]);
 
 
+  // Track previous workspace path to detect actual changes
   // Fetch files when workspace is selected
+  // Also clear selected file when workspace changes to avoid showing stale content
   useEffect(() => {
-    if (activeWorkspace) {
+    const currentPath = activeWorkspace?.path || null;
+    const pathChanged = prevWorkspacePathRef.current !== currentPath;
+
+    if (activeWorkspace && pathChanged) {
+      prevWorkspacePathRef.current = currentPath;
+      // Clear the selected file path when workspace actually changes
+      setSelectedFilePath('');
+      // Reset auto-preview tracking for this new workspace
+      hasAutoPreviewedRef.current = null;
+      // Clear workspace files first to show loading state
+      setWorkspaceFiles([]);
+      fetchWorkspaceFiles(activeWorkspace);
+    } else if (!activeWorkspace && workspaceFiles.length > 0) {
+      // Clear stale files when workspace disappears (e.g., new session)
+      setWorkspaceFiles([]);
+      setSelectedFilePath('');
+    }
+  }, [activeWorkspace, fetchWorkspaceFiles, workspaceFiles.length]);
+
+  // If we have an active workspace but no files (and haven't browsed it yet), fetch once
+  useEffect(() => {
+    if (
+      activeWorkspace &&
+      workspaceFiles.length === 0 &&
+      !isLoadingFiles &&
+      lastBrowsedPathRef.current !== activeWorkspace.path
+    ) {
       fetchWorkspaceFiles(activeWorkspace);
     }
-  }, [activeWorkspace, fetchWorkspaceFiles]);
+  }, [activeWorkspace, workspaceFiles.length, isLoadingFiles, fetchWorkspaceFiles]);
+
+  // Clear selected file when workspace files become empty (prevents stale preview)
+  useEffect(() => {
+    if (workspaceFiles.length === 0 && selectedFilePath && !isLoadingFiles) {
+      setSelectedFilePath('');
+    }
+  }, [workspaceFiles.length, selectedFilePath, isLoadingFiles]);
+
+  // Poll workspace mtime to refresh only when files change (lightweight)
+  useEffect(() => {
+    if (!activeWorkspace) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/workspace/browse?path=${encodeURIComponent(activeWorkspace.path)}`);
+        if (!response.ok) return;
+        const data: BrowseResponse = await response.json();
+        if (cancelled) return;
+        if (data.workspace_mtime && data.workspace_mtime !== workspaceMtime) {
+          setWorkspaceFiles(data.files || []);
+          setWorkspaceMtime(data.workspace_mtime);
+        }
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    const id = window.setInterval(poll, 8000); // every 8s
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [activeWorkspace?.path, workspaceMtime]);
+
+  // Auto-preview: Select first previewable file when workspace files are loaded
+  useEffect(() => {
+    // Only auto-preview when:
+    // 1. We have files
+    // 2. No file is already selected
+    // 3. We haven't auto-previewed this workspace yet
+    const workspaceKey = activeWorkspace?.path || '';
+    if (
+      workspaceFiles.length > 0 &&
+      !selectedFilePath &&
+      activeTab === 'workspace' &&
+      hasAutoPreviewedRef.current !== workspaceKey
+    ) {
+      // Find the "main" previewable file with priority:
+      // 1. PDF (specialized document)
+      // 2. PPTX (specialized document)
+      // 3. DOCX (specialized document)
+      // 4. index.html (web entry point)
+      // 5. Any .html file
+      // 6. Images
+      // 7. Any other previewable file
+      const findMainPreviewable = (): string | null => {
+        const previewableFiles = workspaceFiles.filter(f => canPreviewFile(f.path));
+        if (previewableFiles.length === 0) return null;
+
+        // Priority 1: PDF
+        const pdf = previewableFiles.find(f =>
+          f.path.toLowerCase().endsWith('.pdf')
+        );
+        if (pdf) return pdf.path;
+
+        // Priority 2: PPTX
+        const pptx = previewableFiles.find(f =>
+          f.path.toLowerCase().endsWith('.pptx')
+        );
+        if (pptx) return pptx.path;
+
+        // Priority 3: DOCX
+        const docx = previewableFiles.find(f =>
+          f.path.toLowerCase().endsWith('.docx')
+        );
+        if (docx) return docx.path;
+
+        // Priority 4: index.html
+        const indexHtml = previewableFiles.find(f =>
+          f.path.toLowerCase().endsWith('index.html')
+        );
+        if (indexHtml) return indexHtml.path;
+
+        // Priority 5: Any HTML file
+        const anyHtml = previewableFiles.find(f =>
+          f.path.toLowerCase().endsWith('.html') || f.path.toLowerCase().endsWith('.htm')
+        );
+        if (anyHtml) return anyHtml.path;
+
+        // Priority 6: Images
+        const image = previewableFiles.find(f => {
+          const ext = f.path.toLowerCase();
+          return ext.endsWith('.png') || ext.endsWith('.jpg') || ext.endsWith('.jpeg') ||
+                 ext.endsWith('.gif') || ext.endsWith('.svg') || ext.endsWith('.webp');
+        });
+        if (image) return image.path;
+
+        // Priority 7: First previewable file
+        return previewableFiles[0].path;
+      };
+
+      const mainFile = findMainPreviewable();
+      if (mainFile) {
+        hasAutoPreviewedRef.current = workspaceKey;
+        setSelectedFilePath(mainFile);
+      }
+    }
+  }, [workspaceFiles, selectedFilePath, activeTab, activeWorkspace]);
 
   // Filter answers based on selected agent
   const filteredAnswers = useMemo(() => {
@@ -507,7 +803,7 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
   const fileTree = useMemo(() => buildFileTree(workspaceFiles), [workspaceFiles]);
 
   // Count total workspaces
-  const totalWorkspaces = workspaces.current.length + workspaces.historical.length;
+  const totalWorkspaces = workspaces.current.length + answerWorkspaces.length;
 
   if (!isOpen) return null;
 
@@ -856,8 +1152,8 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                             key={agentId}
                             onClick={() => {
                               setSelectedAgentWorkspace(agentId);
-                              setSelectedHistoricalWorkspace(null);
                               setSelectedAnswerLabel('current');
+                              setSelectedFilePath(''); // Clear selection for auto-preview
                               fetchWorkspaces();
                               fetchAnswerWorkspaces();
                             }}
@@ -885,24 +1181,10 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                           onChange={(e) => {
                             const label = e.target.value;
                             setSelectedAnswerLabel(label);
-                            setSelectedHistoricalWorkspace(null);
-                            fetchWorkspaces();
-                            fetchAnswerWorkspaces();
 
-                            if (label === 'current') {
-                              // Use current workspace for this agent
-                              const ws = workspacesByAgent[selectedAgentWorkspace]?.current;
-                              if (ws) fetchWorkspaceFiles(ws);
-                            } else {
-                              // Find answer workspace by label
-                              const answerWs = answerWorkspaces.find(w => w.answerLabel === label);
-                              if (answerWs) {
-                                fetchWorkspaceFiles({
-                                  name: answerWs.answerLabel,
-                                  path: answerWs.workspacePath,
-                                  type: 'historical'
-                                });
-                              }
+                            if (label !== 'current') {
+                              // Active workspace memo will pick up the historical path; clear stale file selection
+                              setSelectedFilePath('');
                             }
                           }}
                           className="appearance-none bg-gray-700 border border-gray-600 rounded-lg px-3 py-1 pr-8 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -954,43 +1236,123 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                     {workspaceError}
                   </div>
                 )}
+                {missingVersion && (
+                  <div className="px-6 py-2 bg-amber-900/30 border-b border-amber-700 text-amber-200 text-sm">
+                    {missingVersion}
+                  </div>
+                )}
 
-                {/* File Tree */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
-                  {isLoadingWorkspaces || isLoadingFiles ? (
-                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                      <RefreshCw className="w-8 h-8 mb-4 animate-spin" />
-                      <p>Loading...</p>
-                    </div>
-                  ) : totalWorkspaces === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                      <Folder className="w-12 h-12 mb-4 opacity-50" />
-                      <p>No workspaces found</p>
-                      <p className="text-sm mt-1">Workspaces will appear when agents create files</p>
-                    </div>
-                  ) : !activeWorkspace ? (
-                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                      <Folder className="w-12 h-12 mb-4 opacity-50" />
-                      <p>Select an agent to browse their workspace</p>
-                    </div>
-                  ) : workspaceFiles.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                      <Folder className="w-12 h-12 mb-4 opacity-50" />
-                      <p>No files in this workspace</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="mb-3 text-sm text-gray-400">
-                        {selectedAgentWorkspace} • {activeWorkspace.name} • {workspaceFiles.length} files
-                        {selectedHistoricalWorkspace && (
-                          <span className="ml-2 text-amber-400">(historical)</span>
-                        )}
+                {/* Active workspace path */}
+                {activeWorkspace && (
+                  <div className="px-6 py-2 border-b border-gray-700 text-xs text-gray-400 flex items-center gap-2">
+                    <span className="font-semibold text-gray-300">Workspace path:</span>
+                    <span className="truncate" title={activeWorkspace.path}>
+                      {activeWorkspace.path}
+                    </span>
+                    {selectedAnswerLabel !== 'current' && (
+                      <span className="text-amber-400">(version: {selectedAnswerLabel})</span>
+                    )}
+                  </div>
+                )}
+
+                {/* New Answer Notification */}
+                <AnimatePresence>
+                  {newAnswerNotification && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      className="mx-4 mt-3 p-3 bg-blue-900/40 border border-blue-600/50 rounded-lg flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-600/30 rounded-full">
+                          <Bell className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-blue-200 font-medium">
+                            New answer available
+                          </p>
+                          <p className="text-xs text-blue-300/70">
+                            {newAnswerNotification.answerLabel} has been submitted
+                          </p>
+                        </div>
                       </div>
-                      {fileTree.map((node) => (
-                        <FileNode key={node.path} node={node} depth={0} onFileClick={handleFileClick} />
-                      ))}
-                    </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleViewNewAnswer}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors flex items-center gap-1.5"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          View Answer
+                        </button>
+                        <button
+                          onClick={handleDismissNotification}
+                          className="p-1.5 text-blue-300 hover:text-white hover:bg-blue-700/50 rounded-lg transition-colors"
+                          title="Dismiss"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </motion.div>
                   )}
+                </AnimatePresence>
+
+                {/* Split View: File Tree + Preview */}
+                <div className="flex-1 flex overflow-hidden">
+                  {/* Left: File Tree */}
+                  <div className="w-72 shrink-0 border-r border-gray-700 overflow-y-auto custom-scrollbar p-3">
+                    {isLoadingWorkspaces || isLoadingFiles ? (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                        <RefreshCw className="w-6 h-6 mb-3 animate-spin" />
+                        <p className="text-sm">Loading...</p>
+                      </div>
+                    ) : totalWorkspaces === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                        <Folder className="w-10 h-10 mb-3 opacity-50" />
+                        <p className="text-sm">No workspaces found</p>
+                      </div>
+                    ) : !activeWorkspace ? (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                        <Folder className="w-10 h-10 mb-3 opacity-50" />
+                        <p className="text-sm text-center">Select an agent to browse their workspace</p>
+                      </div>
+                    ) : workspaceFiles.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                        <Folder className="w-10 h-10 mb-3 opacity-50" />
+                        <p className="text-sm">No files</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="mb-2 text-xs text-gray-500">
+                          {workspaceFiles.length} files
+                          {selectedAnswerLabel !== 'current' && (
+                            <span className="ml-1 text-amber-400">(historical)</span>
+                          )}
+                        </div>
+                        {fileTree.map((node) => (
+                          <FileNode key={node.path} node={node} depth={0} onFileClick={handleFileClick} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right: Inline Preview */}
+                  <div className="flex-1 overflow-hidden p-3">
+                    {selectedFilePath && activeWorkspace ? (
+                      <InlineArtifactPreview
+                        filePath={selectedFilePath}
+                        workspacePath={activeWorkspace.path}
+                        onClose={handleInlinePreviewClose}
+                        onFullscreen={() => setIsPreviewFullscreen(true)}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-500 bg-gray-800/30 rounded-lg border border-gray-700">
+                        <Eye className="w-12 h-12 mb-4 opacity-30" />
+                        <p className="text-sm">Select a file to preview</p>
+                        <p className="text-xs text-gray-600 mt-1">Click any file in the tree</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Workspace Summary */}
@@ -1028,13 +1390,55 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
         </>
       )}
 
-      {/* File Viewer Modal */}
-      <FileViewerModal
+      {/* Artifact Preview Modal */}
+      <ArtifactPreviewModal
         isOpen={fileViewerOpen}
-        onClose={() => setFileViewerOpen(false)}
+        onClose={handlePreviewClose}
         filePath={selectedFilePath}
         workspacePath={activeWorkspace?.path || ''}
       />
+
+      {/* Fullscreen Preview Modal */}
+      {isPreviewFullscreen && selectedFilePath && activeWorkspace && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={() => setIsPreviewFullscreen(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="w-full h-full max-w-[95vw] max-h-[95vh] bg-gray-900 rounded-xl shadow-2xl overflow-hidden flex flex-col border border-gray-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Fullscreen header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800">
+              <div className="flex items-center gap-2 text-sm text-gray-300">
+                <File className="w-4 h-4" />
+                <span className="font-medium">{selectedFilePath}</span>
+              </div>
+              <button
+                onClick={() => setIsPreviewFullscreen(false)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-gray-400 hover:text-white"
+                title="Close fullscreen"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Fullscreen preview content */}
+            <div className="flex-1 overflow-hidden p-4">
+              <InlineArtifactPreview
+                filePath={selectedFilePath}
+                workspacePath={activeWorkspace.path}
+                onClose={() => setIsPreviewFullscreen(false)}
+              />
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

@@ -189,7 +189,11 @@ class ConfigBuilder:
             "name": "Data Analysis",
             "description": "Analyze data with code execution and visualizations",
             "recommended_agents": 2,
-            "recommended_tools": ["code_execution", "filesystem", "image_understanding"],
+            "recommended_tools": [
+                "code_execution",
+                "filesystem",
+                "image_understanding",
+            ],
             "agent_types": "all",
             "notes": "Code execution helps with data processing and visualization",
             "info": """[bold cyan]Features auto-configured for this preset:[/bold cyan]
@@ -214,7 +218,11 @@ class ConfigBuilder:
             "name": "Multimodal Analysis",
             "description": "Analyze images, audio, video, and documents",
             "recommended_agents": 2,
-            "recommended_tools": ["image_understanding", "audio_understanding", "video_understanding"],
+            "recommended_tools": [
+                "image_understanding",
+                "audio_understanding",
+                "video_understanding",
+            ],
             "agent_types": "all",
             "notes": "Combines custom tools + built-in backend capabilities",
             "info": """[bold cyan]Features auto-configured for this preset:[/bold cyan]
@@ -302,8 +310,12 @@ class ConfigBuilder:
         )
 
         if use_text_input:
-            console.print("\n[dim]Type to search models (e.g., 'sonnet', 'gpt-5', 'gemini')[/dim]")
-            console.print(f"[dim]Searching through {len(fuzzy_match_models)} models...[/dim]")
+            console.print(
+                "\n[dim]Type to search models (e.g., 'sonnet', 'gpt-5', 'gemini')[/dim]",
+            )
+            console.print(
+                f"[dim]Searching through {len(fuzzy_match_models)} models...[/dim]",
+            )
             if current_model and current_model != "custom":
                 console.print(f"[dim]Current: {current_model}[/dim]")
             console.print()
@@ -333,7 +345,9 @@ class ConfigBuilder:
 
             except ImportError:
                 # Fallback to simple text input if autocomplete not available
-                console.print("[warning]⚠️  Autocomplete not available, using text input[/warning]")
+                console.print(
+                    "[warning]⚠️  Autocomplete not available, using text input[/warning]",
+                )
                 model_input = questionary.text(
                     prompt,
                     default="" if current_model == "custom" else (current_model or ""),
@@ -462,7 +476,9 @@ class ConfigBuilder:
                     else:
                         api_keys[provider_id] = True  # Local models don't need keys
                 except Exception as e:
-                    console.print(f"[warning]⚠️  Could not check {provider_id}: {e}[/warning]")
+                    console.print(
+                        f"[warning]⚠️  Could not check {provider_id}: {e}[/warning]",
+                    )
                     api_keys[provider_id] = False
             return api_keys
         except Exception as e:
@@ -482,7 +498,9 @@ class ConfigBuilder:
         try:
             console.print("\n[bold cyan]API Key Setup[/bold cyan]\n")
             console.print("[dim]Configure API keys for cloud AI providers.[/dim]")
-            console.print("[dim](Alternatively, you can use local models like vLLM/Ollama - no keys needed)[/dim]\n")
+            console.print(
+                "[dim](Alternatively, you can use local models like vLLM/Ollama - no keys needed)[/dim]\n",
+            )
 
             # First, detect and show currently configured keys
             current_api_keys = self.detect_api_keys()
@@ -516,7 +534,9 @@ class ConfigBuilder:
             unconfigured_providers = [(pid, name, env_var) for pid, name, env_var in all_providers if not current_api_keys.get(pid, False)]
 
             if configured_providers:
-                console.print(f"[green]✓ {len(configured_providers)} API Key(s) Configured:[/green]")
+                console.print(
+                    f"[green]✓ {len(configured_providers)} API Key(s) Configured:[/green]",
+                )
                 for _, name, _ in configured_providers:
                     console.print(f"  [green]✓[/green] {name}")
                 console.print()
@@ -550,8 +570,12 @@ class ConfigBuilder:
                     ),
                 )
 
-            console.print("[dim]Select which providers you want to configure (Space to toggle, Enter to confirm):[/dim]")
-            console.print("[dim]Or skip all to use local models (vLLM, Ollama, etc.)[/dim]\n")
+            console.print(
+                "[dim]Select which providers you want to configure (Space to toggle, Enter to confirm):[/dim]",
+            )
+            console.print(
+                "[dim]Or skip all to use local models (vLLM, Ollama, etc.)[/dim]\n",
+            )
 
             selected_providers = questionary.checkbox(
                 "Select cloud providers to configure:",
@@ -571,11 +595,15 @@ class ConfigBuilder:
 
             if not selected_providers:
                 console.print("\n[yellow]⚠️  No providers selected[/yellow]")
-                console.print("[dim]Skipping API key setup. You can use local models (vLLM, Ollama) without API keys.[/dim]\n")
+                console.print(
+                    "[dim]Skipping API key setup. You can use local models (vLLM, Ollama) without API keys.[/dim]\n",
+                )
                 return {}
 
             # Now prompt for API keys only for selected providers
-            console.print(f"\n[cyan]Configuring {len(selected_providers)} provider(s)[/cyan]\n")
+            console.print(
+                f"\n[cyan]Configuring {len(selected_providers)} provider(s)[/cyan]\n",
+            )
 
             for provider_id, name, env_var in selected_providers:
                 # Prompt for API key (with password-style input)
@@ -584,8 +612,12 @@ class ConfigBuilder:
 
                 # Add context for Claude Code
                 if provider_id == "claude_code":
-                    console.print("[dim]Note: Only needed if you want a separate key for claude_code backend.[/dim]")
-                    console.print("[dim]      Leave empty to use ANTHROPIC_API_KEY or Claude subscription.[/dim]")
+                    console.print(
+                        "[dim]Note: Only needed if you want a separate key for claude_code backend.[/dim]",
+                    )
+                    console.print(
+                        "[dim]      Leave empty to use ANTHROPIC_API_KEY or Claude subscription.[/dim]",
+                    )
 
                 api_key = Prompt.ask(
                     f"Enter your {name} API key",
@@ -604,7 +636,9 @@ class ConfigBuilder:
 
             if not collected_keys:
                 console.print("[error]❌ No API keys were configured.[/error]")
-                console.print("[info]At least one API key is required to use MassGen.[/info]")
+                console.print(
+                    "[info]At least one API key is required to use MassGen.[/info]",
+                )
                 return {}
 
             # Ask where to save
@@ -645,9 +679,14 @@ class ConfigBuilder:
                                 key, value = line.split("=", 1)
                                 existing_content[key.strip()] = value.strip()
                 except Exception as e:
-                    console.print(f"[warning]⚠️  Could not read existing .env: {e}[/warning]")
+                    console.print(
+                        f"[warning]⚠️  Could not read existing .env: {e}[/warning]",
+                    )
 
-                merge = Confirm.ask("Merge with existing keys (recommended)?", default=True)
+                merge = Confirm.ask(
+                    "Merge with existing keys (recommended)?",
+                    default=True,
+                )
                 if merge is None:
                     raise KeyboardInterrupt
 
@@ -668,12 +707,16 @@ class ConfigBuilder:
                     for env_var, api_key in sorted(collected_keys.items()):
                         f.write(f"{env_var}={api_key}\n")
 
-                console.print(f"\n✅ [success]API keys saved to: {env_path.absolute()}[/success]")
+                console.print(
+                    f"\n✅ [success]API keys saved to: {env_path.absolute()}[/success]",
+                )
 
                 # Security reminder
                 if env_path == Path(".env"):
                     console.print("\n[yellow]⚠️  Security reminder:[/yellow]")
-                    console.print("[yellow]   Add .env to your .gitignore to avoid committing API keys![/yellow]")
+                    console.print(
+                        "[yellow]   Add .env to your .gitignore to avoid committing API keys![/yellow]",
+                    )
 
             except Exception as e:
                 console.print(f"\n[error]❌ Failed to save .env file: {e}[/error]")
@@ -689,7 +732,9 @@ class ConfigBuilder:
 
             # Show what was detected
             available_count = sum(1 for has_key in updated_api_keys.values() if has_key)
-            console.print(f"[success]✅ {available_count} provider(s) available[/success]\n")
+            console.print(
+                f"[success]✅ {available_count} provider(s) available[/success]\n",
+            )
 
             return updated_api_keys
 
@@ -741,7 +786,7 @@ class ConfigBuilder:
                     models = provider_info.get("models", [])
                     models_display = ", ".join(models[:2])
                     if len(models) > 2:
-                        models_display += f" +{len(models)-2}"
+                        models_display += f" +{len(models) - 2}"
 
                     # Capabilities (abbreviated, first 3)
                     caps = provider_info.get("supports", [])
@@ -755,9 +800,11 @@ class ConfigBuilder:
                         "audio_understanding": "audio",
                         "video_understanding": "video",
                     }
-                    caps_display = ", ".join([cap_abbrev.get(c, c[:4]) for c in caps[:3]])
+                    caps_display = ", ".join(
+                        [cap_abbrev.get(c, c[:4]) for c in caps[:3]],
+                    )
                     if len(caps) > 3:
-                        caps_display += f" +{len(caps)-3}"
+                        caps_display += f" +{len(caps) - 3}"
 
                     # Add row
                     # Special handling for Claude Code - always available but show hint if no API key
@@ -765,24 +812,48 @@ class ConfigBuilder:
                         env_var = provider_info.get("env_var", "")
                         api_key_set = bool(os.getenv(env_var)) if env_var else False
                         if api_key_set:
-                            table.add_row("✅", name, models_display, caps_display or "basic")
+                            table.add_row(
+                                "✅",
+                                name,
+                                models_display,
+                                caps_display or "basic",
+                            )
                         else:
                             name_with_hint = f"{name}\n[dim cyan]⚠️ Requires `claude login` (no API key found)[/dim cyan]"
-                            table.add_row("✅", name_with_hint, models_display, caps_display or "basic")
+                            table.add_row(
+                                "✅",
+                                name_with_hint,
+                                models_display,
+                                caps_display or "basic",
+                            )
                     elif has_key:
-                        table.add_row(status, name, models_display, caps_display or "basic")
+                        table.add_row(
+                            status,
+                            name,
+                            models_display,
+                            caps_display or "basic",
+                        )
                     else:
                         # For missing keys, add env var hint
                         env_var = provider_info.get("env_var", "")
                         name_with_hint = f"{name}\n[yellow]Need: {env_var}[/yellow]"
-                        table.add_row(status, name_with_hint, models_display, caps_display or "basic")
+                        table.add_row(
+                            status,
+                            name_with_hint,
+                            models_display,
+                            caps_display or "basic",
+                        )
 
                 except Exception as e:
-                    console.print(f"[warning]⚠️ Could not display {provider_id}: {e}[/warning]")
+                    console.print(
+                        f"[warning]⚠️ Could not display {provider_id}: {e}[/warning]",
+                    )
 
             # Display the table
             console.print(table)
-            console.print("\n💡 [dim]Tip: Set API keys in ~/.config/massgen/.env or ~/.massgen/.env[/dim]\n")
+            console.print(
+                "\n💡 [dim]Tip: Set API keys in ~/.config/massgen/.env or ~/.massgen/.env[/dim]\n",
+            )
 
         except Exception as e:
             console.print(f"[error]❌ Error displaying providers: {e}[/error]")
@@ -824,9 +895,24 @@ class ConfigBuilder:
                 ("qa", "💬", "Simple Q&A", "Basic chat (no special tools)"),
                 ("research", "🔍", "Research & Analysis", "Web search enabled"),
                 ("coding", "💻", "Code & Files", "File ops + code execution"),
-                ("coding_docker", "🐳", "Code & Files (Docker)", "File ops + isolated Docker execution"),
-                ("data_analysis", "📊", "Data Analysis", "Files + code + image analysis"),
-                ("multimodal", "🎨", "Multimodal Analysis", "Images, audio, video understanding"),
+                (
+                    "coding_docker",
+                    "🐳",
+                    "Code & Files (Docker)",
+                    "File ops + isolated Docker execution",
+                ),
+                (
+                    "data_analysis",
+                    "📊",
+                    "Data Analysis",
+                    "Files + code + image analysis",
+                ),
+                (
+                    "multimodal",
+                    "🎨",
+                    "Multimodal Analysis",
+                    "Images, audio, video understanding",
+                ),
             ]
 
             for use_case_id, emoji, name, tools_hint in display_info:
@@ -846,10 +932,14 @@ class ConfigBuilder:
                     )
 
                 except Exception as e:
-                    console.print(f"[warning]⚠️  Could not display use case: {e}[/warning]")
+                    console.print(
+                        f"[warning]⚠️  Could not display use case: {e}[/warning]",
+                    )
 
             # Add helpful context before the prompt
-            console.print("[dim]Browse ready-to-use configs, or pick a template to build your own.[/dim]\n")
+            console.print(
+                "[dim]Browse ready-to-use configs, or pick a template to build your own.[/dim]\n",
+            )
 
             use_case_id = questionary.select(
                 "Select your use case:",
@@ -873,9 +963,13 @@ class ConfigBuilder:
 
             # Show selection with description
             selected_info = self.USE_CASES[use_case_id]
-            console.print(f"\n✅ Selected: [green]{selected_info.get('name', use_case_id)}[/green]")
+            console.print(
+                f"\n✅ Selected: [green]{selected_info.get('name', use_case_id)}[/green]",
+            )
             console.print(f"   [dim]{selected_info.get('description', '')}[/dim]")
-            console.print(f"   [dim cyan]→ Recommended: {selected_info.get('recommended_agents', 1)} agent(s)[/dim cyan]\n")
+            console.print(
+                f"   [dim cyan]→ Recommended: {selected_info.get('recommended_agents', 1)} agent(s)[/dim cyan]\n",
+            )
 
             # Show preset information (only if there are special features)
             use_case_details = self.USE_CASES[use_case_id]
@@ -961,7 +1055,9 @@ class ConfigBuilder:
             # Environment variables
             env_vars = {}
             if questionary.confirm("Add environment variables?", default=False).ask():
-                console.print("\n[dim]Tip: Use ${VAR_NAME} to reference from .env file[/dim]\n")
+                console.print(
+                    "\n[dim]Tip: Use ${VAR_NAME} to reference from .env file[/dim]\n",
+                )
                 while True:
                     var_name = questionary.text(
                         "Environment variable name (or press Enter to finish):",
@@ -999,7 +1095,12 @@ class ConfigBuilder:
             console.print(f"[error]❌ Error configuring custom MCP: {e}[/error]")
             return None
 
-    def batch_create_agents(self, count: int, provider_id: str, start_index: int = 0) -> List[Dict]:
+    def batch_create_agents(
+        self,
+        count: int,
+        provider_id: str,
+        start_index: int = 0,
+    ) -> List[Dict]:
         """Create multiple agents with the same provider.
 
         Args:
@@ -1022,7 +1123,10 @@ class ConfigBuilder:
                 "id": f"agent_{agent_letter}",
                 "backend": {
                     "type": provider_info.get("type", provider_id),
-                    "model": provider_info.get("default_model", provider_info.get("models", ["default"])[0]),
+                    "model": provider_info.get(
+                        "default_model",
+                        provider_info.get("models", ["default"])[0],
+                    ),
                 },
             }
 
@@ -1034,7 +1138,12 @@ class ConfigBuilder:
 
         return agents
 
-    def clone_agent(self, source_agent: Dict, new_id: str, target_backend_type: str = None) -> Dict:
+    def clone_agent(
+        self,
+        source_agent: Dict,
+        new_id: str,
+        target_backend_type: str = None,
+    ) -> Dict:
         """Clone an agent's configuration with a new ID, optionally preserving target backend.
 
         Args:
@@ -1051,7 +1160,10 @@ class ConfigBuilder:
         cloned["id"] = new_id
 
         # If target backend type is different, preserve it and update model
-        if target_backend_type and target_backend_type != source_agent.get("backend", {}).get("type"):
+        if target_backend_type and target_backend_type != source_agent.get(
+            "backend",
+            {},
+        ).get("type"):
             # Find target provider info to get default model
             target_provider_info = None
             for pid, pinfo in self.PROVIDERS.items():
@@ -1073,11 +1185,18 @@ class ConfigBuilder:
                 # Copy MCP servers (provider-agnostic, but check if target supports MCP)
                 if "mcp_servers" in source_backend:
                     # Check if target provider supports MCP
-                    target_supports_mcp = "mcp" in target_provider_info.get("supports", [])
+                    target_supports_mcp = "mcp" in target_provider_info.get(
+                        "supports",
+                        [],
+                    )
                     if target_supports_mcp:
-                        preserved_settings["mcp_servers"] = copy.deepcopy(source_backend["mcp_servers"])
+                        preserved_settings["mcp_servers"] = copy.deepcopy(
+                            source_backend["mcp_servers"],
+                        )
                     else:
-                        skipped_settings.append("mcp_servers (not supported by target provider)")
+                        skipped_settings.append(
+                            "mcp_servers (not supported by target provider)",
+                        )
 
                 # Copy tool flags if they exist and are supported by target
                 target_caps = get_capabilities(target_backend_type)
@@ -1095,19 +1214,25 @@ class ConfigBuilder:
                             if has_capability(target_backend_type, "web_search"):
                                 preserved_settings[key] = source_backend[key]
                             else:
-                                skipped_settings.append(f"{key} (not supported by {target_backend_type})")
+                                skipped_settings.append(
+                                    f"{key} (not supported by {target_backend_type})",
+                                )
                         elif key == "enable_code_interpreter":
                             # code_interpreter is OpenAI/Azure-specific
                             if target_caps and "code_interpreter" in target_caps.builtin_tools:
                                 preserved_settings[key] = source_backend[key]
                             else:
-                                skipped_settings.append(f"{key} (not supported by {target_backend_type})")
+                                skipped_settings.append(
+                                    f"{key} (not supported by {target_backend_type})",
+                                )
                         elif key == "enable_code_execution":
                             # code_execution is Claude/Gemini-specific
                             if target_caps and "code_execution" in target_caps.builtin_tools:
                                 preserved_settings[key] = source_backend[key]
                             else:
-                                skipped_settings.append(f"{key} (not supported by {target_backend_type})")
+                                skipped_settings.append(
+                                    f"{key} (not supported by {target_backend_type})",
+                                )
                         else:
                             # MCP command line and execution mode are universal
                             preserved_settings[key] = source_backend[key]
@@ -1126,7 +1251,10 @@ class ConfigBuilder:
                 # Replace backend with target provider's default model + preserved settings
                 cloned["backend"] = {
                     "type": target_backend_type,
-                    "model": target_provider_info.get("default_model", target_provider_info.get("models", ["default"])[0]),
+                    "model": target_provider_info.get(
+                        "default_model",
+                        target_provider_info.get("models", ["default"])[0],
+                    ),
                     **preserved_settings,
                 }
 
@@ -1155,8 +1283,12 @@ class ConfigBuilder:
             Modified agent configuration
         """
         try:
-            console.print(f"\n[bold cyan]Selective Modification: {agent['id']}[/bold cyan]")
-            console.print("[dim]Choose which settings to modify (or press Enter to keep all)[/dim]\n")
+            console.print(
+                f"\n[bold cyan]Selective Modification: {agent['id']}[/bold cyan]",
+            )
+            console.print(
+                "[dim]Choose which settings to modify (or press Enter to keep all)[/dim]\n",
+            )
 
             backend_type = agent.get("backend", {}).get("type")
 
@@ -1176,7 +1308,10 @@ class ConfigBuilder:
                 "What would you like to modify? (Space to select, Enter to confirm)",
                 choices=[
                     questionary.Choice("Model", value="model"),
-                    questionary.Choice("Tools (web search, code execution)", value="tools"),
+                    questionary.Choice(
+                        "Tools (web search, code execution)",
+                        value="tools",
+                    ),
                     questionary.Choice("Filesystem settings", value="filesystem"),
                     questionary.Choice("MCP servers", value="mcp"),
                 ],
@@ -1225,15 +1360,27 @@ class ConfigBuilder:
                     tool_choices = []
                     if "web_search" in builtin_tools:
                         tool_choices.append(
-                            questionary.Choice("Web Search", value="web_search", checked="web_search" in current_tools),
+                            questionary.Choice(
+                                "Web Search",
+                                value="web_search",
+                                checked="web_search" in current_tools,
+                            ),
                         )
                     if "code_execution" in builtin_tools:
                         tool_choices.append(
-                            questionary.Choice("Code Execution", value="code_execution", checked="code_execution" in current_tools),
+                            questionary.Choice(
+                                "Code Execution",
+                                value="code_execution",
+                                checked="code_execution" in current_tools,
+                            ),
                         )
                     if "bash" in builtin_tools:
                         tool_choices.append(
-                            questionary.Choice("Bash/Shell", value="bash", checked="bash" in current_tools),
+                            questionary.Choice(
+                                "Bash/Shell",
+                                value="bash",
+                                checked="bash" in current_tools,
+                            ),
                         )
 
                     if tool_choices:
@@ -1258,7 +1405,14 @@ class ConfigBuilder:
                         # Apply selected tools
                         if selected_tools:
                             if "web_search" in selected_tools:
-                                if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
+                                if backend_type in [
+                                    "openai",
+                                    "claude",
+                                    "claude_code",
+                                    "gemini",
+                                    "grok",
+                                    "azure_openai",
+                                ]:
                                     agent["backend"]["enable_web_search"] = True
 
                             if "code_execution" in selected_tools:
@@ -1269,7 +1423,10 @@ class ConfigBuilder:
 
                         console.print("✅ Tools updated")
 
-            if "filesystem" in modify_choices and "filesystem" in provider_info.get("supports", []):
+            if "filesystem" in modify_choices and "filesystem" in provider_info.get(
+                "supports",
+                [],
+            ):
                 enable_fs = questionary.confirm(
                     "Enable filesystem access?",
                     default=bool(agent["backend"].get("cwd")),
@@ -1277,7 +1434,10 @@ class ConfigBuilder:
 
                 if enable_fs:
                     if backend_type == "claude_code":
-                        current_cwd = agent["backend"].get("cwd", f"workspace{agent_num}")
+                        current_cwd = agent["backend"].get(
+                            "cwd",
+                            f"workspace{agent_num}",
+                        )
                         custom_cwd = questionary.text(
                             "Workspace directory:",
                             default=current_cwd,
@@ -1296,24 +1456,34 @@ class ConfigBuilder:
                     # Show current MCP servers
                     current_mcps = agent["backend"].get("mcp_servers", [])
                     if current_mcps:
-                        console.print(f"\n[dim]Current MCP servers: {len(current_mcps)}[/dim]")
+                        console.print(
+                            f"\n[dim]Current MCP servers: {len(current_mcps)}[/dim]",
+                        )
                         for mcp in current_mcps:
                             console.print(f"  • {mcp.get('name', 'unnamed')}")
 
-                    if questionary.confirm("Replace with new MCP servers?", default=False).ask():
+                    if questionary.confirm(
+                        "Replace with new MCP servers?",
+                        default=False,
+                    ).ask():
                         mcp_servers = []
                         while True:
                             custom_server = self.add_custom_mcp_server()
                             if custom_server:
                                 mcp_servers.append(custom_server)
-                                if not questionary.confirm("Add another MCP server?", default=False).ask():
+                                if not questionary.confirm(
+                                    "Add another MCP server?",
+                                    default=False,
+                                ).ask():
                                     break
                             else:
                                 break
 
                         if mcp_servers:
                             agent["backend"]["mcp_servers"] = mcp_servers
-                            console.print(f"✅ MCP servers updated: {len(mcp_servers)} server(s)")
+                            console.print(
+                                f"✅ MCP servers updated: {len(mcp_servers)} server(s)",
+                            )
                         else:
                             agent["backend"].pop("mcp_servers", None)
                             console.print("✅ MCP servers removed")
@@ -1327,7 +1497,12 @@ class ConfigBuilder:
             console.print(f"[error]❌ Error modifying agent: {e}[/error]")
             return agent
 
-    def apply_preset_to_agent(self, agent: Dict, use_case: str, agent_index: int = 1) -> Dict:
+    def apply_preset_to_agent(
+        self,
+        agent: Dict,
+        use_case: str,
+        agent_index: int = 1,
+    ) -> Dict:
         """Auto-apply preset configuration to an agent.
 
         Args:
@@ -1357,14 +1532,24 @@ class ConfigBuilder:
             return agent
 
         # Auto-enable filesystem if recommended
-        if "filesystem" in recommended_tools and "filesystem" in provider_info.get("supports", []):
+        if "filesystem" in recommended_tools and "filesystem" in provider_info.get(
+            "supports",
+            [],
+        ):
             if not agent["backend"].get("cwd"):
                 # Generate unique workspace name for each agent
                 agent["backend"]["cwd"] = f"workspace{agent_index}"
 
         # Auto-enable web search if recommended
         if "web_search" in recommended_tools:
-            if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
+            if backend_type in [
+                "openai",
+                "claude",
+                "claude_code",
+                "gemini",
+                "grok",
+                "azure_openai",
+            ]:
                 agent["backend"]["enable_web_search"] = True
 
         # Auto-enable code execution if recommended
@@ -1386,7 +1571,13 @@ class ConfigBuilder:
 
         return agent
 
-    def customize_agent(self, agent: Dict, agent_num: int, total_agents: int, use_case: Optional[str] = None) -> Dict:
+    def customize_agent(
+        self,
+        agent: Dict,
+        agent_num: int,
+        total_agents: int,
+        use_case: Optional[str] = None,
+    ) -> Dict:
         """Customize a single agent with Panel UI.
 
         Args:
@@ -1409,12 +1600,16 @@ class ConfigBuilder:
                     break
 
             if not provider_info:
-                console.print(f"[warning]⚠️  Could not find provider for {backend_type}[/warning]")
+                console.print(
+                    f"[warning]⚠️  Could not find provider for {backend_type}[/warning]",
+                )
                 return agent
 
             # Create Panel for this agent
             panel_content = []
-            panel_content.append(f"[bold]Agent {agent_num} of {total_agents}: {agent['id']}[/bold]\n")
+            panel_content.append(
+                f"[bold]Agent {agent_num} of {total_agents}: {agent['id']}[/bold]\n",
+            )
 
             # Model selection
             models = provider_info.get("models", [])
@@ -1422,7 +1617,9 @@ class ConfigBuilder:
                 current_model = agent["backend"].get("model")
                 panel_content.append(f"[cyan]Current model:[/cyan] {current_model}")
 
-                console.print(Panel("\n".join(panel_content), border_style="cyan", width=80))
+                console.print(
+                    Panel("\n".join(panel_content), border_style="cyan", width=80),
+                )
                 console.print()
 
                 selected_model = self.select_model_smart(
@@ -1440,14 +1637,21 @@ class ConfigBuilder:
                     if backend_type in ["openai", "azure_openai"]:
                         console.print("\n[dim]Configure text verbosity:[/dim]")
                         console.print("[dim]  • low: Concise responses[/dim]")
-                        console.print("[dim]  • medium: Balanced detail (recommended)[/dim]")
-                        console.print("[dim]  • high: Detailed, verbose responses[/dim]\n")
+                        console.print(
+                            "[dim]  • medium: Balanced detail (recommended)[/dim]",
+                        )
+                        console.print(
+                            "[dim]  • high: Detailed, verbose responses[/dim]\n",
+                        )
 
                         verbosity_choice = questionary.select(
                             "Text verbosity level:",
                             choices=[
                                 questionary.Choice("Low (concise)", value="low"),
-                                questionary.Choice("Medium (recommended)", value="medium"),
+                                questionary.Choice(
+                                    "Medium (recommended)",
+                                    value="medium",
+                                ),
                                 questionary.Choice("High (detailed)", value="high"),
                             ],
                             default="medium",
@@ -1464,14 +1668,30 @@ class ConfigBuilder:
                         agent["backend"]["text"] = {
                             "verbosity": verbosity_choice if verbosity_choice else "medium",
                         }
-                        console.print(f"✓ Text verbosity set to: {verbosity_choice if verbosity_choice else 'medium'}\n")
+                        console.print(
+                            f"✓ Text verbosity set to: {verbosity_choice if verbosity_choice else 'medium'}\n",
+                        )
 
                     # Auto-add reasoning params for GPT-5 and o-series models
-                    if selected_model in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o4", "o4-mini"]:
-                        console.print("[dim]This model supports extended reasoning. Configure reasoning effort:[/dim]")
-                        console.print("[dim]  • high: Maximum reasoning depth (slower, more thorough)[/dim]")
-                        console.print("[dim]  • medium: Balanced reasoning (recommended)[/dim]")
-                        console.print("[dim]  • low: Faster responses with basic reasoning[/dim]\n")
+                    if selected_model in [
+                        "gpt-5",
+                        "gpt-5-mini",
+                        "gpt-5-nano",
+                        "o4",
+                        "o4-mini",
+                    ]:
+                        console.print(
+                            "[dim]This model supports extended reasoning. Configure reasoning effort:[/dim]",
+                        )
+                        console.print(
+                            "[dim]  • high: Maximum reasoning depth (slower, more thorough)[/dim]",
+                        )
+                        console.print(
+                            "[dim]  • medium: Balanced reasoning (recommended)[/dim]",
+                        )
+                        console.print(
+                            "[dim]  • low: Faster responses with basic reasoning[/dim]\n",
+                        )
 
                         # Determine default based on model
                         if selected_model in ["gpt-5", "o4"]:
@@ -1484,8 +1704,14 @@ class ConfigBuilder:
                         effort_choice = questionary.select(
                             "Reasoning effort level:",
                             choices=[
-                                questionary.Choice("High (maximum depth)", value="high"),
-                                questionary.Choice("Medium (balanced - recommended)", value="medium"),
+                                questionary.Choice(
+                                    "High (maximum depth)",
+                                    value="high",
+                                ),
+                                questionary.Choice(
+                                    "Medium (balanced - recommended)",
+                                    value="medium",
+                                ),
                                 questionary.Choice("Low (faster)", value="low"),
                             ],
                             default=default_effort,
@@ -1503,9 +1729,13 @@ class ConfigBuilder:
                             "effort": effort_choice if effort_choice else default_effort,
                             "summary": "auto",
                         }
-                        console.print(f"✓ Reasoning effort set to: {effort_choice if effort_choice else default_effort}\n")
+                        console.print(
+                            f"✓ Reasoning effort set to: {effort_choice if effort_choice else default_effort}\n",
+                        )
             else:
-                console.print(Panel("\n".join(panel_content), border_style="cyan", width=80))
+                console.print(
+                    Panel("\n".join(panel_content), border_style="cyan", width=80),
+                )
 
             # Filesystem access (native or via MCP)
             if "filesystem" in provider_info.get("supports", []):
@@ -1519,10 +1749,15 @@ class ConfigBuilder:
                 if backend_type == "claude_code":
                     # Filesystem is always enabled for Claude Code
                     current_cwd = agent["backend"].get("cwd", "workspace")
-                    console.print("[dim]Claude Code has native filesystem access (always enabled)[/dim]")
+                    console.print(
+                        "[dim]Claude Code has native filesystem access (always enabled)[/dim]",
+                    )
                     console.print(f"[dim]Current workspace: {current_cwd}[/dim]")
 
-                    if questionary.confirm("Customize workspace directory?", default=False).ask():
+                    if questionary.confirm(
+                        "Customize workspace directory?",
+                        default=False,
+                    ).ask():
                         custom_cwd = questionary.text(
                             "Enter workspace directory:",
                             default=current_cwd,
@@ -1530,13 +1765,19 @@ class ConfigBuilder:
                         if custom_cwd:
                             agent["backend"]["cwd"] = custom_cwd
 
-                    console.print(f"✅ Filesystem access: {agent['backend']['cwd']} (native)")
+                    console.print(
+                        f"✅ Filesystem access: {agent['backend']['cwd']} (native)",
+                    )
 
                     # Ask about Docker bash execution for Claude Code
                     console.print()
                     console.print("[dim]Claude Code bash execution mode:[/dim]")
-                    console.print("[dim]  • local: Run bash commands directly on your machine (default)[/dim]")
-                    console.print("[dim]  • docker: Run bash in isolated Docker container (requires Docker setup)[/dim]")
+                    console.print(
+                        "[dim]  • local: Run bash commands directly on your machine (default)[/dim]",
+                    )
+                    console.print(
+                        "[dim]  • docker: Run bash in isolated Docker container (requires Docker setup)[/dim]",
+                    )
 
                     enable_docker = questionary.confirm(
                         "Enable Docker bash execution? (requires Docker setup)",
@@ -1555,20 +1796,32 @@ class ConfigBuilder:
                     filesystem_recommended = False
                     if use_case and use_case != "custom":
                         use_case_info = self.USE_CASES.get(use_case, {})
-                        filesystem_recommended = "filesystem" in use_case_info.get("recommended_tools", [])
+                        filesystem_recommended = "filesystem" in use_case_info.get(
+                            "recommended_tools",
+                            [],
+                        )
 
                     if fs_type == "native":
-                        console.print("[dim]This backend has native filesystem support[/dim]")
+                        console.print(
+                            "[dim]This backend has native filesystem support[/dim]",
+                        )
                     else:
-                        console.print("[dim]This backend supports filesystem operations via MCP[/dim]")
+                        console.print(
+                            "[dim]This backend supports filesystem operations via MCP[/dim]",
+                        )
 
                     if filesystem_recommended:
-                        console.print("[dim]💡 Filesystem access recommended for this preset[/dim]")
+                        console.print(
+                            "[dim]💡 Filesystem access recommended for this preset[/dim]",
+                        )
 
                     # Auto-enable for Docker preset
                     enable_filesystem = filesystem_recommended
                     if not filesystem_recommended:
-                        enable_filesystem = questionary.confirm("Enable filesystem access for this agent?", default=True).ask()
+                        enable_filesystem = questionary.confirm(
+                            "Enable filesystem access for this agent?",
+                            default=True,
+                        ).ask()
 
                     if enable_filesystem:
                         # For MCP-based filesystem, set cwd parameter
@@ -1576,13 +1829,17 @@ class ConfigBuilder:
                             # Use agent index for workspace naming
                             agent["backend"]["cwd"] = f"workspace{agent_num}"
 
-                        console.print(f"✅ Filesystem access enabled (via MCP): {agent['backend']['cwd']}")
+                        console.print(
+                            f"✅ Filesystem access enabled (via MCP): {agent['backend']['cwd']}",
+                        )
 
                         # Enable Docker execution mode for Docker preset
                         if use_case == "coding_docker":
                             agent["backend"]["enable_mcp_command_line"] = True
                             agent["backend"]["command_line_execution_mode"] = "docker"
-                            console.print("🐳 Docker execution mode enabled for isolated code execution")
+                            console.print(
+                                "🐳 Docker execution mode enabled for isolated code execution",
+                            )
 
             # Built-in tools (backend-specific capabilities)
             # Skip for Claude Code - bash is always available, already configured above
@@ -1601,16 +1858,36 @@ class ConfigBuilder:
 
                     # Show preset info if this is a preset use case
                     if recommended_tools and use_case != "custom":
-                        console.print(f"[dim]💡 Preset recommendation: {', '.join(recommended_tools)}[/dim]")
+                        console.print(
+                            f"[dim]💡 Preset recommendation: {', '.join(recommended_tools)}[/dim]",
+                        )
 
                     tool_choices = []
 
                     if "web_search" in builtin_tools:
-                        tool_choices.append(questionary.Choice("Web Search", value="web_search", checked="web_search" in recommended_tools))
+                        tool_choices.append(
+                            questionary.Choice(
+                                "Web Search",
+                                value="web_search",
+                                checked="web_search" in recommended_tools,
+                            ),
+                        )
                     if "code_execution" in builtin_tools:
-                        tool_choices.append(questionary.Choice("Code Execution", value="code_execution", checked="code_execution" in recommended_tools))
+                        tool_choices.append(
+                            questionary.Choice(
+                                "Code Execution",
+                                value="code_execution",
+                                checked="code_execution" in recommended_tools,
+                            ),
+                        )
                     if "bash" in builtin_tools:
-                        tool_choices.append(questionary.Choice("Bash/Shell", value="bash", checked="bash" in recommended_tools))
+                        tool_choices.append(
+                            questionary.Choice(
+                                "Bash/Shell",
+                                value="bash",
+                                checked="bash" in recommended_tools,
+                            ),
+                        )
 
                     if tool_choices:
                         selected_tools = questionary.checkbox(
@@ -1629,7 +1906,14 @@ class ConfigBuilder:
                         if selected_tools:
                             # Apply backend-specific configuration
                             if "web_search" in selected_tools:
-                                if backend_type in ["openai", "claude", "claude_code", "gemini", "grok", "azure_openai"]:
+                                if backend_type in [
+                                    "openai",
+                                    "claude",
+                                    "claude_code",
+                                    "gemini",
+                                    "grok",
+                                    "azure_openai",
+                                ]:
                                     agent["backend"]["enable_web_search"] = True
 
                             if "code_execution" in selected_tools:
@@ -1638,75 +1922,204 @@ class ConfigBuilder:
                                 elif backend_type in ["claude", "gemini"]:
                                     agent["backend"]["enable_code_execution"] = True
 
-                            console.print(f"✅ Enabled {len(selected_tools)} built-in tool(s)")
+                            console.print(
+                                f"✅ Enabled {len(selected_tools)} built-in tool(s)",
+                            )
 
             # Multimodal capabilities (passive - no config needed)
             supports = provider_info.get("supports", [])
-            multimodal_caps = [s for s in supports if s in ["image_understanding", "audio_understanding", "video_understanding", "reasoning"]]
+            multimodal_caps = [
+                s
+                for s in supports
+                if s
+                in [
+                    "image_understanding",
+                    "audio_understanding",
+                    "video_understanding",
+                    "reasoning",
+                ]
+            ]
 
             # Show multimodal capabilities info (passive - no config needed)
             if multimodal_caps:
                 console.print()
-                console.print("[dim]📷 This backend also supports (no configuration needed):[/dim]")
+                console.print(
+                    "[dim]📷 This backend also supports (no configuration needed):[/dim]",
+                )
                 if "image_understanding" in multimodal_caps:
-                    console.print("[dim]  • Image understanding (analyze images, charts, screenshots)[/dim]")
+                    console.print(
+                        "[dim]  • Image understanding (analyze images, charts, screenshots)[/dim]",
+                    )
                 if "audio_understanding" in multimodal_caps:
-                    console.print("[dim]  • Audio understanding (transcribe and analyze audio)[/dim]")
+                    console.print(
+                        "[dim]  • Audio understanding (transcribe and analyze audio)[/dim]",
+                    )
                 if "video_understanding" in multimodal_caps:
-                    console.print("[dim]  • Video understanding (analyze video content)[/dim]")
+                    console.print(
+                        "[dim]  • Video understanding (analyze video content)[/dim]",
+                    )
                 if "reasoning" in multimodal_caps:
-                    console.print("[dim]  • Extended reasoning (deep thinking for complex problems)[/dim]")
+                    console.print(
+                        "[dim]  • Extended reasoning (deep thinking for complex problems)[/dim]",
+                    )
 
             # Custom multimodal tools (unified understanding and generation)
             # Available for ALL use cases - these are active tools using OpenAI's gpt-4.1 API
             console.print()
             console.print("[cyan]Custom Multimodal Tools (New in v0.1.3+):[/cyan]")
-            console.print("[dim]These tools let agents process multimodal content using OpenAI's gpt-4.1 API:[/dim]")
-            console.print("[dim]  • Works with any backend (uses OpenAI for processing)[/dim]")
-            console.print("[dim]  • Processes files agents generate or discover during execution[/dim]")
-            console.print("[dim]  • Returns structured JSON with detailed metadata[/dim]")
+            console.print(
+                "[dim]These tools let agents process multimodal content using OpenAI's gpt-4.1 API:[/dim]",
+            )
+            console.print(
+                "[dim]  • Works with any backend (uses OpenAI for processing)[/dim]",
+            )
+            console.print(
+                "[dim]  • Processes files agents generate or discover during execution[/dim]",
+            )
+            console.print(
+                "[dim]  • Returns structured JSON with detailed metadata[/dim]",
+            )
             console.print("[dim]  • Requires OPENAI_API_KEY in your .env file[/dim]")
 
             # Default to True for multimodal use case, False for others
             default_add_mm = use_case == "multimodal"
 
-            if questionary.confirm("Add custom multimodal tools?", default=default_add_mm).ask():
+            if questionary.confirm(
+                "Add custom multimodal tools?",
+                default=default_add_mm,
+            ).ask():
                 # Determine default selections based on use case
                 if use_case == "multimodal":
                     # For multimodal preset, select all by default
                     multimodal_tool_choices = [
-                        questionary.Choice("understand_image - Analyze images (PNG, JPEG, JPG)", value="understand_image", checked=True),
-                        questionary.Choice("understand_audio - Transcribe and analyze audio", value="understand_audio", checked=True),
-                        questionary.Choice("understand_video - Extract frames and analyze video", value="understand_video", checked=True),
-                        questionary.Choice("understand_file - Process documents (PDF, DOCX, XLSX, PPTX)", value="understand_file", checked=True),
-                        questionary.Choice("text_to_image_generation - Generate images from text prompts", value="text_to_image_generation", checked=True),
-                        questionary.Choice("image_to_image_generation - Transform existing images", value="image_to_image_generation", checked=True),
-                        questionary.Choice("text_to_video_generation - Generate videos from text prompts", value="text_to_video_generation", checked=True),
-                        questionary.Choice("text_to_file_generation - Generate documents (PDF, DOCX, etc.)", value="text_to_file_generation", checked=True),
+                        questionary.Choice(
+                            "understand_image - Analyze images (PNG, JPEG, JPG)",
+                            value="understand_image",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "understand_audio - Transcribe and analyze audio",
+                            value="understand_audio",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "understand_video - Extract frames and analyze video",
+                            value="understand_video",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "understand_file - Process documents (PDF, DOCX, XLSX, PPTX)",
+                            value="understand_file",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "text_to_image_generation - Generate images from text prompts",
+                            value="text_to_image_generation",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "image_to_image_generation - Transform existing images",
+                            value="image_to_image_generation",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "text_to_video_generation - Generate videos from text prompts",
+                            value="text_to_video_generation",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "text_to_file_generation - Generate documents (PDF, DOCX, etc.)",
+                            value="text_to_file_generation",
+                            checked=True,
+                        ),
                     ]
                 elif use_case == "data_analysis":
                     # For data analysis, suggest image and file tools
                     multimodal_tool_choices = [
-                        questionary.Choice("understand_image - Analyze images (PNG, JPEG, JPG)", value="understand_image", checked=True),
-                        questionary.Choice("understand_audio - Transcribe and analyze audio", value="understand_audio", checked=False),
-                        questionary.Choice("understand_video - Extract frames and analyze video", value="understand_video", checked=False),
-                        questionary.Choice("understand_file - Process documents (PDF, DOCX, XLSX, PPTX)", value="understand_file", checked=True),
-                        questionary.Choice("text_to_image_generation - Generate images from text prompts", value="text_to_image_generation", checked=False),
-                        questionary.Choice("image_to_image_generation - Transform existing images", value="image_to_image_generation", checked=False),
-                        questionary.Choice("text_to_video_generation - Generate videos from text prompts", value="text_to_video_generation", checked=False),
-                        questionary.Choice("text_to_file_generation - Generate documents (PDF, DOCX, etc.)", value="text_to_file_generation", checked=True),
+                        questionary.Choice(
+                            "understand_image - Analyze images (PNG, JPEG, JPG)",
+                            value="understand_image",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "understand_audio - Transcribe and analyze audio",
+                            value="understand_audio",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "understand_video - Extract frames and analyze video",
+                            value="understand_video",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "understand_file - Process documents (PDF, DOCX, XLSX, PPTX)",
+                            value="understand_file",
+                            checked=True,
+                        ),
+                        questionary.Choice(
+                            "text_to_image_generation - Generate images from text prompts",
+                            value="text_to_image_generation",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "image_to_image_generation - Transform existing images",
+                            value="image_to_image_generation",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "text_to_video_generation - Generate videos from text prompts",
+                            value="text_to_video_generation",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "text_to_file_generation - Generate documents (PDF, DOCX, etc.)",
+                            value="text_to_file_generation",
+                            checked=True,
+                        ),
                     ]
                 else:
                     # For other use cases, none selected by default (let user choose)
                     multimodal_tool_choices = [
-                        questionary.Choice("understand_image - Analyze images (PNG, JPEG, JPG)", value="understand_image", checked=False),
-                        questionary.Choice("understand_audio - Transcribe and analyze audio", value="understand_audio", checked=False),
-                        questionary.Choice("understand_video - Extract frames and analyze video", value="understand_video", checked=False),
-                        questionary.Choice("understand_file - Process documents (PDF, DOCX, XLSX, PPTX)", value="understand_file", checked=False),
-                        questionary.Choice("text_to_image_generation - Generate images from text prompts", value="text_to_image_generation", checked=False),
-                        questionary.Choice("image_to_image_generation - Transform existing images", value="image_to_image_generation", checked=False),
-                        questionary.Choice("text_to_video_generation - Generate videos from text prompts", value="text_to_video_generation", checked=False),
-                        questionary.Choice("text_to_file_generation - Generate documents (PDF, DOCX, etc.)", value="text_to_file_generation", checked=False),
+                        questionary.Choice(
+                            "understand_image - Analyze images (PNG, JPEG, JPG)",
+                            value="understand_image",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "understand_audio - Transcribe and analyze audio",
+                            value="understand_audio",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "understand_video - Extract frames and analyze video",
+                            value="understand_video",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "understand_file - Process documents (PDF, DOCX, XLSX, PPTX)",
+                            value="understand_file",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "text_to_image_generation - Generate images from text prompts",
+                            value="text_to_image_generation",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "image_to_image_generation - Transform existing images",
+                            value="image_to_image_generation",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "text_to_video_generation - Generate videos from text prompts",
+                            value="text_to_video_generation",
+                            checked=False,
+                        ),
+                        questionary.Choice(
+                            "text_to_file_generation - Generate documents (PDF, DOCX, etc.)",
+                            value="text_to_file_generation",
+                            checked=False,
+                        ),
                     ]
 
                 selected_mm_tools = questionary.checkbox(
@@ -1737,13 +2150,17 @@ class ConfigBuilder:
                         }
                         agent["backend"]["custom_tools"].append(tool_config)
 
-                    console.print(f"✅ Added {len(selected_mm_tools)} custom multimodal tool(s)")
+                    console.print(
+                        f"✅ Added {len(selected_mm_tools)} custom multimodal tool(s)",
+                    )
 
             # MCP servers (custom only)
             # Note: Filesystem is handled internally above, NOT as external MCP
             if "mcp" in provider_info.get("supports", []):
                 console.print()
-                console.print("[dim]MCP servers are external integrations. Filesystem is handled internally (configured above).[/dim]")
+                console.print(
+                    "[dim]MCP servers are external integrations. Filesystem is handled internally (configured above).[/dim]",
+                )
 
                 if questionary.confirm("Add custom MCP servers?", default=False).ask():
                     mcp_servers = []
@@ -1753,7 +2170,10 @@ class ConfigBuilder:
                             mcp_servers.append(custom_server)
 
                             # Ask if they want to add another
-                            if not questionary.confirm("Add another custom MCP server?", default=False).ask():
+                            if not questionary.confirm(
+                                "Add another custom MCP server?",
+                                default=False,
+                            ).ask():
                                 break
                         else:
                             break
@@ -1761,7 +2181,9 @@ class ConfigBuilder:
                     # Add to agent config if any MCPs were configured
                     if mcp_servers:
                         agent["backend"]["mcp_servers"] = mcp_servers
-                        console.print(f"\n✅ Total: {len(mcp_servers)} MCP server(s) configured for this agent\n")
+                        console.print(
+                            f"\n✅ Total: {len(mcp_servers)} MCP server(s) configured for this agent\n",
+                        )
 
             console.print(f"✅ [green]Agent {agent_num} configured[/green]\n")
             return agent
@@ -1792,14 +2214,19 @@ class ConfigBuilder:
             recommended = use_case_info.get("recommended_agents", 1)
 
             # Step 2a: How many agents?
-            console.print(f"  💡 [dim]Recommended for this use case: {recommended} agent(s)[/dim]")
+            console.print(
+                f"  💡 [dim]Recommended for this use case: {recommended} agent(s)[/dim]",
+            )
             console.print()
 
             # Build choices with proper default handling
             num_choices = [
                 questionary.Choice("1 agent", value=1),
                 questionary.Choice("2 agents", value=2),
-                questionary.Choice("3 agents (recommended for diverse perspectives)", value=3),
+                questionary.Choice(
+                    "3 agents (recommended for diverse perspectives)",
+                    value=3,
+                ),
                 questionary.Choice("4 agents", value=4),
                 questionary.Choice("5 agents", value=5),
                 questionary.Choice("Custom number", value="custom"),
@@ -1846,16 +2273,23 @@ class ConfigBuilder:
                 num_agents = recommended
 
             if num_agents < 1:
-                console.print("[warning]⚠️  Number of agents must be at least 1. Setting to 1.[/warning]")
+                console.print(
+                    "[warning]⚠️  Number of agents must be at least 1. Setting to 1.[/warning]",
+                )
                 num_agents = 1
 
             # Filter providers: only those with API keys, excluding generic backends
-            excluded_generic_backends = ["chatcompletion", "inference"]  # Now superseded by specific providers
+            excluded_generic_backends = [
+                "chatcompletion",
+                "inference",
+            ]  # Now superseded by specific providers
 
             available_providers = [p for p, has_key in api_keys.items() if has_key and p not in excluded_generic_backends]  # Only show providers with keys, exclude generic
 
             if not available_providers:
-                console.print("[error]❌ No providers with API keys found. Please set at least one API key.[/error]")
+                console.print(
+                    "[error]❌ No providers with API keys found. Please set at least one API key.[/error]",
+                )
                 raise ValueError("No providers available")
 
             # Step 2b: Same provider or mix?
@@ -1889,7 +2323,10 @@ class ConfigBuilder:
                     raise KeyboardInterrupt  # User cancelled
 
                 agents = self.batch_create_agents(1, provider_id)
-                provider_name = self.PROVIDERS.get(provider_id, {}).get("name", provider_id)
+                provider_name = self.PROVIDERS.get(provider_id, {}).get(
+                    "name",
+                    provider_id,
+                )
                 console.print()
                 console.print(f"  ✅ Created 1 {provider_name} agent")
                 console.print()
@@ -1901,8 +2338,14 @@ class ConfigBuilder:
                 setup_mode = questionary.select(
                     "Setup mode:",
                     choices=[
-                        questionary.Choice("Same provider for all agents (quick setup)", value="same"),
-                        questionary.Choice("Mix different providers (advanced)", value="mix"),
+                        questionary.Choice(
+                            "Same provider for all agents (quick setup)",
+                            value="same",
+                        ),
+                        questionary.Choice(
+                            "Mix different providers (advanced)",
+                            value="mix",
+                        ),
                     ],
                     style=questionary.Style(
                         [
@@ -1946,7 +2389,10 @@ class ConfigBuilder:
                         raise KeyboardInterrupt  # User cancelled
 
                     agents = self.batch_create_agents(num_agents, provider_id)
-                    provider_name = self.PROVIDERS.get(provider_id, {}).get("name", provider_id)
+                    provider_name = self.PROVIDERS.get(provider_id, {}).get(
+                        "name",
+                        provider_id,
+                    )
                     console.print()
                     console.print(f"  ✅ Created {num_agents} {provider_name} agents")
                     console.print()
@@ -1954,11 +2400,15 @@ class ConfigBuilder:
                 else:
                     # Advanced: mix providers
                     console.print()
-                    console.print("[yellow]  💡 Advanced mode: Configure each agent individually[/yellow]")
+                    console.print(
+                        "[yellow]  💡 Advanced mode: Configure each agent individually[/yellow]",
+                    )
                     console.print()
                     for i in range(num_agents):
                         try:
-                            console.print(f"[bold cyan]Agent {i + 1} of {num_agents}:[/bold cyan]")
+                            console.print(
+                                f"[bold cyan]Agent {i + 1} of {num_agents}:[/bold cyan]",
+                            )
 
                             provider_choices = [
                                 questionary.Choice(
@@ -1984,20 +2434,33 @@ class ConfigBuilder:
                             if not provider_id:
                                 provider_id = available_providers[0]
 
-                            agent_batch = self.batch_create_agents(1, provider_id, len(agents))
+                            agent_batch = self.batch_create_agents(
+                                1,
+                                provider_id,
+                                len(agents),
+                            )
                             agents.extend(agent_batch)
 
-                            provider_name = self.PROVIDERS.get(provider_id, {}).get("name", provider_id)
-                            console.print(f"✅ Agent {i + 1} created: {provider_name}\n")
+                            provider_name = self.PROVIDERS.get(provider_id, {}).get(
+                                "name",
+                                provider_id,
+                            )
+                            console.print(
+                                f"✅ Agent {i + 1} created: {provider_name}\n",
+                            )
 
                         except (KeyboardInterrupt, EOFError):
                             raise
                         except Exception as e:
-                            console.print(f"[error]❌ Error configuring agent {i + 1}: {e}[/error]")
+                            console.print(
+                                f"[error]❌ Error configuring agent {i + 1}: {e}[/error]",
+                            )
                             console.print("[info]Skipping this agent...[/info]")
 
             if not agents:
-                console.print("[error]❌ No agents were successfully configured.[/error]")
+                console.print(
+                    "[error]❌ No agents were successfully configured.[/error]",
+                )
                 raise ValueError("Failed to configure any agents")
 
             # Step 2c: Model selection and preset application
@@ -2016,7 +2479,9 @@ class ConfigBuilder:
                 use_case_info = self.USE_CASES.get(use_case, {})
                 recommended_tools = use_case_info.get("recommended_tools", [])
 
-                console.print(f"  [bold green]✓ Preset Selected:[/bold green] {use_case_info.get('name', use_case)}")
+                console.print(
+                    f"  [bold green]✓ Preset Selected:[/bold green] {use_case_info.get('name', use_case)}",
+                )
                 console.print(f"  [dim]{use_case_info.get('description', '')}[/dim]")
                 console.print()
 
@@ -2038,7 +2503,9 @@ class ConfigBuilder:
                         console.print("    • 🐳 Docker isolated execution")
 
                     if use_case == "multimodal":
-                        console.print("    • 🎨 Custom multimodal tools (understand_image, understand_audio, understand_video, understand_file)")
+                        console.print(
+                            "    • 🎨 Custom multimodal tools (understand_image, understand_audio, understand_video, understand_file)",
+                        )
 
                     console.print()
 
@@ -2059,7 +2526,9 @@ class ConfigBuilder:
                         models = provider_info.get("models", [])
                         if models and len(models) > 1:
                             current_model = agent["backend"].get("model")
-                            console.print(f"[bold]Agent {i} ({agent['id']}) - {provider_info.get('name')}:[/bold]")
+                            console.print(
+                                f"[bold]Agent {i} ({agent['id']}) - {provider_info.get('name')}:[/bold]",
+                            )
 
                             selected_model = self.select_model_smart(
                                 backend_type=backend_type,
@@ -2074,17 +2543,34 @@ class ConfigBuilder:
 
                                 # Configure text verbosity for OpenAI models only
                                 if backend_type in ["openai", "azure_openai"]:
-                                    console.print("\n  [dim]Configure text verbosity:[/dim]")
-                                    console.print("  [dim]• low: Concise responses[/dim]")
-                                    console.print("  [dim]• medium: Balanced detail (recommended)[/dim]")
-                                    console.print("  [dim]• high: Detailed, verbose responses[/dim]\n")
+                                    console.print(
+                                        "\n  [dim]Configure text verbosity:[/dim]",
+                                    )
+                                    console.print(
+                                        "  [dim]• low: Concise responses[/dim]",
+                                    )
+                                    console.print(
+                                        "  [dim]• medium: Balanced detail (recommended)[/dim]",
+                                    )
+                                    console.print(
+                                        "  [dim]• high: Detailed, verbose responses[/dim]\n",
+                                    )
 
                                     verbosity_choice = questionary.select(
                                         "  Text verbosity:",
                                         choices=[
-                                            questionary.Choice("Low (concise)", value="low"),
-                                            questionary.Choice("Medium (recommended)", value="medium"),
-                                            questionary.Choice("High (detailed)", value="high"),
+                                            questionary.Choice(
+                                                "Low (concise)",
+                                                value="low",
+                                            ),
+                                            questionary.Choice(
+                                                "Medium (recommended)",
+                                                value="medium",
+                                            ),
+                                            questionary.Choice(
+                                                "High (detailed)",
+                                                value="high",
+                                            ),
                                         ],
                                         default="medium",
                                         style=questionary.Style(
@@ -2100,14 +2586,30 @@ class ConfigBuilder:
                                     agent["backend"]["text"] = {
                                         "verbosity": verbosity_choice if verbosity_choice else "medium",
                                     }
-                                    console.print(f"  ✓ Text verbosity: {verbosity_choice if verbosity_choice else 'medium'}\n")
+                                    console.print(
+                                        f"  ✓ Text verbosity: {verbosity_choice if verbosity_choice else 'medium'}\n",
+                                    )
 
                                 # Auto-add reasoning params for GPT-5 and o-series models
-                                if selected_model in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o4", "o4-mini"]:
-                                    console.print("  [dim]Configure reasoning effort:[/dim]")
-                                    console.print("  [dim]• high: Maximum depth (slower)[/dim]")
-                                    console.print("  [dim]• medium: Balanced (recommended)[/dim]")
-                                    console.print("  [dim]• low: Faster responses[/dim]\n")
+                                if selected_model in [
+                                    "gpt-5",
+                                    "gpt-5-mini",
+                                    "gpt-5-nano",
+                                    "o4",
+                                    "o4-mini",
+                                ]:
+                                    console.print(
+                                        "  [dim]Configure reasoning effort:[/dim]",
+                                    )
+                                    console.print(
+                                        "  [dim]• high: Maximum depth (slower)[/dim]",
+                                    )
+                                    console.print(
+                                        "  [dim]• medium: Balanced (recommended)[/dim]",
+                                    )
+                                    console.print(
+                                        "  [dim]• low: Faster responses[/dim]\n",
+                                    )
 
                                     # Determine default based on model
                                     if selected_model in ["gpt-5", "o4"]:
@@ -2121,7 +2623,10 @@ class ConfigBuilder:
                                         "  Reasoning effort:",
                                         choices=[
                                             questionary.Choice("High", value="high"),
-                                            questionary.Choice("Medium (recommended)", value="medium"),
+                                            questionary.Choice(
+                                                "Medium (recommended)",
+                                                value="medium",
+                                            ),
                                             questionary.Choice("Low", value="low"),
                                         ],
                                         default=default_effort,
@@ -2139,19 +2644,32 @@ class ConfigBuilder:
                                         "effort": effort_choice if effort_choice else default_effort,
                                         "summary": "auto",
                                     }
-                                    console.print(f"  ✓ Reasoning effort: {effort_choice if effort_choice else default_effort}\n")
+                                    console.print(
+                                        f"  ✓ Reasoning effort: {effort_choice if effort_choice else default_effort}\n",
+                                    )
 
                 # Auto-apply preset to all agents
                 console.print()
-                console.print("  [cyan]Applying preset configuration to all agents...[/cyan]")
+                console.print(
+                    "  [cyan]Applying preset configuration to all agents...[/cyan]",
+                )
                 for i, agent in enumerate(agents):
-                    agents[i] = self.apply_preset_to_agent(agent, use_case, agent_index=i + 1)
+                    agents[i] = self.apply_preset_to_agent(
+                        agent,
+                        use_case,
+                        agent_index=i + 1,
+                    )
 
-                console.print(f"  [green]✅ {len(agents)} agent(s) configured with preset[/green]")
+                console.print(
+                    f"  [green]✅ {len(agents)} agent(s) configured with preset[/green]",
+                )
                 console.print()
 
                 # Ask if user wants additional customization
-                customize_choice = Confirm.ask("\n  [prompt]Further customize agent settings (advanced)?[/prompt]", default=False)
+                customize_choice = Confirm.ask(
+                    "\n  [prompt]Further customize agent settings (advanced)?[/prompt]",
+                    default=False,
+                )
                 if customize_choice is None:
                     raise KeyboardInterrupt  # User cancelled
                 if customize_choice:
@@ -2161,13 +2679,24 @@ class ConfigBuilder:
                     for i, agent in enumerate(agents, 1):
                         # For agents after the first, offer clone option
                         if i > 1:
-                            console.print(f"\n[bold cyan]Agent {i} of {len(agents)}: {agent['id']}[/bold cyan]")
+                            console.print(
+                                f"\n[bold cyan]Agent {i} of {len(agents)}: {agent['id']}[/bold cyan]",
+                            )
                             clone_choice = questionary.select(
                                 "How would you like to configure this agent?",
                                 choices=[
-                                    questionary.Choice(f"📋 Copy agent_{chr(ord('a') + i - 2)}'s configuration", value="clone"),
-                                    questionary.Choice(f"✏️  Copy agent_{chr(ord('a') + i - 2)} and modify specific settings", value="clone_modify"),
-                                    questionary.Choice("⚙️  Configure from scratch", value="scratch"),
+                                    questionary.Choice(
+                                        f"📋 Copy agent_{chr(ord('a') + i - 2)}'s configuration",
+                                        value="clone",
+                                    ),
+                                    questionary.Choice(
+                                        f"✏️  Copy agent_{chr(ord('a') + i - 2)} and modify specific settings",
+                                        value="clone_modify",
+                                    ),
+                                    questionary.Choice(
+                                        "⚙️  Configure from scratch",
+                                        value="scratch",
+                                    ),
                                 ],
                                 style=questionary.Style(
                                     [
@@ -2182,20 +2711,35 @@ class ConfigBuilder:
                             if clone_choice == "clone":
                                 # Clone the previous agent, preserving current agent's backend type
                                 source_agent = agents[i - 2]
-                                target_backend_type = agent.get("backend", {}).get("type")
-                                source_backend_type = source_agent.get("backend", {}).get("type")
+                                target_backend_type = agent.get("backend", {}).get(
+                                    "type",
+                                )
+                                source_backend_type = source_agent.get(
+                                    "backend",
+                                    {},
+                                ).get("type")
 
-                                agent = self.clone_agent(source_agent, agent["id"], target_backend_type)
+                                agent = self.clone_agent(
+                                    source_agent,
+                                    agent["id"],
+                                    target_backend_type,
+                                )
 
                                 # If cross-provider cloning, prompt for model selection
                                 if target_backend_type != source_backend_type:
-                                    console.print(f"✅ Cloned settings from agent_{chr(ord('a') + i - 2)} ({source_backend_type})")
-                                    console.print(f"   [dim]Note: Model must be selected for {target_backend_type}[/dim]")
+                                    console.print(
+                                        f"✅ Cloned settings from agent_{chr(ord('a') + i - 2)} ({source_backend_type})",
+                                    )
+                                    console.print(
+                                        f"   [dim]Note: Model must be selected for {target_backend_type}[/dim]",
+                                    )
 
                                     # Show skipped settings warning if any
                                     skipped = agent.get("_skipped_settings", [])
                                     if skipped:
-                                        console.print("   [yellow]⚠️  Skipped incompatible settings:[/yellow]")
+                                        console.print(
+                                            "   [yellow]⚠️  Skipped incompatible settings:[/yellow]",
+                                        )
                                         for setting in skipped:
                                             console.print(f"      • {setting}")
                                     console.print()
@@ -2221,12 +2765,16 @@ class ConfigBuilder:
 
                                         if model_choice:
                                             agent["backend"]["model"] = model_choice
-                                            console.print(f"   ✅ Model: {model_choice}")
+                                            console.print(
+                                                f"   ✅ Model: {model_choice}",
+                                            )
 
                                     # Clean up temporary skipped settings marker
                                     agent.pop("_skipped_settings", None)
                                 else:
-                                    console.print(f"✅ Cloned configuration from agent_{chr(ord('a') + i - 2)}")
+                                    console.print(
+                                        f"✅ Cloned configuration from agent_{chr(ord('a') + i - 2)}",
+                                    )
                                     # Clean up temporary skipped settings marker
                                     agent.pop("_skipped_settings", None)
 
@@ -2236,20 +2784,35 @@ class ConfigBuilder:
                             elif clone_choice == "clone_modify":
                                 # Clone and selectively modify, preserving current agent's backend type
                                 source_agent = agents[i - 2]
-                                target_backend_type = agent.get("backend", {}).get("type")
-                                source_backend_type = source_agent.get("backend", {}).get("type")
+                                target_backend_type = agent.get("backend", {}).get(
+                                    "type",
+                                )
+                                source_backend_type = source_agent.get(
+                                    "backend",
+                                    {},
+                                ).get("type")
 
-                                agent = self.clone_agent(source_agent, agent["id"], target_backend_type)
+                                agent = self.clone_agent(
+                                    source_agent,
+                                    agent["id"],
+                                    target_backend_type,
+                                )
 
                                 # If cross-provider cloning, prompt for model selection before modification
                                 if target_backend_type != source_backend_type:
-                                    console.print(f"✅ Cloned settings from agent_{chr(ord('a') + i - 2)} ({source_backend_type})")
-                                    console.print(f"   [dim]Note: Model must be selected for {target_backend_type}[/dim]")
+                                    console.print(
+                                        f"✅ Cloned settings from agent_{chr(ord('a') + i - 2)} ({source_backend_type})",
+                                    )
+                                    console.print(
+                                        f"   [dim]Note: Model must be selected for {target_backend_type}[/dim]",
+                                    )
 
                                     # Show skipped settings warning if any
                                     skipped = agent.get("_skipped_settings", [])
                                     if skipped:
-                                        console.print("   [yellow]⚠️  Skipped incompatible settings:[/yellow]")
+                                        console.print(
+                                            "   [yellow]⚠️  Skipped incompatible settings:[/yellow]",
+                                        )
                                         for setting in skipped:
                                             console.print(f"      • {setting}")
                                     console.print()
@@ -2275,7 +2838,9 @@ class ConfigBuilder:
 
                                         if model_choice:
                                             agent["backend"]["model"] = model_choice
-                                            console.print(f"   ✅ Model: {model_choice}")
+                                            console.print(
+                                                f"   ✅ Model: {model_choice}",
+                                            )
                                             console.print()
 
                                     # Clean up temporary skipped settings marker before modification
@@ -2286,22 +2851,40 @@ class ConfigBuilder:
                                 continue
 
                         # Configure from scratch or first agent
-                        agent = self.customize_agent(agent, i, len(agents), use_case=use_case)
+                        agent = self.customize_agent(
+                            agent,
+                            i,
+                            len(agents),
+                            use_case=use_case,
+                        )
                         agents[i - 1] = agent
             else:
                 # Custom configuration - always customize
-                console.print("  [cyan]Custom configuration - configuring each agent...[/cyan]")
+                console.print(
+                    "  [cyan]Custom configuration - configuring each agent...[/cyan]",
+                )
                 console.print()
                 for i, agent in enumerate(agents, 1):
                     # For agents after the first, offer clone option
                     if i > 1:
-                        console.print(f"\n[bold cyan]Agent {i} of {len(agents)}: {agent['id']}[/bold cyan]")
+                        console.print(
+                            f"\n[bold cyan]Agent {i} of {len(agents)}: {agent['id']}[/bold cyan]",
+                        )
                         clone_choice = questionary.select(
                             "How would you like to configure this agent?",
                             choices=[
-                                questionary.Choice(f"📋 Copy agent_{chr(ord('a') + i - 2)}'s configuration", value="clone"),
-                                questionary.Choice(f"✏️  Copy agent_{chr(ord('a') + i - 2)} and modify specific settings", value="clone_modify"),
-                                questionary.Choice("⚙️  Configure from scratch", value="scratch"),
+                                questionary.Choice(
+                                    f"📋 Copy agent_{chr(ord('a') + i - 2)}'s configuration",
+                                    value="clone",
+                                ),
+                                questionary.Choice(
+                                    f"✏️  Copy agent_{chr(ord('a') + i - 2)} and modify specific settings",
+                                    value="clone_modify",
+                                ),
+                                questionary.Choice(
+                                    "⚙️  Configure from scratch",
+                                    value="scratch",
+                                ),
                             ],
                             style=questionary.Style(
                                 [
@@ -2317,19 +2900,31 @@ class ConfigBuilder:
                             # Clone the previous agent, preserving current agent's backend type
                             source_agent = agents[i - 2]
                             target_backend_type = agent.get("backend", {}).get("type")
-                            source_backend_type = source_agent.get("backend", {}).get("type")
+                            source_backend_type = source_agent.get("backend", {}).get(
+                                "type",
+                            )
 
-                            agent = self.clone_agent(source_agent, agent["id"], target_backend_type)
+                            agent = self.clone_agent(
+                                source_agent,
+                                agent["id"],
+                                target_backend_type,
+                            )
 
                             # If cross-provider cloning, prompt for model selection
                             if target_backend_type != source_backend_type:
-                                console.print(f"✅ Cloned settings from agent_{chr(ord('a') + i - 2)} ({source_backend_type})")
-                                console.print(f"   [dim]Note: Model must be selected for {target_backend_type}[/dim]")
+                                console.print(
+                                    f"✅ Cloned settings from agent_{chr(ord('a') + i - 2)} ({source_backend_type})",
+                                )
+                                console.print(
+                                    f"   [dim]Note: Model must be selected for {target_backend_type}[/dim]",
+                                )
 
                                 # Show skipped settings warning if any
                                 skipped = agent.get("_skipped_settings", [])
                                 if skipped:
-                                    console.print("   [yellow]⚠️  Skipped incompatible settings:[/yellow]")
+                                    console.print(
+                                        "   [yellow]⚠️  Skipped incompatible settings:[/yellow]",
+                                    )
                                     for setting in skipped:
                                         console.print(f"      • {setting}")
                                 console.print()
@@ -2341,7 +2936,9 @@ class ConfigBuilder:
                                         target_provider_info = pinfo
                                         break
 
-                                if target_provider_info and target_provider_info.get("models"):
+                                if target_provider_info and target_provider_info.get(
+                                    "models",
+                                ):
                                     model_choice = questionary.select(
                                         f"Select {target_backend_type} model:",
                                         choices=target_provider_info["models"],
@@ -2360,7 +2957,9 @@ class ConfigBuilder:
                                 # Clean up temporary skipped settings marker
                                 agent.pop("_skipped_settings", None)
                             else:
-                                console.print(f"✅ Cloned configuration from agent_{chr(ord('a') + i - 2)}")
+                                console.print(
+                                    f"✅ Cloned configuration from agent_{chr(ord('a') + i - 2)}",
+                                )
                                 # Clean up temporary skipped settings marker
                                 agent.pop("_skipped_settings", None)
 
@@ -2371,19 +2970,31 @@ class ConfigBuilder:
                             # Clone and selectively modify, preserving current agent's backend type
                             source_agent = agents[i - 2]
                             target_backend_type = agent.get("backend", {}).get("type")
-                            source_backend_type = source_agent.get("backend", {}).get("type")
+                            source_backend_type = source_agent.get("backend", {}).get(
+                                "type",
+                            )
 
-                            agent = self.clone_agent(source_agent, agent["id"], target_backend_type)
+                            agent = self.clone_agent(
+                                source_agent,
+                                agent["id"],
+                                target_backend_type,
+                            )
 
                             # If cross-provider cloning, prompt for model selection before modification
                             if target_backend_type != source_backend_type:
-                                console.print(f"✅ Cloned settings from agent_{chr(ord('a') + i - 2)} ({source_backend_type})")
-                                console.print(f"   [dim]Note: Model must be selected for {target_backend_type}[/dim]")
+                                console.print(
+                                    f"✅ Cloned settings from agent_{chr(ord('a') + i - 2)} ({source_backend_type})",
+                                )
+                                console.print(
+                                    f"   [dim]Note: Model must be selected for {target_backend_type}[/dim]",
+                                )
 
                                 # Show skipped settings warning if any
                                 skipped = agent.get("_skipped_settings", [])
                                 if skipped:
-                                    console.print("   [yellow]⚠️  Skipped incompatible settings:[/yellow]")
+                                    console.print(
+                                        "   [yellow]⚠️  Skipped incompatible settings:[/yellow]",
+                                    )
                                     for setting in skipped:
                                         console.print(f"      • {setting}")
                                 console.print()
@@ -2395,7 +3006,9 @@ class ConfigBuilder:
                                         target_provider_info = pinfo
                                         break
 
-                                if target_provider_info and target_provider_info.get("models"):
+                                if target_provider_info and target_provider_info.get(
+                                    "models",
+                                ):
                                     model_choice = questionary.select(
                                         f"Select {target_backend_type} model:",
                                         choices=target_provider_info["models"],
@@ -2420,7 +3033,12 @@ class ConfigBuilder:
                             continue
 
                     # Configure from scratch or first agent
-                    agent = self.customize_agent(agent, i, len(agents), use_case=use_case)
+                    agent = self.customize_agent(
+                        agent,
+                        i,
+                        len(agents),
+                        use_case=use_case,
+                    )
                     agents[i - 1] = agent
 
             return agents
@@ -2431,7 +3049,11 @@ class ConfigBuilder:
             console.print(f"[error]❌ Fatal error in agent configuration: {e}[/error]")
             raise
 
-    def configure_tools(self, use_case: str, agents: List[Dict]) -> Tuple[List[Dict], Dict]:
+    def configure_tools(
+        self,
+        use_case: str,
+        agents: List[Dict],
+    ) -> Tuple[List[Dict], Dict]:
         """Configure orchestrator-level settings (tools are configured per-agent)."""
         try:
             # Step header
@@ -2456,19 +3078,32 @@ class ConfigBuilder:
                 orchestrator_config["agent_temporary_workspace"] = "temp_workspaces"
 
                 # Context paths
-                console.print("  [dim]Context paths give agents access to your project files.[/dim]")
-                console.print("  [dim]Paths can be absolute or relative (resolved against current directory).[/dim]")
-                console.print("  [dim]Note: During coordination, all context paths are read-only.[/dim]")
-                console.print("  [dim]      Write permission applies only to the final agent.[/dim]")
+                console.print(
+                    "  [dim]Context paths give agents access to your project files.[/dim]",
+                )
+                console.print(
+                    "  [dim]Paths can be absolute or relative (resolved against current directory).[/dim]",
+                )
+                console.print(
+                    "  [dim]Note: During coordination, all context paths are read-only.[/dim]",
+                )
+                console.print(
+                    "  [dim]      Write permission applies only to the final agent.[/dim]",
+                )
                 console.print()
 
-                add_paths = Confirm.ask("[prompt]Add context paths?[/prompt]", default=False)
+                add_paths = Confirm.ask(
+                    "[prompt]Add context paths?[/prompt]",
+                    default=False,
+                )
                 if add_paths is None:
                     raise KeyboardInterrupt  # User cancelled
                 if add_paths:
                     context_paths = []
                     while True:
-                        path = Prompt.ask("[prompt]Enter directory or file path (or press Enter to finish)[/prompt]")
+                        path = Prompt.ask(
+                            "[prompt]Enter directory or file path (or press Enter to finish)[/prompt]",
+                        )
                         if path is None:
                             raise KeyboardInterrupt  # User cancelled
                         if not path:
@@ -2489,12 +3124,21 @@ class ConfigBuilder:
 
                         # If write permission, offer to add protected paths
                         if permission == "write":
-                            console.print("[dim]Protected paths are files/directories immune from modification[/dim]")
-                            if Confirm.ask("[prompt]Add protected paths (e.g., .env, config.json)?[/prompt]", default=False):
+                            console.print(
+                                "[dim]Protected paths are files/directories immune from modification[/dim]",
+                            )
+                            if Confirm.ask(
+                                "[prompt]Add protected paths (e.g., .env, config.json)?[/prompt]",
+                                default=False,
+                            ):
                                 protected_paths = []
-                                console.print("[dim]Enter paths relative to the context path (or press Enter to finish)[/dim]")
+                                console.print(
+                                    "[dim]Enter paths relative to the context path (or press Enter to finish)[/dim]",
+                                )
                                 while True:
-                                    protected_path = Prompt.ask("[prompt]Protected path[/prompt]")
+                                    protected_path = Prompt.ask(
+                                        "[prompt]Protected path[/prompt]",
+                                    )
                                     if not protected_path:
                                         break
                                     protected_paths.append(protected_path)
@@ -2514,16 +3158,25 @@ class ConfigBuilder:
                 orchestrator_config = {}
             orchestrator_config["session_storage"] = "sessions"
             console.print()
-            console.print("  ✅ Multi-turn sessions enabled (supports persistent conversations)")
+            console.print(
+                "  ✅ Multi-turn sessions enabled (supports persistent conversations)",
+            )
 
             # Planning Mode (for MCP irreversible actions) - only ask if MCPs are configured
             has_mcp = any(a.get("backend", {}).get("mcp_servers") for a in agents)
             if has_mcp:
                 console.print()
-                console.print("  [dim]Planning Mode: Prevents MCP tool execution during coordination[/dim]")
-                console.print("  [dim](for irreversible actions like Discord/Twitter posts)[/dim]")
+                console.print(
+                    "  [dim]Planning Mode: Prevents MCP tool execution during coordination[/dim]",
+                )
+                console.print(
+                    "  [dim](for irreversible actions like Discord/Twitter posts)[/dim]",
+                )
                 console.print()
-                planning_choice = Confirm.ask("  [prompt]Enable planning mode for MCP tools?[/prompt]", default=False)
+                planning_choice = Confirm.ask(
+                    "  [prompt]Enable planning mode for MCP tools?[/prompt]",
+                    default=False,
+                )
                 if planning_choice is None:
                     raise KeyboardInterrupt  # User cancelled
                 if planning_choice:
@@ -2531,17 +3184,30 @@ class ConfigBuilder:
                         "enable_planning_mode": True,
                     }
                     console.print()
-                    console.print("  ✅ Planning mode enabled - MCP tools will plan without executing during coordination")
+                    console.print(
+                        "  ✅ Planning mode enabled - MCP tools will plan without executing during coordination",
+                    )
 
             # Agent Task Planning
             console.print()
-            console.print("  [dim]Agent Task Planning: Agents can organize work with task lists and dependencies[/dim]")
-            console.print("  [dim]• Agents can create task plans to break down complex work[/dim]")
-            console.print("  [dim]• Track progress and manage dependencies between tasks[/dim]")
-            console.print("  [dim]• Useful for multi-step projects and coordination[/dim]")
+            console.print(
+                "  [dim]Agent Task Planning: Agents can organize work with task lists and dependencies[/dim]",
+            )
+            console.print(
+                "  [dim]• Agents can create task plans to break down complex work[/dim]",
+            )
+            console.print(
+                "  [dim]• Track progress and manage dependencies between tasks[/dim]",
+            )
+            console.print(
+                "  [dim]• Useful for multi-step projects and coordination[/dim]",
+            )
             console.print()
 
-            task_planning_choice = Confirm.ask("  [prompt]Enable agent task planning?[/prompt]", default=False)
+            task_planning_choice = Confirm.ask(
+                "  [prompt]Enable agent task planning?[/prompt]",
+                default=False,
+            )
             if task_planning_choice is None:
                 raise KeyboardInterrupt  # User cancelled
             if task_planning_choice:
@@ -2549,14 +3215,24 @@ class ConfigBuilder:
                     orchestrator_config["coordination"] = {}
                 orchestrator_config["coordination"]["enable_agent_task_planning"] = True
                 console.print()
-                console.print("  ✅ Agent task planning enabled - agents can create and manage task plans")
+                console.print(
+                    "  ✅ Agent task planning enabled - agents can create and manage task plans",
+                )
 
             # Agent Communication / Broadcasts
             console.print()
-            console.print("  [dim]Agent Communication: Agents can ask questions to each other and optionally humans[/dim]")
-            console.print("  [dim]• Agents can use ask_others() tool to request help or coordinate[/dim]")
-            console.print("  [dim]• Enables collaborative problem-solving during coordination[/dim]")
-            console.print("  [dim]• Human can optionally participate in agent discussions[/dim]")
+            console.print(
+                "  [dim]Agent Communication: Agents can ask questions to each other and optionally humans[/dim]",
+            )
+            console.print(
+                "  [dim]• Agents can use ask_others() tool to request help or coordinate[/dim]",
+            )
+            console.print(
+                "  [dim]• Enables collaborative problem-solving during coordination[/dim]",
+            )
+            console.print(
+                "  [dim]• Human can optionally participate in agent discussions[/dim]",
+            )
             console.print()
 
             broadcast_input = Prompt.ask(
@@ -2566,28 +3242,42 @@ class ConfigBuilder:
                 show_choices=False,
             )
 
-            console.print("  [dim]Choices: (n) No / (a) Agent-to-agent only / (h) Include human prompts[/dim]")
+            console.print(
+                "  [dim]Choices: (n) No / (a) Agent-to-agent only / (h) Include human prompts[/dim]",
+            )
 
             if broadcast_input == "a":
                 if "coordination" not in orchestrator_config:
                     orchestrator_config["coordination"] = {}
                 orchestrator_config["coordination"]["broadcast"] = "agents"
                 console.print()
-                console.print("  ✅ Agent-to-agent communication enabled - agents can coordinate with each other")
+                console.print(
+                    "  ✅ Agent-to-agent communication enabled - agents can coordinate with each other",
+                )
             elif broadcast_input == "h":
                 if "coordination" not in orchestrator_config:
                     orchestrator_config["coordination"] = {}
                 orchestrator_config["coordination"]["broadcast"] = "human"
                 console.print()
-                console.print("  ✅ Agent and human communication enabled - you'll be prompted when agents ask questions")
+                console.print(
+                    "  ✅ Agent and human communication enabled - you'll be prompted when agents ask questions",
+                )
 
             # Broadcast Sensitivity (if broadcasts enabled)
             if broadcast_input in ["a", "h"]:
                 console.print()
-                console.print("  [dim]Broadcast Sensitivity: How frequently agents use ask_others()[/dim]")
-                console.print("  [dim]• Low: Only for critical decisions or when blocked[/dim]")
-                console.print("  [dim]• Medium: For significant decisions and design choices (recommended)[/dim]")
-                console.print("  [dim]• High: Frequently - whenever considering options or proposing approaches[/dim]")
+                console.print(
+                    "  [dim]Broadcast Sensitivity: How frequently agents use ask_others()[/dim]",
+                )
+                console.print(
+                    "  [dim]• Low: Only for critical decisions or when blocked[/dim]",
+                )
+                console.print(
+                    "  [dim]• Medium: For significant decisions and design choices (recommended)[/dim]",
+                )
+                console.print(
+                    "  [dim]• High: Frequently - whenever considering options or proposing approaches[/dim]",
+                )
                 console.print()
 
                 sensitivity_input = Prompt.ask(
@@ -2602,16 +3292,30 @@ class ConfigBuilder:
                 sensitivity_map = {"l": "low", "m": "medium", "h": "high"}
                 orchestrator_config["coordination"]["broadcast_sensitivity"] = sensitivity_map[sensitivity_input]
                 console.print()
-                console.print(f"  ✅ Broadcast sensitivity set to: {sensitivity_map[sensitivity_input]}")
+                console.print(
+                    f"  ✅ Broadcast sensitivity set to: {sensitivity_map[sensitivity_input]}",
+                )
 
             # Orchestration Restart Feature
             console.print()
-            console.print("  [dim]Orchestration Restart: Automatic quality checks with self-correction[/dim]")
-            console.print("  [dim]• Agent evaluates its own answer after coordination[/dim]")
-            console.print("  [dim]• Can restart with specific improvement instructions if incomplete[/dim]")
-            console.print("  [dim]• Each attempt gets isolated logs in attempt_1/, attempt_2/, etc.[/dim]")
-            console.print("  [dim]• Works with all backends (OpenAI, Claude, Gemini, Grok, etc.)[/dim]")
-            console.print("  [dim]• 0 = no restarts (default), 1-2 = recommended, 3 = maximum[/dim]")
+            console.print(
+                "  [dim]Orchestration Restart: Automatic quality checks with self-correction[/dim]",
+            )
+            console.print(
+                "  [dim]• Agent evaluates its own answer after coordination[/dim]",
+            )
+            console.print(
+                "  [dim]• Can restart with specific improvement instructions if incomplete[/dim]",
+            )
+            console.print(
+                "  [dim]• Each attempt gets isolated logs in attempt_1/, attempt_2/, etc.[/dim]",
+            )
+            console.print(
+                "  [dim]• Works with all backends (OpenAI, Claude, Gemini, Grok, etc.)[/dim]",
+            )
+            console.print(
+                "  [dim]• 0 = no restarts (default), 1-2 = recommended, 3 = maximum[/dim]",
+            )
             console.print()
 
             restart_input = Prompt.ask(
@@ -2626,15 +3330,25 @@ class ConfigBuilder:
                     orchestrator_config["coordination"] = {}
                 orchestrator_config["coordination"]["max_orchestration_restarts"] = max_restarts
                 console.print()
-                console.print(f"  ✅ Orchestration restart enabled: up to {max_restarts} restart(s) allowed")
+                console.print(
+                    f"  ✅ Orchestration restart enabled: up to {max_restarts} restart(s) allowed",
+                )
 
             # Voting Sensitivity - only ask for multi-agent setups
             if len(agents) > 1:
                 console.print()
-                console.print("  [dim]Voting Sensitivity: Controls how agents reach consensus[/dim]")
-                console.print("  [dim]• L: Lenient - Lower threshold for faster decisions (default)[/dim]")
-                console.print("  [dim]• B: Balanced - Often requires more answers for consensus[/dim]")
-                console.print("  [dim]• S: Strict - High standards, maximum quality (slowest)[/dim]")
+                console.print(
+                    "  [dim]Voting Sensitivity: Controls how agents reach consensus[/dim]",
+                )
+                console.print(
+                    "  [dim]• L: Lenient - Lower threshold for faster decisions (default)[/dim]",
+                )
+                console.print(
+                    "  [dim]• B: Balanced - Often requires more answers for consensus[/dim]",
+                )
+                console.print(
+                    "  [dim]• S: Strict - High standards, maximum quality (slowest)[/dim]",
+                )
                 console.print()
 
                 voting_input = Prompt.ask(
@@ -2653,9 +3367,13 @@ class ConfigBuilder:
 
                 # Answer Count Limit
                 console.print()
-                console.print("  [dim]Answer Count Limit: Controls maximum new answers per agent[/dim]")
+                console.print(
+                    "  [dim]Answer Count Limit: Controls maximum new answers per agent[/dim]",
+                )
                 console.print("  [dim]• Prevents endless coordination rounds[/dim]")
-                console.print("  [dim]• After limit, agents can only vote (not provide new answers)[/dim]")
+                console.print(
+                    "  [dim]• After limit, agents can only vote (not provide new answers)[/dim]",
+                )
                 console.print()
 
                 limit_input = Prompt.ask(
@@ -2669,7 +3387,9 @@ class ConfigBuilder:
                         if answer_limit > 0:
                             orchestrator_config["max_new_answers_per_agent"] = answer_limit
                             console.print()
-                            console.print(f"  ✅ Answer limit set to: {answer_limit} per agent")
+                            console.print(
+                                f"  ✅ Answer limit set to: {answer_limit} per agent",
+                            )
                         else:
                             console.print()
                             console.print("  ⚠️  Invalid limit - using unlimited")
@@ -2680,12 +3400,33 @@ class ConfigBuilder:
                     console.print()
                     console.print("  ✅ Answer limit: unlimited")
 
+                # Minimum Answers Before Voting
+                console.print()
+                console.print(
+                    "  [dim]Min Answers Before Voting: Require answers before allowing votes[/dim]",
+                )
+                console.print(
+                    "  [dim]• Forces agents to deliberate before converging[/dim]",
+                )
+                console.print(
+                    "  [dim]• Useful with 'strict' voting to ensure quality answers[/dim]",
+                )
+                console.print()
+
                 # Answer Novelty Requirement
                 console.print()
-                console.print("  [dim]Answer Novelty: Controls how different new answers must be[/dim]")
-                console.print("  [dim]• L: Lenient - No similarity checks (default, fastest)[/dim]")
-                console.print("  [dim]• B: Balanced - Reject if >70% overlap (prevents rephrasing)[/dim]")
-                console.print("  [dim]• S: Strict - Reject if >50% overlap (requires new approaches)[/dim]")
+                console.print(
+                    "  [dim]Answer Novelty: Controls how different new answers must be[/dim]",
+                )
+                console.print(
+                    "  [dim]• L: Lenient - No similarity checks (default, fastest)[/dim]",
+                )
+                console.print(
+                    "  [dim]• B: Balanced - Reject if >70% overlap (prevents rephrasing)[/dim]",
+                )
+                console.print(
+                    "  [dim]• S: Strict - Reject if >50% overlap (requires new approaches)[/dim]",
+                )
                 console.print()
 
                 novelty_input = Prompt.ask(
@@ -2700,7 +3441,9 @@ class ConfigBuilder:
 
                 orchestrator_config["answer_novelty_requirement"] = novelty_choice
                 console.print()
-                console.print(f"  ✅ Answer novelty requirement set to: {novelty_choice}")
+                console.print(
+                    f"  ✅ Answer novelty requirement set to: {novelty_choice}",
+                )
 
             return agents, orchestrator_config
 
@@ -2711,7 +3454,11 @@ class ConfigBuilder:
             console.print("[info]Returning agents with basic configuration...[/info]")
             return agents, {}
 
-    def review_and_save(self, agents: List[Dict], orchestrator_config: Dict) -> Optional[str]:
+    def review_and_save(
+        self,
+        agents: List[Dict],
+        orchestrator_config: Dict,
+    ) -> Optional[str]:
         """Review configuration and save to file with error handling."""
         try:
             # Review header
@@ -2731,7 +3478,11 @@ class ConfigBuilder:
 
             # Display configuration
             try:
-                yaml_content = yaml.dump(self.config, default_flow_style=False, sort_keys=False)
+                yaml_content = yaml.dump(
+                    self.config,
+                    default_flow_style=False,
+                    sort_keys=False,
+                )
                 config_panel = Panel(
                     yaml_content,
                     title="[bold cyan]Generated Configuration[/bold cyan]",
@@ -2744,7 +3495,10 @@ class ConfigBuilder:
                 console.print(f"[warning]⚠️  Could not preview YAML: {e}[/warning]")
                 console.print("[info]Proceeding with save...[/info]")
 
-            save_choice = Confirm.ask("\n[prompt]Save this configuration?[/prompt]", default=True)
+            save_choice = Confirm.ask(
+                "\n[prompt]Save this configuration?[/prompt]",
+                default=True,
+            )
             if save_choice is None:
                 raise KeyboardInterrupt  # User cancelled
             if not save_choice:
@@ -2760,7 +3514,10 @@ class ConfigBuilder:
 
                 # If file exists, ask to overwrite
                 if filepath.exists():
-                    if not Confirm.ask("\n[yellow]⚠️  Default config already exists. Overwrite?[/yellow]", default=True):
+                    if not Confirm.ask(
+                        "\n[yellow]⚠️  Default config already exists. Overwrite?[/yellow]",
+                        default=True,
+                    ):
                         console.print("[info]Configuration not saved.[/info]")
                         return None
 
@@ -2768,7 +3525,9 @@ class ConfigBuilder:
                 with open(filepath, "w") as f:
                     yaml.dump(self.config, f, default_flow_style=False, sort_keys=False)
 
-                console.print(f"\n✅ [success]Configuration saved to: {filepath}[/success]")
+                console.print(
+                    f"\n✅ [success]Configuration saved to: {filepath}[/success]",
+                )
                 return str(filepath)
 
             # File saving loop with rename option (standard mode)
@@ -2804,7 +3563,9 @@ class ConfigBuilder:
                         )
 
                     if not filename:
-                        console.print("[warning]⚠️  Empty filename, using default.[/warning]")
+                        console.print(
+                            "[warning]⚠️  Empty filename, using default.[/warning]",
+                        )
                         filename = default_name
 
                     if not filename.endswith(".yaml"):
@@ -2817,7 +3578,9 @@ class ConfigBuilder:
 
                     # Check if file exists
                     if filepath.exists():
-                        console.print(f"\n[yellow]⚠️  File '{filename}' already exists![/yellow]")
+                        console.print(
+                            f"\n[yellow]⚠️  File '{filename}' already exists![/yellow]",
+                        )
                         console.print("\nWhat would you like to do?")
                         console.print("  1. Rename (enter a new filename)")
                         console.print("  2. Overwrite (replace existing file)")
@@ -2845,14 +3608,25 @@ class ConfigBuilder:
 
                     # Save the file
                     with open(filepath, "w") as f:
-                        yaml.dump(self.config, f, default_flow_style=False, sort_keys=False)
+                        yaml.dump(
+                            self.config,
+                            f,
+                            default_flow_style=False,
+                            sort_keys=False,
+                        )
 
-                    console.print(f"\n✅ [success]Configuration saved to: {filepath.absolute()}[/success]")
+                    console.print(
+                        f"\n✅ [success]Configuration saved to: {filepath.absolute()}[/success]",
+                    )
                     return str(filepath)
 
                 except PermissionError:
-                    console.print(f"[error]❌ Permission denied: Cannot write to {filename}[/error]")
-                    console.print("[info]Would you like to try a different filename?[/info]")
+                    console.print(
+                        f"[error]❌ Permission denied: Cannot write to {filename}[/error]",
+                    )
+                    console.print(
+                        "[info]Would you like to try a different filename?[/info]",
+                    )
                     if Confirm.ask("[prompt]Try again?[/prompt]", default=True):
                         filename = None  # Reset to ask again
                         continue
@@ -2860,14 +3634,18 @@ class ConfigBuilder:
                         return None
                 except OSError as e:
                     console.print(f"[error]❌ OS error saving file: {e}[/error]")
-                    console.print("[info]Would you like to try a different filename?[/info]")
+                    console.print(
+                        "[info]Would you like to try a different filename?[/info]",
+                    )
                     if Confirm.ask("[prompt]Try again?[/prompt]", default=True):
                         filename = None  # Reset to ask again
                         continue
                     else:
                         return None
                 except Exception as e:
-                    console.print(f"[error]❌ Unexpected error saving file: {e}[/error]")
+                    console.print(
+                        f"[error]❌ Unexpected error saving file: {e}[/error]",
+                    )
                     return None
 
         except (KeyboardInterrupt, EOFError):
@@ -2893,9 +3671,13 @@ class ConfigBuilder:
             # Note: api_keys includes local models (vLLM, etc.) which are always True
             if not any(api_keys.values()):
                 # No providers available at all (no API keys, no local models, no Claude Code)
-                console.print("[yellow]⚠️  No API keys or local models detected[/yellow]\n")
+                console.print(
+                    "[yellow]⚠️  No API keys or local models detected[/yellow]\n",
+                )
                 console.print("[dim]MassGen needs at least one of:[/dim]")
-                console.print("[dim]  • API keys for cloud providers (OpenAI, Anthropic, Google, etc.)[/dim]")
+                console.print(
+                    "[dim]  • API keys for cloud providers (OpenAI, Anthropic, Google, etc.)[/dim]",
+                )
                 console.print("[dim]  • Local models (vLLM, Ollama, etc.)[/dim]")
                 console.print("[dim]  • Claude Code with 'claude login'[/dim]\n")
 
@@ -2913,15 +3695,25 @@ class ConfigBuilder:
 
                     # Check if setup was successful
                     if not any(api_keys.values()):
-                        console.print("\n[error]❌ No API keys were configured.[/error]")
+                        console.print(
+                            "\n[error]❌ No API keys were configured.[/error]",
+                        )
                         console.print("\n[dim]Alternatives to API keys:[/dim]")
-                        console.print("[dim]  • Set up local models (vLLM, Ollama)[/dim]")
-                        console.print("[dim]  • Use Claude Code with 'claude login'[/dim]")
-                        console.print("[dim]  • Manually create .env file: ~/.massgen/.env or ./.env[/dim]\n")
+                        console.print(
+                            "[dim]  • Set up local models (vLLM, Ollama)[/dim]",
+                        )
+                        console.print(
+                            "[dim]  • Use Claude Code with 'claude login'[/dim]",
+                        )
+                        console.print(
+                            "[dim]  • Manually create .env file: ~/.massgen/.env or ./.env[/dim]\n",
+                        )
                         return None
                 else:
                     # User declined interactive setup
-                    console.print("\n[info]To use MassGen, you need at least one provider.[/info]")
+                    console.print(
+                        "\n[info]To use MassGen, you need at least one provider.[/info]",
+                    )
                     console.print("\n[cyan]Option 1: API Keys[/cyan]")
                     console.print("  Create .env file with one or more:")
                     for provider_id, provider_info in self.PROVIDERS.items():
@@ -2931,7 +3723,9 @@ class ConfigBuilder:
                     console.print("  • Set up vLLM, Ollama, or other local inference")
                     console.print("\n[cyan]Option 3: Claude Code[/cyan]")
                     console.print("  • Run 'claude login' in your terminal")
-                    console.print("\n[dim]Run 'massgen --init' anytime to restart this wizard[/dim]\n")
+                    console.print(
+                        "\n[dim]Run 'massgen --init' anytime to restart this wizard[/dim]\n",
+                    )
                     return None
 
             try:
@@ -2949,7 +3743,9 @@ class ConfigBuilder:
 
                     selected_config = interactive_config_selector()
                     if selected_config:
-                        console.print(f"\n[green]✓ Selected config: {selected_config}[/green]\n")
+                        console.print(
+                            f"\n[green]✓ Selected config: {selected_config}[/green]\n",
+                        )
                         # Return the selected config as if it was created
                         return (selected_config, None)
                     else:
@@ -2980,7 +3776,10 @@ class ConfigBuilder:
                         return (filepath, None)
 
                     # In regular --init mode, ask if user wants to run now
-                    run_choice = Confirm.ask("\n[prompt]Run MassGen with this configuration now?[/prompt]", default=True)
+                    run_choice = Confirm.ask(
+                        "\n[prompt]Run MassGen with this configuration now?[/prompt]",
+                        default=True,
+                    )
                     if run_choice is None:
                         raise KeyboardInterrupt  # User cancelled
                     if run_choice:
@@ -2988,7 +3787,9 @@ class ConfigBuilder:
                         if question is None:
                             raise KeyboardInterrupt  # User cancelled
                         if question:
-                            console.print(f'\n[info]Running: massgen --config {filepath} "{question}"[/info]\n')
+                            console.print(
+                                f'\n[info]Running: massgen --config {filepath} "{question}"[/info]\n',
+                            )
                             return (filepath, question)
                         else:
                             console.print("[warning]⚠️  No question provided.[/warning]")
@@ -2997,25 +3798,37 @@ class ConfigBuilder:
                 return (filepath, None) if filepath else None
 
             except (KeyboardInterrupt, EOFError):
-                console.print("\n\n[bold yellow]Configuration cancelled by user[/bold yellow]")
-                console.print("\n[dim]You can run [bold]massgen --init[/bold] anytime to restart.[/dim]\n")
+                console.print(
+                    "\n\n[bold yellow]Configuration cancelled by user[/bold yellow]",
+                )
+                console.print(
+                    "\n[dim]You can run [bold]massgen --init[/bold] anytime to restart.[/dim]\n",
+                )
                 return None
             except ValueError as e:
                 console.print(f"\n[error]❌ Configuration error: {str(e)}[/error]")
                 console.print("[info]Please check your inputs and try again.[/info]")
                 return None
             except Exception as e:
-                console.print(f"\n[error]❌ Unexpected error during configuration: {str(e)}[/error]")
+                console.print(
+                    f"\n[error]❌ Unexpected error during configuration: {str(e)}[/error]",
+                )
                 console.print(f"[info]Error type: {type(e).__name__}[/info]")
                 return None
 
         except KeyboardInterrupt:
-            console.print("\n\n[bold yellow]Configuration cancelled by user[/bold yellow]")
-            console.print("\n[dim]You can run [bold]massgen --init[/bold] anytime to restart the configuration wizard.[/dim]\n")
+            console.print(
+                "\n\n[bold yellow]Configuration cancelled by user[/bold yellow]",
+            )
+            console.print(
+                "\n[dim]You can run [bold]massgen --init[/bold] anytime to restart the configuration wizard.[/dim]\n",
+            )
             return None
         except EOFError:
             console.print("\n\n[bold yellow]Configuration cancelled[/bold yellow]")
-            console.print("\n[dim]You can run [bold]massgen --init[/bold] anytime to restart the configuration wizard.[/dim]\n")
+            console.print(
+                "\n[dim]You can run [bold]massgen --init[/bold] anytime to restart the configuration wizard.[/dim]\n",
+            )
             return None
         except Exception as e:
             console.print(f"\n[error]❌ Fatal error: {str(e)}[/error]")
@@ -3091,7 +3904,13 @@ class ConfigBuilder:
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         with open(output_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            yaml.dump(
+                config,
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True,
+            )
 
         return True
 
@@ -3117,8 +3936,12 @@ class ConfigBuilder:
      ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝[/bold cyan]
 """
             console.print(banner)
-            console.print("[bold cyan]Quickstart[/bold cyan] - Get running in 30 seconds\n")
-            console.print("[dim]Creates a full-featured config with code-based tools, Docker, skills, etc.[/dim]")
+            console.print(
+                "[bold cyan]Quickstart[/bold cyan] - Get running in 30 seconds\n",
+            )
+            console.print(
+                "[dim]Creates a full-featured config with code-based tools, Docker, skills, etc.[/dim]",
+            )
             console.print("[dim]You just need to specify your models.[/dim]\n")
 
             # Initialize tracking for per-agent settings
@@ -3162,7 +3985,9 @@ class ConfigBuilder:
 
             if not available_providers:
                 console.print("\n[error]❌ No providers with API keys found.[/error]")
-                console.print("[dim]Set API keys in ~/.massgen/.env or run 'massgen --setup'[/dim]\n")
+                console.print(
+                    "[dim]Set API keys in ~/.massgen/.env or run 'massgen --setup'[/dim]\n",
+                )
                 return None
 
             # For multiple agents, ask if same or different providers
@@ -3171,8 +3996,14 @@ class ConfigBuilder:
                 setup_mode = questionary.select(
                     "Setup mode:",
                     choices=[
-                        questionary.Choice("Same backend/model for all agents", value="same"),
-                        questionary.Choice("Different backends per agent", value="different"),
+                        questionary.Choice(
+                            "Same backend/model for all agents",
+                            value="same",
+                        ),
+                        questionary.Choice(
+                            "Different backends per agent",
+                            value="different",
+                        ),
                     ],
                     style=questionary.Style(
                         [
@@ -3221,7 +4052,10 @@ class ConfigBuilder:
                 # Select model
                 provider_info = self.PROVIDERS.get(provider_id, {})
                 models = provider_info.get("models", ["default"])
-                default_model = provider_info.get("default_model", models[0] if models else None)
+                default_model = provider_info.get(
+                    "default_model",
+                    models[0] if models else None,
+                )
 
                 model = self.select_model_smart(
                     provider_id,
@@ -3248,7 +4082,9 @@ class ConfigBuilder:
                         raise KeyboardInterrupt
 
                 # System message (optional)
-                console.print("\n[dim]  System message (optional) - custom instructions for all agents[/dim]")
+                console.print(
+                    "\n[dim]  System message (optional) - custom instructions for all agents[/dim]",
+                )
                 system_msg = questionary.text(
                     "  System message (press Enter to skip):",
                     default="",
@@ -3277,7 +4113,9 @@ class ConfigBuilder:
                 # Configure each agent individually
                 for i in range(num_agents):
                     agent_letter = chr(ord("a") + i)
-                    console.print(f"\n[bold cyan]Agent {i + 1} ({agent_letter})[/bold cyan]")
+                    console.print(
+                        f"\n[bold cyan]Agent {i + 1} ({agent_letter})[/bold cyan]",
+                    )
 
                     # Select provider
                     provider_choices = [
@@ -3307,7 +4145,10 @@ class ConfigBuilder:
                     # Select model
                     provider_info = self.PROVIDERS.get(provider_id, {})
                     models = provider_info.get("models", ["default"])
-                    default_model = provider_info.get("default_model", models[0] if models else None)
+                    default_model = provider_info.get(
+                        "default_model",
+                        models[0] if models else None,
+                    )
 
                     model = self.select_model_smart(
                         provider_id,
@@ -3336,7 +4177,9 @@ class ConfigBuilder:
                             raise KeyboardInterrupt
 
                     # System message (optional)
-                    console.print("[dim]    System message (optional) - custom instructions for this agent[/dim]")
+                    console.print(
+                        "[dim]    System message (optional) - custom instructions for this agent[/dim]",
+                    )
                     system_msg = questionary.text(
                         "    System message (press Enter to skip):",
                         default="",
@@ -3366,9 +4209,15 @@ class ConfigBuilder:
 
             if docker_available:
                 console.print("\n[bold cyan]Execution Mode[/bold cyan]")
-                console.print("[dim]Docker (recommended): Full 'code mode' with command-line tools, skills, package installation,[/dim]")
-                console.print("[dim]  and isolated execution. Agents can run any code safely in containers.[/dim]")
-                console.print("[dim]Local: More restricted - agents can create/edit files but no command execution.[/dim]\n")
+                console.print(
+                    "[dim]Docker (recommended): Full 'code mode' with command-line tools, skills, package installation,[/dim]",
+                )
+                console.print(
+                    "[dim]  and isolated execution. Agents can run any code safely in containers.[/dim]",
+                )
+                console.print(
+                    "[dim]Local: More restricted - agents can create/edit files but no command execution.[/dim]\n",
+                )
 
                 use_docker = questionary.confirm(
                     "Use Docker for code execution?",
@@ -3384,9 +4233,15 @@ class ConfigBuilder:
                     raise KeyboardInterrupt
             else:
                 console.print("\n[bold cyan]Execution Mode[/bold cyan]")
-                console.print("[yellow]⚠️  Docker images not found. Using local mode.[/yellow]")
-                console.print("[dim]Local mode: Agents can create/edit files but no command execution.[/dim]")
-                console.print("[dim]To enable Docker mode, run: massgen --setup-docker[/dim]\n")
+                console.print(
+                    "[yellow]⚠️  Docker images not found. Using local mode.[/yellow]",
+                )
+                console.print(
+                    "[dim]Local mode: Agents can create/edit files but no command execution.[/dim]",
+                )
+                console.print(
+                    "[dim]To enable Docker mode, run: massgen --setup-docker[/dim]\n",
+                )
                 use_docker = False
 
             # Step 3b: Code Execution toggle (only when Docker is NOT enabled)
@@ -3401,8 +4256,12 @@ class ConfigBuilder:
 
                 if agents_with_code_exec:
                     console.print("\n[bold cyan]Provider Code Execution[/bold cyan]")
-                    console.print("[dim]Some providers offer cloud-based code execution sandboxes.[/dim]")
-                    console.print("[dim]This runs code in the provider's cloud, not locally.[/dim]\n")
+                    console.print(
+                        "[dim]Some providers offer cloud-based code execution sandboxes.[/dim]",
+                    )
+                    console.print(
+                        "[dim]This runs code in the provider's cloud, not locally.[/dim]\n",
+                    )
 
                     enable_code_exec = questionary.confirm(
                         "Enable provider code execution for supported agents?",
@@ -3422,8 +4281,12 @@ class ConfigBuilder:
 
             # Step 4: Ask about context path (to avoid runtime prompt)
             console.print("\n[bold cyan]Context Path[/bold cyan]")
-            console.print("[dim]Context paths give agents read/write access to your project files.[/dim]")
-            console.print("[dim]Without one, agents can only work in their isolated workspaces.[/dim]\n")
+            console.print(
+                "[dim]Context paths give agents read/write access to your project files.[/dim]",
+            )
+            console.print(
+                "[dim]Without one, agents can only work in their isolated workspaces.[/dim]\n",
+            )
             cwd = str(Path.cwd())
             console.print(f"[dim]Current directory: {cwd}[/dim]")
 
@@ -3445,13 +4308,24 @@ class ConfigBuilder:
             # Step 5: Coordination settings (only for multi-agent)
             if num_agents > 1:
                 console.print("\n[bold cyan]Coordination Settings[/bold cyan]")
-                console.print("[dim]Configure how agents evaluate and accept answers.[/dim]\n")
+                console.print(
+                    "[dim]Configure how agents evaluate and accept answers.[/dim]\n",
+                )
 
                 # Voting sensitivity
                 voting_choices = [
-                    questionary.Choice("Lenient - Agents accept answers more easily", value="lenient"),
-                    questionary.Choice("Balanced - Moderate scrutiny of answers", value="balanced"),
-                    questionary.Choice("Strict - Agents are highly critical", value="strict"),
+                    questionary.Choice(
+                        "Lenient - Agents accept answers more easily",
+                        value="lenient",
+                    ),
+                    questionary.Choice(
+                        "Balanced - Moderate scrutiny of answers",
+                        value="balanced",
+                    ),
+                    questionary.Choice(
+                        "Strict - Agents are highly critical",
+                        value="strict",
+                    ),
                 ]
 
                 voting_sensitivity = questionary.select(
@@ -3475,9 +4349,18 @@ class ConfigBuilder:
 
                 # Answer novelty requirement
                 novelty_choices = [
-                    questionary.Choice("Lenient - Similar answers are accepted", value="lenient"),
-                    questionary.Choice("Balanced - Some differentiation required", value="balanced"),
-                    questionary.Choice("Strict - Answers must be substantially different", value="strict"),
+                    questionary.Choice(
+                        "Lenient - Similar answers are accepted",
+                        value="lenient",
+                    ),
+                    questionary.Choice(
+                        "Balanced - Some differentiation required",
+                        value="balanced",
+                    ),
+                    questionary.Choice(
+                        "Strict - Answers must be substantially different",
+                        value="strict",
+                    ),
                 ]
 
                 answer_novelty = questionary.select(
@@ -3499,6 +4382,28 @@ class ConfigBuilder:
 
                 coordination_settings["answer_novelty_requirement"] = answer_novelty
 
+                # Max answers per agent
+                max_answers_input = questionary.text(
+                    "Max answers per agent (leave empty for unlimited):",
+                    default="",
+                    style=questionary.Style(
+                        [
+                            ("question", "fg:cyan bold"),
+                        ],
+                    ),
+                ).ask()
+
+                if max_answers_input is None:
+                    raise KeyboardInterrupt
+
+                if max_answers_input.strip():
+                    try:
+                        max_answers = int(max_answers_input)
+                        if max_answers > 0:
+                            coordination_settings["max_new_answers_per_agent"] = max_answers
+                    except ValueError:
+                        pass  # Ignore invalid input, use unlimited
+
             # Step 6: Generate the full config
             console.print("\n[dim]Generating configuration...[/dim]")
 
@@ -3518,14 +4423,22 @@ class ConfigBuilder:
             filepath = config_dir / "config.yaml"
 
             with open(filepath, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                yaml.dump(
+                    config,
+                    f,
+                    default_flow_style=False,
+                    sort_keys=False,
+                    allow_unicode=True,
+                )
 
             console.print(f"\n[bold green]✅ Config saved to: {filepath}[/bold green]")
 
             # Step 6: Ask about interface preference
             console.print("\n[bold cyan]Interface[/bold cyan]")
             console.print("[dim]Terminal: Rich text-based UI in your terminal[/dim]")
-            console.print("[dim]Web: Browser-based UI with visual coordination timeline[/dim]\n")
+            console.print(
+                "[dim]Web: Browser-based UI with visual coordination timeline[/dim]\n",
+            )
 
             interface_choice = questionary.select(
                 "Launch MassGen with:",
@@ -3601,7 +4514,12 @@ class ConfigBuilder:
         coordination_settings = coordination_settings or {}
 
         # Base agent template with all the good defaults
-        def create_agent_backend(agent_type: str, model: str, workspace_num: int, tools: Optional[Dict] = None) -> Dict:
+        def create_agent_backend(
+            agent_type: str,
+            model: str,
+            workspace_num: int,
+            tools: Optional[Dict] = None,
+        ) -> Dict:
             tools = tools or {}
             if use_docker:
                 # Full Docker mode with code-based tools, command execution, skills
@@ -3639,6 +4557,7 @@ class ConfigBuilder:
                         "_gemini_computer_use",
                         "_browser_automation",
                     ],
+                    # Note: enable_multimodal_tools is set at orchestrator level
                 }
             else:
                 # Local mode - file operations only, no command execution
@@ -3648,6 +4567,7 @@ class ConfigBuilder:
                     "cwd": f"workspace{workspace_num}",
                     # File operations via MCP (no code execution)
                     "exclude_file_operation_mcps": False,  # Keep file MCPs
+                    # Note: enable_multimodal_tools is set at orchestrator level
                 }
 
             # Add base_url for OpenAI-compatible providers (Groq, Cerebras, Together, etc.)
@@ -3697,6 +4617,12 @@ class ConfigBuilder:
                 "snapshot_storage": "snapshots",
                 "agent_temporary_workspace": "temp_workspaces",
                 "max_new_answers_per_agent": 5,
+                # Multimodal tools enabled for all agents
+                "enable_multimodal_tools": True,
+                # Default generation backends (agents can override)
+                "image_generation_backend": "openai",  # OpenAI responses image gen
+                "video_generation_backend": "openai",  # OpenAI Sora2
+                "audio_generation_backend": "openai",  # OpenAI TTS
                 "coordination": {
                     "max_orchestration_restarts": 2,
                     "use_skills": True,
@@ -3712,6 +4638,12 @@ class ConfigBuilder:
                 "snapshot_storage": "snapshots",
                 "agent_temporary_workspace": "temp_workspaces",
                 "max_new_answers_per_agent": 5,
+                # Multimodal tools enabled for all agents
+                "enable_multimodal_tools": True,
+                # Default generation backends (agents can override)
+                "image_generation_backend": "openai",  # OpenAI image generation
+                "video_generation_backend": "openai",  # OpenAI video generation
+                "audio_generation_backend": "openai",  # OpenAI TTS
                 "coordination": {
                     "max_orchestration_restarts": 2,
                     "enable_agent_task_planning": True,
@@ -3738,6 +4670,8 @@ class ConfigBuilder:
             orchestrator_config["voting_sensitivity"] = coordination_settings["voting_sensitivity"]
         if coordination_settings.get("answer_novelty_requirement"):
             orchestrator_config["answer_novelty_requirement"] = coordination_settings["answer_novelty_requirement"]
+        if coordination_settings.get("max_new_answers_per_agent"):
+            orchestrator_config["max_new_answers_per_agent"] = coordination_settings["max_new_answers_per_agent"]
 
         # Build full config
         config = {
@@ -3794,7 +4728,9 @@ def main() -> None:
         else:
             console.print("[yellow]Configuration builder exited.[/yellow]")
     except KeyboardInterrupt:
-        console.print("\n\n[bold yellow]Configuration cancelled by user[/bold yellow]\n")
+        console.print(
+            "\n\n[bold yellow]Configuration cancelled by user[/bold yellow]\n",
+        )
     except Exception as e:
         console.print(f"\n[error]❌ Unexpected error in main: {str(e)}[/error]")
         console.print("[info]Please report this issue if it persists.[/info]\n")

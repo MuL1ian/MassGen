@@ -124,7 +124,10 @@ class CoordinationTracker:
         self.events: List[CoordinationEvent] = []
 
         # Answer tracking
-        self.answers_by_agent: Dict[str, List[AgentAnswer]] = {}  # agent_id -> list of regular answers
+        self.answers_by_agent: Dict[
+            str,
+            List[AgentAnswer],
+        ] = {}  # agent_id -> list of regular answers
         self.final_answers: Dict[str, AgentAnswer] = {}  # agent_id -> final answer
 
         # Vote tracking
@@ -132,12 +135,21 @@ class CoordinationTracker:
 
         # Coordination iteration tracking
         self.current_iteration: int = 0
-        self.agent_rounds: Dict[str, int] = {}  # Per-agent round tracking - increments when restart completed
-        self.agent_round_context: Dict[str, Dict[int, List[str]]] = {}  # What context each agent had in each round
+        self.agent_rounds: Dict[
+            str,
+            int,
+        ] = {}  # Per-agent round tracking - increments when restart completed
+        self.agent_round_context: Dict[
+            str,
+            Dict[int, List[str]],
+        ] = {}  # What context each agent had in each round
         self.iteration_available_labels: List[str] = []  # Frozen snapshot of available answer labels for current iteration
 
         # Restart tracking - track pending restarts per agent
-        self.pending_agent_restarts: Dict[str, bool] = {}  # agent_id -> is restart pending
+        self.pending_agent_restarts: Dict[
+            str,
+            bool,
+        ] = {}  # agent_id -> is restart pending
 
         # Session info
         self.start_time: Optional[float] = None
@@ -149,10 +161,16 @@ class CoordinationTracker:
         self.user_prompt: Optional[str] = None  # Store the initial user prompt
 
         # Agent mappings - coordination tracker is the single source of truth
-        self.agent_context_labels: Dict[str, List[str]] = {}  # Track what labels each agent can see
+        self.agent_context_labels: Dict[
+            str,
+            List[str],
+        ] = {}  # Track what labels each agent can see
 
         # Snapshot mapping - tracks filesystem snapshots for answers/votes
-        self.snapshot_mappings: Dict[str, Dict[str, Any]] = {}  # label/vote_id -> snapshot info
+        self.snapshot_mappings: Dict[
+            str,
+            Dict[str, Any],
+        ] = {}  # label/vote_id -> snapshot info
 
     def _make_snapshot_path(self, kind: str, agent_id: str, timestamp: str) -> str:
         """Generate standardized snapshot paths.
@@ -173,7 +191,11 @@ class CoordinationTracker:
             return f"{agent_id}/{timestamp}/vote.json"
         return f"{agent_id}/{timestamp}/{kind}.txt"
 
-    def initialize_session(self, agent_ids: List[str], user_prompt: Optional[str] = None):
+    def initialize_session(
+        self,
+        agent_ids: List[str],
+        user_prompt: Optional[str] = None,
+    ):
         """Initialize a new coordination session."""
         self.start_time = time.time()
         self.agent_ids = agent_ids.copy()
@@ -188,7 +210,11 @@ class CoordinationTracker:
         # Initialize agent context tracking
         self.agent_context_labels = {aid: [] for aid in agent_ids}
 
-        self._add_event(EventType.SESSION_START, None, f"Started with agents: {agent_ids}")
+        self._add_event(
+            EventType.SESSION_START,
+            None,
+            f"Started with agents: {agent_ids}",
+        )
 
     # Agent ID utility methods
     def get_anonymous_id(self, agent_id: str) -> str:
@@ -212,7 +238,11 @@ class CoordinationTracker:
             return self.answers_by_agent[agent_id][-1].label
         return None
 
-    def get_voted_for_label(self, voter_id: str, voted_for_agent_id: str) -> Optional[str]:
+    def get_voted_for_label(
+        self,
+        voter_id: str,
+        voted_for_agent_id: str,
+    ) -> Optional[str]:
         """Get the answer label that a voter was shown for a specific agent.
 
         This looks up what label the voter saw in their context when they were
@@ -261,7 +291,9 @@ class CoordinationTracker:
         for agent_id, answers_list in self.answers_by_agent.items():
             if answers_list:  # Agent has provided at least one answer
                 latest_answer = answers_list[-1]  # Get most recent answer
-                self.iteration_available_labels.append(latest_answer.label)  # e.g., "agent1.1"
+                self.iteration_available_labels.append(
+                    latest_answer.label,
+                )  # e.g., "agent1.1"
 
         self._add_event(
             EventType.ITERATION_START,
@@ -273,7 +305,7 @@ class CoordinationTracker:
             },
         )
 
-    def end_iteration(self, reason: str, details: Dict[str, Any] = None):
+    def end_iteration(self, reason: str, details: Optional[Dict[str, Any]] = None):
         """Record how an iteration ended."""
         context = {
             "iteration": self.current_iteration,
@@ -296,7 +328,11 @@ class CoordinationTracker:
 
     def change_status(self, agent_id: str, new_status: AgentStatus):
         """Record when an agent changes status."""
-        self._add_event(EventType.STATUS_CHANGE, agent_id, f"Changed to status: {new_status.value}")
+        self._add_event(
+            EventType.STATUS_CHANGE,
+            agent_id,
+            f"Changed to status: {new_status.value}",
+        )
 
     def track_agent_context(
         self,
@@ -342,7 +378,11 @@ class CoordinationTracker:
             context,
         )
 
-    def update_agent_context_with_new_answers(self, agent_id: str, new_answer_agent_ids: List[str]):
+    def update_agent_context_with_new_answers(
+        self,
+        agent_id: str,
+        new_answer_agent_ids: List[str],
+    ):
         """Update an agent's context labels when they receive injected updates.
 
         This is called when an agent receives new answers via update injection
@@ -418,7 +458,12 @@ class CoordinationTracker:
             context,
         )
 
-    def add_agent_answer(self, agent_id: str, answer: str, snapshot_timestamp: Optional[str] = None):
+    def add_agent_answer(
+        self,
+        agent_id: str,
+        answer: str,
+        snapshot_timestamp: Optional[str] = None,
+    ):
         """Record when an agent provides a new answer.
 
         Args:
@@ -427,7 +472,11 @@ class CoordinationTracker:
             snapshot_timestamp: Timestamp of the filesystem snapshot (if any)
         """
         # Create answer object
-        agent_answer = AgentAnswer(agent_id=agent_id, content=answer, timestamp=time.time())
+        agent_answer = AgentAnswer(
+            agent_id=agent_id,
+            content=answer,
+            timestamp=time.time(),
+        )
 
         # Auto-generate label based on agent position and answer count
         agent_num = self._get_agent_number(agent_id)
@@ -447,12 +496,21 @@ class CoordinationTracker:
                 "timestamp": snapshot_timestamp,
                 "iteration": self.current_iteration,
                 "round": self.get_agent_round(agent_id),
-                "path": self._make_snapshot_path("answer", agent_id, snapshot_timestamp),
+                "path": self._make_snapshot_path(
+                    "answer",
+                    agent_id,
+                    snapshot_timestamp,
+                ),
             }
 
         # Record event with label (important info) but no preview (that's for display only)
         context = {"label": label}
-        self._add_event(EventType.NEW_ANSWER, agent_id, f"Provided answer {label}", context)
+        self._add_event(
+            EventType.NEW_ANSWER,
+            agent_id,
+            f"Provided answer {label}",
+            context,
+        )
 
     def add_agent_vote(
         self,
@@ -532,9 +590,19 @@ class CoordinationTracker:
             "reason": reason,
             "available_answers": self.iteration_available_labels.copy(),
         }
-        self._add_event(EventType.VOTE_CAST, agent_id, f"Voted for {voted_for_label}", context)
+        self._add_event(
+            EventType.VOTE_CAST,
+            agent_id,
+            f"Voted for {voted_for_label}",
+            context,
+        )
 
-    def set_final_agent(self, agent_id: str, vote_summary: str, all_answers: Dict[str, str]):
+    def set_final_agent(
+        self,
+        agent_id: str,
+        vote_summary: str,
+        all_answers: Dict[str, str],
+    ):
         """Record when final agent is selected."""
         self.final_winner = agent_id
 
@@ -561,7 +629,12 @@ class CoordinationTracker:
             self.final_context,
         )
 
-    def set_final_answer(self, agent_id: str, final_answer: str, snapshot_timestamp: Optional[str] = None):
+    def set_final_answer(
+        self,
+        agent_id: str,
+        final_answer: str,
+        snapshot_timestamp: Optional[str] = None,
+    ):
         """Record the final answer presentation.
 
         Args:
@@ -593,12 +666,21 @@ class CoordinationTracker:
                 "timestamp": snapshot_timestamp,
                 "iteration": self.current_iteration,
                 "round": self.get_agent_round(agent_id),
-                "path": self._make_snapshot_path("final_answer", agent_id, snapshot_timestamp),
+                "path": self._make_snapshot_path(
+                    "final_answer",
+                    agent_id,
+                    snapshot_timestamp,
+                ),
             }
 
         # Record event with label only (no preview)
         context = {"label": label, **(self.final_context or {})}
-        self._add_event(EventType.FINAL_ANSWER, agent_id, f"Presented final answer {label}", context)
+        self._add_event(
+            EventType.FINAL_ANSWER,
+            agent_id,
+            f"Presented final answer {label}",
+            context,
+        )
 
     def start_final_round(self, selected_agent_id: str):
         """Start the final presentation round."""
@@ -672,7 +754,12 @@ class CoordinationTracker:
         }
         event_type = EventType.HUMAN_BROADCAST_RESPONSE if is_human else EventType.BROADCAST_RESPONSE
         details = "Responded to broadcast" if not is_human else "Human responded to broadcast"
-        self._add_event(event_type, responder_id if not is_human else None, details, context)
+        self._add_event(
+            event_type,
+            responder_id if not is_human else None,
+            details,
+            context,
+        )
 
     def add_broadcast_complete(self, request_id: str, status: str):
         """Record when a broadcast completes.
@@ -719,7 +806,11 @@ class CoordinationTracker:
         """Mark the end of the coordination session."""
         self.end_time = time.time()
         duration = self.end_time - (self.start_time or self.end_time)
-        self._add_event(EventType.SESSION_END, None, f"Session completed in {duration:.1f}s")
+        self._add_event(
+            EventType.SESSION_END,
+            None,
+            f"Session completed in {duration:.1f}s",
+        )
 
     @property
     def all_answers(self) -> Dict[str, str]:
@@ -737,7 +828,9 @@ class CoordinationTracker:
     def get_summary(self) -> Dict[str, Any]:
         """Get session summary statistics."""
         duration = (self.end_time or time.time()) - (self.start_time or time.time())
-        restart_count = len([e for e in self.events if e.event_type == EventType.RESTART_TRIGGERED])
+        restart_count = len(
+            [e for e in self.events if e.event_type == EventType.RESTART_TRIGGERED],
+        )
 
         return {
             "duration": duration,
@@ -973,18 +1066,33 @@ class CoordinationTracker:
                                 "total_output_chars": 0,
                                 "tool_type": tool_stats.get("tool_type", "unknown"),
                             }
-                        tools_by_name[tool_name]["call_count"] += tool_stats.get("call_count", 0)
-                        tools_by_name[tool_name]["success_count"] += tool_stats.get("success_count", 0)
-                        tools_by_name[tool_name]["failure_count"] += tool_stats.get("failure_count", 0)
+                        tools_by_name[tool_name]["call_count"] += tool_stats.get(
+                            "call_count",
+                            0,
+                        )
+                        tools_by_name[tool_name]["success_count"] += tool_stats.get(
+                            "success_count",
+                            0,
+                        )
+                        tools_by_name[tool_name]["failure_count"] += tool_stats.get(
+                            "failure_count",
+                            0,
+                        )
                         tools_by_name[tool_name]["total_execution_time_ms"] += tool_stats.get("total_execution_time_ms", 0)
-                        tools_by_name[tool_name]["total_input_chars"] += tool_stats.get("total_input_chars", 0)
+                        tools_by_name[tool_name]["total_input_chars"] += tool_stats.get(
+                            "total_input_chars",
+                            0,
+                        )
                         tools_by_name[tool_name]["total_output_chars"] += tool_stats.get("total_output_chars", 0)
 
             # Calculate averages for aggregated tools
             for tool_stats in tools_by_name.values():
                 count = tool_stats["call_count"]
                 if count > 0:
-                    tool_stats["avg_execution_time_ms"] = round(tool_stats["total_execution_time_ms"] / count, 2)
+                    tool_stats["avg_execution_time_ms"] = round(
+                        tool_stats["total_execution_time_ms"] / count,
+                        2,
+                    )
                     tool_stats["input_tokens_est"] = tool_stats["total_input_chars"] // 4
                     tool_stats["output_tokens_est"] = tool_stats["total_output_chars"] // 4
 
@@ -992,7 +1100,15 @@ class CoordinationTracker:
             all_rounds = []
             rounds_summary = {
                 "total_rounds": 0,
-                "by_outcome": {"answer": 0, "vote": 0, "presentation": 0, "post_evaluation": 0, "restarted": 0, "error": 0, "timeout": 0},
+                "by_outcome": {
+                    "answer": 0,
+                    "vote": 0,
+                    "presentation": 0,
+                    "post_evaluation": 0,
+                    "restarted": 0,
+                    "error": 0,
+                    "timeout": 0,
+                },
                 "total_round_input_tokens": 0,
                 "total_round_output_tokens": 0,
                 "total_round_cost": 0.0,
@@ -1006,19 +1122,67 @@ class CoordinationTracker:
                         outcome = r.get("outcome", "unknown")
                         if outcome in rounds_summary["by_outcome"]:
                             rounds_summary["by_outcome"][outcome] += 1
-                        rounds_summary["total_round_input_tokens"] += r.get("input_tokens", 0)
-                        rounds_summary["total_round_output_tokens"] += r.get("output_tokens", 0)
-                        rounds_summary["total_round_cost"] += r.get("estimated_cost", 0.0)
+                        rounds_summary["total_round_input_tokens"] += r.get(
+                            "input_tokens",
+                            0,
+                        )
+                        rounds_summary["total_round_output_tokens"] += r.get(
+                            "output_tokens",
+                            0,
+                        )
+                        rounds_summary["total_round_cost"] += r.get(
+                            "estimated_cost",
+                            0.0,
+                        )
 
             # Round the cost to 6 decimal places
-            rounds_summary["total_round_cost"] = round(rounds_summary["total_round_cost"], 6)
+            rounds_summary["total_round_cost"] = round(
+                rounds_summary["total_round_cost"],
+                6,
+            )
+
+            # Build historical workspaces from snapshot mappings
+            historical_workspaces = []
+            if self.snapshot_mappings:
+                for label, mapping in self.snapshot_mappings.items():
+                    if mapping.get("type") != "answer":
+                        continue
+
+                    agent_id = mapping.get("agent_id", "")
+                    timestamp = mapping.get("timestamp", "")
+
+                    # Build workspace path from mapping (step up from answer.txt to workspace dir)
+                    mapping_path = mapping.get("path", "")
+                    if mapping_path.endswith("/answer.txt"):
+                        workspace_path = mapping_path[: -len("/answer.txt")] + "/workspace"
+                    else:
+                        # Fallback: agent/timestamp/workspace
+                        workspace_path = f"{agent_id}/{timestamp}/workspace"
+
+                    # Convert to absolute path - resolve log_dir to absolute path first
+                    if log_dir:
+                        absolute_log_dir = Path(log_dir).resolve()
+                        absolute_workspace_path = str(absolute_log_dir / workspace_path)
+                    else:
+                        absolute_workspace_path = workspace_path
+
+                    historical_workspaces.append(
+                        {
+                            "answerId": f"{agent_id}-{timestamp}",
+                            "agentId": agent_id,
+                            "answerNumber": mapping.get("round", 1),
+                            "answerLabel": label,
+                            "timestamp": timestamp,
+                            "workspacePath": absolute_workspace_path,
+                        },
+                    )
 
             # Build complete status data structure
             status_data = {
                 "meta": {
                     "last_updated": time.time(),
-                    "session_id": log_dir.name,
-                    "log_dir": str(log_dir),
+                    "session_id": log_dir.name if log_dir else "",
+                    "log_dir": str(log_dir) if log_dir else "",
                     "question": self.user_prompt,
                     "start_time": self.start_time,
                     "elapsed_seconds": round(elapsed, 3),
@@ -1043,6 +1207,7 @@ class CoordinationTracker:
                     "is_final_presentation": self.is_final_round,
                 },
                 "agents": agent_statuses,
+                "historical_workspaces": historical_workspaces,
                 "results": {
                     "votes": vote_counts,
                     "winner": self.final_winner,
@@ -1056,7 +1221,8 @@ class CoordinationTracker:
                 json.dump(status_data, f, indent=2, default=str)
 
             # Atomic rename
-            temp_file.replace(status_file)
+            if status_file:
+                temp_file.replace(status_file)
 
         except Exception as e:
             logger.warning(f"Failed to save status file: {e}", exc_info=True)
