@@ -820,14 +820,20 @@ class Orchestrator(ChatAgent):
 
         workspace_path = str(agent.backend.filesystem_manager.cwd)
 
-        # Build backend config to pass to subagent manager
-        backend_config = {}
-        if hasattr(agent.backend, "config"):
-            backend_config = {k: v for k, v in agent.backend.config.items() if k not in ("mcp_servers", "_config_path")}
-
+        # Build list of all parent agent configs to pass to subagent manager
+        # This allows subagents to inherit the exact same agent setup by default
         import json
 
-        backend_config_json = json.dumps(backend_config)
+        agent_configs = []
+        for aid, a in self.agents.items():
+            agent_cfg = {"id": aid}
+            if hasattr(a.backend, "config"):
+                # Filter out non-serializable or internal keys
+                backend_cfg = {k: v for k, v in a.backend.config.items() if k not in ("mcp_servers", "_config_path")}
+                agent_cfg["backend"] = backend_cfg
+            agent_configs.append(agent_cfg)
+
+        agent_configs_json = json.dumps(agent_configs)
 
         # Get subagent configuration from coordination config
         max_concurrent = 3
@@ -863,8 +869,8 @@ class Orchestrator(ChatAgent):
             self.orchestrator_id,
             "--workspace-path",
             workspace_path,
-            "--backend-config",
-            backend_config_json,
+            "--agent-configs",
+            agent_configs_json,
             "--max-concurrent",
             str(max_concurrent),
             "--default-timeout",

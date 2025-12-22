@@ -359,45 +359,60 @@ class TestSubagentOrchestratorConfig:
         """Test creating config with default values."""
         config = SubagentOrchestratorConfig()
         assert config.enabled is False
-        assert config.num_agents == 1
-        assert config.agent_model is None
+        assert config.num_agents == 1  # Defaults to 1 when agents list is empty
+        assert config.agents == []
         assert config.coordination == {}
 
-    def test_enabled_with_custom_values(self):
-        """Test creating config with custom values."""
+    def test_enabled_with_custom_agents(self):
+        """Test creating config with custom agent configs."""
+        agents = [
+            {"backend": {"type": "openai", "model": "gpt-4-turbo"}},
+            {"backend": {"type": "anthropic", "model": "claude-sonnet-4-20250514"}},
+            {"id": "custom_agent", "backend": {"model": "gpt-4o"}},
+        ]
         config = SubagentOrchestratorConfig(
             enabled=True,
-            num_agents=3,
-            agent_model="gpt-4-turbo",
+            agents=agents,
             coordination={"broadcast": {"type": "always"}},
         )
         assert config.enabled is True
         assert config.num_agents == 3
-        assert config.agent_model == "gpt-4-turbo"
+        assert len(config.agents) == 3
         assert config.coordination == {"broadcast": {"type": "always"}}
 
-    def test_validation_num_agents_minimum(self):
-        """Test that num_agents must be at least 1."""
-        with pytest.raises(ValueError, match="num_agents must be at least 1"):
-            SubagentOrchestratorConfig(enabled=True, num_agents=0)
+    def test_num_agents_property(self):
+        """Test that num_agents property returns correct count."""
+        # Empty agents defaults to 1
+        config = SubagentOrchestratorConfig(enabled=True)
+        assert config.num_agents == 1
 
-    def test_validation_num_agents_maximum(self):
-        """Test that num_agents cannot exceed 10."""
-        with pytest.raises(ValueError, match="num_agents cannot exceed 10"):
-            SubagentOrchestratorConfig(enabled=True, num_agents=11)
+        # With agents list
+        config = SubagentOrchestratorConfig(
+            enabled=True,
+            agents=[{"backend": {"model": "gpt-4o"}}] * 5,
+        )
+        assert config.num_agents == 5
+
+    def test_validation_max_agents(self):
+        """Test that agents list cannot exceed 10."""
+        with pytest.raises(ValueError, match="Cannot have more than 10 agents"):
+            SubagentOrchestratorConfig(enabled=True, agents=[{"backend": {}}] * 11)
 
     def test_from_dict(self):
         """Test creating config from dictionary (YAML parsing)."""
         data = {
             "enabled": True,
-            "num_agents": 2,
-            "agent_model": "claude-3-sonnet",
+            "agents": [
+                {"backend": {"type": "openai", "model": "gpt-4o-mini"}},
+                {"backend": {"type": "anthropic", "model": "claude-3-sonnet"}},
+            ],
             "coordination": {"voting": {"enabled": True}},
         }
         config = SubagentOrchestratorConfig.from_dict(data)
         assert config.enabled is True
         assert config.num_agents == 2
-        assert config.agent_model == "claude-3-sonnet"
+        assert len(config.agents) == 2
+        assert config.agents[0]["backend"]["model"] == "gpt-4o-mini"
         assert config.coordination == {"voting": {"enabled": True}}
 
     def test_from_dict_with_defaults(self):
@@ -405,37 +420,65 @@ class TestSubagentOrchestratorConfig:
         config = SubagentOrchestratorConfig.from_dict({})
         assert config.enabled is False
         assert config.num_agents == 1
-        assert config.agent_model is None
+        assert config.agents == []
         assert config.coordination == {}
 
     def test_to_dict(self):
         """Test serialization to dictionary."""
+        agents = [
+            {"backend": {"type": "openai", "model": "gpt-4"}},
+            {"id": "agent_2", "backend": {"model": "gpt-4o-mini"}},
+        ]
         config = SubagentOrchestratorConfig(
             enabled=True,
-            num_agents=4,
-            agent_model="gpt-4",
+            agents=agents,
             coordination={"planning": True},
         )
         data = config.to_dict()
         assert data["enabled"] is True
-        assert data["num_agents"] == 4
-        assert data["agent_model"] == "gpt-4"
+        assert len(data["agents"]) == 2
         assert data["coordination"] == {"planning": True}
 
     def test_roundtrip_serialization(self):
         """Test that config survives serialization round-trip."""
+        agents = [
+            {"backend": {"type": "openai", "model": "gpt-4o"}},
+            {"backend": {"type": "anthropic", "model": "claude-sonnet-4-20250514"}},
+            {"id": "custom", "backend": {"model": "gpt-4o-mini"}},
+        ]
         original = SubagentOrchestratorConfig(
             enabled=True,
-            num_agents=3,
-            agent_model="claude-sonnet-4-20250514",
+            agents=agents,
             coordination={"broadcast": {"type": "always"}},
         )
         data = original.to_dict()
         restored = SubagentOrchestratorConfig.from_dict(data)
         assert restored.enabled == original.enabled
         assert restored.num_agents == original.num_agents
-        assert restored.agent_model == original.agent_model
+        assert len(restored.agents) == len(original.agents)
         assert restored.coordination == original.coordination
+
+    def test_get_agent_config(self):
+        """Test get_agent_config method."""
+        agents = [
+            {"backend": {"model": "gpt-4o"}},
+            {"id": "my_agent", "backend": {"type": "anthropic", "model": "claude"}},
+        ]
+        config = SubagentOrchestratorConfig(enabled=True, agents=agents)
+
+        # First agent - no id, should auto-generate
+        agent0 = config.get_agent_config(0, "sub_123")
+        assert agent0["id"] == "sub_123_agent_1"
+        assert agent0["backend"]["model"] == "gpt-4o"
+
+        # Second agent - has custom id
+        agent1 = config.get_agent_config(1, "sub_123")
+        assert agent1["id"] == "my_agent"
+        assert agent1["backend"]["type"] == "anthropic"
+
+        # Out of bounds - returns empty dict
+        agent2 = config.get_agent_config(2, "sub_123")
+        assert agent2 == {}
 
     def test_empty_coordination(self):
         """Test handling of empty/None coordination."""

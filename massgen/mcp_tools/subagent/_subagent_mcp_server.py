@@ -16,8 +16,10 @@ Tools provided:
 
 import argparse
 import asyncio
+import atexit
 import json
 import logging
+import signal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -35,7 +37,7 @@ _manager: Optional[SubagentManager] = None
 _workspace_path: Optional[Path] = None
 _parent_agent_id: Optional[str] = None
 _orchestrator_id: Optional[str] = None
-_parent_backend_config: Dict[str, Any] = {}
+_parent_agent_configs: List[Dict[str, Any]] = []
 _subagent_orchestrator_config: Optional[SubagentOrchestratorConfig] = None
 _log_directory: Optional[str] = None
 _max_concurrent: int = 3
@@ -52,7 +54,7 @@ def _get_manager() -> SubagentManager:
             parent_workspace=str(_workspace_path),
             parent_agent_id=_parent_agent_id or "unknown",
             orchestrator_id=_orchestrator_id or "unknown",
-            parent_backend_config=_parent_backend_config,
+            parent_agent_configs=_parent_agent_configs,
             subagent_orchestrator_config=_subagent_orchestrator_config,
             log_directory=_log_directory,
             max_concurrent=_max_concurrent,
@@ -108,11 +110,11 @@ async def create_server() -> fastmcp.FastMCP:
         help="Path to parent agent workspace for subagent workspaces",
     )
     parser.add_argument(
-        "--backend-config",
+        "--agent-configs",
         type=str,
         required=False,
-        default="{}",
-        help="JSON-encoded backend configuration to inherit",
+        default="[]",
+        help="JSON-encoded list of parent agent configurations to inherit",
     )
     parser.add_argument(
         "--max-concurrent",
@@ -147,11 +149,13 @@ async def create_server() -> fastmcp.FastMCP:
     _parent_agent_id = args.agent_id
     _orchestrator_id = args.orchestrator_id
 
-    # Parse backend config
+    # Parse agent configs (list of parent agent configurations)
     try:
-        _parent_backend_config = json.loads(args.backend_config)
+        _parent_agent_configs = json.loads(args.agent_configs)
+        if not isinstance(_parent_agent_configs, list):
+            _parent_agent_configs = [_parent_agent_configs]  # Wrap single config in list
     except json.JSONDecodeError:
-        _parent_backend_config = {}
+        _parent_agent_configs = []
 
     # Parse subagent orchestrator config
     try:
@@ -167,6 +171,16 @@ async def create_server() -> fastmcp.FastMCP:
     # Set concurrency and timeout limits
     _max_concurrent = args.max_concurrent
     _default_timeout = args.default_timeout
+
+    # Set up signal handlers for graceful shutdown
+    try:
+        loop = asyncio.get_running_loop()
+        _setup_signal_handlers(loop)
+    except RuntimeError:
+        pass  # No running loop yet, handlers will be set up later if needed
+
+    # Register atexit handler as a fallback for cleanup
+    atexit.register(_sync_cleanup)
 
     # Create the FastMCP server
     mcp = fastmcp.FastMCP("Subagent Spawning")
@@ -486,5 +500,46 @@ async def create_server() -> fastmcp.FastMCP:
     return mcp
 
 
+async def _cleanup_on_shutdown():
+    """Clean up subagent processes on shutdown."""
+    global _manager
+    if _manager is not None:
+        logger.info("[SubagentMCP] Shutting down - cancelling active subagents...")
+        cancelled = await _manager.cancel_all_subagents()
+        if cancelled > 0:
+            logger.info(f"[SubagentMCP] Cancelled {cancelled} subagent(s)")
+
+
+def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
+    """Set up signal handlers for graceful shutdown."""
+
+    def handle_signal(signum, frame):
+        logger.info(f"[SubagentMCP] Received signal {signum}, initiating shutdown...")
+        # Schedule cleanup on the event loop
+        loop.create_task(_cleanup_on_shutdown())
+
+    # Handle SIGTERM (from process termination) and SIGINT (Ctrl+C)
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+
+
+def _sync_cleanup():
+    """Synchronous cleanup for atexit handler."""
+    global _manager
+    if _manager is not None and _manager._active_processes:
+        logger.info("[SubagentMCP] atexit cleanup - terminating active subagents...")
+        for subagent_id, process in list(_manager._active_processes.items()):
+            if process.returncode is None:
+                try:
+                    process.terminate()
+                    logger.info(f"[SubagentMCP] Terminated subagent {subagent_id}")
+                except Exception as e:
+                    logger.error(f"[SubagentMCP] Error terminating {subagent_id}: {e}")
+
+
 if __name__ == "__main__":
+    import asyncio
+
+    import fastmcp
+
     asyncio.run(fastmcp.run(create_server))

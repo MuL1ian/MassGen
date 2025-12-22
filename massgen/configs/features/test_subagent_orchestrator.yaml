@@ -32,5 +32,15 @@ orchestrator:
     # Subagent orchestrator configuration
     subagent_orchestrator:
       enabled: true
-      num_agents: 1
+      # agents: Define subagent agents (if empty, inherits 1 agent from parent config)
+      # Each agent can have: id (optional, auto-generated), backend (type, model, base_url)
+      # Example with 2 different agents:
+      agents:
+        # - backend:
+        #     type: "openai"
+        #     model: "gpt-5-mini"
+        - backend:
+            type: "chatcompletion"
+            base_url: "https://openrouter.ai/api/v1"
+            model: "x-ai/grok-4.1-fast"
       # blocking: true  # Set to false for background execution (use check_subagent_status to monitor)

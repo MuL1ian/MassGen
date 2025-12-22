@@ -130,32 +130,54 @@ class SubagentOrchestratorConfig:
 
     Attributes:
         enabled: Whether orchestrator mode is enabled (default False = single agent)
-        num_agents: Number of agents in the subagent orchestrator (default 1)
-        agent_model: Optional model override for all subagent agents (inherits parent if None)
+        agents: List of agent configurations for the subagent orchestrator.
+                Each agent config can have: id (optional, auto-generated if missing),
+                backend (with type, model, base_url, etc.)
+                If empty/None, inherits from parent config.
         coordination: Optional coordination config subset (broadcast, planning, etc.)
         blocking: If True, spawn_subagents blocks until completion. If False, runs in background.
     """
 
     enabled: bool = False
-    num_agents: int = 1
-    agent_model: Optional[str] = None
+    agents: List[Dict[str, Any]] = field(default_factory=list)
     coordination: Dict[str, Any] = field(default_factory=dict)
     blocking: bool = True
 
+    @property
+    def num_agents(self) -> int:
+        """Number of agents configured (defaults to 1 if no agents specified)."""
+        return len(self.agents) if self.agents else 1
+
     def __post_init__(self):
         """Validate configuration after initialization."""
-        if self.num_agents < 1:
-            raise ValueError("num_agents must be at least 1")
-        if self.num_agents > 10:
-            raise ValueError("num_agents cannot exceed 10 for subagents")
+        if self.agents and len(self.agents) > 10:
+            raise ValueError("Cannot have more than 10 agents for subagents")
+
+    def get_agent_config(self, agent_index: int, subagent_id: str) -> Dict[str, Any]:
+        """
+        Get the config for a specific agent index.
+
+        Args:
+            agent_index: 0-based index of the agent
+            subagent_id: ID of the parent subagent (for auto-generating agent IDs)
+
+        Returns:
+            Agent config dict with id and backend, or empty dict if not specified
+        """
+        if self.agents and agent_index < len(self.agents):
+            config = self.agents[agent_index].copy()
+            # Auto-generate ID if not provided
+            if "id" not in config:
+                config["id"] = f"{subagent_id}_agent_{agent_index + 1}"
+            return config
+        return {}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SubagentOrchestratorConfig":
         """Create config from dictionary (YAML parsing)."""
         return cls(
             enabled=data.get("enabled", False),
-            num_agents=data.get("num_agents", 1),
-            agent_model=data.get("agent_model"),
+            agents=data.get("agents", []),
             coordination=data.get("coordination", {}),
             blocking=data.get("blocking", True),
         )
@@ -164,8 +186,7 @@ class SubagentOrchestratorConfig:
         """Convert config to dictionary for serialization."""
         return {
             "enabled": self.enabled,
-            "num_agents": self.num_agents,
-            "agent_model": self.agent_model,
+            "agents": [a.copy() for a in self.agents] if self.agents else [],
             "coordination": self.coordination.copy() if self.coordination else {},
             "blocking": self.blocking,
         }

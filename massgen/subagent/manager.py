@@ -44,7 +44,7 @@ class SubagentManager:
         parent_workspace: str,
         parent_agent_id: str,
         orchestrator_id: str,
-        parent_backend_config: Dict[str, Any],
+        parent_agent_configs: List[Dict[str, Any]],
         max_concurrent: int = 3,
         default_timeout: int = 300,
         subagent_orchestrator_config: Optional[SubagentOrchestratorConfig] = None,
@@ -57,7 +57,8 @@ class SubagentManager:
             parent_workspace: Path to parent agent's workspace
             parent_agent_id: ID of the parent agent
             orchestrator_id: ID of the orchestrator
-            parent_backend_config: Backend configuration to inherit from parent
+            parent_agent_configs: List of parent agent configurations to inherit.
+                Each config should have 'id' and 'backend' keys.
             max_concurrent: Maximum concurrent subagents (default 3)
             default_timeout: Default timeout in seconds (default 300)
             subagent_orchestrator_config: Configuration for subagent orchestrator mode.
@@ -69,7 +70,7 @@ class SubagentManager:
         self.parent_workspace = Path(parent_workspace)
         self.parent_agent_id = parent_agent_id
         self.orchestrator_id = orchestrator_id
-        self.parent_backend_config = parent_backend_config
+        self.parent_agent_configs = parent_agent_configs or []
         self.max_concurrent = max_concurrent
         self.default_timeout = default_timeout
         self._subagent_orchestrator_config = subagent_orchestrator_config
@@ -90,6 +91,8 @@ class SubagentManager:
         self._subagents: Dict[str, SubagentState] = {}
         # Track background tasks for non-blocking execution
         self._background_tasks: Dict[str, asyncio.Task] = {}
+        # Track active subprocess handles for graceful cancellation
+        self._active_processes: Dict[str, asyncio.subprocess.Process] = {}
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
         logger.info(
@@ -381,8 +384,6 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         Returns:
             SubagentResult with execution outcome
         """
-        import subprocess
-
         import yaml
 
         orch_config = self._subagent_orchestrator_config
@@ -435,26 +436,47 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             full_task,
         ]
 
-        # Run the subprocess
+        process: Optional[asyncio.subprocess.Process] = None
         try:
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=config.timeout_seconds or self.default_timeout,
-                    cwd=str(workspace),
-                ),
+            # Use async subprocess for graceful cancellation support
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(workspace),
             )
 
-            if result.returncode == 0:
+            # Track the process for potential cancellation
+            self._active_processes[config.id] = process
+
+            # Wait with timeout
+            timeout = config.timeout_seconds or self.default_timeout
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                # Kill the process on timeout
+                logger.warning(f"[SubagentManager] Subagent {config.id} timed out, terminating...")
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                raise
+            finally:
+                # Remove from active processes
+                self._active_processes.pop(config.id, None)
+
+            if process.returncode == 0:
                 # Read answer from the output file
                 if answer_file.exists():
                     answer = answer_file.read_text().strip()
                 else:
                     # Fallback to stdout if file wasn't created
-                    answer = result.stdout.strip()
+                    answer = stdout.decode() if stdout else ""
 
                 execution_time = time.time() - start_time
 
@@ -472,7 +494,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     token_usage=token_usage,
                 )
             else:
-                error_msg = result.stderr.strip() or f"Subprocess exited with code {result.returncode}"
+                stderr_text = stderr.decode() if stderr else ""
+                error_msg = stderr_text.strip() or f"Subprocess exited with code {process.returncode}"
                 logger.error(f"[SubagentManager] Subagent {config.id} failed: {error_msg}")
 
                 # Still try to get log path for debugging
@@ -485,11 +508,26 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     execution_time_seconds=time.time() - start_time,
                 )
 
-        except subprocess.TimeoutExpired:
+        except asyncio.TimeoutError:
             logger.error(f"[SubagentManager] Subagent {config.id} timed out")
+            return SubagentResult.create_timeout(
+                subagent_id=config.id,
+                workspace_path=str(workspace),
+                timeout_seconds=config.timeout_seconds or self.default_timeout,
+            )
+        except asyncio.CancelledError:
+            # Handle graceful cancellation (e.g., from Ctrl+C)
+            logger.warning(f"[SubagentManager] Subagent {config.id} cancelled")
+            if process and process.returncode is None:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    process.kill()
+            self._active_processes.pop(config.id, None)
             return SubagentResult.create_error(
                 subagent_id=config.id,
-                error=f"Subagent timed out after {config.timeout_seconds or self.default_timeout}s",
+                error="Subagent cancelled",
                 workspace_path=str(workspace),
                 execution_time_seconds=time.time() - start_time,
             )
@@ -511,7 +549,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         """
         Generate a YAML config dict for the subagent MassGen process.
 
-        Inherits relevant settings from parent backend config but adjusts
+        Inherits relevant settings from parent agent configs but adjusts
         paths and disables subagent nesting.
 
         Args:
@@ -524,30 +562,64 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         """
         orch_config = self._subagent_orchestrator_config
 
-        # Build agent configs based on num_agents
-        # Each agent needs a unique workspace directory
+        # Determine agent configs to use:
+        # 1. If subagent_orchestrator.agents is specified, use those
+        # 2. Otherwise, inherit from parent agent configs
+        if orch_config.agents:
+            # Use explicitly configured agents
+            source_agents = orch_config.agents
+        else:
+            # Inherit parent agent configs (default behavior)
+            source_agents = self.parent_agent_configs
+
+        # Build agent configs - each agent needs a unique workspace directory
         agents = []
-        for i in range(orch_config.num_agents):
-            agent_id = f"{config.id}_agent_{i+1}"
+        num_agents = len(source_agents) if source_agents else 1
+
+        for i in range(num_agents):
             # Create unique workspace for each agent
             agent_workspace = workspace / f"agent_{i+1}"
             agent_workspace.mkdir(parents=True, exist_ok=True)
 
-            agent_config = {
-                "id": agent_id,
-                "backend": {
-                    "type": self.parent_backend_config.get("type", "openai"),
-                    "model": orch_config.agent_model or config.model or self.parent_backend_config.get("model"),
-                    "cwd": str(agent_workspace),  # Each agent gets unique workspace
-                    # Inherit relevant backend settings
-                    "enable_mcp_command_line": self.parent_backend_config.get("enable_mcp_command_line", False),
-                    "command_line_execution_mode": self.parent_backend_config.get("command_line_execution_mode", "local"),
-                },
+            # Get source config for this agent
+            if source_agents and i < len(source_agents):
+                source_config = source_agents[i]
+            else:
+                source_config = {}
+
+            # Build agent ID - use source id or auto-generate
+            agent_id = source_config.get("id", f"{config.id}_agent_{i+1}")
+
+            # Get backend config from source or use defaults
+            source_backend = source_config.get("backend", {})
+
+            # Get first parent backend as fallback for missing values
+            fallback_backend = self.parent_agent_configs[0].get("backend", {}) if self.parent_agent_configs else {}
+
+            backend_config = {
+                "type": source_backend.get("type") or fallback_backend.get("type", "openai"),
+                "model": source_backend.get("model") or config.model or fallback_backend.get("model"),
+                "cwd": str(agent_workspace),  # Each agent gets unique workspace
+                # Inherit relevant backend settings from first parent
+                "enable_mcp_command_line": fallback_backend.get("enable_mcp_command_line", False),
+                "command_line_execution_mode": fallback_backend.get("command_line_execution_mode", "local"),
             }
 
-            # Copy reasoning config if present
-            if "reasoning" in self.parent_backend_config:
-                agent_config["backend"]["reasoning"] = self.parent_backend_config["reasoning"]
+            # Add base_url if specified (source or fallback)
+            base_url = source_backend.get("base_url") or fallback_backend.get("base_url")
+            if base_url:
+                backend_config["base_url"] = base_url
+
+            # Copy reasoning config if present (from source or fallback)
+            if "reasoning" in source_backend:
+                backend_config["reasoning"] = source_backend["reasoning"]
+            elif "reasoning" in fallback_backend and "type" not in source_backend:
+                backend_config["reasoning"] = fallback_backend["reasoning"]
+
+            agent_config = {
+                "id": agent_id,
+                "backend": backend_config,
+            }
 
             agents.append(agent_config)
 
@@ -1117,6 +1189,43 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         del self._subagents[subagent_id]
         return True
+
+    async def cancel_all_subagents(self) -> int:
+        """
+        Cancel all running subagent processes gracefully.
+
+        This should be called when the parent process receives a termination
+        signal (e.g., Ctrl+C) to ensure all child processes are cleaned up.
+
+        Returns:
+            Number of subagents that were cancelled
+        """
+        cancelled_count = 0
+        for subagent_id, process in list(self._active_processes.items()):
+            if process.returncode is None:  # Still running
+                logger.warning(f"[SubagentManager] Cancelling subagent {subagent_id}...")
+                try:
+                    process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"[SubagentManager] Force killing subagent {subagent_id}")
+                        process.kill()
+                        await process.wait()
+                    cancelled_count += 1
+                except Exception as e:
+                    logger.error(f"[SubagentManager] Error cancelling {subagent_id}: {e}")
+
+        self._active_processes.clear()
+
+        # Also cancel any background tasks
+        for task_id, task in list(self._background_tasks.items()):
+            if not task.done():
+                logger.warning(f"[SubagentManager] Cancelling background task {task_id}...")
+                task.cancel()
+                cancelled_count += 1
+
+        return cancelled_count
 
     def cleanup_all(self, remove_workspaces: bool = False) -> int:
         """
