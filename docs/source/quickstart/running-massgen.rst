@@ -6,7 +6,7 @@ This guide shows you how to run MassGen using different modes and configurations
 Choosing Your Mode
 ------------------
 
-MassGen offers three ways to run multi-agent workflows:
+MassGen offers four ways to run multi-agent workflows:
 
 .. list-table::
    :header-rows: 1
@@ -24,6 +24,9 @@ MassGen offers three ways to run multi-agent workflows:
    * - **LiteLLM**
      - Application integration, LangChain, existing LiteLLM users
      - Standard OpenAI interface, drop-in replacement
+   * - **HTTP Server**
+     - Integrating via HTTP, OpenAI-compatible clients, proxies/gateways
+     - OpenAI-compatible endpoints (``/v1/chat/completions``), SSE streaming, tool calling
 
 For advanced programmatic control, see the :doc:`../user_guide/integration/python_api` (async-first, headless execution).
 
@@ -76,6 +79,31 @@ Quick Start Examples
          print(response.choices[0].message.content)
 
       Standard OpenAI-compatible interface for seamless integration with existing applications.
+
+   .. tab:: HTTP Server
+
+      .. code-block:: bash
+
+         # Start an OpenAI-compatible HTTP server (defaults: 0.0.0.0:4000)
+         uv run massgen serve
+
+         # With a default config + default model override
+         uv run massgen serve --config path/to/config.yaml --default-model gpt-5
+
+         # Health check
+         curl http://localhost:4000/health
+
+         # OpenAI-compatible Chat Completions (non-streaming)
+         curl http://localhost:4000/v1/chat/completions \
+           -H "Content-Type: application/json" \
+           -d '{"model":"massgen","messages":[{"role":"user","content":"hi"}],"stream":false}'
+
+         # Streaming via SSE
+         curl -N http://localhost:4000/v1/chat/completions \
+           -H "Content-Type: application/json" \
+           -d '{"model":"massgen","messages":[{"role":"user","content":"hi"}],"stream":true}'
+
+      OpenAI-compatible HTTP API for integrating MassGen into existing clients and server workflows.
 
 CLI Usage
 ---------

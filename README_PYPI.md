@@ -477,6 +477,53 @@ MassGen agents can leverage various tools to enhance their problem-solving capab
 | `--debug`          | Enable debug mode with verbose logging (NEW in v0.0.13). Shows detailed orchestrator activities, agent messages, backend operations, and tool calls. Debug logs are saved to `agent_outputs/log_{time}/massgen_debug.log`. |
 | `"<your question>"`         | Optional single-question input; if omitted, MassGen enters interactive chat mode. |
 
+#### **0. OpenAI-Compatible HTTP Server (NEW)**
+
+Run MassGen as an **OpenAI-compatible** HTTP API (FastAPI + Uvicorn). This is useful for integrating MassGen with existing tooling that expects `POST /v1/chat/completions`.
+
+```bash
+# Start server (defaults: host 0.0.0.0, port 4000)
+massgen serve
+
+# With explicit bind + defaults for model/config
+massgen serve --host 0.0.0.0 --port 4000 --config path/to/config.yaml --default-model gpt-5
+```
+
+**Endpoints**
+
+- `GET /health`
+- `POST /v1/chat/completions` (supports `stream: true` SSE and OpenAI-style tool calling)
+
+**cURL examples**
+
+```bash
+# Health
+curl http://localhost:4000/health
+
+# Non-streaming chat completion
+curl http://localhost:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "massgen",
+    "messages": [{"role": "user", "content": "hi"}],
+    "stream": false
+  }'
+
+# Streaming (Server-Sent Events)
+curl -N http://localhost:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "massgen",
+    "messages": [{"role": "user", "content": "hi"}],
+    "stream": true
+  }'
+```
+
+**Notes**
+
+- Client-provided `tools` are supported, but tool names that collide with MassGen workflow tools are rejected.
+- Environment variables (optional): `MASSGEN_SERVER_HOST`, `MASSGEN_SERVER_PORT`, `MASSGEN_SERVER_DEFAULT_CONFIG`, `MASSGEN_SERVER_DEFAULT_MODEL`, `MASSGEN_SERVER_DEBUG`.
+
 
 #### **1. Single Agent (Easiest Start)**
 

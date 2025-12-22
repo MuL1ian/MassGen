@@ -215,6 +215,48 @@ WebUI Mode
    # Combine with debug mode
    massgen --web --debug --config my_config.yaml
 
+OpenAI-Compatible HTTP Server (``massgen serve``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Run MassGen as an OpenAI-compatible HTTP API (FastAPI + Uvicorn).
+
+**Endpoints:**
+
+* ``GET /health``
+* ``POST /v1/chat/completions`` (supports ``stream: true`` via SSE and OpenAI-style tool calling)
+
+.. code-block:: bash
+
+   # Start server (defaults: host 0.0.0.0, port 4000)
+   massgen serve
+
+   # Custom bind
+   massgen serve --host 127.0.0.1 --port 4000
+
+   # Provide a default config + model override used by requests
+   massgen serve --config path/to/config.yaml --default-model gpt-5
+
+   # Health check
+   curl http://localhost:4000/health
+
+   # OpenAI-compatible Chat Completions (non-streaming)
+   curl http://localhost:4000/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{"model":"massgen","messages":[{"role":"user","content":"hi"}],"stream":false}'
+
+   # Streaming via SSE
+   curl -N http://localhost:4000/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{"model":"massgen","messages":[{"role":"user","content":"hi"}],"stream":true}'
+
+**Environment variables (optional):**
+
+* ``MASSGEN_SERVER_HOST`` (default: ``0.0.0.0``)
+* ``MASSGEN_SERVER_PORT`` (default: ``4000``)
+* ``MASSGEN_SERVER_DEFAULT_CONFIG`` (default: unset)
+* ``MASSGEN_SERVER_DEFAULT_MODEL`` (default: unset)
+* ``MASSGEN_SERVER_DEBUG`` (default: ``false``)
+
 Output to File
 ~~~~~~~~~~~~~~
 
