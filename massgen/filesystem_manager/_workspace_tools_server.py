@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import fastmcp
 
-from ._constants import CRITICAL_DIRS
+from massgen.filesystem_manager._constants import CRITICAL_DIRS
 
 
 def get_copy_file_pairs(

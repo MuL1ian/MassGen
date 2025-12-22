@@ -82,7 +82,14 @@ async def fetch_openrouter_models(api_key: Optional[str] = None) -> List[str]:
             response = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
             response.raise_for_status()
             data = response.json()
-            return [model["id"] for model in data.get("data", [])]
+            models = data.get("data", [])
+            tool_supporting_models = []
+            for model in models:
+                supported_params = model.get("supported_parameters", [])
+                # Check if model supports tool calling
+                if "tools" in supported_params:
+                    tool_supporting_models.append(model["id"])
+            return tool_supporting_models
     except (httpx.HTTPError, KeyError, ValueError):
         return []
 
