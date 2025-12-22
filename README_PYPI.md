@@ -173,13 +173,9 @@ This project started with the "threads of thought" and "iterative refinement" id
 # Install or upgrade
 pip install --upgrade massgen
 
-# Multimodal understanding - analyze images with read_media tool
-massgen --config @examples/tools/custom_tools/multimodal_tools/understand_image \
-  "Describe what you see in this image"
-
-# Generate images with generate_media tool
-massgen --config @examples/tools/custom_tools/multimodal_tools/text_to_image_generation_single \
-  "Create an image of a futuristic city at sunset"
+# Unified multimodal tools - analyze and generate images, audio, video
+massgen --config @examples/tools/custom_tools/multimodal_tools/unified_multimodal \
+  "Analyze this image and create a similar one with different colors"
 
 # Multi-agent collaboration
 massgen --config @examples/basic/multi/three_agents_default \
@@ -1128,7 +1124,7 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 #### Multimodal Enhancements
 - **Unified Multimodal Understanding**: Consolidated `read_media` tool for image, audio, and video analysis
-- **Unified Media Generation**: Consolidated `generate_media` tool with provider selection for images (DALL-E, Imagen), videos (Sora, Veo), and audio (TTS)
+- **Unified Media Generation**: Consolidated `generate_media` tool with provider selection for images (gpt-image-1, Imagen), videos (Sora, Veo), and audio (TTS)
 - **OpenRouter Model Filtering**: Automatic filtering to only display models that support tool calling
 
 #### Web UI

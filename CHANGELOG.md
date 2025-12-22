@@ -30,7 +30,7 @@ New Web UI setup wizard for guided first-run configuration, Docker diagnostics m
 ### Changed
 - **Unified Multimodal Tools**: Consolidated `read_media` for understanding and `generate_media` for generation
   - Understanding: Image, audio, and video analysis with backend selector routing to Gemini, OpenAI, or OpenRouter
-  - Generation: Create images (DALL-E, Imagen), videos (Sora, Veo), and audio (TTS) with provider selection
+  - Generation: Create images (gpt-image-1, Imagen), videos (Sora, Veo), and audio (TTS) with provider selection
   - New `generation/` module with modular `_image.py`, `_video.py`, `_audio.py` implementations
 
 - **OpenRouter Tool-Capable Model Filtering**: Model list now filters to only show models supporting tool calling
