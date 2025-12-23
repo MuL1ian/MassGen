@@ -93,6 +93,7 @@ class MassGenEngine:
             config=orch_config,
             session_id=f"server_{uuid.uuid4().hex[:8]}",
             enable_rate_limit=self._enable_rate_limit,
+            trace_classification="strict",
         )
 
         # Preserve OpenAI-style tool messages in req.messages (Orchestrator will be updated to retain role=tool).

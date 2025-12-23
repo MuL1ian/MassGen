@@ -107,9 +107,11 @@ Quick Start Examples
 
       .. note::
 
-         When running with a config (``--config``), the server uses **Config-as-Authority**.
-         The ``model`` parameter in client requests is ignored by default, ensuring the server uses the agent team defined in your YAML.
-         To force an override, use ``model="massgen/model:<model_id>"``.
+         **Config-as-Authority:** When running with ``--config``, the ``model`` parameter in client requests is ignored.
+         The server uses the agent team defined in your YAML. To force an override, use ``model="massgen/model:<model_id>"``.
+
+         **Response Format:** The response includes a ``reasoning_content`` field containing agent coordination traces
+         (status updates, reasoning, votes). The ``content`` field contains only the final synthesized answer.
 
 CLI Usage
 ---------

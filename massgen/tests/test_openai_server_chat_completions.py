@@ -12,8 +12,22 @@ from massgen.server.openai.model_router import ResolvedModel
 class FakeEngine:
     async def stream_chat(self, req, resolved: ResolvedModel, *, request_id: str) -> AsyncIterator[StreamChunk]:
         _ = (req, resolved, request_id)
-        yield StreamChunk(type="content", content="Hello")
-        yield StreamChunk(type="content", content=" world")
+        yield StreamChunk(type="content", content="Hello", source="agent_1")
+        yield StreamChunk(type="content", content=" world", source="agent_1")
+        yield StreamChunk(type="done")
+
+
+class FakeEngineWithReasoning:
+    """Engine that produces reasoning/trace chunks before final content."""
+
+    async def stream_chat(self, req, resolved: ResolvedModel, *, request_id: str) -> AsyncIterator[StreamChunk]:
+        _ = (req, resolved, request_id)
+        # Emit trace chunks (should go to reasoning_content)
+        yield StreamChunk(type="status", content="Starting coordination...", source="system")
+        yield StreamChunk(type="reasoning", content="Agent thinking...", source="agent_1")
+        yield StreamChunk(type="agent_status", content="Generating answer", source="agent_1")
+        # Final content
+        yield StreamChunk(type="content", content="The answer is 42.", source="agent_1")
         yield StreamChunk(type="done")
 
 
@@ -70,3 +84,74 @@ def test_chat_completions_streaming():
             got += delta.get("content", "") or ""
         assert saw_done is True
         assert got == "Hello world"
+
+
+def test_chat_completions_reasoning_content_non_stream():
+    """Test that non-content chunks are collected into reasoning_content."""
+    app = create_app(engine=FakeEngineWithReasoning())
+    client = TestClient(app)
+    resp = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "massgen",
+            "messages": [{"role": "user", "content": "What is the meaning of life?"}],
+            "stream": False,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    message = data["choices"][0]["message"]
+
+    # Final content should only contain the answer
+    assert message["content"] == "The answer is 42."
+
+    # reasoning_content should contain traces
+    assert "reasoning_content" in message
+    reasoning = message["reasoning_content"]
+    assert "Starting coordination" in reasoning
+    assert "Agent thinking" in reasoning
+    assert "Generating answer" in reasoning
+
+
+def test_chat_completions_reasoning_content_streaming():
+    """Test that reasoning_content is emitted before content in streaming."""
+    app = create_app(engine=FakeEngineWithReasoning())
+    client = TestClient(app)
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "massgen",
+            "messages": [{"role": "user", "content": "What is the meaning of life?"}],
+            "stream": True,
+        },
+    ) as resp:
+        assert resp.status_code == 200
+        content = ""
+        reasoning = ""
+        saw_reasoning_first = False
+        first_non_role_chunk = True
+
+        for data_line in _iter_sse_data_lines(resp):
+            if data_line == "[DONE]":
+                break
+            payload = json.loads(data_line)
+            delta = payload["choices"][0]["delta"]
+
+            # Check if reasoning comes before content
+            if "reasoning_content" in delta:
+                reasoning = delta["reasoning_content"]
+                if first_non_role_chunk:
+                    saw_reasoning_first = True
+                first_non_role_chunk = False
+            if "content" in delta:
+                content += delta["content"]
+                first_non_role_chunk = False
+
+        # Verify reasoning was emitted first and contains traces
+        assert saw_reasoning_first, "reasoning_content should be emitted before content"
+        assert "Starting coordination" in reasoning
+        assert "Agent thinking" in reasoning
+
+        # Verify final content
+        assert content == "The answer is 42."

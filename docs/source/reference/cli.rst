@@ -255,6 +255,25 @@ Run MassGen as an OpenAI-compatible HTTP API (FastAPI + Uvicorn).
 
 When ``--config`` is provided, the server operates in "Config-as-Authority" mode. The ``model`` parameter in client requests is ignored unless explicitly overridden using the ``massgen/model:<model_id>`` syntax. This ensures that your carefully tuned multi-agent configuration is respected regardless of the client's default model setting.
 
+**Response Format:**
+
+The server returns responses with the final synthesized answer in ``content`` and all agent traces in ``reasoning_content``:
+
+.. code-block:: json
+
+   {
+     "choices": [{
+       "message": {
+         "role": "assistant",
+         "content": "The final answer from the agent team.",
+         "reasoning_content": "[system] Starting coordination...\n[agent_1] Analyzing...\n[orchestrator] Vote: agent_1"
+       },
+       "finish_reason": "stop"
+     }]
+   }
+
+For streaming responses, ``reasoning_content`` is emitted as a single chunk before the ``content`` chunks.
+
 **Environment variables (optional):**
 
 * ``MASSGEN_SERVER_HOST`` (default: ``0.0.0.0``)

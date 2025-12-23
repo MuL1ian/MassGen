@@ -138,6 +138,7 @@ class Orchestrator(ChatAgent):
         enable_nlip: bool = False,
         nlip_config: Optional[Dict[str, Any]] = None,
         enable_rate_limit: bool = False,
+        trace_classification: str = "legacy",
     ):
         """
         Initialize MassGen orchestrator.
@@ -159,6 +160,8 @@ class Orchestrator(ChatAgent):
             enable_nlip: Enable NLIP (Natural Language Interaction Protocol) support
             nlip_config: Optional NLIP configuration
             enable_rate_limit: Whether to enable rate limiting and cooldown delays (default: False)
+            trace_classification: "legacy" (default) preserves current content traces; "strict" emits
+                                  coordination/status as non-content for server mode.
         """
         super().__init__(session_id, shared_conversation_memory, shared_persistent_memory)
         self.orchestrator_id = orchestrator_id
@@ -166,6 +169,7 @@ class Orchestrator(ChatAgent):
         self.agent_states = {aid: AgentState() for aid in agents.keys()}
         self.config = config or AgentConfig.create_openai_config()
         self.dspy_paraphraser = dspy_paraphraser
+        self.trace_classification = trace_classification
 
         # Shared memory for all agents
         self.shared_conversation_memory = shared_conversation_memory
@@ -983,6 +987,12 @@ class Orchestrator(ChatAgent):
 
         return str(chunk_type)
 
+    def _trace_tuple(self, text: str, *, kind: str = "agent_status") -> tuple:
+        """Map coordination/status text to a non-content type when strict tracing is enabled."""
+        if self.trace_classification == "strict":
+            return (kind, text)
+        return ("content", text)
+
     async def chat(
         self,
         messages: List[Dict[str, Any]],
@@ -1091,7 +1101,8 @@ class Orchestrator(ChatAgent):
         else:
             # Already coordinating - provide status update
             log_stream_chunk("orchestrator", "content", "🔄 Coordinating agents, please wait...")
-            yield StreamChunk(type="content", content="🔄 Coordinating agents, please wait...")
+            chunk_type = "coordination" if self.trace_classification == "strict" else "content"
+            yield StreamChunk(type=chunk_type, content="🔄 Coordinating agents, please wait...")
             # Note: In production, you might want to queue follow-up questions
 
     async def chat_simple(self, user_message: str) -> AsyncGenerator[StreamChunk, None]:
@@ -2212,6 +2223,11 @@ Your answer:"""
                         log_stream_chunk("orchestrator", "content", chunk_data, agent_id)
                         yield StreamChunk(type="content", content=chunk_data, source=agent_id)
 
+                    elif chunk_type == "coordination":
+                        # Coordination traces (strict mode) - pass through as coordination type
+                        log_stream_chunk("orchestrator", "coordination", chunk_data, agent_id)
+                        yield StreamChunk(type="coordination", content=chunk_data, source=agent_id)
+
                     elif chunk_type == "external_tool_calls":
                         # Client-provided (non-workflow) tool calls must be surfaced to the caller
                         # and are never executed by MassGen.
@@ -2322,7 +2338,7 @@ Your answer:"""
                                 agent_id,
                             )
                             yield StreamChunk(
-                                type="content",
+                                type="agent_status" if self.trace_classification == "strict" else "content",
                                 content="✅ Answer provided\n",
                                 source=agent_id,
                             )
@@ -2348,7 +2364,7 @@ Your answer:"""
                                     agent_id,
                                 )
                                 yield StreamChunk(
-                                    type="content",
+                                    type="agent_status" if self.trace_classification == "strict" else "content",
                                     content=f"🔄 Vote for [{voted_for}] ignored (reason: {reason}) - restarting due to new answers",
                                     source=agent_id,
                                 )
@@ -2417,7 +2433,7 @@ Your answer:"""
                                     agent_id,
                                 )
                                 yield StreamChunk(
-                                    type="content",
+                                    type="agent_status" if self.trace_classification == "strict" else "content",
                                     content=f"✅ Vote recorded for [{result_data['agent_id']}]",
                                     source=agent_id,
                                 )
@@ -2434,7 +2450,11 @@ Your answer:"""
                         # Mark agent as killed to prevent respawning in the while loop
                         self.agent_states[agent_id].is_killed = True
                         log_stream_chunk("orchestrator", "error", chunk_data, agent_id)
-                        yield StreamChunk(type="content", content=f"❌ {chunk_data}", source=agent_id)
+                        yield StreamChunk(
+                            type="agent_status" if self.trace_classification == "strict" else "content",
+                            content=f"❌ {chunk_data}",
+                            source=agent_id,
+                        )
                         log_stream_chunk("orchestrator", "agent_status", "completed", agent_id)
                         yield StreamChunk(
                             type="agent_status",
@@ -2453,7 +2473,8 @@ Your answer:"""
                         # MCP status messages - forward with proper formatting
                         mcp_message = f"🔧 MCP: {chunk_data}"
                         log_stream_chunk("orchestrator", "mcp_status", chunk_data, agent_id)
-                        yield StreamChunk(type="content", content=mcp_message, source=agent_id)
+                        mcp_type = "coordination" if self.trace_classification == "strict" else "content"
+                        yield StreamChunk(type=mcp_type, content=mcp_message, source=agent_id)
 
                     elif chunk_type == "done":
                         # Stream completed - emit completion status for frontend
@@ -2481,8 +2502,9 @@ Your answer:"""
                     # Mark agent as killed to prevent respawning in the while loop
                     self.agent_states[agent_id].is_killed = True
                     log_stream_chunk("orchestrator", "error", f"❌ Stream error - {e}", agent_id)
+                    error_type = "coordination" if self.trace_classification == "strict" else "content"
                     yield StreamChunk(
-                        type="content",
+                        type=error_type,
                         content=f"❌ Stream error - {e}",
                         source=agent_id,
                     )
@@ -3703,8 +3725,12 @@ Your answer:"""
                     chunk_type = self._get_chunk_type_value(chunk)
                     if chunk_type == "content":
                         response_text += chunk.content
-                        # Stream agent content directly - source field handles attribution
-                        yield ("content", chunk.content)
+                        # In strict mode, agent content during coordination goes to traces
+                        # Only final presentation content should be the actual response
+                        if self.trace_classification == "strict":
+                            yield ("coordination", chunk.content)
+                        else:
+                            yield ("content", chunk.content)
                         # Log received content
                         backend_name = None
                         if hasattr(agent, "backend") and hasattr(agent.backend, "get_provider_name"):
@@ -3740,11 +3766,11 @@ Your answer:"""
                     elif chunk_type == "mcp_status":
                         # Forward MCP status messages with proper formatting
                         mcp_content = f"🔧 MCP: {chunk.content}"
-                        yield ("content", mcp_content)
+                        yield self._trace_tuple(mcp_content, kind="coordination")
                     elif chunk_type == "custom_tool_status":
                         # Forward custom tool status messages with proper formatting
                         custom_tool_content = f"🔧 Custom Tool: {chunk.content}"
-                        yield ("content", custom_tool_content)
+                        yield self._trace_tuple(custom_tool_content, kind="coordination")
                     elif chunk_type == "debug":
                         # Forward debug chunks
                         yield ("debug", chunk.content)
@@ -3771,7 +3797,7 @@ Your answer:"""
 
                             if tool_name == "new_answer":
                                 content = tool_args.get("content", "")
-                                yield ("content", f'💡 Providing answer: "{content}"')
+                                yield self._trace_tuple(f'💡 Providing answer: "{content}"', kind="coordination")
                                 log_tool_call(
                                     agent_id,
                                     "new_answer",
@@ -3799,21 +3825,21 @@ Your answer:"""
                                     real_agent_id = agent_mapping.get(agent_voted_for, agent_voted_for)
 
                                 yield (
-                                    "content",
+                                    "coordination" if self.trace_classification == "strict" else "content",
                                     f"🗳️ Voting for [{real_agent_id}] (options: {', '.join(sorted(answers.keys()))}) : {reason}",
                                 )
                             elif tool_name == "ask_others":
                                 # Broadcast tool - handled as custom tool by backend
                                 question = tool_args.get("question", "")
-                                yield ("content", f"📢 Asking others: {question[:80]}...")
+                                yield self._trace_tuple(f"📢 Asking others: {question[:80]}...", kind="coordination")
                                 log_tool_call(agent_id, "ask_others", tool_args, None, backend_name)
                             elif tool_name in ["check_broadcast_status", "get_broadcast_responses"]:
                                 # Polling broadcast tools - handled as custom tools by backend
                                 request_id = tool_args.get("request_id", "")
-                                yield ("content", f"📢 Checking broadcast {request_id[:8]}...")
+                                yield self._trace_tuple(f"📢 Checking broadcast {request_id[:8]}...", kind="coordination")
                                 log_tool_call(agent_id, tool_name, tool_args, None, backend_name)
                             else:
-                                yield ("content", f"🔧 Using {tool_name}")
+                                yield self._trace_tuple(f"🔧 Using {tool_name}", kind="coordination")
                                 log_tool_call(agent_id, tool_name, tool_args, None, backend_name)
 
                         if external_tool_calls:
@@ -3837,11 +3863,11 @@ Your answer:"""
                                 conversation_messages,
                             )
                             if should_continue:
-                                yield ("content", f"📨 [{agent_id}] receiving update with new answers\n")
+                                yield self._trace_tuple(f"📨 [{agent_id}] receiving update with new answers\n", kind="coordination")
                                 continue  # Agent continues working with update
                             # else: No new answers, proceed with normal error handling
                         error_msg = f"Multiple vote calls not allowed. Made {len(vote_calls)} calls but must make exactly 1. Call vote tool once with chosen agent."
-                        yield ("content", f"❌ {error_msg}")
+                        yield self._trace_tuple(f"❌ {error_msg}", kind="coordination")
 
                         # Send tool error response for all tool calls
                         enforcement_msg = self._create_tool_error_messages(
@@ -4149,7 +4175,7 @@ Your answer:"""
                         else:
                             # Non-workflow tools not yet implemented
                             yield (
-                                "content",
+                                "coordination" if self.trace_classification == "strict" else "content",
                                 f"🔧 used {tool_name} tool (not implemented)",
                             )
 
@@ -4162,11 +4188,11 @@ Your answer:"""
                             conversation_messages,
                         )
                         if should_continue:
-                            yield ("content", f"📨 [{agent_id}] receiving update with new answers\n")
+                            yield self._trace_tuple(f"📨 [{agent_id}] receiving update with new answers\n", kind="coordination")
                             continue  # Agent continues working with update
                         # else: No new answers, proceed with normal error handling
                     if attempt < max_attempts - 1:
-                        yield ("content", "🔄 needs to use workflow tools...\n")
+                        yield self._trace_tuple("🔄 needs to use workflow tools...\n", kind="coordination")
                         # If there were tool calls, we must provide tool results before continuing
                         # (Response API requires function_call + function_call_output pairs)
                         if tool_calls:
@@ -4219,11 +4245,17 @@ Your answer:"""
         vote_results = self._get_vote_results()
 
         log_stream_chunk("orchestrator", "content", "## 🎯 Final Coordinated Answer\n")
-        yield StreamChunk(type="content", content="## 🎯 Final Coordinated Answer\n")
+        yield StreamChunk(
+            type="coordination" if self.trace_classification == "strict" else "content",
+            content="## 🎯 Final Coordinated Answer\n",
+        )
 
         # Stream final presentation from winning agent
         log_stream_chunk("orchestrator", "content", f"🏆 Selected Agent: {self._selected_agent}\n")
-        yield StreamChunk(type="content", content=f"🏆 Selected Agent: {self._selected_agent}\n")
+        yield StreamChunk(
+            type="coordination" if self.trace_classification == "strict" else "content",
+            content=f"🏆 Selected Agent: {self._selected_agent}\n",
+        )
 
         # Stream the final presentation (with full tool support)
         presentation_content = ""

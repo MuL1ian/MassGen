@@ -13,6 +13,9 @@ Choosing Your Integration
    * - Method
      - Best For
      - Key Features
+   * - **HTTP Server**
+     - API gateways, proxies, external apps
+     - OpenAI-compatible endpoints, SSE streaming
    * - **Python API**
      - Application integration, automation scripts
      - Async-first, full control, direct access
@@ -26,8 +29,19 @@ Choosing Your Integration
 Guides in This Section
 ----------------------
 
-.. grid:: 3
+.. grid:: 4
    :gutter: 3
+
+   .. grid-item-card:: 🌐 HTTP Server
+
+      OpenAI-compatible API
+
+      * ``massgen serve`` command
+      * ``/v1/chat/completions`` endpoint
+      * Streaming via SSE
+      * Config-as-Authority mode
+
+      :doc:`Read the HTTP Server guide → <http_server>`
 
    .. grid-item-card:: 🐍 Python API
 
@@ -66,6 +80,26 @@ Quick Examples
 --------------
 
 .. tabs::
+
+   .. tab:: HTTP Server
+
+      .. code-block:: bash
+
+         # Start the server with a config
+         massgen serve --config balanced.yaml --port 4000
+
+      .. code-block:: python
+
+         # Any OpenAI-compatible client works
+         from openai import OpenAI
+         client = OpenAI(base_url="http://localhost:4000/v1", api_key="unused")
+
+         response = client.chat.completions.create(
+             model="massgen",  # Ignored when config is provided
+             messages=[{"role": "user", "content": "Your question"}]
+         )
+         print(response.choices[0].message.content)  # Final answer
+         print(response.choices[0].message.reasoning_content)  # Traces
 
    .. tab:: Python API
 
@@ -121,6 +155,7 @@ Related Documentation
    :maxdepth: 1
    :hidden:
 
+   http_server
    python_api
    automation
    general_interoperability

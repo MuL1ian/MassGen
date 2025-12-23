@@ -51,6 +51,12 @@ def filter_external_tool_calls(tool_calls: Optional[List[Dict[str, Any]]]) -> Li
     return filtered
 
 
+def _is_trace_content(chunk: StreamChunk) -> bool:
+    """Identify content chunks that are coordination traces (orchestrator/system)."""
+    source = getattr(chunk, "source", None)
+    return source is None or str(source) in {"orchestrator", "system"}
+
+
 def build_chat_completion_response(
     *,
     content: str,
@@ -59,6 +65,7 @@ def build_chat_completion_response(
     finish_reason: str,
     created: Optional[int] = None,
     response_id: Optional[str] = None,
+    reasoning_content: Optional[str] = None,
 ) -> Dict[str, Any]:
     created = created or int(time.time())
     response_id = response_id or f"chatcmpl_{uuid.uuid4().hex}"
@@ -70,6 +77,8 @@ def build_chat_completion_response(
         message["content"] = ""  # keep shape stable
     if tool_calls:
         message["tool_calls"] = tool_calls
+    if reasoning_content:
+        message["reasoning_content"] = reasoning_content
 
     return {
         "id": response_id,
@@ -86,19 +95,62 @@ def build_chat_completion_response(
     }
 
 
+def _format_trace_chunk(chunk: StreamChunk) -> Optional[str]:
+    """Format a non-content chunk into a trace string for reasoning_content."""
+    t = str(chunk.type)
+    parts: List[str] = []
+
+    # Include source/agent info if available
+    source = getattr(chunk, "source", None) or "system"
+
+    if t == "reasoning" and chunk.content:
+        parts.append(f"[{source}] {chunk.content}")
+    elif t == "reasoning_done":
+        text = getattr(chunk, "reasoning_text", None)
+        if text:
+            parts.append(f"[{source}] {text}")
+    elif t == "agent_status":
+        status = getattr(chunk, "agent_status", None) or getattr(chunk, "content", None)
+        if status:
+            parts.append(f"[{source}] Status: {status}")
+    elif t == "status":
+        status = getattr(chunk, "content", None)
+        if status:
+            parts.append(f"[system] {status}")
+    elif t == "vote_result":
+        vote = getattr(chunk, "vote_result", None) or getattr(chunk, "content", None)
+        if vote:
+            parts.append(f"[orchestrator] Vote: {vote}")
+    elif t == "coordination":
+        coord = getattr(chunk, "content", None)
+        if coord:
+            parts.append(f"[orchestrator] {coord}")
+    elif t not in ("content", "tool_calls", "error", "done"):
+        # Catch-all for any other chunk types
+        text = getattr(chunk, "content", None) or getattr(chunk, "text", None)
+        if text:
+            parts.append(f"[{source}:{t}] {text}")
+
+    return "\n".join(parts) if parts else None
+
+
 async def accumulate_stream_to_response(
     stream: AsyncIterator[StreamChunk],
     *,
     model: str,
 ) -> Tuple[Dict[str, Any], str]:
     content_parts: List[str] = []
+    reasoning_parts: List[str] = []
     tool_calls: List[Dict[str, Any]] = []
     finish_reason = "stop"
 
     async for chunk in stream:
         t = str(chunk.type)
         if t == "content" and chunk.content:
-            content_parts.append(chunk.content)
+            if _is_trace_content(chunk):
+                reasoning_parts.append(f"[{getattr(chunk, 'source', 'system') or 'system'}] {chunk.content}")
+            else:
+                content_parts.append(chunk.content)
         elif t == "tool_calls":
             tool_calls = filter_external_tool_calls(getattr(chunk, "tool_calls", None))
             if tool_calls:
@@ -109,7 +161,10 @@ async def accumulate_stream_to_response(
         elif t == "done":
             break
         else:
-            # Drop non-OpenAI chunks by default (status, debug, etc.)
+            # Collect all other chunks as reasoning traces
+            trace = _format_trace_chunk(chunk)
+            if trace:
+                reasoning_parts.append(trace)
             continue
 
         if finish_reason == "tool_calls":
@@ -117,11 +172,13 @@ async def accumulate_stream_to_response(
             break
 
     content = "".join(content_parts)
+    reasoning_content = "\n".join(reasoning_parts) if reasoning_parts else None
     resp = build_chat_completion_response(
         content=content,
         tool_calls=tool_calls,
         model=model,
         finish_reason=finish_reason,
+        reasoning_content=reasoning_content,
     )
     return resp, finish_reason
 
@@ -158,7 +215,41 @@ async def stream_to_sse_frames(
 ) -> AsyncIterator[Dict[str, Any]]:
     """
     Convert StreamChunks into OpenAI-compatible SSE frame payload dicts.
+
+    For maximum client compatibility, we buffer all chunks first, then:
+    1. Emit role frame
+    2. Emit reasoning_content (all traces) in one chunk
+    3. Stream content chunks
+    4. Emit tool_calls if any
+    5. Emit finish frame
     """
+    # Buffer all chunks first
+    content_chunks: List[str] = []
+    reasoning_parts: List[str] = []
+    tool_calls: List[Dict[str, Any]] = []
+    error_content: Optional[str] = None
+
+    async for chunk in stream:
+        t = str(chunk.type)
+        if t == "content" and chunk.content:
+            if _is_trace_content(chunk):
+                reasoning_parts.append(f"[{getattr(chunk, 'source', 'system') or 'system'}] {chunk.content}")
+            else:
+                content_chunks.append(chunk.content)
+        elif t == "tool_calls":
+            tool_calls = filter_external_tool_calls(getattr(chunk, "tool_calls", None))
+            if tool_calls:
+                pass
+        elif t == "error":
+            error_content = getattr(chunk, "error", None) or "Error"
+        elif t == "done":
+            break
+        else:
+            # Collect all other chunks as reasoning traces
+            trace = _format_trace_chunk(chunk)
+            if trace:
+                reasoning_parts.append(trace)
+
     # Initial role frame (matches OpenAI behavior)
     yield make_sse_chunk(
         response_id=response_id,
@@ -167,61 +258,63 @@ async def stream_to_sse_frames(
         finish_reason=None,
     )
 
-    tool_calls: List[Dict[str, Any]] = []
-    async for chunk in stream:
-        t = str(chunk.type)
-        if t == "content" and chunk.content:
-            yield make_sse_chunk(
-                response_id=response_id,
-                model=model,
-                delta={"content": chunk.content},
-                finish_reason=None,
+    # Emit reasoning_content first if present
+    if reasoning_parts:
+        reasoning_content = "\n".join(reasoning_parts)
+        yield make_sse_chunk(
+            response_id=response_id,
+            model=model,
+            delta={"reasoning_content": reasoning_content},
+            finish_reason=None,
+        )
+
+    # Stream content
+    for content_part in content_chunks:
+        yield make_sse_chunk(
+            response_id=response_id,
+            model=model,
+            delta={"content": content_part},
+            finish_reason=None,
+        )
+
+    # Handle error content
+    if error_content:
+        yield make_sse_chunk(
+            response_id=response_id,
+            model=model,
+            delta={"content": error_content},
+            finish_reason="stop",
+        )
+        return
+
+    # Emit tool_calls if any
+    if tool_calls:
+        delta_tool_calls = []
+        for i, tc in enumerate(tool_calls):
+            delta_tool_calls.append(
+                {
+                    "index": i,
+                    "id": tc.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": (tc.get("function") or {}).get("name"),
+                        "arguments": (tc.get("function") or {}).get("arguments"),
+                    },
+                },
             )
-        elif t == "tool_calls":
-            tool_calls = filter_external_tool_calls(getattr(chunk, "tool_calls", None))
-            if tool_calls:
-                # Emit as delta.tool_calls (single-shot; no incremental args streaming)
-                delta_tool_calls = []
-                for i, tc in enumerate(tool_calls):
-                    delta_tool_calls.append(
-                        {
-                            "index": i,
-                            "id": tc.get("id"),
-                            "type": "function",
-                            "function": {
-                                "name": (tc.get("function") or {}).get("name"),
-                                "arguments": (tc.get("function") or {}).get("arguments"),
-                            },
-                        },
-                    )
-                yield make_sse_chunk(
-                    response_id=response_id,
-                    model=model,
-                    delta={"tool_calls": delta_tool_calls},
-                    finish_reason=None,
-                )
-                # Then final chunk with finish_reason=tool_calls
-                yield make_sse_chunk(
-                    response_id=response_id,
-                    model=model,
-                    delta={},
-                    finish_reason="tool_calls",
-                )
-                return
-        elif t == "error":
-            # Surface as content and stop
-            err = getattr(chunk, "error", None) or "Error"
-            yield make_sse_chunk(
-                response_id=response_id,
-                model=model,
-                delta={"content": err},
-                finish_reason="stop",
-            )
-            return
-        elif t == "done":
-            break
-        else:
-            continue
+        yield make_sse_chunk(
+            response_id=response_id,
+            model=model,
+            delta={"tool_calls": delta_tool_calls},
+            finish_reason=None,
+        )
+        yield make_sse_chunk(
+            response_id=response_id,
+            model=model,
+            delta={},
+            finish_reason="tool_calls",
+        )
+        return
 
     # Normal stop
     yield make_sse_chunk(
