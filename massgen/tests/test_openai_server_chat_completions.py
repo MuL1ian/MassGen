@@ -14,6 +14,11 @@ class FakeEngine:
         _ = (req, resolved, request_id)
         yield StreamChunk(type="content", content="Hello", source="agent_1")
         yield StreamChunk(type="content", content=" world", source="agent_1")
+        yield StreamChunk(
+            type="usage",
+            usage={"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            source="orchestrator",
+        )
         yield StreamChunk(type="done")
 
 
@@ -28,6 +33,11 @@ class FakeEngineWithReasoning:
         yield StreamChunk(type="agent_status", content="Generating answer", source="agent_1")
         # Final content
         yield StreamChunk(type="content", content="The answer is 42.", source="agent_1")
+        yield StreamChunk(
+            type="usage",
+            usage={"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            source="orchestrator",
+        )
         yield StreamChunk(type="done")
 
 
@@ -58,6 +68,7 @@ def test_chat_completions_non_stream():
     assert data["choices"][0]["message"]["role"] == "assistant"
     assert data["choices"][0]["message"]["content"] == "Hello world"
     assert data["choices"][0]["finish_reason"] == "stop"
+    assert data["usage"] == {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}
 
 
 def test_chat_completions_streaming():
@@ -75,15 +86,19 @@ def test_chat_completions_streaming():
         assert resp.status_code == 200
         got = ""
         saw_done = False
+        last_payload = None
         for data_line in _iter_sse_data_lines(resp):
             if data_line == "[DONE]":
                 saw_done = True
                 break
             payload = json.loads(data_line)
+            last_payload = payload
             delta = payload["choices"][0]["delta"]
             got += delta.get("content", "") or ""
         assert saw_done is True
         assert got == "Hello world"
+        assert last_payload is not None
+        assert last_payload.get("usage") == {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}
 
 
 def test_chat_completions_reasoning_content_non_stream():
@@ -111,6 +126,7 @@ def test_chat_completions_reasoning_content_non_stream():
     assert "Starting coordination" in reasoning
     assert "Agent thinking" in reasoning
     assert "Generating answer" in reasoning
+    assert data["usage"] == {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}
 
 
 def test_chat_completions_reasoning_content_streaming():
@@ -131,11 +147,13 @@ def test_chat_completions_reasoning_content_streaming():
         reasoning = ""
         saw_reasoning_first = False
         first_non_role_chunk = True
+        last_payload = None
 
         for data_line in _iter_sse_data_lines(resp):
             if data_line == "[DONE]":
                 break
             payload = json.loads(data_line)
+            last_payload = payload
             delta = payload["choices"][0]["delta"]
 
             # Check if reasoning comes before content
@@ -155,3 +173,5 @@ def test_chat_completions_reasoning_content_streaming():
 
         # Verify final content
         assert content == "The answer is 42."
+        assert last_payload is not None
+        assert last_payload.get("usage") == {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}

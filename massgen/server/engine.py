@@ -9,6 +9,7 @@ from massgen.agent_config import AgentConfig
 from massgen.backend.base import StreamChunk
 from massgen.cli import create_agents_from_config, load_config_file
 from massgen.orchestrator import Orchestrator
+from massgen.token_manager import TokenUsage
 
 from .openai.model_router import ResolvedModel
 from .openai.schema import ChatCompletionRequest
@@ -101,4 +102,37 @@ class MassGenEngine:
             # Attach a source if missing (useful for adapter filtering)
             if chunk.source is None:
                 chunk.source = "orchestrator"
+            if str(chunk.type) == "done":
+                usage = self._collect_usage_totals(orch)
+                if usage:
+                    yield StreamChunk(type="usage", usage=usage, source="orchestrator")
             yield chunk
+
+    def _collect_usage_totals(self, orch: Orchestrator) -> Optional[Dict[str, int]]:
+        """Aggregate prompt/completion/total tokens across all agents."""
+
+        total_usage = TokenUsage()
+
+        for agent in orch.agents.values():
+            backend = getattr(agent, "backend", None)
+            token_usage = getattr(backend, "token_usage", None) if backend else None
+            if not backend or token_usage is None:
+                continue
+
+            if hasattr(backend, "finalize_token_tracking"):
+                backend.finalize_token_tracking()
+
+            total_usage.add(token_usage)
+
+        prompt_tokens = total_usage.input_tokens + total_usage.cached_input_tokens + total_usage.cache_creation_tokens
+        completion_tokens = total_usage.output_tokens + total_usage.reasoning_tokens
+        total_tokens = prompt_tokens + completion_tokens
+
+        if total_tokens <= 0:
+            return None
+
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }

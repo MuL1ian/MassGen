@@ -44,6 +44,7 @@ class StreamChunk:
     tool_calls: Optional[List[Dict[str, Any]]] = None  # User-defined function tools (need execution)
     complete_message: Optional[Dict[str, Any]] = None  # Complete assistant message
     response: Optional[Dict[str, Any]] = None  # Raw Responses API response
+    usage: Optional[Dict[str, Any]] = None  # Token usage metadata (prompt/completion/total)
     error: Optional[str] = None
     source: Optional[str] = None  # Source identifier (e.g., agent_id, "orchestrator")
     status: Optional[str] = None  # For agent status updates

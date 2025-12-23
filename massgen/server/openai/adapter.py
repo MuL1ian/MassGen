@@ -143,9 +143,19 @@ async def accumulate_stream_to_response(
     reasoning_parts: List[str] = []
     tool_calls: List[Dict[str, Any]] = []
     finish_reason = "stop"
+    usage: Optional[Dict[str, Any]] = None
+    tool_calls_received = False
 
     async for chunk in stream:
         t = str(chunk.type)
+        if t == "usage":
+            usage = getattr(chunk, "usage", None) or getattr(chunk, "content", None)
+            continue
+
+        if tool_calls_received and t not in ("done", "usage"):
+            # After tool calls, only usage/done metadata should arrive.
+            continue
+
         if t == "content" and chunk.content:
             if _is_trace_content(chunk):
                 reasoning_parts.append(f"[{getattr(chunk, 'source', 'system') or 'system'}] {chunk.content}")
@@ -155,6 +165,7 @@ async def accumulate_stream_to_response(
             tool_calls = filter_external_tool_calls(getattr(chunk, "tool_calls", None))
             if tool_calls:
                 finish_reason = "tool_calls"
+                tool_calls_received = True
         elif t == "error":
             finish_reason = "stop"
             content_parts.append(getattr(chunk, "error", "") or "Error")
@@ -165,11 +176,6 @@ async def accumulate_stream_to_response(
             trace = _format_trace_chunk(chunk)
             if trace:
                 reasoning_parts.append(trace)
-            continue
-
-        if finish_reason == "tool_calls":
-            # In OpenAI semantics, a tool call ends the turn.
-            break
 
     content = "".join(content_parts)
     reasoning_content = "\n".join(reasoning_parts) if reasoning_parts else None
@@ -180,6 +186,8 @@ async def accumulate_stream_to_response(
         finish_reason=finish_reason,
         reasoning_content=reasoning_content,
     )
+    if usage:
+        resp["usage"] = usage
     return resp, finish_reason
 
 
@@ -190,9 +198,10 @@ def make_sse_chunk(
     delta: Dict[str, Any],
     finish_reason: Optional[str] = None,
     created: Optional[int] = None,
+    usage: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     created = created or int(time.time())
-    return {
+    payload: Dict[str, Any] = {
         "id": response_id,
         "object": "chat.completion.chunk",
         "created": created,
@@ -205,6 +214,9 @@ def make_sse_chunk(
             },
         ],
     }
+    if usage is not None:
+        payload["usage"] = usage
+    return payload
 
 
 async def stream_to_sse_frames(
@@ -228,9 +240,13 @@ async def stream_to_sse_frames(
     reasoning_parts: List[str] = []
     tool_calls: List[Dict[str, Any]] = []
     error_content: Optional[str] = None
+    usage_data: Optional[Dict[str, Any]] = None
 
     async for chunk in stream:
         t = str(chunk.type)
+        if t == "usage":
+            usage_data = getattr(chunk, "usage", None) or getattr(chunk, "content", None)
+            continue
         if t == "content" and chunk.content:
             if _is_trace_content(chunk):
                 reasoning_parts.append(f"[{getattr(chunk, 'source', 'system') or 'system'}] {chunk.content}")
@@ -284,6 +300,7 @@ async def stream_to_sse_frames(
             model=model,
             delta={"content": error_content},
             finish_reason="stop",
+            usage=usage_data,
         )
         return
 
@@ -313,6 +330,7 @@ async def stream_to_sse_frames(
             model=model,
             delta={},
             finish_reason="tool_calls",
+            usage=usage_data,
         )
         return
 
@@ -322,4 +340,5 @@ async def stream_to_sse_frames(
         model=model,
         delta={},
         finish_reason="stop",
+        usage=usage_data,
     )
