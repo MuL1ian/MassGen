@@ -28,9 +28,9 @@ class TestBuildConfig:
         assert len(config["agents"]) == 2  # Default is 2 agents
         assert "orchestrator" in config
 
-        # Check default model is gpt-5
+        # Check default model is gpt-5.1-codex (current default in ConfigBuilder)
         for agent in config["agents"]:
-            assert agent["backend"]["model"] == "gpt-5"
+            assert agent["backend"]["model"] == "gpt-5.1-codex"
 
     def test_build_config_with_num_agents(self):
         """Test config with specified number of agents."""
@@ -91,7 +91,7 @@ class TestBuildConfig:
         config = build_config(
             model="gpt-5",
             num_agents=2,
-            context_path="/tmp/test_project",
+            context_paths=["/tmp/test_project"],
         )
 
         # Should have context path in orchestrator

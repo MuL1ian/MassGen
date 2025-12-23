@@ -1,11 +1,19 @@
 # Triage Dashboard
 
-## Run Statistics
+## Triage Progress (Live)
 
-- **Total Tests**: 622
-- **Passed**: 518 (83.3%)
-- **Failed**: 56
-- **Skipped**: 48
+| Metric | Baseline | Current | Delta |
+| :-- | --: | --: | --: |
+| Total | 622 | 622 | 0 |
+| Passed | 518 | 519 | +1 |
+| Failed | 56 | 55 | -1 |
+| Skipped | 48 | 48 | 0 |
+
+### Progress Log (Snapshots after each completed cluster)
+
+| Cluster | Status | Owner | Total | Passed | Failed | Skipped |
+| :-- | :-- | :-- | --: | --: | --: | --: |
+| bb85095009 | [x] Resolved | GitHub Copilot | 622 | 519 | 55 | 48 |
 
 ## Clusters
 
@@ -36,7 +44,7 @@
 | [95e42d89f4](clusters/cluster_95e42d89f4.md) | 1 | `<unknown>` | `AssertionError: assert 'filesystem' not in ['filesystem', 'command_line']` | [ ] Open | |
 | [a582835a54](clusters/cluster_a582835a54.md) | 1 | `<unknown>` | `AssertionError: assert 'filesystem' not in ['filesystem', 'workspace_tools', 'command_line']` | [ ] Open | |
 | [3cf8378975](clusters/cluster_3cf8378975.md) | 1 | `<unknown>` | `AssertionError: assert 'gemini-3-flash-preview' == 'gemini-<num>-flash'      #x1B[0m#x1B[91m- gemini` | [ ] Open | |
-| [bb85095009](clusters/cluster_bb85095009.md) | 1 | `<unknown>` | `AssertionError: assert 'gpt-<num>-codex' == 'gpt-5'      #x1B[0m#x1B[91m- gpt-5#x1B[39;49;00m#x1B[90` | [ ] Open | |
+| [bb85095009](clusters/cluster_bb85095009.md) | 1 | `<unknown>` | `AssertionError: assert 'gpt-<num>-codex' == 'gpt-5'      #x1B[0m#x1B[91m- gpt-5#x1B[39;49;00m#x1B[90` | [x] Resolved | GitHub Copilot | 1 Fail -> 1 Pass. Updated build_config tests to expect default gpt-5.1-codex and use context_paths parameter. |
 | [08427b80fc](clusters/cluster_08427b80fc.md) | 1 | `<unknown>` | `AssertionError: assert 'langgraph_lesson_planner' in set()  +  where set() = <massgen.backend.respon` | [ ] Open | |
 | [d59fb7887b](clusters/cluster_d59fb7887b.md) | 1 | `<unknown>` | `AssertionError: assert 'read_file_content' in {'custom_tool__read_file_content': RegisteredToolEntry` | [ ] Open | |
 | [286ae5317d](clusters/cluster_286ae5317d.md) | 1 | `<unknown>` | `AssertionError: assert 'too large' in 'openai api key not found. please set openai_api_key in .env f` | [ ] Open | |

@@ -47,11 +47,13 @@ Agents must follow this strict loop when assigned a triage task. **Always use th
 
 ### Phase 5: Update
 1.  **Update Dashboard**: Edit `.cursor/triage/TRIAGE_DASHBOARD.md`.
-    *   Change `[ ] Open` to `[x] Resolved` (or `[-] Deferred`).
-    *   Add your Agent ID (or "User") to the "Owner" column.
-    *   **Update Resolution Column**: Add a brief note including:
-        *   **Stats**: Before/After counts (e.g., "4 Fail -> 4 Pass" or "4 Fail -> 4 XFail").
-        *   **Action**: What was done (e.g., "Fixed typo", "Refactored fixture", "Deferred").
+  *   **Triage Progress (Live)**: Update `Current` and `Delta` for Total/Passed/Failed/Skipped. Keep `Total` stable; treat new xfails as **Skipped**. Delta = Current − Baseline.
+  *   **Progress Log (Snapshots)**: Append a row (or create table if missing) with cluster ID, status, owner, and the current Total/Passed/Failed/Skipped after your fix.
+  *   Change `[ ] Open` to `[x] Resolved` (or `[-] Deferred`).
+  *   Add your Agent ID (or "User") to the "Owner" column.
+  *   **Resolution Column**: Add a brief note including:
+    *   **Stats**: Before/After counts (e.g., "4 Fail -> 4 Pass" or "4 Fail -> 4 XFail").
+    *   **Action**: What was done (e.g., "Fixed typo", "Refactored fixture", "Deferred").
 2.  **Log**: (Optional) Append a line to `.cursor/triage/reports/fix_log.md` with details.
 
 ## 3. Tooling Reference
