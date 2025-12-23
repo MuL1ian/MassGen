@@ -1061,7 +1061,8 @@ def create_agents_from_config(
         if memory_config.get("enabled", False):
             retrieval_config = memory_config.get("retrieval", {})
             agent._retrieval_limit = retrieval_config.get("limit", 5)
-            agent._retrieval_exclude_recent = retrieval_config.get("exclude_recent", True)
+            # Default to retrieving early so persistent memory is used on first turn unless explicitly disabled
+            agent._retrieval_exclude_recent = retrieval_config.get("exclude_recent", False)
 
             if retrieval_config or recording_config:  # Log if custom config provided
                 config_info = []

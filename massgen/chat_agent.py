@@ -181,7 +181,8 @@ class SingleAgent(ChatAgent):
 
         # Retrieval configuration (defaults, can be overridden from config)
         self._retrieval_limit = 5  # Number of memory facts to retrieve from mem0
-        self._retrieval_exclude_recent = True  # Don't retrieve before compression (avoid duplicates)
+        # Retrieve by default so persistent memory is consulted on first turn; callers can opt out via config
+        self._retrieval_exclude_recent = False
 
         # Track previous winning agents for shared memory retrieval
         # Format: [{"agent_id": "agent_b", "turn": 1}, {"agent_id": "agent_a", "turn": 2}]

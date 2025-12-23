@@ -5,8 +5,8 @@
 | Metric | Baseline | Current | Delta |
 | :-- | --: | --: | --: |
 | Total | 622 | 622 | 0 |
-| Passed | 518 | 519 | +1 |
-| Failed | 56 | 55 | -1 |
+| Passed | 518 | 522 | +4 |
+| Failed | 56 | 52 | -4 |
 | Skipped | 48 | 48 | 0 |
 
 ### Progress Log (Snapshots after each completed cluster)
@@ -14,16 +14,17 @@
 | Cluster | Status | Owner | Total | Passed | Failed | Skipped |
 | :-- | :-- | :-- | --: | --: | --: | --: |
 | bb85095009 | [x] Resolved | GitHub Copilot | 622 | 519 | 55 | 48 |
+| 917dbd053a | [x] Resolved | GitHub Copilot | 622 | 522 | 52 | 48 |
 
 ## Clusters
 
-- **Active Clusters**: 48
-- **Last Updated**: /Users/admin/src/MassGen
+- **Active Clusters**: 47
+- **Last Updated**: 2025-12-23
 
 | ID | Count | Exception | Message | Status | Owner | Resolution |
 | :--- | :---: | :--- | :--- | :--- | :--- | :--- |
 | [3214aa51a1](clusters/cluster_3214aa51a1.md) | 4 | `<unknown>` | `failed on setup with "TypeError: Can't instantiate abstract class MockClaudeCodeAgent without an imp` | [-] Deferred | GitHub Copilot | 4 Fail -> 5 XFail. Refactored fixtures to use temp workspace; deferred due to missing orchestrator features. |
-| [917dbd053a](clusters/cluster_917dbd053a.md) | 3 | `<unknown>` | `AssertionError: assert False  +  where False = <AsyncMock name='mock.retrieve' id='<n>'>.called  +  ` | [ ] Open | |
+| [917dbd053a](clusters/cluster_917dbd053a.md) | 3 | `<unknown>` | `AssertionError: assert False  +  where False = <AsyncMock name='mock.retrieve' id='<n>'>.called  +  ` | [x] Resolved | GitHub Copilot | 3 Fail -> 3 Pass. Enabled persistent memory retrieval by default. |
 | [925e5d67cf](clusters/cluster_925e5d67cf.md) | 3 | `<unknown>` | `assert 0 == 1  +  where 0 = len([])` | [ ] Open | |
 | [9cac85ecd5](clusters/cluster_9cac85ecd5.md) | 2 | `<unknown>` | `ValueError: Claude Code backend requires 'cwd' configuration for workspace management` | [ ] Open | |
 | [2a747ad546](clusters/cluster_2a747ad546.md) | 1 | `<unknown>` | `AssertionError: Error during fallback test: object Mock can't be used in 'await' expression assert F` | [ ] Open | |
