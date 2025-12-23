@@ -442,9 +442,9 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             f"[SubagentManager] Executing subagent {config.id} via subprocess " f"({num_agents} agents), config: {yaml_path}",
         )
 
-        # Build the task with system prompt context
+        # Build the task - system prompt already includes the task at the end
         system_prompt = self._build_subagent_system_prompt(config)
-        full_task = f"{system_prompt}\n\n---\n\nTask:\n{config.task}"
+        full_task = system_prompt
 
         # Build command to run MassGen as subprocess
         # Use --automation for minimal output and --output-file to capture the answer

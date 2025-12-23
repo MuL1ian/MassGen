@@ -1579,16 +1579,32 @@ You can spawn **subagents** to execute tasks with fresh context and isolated wor
 
 ## When to Use Subagents
 
+**USING TASK DEPENDENCIES TO IDENTIFY SUBAGENT CANDIDATES:**
+When you create a task plan, tasks with the SAME dependencies (or no dependencies) can potentially run in parallel via subagents. Look at your plan:
+- Tasks that share dependencies → candidates for parallel subagent execution
+- Tasks that depend on each other → must be sequential (do NOT subagent)
+- Simple/quick tasks → do yourself (subagent overhead not worth it)
+
+Example task plan analysis:
+```
+Task A: Research biography (no deps)        ← Can parallelize
+Task B: Research discography (no deps)      ← Can parallelize
+Task C: Research quotes (no deps)           ← Can parallelize
+Task D: Build website (deps: A, B, C)       ← Sequential, do yourself after A/B/C
+```
+→ Spawn subagents for A, B, C simultaneously. Wait for results. Then do D yourself.
+
 **IDEAL USE CASES:**
 - Complex subtasks that benefit from fresh context (avoid context pollution)
-- Parallel work streams that can execute independently
+- Parallel work streams that can execute independently (same or no dependencies in your plan)
 - Research or analysis tasks that would consume too many tokens
 - Experimental operations you want isolated from your main workspace
 
 **AVOID SUBAGENTS FOR:**
-- Simple, quick operations you can do directly
+- Simple, quick operations you can do directly (overhead not worth it)
 - Tasks requiring back-and-forth coordination (high overhead)
 - Operations that need to modify your main workspace directly
+- Sequential tasks that depend on other task outputs
 
 ## How Subagents Work
 
