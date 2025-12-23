@@ -131,3 +131,33 @@ massgen/tests/test_multimodal_size_limits.py::TestAudioSizeLimits::test_audio_wi
   link: ".cursor/triage/tasks/cluster_72c1f34cf2.md"
   expires: "2026-01-15"
   strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_orchestrator_initialization_with_context_sharing:
+  reason: "Orchestrator missing context sharing methods (_agent_id_mapping, etc.); feature likely removed or not implemented."
+  link: ".cursor/triage/clusters/cluster_3214aa51a1.md"
+  expires: "2026-01-23"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_snapshot_saving:
+  reason: "Orchestrator missing context sharing methods (_save_claude_code_snapshot); feature likely removed or not implemented."
+  link: ".cursor/triage/clusters/cluster_3214aa51a1.md"
+  expires: "2026-01-23"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_workspace_restoration_with_anonymization:
+  reason: "Orchestrator missing context sharing methods (_restore_snapshots_to_workspace); feature likely removed or not implemented."
+  link: ".cursor/triage/clusters/cluster_3214aa51a1.md"
+  expires: "2026-01-23"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_save_all_snapshots:
+  reason: "Orchestrator missing context sharing methods (_save_all_claude_code_snapshots); feature likely removed or not implemented."
+  link: ".cursor/triage/clusters/cluster_3214aa51a1.md"
+  expires: "2026-01-23"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_non_claude_code_agents_ignored:
+  reason: "Orchestrator missing context sharing mappings (_agent_id_mapping); feature likely removed or not implemented."
+  link: ".cursor/triage/clusters/cluster_3214aa51a1.md"
+  expires: "2026-01-23"
+  strict: true

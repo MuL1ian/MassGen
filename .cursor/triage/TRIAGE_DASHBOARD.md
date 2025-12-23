@@ -12,9 +12,9 @@
 - **Active Clusters**: 48
 - **Last Updated**: /Users/admin/src/MassGen
 
-| ID | Count | Exception | Message | Status | Owner |
-| :--- | :---: | :--- | :--- | :--- | :--- |
-| [3214aa51a1](clusters/cluster_3214aa51a1.md) | 4 | `<unknown>` | `failed on setup with "TypeError: Can't instantiate abstract class MockClaudeCodeAgent without an imp` | [ ] Open | |
+| ID | Count | Exception | Message | Status | Owner | Resolution |
+| :--- | :---: | :--- | :--- | :--- | :--- | :--- |
+| [3214aa51a1](clusters/cluster_3214aa51a1.md) | 4 | `<unknown>` | `failed on setup with "TypeError: Can't instantiate abstract class MockClaudeCodeAgent without an imp` | [-] Deferred | GitHub Copilot | 4 Fail -> 5 XFail. Refactored fixtures to use temp workspace; deferred due to missing orchestrator features. |
 | [917dbd053a](clusters/cluster_917dbd053a.md) | 3 | `<unknown>` | `AssertionError: assert False  +  where False = <AsyncMock name='mock.retrieve' id='<n>'>.called  +  ` | [ ] Open | |
 | [925e5d67cf](clusters/cluster_925e5d67cf.md) | 3 | `<unknown>` | `assert 0 == 1  +  where 0 = len([])` | [ ] Open | |
 | [9cac85ecd5](clusters/cluster_9cac85ecd5.md) | 2 | `<unknown>` | `ValueError: Claude Code backend requires 'cwd' configuration for workspace management` | [ ] Open | |

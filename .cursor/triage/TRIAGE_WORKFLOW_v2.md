@@ -49,6 +49,9 @@ Agents must follow this strict loop when assigned a triage task. **Always use th
 1.  **Update Dashboard**: Edit `.cursor/triage/TRIAGE_DASHBOARD.md`.
     *   Change `[ ] Open` to `[x] Resolved` (or `[-] Deferred`).
     *   Add your Agent ID (or "User") to the "Owner" column.
+    *   **Update Resolution Column**: Add a brief note including:
+        *   **Stats**: Before/After counts (e.g., "4 Fail -> 4 Pass" or "4 Fail -> 4 XFail").
+        *   **Action**: What was done (e.g., "Fixed typo", "Refactored fixture", "Deferred").
 2.  **Log**: (Optional) Append a line to `.cursor/triage/reports/fix_log.md` with details.
 
 ## 3. Tooling Reference

@@ -179,6 +179,7 @@ sync.sh
 .coverage
 .pytest_cache/
 .tox/
+test_workspace/
 
 # Documentation builds
 docs/_build/
