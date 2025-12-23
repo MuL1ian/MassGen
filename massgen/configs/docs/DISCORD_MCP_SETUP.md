@@ -65,7 +65,7 @@ agent:
     type: "claude_code"
     cwd: "claude_code_workspace_discord_mcp"
     permission_mode: "bypassPermissions"
-    
+
     # Discord MCP server configuration
     mcp_servers:
       discord:

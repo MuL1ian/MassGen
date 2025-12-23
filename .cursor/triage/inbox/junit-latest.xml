@@ -180,7 +180,7 @@ E       fixture 'config' not found
     def test_tool_function_signature(self):
         """Test that the tool has the correct async signature."""
         import inspect
-    
+
 &gt;       assert inspect.iscoroutinefunction(ag2_lesson_planner)
 E       AssertionError: assert False
 E        +  where False = &lt;function iscoroutinefunction at 0x109344720&gt;(ag2_lesson_planner)
@@ -201,48 +201,48 @@ massgen/tests/test_azure_openai_backend.py:52: Failed</failure></testcase><testc
     async def test_stream_with_tools_with_model(self):
         """Test stream_with_tools works with model parameter."""
         backend = AzureOpenAIBackend(api_key="test-key", base_url="https://test.openai.azure.com/")
-    
+
         messages = [{"role": "user", "content": "Hello"}]
         tools = []
-    
+
         # Mock the client and create a mock stream response
         mock_chunk = MagicMock()
         mock_chunk.choices = [MagicMock()]
         mock_chunk.choices[0].delta = MagicMock()
         mock_chunk.choices[0].delta.content = "Hello"
         mock_chunk.choices[0].finish_reason = "stop"
-    
+
         mock_stream = [mock_chunk]
-    
+
 &gt;       with patch.object(backend, "client") as mock_client:
              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-massgen/tests/test_azure_openai_backend.py:142: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+massgen/tests/test_azure_openai_backend.py:142:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 /opt/homebrew/Cellar/python@3.13/3.13.11/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py:1497: in __enter__
     original, local = self.get_original()
                       ^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = &lt;unittest.mock._patch object at 0x123a63ce0&gt;
 
     def get_original(self):
         target = self.getter()
         name = self.attribute
-    
+
         original = DEFAULT
         local = False
-    
+
         try:
             original = target.__dict__[name]
         except (AttributeError, KeyError):
             original = getattr(target, name, DEFAULT)
         else:
             local = True
-    
+
         if name in _builtins and isinstance(target, ModuleType):
             self.create = True
-    
+
         if not self.create and original is DEFAULT:
 &gt;           raise AttributeError(
                 "%s does not have the attribute %r" % (target, name)
@@ -252,9 +252,9 @@ E           AttributeError: &lt;massgen.backend.azure_openai.AzureOpenAIBackend 
 /opt/homebrew/Cellar/python@3.13/3.13.11/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py:1467: AttributeError</failure></testcase><testcase classname="massgen.tests.test_backend_capabilities.TestBackendCapabilitiesRegistry" name="test_all_backends_have_required_fields" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendCapabilitiesRegistry" name="test_default_model_in_models_list" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendCapabilitiesRegistry" name="test_filesystem_support_values" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendCapabilitiesRegistry" name="test_no_empty_backend_types" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendCapabilitiesRegistry" name="test_capability_strings_are_valid" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestCapabilityQueries" name="test_get_capabilities_existing_backend" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestCapabilityQueries" name="test_get_capabilities_nonexistent_backend" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestCapabilityQueries" name="test_has_capability_true" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestCapabilityQueries" name="test_has_capability_false" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestCapabilityQueries" name="test_has_capability_nonexistent_backend" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestCapabilityQueries" name="test_get_all_backend_types" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestCapabilityQueries" name="test_get_backends_with_capability" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendValidation" name="test_validate_valid_openai_config" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendValidation" name="test_validate_invalid_capability" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendValidation" name="test_validate_invalid_backend_type" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendValidation" name="test_validate_code_execution_variants" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestBackendValidation" name="test_validate_mcp_servers" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestSpecificBackends" name="test_openai_capabilities" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestSpecificBackends" name="test_claude_capabilities" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestSpecificBackends" name="test_claude_code_capabilities" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestSpecificBackends" name="test_gemini_capabilities" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestSpecificBackends" name="test_local_backends_no_api_key" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestConsistency" name="test_filesystem_native_implies_capability" time="0.000" /><testcase classname="massgen.tests.test_backend_capabilities.TestConsistency" name="test_mcp_capability_consistency" time="0.000" /><testcase classname="massgen.tests.test_backend_cost_tracking" name="test_chat_completions_backend_usage_tracking" time="0.000"><skipped type="pytest.skip" message="integration test (enable with --run-integration or RUN_INTEGRATION=1)">/Users/admin/src/MassGen/massgen/tests/test_backend_cost_tracking.py:17: integration test (enable with --run-integration or RUN_INTEGRATION=1)</skipped></testcase><testcase classname="massgen.tests.test_backend_cost_tracking" name="test_claude_code_backend_usage_tracking" time="0.000"><skipped type="pytest.skip" message="integration test (enable with --run-integration or RUN_INTEGRATION=1)">/Users/admin/src/MassGen/massgen/tests/test_backend_cost_tracking.py:59: integration test (enable with --run-integration or RUN_INTEGRATION=1)</skipped></testcase><testcase classname="massgen.tests.test_backend_cost_tracking" name="test_o3_mini_reasoning_tokens_e2e" time="0.000"><skipped type="pytest.skip" message="integration test (enable with --run-integration or RUN_INTEGRATION=1)">/Users/admin/src/MassGen/massgen/tests/test_backend_cost_tracking.py:96: integration test (enable with --run-integration or RUN_INTEGRATION=1)</skipped></testcase><testcase classname="massgen.tests.test_backend_cost_tracking" name="test_claude_caching_e2e" time="0.000"><skipped type="pytest.skip" message="integration test (enable with --run-integration or RUN_INTEGRATION=1)">/Users/admin/src/MassGen/massgen/tests/test_backend_cost_tracking.py:136: integration test (enable with --run-integration or RUN_INTEGRATION=1)</skipped></testcase><testcase classname="massgen.tests.test_backend_event_loop_all" name="test_response_backend_stream_closes_client" time="0.001" /><testcase classname="massgen.tests.test_backend_event_loop_all" name="test_grok_backend_stream_closes_client" time="0.001" /><testcase classname="massgen.tests.test_backend_event_loop_all" name="test_claude_backend_stream_closes_client" time="0.001" /><testcase classname="massgen.tests.test_background_shell" name="test_start_simple_command" time="0.514" /><testcase classname="massgen.tests.test_background_shell" name="test_capture_stdout" time="0.522" /><testcase classname="massgen.tests.test_background_shell" name="test_capture_stderr" time="0.519" /><testcase classname="massgen.tests.test_background_shell" name="test_long_running_command" time="0.514" /><testcase classname="massgen.tests.test_background_shell" name="test_failed_command" time="0.519" /><testcase classname="massgen.tests.test_background_shell" name="test_multiple_concurrent_shells" time="2.030" /><testcase classname="massgen.tests.test_background_shell" name="test_convenience_functions" time="0.518" /><testcase classname="massgen.tests.test_background_shell" name="test_convenience_kill_function" time="0.523" /><testcase classname="massgen.tests.test_background_shell" name="test_nonexistent_shell" time="0.001" /><testcase classname="massgen.tests.test_background_shell" name="test_kill_already_stopped" time="0.516" /><testcase classname="massgen.tests.test_background_shell" name="test_max_concurrent_limit" time="1.031" /><testcase classname="massgen.tests.test_background_shell" name="test_ring_buffer_overflow" time="0.520" /><testcase classname="massgen.tests.test_background_shell" name="test_command_with_cwd" time="0.516" /><testcase classname="massgen.tests.test_background_shell" name="test_command_with_env" time="0.523" /><testcase classname="massgen.tests.test_background_shell" name="test_duration_tracking" time="0.722" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_read_image_with_read_tool" time="0.002" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_read_text_file_image" time="0.001" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_read_video" time="0.001" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_read_audio" time="0.001" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_allow_read_text_file" time="0.001" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_allow_read_code_file" time="0.001" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_all_image_formats" time="0.000" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_all_video_formats" time="0.001" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_all_audio_formats" time="0.001" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_archive_formats" time="0.000" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_executable_formats" time="0.000" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_old_office_formats" time="0.000" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_block_office_formats" time="0.000" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_case_insensitive_extension_check" time="0.000" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_non_text_read_tools_not_affected" time="0.001" /><testcase classname="massgen.tests.test_binary_file_blocking.TestBinaryFileBlocking" name="test_helpful_error_messages" time="0.000" /><testcase classname="massgen.tests.test_chat_completions_refactor" name="test_openai_backend" time="0.001"><skipped type="pytest.xfail" message="Backend API drift: ChatCompletionsBackend missing base_url attribute expected by tests (.cursor/triage/tasks/cluster_f6383dd4cb.md)" /></testcase><testcase classname="massgen.tests.test_chat_completions_refactor" name="test_together_ai_backend" time="0.000"><skipped type="pytest.xfail" message="Backend API drift: ChatCompletionsBackend missing base_url attribute expected by tests (.cursor/triage/tasks/cluster_f6383dd4cb.md)" /></testcase><testcase classname="massgen.tests.test_chat_completions_refactor" name="test_cerebras_backend" time="0.000"><skipped type="pytest.xfail" message="Backend API drift: ChatCompletionsBackend missing base_url attribute expected by tests (.cursor/triage/tasks/cluster_f6383dd4cb.md)" /></testcase><testcase classname="massgen.tests.test_chat_completions_refactor" name="test_tool_conversion" time="0.000"><failure message="AttributeError: 'ChatCompletionsBackend' object has no attribute 'convert_tools_to_chat_completions_format'">async def test_tool_conversion():
         """Test tool format conversion."""
         print("\n#x1F527 Testing tool format conversion...")
-    
+
         backend = ChatCompletionsBackend()
-    
+
         # Test Response API format conversion
         response_tools = [
             {
@@ -268,7 +268,7 @@ E           AttributeError: &lt;massgen.backend.azure_openai.AzureOpenAIBackend 
                 },
             },
         ]
-    
+
 &gt;       converted = backend.convert_tools_to_chat_completions_format(response_tools)
                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E       AttributeError: 'ChatCompletionsBackend' object has no attribute 'convert_tools_to_chat_completions_format'
@@ -276,9 +276,9 @@ E       AttributeError: 'ChatCompletionsBackend' object has no attribute 'conver
 massgen/tests/test_chat_completions_refactor.py:88: AttributeError</failure></testcase><testcase classname="massgen.tests.test_claude_backend" name="test_claude_basic_streaming" time="0.020" /><testcase classname="massgen.tests.test_claude_backend" name="test_claude_tool_calling" time="0.005" /><testcase classname="massgen.tests.test_claude_backend" name="test_claude_multi_tool_support" time="0.004" /><testcase classname="massgen.tests.test_claude_backend" name="test_claude_message_conversion" time="0.001"><failure message="AttributeError: 'ClaudeBackend' object has no attribute 'convert_messages_to_claude_format'">async def test_claude_message_conversion():
         """Test Claude's message format conversion capabilities."""
         print("\n#x1F9EA Testing Claude Message Conversion...")
-    
+
         backend = ClaudeBackend()
-    
+
         # Test with tool result message (Chat Completions format)
         messages = [
             {"role": "user", "content": "What's 5 + 3?"},
@@ -295,7 +295,7 @@ massgen/tests/test_chat_completions_refactor.py:88: AttributeError</failure></te
             },
             {"role": "tool", "tool_call_id": "call_123", "content": "8"},
         ]
-    
+
         # Convert messages
 &gt;       converted, system_msg = backend.convert_messages_to_claude_format(messages)
                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -322,13 +322,13 @@ tmp_path = PosixPath('/private/var/folders/s6/wh4j5vn56x5dd00v0v5h8h9h0000gp/T/p
         from massgen.filesystem_manager._file_operation_tracker import (
             FileOperationTracker,
         )
-    
+
         tracker = FileOperationTracker(enforce_read_before_delete=True)
-    
+
         # Create a fake .pyc file
         pyc_file = tmp_path / "module.pyc"
         pyc_file.write_text("fake bytecode")
-    
+
         # Should be deletable without reading
         can_delete, reason = tracker.can_delete(pyc_file)
 &gt;       assert can_delete
@@ -340,26 +340,26 @@ generator = &lt;massgen.mcp_tools.code_generator.MCPToolCodeGenerator object at 
     def test_generate_mcp_client(self, generator):
         """Test MCP client code generation."""
         code = generator.generate_mcp_client()
-    
+
         # Verify imports
         assert "import asyncio" in code
         assert "import json" in code
         assert "from massgen.mcp_tools.client import MCPClient" in code
-    
+
         # Verify server config loading
         assert "servers.json" in code
         assert "SERVERS = json.load(f)" in code
-    
+
         # Verify client functions
         assert "async def _ensure_client()" in code
         assert "def call_mcp_tool(server: str, tool: str, arguments: Dict[str, Any])" in code
         assert "async def call_mcp_tool_async(server: str, tool: str, arguments: Dict[str, Any])" in code
-    
+
         # Verify utility functions
         assert "def list_servers()" in code
         assert "def get_server_config(server: str)" in code
         assert "async def cleanup()" in code
-    
+
         # Verify event loop handling
 &gt;       assert "asyncio.get_event_loop()" in code
 E       assert 'asyncio.get_event_loop()' in '"""\nMCP Client for Tool Execution\n\nThis module handles MCP protocol communication for tool wrappers.\nIt\'s hidden...global _mcp_client\n    if _mcp_client is not None:\n        await _mcp_client.cleanup()\n        _mcp_client = None\n'
@@ -382,16 +382,16 @@ massgen/tests/test_custom_tools.py:117: AssertionError</failure></testcase><test
     async def test_execute_tool(self):
         """Test executing a tool."""
         self.tool_manager.add_tool_function(func=calculate_sum)
-    
+
         tool_request = {
             "name": "calculate_sum",
             "input": {"a": 5, "b": 3},
         }
-    
+
         results = []
         async for result in self.tool_manager.execute_tool(tool_request):
             results.append(result)
-    
+
         assert len(results) &gt; 0
         result = results[0]
         assert hasattr(result, "output_blocks")
@@ -405,16 +405,16 @@ massgen/tests/test_custom_tools.py:173: AssertionError</failure></testcase><test
     async def test_execute_async_tool(self):
         """Test executing an async tool."""
         self.tool_manager.add_tool_function(func=async_weather_fetcher)
-    
+
         tool_request = {
             "name": "async_weather_fetcher",
             "input": {"city": "Tokyo"},
         }
-    
+
         results = []
         async for result in self.tool_manager.execute_tool(tool_request):
             results.append(result)
-    
+
         assert len(results) &gt; 0
         result = results[0]
 &gt;       assert "Weather in Tokyo: Rainy, 22°C" in result.output_blocks[0].data
@@ -430,13 +430,13 @@ massgen/tests/test_custom_tools.py:191: AssertionError</failure></testcase><test
             api_key=self.api_key,
             custom_tools=[{"func": calculate_sum}],
         )
-    
+
         call = {
             "name": "custom_tool__calculate_sum",
             "call_id": "test_call_1",
             "arguments": json.dumps({"a": 10, "b": 20}),
         }
-    
+
 &gt;       result = await backend._execute_custom_tool(call)
                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E       TypeError: object async_generator can't be used in 'await' expression
@@ -453,16 +453,16 @@ temp_workspace = {'temp_workspace_parent': '/var/folders/s6/wh4j5vn56x5dd00v0v5h
             enable_mcp_command_line=True,
             enable_image_generation=True,  # Enable media generation
         )
-    
+
         # Create a mock backend config
         backend_config = {"mcp_servers": []}
-    
+
         # Inject MCPs
         result_config = manager.inject_filesystem_mcp(backend_config)
-    
+
         # Get server names
         server_names = [server["name"] for server in result_config["mcp_servers"]]
-    
+
         # Verify filesystem MCP is NOT added
 &gt;       assert "filesystem" not in server_names
 E       AssertionError: assert 'filesystem' not in ['filesystem', 'workspace_tools', 'command_line']
@@ -476,7 +476,7 @@ massgen/tests/test_exclude_file_operation_mcps.py:128: AssertionError</failure><
         original_key = os.environ.get("OPENAI_API_KEY")
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
-    
+
         try:
 &gt;           result = await langgraph_lesson_planner(topic="test topic")
                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -487,7 +487,7 @@ massgen/tests/test_langgraph_lesson_planner.py:71: TypeError</failure></testcase
     def test_tool_function_signature(self):
         """Test that the tool has the correct async signature."""
         import inspect
-    
+
 &gt;       assert inspect.iscoroutinefunction(langgraph_lesson_planner)
 E       AssertionError: assert False
 E        +  where False = &lt;function iscoroutinefunction at 0x109344720&gt;(langgraph_lesson_planner)
@@ -499,14 +499,14 @@ massgen/tests/test_langgraph_lesson_planner.py:134: AssertionError</failure></te
     async def test_backend_registration(self):
         """Test registering LangGraph tool with ResponseBackend."""
         from massgen.backend.response import ResponseBackend
-    
+
         api_key = os.getenv("OPENAI_API_KEY", "test-key")
-    
+
         # Import the tool
         from massgen.tool._extraframework_agents.langgraph_lesson_planner_tool import (
             langgraph_lesson_planner,
         )
-    
+
         # Register with backend
         backend = ResponseBackend(
             api_key=api_key,
@@ -517,7 +517,7 @@ massgen/tests/test_langgraph_lesson_planner.py:134: AssertionError</failure></te
                 },
             ],
         )
-    
+
         # Verify tool is registered
 &gt;       assert "langgraph_lesson_planner" in backend._custom_tool_names
 E       AssertionError: assert 'langgraph_lesson_planner' in {'custom_tool__langgraph_lesson_planner'}
@@ -530,29 +530,29 @@ temp_dir = PosixPath('/var/folders/s6/wh4j5vn56x5dd00v0v5h8h9h0000gp/T/tmpmszd1c
     async def test_audio_exceeds_size_limit(self, temp_dir):
         """Test that audio files exceeding 25MB limit are rejected."""
         from massgen.tool._multimodal_tools.understand_audio import understand_audio
-    
+
         # Create a large audio file (~30MB)
         audio_path = temp_dir / "large_audio.wav"
         self._create_large_audio(audio_path, target_size_mb=30)
-    
+
         file_size = audio_path.stat().st_size
         assert file_size &gt; 25 * 1024 * 1024, f"Test audio should exceed 25MB, got {file_size / 1024 / 1024:.1f}MB"
-    
+
         # This should fail validation before calling OpenAI
         result = await understand_audio([str(audio_path)])
-    
+
         # Check that it failed due to size limit
         assert result.output_blocks is not None
         import json
-    
+
         result_data = json.loads(result.output_blocks[0].data)
-    
+
         print("\n" + "=" * 80)
         print(f"TEST: Audio Exceeds Size Limit ({file_size/1024/1024:.1f}MB &gt; 25MB)")
         print("=" * 80)
         print(json.dumps(result_data, indent=2))
         print("=" * 80 + "\n")
-    
+
         assert result_data["success"] is False
 &gt;       assert "too large" in result_data["error"].lower()
 E       AssertionError: assert 'too large' in 'openai api key not found. please set openai_api_key in .env file or environment variable.'

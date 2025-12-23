@@ -14,7 +14,7 @@ This guide explains how to set up the EnesCinr Twitter MCP server for use with M
 ### 2. Required API Credentials
 You'll need four credentials from Twitter:
 - **API Key**: Your app's API key
-- **API Secret Key**: Your app's API secret key  
+- **API Secret Key**: Your app's API secret key
 - **Access Token**: User access token for your app
 - **Access Token Secret**: User access token secret
 

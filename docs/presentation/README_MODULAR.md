@@ -12,7 +12,7 @@ The presentation files have been modularized into reusable components to make ma
 docs/presentation/
 ├── components/               # Modular slide components (24 slides + head + nav)
 │   ├── head.html            # CSS styles and HTML head
-│   ├── navigation.html      # Interactive navigation system  
+│   ├── navigation.html      # Interactive navigation system
 │   ├── slide-title-m2l.html           # M2L-specific title
 │   ├── slide-title-columbia.html      # Columbia-specific title
 │   ├── slide-title-aibuilders.html    # AI Builders-specific title
@@ -31,7 +31,7 @@ docs/presentation/
 │   ├── slide-early-adopters.html
 │   ├── slide-live-demo-examples.html
 │   ├── slide-applications.html                       # Generic applications
-│   ├── slide-columbia-research-applications.html     # Columbia-specific  
+│   ├── slide-columbia-research-applications.html     # Columbia-specific
 │   ├── slide-getting-started.html
 │   ├── slide-roadmap-vision.html
 │   ├── slide-call-to-action-m2l.html         # "Thank you M2L!"
@@ -39,7 +39,7 @@ docs/presentation/
 │   └── slide-call-to-action-aibuilders.html  # "Thank you Arize & GitHub!"
 ├── build_presentation.py    # Build script
 ├── columbia.html           # Generated from components
-├── m2l.html               # Generated from components  
+├── m2l.html               # Generated from components
 ├── aibuilders.html        # Generated from components
 └── README_MODULAR.md      # This file
 ```
@@ -89,7 +89,7 @@ python build_presentation.py m2l
 ### 🚀 Benefits Achieved
 
 1. **Content Reuse**: Share common slides across presentations
-2. **Easy Updates**: Change version info in one place  
+2. **Easy Updates**: Change version info in one place
 3. **Better Git**: Smaller, focused diffs for changes
 4. **Maintainable**: Each component is manageable size
 5. **Flexible**: Mix and match slides per presentation

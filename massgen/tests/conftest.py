@@ -1,10 +1,11 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -175,5 +176,3 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     ]
     session.config.warn("C1", "\n".join(lines))  # type: ignore[attr-defined]
     session.exitstatus = 1
-
-

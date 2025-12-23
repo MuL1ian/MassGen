@@ -4,7 +4,6 @@ Test custom tools functionality in ResponseBackend.
 """
 
 import asyncio
-import json
 import os
 
 # Add parent directory to path for imports
@@ -261,7 +260,7 @@ class TestResponseBackendCustomTools:
 
         # Verify tool is registered with prefixed name
         assert "custom_tool__calculate_sum" in backend._custom_tool_names
-        
+
         # Verify schema generation includes the tool with correct name
         schemas = backend._get_custom_tools_schemas()
         assert len(schemas) == 1

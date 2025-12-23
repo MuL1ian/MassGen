@@ -10,7 +10,7 @@ This document shows the exact input structure sent to LLMs during multi-turn con
 
 **Context Size:** 568 characters total
 - System Message: 389 chars
-- User Message: 179 chars  
+- User Message: 179 chars
 - Tools: 2 (new_answer, vote)
 
 **System Message:**
@@ -51,7 +51,7 @@ You are evaluating answers from multiple agents for final response to a message.
 
 If YES, use the `vote` tool to record your vote and skip the `new_answer` tool.
 Otherwise, do additional work first, then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE. Make sure you actually call one of the two tools.
-            
+
 IMPORTANT: You are responding to the latest message in an ongoing conversation. Consider the full conversation context when evaluating answers and providing your response.
 ```
 
@@ -146,7 +146,7 @@ Assistant: [another response]
 - Turn 1: Standard evaluation prompt
 - Turn 2+: Enhanced with context awareness note:
   ```
-  IMPORTANT: You are responding to the latest message in an ongoing conversation. 
+  IMPORTANT: You are responding to the latest message in an ongoing conversation.
   Consider the full conversation context when evaluating answers and providing your response.
   ```
 

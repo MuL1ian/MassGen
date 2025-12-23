@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import argparse
@@ -8,7 +9,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -193,7 +193,7 @@ def cluster_failures(cases: Iterable[FailureCase]) -> List[Cluster]:
     by_key: Dict[str, Cluster] = {}
     for c in cases:
         norm = _normalize_message(
-            c.message or c.text.splitlines()[:1][0] if c.text else ""
+            c.message or c.text.splitlines()[:1][0] if c.text else "",
         )
         key = f"{c.exc_type}::{norm}"
         if key not in by_key:
@@ -215,9 +215,9 @@ def get_run_stats(junit_xml: Path) -> Dict[str, int]:
     """Extract global run statistics from the JUnit XML root."""
     tree = ET.parse(junit_xml)
     root = tree.getroot()
-    
+
     stats = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
-    
+
     # If root is testsuite, read directly
     if root.tag == "testsuite":
         for k in stats:
@@ -232,7 +232,7 @@ def get_run_stats(junit_xml: Path) -> Dict[str, int]:
                     stats[k] += int(ts.attrib.get(k, 0))
                 except ValueError:
                     pass
-    
+
     return stats
 
 
@@ -241,7 +241,7 @@ def render_dashboard(clusters: List[Cluster], stats: Dict[str, int], out_dir: Pa
     failures = stats.get("failures", 0)
     errors = stats.get("errors", 0)
     skipped = stats.get("skipped", 0)
-    
+
     total_failed = failures + errors
     passed = total_tests - total_failed - skipped
     pass_rate = (passed / total_tests * 100) if total_tests > 0 else 0.0
@@ -271,7 +271,7 @@ def render_dashboard(clusters: List[Cluster], stats: Dict[str, int], out_dir: Pa
         msg = cl.norm_message[:100].replace("|", "\\|").replace("\n", " ")
         link = f"[{cid}](clusters/cluster_{cid}.md)"
         lines.append(
-            f"| {link} | {len(cl.cases)} | `{cl.exc_type}` | `{msg}` | [ ] Open | |"
+            f"| {link} | {len(cl.cases)} | `{cl.exc_type}` | `{msg}` | [ ] Open | |",
         )
 
     (out_dir / "TRIAGE_DASHBOARD.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -285,13 +285,8 @@ def render_task_packet(cluster: Cluster, out_dir: Path) -> None:
     nodeids = [c.nodeid for c in cluster.cases]
     nodeids_preview = nodeids[:25]
 
-    repro_single = (
-        f"/Users/admin/src/MassGen/.venv/bin/python -m pytest -q {nodeids_preview[0]}"
-    )
-    repro_cluster = (
-        "/Users/admin/src/MassGen/.venv/bin/python -m pytest -q "
-        + " ".join(nodeids_preview)
-    )
+    repro_single = f"/Users/admin/src/MassGen/.venv/bin/python -m pytest -q {nodeids_preview[0]}"
+    repro_cluster = "/Users/admin/src/MassGen/.venv/bin/python -m pytest -q " + " ".join(nodeids_preview)
 
     md = [
         f"# Cluster {cid}",
@@ -348,10 +343,12 @@ def render_task_packet(cluster: Cluster, out_dir: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Cluster pytest failures from a JUnit XML report."
+        description="Cluster pytest failures from a JUnit XML report.",
     )
     ap.add_argument(
-        "--junit-xml", required=True, help="Path to pytest --junitxml output."
+        "--junit-xml",
+        required=True,
+        help="Path to pytest --junitxml output.",
     )
     ap.add_argument(
         "--out-dir",

@@ -234,7 +234,8 @@ def test_non_claude_code_agents_ignored(test_workspace):
     # Create mixed agents (some Claude Code, some not)
     agents = {
         "claude_code_1": MockClaudeCodeAgent(
-            "claude_code_1", str(Path(test_workspace["workspace"]) / "agent_1"),
+            "claude_code_1",
+            str(Path(test_workspace["workspace"]) / "agent_1"),
         ),
         "regular_agent": MagicMock(backend=MagicMock(get_provider_name=lambda: "openai")),
     }

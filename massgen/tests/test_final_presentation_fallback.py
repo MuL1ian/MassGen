@@ -8,7 +8,7 @@ This tests the specific changes we made to handle empty final presentations.
 import asyncio
 import os
 import sys
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 
