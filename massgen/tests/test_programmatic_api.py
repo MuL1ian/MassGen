@@ -86,8 +86,8 @@ class TestBuildConfig:
         backend = config["agents"][0]["backend"]
         assert backend.get("command_line_execution_mode") in ["local", None] or "command_line_execution_mode" not in backend
 
-    def test_build_config_with_context_path(self):
-        """Test config with context path for file operations."""
+    def test_build_config_with_context_paths(self):
+        """Test config with context paths for file operations."""
         config = build_config(
             model="gpt-5",
             num_agents=2,

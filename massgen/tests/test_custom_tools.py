@@ -114,7 +114,8 @@ class TestToolManager:
         # This should find built-in functions from the tool module
         try:
             self.tool_manager.add_tool_function(func="read_file_content")
-            assert "read_file_content" in self.tool_manager.registered_tools
+            # Tool names are registered with custom_tool__ prefix
+            assert "custom_tool__read_file_content" in self.tool_manager.registered_tools
         except ValueError:
             # If built-in function not found, that's ok for this test
             pass
@@ -159,7 +160,7 @@ def custom_function(x: int) -> str:
         self.tool_manager.add_tool_function(func=calculate_sum)
 
         tool_request = {
-            "name": "calculate_sum",
+            "name": "custom_tool__calculate_sum",
             "input": {"a": 5, "b": 3},
         }
 
@@ -178,7 +179,7 @@ def custom_function(x: int) -> str:
         self.tool_manager.add_tool_function(func=async_weather_fetcher)
 
         tool_request = {
-            "name": "async_weather_fetcher",
+            "name": "custom_tool__async_weather_fetcher",
             "input": {"city": "Tokyo"},
         }
 

@@ -128,21 +128,23 @@ class TestAG2ToolIntegration:
     """Test AG2 tool integration with MassGen tool system."""
 
     def test_tool_function_signature(self):
-        """Test that the tool has the correct async signature."""
+        """Test that the tool has the correct async generator signature."""
+        import collections.abc
         import inspect
+        from typing import get_origin
 
-        assert inspect.iscoroutinefunction(ag2_lesson_planner)
+        # The function is an async generator (uses yield), not a coroutine
+        assert inspect.isasyncgenfunction(ag2_lesson_planner)
 
         # Get function signature
         sig = inspect.signature(ag2_lesson_planner)
         params = sig.parameters
 
-        # Verify parameters
-        assert "topic" in params
-        assert "api_key" in params
+        # Verify the prompt parameter exists (injected via context_params decorator)
+        assert "prompt" in params
 
-        # Verify return annotation
-        assert sig.return_annotation == ExecutionResult
+        # Verify return annotation is AsyncGenerator[ExecutionResult, None]
+        assert get_origin(sig.return_annotation) is collections.abc.AsyncGenerator
 
     @pytest.mark.asyncio
     async def test_execution_result_structure(self):

@@ -121,6 +121,8 @@ PATTERNS_TO_IGNORE_FOR_TRACKING = [
     "*.swp",
     "*.swo",
     "*~",
+    "*.pyc",  # Python compiled bytecode files
+    "*.pyo",  # Python optimized bytecode files
 ]
 
 # File extensions to exclude when sharing (binary/large files)
