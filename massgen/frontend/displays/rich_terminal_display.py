@@ -1937,6 +1937,9 @@ class RichTerminalDisplay(TerminalDisplay):
         # Show round metrics summary if available
         self._show_round_metrics_summary()
 
+        # Show subagent metrics summary if available
+        self._show_subagent_metrics_summary()
+
         # Wait for user to continue
         input("\nPress Enter to return to agent selector...")
 
@@ -2155,6 +2158,69 @@ class RichTerminalDisplay(TerminalDisplay):
                 self.console.print(
                     f"\n[yellow]⚠️  Peak context window usage: {max_context_pct:.1f}%[/yellow]",
                 )
+
+        except Exception:
+            pass  # Fail silently - metrics display is non-critical
+
+    def _show_subagent_metrics_summary(self) -> None:
+        """Display subagent cost summary if subagents were used."""
+        from rich.table import Table
+
+        try:
+            if not hasattr(self, "orchestrator") or not self.orchestrator:
+                return
+
+            # Try to get the current log directory
+            log_dir = getattr(self.orchestrator, "_current_log_session_dir", None)
+            if not log_dir:
+                return
+
+            # Collect subagent costs
+            subagents_summary = self.orchestrator._collect_subagent_costs(log_dir)
+
+            if subagents_summary.get("total_subagents", 0) == 0:
+                return  # No subagents to show
+
+            # Create subagent metrics table
+            self.console.print()  # Add spacing
+            table = Table(
+                title="🤖 Subagent Cost Summary",
+                show_header=True,
+                header_style="bold cyan",
+                border_style=self.colors["border"],
+            )
+
+            table.add_column("Subagent ID", style="cyan", no_wrap=True)
+            table.add_column("Status", style="white")
+            table.add_column("Input Tokens", justify="right", style="green")
+            table.add_column("Output Tokens", justify="right", style="blue")
+            table.add_column("Est. Cost", justify="right", style="bold green")
+
+            for sub in subagents_summary.get("subagents", []):
+                status_style = "green" if sub["status"] == "completed" else "yellow" if sub["status"] == "timeout" else "red"
+                cost = sub.get("estimated_cost", 0.0)
+                cost_str = f"${cost:.4f}" if cost < 0.01 else f"${cost:.3f}"
+                table.add_row(
+                    sub["subagent_id"],
+                    f"[{status_style}]{sub['status']}[/{status_style}]",
+                    f"{sub.get('input_tokens', 0):,}",
+                    f"{sub.get('output_tokens', 0):,}",
+                    cost_str,
+                )
+
+            # Add totals row
+            total_cost = subagents_summary.get("total_estimated_cost", 0.0)
+            total_cost_str = f"${total_cost:.4f}" if total_cost < 0.01 else f"${total_cost:.3f}"
+            table.add_row(
+                "TOTAL",
+                f"{subagents_summary['total_subagents']} subagents",
+                f"{subagents_summary.get('total_input_tokens', 0):,}",
+                f"{subagents_summary.get('total_output_tokens', 0):,}",
+                total_cost_str,
+                style="bold",
+            )
+
+            self.console.print(table)
 
         except Exception:
             pass  # Fail silently - metrics display is non-critical

@@ -64,8 +64,9 @@ class ResponseFormatter(FormatterBase):
                 converted_messages.append(message)
             elif message.get("type") == "function_call":
                 call_id = message.get("call_id")
-                # Strip 'id' to decouple from reasoning items
-                cleaned_fc = {k: v for k, v in message.items() if k != "id"}
+                # Preserve 'id' field to maintain pairing with reasoning items (required by OpenAI Responses API)
+                # See: https://github.com/langchain-ai/langchainjs/pull/9082
+                cleaned_fc = message.copy()
 
                 if call_id and call_id not in output_call_ids:
                     converted_messages.append(cleaned_fc)

@@ -337,6 +337,13 @@ class Orchestrator(ChatAgent):
                 self._inject_planning_tools_for_all_agents()
                 logger.info("[Orchestrator] Planning tools injection complete")
 
+        # Inject subagent tools if enabled
+        if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "enable_subagents"):
+            if self.config.coordination_config.enable_subagents:
+                logger.info(f"[Orchestrator] Injecting subagent tools for {len(self.agents)} agents")
+                self._inject_subagent_tools_for_all_agents()
+                logger.info("[Orchestrator] Subagent tools injection complete")
+
         # NOTE: Memory MCP tools are disabled - using file-based approach with task completion reminders
         # Agents use standard file tools to manage memory files in workspace/memory/
         # Reminders to save memory are triggered automatically when completing high-priority tasks
@@ -742,6 +749,167 @@ class Orchestrator(ChatAgent):
                 "FASTMCP_SHOW_CLI_BANNER": "false",
             },
         }
+
+        return config
+
+    def _inject_subagent_tools_for_all_agents(self) -> None:
+        """
+        Inject subagent MCP tools into all agents.
+
+        This method adds the subagent MCP server to each agent's backend
+        configuration, enabling them to spawn and manage subagents.
+        """
+        for agent_id, agent in self.agents.items():
+            self._inject_subagent_tools_for_agent(agent_id, agent)
+
+    def _inject_subagent_tools_for_agent(self, agent_id: str, agent: Any) -> None:
+        """
+        Inject subagent MCP tools into a specific agent.
+
+        Args:
+            agent_id: ID of the agent
+            agent: Agent instance
+        """
+        # Only inject if agent has filesystem manager (needs workspace)
+        if not hasattr(agent, "backend") or not hasattr(agent.backend, "filesystem_manager"):
+            logger.warning(f"[Orchestrator] Agent {agent_id} has no filesystem_manager, skipping subagent tools")
+            return
+
+        if not agent.backend.filesystem_manager:
+            logger.warning(f"[Orchestrator] Agent {agent_id} filesystem_manager is None, skipping subagent tools")
+            return
+
+        if not agent.backend.filesystem_manager.cwd:
+            logger.warning(f"[Orchestrator] Agent {agent_id} filesystem_manager.cwd is None, skipping subagent tools")
+            return
+
+        logger.info(f"[Orchestrator] Injecting subagent tools for agent: {agent_id}")
+
+        # Create subagent MCP config
+        subagent_mcp_config = self._create_subagent_mcp_config(agent_id, agent)
+        logger.info(f"[Orchestrator] Created subagent MCP config: {subagent_mcp_config['name']}")
+
+        # Get existing mcp_servers configuration
+        mcp_servers = agent.backend.config.get("mcp_servers", [])
+        logger.info(f"[Orchestrator] Existing MCP servers for {agent_id}: {type(mcp_servers)} with {len(mcp_servers) if isinstance(mcp_servers, (list, dict)) else 0} entries")
+
+        # Handle both list format and dict format (Claude Code)
+        if isinstance(mcp_servers, dict):
+            # Claude Code dict format
+            logger.info("[Orchestrator] Using dict format for MCP servers")
+            mcp_servers[f"subagent_{agent_id}"] = subagent_mcp_config
+        else:
+            # Standard list format
+            logger.info("[Orchestrator] Using list format for MCP servers")
+            if not isinstance(mcp_servers, list):
+                mcp_servers = []
+            mcp_servers.append(subagent_mcp_config)
+
+        # Update backend config
+        agent.backend.config["mcp_servers"] = mcp_servers
+        logger.info(f"[Orchestrator] Updated MCP servers for {agent_id}, now has {len(mcp_servers) if isinstance(mcp_servers, (list, dict)) else 0} servers")
+
+    def _create_subagent_mcp_config(self, agent_id: str, agent: Any) -> Dict[str, Any]:
+        """
+        Create MCP server configuration for subagent tools.
+
+        Args:
+            agent_id: ID of the agent
+            agent: Agent instance (for accessing workspace path)
+
+        Returns:
+            MCP server configuration dictionary
+        """
+        import tempfile
+        from pathlib import Path as PathlibPath
+
+        import massgen.mcp_tools.subagent._subagent_mcp_server as subagent_module
+
+        script_path = PathlibPath(subagent_module.__file__).resolve()
+
+        workspace_path = str(agent.backend.filesystem_manager.cwd)
+
+        # Build list of all parent agent configs to pass to subagent manager
+        # This allows subagents to inherit the exact same agent setup by default
+        import json
+
+        agent_configs = []
+        for aid, a in self.agents.items():
+            agent_cfg = {"id": aid}
+            if hasattr(a.backend, "config"):
+                # Filter out non-serializable or internal keys
+                backend_cfg = {k: v for k, v in a.backend.config.items() if k not in ("mcp_servers", "_config_path")}
+                agent_cfg["backend"] = backend_cfg
+            agent_configs.append(agent_cfg)
+
+        # Write agent configs to temp file to avoid command line / env var length limits
+        agent_configs_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            prefix="massgen_subagent_configs_",
+            delete=False,  # Keep file until subagent reads it
+        )
+        json.dump(agent_configs, agent_configs_file)
+        agent_configs_file.close()
+        agent_configs_path = agent_configs_file.name
+
+        # Get subagent configuration from coordination config
+        max_concurrent = 3
+        default_timeout = 300
+        subagent_orchestrator_config_json = "{}"
+        if hasattr(self.config, "coordination_config"):
+            if hasattr(self.config.coordination_config, "subagent_max_concurrent"):
+                max_concurrent = self.config.coordination_config.subagent_max_concurrent
+            if hasattr(self.config.coordination_config, "subagent_default_timeout"):
+                default_timeout = self.config.coordination_config.subagent_default_timeout
+            # Get subagent_orchestrator config if present
+            if hasattr(self.config.coordination_config, "subagent_orchestrator"):
+                so_config = self.config.coordination_config.subagent_orchestrator
+                if so_config:
+                    subagent_orchestrator_config_json = json.dumps(so_config.to_dict())
+
+        # Get log directory for subagent logs
+        log_directory = ""
+        try:
+            log_dir = get_log_session_dir()
+            if log_dir:
+                log_directory = str(log_dir)
+        except Exception:
+            pass  # Log directory not configured
+
+        args = [
+            "run",
+            f"{script_path}:create_server",
+            "--",
+            "--agent-id",
+            agent_id,
+            "--orchestrator-id",
+            self.orchestrator_id,
+            "--workspace-path",
+            workspace_path,
+            "--agent-configs-file",
+            agent_configs_path,
+            "--max-concurrent",
+            str(max_concurrent),
+            "--default-timeout",
+            str(default_timeout),
+            "--orchestrator-config",
+            subagent_orchestrator_config_json,
+            "--log-directory",
+            log_directory,
+        ]
+
+        config = {
+            "name": f"subagent_{agent_id}",
+            "type": "stdio",
+            "command": "fastmcp",
+            "args": args,
+            "env": {
+                "FASTMCP_SHOW_CLI_BANNER": "false",
+            },
+        }
+
+        logger.info(f"[Orchestrator] Created subagent MCP config for {agent_id} with workspace: {workspace_path}")
 
         return config
 
@@ -1496,6 +1664,10 @@ class Orchestrator(ChatAgent):
                     total_output_tokens += tu.get("output_tokens", 0)
                     total_reasoning_tokens += tu.get("reasoning_tokens", 0)
 
+            # Collect subagent costs from status files
+            subagents_summary = self._collect_subagent_costs(log_dir)
+            subagent_total_cost = subagents_summary.get("total_estimated_cost", 0.0)
+
             # Aggregate API call timing metrics
             api_timing = {
                 "total_calls": 0,
@@ -1556,7 +1728,9 @@ class Orchestrator(ChatAgent):
                     "winner": self.coordination_tracker.final_winner,
                 },
                 "totals": {
-                    "estimated_cost": round(total_cost, 6),
+                    "estimated_cost": round(total_cost + subagent_total_cost, 6),
+                    "agent_cost": round(total_cost, 6),
+                    "subagent_cost": round(subagent_total_cost, 6),
                     "input_tokens": total_input_tokens,
                     "output_tokens": total_output_tokens,
                     "reasoning_tokens": total_reasoning_tokens,
@@ -1565,6 +1739,7 @@ class Orchestrator(ChatAgent):
                 "rounds": rounds_summary,
                 "api_timing": api_timing,
                 "agents": agent_metrics,
+                "subagents": subagents_summary,
             }
             with open(summary_file, "w", encoding="utf-8") as f:
                 json.dump(summary_data, f, indent=2, default=str)
@@ -1573,6 +1748,118 @@ class Orchestrator(ChatAgent):
 
         except Exception as e:
             logger.warning(f"Failed to save metrics files: {e}", exc_info=True)
+
+    def _collect_subagent_costs(self, log_dir: Path) -> Dict[str, Any]:
+        """
+        Collect subagent costs and metrics from status.json and subprocess metrics.
+
+        Args:
+            log_dir: Path to the log directory (e.g., turn_1/attempt_1)
+
+        Returns:
+            Dictionary with total costs, timing data, and per-subagent breakdown
+        """
+        subagents_dir = log_dir / "subagents"
+        if not subagents_dir.exists():
+            return {
+                "total_subagents": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_estimated_cost": 0.0,
+                "total_api_time_ms": 0.0,
+                "total_api_calls": 0,
+                "subagents": [],
+            }
+
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_estimated_cost = 0.0
+        total_api_time_ms = 0.0
+        total_api_calls = 0
+        subagent_details = []
+
+        # Find all status.json files in subagent directories
+        for subagent_path in subagents_dir.iterdir():
+            if not subagent_path.is_dir():
+                continue
+
+            status_file = subagent_path / "status.json"
+            if not status_file.exists():
+                continue
+
+            try:
+                # Read status.json for basic info
+                with open(status_file, "r", encoding="utf-8") as f:
+                    status_data = json.load(f)
+
+                token_usage = status_data.get("token_usage", {})
+                input_tokens = token_usage.get("input_tokens", 0)
+                output_tokens = token_usage.get("output_tokens", 0)
+                cost = token_usage.get("estimated_cost", 0.0)
+                elapsed_seconds = status_data.get("elapsed_seconds", 0.0)
+
+                total_input_tokens += input_tokens
+                total_output_tokens += output_tokens
+                total_estimated_cost += cost
+
+                # Initialize subagent detail entry
+                subagent_detail = {
+                    "subagent_id": status_data.get("subagent_id", subagent_path.name),
+                    "status": status_data.get("status", "unknown"),
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "estimated_cost": round(cost, 6),
+                    "elapsed_seconds": elapsed_seconds,
+                    "task": status_data.get("task", "")[:100],
+                }
+
+                # Try to read subprocess metrics for API timing data
+                subprocess_logs_file = subagent_path / "subprocess_logs.json"
+                if subprocess_logs_file.exists():
+                    try:
+                        with open(subprocess_logs_file, "r", encoding="utf-8") as f:
+                            subprocess_logs = json.load(f)
+
+                        subprocess_log_dir = subprocess_logs.get("subprocess_log_dir")
+                        if subprocess_log_dir:
+                            # Read the subprocess's metrics_summary.json
+                            metrics_file = Path(subprocess_log_dir) / "metrics_summary.json"
+                            if metrics_file.exists():
+                                with open(metrics_file, "r", encoding="utf-8") as f:
+                                    metrics_data = json.load(f)
+
+                                # Extract API timing data
+                                api_timing = metrics_data.get("api_timing", {})
+                                if api_timing:
+                                    subagent_api_time = api_timing.get("total_time_ms", 0.0)
+                                    subagent_api_calls = api_timing.get("total_calls", 0)
+
+                                    total_api_time_ms += subagent_api_time
+                                    total_api_calls += subagent_api_calls
+
+                                    subagent_detail["api_timing"] = {
+                                        "total_time_ms": round(subagent_api_time, 2),
+                                        "total_calls": subagent_api_calls,
+                                        "avg_time_ms": api_timing.get("avg_time_ms", 0.0),
+                                        "avg_ttft_ms": api_timing.get("avg_ttft_ms", 0.0),
+                                    }
+                    except Exception as e:
+                        logger.debug(f"Failed to read subprocess metrics for {subagent_path.name}: {e}")
+
+                subagent_details.append(subagent_detail)
+
+            except Exception as e:
+                logger.debug(f"Failed to read subagent status from {status_file}: {e}")
+
+        return {
+            "total_subagents": len(subagent_details),
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
+            "total_estimated_cost": round(total_estimated_cost, 6),
+            "total_api_time_ms": round(total_api_time_ms, 2),
+            "total_api_calls": total_api_calls,
+            "subagents": subagent_details,
+        }
 
     def _format_planning_mode_ui(
         self,
@@ -3788,38 +4075,21 @@ Your answer:"""
                         error_msg = getattr(chunk, "error", str(chunk.content)) if hasattr(chunk, "error") else str(chunk.content)
                         yield ("content", f"❌ Error: {error_msg}\n")
 
-                # Check for multiple vote calls before processing
+                # Handle multiple vote calls - take the last vote (agent's final decision)
                 vote_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) == "vote"]
                 if len(vote_calls) > 1:
-                    if attempt < max_attempts - 1:
-                        if self._check_restart_pending(agent_id):
-                            should_continue = await self._inject_update_and_continue(
-                                agent_id,
-                                answers,
-                                conversation_messages,
-                            )
-                            if should_continue:
-                                yield ("content", f"📨 [{agent_id}] receiving update with new answers\n")
-                                continue  # Agent continues working with update
-                            # else: No new answers, proceed with normal error handling
-                        error_msg = f"Multiple vote calls not allowed. Made {len(vote_calls)} calls but must make exactly 1. Call vote tool once with chosen agent."
-                        yield ("content", f"❌ {error_msg}")
+                    # Take the last vote - represents the agent's final, most refined decision
+                    num_votes = len(vote_calls)
+                    final_vote_call = vote_calls[-1]
+                    final_vote_args = agent.backend.extract_tool_arguments(final_vote_call)
+                    final_voted_agent = final_vote_args.get("agent_id", "unknown")
 
-                        # Send tool error response for all tool calls
-                        enforcement_msg = self._create_tool_error_messages(
-                            agent,
-                            tool_calls,
-                            error_msg,
-                            "Vote rejected due to multiple votes.",
-                        )
-                        continue  # Retry this attempt
-                    else:
-                        yield (
-                            "error",
-                            f"Agent made {len(vote_calls)} vote calls in single response after max attempts",
-                        )
-                        yield ("done", None)
-                        return
+                    # Replace tool_calls with deduplicated list (all non-votes + final vote)
+                    vote_calls = [final_vote_call]
+                    tool_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) != "vote"] + [final_vote_call]
+
+                    logger.info(f"[Orchestrator] Agent {agent_id} made {num_votes} votes - using last vote: {final_voted_agent}")
+                    yield ("content", f"⚠️ Agent made {num_votes} votes - using last (final decision): {final_voted_agent}\n")
 
                 # Check for mixed new_answer and vote calls - violates binary decision framework
                 new_answer_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) == "new_answer"]
@@ -5346,7 +5616,13 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                             if item.is_file():
                                 shutil.copy2(item, dest)
                             elif item.is_dir():
-                                shutil.copytree(item, dest, dirs_exist_ok=True)
+                                shutil.copytree(
+                                    item,
+                                    dest,
+                                    dirs_exist_ok=True,
+                                    symlinks=True,
+                                    ignore_dangling_symlinks=True,
+                                )
                         logger.info(f"[Orchestrator] Pre-populated {agent_id} workspace with writable copy of turn n-1")
 
     def _archive_agent_memories(self, agent_id: str, workspace_path: Path) -> None:
@@ -5381,7 +5657,13 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         # Copy entire memory/ directory to archive
         try:
             archive_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(memory_dir, archive_path, dirs_exist_ok=True)
+            shutil.copytree(
+                memory_dir,
+                archive_path,
+                dirs_exist_ok=True,
+                symlinks=True,
+                ignore_dangling_symlinks=True,
+            )
             logger.info(f"[Orchestrator] Archived memories for {agent_id} answer {answer_num} to {archive_path}")
         except Exception as e:
             logger.error(f"[Orchestrator] Failed to archive memories for {agent_id}: {e}")

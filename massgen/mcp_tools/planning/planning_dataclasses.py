@@ -3,13 +3,16 @@
 Task Planning Data Structures for MassGen
 
 Provides dataclasses for managing agent task plans with dependency tracking,
-status management, and validation.
+status management, validation, and subagent tracking.
 """
 
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+
+if TYPE_CHECKING:
+    pass
 
 
 @dataclass
@@ -81,6 +84,7 @@ class TaskPlan:
     tasks: List[Task] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+    subagents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self):
         """Initialize task index for fast lookups."""
@@ -441,6 +445,7 @@ class TaskPlan:
             "tasks": [task.to_dict() for task in self.tasks],
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
+            "subagents": self.subagents.copy(),
         }
 
     @classmethod
@@ -452,5 +457,69 @@ class TaskPlan:
             tasks=tasks,
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
+            subagents=data.get("subagents", {}),
         )
         return plan
+
+    def add_subagent(
+        self,
+        subagent_id: str,
+        task: str,
+        workspace: str,
+        status: str = "running",
+    ) -> None:
+        """
+        Add a subagent pointer to the plan for tracking.
+
+        Args:
+            subagent_id: Unique subagent identifier
+            task: Task description given to the subagent
+            workspace: Path to subagent's workspace
+            status: Initial status (default: "running")
+        """
+        self.subagents[subagent_id] = {
+            "id": subagent_id,
+            "task": task,
+            "workspace": workspace,
+            "status": status,
+            "created_at": datetime.now().isoformat(),
+            "completed_at": None,
+            "result_summary": None,
+        }
+        self.updated_at = datetime.now()
+
+    def update_subagent_status(
+        self,
+        subagent_id: str,
+        status: str,
+        result_summary: Optional[str] = None,
+    ) -> None:
+        """
+        Update a subagent's status in the plan.
+
+        Args:
+            subagent_id: Subagent identifier
+            status: New status (running/completed/failed/timeout)
+            result_summary: Optional summary of the result
+        """
+        if subagent_id not in self.subagents:
+            return
+
+        self.subagents[subagent_id]["status"] = status
+        if status in ("completed", "failed", "timeout"):
+            self.subagents[subagent_id]["completed_at"] = datetime.now().isoformat()
+        if result_summary:
+            self.subagents[subagent_id]["result_summary"] = result_summary
+        self.updated_at = datetime.now()
+
+    def get_subagent(self, subagent_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a subagent pointer by ID.
+
+        Args:
+            subagent_id: Subagent identifier
+
+        Returns:
+            Subagent info dict if found, None otherwise
+        """
+        return self.subagents.get(subagent_id)

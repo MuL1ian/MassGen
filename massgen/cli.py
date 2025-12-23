@@ -1393,7 +1393,13 @@ async def handle_session_persistence(
 
     # Copy workspace if it exists
     if workspace_path and Path(workspace_path).exists():
-        shutil.copytree(workspace_path, turn_workspace_path, dirs_exist_ok=True)
+        shutil.copytree(
+            workspace_path,
+            turn_workspace_path,
+            dirs_exist_ok=True,
+            symlinks=True,
+            ignore_dangling_symlinks=True,
+        )
 
     # Note: Session is already registered when created (before first turn runs)
     # No need to register here
@@ -1466,6 +1472,7 @@ async def run_question_with_history(
     if "coordination" in orchestrator_cfg:
         from .agent_config import CoordinationConfig
         from .persona_generator import PersonaGeneratorConfig
+        from .subagent.models import SubagentOrchestratorConfig
 
         coord_cfg = orchestrator_cfg["coordination"]
 
@@ -1479,6 +1486,12 @@ async def run_question_with_history(
                 strategy=pg_cfg.get("strategy", "complementary"),
                 persona_guidelines=pg_cfg.get("persona_guidelines"),
             )
+
+        # Parse subagent_orchestrator config if present
+        subagent_orchestrator_config = None
+        if "subagent_orchestrator" in coord_cfg:
+            so_cfg = coord_cfg["subagent_orchestrator"]
+            subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
 
         orchestrator_config.coordination_config = CoordinationConfig(
             enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
@@ -1502,6 +1515,10 @@ async def run_question_with_history(
             skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
             load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
             persona_generator=persona_generator_config,
+            enable_subagents=coord_cfg.get("enable_subagents", False),
+            subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
+            subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
+            subagent_orchestrator=subagent_orchestrator_config,
         )
 
     # Get session_id from session_info (will be generated in save_final_state if not exists)
@@ -1553,6 +1570,7 @@ async def run_question_with_history(
         if coordination_settings:
             from .agent_config import CoordinationConfig
             from .persona_generator import PersonaGeneratorConfig
+            from .subagent.models import SubagentOrchestratorConfig
 
             # Parse persona_generator config if present
             persona_generator_config = PersonaGeneratorConfig()
@@ -1564,6 +1582,12 @@ async def run_question_with_history(
                     strategy=pg_cfg.get("strategy", "complementary"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
                 )
+
+            # Parse subagent_orchestrator config if present
+            subagent_orchestrator_config = None
+            if "subagent_orchestrator" in coordination_settings:
+                so_cfg = coordination_settings["subagent_orchestrator"]
+                subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coordination_settings.get("enable_planning_mode", False),
@@ -1587,6 +1611,10 @@ async def run_question_with_history(
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
                 load_previous_session_skills=coordination_settings.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
+                enable_subagents=coordination_settings.get("enable_subagents", False),
+                subagent_default_timeout=coordination_settings.get("subagent_default_timeout", 300),
+                subagent_max_concurrent=coordination_settings.get("subagent_max_concurrent", 3),
+                subagent_orchestrator=subagent_orchestrator_config,
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
@@ -1749,7 +1777,12 @@ async def run_question_with_history(
                 shutil.rmtree(turn_final_dir)
 
             # Copy attempt's final to turn root
-            shutil.copytree(attempt_final_dir, turn_final_dir)
+            shutil.copytree(
+                attempt_final_dir,
+                turn_final_dir,
+                symlinks=True,
+                ignore_dangling_symlinks=True,
+            )
             logger.info(f"Copied final results from {attempt_final_dir} to {turn_final_dir}")
     except Exception as e:
         logger.warning(f"Failed to copy final results to turn root: {e}")
@@ -1904,6 +1937,7 @@ async def run_single_question(
         if coordination_settings:
             from .agent_config import CoordinationConfig
             from .persona_generator import PersonaGeneratorConfig
+            from .subagent.models import SubagentOrchestratorConfig
 
             # Parse persona_generator config if present
             persona_generator_config = PersonaGeneratorConfig()
@@ -1915,6 +1949,12 @@ async def run_single_question(
                     strategy=pg_cfg.get("strategy", "complementary"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
                 )
+
+            # Parse subagent_orchestrator config if present
+            subagent_orchestrator_config = None
+            if "subagent_orchestrator" in coordination_settings:
+                so_cfg = coordination_settings["subagent_orchestrator"]
+                subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coordination_settings.get("enable_planning_mode", False),
@@ -1938,6 +1978,10 @@ async def run_single_question(
                 skills_directory=coordination_settings.get("skills_directory", ".agent/skills"),
                 load_previous_session_skills=coordination_settings.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
+                enable_subagents=coordination_settings.get("enable_subagents", False),
+                subagent_default_timeout=coordination_settings.get("subagent_default_timeout", 300),
+                subagent_max_concurrent=coordination_settings.get("subagent_max_concurrent", 3),
+                subagent_orchestrator=subagent_orchestrator_config,
             )
 
         # Get orchestrator parameters from config
@@ -1977,6 +2021,7 @@ async def run_single_question(
         if "coordination" in orchestrator_cfg:
             from .agent_config import CoordinationConfig
             from .persona_generator import PersonaGeneratorConfig
+            from .subagent.models import SubagentOrchestratorConfig
 
             coord_cfg = orchestrator_cfg["coordination"]
 
@@ -1990,6 +2035,12 @@ async def run_single_question(
                     strategy=pg_cfg.get("strategy", "complementary"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
                 )
+
+            # Parse subagent_orchestrator config if present
+            subagent_orchestrator_config = None
+            if "subagent_orchestrator" in coord_cfg:
+                so_cfg = coord_cfg["subagent_orchestrator"]
+                subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
 
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
@@ -2013,6 +2064,10 @@ async def run_single_question(
                 skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
                 load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
                 persona_generator=persona_generator_config,
+                enable_subagents=coord_cfg.get("enable_subagents", False),
+                subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
+                subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
+                subagent_orchestrator=subagent_orchestrator_config,
             )
 
         orchestrator = Orchestrator(
@@ -2099,7 +2154,12 @@ async def run_single_question(
                     shutil.rmtree(turn_final_dir)
 
                 # Copy attempt's final to turn root
-                shutil.copytree(attempt_final_dir, turn_final_dir)
+                shutil.copytree(
+                    attempt_final_dir,
+                    turn_final_dir,
+                    symlinks=True,
+                    ignore_dangling_symlinks=True,
+                )
                 logger.info(f"Copied final results from {attempt_final_dir} to {turn_final_dir}")
         except Exception as e:
             logger.warning(f"Failed to copy final results to turn root: {e}")

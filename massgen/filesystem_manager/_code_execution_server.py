@@ -13,6 +13,7 @@ Inspired by AG2's LocalCommandLineCodeExecutor sanitization patterns.
 """
 
 import argparse
+import concurrent.futures
 import os
 import re
 import subprocess
@@ -520,7 +521,30 @@ async def create_server() -> fastmcp.FastMCP:
                     }
 
                     start_time = time.time()
-                    exit_code, output = container.exec_run(**exec_config)
+
+                    # Use ThreadPoolExecutor to implement timeout for Docker exec_run
+                    # Docker SDK's exec_run doesn't have native timeout support
+                    def run_docker_exec():
+                        return container.exec_run(**exec_config)
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(run_docker_exec)
+                        try:
+                            exit_code, output = future.result(timeout=timeout)
+                        except concurrent.futures.TimeoutError:
+                            # Timeout occurred - try to find and kill the exec process
+                            execution_time = time.time() - start_time
+                            logger.warning(f"Docker command timed out after {timeout}s: {command[:100]}")
+                            return {
+                                "success": False,
+                                "exit_code": -1,
+                                "stdout": "",
+                                "stderr": f"Command timed out after {timeout} seconds",
+                                "execution_time": execution_time,
+                                "command": command,
+                                "work_dir": str(work_path),
+                            }
+
                     execution_time = time.time() - start_time
 
                     # Docker exec_run combines stdout and stderr

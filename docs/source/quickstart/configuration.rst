@@ -572,6 +572,37 @@ Prevent irreversible actions during multi-agent coordination:
 
 See :doc:`../user_guide/advanced/planning_mode` for complete documentation.
 
+Subagents
+~~~~~~~~~
+
+Enable agents to spawn parallel child processes for independent tasks:
+
+.. code-block:: yaml
+
+   orchestrator:
+     enable_subagents: true
+     subagent_default_timeout: 300  # 5 minutes per subagent
+     subagent_max_concurrent: 3     # Max parallel subagents
+
+**Example usage:**
+
+.. code-block:: bash
+
+   uv run massgen \
+     --config @massgen/configs/features/subagent_demo.yaml \
+     "Build a website with frontend, backend, and documentation"
+
+The agent can spawn subagents to work on each component simultaneously. Subagents:
+
+* Run in isolated workspaces
+* Inherit parent agent configurations by default
+* Execute concurrently for parallel task completion
+* Return structured results with workspace paths
+
+**Use Case**: Complex tasks with independent, parallelizable components (e.g., multi-part research, website building, documentation generation).
+
+See :doc:`../user_guide/advanced/subagents` for complete documentation.
+
 Timeout Configuration
 ~~~~~~~~~~~~~~~~~~~~~
 

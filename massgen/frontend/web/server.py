@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
@@ -1402,11 +1403,16 @@ def create_app(
         return {"files": files, "workspace_path": str(agent_workspace) if agent_workspace else None}
 
     @app.get("/api/workspaces")
-    async def list_workspaces():
+    async def list_workspaces(session_id: str = None):
         """List all available workspaces including current and historical.
 
+        Args:
+            session_id: Optional session ID. If provided, reads workspace paths from
+                       status.json for fast lookup. Falls back to directory scanning
+                       if session_id not provided or status.json unavailable.
+
         Returns:
-        - current: Workspaces in cwd (workspace1, workspace2, etc.)
+        - current: Workspaces for the current session (from status.json if session_id provided)
         - historical: Dated workspaces from logs directory
         """
         workspaces = {
@@ -1414,8 +1420,49 @@ def create_app(
             "historical": [],
         }
 
-        # Find current workspaces in cwd
         cwd = Path.cwd()
+
+        # Fast path: If session_id provided, read workspace paths from status.json
+        if session_id:
+            try:
+                # Try to get log_session_dir from the display (most reliable during active session)
+                display = manager.get_display(session_id)
+                log_session_dir = getattr(display, "log_session_dir", None) if display else None
+
+                # Fallback to global logger (works when called from same process)
+                if not log_session_dir:
+                    from massgen.logger_config import get_log_session_dir
+
+                    log_session_dir = get_log_session_dir()
+
+                if log_session_dir:
+                    status_file = log_session_dir / "status.json"
+                    if status_file.exists():
+                        with open(status_file) as f:
+                            status_data = json.load(f)
+
+                        agents_data = status_data.get("agents", {})
+                        for agent_id, agent_info in agents_data.items():
+                            workspace_paths = agent_info.get("workspace_paths", {})
+                            workspace_path = workspace_paths.get("workspace")
+                            if workspace_path and Path(workspace_path).exists():
+                                workspaces["current"].append(
+                                    {
+                                        "name": Path(workspace_path).name,
+                                        "path": workspace_path,
+                                        "type": "current",
+                                        "agentId": agent_id,
+                                    },
+                                )
+
+                        # If we got workspaces from status.json, return early (skip slow scan)
+                        if workspaces["current"]:
+                            return workspaces
+            except Exception as e:
+                print(f"[WebUI] Warning: Could not read workspaces from status.json: {e}")
+                # Fall through to directory scanning
+
+        # Slow path: Scan filesystem for workspace directories
         for path in cwd.iterdir():
             if path.is_dir() and path.name.startswith("workspace"):
                 workspaces["current"].append(
@@ -1878,6 +1925,196 @@ def create_app(
                 {"error": f"Failed to read file: {str(e)}"},
                 status_code=500,
             )
+
+    @app.get("/workspace-preview/{session_id}/{agent_id}/{file_path:path}")
+    async def serve_workspace_preview(
+        session_id: str,
+        agent_id: str,
+        file_path: str,
+        workspace: str = None,  # Optional: direct workspace path for historical workspaces
+    ):
+        """Serve workspace files directly for HTML preview with working relative links.
+
+        This endpoint serves files from an agent's workspace at a stable URL path,
+        allowing relative links in HTML files to work correctly.
+
+        Security:
+        - Validates session_id exists
+        - Gets workspace path from status.json (trusted source) or query param
+        - Prevents directory traversal attacks
+        - Only serves files within the workspace
+
+        Args:
+            session_id: Active session ID
+            agent_id: Agent ID (e.g., "agent_a")
+            file_path: Relative path within workspace (e.g., "index.html" or "about/index.html")
+            workspace: Optional direct workspace path (for historical workspaces)
+
+        Returns:
+            FileResponse with appropriate content type
+        """
+        import mimetypes
+
+        from starlette.responses import FileResponse
+
+        # Default to index.html if no file specified or path ends with /
+        if not file_path or file_path.endswith("/"):
+            file_path = file_path.rstrip("/") + "/index.html" if file_path else "index.html"
+
+        # Get workspace path - prefer query param for historical workspaces
+        workspace_path = None
+
+        # First, try the explicit workspace parameter (for historical workspaces)
+        if workspace:
+            explicit_path = Path(workspace)
+            if explicit_path.exists() and explicit_path.is_dir():
+                workspace_path = explicit_path
+
+        # If not provided or invalid, try status.json
+        if not workspace_path:
+            try:
+                # Try to get workspace from display's status.json
+                display = manager.get_display(session_id)
+                log_session_dir = getattr(display, "log_session_dir", None) if display else None
+
+                # Fallback to global logger
+                if not log_session_dir:
+                    from massgen.logger_config import get_log_session_dir
+
+                    log_session_dir = get_log_session_dir()
+
+                if log_session_dir:
+                    status_file = log_session_dir / "status.json"
+                    if status_file.exists():
+                        with open(status_file) as f:
+                            status_data = json.load(f)
+
+                        agents_data = status_data.get("agents", {})
+                        agent_data = agents_data.get(agent_id, {})
+                        workspace_paths = agent_data.get("workspace_paths", {})
+                        workspace_str = workspace_paths.get("workspace")
+                        if workspace_str:
+                            workspace_path = Path(workspace_str)
+            except Exception as e:
+                print(f"[WebUI] Warning: Could not get workspace path from status.json: {e}")
+
+        # Fallback: Try common workspace patterns
+        if not workspace_path or not workspace_path.exists():
+            cwd = Path.cwd()
+            # Try workspace{N} pattern based on agent index
+            agent_match = agent_id.replace("agent_", "")
+            agent_index = ord(agent_match[0]) - ord("a") + 1 if agent_match and agent_match[0].isalpha() else 1
+            fallback_path = cwd / f"workspace{agent_index}"
+            if fallback_path.exists():
+                workspace_path = fallback_path
+
+        if not workspace_path or not workspace_path.exists():
+            return JSONResponse(
+                {"error": f"Workspace not found for agent {agent_id}"},
+                status_code=404,
+            )
+
+        # Resolve the full file path
+        workspace_path = workspace_path.resolve()
+        full_file_path = (workspace_path / file_path).resolve()
+
+        # Security: Ensure file is within workspace (prevent directory traversal)
+        try:
+            full_file_path.relative_to(workspace_path)
+        except ValueError:
+            return JSONResponse(
+                {"error": "Access denied: path outside workspace"},
+                status_code=403,
+            )
+
+        # If path is a directory, try index.html
+        if full_file_path.is_dir():
+            full_file_path = full_file_path / "index.html"
+
+        if not full_file_path.exists():
+            return JSONResponse(
+                {"error": f"File not found: {file_path}"},
+                status_code=404,
+            )
+
+        if not full_file_path.is_file():
+            return JSONResponse(
+                {"error": "Path is not a file"},
+                status_code=400,
+            )
+
+        # Determine content type
+        mime_type, _ = mimetypes.guess_type(str(full_file_path))
+        mime_type = mime_type or "application/octet-stream"
+
+        # For HTML files, inject a <base> tag and rewrite root-relative links
+        # so navigation works within the workspace preview
+        if mime_type == "text/html":
+            import re
+
+            from starlette.responses import HTMLResponse
+
+            try:
+                html_content = full_file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                html_content = full_file_path.read_text(encoding="latin-1")
+
+            # Build the base URL for this workspace
+            base_url = f"/workspace-preview/{session_id}/{agent_id}/"
+
+            # Rewrite root-relative links (href="/about") to workspace-relative
+            # This handles links like <a href="/about"> -> <a href="/workspace-preview/.../about">
+            def rewrite_root_relative(match):
+                attr = match.group(1)  # href or src
+                path = match.group(2)  # the path starting with /
+                # Don't rewrite if it's already our workspace-preview path
+                if path.startswith("/workspace-preview/"):
+                    return match.group(0)
+                # Rewrite to workspace-relative path
+                return f'{attr}="{base_url}{path.lstrip("/")}"'
+
+            # Match href="/..." or src="/..." (root-relative paths)
+            html_content = re.sub(
+                r'(href|src)="(/[^"]*)"',
+                rewrite_root_relative,
+                html_content,
+                flags=re.IGNORECASE,
+            )
+            # Also handle single quotes
+            html_content = re.sub(
+                r"(href|src)='(/[^']*)'",
+                lambda m: f"{m.group(1)}='{base_url}{m.group(2).lstrip('/')}'",
+                html_content,
+                flags=re.IGNORECASE,
+            )
+
+            # Inject <base> tag for truly relative links (./about, about, etc.)
+            # This goes right after <head> to ensure it applies to all resources
+            if "<head>" in html_content.lower():
+                # Find <head> case-insensitively and inject base tag after it
+                head_match = re.search(r"<head[^>]*>", html_content, re.IGNORECASE)
+                if head_match:
+                    insert_pos = head_match.end()
+                    base_tag = f'\n<base href="{base_url}">\n'
+                    html_content = html_content[:insert_pos] + base_tag + html_content[insert_pos:]
+            elif "<html" in html_content.lower():
+                # No <head>, inject after <html>
+                html_match = re.search(r"<html[^>]*>", html_content, re.IGNORECASE)
+                if html_match:
+                    insert_pos = html_match.end()
+                    base_tag = f'\n<head><base href="{base_url}"></head>\n'
+                    html_content = html_content[:insert_pos] + base_tag + html_content[insert_pos:]
+            else:
+                # No HTML structure, prepend base tag
+                html_content = f'<base href="{base_url}">\n' + html_content
+
+            return HTMLResponse(content=html_content, media_type="text/html")
+
+        return FileResponse(
+            path=full_file_path,
+            media_type=mime_type,
+            filename=full_file_path.name,
+        )
 
     @app.post("/api/convert/document")
     async def convert_document_to_pdf(request: Request):

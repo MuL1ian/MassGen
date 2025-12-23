@@ -32,6 +32,7 @@ from typing import (
 import httpx
 from pydantic import BaseModel
 
+from ..filesystem_manager._constants import FRAMEWORK_MCPS
 from ..logger_config import log_backend_activity, logger
 from ..mcp_tools.server_registry import get_auto_discovery_servers, get_registry_info
 from ..nlip.schema import (
@@ -1812,14 +1813,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             # Setup code-based tools if enabled (CodeAct paradigm)
             if self.filesystem_manager and self.filesystem_manager.enable_code_based_tools:
                 # Filter out user MCP tools from protocol access (they're accessible via code)
-                # Framework MCPs remain as protocol tools
-                FRAMEWORK_MCPS = {
-                    "command_line",  # Command execution
-                    "workspace_tools",  # Workspace operations (file ops, media generation)
-                    "filesystem",  # Filesystem operations
-                    "planning",  # Task planning MCP
-                    "memory",  # Memory management MCP
-                }
+                # Framework MCPs (from FRAMEWORK_MCPS constant) remain as protocol tools
 
                 # Remove user MCP tools from _mcp_functions
                 filtered_functions = {}

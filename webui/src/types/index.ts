@@ -203,6 +203,7 @@ export interface AgentState {
   voteCount: number;  // Track votes for labeling
   files: FileInfo[];
   toolCalls: ToolCallInfo[];
+  workspacePath?: string;  // Current workspace path for this agent (from status.json)
 }
 
 export interface FileInfo {

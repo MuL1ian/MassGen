@@ -154,6 +154,21 @@ def set_log_base_session_dir(log_dir: str) -> None:
     _LOG_SESSION_DIR = None  # Force recreation with new base
 
 
+def set_log_base_session_dir_absolute(log_dir_path: Path) -> None:
+    """Set the base log session directory to an existing absolute path.
+
+    Used by subagent orchestrator to inherit the parent's log directory
+    instead of creating a new timestamped session.
+
+    Args:
+        log_dir_path: Absolute path to existing log directory
+    """
+    global _LOG_BASE_SESSION_DIR, _LOG_SESSION_DIR
+    _LOG_BASE_SESSION_DIR = log_dir_path
+    _LOG_BASE_SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    _LOG_SESSION_DIR = None  # Force recreation with new base
+
+
 def get_log_session_dir_base() -> Path:
     """Get the turn-level directory without attempt subdirectory.
 
@@ -834,6 +849,7 @@ __all__ = [
     "set_log_turn",
     "set_log_attempt",
     "set_log_base_session_dir",
+    "set_log_base_session_dir_absolute",
     "save_execution_metadata",
     "log_orchestrator_activity",
     "log_agent_message",

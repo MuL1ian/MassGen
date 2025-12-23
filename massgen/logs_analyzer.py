@@ -226,6 +226,52 @@ def display_summary(analyzer: LogAnalyzer, console: Console) -> None:
             )
         console.print(table)
 
+    # Subagents section
+    subagents_data = data.get("subagents", {})
+    if subagents_data and subagents_data.get("total_subagents", 0) > 0:
+        total_subagents = subagents_data.get("total_subagents", 0)
+        subagent_cost = subagents_data.get("total_estimated_cost", 0)
+        agent_cost = totals.get("agent_cost", 0)
+
+        console.print(
+            f"\n[bold]Subagents ({total_subagents}):[/bold] " f"Cost: [green]${subagent_cost:.3f}[/green] " f"[dim](parent: ${agent_cost:.2f})[/dim]",
+        )
+
+        # Show subagent table
+        subagent_list = subagents_data.get("subagents", [])
+        if subagent_list:
+            sub_table = Table(border_style="dim", show_header=True, header_style="bold")
+            sub_table.add_column("Subagent", style="cyan", max_width=20)
+            sub_table.add_column("Status", justify="center", max_width=10)
+            sub_table.add_column("Time", justify="right")
+            sub_table.add_column("Tokens", justify="right")
+            sub_table.add_column("Cost", justify="right", style="green")
+            sub_table.add_column("Task", max_width=50)
+
+            for sub in subagent_list:
+                status = sub.get("status", "unknown")
+                status_style = "green" if status == "completed" else "yellow" if status == "running" else "red"
+                elapsed = sub.get("elapsed_seconds", 0)
+                time_str = f"{elapsed:.1f}s" if elapsed < 60 else f"{elapsed/60:.1f}m"
+                input_tok = sub.get("input_tokens", 0)
+                output_tok = sub.get("output_tokens", 0)
+                tokens_str = f"{input_tok:,}→{output_tok:,}"
+                cost_val = sub.get("estimated_cost", 0)
+                task = sub.get("task", "")
+                if len(task) > 50:
+                    task = task[:47] + "..."
+
+                sub_table.add_row(
+                    sub.get("subagent_id", "?"),
+                    f"[{status_style}]{status}[/{status_style}]",
+                    time_str,
+                    tokens_str,
+                    f"${cost_val:.4f}",
+                    task,
+                )
+
+            console.print(sub_table)
+
     # API Timing section
     api_timing = data.get("api_timing", {})
     if api_timing and api_timing.get("total_calls", 0) > 0:

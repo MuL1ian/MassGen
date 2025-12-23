@@ -456,7 +456,13 @@ def save_partial_turn(
         if workspace_path and Path(workspace_path).exists():
             try:
                 dest = workspaces_dir / agent_id
-                shutil.copytree(workspace_path, dest, dirs_exist_ok=True)
+                shutil.copytree(
+                    workspace_path,
+                    dest,
+                    dirs_exist_ok=True,
+                    symlinks=True,
+                    ignore_dangling_symlinks=True,
+                )
                 copied_count += 1
             except Exception as e:
                 logger.warning(f"Failed to copy workspace for {agent_id}: {e}")
@@ -471,7 +477,13 @@ def save_partial_turn(
         if selected_workspace and Path(selected_workspace).exists():
             try:
                 main_workspace = turn_dir / "workspace"
-                shutil.copytree(selected_workspace, main_workspace, dirs_exist_ok=True)
+                shutil.copytree(
+                    selected_workspace,
+                    main_workspace,
+                    dirs_exist_ok=True,
+                    symlinks=True,
+                    ignore_dangling_symlinks=True,
+                )
                 logger.info(f"Copied selected agent workspace to {main_workspace}")
             except Exception as e:
                 logger.warning(f"Failed to copy selected agent workspace: {e}")
