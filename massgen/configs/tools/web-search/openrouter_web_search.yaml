@@ -6,21 +6,15 @@
 #
 # Features:
 #   - Uses OpenRouter's native web search plugin (via plugins array)
-#   - Supports both openrouter/auto (auto-router) and specific models
 #   - Configurable search engine (exa or native)
 #   - Configurable max_results
-#
-# Note: openrouter/auto works best with web search only (disable MCP/custom tools for best results)
-# For full tool support, use a specific model like deepseek/deepseek-r1
 
 agents:
   - id: "openrouter_research_agent"
     backend:
       type: "openrouter"
       model: "deepseek/deepseek-r1"  # Tool-capable model that supports both plugins and function tools
-      # Alternative: use "openrouter/auto" for cost optimization (requires disabling function tools)
-      # model: "openrouter/auto"
-      
+
       # Enable OpenRouter's native web search plugin
       enable_web_search: true
       
