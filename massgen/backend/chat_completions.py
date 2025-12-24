@@ -41,6 +41,7 @@ from .base_with_custom_tool_and_mcp import (
 OPENROUTER_DEFAULT_WEB_ENGINE = "exa"
 OPENROUTER_DEFAULT_WEB_MAX_RESULTS = 1
 
+
 class ChatCompletionsBackend(CustomToolAndMCPBackend):
     """Complete OpenAI-compatible Chat Completions API backend.
 
