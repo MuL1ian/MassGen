@@ -1475,17 +1475,22 @@ async def run_question_with_history(
         from .subagent.models import SubagentOrchestratorConfig
 
         coord_cfg = orchestrator_cfg["coordination"]
+        logger.info(f"[CLI] coord_cfg keys: {list(coord_cfg.keys())}")
 
         # Parse persona_generator config if present
         persona_generator_config = PersonaGeneratorConfig()
         if "persona_generator" in coord_cfg:
             pg_cfg = coord_cfg["persona_generator"]
+            logger.info(f"[CLI] persona_generator raw config: {pg_cfg}")
             persona_generator_config = PersonaGeneratorConfig(
                 enabled=pg_cfg.get("enabled", False),
                 backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
                 strategy=pg_cfg.get("strategy", "complementary"),
+                diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
                 persona_guidelines=pg_cfg.get("persona_guidelines"),
+                persist_across_turns=pg_cfg.get("persist_across_turns", False),
             )
+            logger.info(f"[CLI] Created PersonaGeneratorConfig: enabled={persona_generator_config.enabled}")
 
         # Parse subagent_orchestrator config if present
         subagent_orchestrator_config = None
@@ -1542,6 +1547,19 @@ async def run_question_with_history(
             # Session doesn't exist yet or has no turns - that's ok for new sessions
             logger.debug(f"Could not restore session for previous turns: {e}")
 
+    # Get generated personas from session info if persist_across_turns is enabled
+    # By default, generate new personas each turn (persist_across_turns=False)
+    generated_personas = None
+    if (
+        hasattr(orchestrator_config, "coordination_config")
+        and orchestrator_config.coordination_config
+        and orchestrator_config.coordination_config.persona_generator
+        and orchestrator_config.coordination_config.persona_generator.persist_across_turns
+    ):
+        generated_personas = session_info.get("generated_personas")
+        if generated_personas:
+            logger.info("[CLI] Reusing persisted personas from previous turn")
+
     orchestrator = Orchestrator(
         agents=agents,
         config=orchestrator_config,
@@ -1554,6 +1572,7 @@ async def run_question_with_history(
         enable_rate_limit=kwargs.get("enable_rate_limit", False),
         enable_nlip=orchestrator_enable_nlip,
         nlip_config=orchestrator_nlip_config,
+        generated_personas=generated_personas,  # Only if persist_across_turns=True
     )
     # Create a fresh UI instance for each question to ensure clean state
     ui = _build_coordination_ui(ui_config)
@@ -1580,7 +1599,9 @@ async def run_question_with_history(
                     enabled=pg_cfg.get("enabled", False),
                     backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
                     strategy=pg_cfg.get("strategy", "complementary"),
+                    diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
+                    persist_across_turns=pg_cfg.get("persist_across_turns", False),
                 )
 
             # Parse subagent_orchestrator config if present
@@ -1805,6 +1826,11 @@ async def run_question_with_history(
         log_directory=log_dir_name,
     )
 
+    # Store generated personas in session_info for persistence across turns
+    # This allows subsequent turns to reuse personas instead of regenerating
+    if orchestrator.get_generated_personas():
+        session_info["generated_personas"] = orchestrator.get_generated_personas()
+
     # Return normalized response so conversation history has correct paths
     return (normalized_response or response_content, session_id_to_use, updated_turn, was_cancelled)
 
@@ -1947,7 +1973,9 @@ async def run_single_question(
                     enabled=pg_cfg.get("enabled", False),
                     backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
                     strategy=pg_cfg.get("strategy", "complementary"),
+                    diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
+                    persist_across_turns=pg_cfg.get("persist_across_turns", False),
                 )
 
             # Parse subagent_orchestrator config if present
@@ -2033,7 +2061,9 @@ async def run_single_question(
                     enabled=pg_cfg.get("enabled", False),
                     backend=pg_cfg.get("backend", {"type": "openai", "model": "gpt-4o-mini"}),
                     strategy=pg_cfg.get("strategy", "complementary"),
+                    diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
                     persona_guidelines=pg_cfg.get("persona_guidelines"),
+                    persist_across_turns=pg_cfg.get("persist_across_turns", False),
                 )
 
             # Parse subagent_orchestrator config if present
@@ -4634,14 +4664,18 @@ async def main(args):
                 print(f"LOG_DIR: {log_dir}")
                 print(f"STATUS: {full_log_dir / 'status.json'}")
 
-            registry = SessionRegistry()
-            registry.register_session(
-                session_id=memory_session_id,
-                config_path=str(resolved_path) if resolved_path else None,
-                model=model_name,
-                log_directory=log_dir_name,
-            )
-            logger.info(f"📝 Registered new session in registry: {memory_session_id}")
+            # Only register in global session registry if not suppressed (e.g., subagent runs)
+            if not getattr(args, "no_session_registry", False):
+                registry = SessionRegistry()
+                registry.register_session(
+                    session_id=memory_session_id,
+                    config_path=str(resolved_path) if resolved_path else None,
+                    model=model_name,
+                    log_directory=log_dir_name,
+                )
+                logger.info(f"📝 Registered new session in registry: {memory_session_id}")
+            else:
+                logger.debug(f"📝 Skipping session registry (--no-session-registry): {memory_session_id}")
 
         agents = create_agents_from_config(
             config,
@@ -5051,6 +5085,11 @@ Environment Variables:
         "REQUIRED for LLM agents and background execution. Automatically isolates workspaces for parallel runs.",
     )
     parser.add_argument(
+        "--no-session-registry",
+        action="store_true",
+        help="Don't register this session in the global session registry. Used for internal subagent runs.",
+    )
+    parser.add_argument(
         "--output-file",
         type=str,
         metavar="PATH",
@@ -5218,9 +5257,10 @@ Environment Variables:
         from massgen.session import SessionRegistry
 
         registry = SessionRegistry()
-        recent_session = registry.get_most_recent_session()
+        # Use get_most_recent_continuable_session to skip empty sessions
+        recent_session = registry.get_most_recent_continuable_session()
         if not recent_session:
-            print("❌ No sessions found to continue")
+            print("❌ No continuable sessions found (all sessions are empty)")
             print("Run 'massgen --list-sessions' to see available sessions")
             sys.exit(1)
         args.session_id = recent_session["session_id"]

@@ -205,5 +205,6 @@ Create professional artist websites by gathering biographical data and generatin
 
 1. **Be specific** - Workflow steps should be actionable, not vague
 2. **Document tools upfront** - Plan scripts before writing them
-3. **Update with learnings** - The skill improves through use
-4. **Keep scripts reusable** - Design tools to work in similar future tasks
+3. **Test like a user** - Verify artifacts through interaction, not just observation (click buttons, play games, navigate pages, run with edge cases, etc)
+4. **Update with learnings** - The skill improves through use
+5. **Keep scripts reusable** - Design tools to work in similar future tasks
