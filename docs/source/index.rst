@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.29 (December 24, 2025)** - Subagent System & Responses API Fixes
+
+New subagent system for spawning parallel child MassGen processes with isolated workspaces. Enhanced tool metrics with distribution statistics (min/max/median). CLI config builder per-agent system messages. OpenAI Responses API duplicate item and function call ID fixes.
+
 **v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
 
 Unified multimodal understanding via ``read_media`` tool and generation via ``generate_media`` tool. Web UI artifact previewer for PDFs, documents, images, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
@@ -164,10 +168,6 @@ Unified multimodal understanding via ``read_media`` tool and generation via ``ge
 **v0.1.27 (December 19, 2025)** - Session Sharing & Log Analysis
 
 Session sharing via GitHub Gist with ``massgen export`` command. New ``massgen logs`` CLI for viewing, filtering, and exporting run logs. Per-LLM call timing metrics across all backends. Gemini 3 Flash model support. CLI config builder with per-agent web search and system messages. Web UI context paths wizard.
-
-**v0.1.26 (December 17, 2025)** - Docker Diagnostics & Web UI Setup
-
-Docker diagnostics module with platform-specific error detection and resolution. Web UI setup wizard for guided first-run experience with API key management. Shadow agent response depth for test-time compute scaling. Model registry updates with GPT-5.1-Codex family and Claude alias notation.
 
 :doc:`Full changelog → <changelog>`
 
