@@ -31,6 +31,7 @@ from massgen.system_prompt_sections import (
     PlanningModeSection,
     PostEvaluationSection,
     SkillsSection,
+    SubagentSection,
     SystemPromptBuilder,
     TaskPlanningSection,
     WorkspaceStructureSection,
@@ -254,6 +255,19 @@ class SystemMessageBuilder:
 
                 builder.add_section(CodeBasedToolsSection(workspace_path, shared_tools_path, mcp_servers))
                 logger.info(f"[SystemMessageBuilder] Added code-based tools section for {agent_id}")
+
+        # PRIORITY 10 (MEDIUM): Subagent Delegation (conditional)
+        if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "enable_subagents"):
+            enable_subagents = self.config.coordination_config.enable_subagents
+            if enable_subagents:
+                # Get workspace path for subagent section
+                workspace_path = ""
+                if agent.backend.filesystem_manager:
+                    workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                # Get max concurrent from config, default to 3
+                max_concurrent = getattr(self.config.coordination_config, "subagent_max_concurrent", 3)
+                builder.add_section(SubagentSection(workspace_path, max_concurrent))
+                logger.info(f"[SystemMessageBuilder] Added subagent section for {agent_id} (max_concurrent: {max_concurrent})")
 
         # PRIORITY 10 (MEDIUM): Task Planning
         if enable_task_planning:

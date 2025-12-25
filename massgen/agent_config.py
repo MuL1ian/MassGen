@@ -16,6 +16,7 @@ from .persona_generator import PersonaGeneratorConfig
 
 if TYPE_CHECKING:
     from .message_templates import MessageTemplates
+    from .subagent.models import SubagentOrchestratorConfig
 
 
 @dataclass
@@ -83,6 +84,14 @@ class CoordinationConfig:
                                      previous sessions and include them as available skills.
         persona_generator: Configuration for automatic persona generation to increase agent diversity.
                           When enabled, an LLM generates diverse system message personas for each agent.
+        enable_subagents: If True, agents receive subagent MCP tools for spawning independent
+                         agent instances with fresh context and isolated workspaces. Useful for
+                         parallel task execution and avoiding context pollution.
+        subagent_default_timeout: Default timeout in seconds for subagent execution (default 300).
+        subagent_max_concurrent: Maximum number of concurrent subagents an agent can spawn (default 3).
+        subagent_orchestrator: Configuration for subagent orchestrator mode. When enabled, subagents
+                              use a full Orchestrator with multiple agents. This enables multi-agent coordination within
+                              subagent execution.
     """
 
     enable_planning_mode: bool = False
@@ -105,6 +114,10 @@ class CoordinationConfig:
     skills_directory: str = ".agent/skills"
     load_previous_session_skills: bool = False
     persona_generator: PersonaGeneratorConfig = field(default_factory=PersonaGeneratorConfig)
+    enable_subagents: bool = False
+    subagent_default_timeout: int = 300
+    subagent_max_concurrent: int = 3
+    subagent_orchestrator: Optional["SubagentOrchestratorConfig"] = None
 
     def __post_init__(self):
         """Validate configuration after initialization."""

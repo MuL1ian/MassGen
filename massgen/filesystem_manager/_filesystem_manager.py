@@ -26,6 +26,7 @@ from ..mcp_tools.client import HookType
 from . import _code_execution_server as ce_module
 from . import _workspace_tools_server as wc_module
 from ._base import Permission
+from ._constants import FRAMEWORK_MCPS
 from ._path_permission_manager import PathPermissionManager
 
 
@@ -800,8 +801,8 @@ class FilesystemManager:
     def _extract_mcp_tool_schemas(self, mcp_client) -> List[Dict[str, Any]]:
         """Extract tool schemas from MCP client, organized by server.
 
-        Only extracts user-added MCP servers. Framework MCPs (command_line, workspace_tools,
-        filesystem, planning, memory) are excluded as they're handled separately.
+        Only extracts user-added MCP servers. Framework MCPs (defined in FRAMEWORK_MCPS
+        constant) are excluded as they're handled separately.
 
         Args:
             mcp_client: MCPClient instance with connected tools
@@ -826,16 +827,6 @@ class FilesystemManager:
                 ...
             ]
         """
-        # Framework MCPs that should NOT be converted to code
-        # These are automatically available or handled by the framework
-        FRAMEWORK_MCPS = {
-            "command_line",  # Command execution (already available via bash)
-            "workspace_tools",  # Workspace operations (file ops, media generation)
-            "filesystem",  # Filesystem operations
-            "planning",  # Task planning MCP
-            "memory",  # Memory management MCP
-        }
-
         servers_with_tools = {}
 
         # Group tools by server
@@ -1470,7 +1461,14 @@ class FilesystemManager:
                         if item.is_file():
                             shutil.copy2(item, self.snapshot_storage / item.name)
                         elif item.is_dir():
-                            shutil.copytree(item, self.snapshot_storage / item.name)
+                            # Use symlinks=True to copy symlinks as symlinks, not follow them
+                            # Use ignore_dangling_symlinks=True to handle broken symlinks in subdirectories (e.g., from subagent workspaces)
+                            shutil.copytree(
+                                item,
+                                self.snapshot_storage / item.name,
+                                symlinks=True,
+                                ignore_dangling_symlinks=True,
+                            )
                         items_copied += 1
 
                     logger.info(f"[FilesystemManager] Saved snapshot with {items_copied} items to {self.snapshot_storage}")
@@ -1499,7 +1497,15 @@ class FilesystemManager:
                     if item.is_file():
                         shutil.copy2(item, dest_dir / item.name)
                     elif item.is_dir():
-                        shutil.copytree(item, dest_dir / item.name, dirs_exist_ok=True)
+                        # Use symlinks=True to copy symlinks as symlinks, not follow them
+                        # Use ignore_dangling_symlinks=True to handle broken symlinks in subdirectories (e.g., from subagent workspaces)
+                        shutil.copytree(
+                            item,
+                            dest_dir / item.name,
+                            dirs_exist_ok=True,
+                            symlinks=True,
+                            ignore_dangling_symlinks=True,
+                        )
                     items_copied += 1
 
                 logger.info(f"[FilesystemManager] Saved {'final' if is_final else 'regular'} " f"log snapshot with {items_copied} items to {dest_dir}")
@@ -1620,8 +1626,16 @@ class FilesystemManager:
                 dest_dir = self.agent_temporary_workspace / anon_id
 
                 # Copy snapshot content if not empty
+                # Use symlinks=True to copy symlinks as symlinks, not follow them
+                # Use ignore_dangling_symlinks=True to handle broken symlinks in subdirectories
                 if any(snapshot_path.iterdir()):
-                    shutil.copytree(snapshot_path, dest_dir, dirs_exist_ok=True)
+                    shutil.copytree(
+                        snapshot_path,
+                        dest_dir,
+                        dirs_exist_ok=True,
+                        symlinks=True,
+                        ignore_dangling_symlinks=True,
+                    )
 
         return self.agent_temporary_workspace
 

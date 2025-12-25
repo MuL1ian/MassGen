@@ -30,6 +30,9 @@ interface InlineArtifactPreviewProps {
   workspacePath: string;
   onClose?: () => void;
   onFullscreen?: () => void;
+  // Optional: Enable live HTML preview with working relative links
+  sessionId?: string;
+  agentId?: string;
 }
 
 type ViewMode = 'preview' | 'source';
@@ -116,6 +119,8 @@ export function InlineArtifactPreview({
   workspacePath,
   onClose,
   onFullscreen,
+  sessionId,
+  agentId,
 }: InlineArtifactPreviewProps) {
   const { content, isLoading, error, fetchFile, clearContent } = useFileContent();
   const [viewMode, setViewMode] = useState<ViewMode>('preview');
@@ -321,6 +326,10 @@ export function InlineArtifactPreview({
             content={content.content}
             fileName={fileName}
             relatedFiles={relatedFiles}
+            sessionId={sessionId}
+            agentId={agentId}
+            filePath={filePath}
+            workspacePath={workspacePath}
           />
         );
       case 'svg':

@@ -227,7 +227,29 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.28 - Latest
+### v0.1.29 - Latest
+**New Features:** Subagent System, Tool Metrics Distribution, Per-Agent System Messages
+
+**Key Features:**
+- **Subagent System**: Spawn parallel child MassGen processes for independent tasks with isolated workspaces
+- **Tool Metrics Distribution**: Enhanced metrics with per-call averages and min/max/median output distribution
+- **Per-Agent System Messages**: Configure different system messages for each agent via `massgen --quickstart`
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Subagent system - spawn parallel child processes for independent tasks
+uv run massgen --config massgen/configs/features/test_subagent_orchestrator.yaml \
+  "Spawn a subagent to research Python async best practices"
+
+# Subagent with code-based tools and Docker execution
+uv run massgen --config massgen/configs/features/test_subagent_orchestrator_code_mode.yaml \
+  "Spawn a subagent to write a Python script that fetches the current weather"
+```
+
+### v0.1.28
 **New Features:** Unified Multimodal Tools, Web UI Artifact Previewer
 
 **Key Features:**
@@ -237,16 +259,9 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Unified multimodal tools - generate and analyze images, audio, video
 massgen --config @examples/tools/custom_tools/multimodal_tools/unified_multimodal \
   "Create an image of two AI chatting with a human and then describe it in detail"
-
-# Multi-agent collaboration
-massgen --config @examples/basic/multi/three_agents_default \
-  "Compare different approaches to building AI agents"
 ```
 
 ### v0.1.27

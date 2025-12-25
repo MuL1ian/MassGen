@@ -405,9 +405,19 @@ class ResponseBackend(CustomToolAndMCPBackend):
             # This is required for reasoning models like GPT-5, o3, o4-mini
             # Without reasoning items, subsequent API calls will fail with:
             # "Item 'msg_...' of type 'message' was provided without its required 'reasoning' item"
-            if response_output_items:
-                updated_messages.extend(response_output_items)
-                logger.debug(f"Added {len(response_output_items)} response output items to messages for reasoning continuity")
+            #
+            # IMPORTANT: Only add items manually if we DON'T have a response_id
+            # When previous_response_id is passed to the API, it automatically includes
+            # all items from that response, so manually adding them causes duplicates
+            if response_output_items and not response_id:
+                # Deduplicate by 'id' field to avoid "Duplicate item found with id" errors
+                existing_ids = {msg.get("id") for msg in updated_messages if msg.get("id")}
+                unique_items = [item for item in response_output_items if item.get("id") not in existing_ids]
+
+                updated_messages.extend(unique_items)
+                logger.debug(f"Added {len(unique_items)} response output items to messages for reasoning continuity (filtered {len(response_output_items) - len(unique_items)} duplicates)")
+            elif response_id:
+                logger.debug(f"Skipping manual item addition - using previous_response_id={response_id} for automatic continuity")
 
             # Configuration for custom tool execution
             CUSTOM_TOOL_CONFIG = ToolExecutionConfig(

@@ -9,16 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.29 (December 24, 2025)** - Subagent System & Responses API Fixes
+New subagent system for spawning parallel child MassGen processes with isolated workspaces. Enhanced tool metrics with distribution statistics. CLI config builder per-agent system messages. OpenAI Responses API duplicate item and function call ID fixes.
+
 **v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
 Unified multimodal understanding via `read_media` tool and generation via `generate_media` tool. Web UI artifact previewer for documents, images, PDFs, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
 
 **v0.1.27 (December 19, 2025)** - Session Sharing, Log Analysis & Config Builder Enhancements
 Session sharing via GitHub Gist with `massgen export`. New `massgen logs` CLI command for run log analysis. Per-LLM call time tracking. Gemini 3 Flash model support. CLI config builder with per-agent web search, system messages, and coordination settings. Web UI context paths wizard and "Open in Browser" button.
 
-**v0.1.26 (December 17, 2025)** - Web UI Setup & Shadow Agent Depth Scaling
-New Web UI setup wizard for guided first-run configuration, Docker diagnostics module with platform-specific resolution, and shadow agent response depth for test-time compute scaling.
-
 ---
+
+## [0.1.29] - 2025-12-24
+
+### Added
+- **Subagent System**: Spawn parallel child MassGen processes for independent task execution
+  - New `spawn_subagents` tool for agents to delegate parallelizable work
+  - Process isolation with independent workspaces per subagent
+  - Automatic inheritance of parent agent's backend configuration
+  - Result aggregation with workspace paths and token usage tracking
+  - Configurable via `enable_subagents`, `subagent_default_timeout`, and `subagent_max_concurrent`
+
+### Changed
+- **Tool Metrics with Distribution Statistics**: Enhanced `get_tool_metrics_summary()` with per-call averages and output distribution stats (min/max/median)
+
+- **CLI Config Builder Per-Agent System Messages**: New mode in `massgen --quickstart` for assigning different system messages per agent ("Skip", "Same for all", "Different per agent")
+
+### Fixed
+- **OpenAI Responses API Duplicate Items**: Fixed duplicate item errors when using `previous_response_id` by skipping manual item addition when response ID is passed
+
+- **Response Formatter Function Call ID Preservation**: Preserved 'id' field in function_call messages for proper pairing with reasoning items (required by OpenAI Responses API)
+
+### Documentations, Configurations and Resources
+
+- **Subagent Documentation**: New `docs/source/user_guide/advanced/subagents.rst` with usage guide, configuration examples, and best practices
+- **Subagent Example Configs**: New `massgen/configs/features/test_subagent_orchestrator.yaml` and `test_subagent_orchestrator_code_mode.yaml`
+
+### Technical Details
+- **Major Focus**: Subagent parallel execution system, OpenAI Responses API compatibility
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.28] - 2025-12-22
 

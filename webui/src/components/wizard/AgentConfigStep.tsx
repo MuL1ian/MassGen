@@ -145,6 +145,11 @@ export function AgentConfigStep() {
   const [providerSearch, setProviderSearch] = useState('');
   const [modelSearch, setModelSearch] = useState('');
 
+  // System message mode for "same" setup mode: 'skip' | 'same' | 'different'
+  const [systemMessageMode, setSystemMessageMode] = useState<'skip' | 'same' | 'different'>('skip');
+  // Track which agent we're editing system message for (in 'different' mode)
+  const [editingSystemMsgAgent, setEditingSystemMsgAgent] = useState<number | null>(null);
+
   // For multi-agent different config, track which agent we're configuring
   const [activeAgentIndex, setActiveAgentIndex] = useState(0);
 
@@ -240,14 +245,36 @@ export function AgentConfigStep() {
   };
 
   // Handle system message change
-  const handleSystemMessageChange = (message: string) => {
+  const handleSystemMessageChange = (message: string, agentIndex?: number) => {
     if (setupMode === 'same') {
-      // Update all agents
-      agents.forEach((_, index) => {
-        setAgentSystemMessage(index, message);
-      });
+      if (systemMessageMode === 'same') {
+        // Update all agents with same message
+        agents.forEach((_, index) => {
+          setAgentSystemMessage(index, message);
+        });
+      } else if (systemMessageMode === 'different' && agentIndex !== undefined) {
+        // Update only the specific agent
+        setAgentSystemMessage(agentIndex, message);
+      }
     } else {
       setAgentSystemMessage(activeAgentIndex, message);
+    }
+  };
+
+  // Handle system message mode change
+  const handleSystemMessageModeChange = (mode: 'skip' | 'same' | 'different') => {
+    setSystemMessageMode(mode);
+    if (mode === 'skip') {
+      // Clear all system messages
+      agents.forEach((_, index) => {
+        setAgentSystemMessage(index, '');
+      });
+      setEditingSystemMsgAgent(null);
+    } else if (mode === 'same') {
+      setEditingSystemMsgAgent(null);
+    } else if (mode === 'different') {
+      // Start editing first agent
+      setEditingSystemMsgAgent(0);
     }
   };
 
@@ -590,19 +617,126 @@ export function AgentConfigStep() {
                           </span>
                           <span className="text-xs text-gray-400">(optional)</span>
                         </div>
-                        <textarea
-                          value={currentAgent.system_message ?? ''}
-                          onChange={(e) => handleSystemMessageChange(e.target.value)}
-                          placeholder="Add custom instructions for this agent..."
-                          rows={3}
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600
-                                   rounded-lg text-gray-800 dark:text-gray-200 text-sm
-                                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                                   resize-none placeholder-gray-400 dark:placeholder-gray-500"
-                        />
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          Custom instructions to guide the agent's behavior and responses
-                        </p>
+
+                        {/* In "same" setup mode with multiple agents, show mode selector */}
+                        {setupMode === 'same' && agents.length > 1 ? (
+                          <div className="space-y-3">
+                            {/* Mode selector */}
+                            <div className="flex gap-2 flex-wrap">
+                              <button
+                                onClick={() => handleSystemMessageModeChange('skip')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                  systemMessageMode === 'skip'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                                }`}
+                              >
+                                Skip
+                              </button>
+                              <button
+                                onClick={() => handleSystemMessageModeChange('same')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                  systemMessageMode === 'same'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                                }`}
+                              >
+                                Same for all
+                              </button>
+                              <button
+                                onClick={() => handleSystemMessageModeChange('different')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                  systemMessageMode === 'different'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                                }`}
+                              >
+                                Different per agent
+                              </button>
+                            </div>
+
+                            {/* Content based on mode */}
+                            {systemMessageMode === 'same' && (
+                              <textarea
+                                value={agents[0]?.system_message ?? ''}
+                                onChange={(e) => handleSystemMessageChange(e.target.value)}
+                                placeholder="Add custom instructions for all agents..."
+                                rows={3}
+                                className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600
+                                         rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                                         focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                                         resize-none placeholder-gray-400 dark:placeholder-gray-500"
+                              />
+                            )}
+
+                            {systemMessageMode === 'different' && (
+                              <div className="space-y-2">
+                                {/* Agent tabs */}
+                                <div className="flex gap-1 flex-wrap">
+                                  {agents.map((agent, index) => {
+                                    const letter = agent.id.replace('agent_', '').toUpperCase();
+                                    const hasMessage = !!agent.system_message;
+                                    return (
+                                      <button
+                                        key={agent.id}
+                                        onClick={() => setEditingSystemMsgAgent(index)}
+                                        className={`px-2 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1 ${
+                                          editingSystemMsgAgent === index
+                                            ? 'bg-blue-500 text-white'
+                                            : hasMessage
+                                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                            : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                                        }`}
+                                      >
+                                        Agent {letter}
+                                        {hasMessage && editingSystemMsgAgent !== index && (
+                                          <Check className="w-3 h-3" />
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Textarea for selected agent */}
+                                {editingSystemMsgAgent !== null && (
+                                  <textarea
+                                    value={agents[editingSystemMsgAgent]?.system_message ?? ''}
+                                    onChange={(e) => handleSystemMessageChange(e.target.value, editingSystemMsgAgent)}
+                                    placeholder={`Instructions for Agent ${agents[editingSystemMsgAgent]?.id.replace('agent_', '').toUpperCase()}...`}
+                                    rows={3}
+                                    className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600
+                                             rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                                             resize-none placeholder-gray-400 dark:placeholder-gray-500"
+                                  />
+                                )}
+                              </div>
+                            )}
+
+                            {systemMessageMode === 'skip' && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                No custom instructions will be added to agents
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          /* Single agent or "different" setup mode - simple textarea */
+                          <>
+                            <textarea
+                              value={currentAgent.system_message ?? ''}
+                              onChange={(e) => handleSystemMessageChange(e.target.value)}
+                              placeholder="Add custom instructions for this agent..."
+                              rows={3}
+                              className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600
+                                       rounded-lg text-gray-800 dark:text-gray-200 text-sm
+                                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                                       resize-none placeholder-gray-400 dark:placeholder-gray-500"
+                            />
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              Custom instructions to guide the agent's behavior and responses
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}

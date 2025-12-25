@@ -417,7 +417,11 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
     setIsLoadingWorkspaces(true);
     setWorkspaceError(null);
     try {
-      const response = await fetch('/api/workspaces');
+      // Pass session_id for fast lookup from status.json
+      const url = sessionId
+        ? `/api/workspaces?session_id=${encodeURIComponent(sessionId)}`
+        : '/api/workspaces';
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Failed to fetch workspaces (${response.status})`);
       }
@@ -427,7 +431,8 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
       // Auto-select first agent's workspace if available
       if (data.current.length > 0 && !selectedAgentWorkspace) {
         const firstWorkspace = data.current[0];
-        const agentId = getAgentIdFromWorkspace(firstWorkspace.name, agentOrder);
+        // Use agentId from API response if available (fast path), otherwise fall back to heuristic
+        const agentId = firstWorkspace.agentId || getAgentIdFromWorkspace(firstWorkspace.name, agentOrder);
         if (agentId) {
           setSelectedAgentWorkspace(agentId);
         }
@@ -442,7 +447,7 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
     } finally {
       setIsLoadingWorkspaces(false);
     }
-  }, [selectedAgentWorkspace, agentOrder]);
+  }, [selectedAgentWorkspace, agentOrder, sessionId]);
 
   // Fetch files for selected workspace
   const fetchWorkspaceFiles = useCallback(async (workspace: WorkspaceInfo) => {
@@ -514,9 +519,9 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
       map[agentId] = { historical: [] };
     });
 
-    // Map current workspaces
+    // Map current workspaces - use agentId from API if available, otherwise fall back to heuristic
     workspaces.current.forEach((ws) => {
-      const agentId = getAgentIdFromWorkspace(ws.name, agentOrder);
+      const agentId = ws.agentId || getAgentIdFromWorkspace(ws.name, agentOrder);
       if (agentId && map[agentId]) {
         map[agentId].current = ws;
       }
@@ -524,7 +529,7 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
 
     // Map historical workspaces
     workspaces.historical.forEach((ws) => {
-      const agentId = getAgentIdFromWorkspace(ws.name, agentOrder);
+      const agentId = ws.agentId || getAgentIdFromWorkspace(ws.name, agentOrder);
       if (agentId && map[agentId]) {
         map[agentId].historical.push(ws);
       }
@@ -1344,6 +1349,8 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                         workspacePath={activeWorkspace.path}
                         onClose={handleInlinePreviewClose}
                         onFullscreen={() => setIsPreviewFullscreen(true)}
+                        sessionId={sessionId}
+                        agentId={selectedAgentWorkspace || undefined}
                       />
                     ) : (
                       <div className="flex flex-col items-center justify-center h-full text-gray-500 bg-gray-800/30 rounded-lg border border-gray-700">
@@ -1434,6 +1441,8 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
                 filePath={selectedFilePath}
                 workspacePath={activeWorkspace.path}
                 onClose={() => setIsPreviewFullscreen(false)}
+                sessionId={sessionId}
+                agentId={selectedAgentWorkspace || undefined}
               />
             </div>
           </motion.div>

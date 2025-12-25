@@ -32,6 +32,7 @@ from typing import (
 import httpx
 from pydantic import BaseModel
 
+from ..filesystem_manager._constants import FRAMEWORK_MCPS
 from ..logger_config import log_backend_activity, logger
 from ..mcp_tools.server_registry import get_auto_discovery_servers, get_registry_info
 from ..nlip.schema import (
@@ -464,10 +465,10 @@ class CustomToolAndMCPBackend(LLMBackend):
         return [m.to_dict() for m in self._tool_execution_metrics]
 
     def get_tool_metrics_summary(self) -> Dict[str, Any]:
-        """Get aggregated tool metrics summary.
+        """Get aggregated tool metrics summary with distribution statistics.
 
         Returns:
-            Dictionary with total counts and per-tool breakdown.
+            Dictionary with total counts, per-tool breakdown, and distribution stats.
         """
         if not self._tool_execution_metrics:
             return {
@@ -481,6 +482,11 @@ class CustomToolAndMCPBackend(LLMBackend):
         total_failures = 0
         total_time_ms = 0.0
 
+        # First pass: collect all values per tool for distribution calculation
+        tool_input_chars: Dict[str, List[int]] = {}
+        tool_output_chars: Dict[str, List[int]] = {}
+        tool_exec_times: Dict[str, List[float]] = {}
+
         for m in self._tool_execution_metrics:
             name = m.tool_name
             if name not in by_tool:
@@ -493,6 +499,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                     "total_output_chars": 0,
                     "tool_type": m.tool_type,
                 }
+                tool_input_chars[name] = []
+                tool_output_chars[name] = []
+                tool_exec_times[name] = []
+
             by_tool[name]["call_count"] += 1
             if m.success:
                 by_tool[name]["success_count"] += 1
@@ -504,16 +514,53 @@ class CustomToolAndMCPBackend(LLMBackend):
             by_tool[name]["total_output_chars"] += m.output_chars
             total_time_ms += m.execution_time_ms
 
-        # Calculate averages
-        for tool_stats in by_tool.values():
+            # Collect individual values for distribution
+            tool_input_chars[name].append(m.input_chars)
+            tool_output_chars[name].append(m.output_chars)
+            tool_exec_times[name].append(m.execution_time_ms)
+
+        # Calculate averages and distribution stats
+        for name, tool_stats in by_tool.items():
             count = tool_stats["call_count"]
             if count > 0:
+                # Existing averages
                 tool_stats["avg_execution_time_ms"] = round(
                     tool_stats["total_execution_time_ms"] / count,
                     2,
                 )
                 tool_stats["input_tokens_est"] = tool_stats["total_input_chars"] // 4
                 tool_stats["output_tokens_est"] = tool_stats["total_output_chars"] // 4
+
+                # New: per-call averages
+                tool_stats["avg_input_chars"] = round(tool_stats["total_input_chars"] / count, 1)
+                tool_stats["avg_output_chars"] = round(tool_stats["total_output_chars"] / count, 1)
+
+                # New: distribution stats for output (the bottleneck concern)
+                output_vals = sorted(tool_output_chars[name])
+                tool_stats["output_distribution"] = {
+                    "min": output_vals[0],
+                    "max": output_vals[-1],
+                    "median": output_vals[len(output_vals) // 2],
+                    "p90": output_vals[int(len(output_vals) * 0.9)] if count >= 10 else output_vals[-1],
+                    "p99": output_vals[int(len(output_vals) * 0.99)] if count >= 100 else output_vals[-1],
+                }
+
+                # New: distribution stats for input
+                input_vals = sorted(tool_input_chars[name])
+                tool_stats["input_distribution"] = {
+                    "min": input_vals[0],
+                    "max": input_vals[-1],
+                    "median": input_vals[len(input_vals) // 2],
+                }
+
+                # New: execution time distribution
+                exec_vals = sorted(tool_exec_times[name])
+                tool_stats["exec_time_distribution"] = {
+                    "min_ms": round(exec_vals[0], 2),
+                    "max_ms": round(exec_vals[-1], 2),
+                    "median_ms": round(exec_vals[len(exec_vals) // 2], 2),
+                    "p90_ms": round(exec_vals[int(len(exec_vals) * 0.9)], 2) if count >= 10 else round(exec_vals[-1], 2),
+                }
 
         return {
             "total_calls": len(self._tool_execution_metrics),
@@ -1812,14 +1859,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             # Setup code-based tools if enabled (CodeAct paradigm)
             if self.filesystem_manager and self.filesystem_manager.enable_code_based_tools:
                 # Filter out user MCP tools from protocol access (they're accessible via code)
-                # Framework MCPs remain as protocol tools
-                FRAMEWORK_MCPS = {
-                    "command_line",  # Command execution
-                    "workspace_tools",  # Workspace operations (file ops, media generation)
-                    "filesystem",  # Filesystem operations
-                    "planning",  # Task planning MCP
-                    "memory",  # Memory management MCP
-                }
+                # Framework MCPs (from FRAMEWORK_MCPS constant) remain as protocol tools
 
                 # Remove user MCP tools from _mcp_functions
                 filtered_functions = {}

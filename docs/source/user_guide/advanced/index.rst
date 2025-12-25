@@ -11,6 +11,7 @@ Advanced features in MassGen:
 * **Agent diversity** - Configure multiple agents with different models and behaviors
 * **Agent communication** - Enable agents to ask each other questions
 * **Task planning** - Structured task breakdown and execution
+* **Subagents** - Spawn parallel child processes for independent tasks
 * **Planning mode** - Safe execution with human approval
 * **Multimodal support** - Image, audio, and video understanding
 * **Computer use** - Browser and desktop automation
@@ -54,6 +55,17 @@ Guides in This Section
       * Complex workflows
 
       :doc:`Read the Task Planning guide → <agent_task_planning>`
+
+   .. grid-item-card:: 🔀 Subagents
+
+      Parallel child processes
+
+      * Independent workspaces
+      * Concurrent execution
+      * Context file sharing
+      * Result aggregation
+
+      :doc:`Read the Subagents guide → <subagents>`
 
    .. grid-item-card:: ✅ Planning Mode
 
@@ -114,6 +126,7 @@ Related Documentation
    diversity
    agent_communication
    agent_task_planning
+   subagents
    planning_mode
    multimodal
    computer_use

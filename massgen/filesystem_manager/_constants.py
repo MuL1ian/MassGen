@@ -255,3 +255,26 @@ MAX_LOG_ITEMS = 50
 
 # Maximum directory depth for workspace logging
 MAX_LOG_DEPTH = 3
+
+# =============================================================================
+# FRAMEWORK MCP SERVERS
+# =============================================================================
+
+# MCP servers that are part of MassGen's framework and should NOT be converted
+# to code-based tools (discoverable in servers/ directory). These are either:
+# - Automatically available built-in tools
+# - Handled specially by the framework
+# - Injected conditionally based on config flags
+#
+# Note: Server names may have agent-specific suffixes (e.g., "planning_agent_a"),
+# so matching should check for prefix matches like server_name.startswith(f"{mcp}_")
+FRAMEWORK_MCPS = frozenset(
+    {
+        "command_line",  # Command execution (execute_command tool)
+        "workspace_tools",  # Workspace operations (file ops, media generation)
+        "filesystem",  # Filesystem operations (read/write/edit files)
+        "planning",  # Task planning MCP
+        "memory",  # Memory management MCP
+        "subagent",  # Subagent spawning (built-in when enabled)
+    },
+)
