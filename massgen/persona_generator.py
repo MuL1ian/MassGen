@@ -567,7 +567,7 @@ Generate personas now:"""
                 orchestrator_id=orchestrator_id,
                 parent_agent_configs=simplified_configs,
                 max_concurrent=1,
-                default_timeout=180,  # 3 min for all personas
+                default_timeout=300,  # 5 min for all personas
                 subagent_orchestrator_config=subagent_orch_config,
                 log_directory=log_directory,
             )
@@ -579,7 +579,7 @@ Generate personas now:"""
             result = await manager.spawn_subagent(
                 task=prompt,
                 subagent_id="persona_generation",
-                timeout_seconds=180,
+                timeout_seconds=300,
                 context=f"Generate diverse personas for {len(agent_ids)} agents",
             )
 

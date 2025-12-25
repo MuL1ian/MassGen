@@ -496,7 +496,6 @@ class BackgroundShellManager:
                     "stderr": True,
                     "stdin": False,
                     "tty": False,
-                    "detach": False,  # We'll handle streaming ourselves
                 }
                 if cwd:
                     exec_config["workdir"] = cwd
