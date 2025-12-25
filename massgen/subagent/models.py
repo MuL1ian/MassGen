@@ -124,9 +124,8 @@ class SubagentOrchestratorConfig:
     """
     Configuration for subagent orchestrator mode.
 
-    When enabled, subagents use a full Orchestrator with multiple agents
-    instead of a single ConfigurableAgent. This enables multi-agent coordination
-    within subagent execution.
+    When enabled, subagents use a full Orchestrator with multiple agents.
+    This enables multi-agent coordination within subagent execution.
 
     Attributes:
         enabled: Whether orchestrator mode is enabled (default False = single agent)
@@ -140,10 +139,6 @@ class SubagentOrchestratorConfig:
     enabled: bool = False
     agents: List[Dict[str, Any]] = field(default_factory=list)
     coordination: Dict[str, Any] = field(default_factory=dict)
-    # NOTE: blocking mode removed - spawn_subagents always waits for completion.
-    # Non-blocking would require a way to inject results back into the conversation
-    # when subagents finish, which is complex. Current parallel execution within
-    # spawn_subagents provides the useful parallelism.
 
     @property
     def num_agents(self) -> int:

@@ -1,7 +1,7 @@
 Subagents
 =========
 
-Subagents enable agents to spawn independent child processes for parallel task execution. Each subagent runs in its own isolated workspace, allowing complex workflows to be broken into concurrent, independent pieces.
+Subagents enable agents to spawn independent child processes of a MassGen orchestrator for parallel task execution. Each subagent runs in its own isolated workspace, allowing complex workflows to be broken into concurrent, independent pieces.
 
 Quick Start
 -----------
@@ -14,7 +14,9 @@ Quick Start
      --config @massgen/configs/features/subagent_demo.yaml \
      "Build a web app with frontend, backend, and documentation"
 
-The agent can spawn subagents to work on frontend, backend, and docs simultaneously.
+Here, the agent can spawn subagents to work on frontend, backend, and docs simultaneously.
+
+*NOTE: Currently, you may want to mention subagents in the prompt to ensure the agent uses them effectively.*
 
 What are Subagents?
 -------------------
@@ -38,7 +40,7 @@ Subagents are independent MassGen processes spawned by a parent agent to handle 
 
 Key characteristics:
 
-* **Process isolation**: Each subagent is a separate MassGen subprocess
+* **Process isolation**: Each subagent is a separate MassGen subprocess, meaning it can use as little as one agent but up to multiple agents, all with MassGen's full capabilities.
 * **Independent workspaces**: No interference between subagents
 * **Parallel execution**: All subagents run concurrently
 * **Automatic inheritance**: Subagents use the same model/backend as parent by default
@@ -116,11 +118,11 @@ By default, subagents inherit all parent agent configurations. To customize:
          - id: "subagent_worker"
            backend:
              type: "openai"
-             model: "gpt-4o-mini"  # Use cheaper model for subagents
+             model: "gpt-5-mini"  # Use cheaper model for subagents
          - id: "subagent_worker_2"
            backend:
              type: "gemini"
-             model: "gemini-2.0-flash"
+             model: "gemini-3-flash-preview"
 
 How Agents Use Subagents
 ------------------------
@@ -150,7 +152,7 @@ When subagents are enabled, agents have access to the ``spawn_subagents`` tool:
      }
    }
 
-Critical Rules
+Critical Rules for Calling Subagent Tool
 ~~~~~~~~~~~~~~
 
 1. **Tasks run in PARALLEL**: All tasks start simultaneously. Do NOT create tasks where one depends on another's output.

@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.28
+**Current Version:** v0.1.29
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** December 22, 2025
+**Last Updated:** December 24, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,35 +42,33 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.29** | 12/24/25 | Backend Model List Auto-Update | @ncrispino | Automatic model listing via provider APIs (like OpenRouter), third-party wrappers, or documented manual processes |
+| **v0.1.30** | 12/26/25 | Backend Model List Auto-Update | @ncrispino | Automatic model listing via provider APIs (like OpenRouter), third-party wrappers, or documented manual processes |
 | | | Automatic Context Compression | @ncrispino | Automatic context compression to manage long conversations efficiently |
-| **v0.1.30** | 12/26/25 | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
+| **v0.1.31** | 12/29/25 | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
 | | | Code-Based Tools in Web UI | @ncrispino | Ensure code-based tools work in Web UI along with new features |
-| **v0.1.31** | 12/29/25 | Add Subagents | @ncrispino | Enable orchestrator subcalls with flexible single or multi-agent configurations |
-| | | Memory as Tools | @ncrispino | Include memory (including filesystem) as callable tools for agents |
+| **v0.1.32** | 12/31/25 | Test MassGen for PPTX Slides | @ncrispino | Verify and improve MassGen's ability to generate PowerPoint presentations |
+| | | OpenRouter Tool-Use Model Filtering | @shubham2345 | Restrict OpenRouter model list to only models that support tool use |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.28 - Multimodal Backend Integration & Artifact Previews (COMPLETED)
+## ✅ v0.1.29 - Subagent System & Responses API Fixes (COMPLETED)
 
-**Released: December 22, 2025**
+**Released: December 24, 2025**
 
 ### Features
 
-- **Multimodal Understanding Backend Integration**: Native multimodal support for Gemini and OpenAI backends with `read_media` tool
-- **Multimodal Generation Consolidation**: Unified `generate_media` tool for OpenAI, Google, and OpenRouter providers
-- **Web UI Artifact Previewer**: Preview PDF, DOCX, PPTX, XLSX, images, HTML, SVG, Markdown, Mermaid in web interface
-- **Minimum Answers Before Voting**: New `min_answers_before_voting` orchestrator config option
-- **Azure OpenAI Fixes**: Parameter filtering, tool_choice handling, message validation fixes
-- **OpenRouter Tool-Capable Model Filtering**: Model list filters to only show models with tool support
+- **Subagent System**: Spawn parallel child MassGen processes for independent task execution with isolated workspaces
+- **Tool Metrics with Distribution Statistics**: Enhanced `get_tool_metrics_summary()` with per-call averages and output distribution stats
+- **CLI Config Builder Per-Agent System Messages**: New mode for assigning different system messages per agent
+- **OpenAI Responses API Fixes**: Fixed duplicate item errors and function call ID preservation
 
 *See [Ongoing Work](#-ongoing-work--continuous-releases) section for detailed track information.*
 
 ---
 
-## 📋 v0.1.29 - Backend Model List Auto-Update & Context Compression
+## 📋 v0.1.30 - Backend Model List Auto-Update & Context Compression
 
 ### Features
 
@@ -97,7 +95,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.30 - OpenAI-Compatible Server & Web UI Tools
+## 📋 v0.1.31 - OpenAI-Compatible Server & Web UI Tools
 
 ### Features
 
@@ -121,21 +119,25 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.31 - Subagents & Memory as Tools
+## 📋 v0.1.32 - PPTX Testing & OpenRouter Model Filtering
 
 ### Features
 
-**1. Add Subagents** (@ncrispino)
-- Issue: [#631](https://github.com/massgen/MassGen/issues/631)
-- Enable orchestrator subcalls with single or multiple agents
-- Move beyond fixed-agent approach to flexible agent deployment
-- **Use Case**: Allow dynamic agent counts during orchestrator subcalls for more scalable coordination
+**1. Test MassGen for PPTX Slides** (@ncrispino)
+- Issue: [#686](https://github.com/massgen/MassGen/issues/686)
+- Verify and improve MassGen's ability to generate PowerPoint presentations
+- Test slide generation workflows and output quality
+- **Use Case**: Ensure reliable PPTX generation for presentation creation tasks
 
-**2. Memory as Tools** (@ncrispino)
-- Issue: [#461](https://github.com/massgen/MassGen/issues/461)
-- Include memory (including filesystem) as callable tools for agents
-- Unified interface for different memory backends
-- **Use Case**: Agents can programmatically store and retrieve information
+**2. OpenRouter Tool-Use Model Filtering** (@shubham2345)
+- Issue: [#647](https://github.com/massgen/MassGen/issues/647)
+- Restrict OpenRouter model list to only models that support tool use
+- Improve model selection UX by filtering incompatible models
+- **Use Case**: Prevent user confusion when selecting models that don't support MassGen's tool-based workflows
+
+### Success Criteria
+- ✅ PPTX generation works reliably across different use cases
+- ✅ OpenRouter model list only shows tool-capable models
 
 ---
 
@@ -503,48 +505,73 @@ These features are being actively developed on **separate parallel tracks** and 
 - Checks `supported_parameters` for "tools" capability
 - **Status:** ✅ Completed in v0.1.28
 
+### Track: Subagent System (@ncrispino, nickcrispino)
+- PR: [#690](https://github.com/massgen/MassGen/pull/690)
+- Spawn parallel child MassGen processes for independent task execution
+- Process isolation with independent workspaces per subagent
+- New `spawn_subagents` tool with result aggregation and token tracking
+- **Status:** ✅ Completed in v0.1.29
+
+### Track: Tool Metrics Distribution Statistics (@ncrispino, nickcrispino)
+- Commit: 30aca047
+- Enhanced `get_tool_metrics_summary()` with per-call averages
+- Output distribution stats (min/max/median) for bottleneck analysis
+- **Status:** ✅ Completed in v0.1.29
+
+### Track: CLI Per-Agent System Messages (@ncrispino, nickcrispino)
+- Commit: 78177372
+- New mode for assigning different system messages per agent in quickstart
+- Options: "Skip", "Same for all", "Different per agent"
+- **Status:** ✅ Completed in v0.1.29
+
+### Track: OpenAI Responses API Fixes (@ncrispino, nickcrispino)
+- PR: [#685](https://github.com/massgen/MassGen/pull/685)
+- Fixed duplicate item errors when using `previous_response_id`
+- Preserved function call ID for proper reasoning item pairing
+- **Status:** ✅ Completed in v0.1.29
+
 ### Track: Backend Model List Auto-Update (@ncrispino, nickcrispino)
 - Issue: [#645](https://github.com/massgen/MassGen/issues/645)
 - Implement native model listing APIs (OpenAI, Anthropic, Grok, Groq, Nebius)
 - Research third-party wrappers; document manual update processes
-- **Target:** v0.1.29
+- **Target:** v0.1.30
 
 ### Track: Automatic Context Compression (@ncrispino, nickcrispino)
 - Issue: [#617](https://github.com/massgen/MassGen/issues/617)
 - Automatic context compression for long conversations
 - Intelligent summarization when context limits are reached
-- **Target:** v0.1.29
+- **Target:** v0.1.30
 
 ### Track: OpenAI-Compatible Chat Server (@ncrispino, nickcrispino)
 - Issue: [#628](https://github.com/massgen/MassGen/issues/628)
 - Run MassGen as an OpenAI-compatible API server
 - Integration with Cursor, Continue, and other tools
-- **Target:** v0.1.30
+- **Target:** v0.1.31
 
 ### Track: Code-Based Tools in Web UI (@ncrispino, nickcrispino)
 - Issue: [#612](https://github.com/massgen/MassGen/issues/612)
 - Ensure code-based tools work properly in Web UI
 - Integration with new Web UI features
-- **Target:** v0.1.30
+- **Target:** v0.1.31
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.29
+- **Target:** v0.1.30
 
-### Track: Add Subagents (@ncrispino, nickcrispino)
-- Issue: [#631](https://github.com/massgen/MassGen/issues/631)
-- Enable orchestrator subcalls with single or multiple agents
-- Move beyond fixed-agent approach to flexible agent deployment
-- **Target:** v0.1.31
+### Track: Test MassGen for PPTX Slides (@ncrispino, nickcrispino)
+- Issue: [#686](https://github.com/massgen/MassGen/issues/686)
+- Verify and improve PPTX generation capabilities
+- Test slide generation workflows and output quality
+- **Target:** v0.1.32
 
-### Track: Memory as Tools (@ncrispino, nickcrispino)
-- Issue: [#461](https://github.com/massgen/MassGen/issues/461)
-- Include memory (including filesystem) as callable tools for agents
-- Unified interface for different memory backends
-- **Target:** v0.1.31
+### Track: OpenRouter Tool-Use Model Filtering (@shubham2345)
+- Issue: [#647](https://github.com/massgen/MassGen/issues/647)
+- Restrict OpenRouter model list to tool-capable models only
+- Improve model selection UX
+- **Target:** v0.1.32
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -621,5 +648,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** December 22, 2025
+**Last Updated:** December 24, 2025
 **Maintained By:** MassGen Team

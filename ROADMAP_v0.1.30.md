@@ -1,8 +1,8 @@
-# MassGen v0.1.29 Roadmap
+# MassGen v0.1.30 Roadmap
 
 ## Overview
 
-Version 0.1.29 focuses on backend model list auto-update and automatic context compression for enhanced provider support and longer conversations.
+Version 0.1.30 focuses on backend model list auto-update and automatic context compression for enhanced provider support and longer conversations.
 
 - **Backend Model List Auto-Update** (Required): Automatic model listing via provider APIs, third-party wrappers, or documented manual processes
 - **Automatic Context Compression** (Required): Automatic context compression to manage long conversations efficiently
@@ -142,15 +142,15 @@ Version 0.1.29 focuses on backend model list auto-update and automatic context c
 
 ---
 
-## Future Enhancements (Post-v0.1.29)
+## Future Enhancements (Post-v0.1.30)
 
-### v0.1.30 Plans
+### v0.1.31 Plans
 - **OpenAI-Compatible Chat Server** (@ncrispino): Run MassGen as an OpenAI-compatible API server ([#628](https://github.com/massgen/MassGen/issues/628))
 - **Code-Based Tools in Web UI** (@ncrispino): Ensure code-based tools work in Web UI ([#612](https://github.com/massgen/MassGen/issues/612))
 
-### v0.1.31 Plans
-- **Add Subagents** (@ncrispino): Enable orchestrator subcalls with flexible agent configurations ([#631](https://github.com/massgen/MassGen/issues/631))
-- **Memory as Tools** (@ncrispino): Include memory as callable tools for agents ([#461](https://github.com/massgen/MassGen/issues/461))
+### v0.1.32 Plans
+- **Test MassGen for PPTX Slides** (@ncrispino): Verify and improve PPTX generation capabilities ([#686](https://github.com/massgen/MassGen/issues/686))
+- **OpenRouter Tool-Use Model Filtering** (@shubham2345): Restrict OpenRouter model list to tool-capable models ([#647](https://github.com/massgen/MassGen/issues/647))
 
 ### Long-term Vision
 - **Advanced Agent Communication**: Sophisticated inter-agent protocols and negotiation
@@ -167,7 +167,7 @@ Version 0.1.29 focuses on backend model list auto-update and automatic context c
 | Phase 1 | Backend Model List Auto-Update | Native APIs, third-party wrappers, documentation | @ncrispino | **REQUIRED** |
 | Phase 2 | Automatic Context Compression | Compression framework, summarization, configuration | @ncrispino | **REQUIRED** |
 
-**Target Release**: December 24, 2025 (Wednesday @ 9am PT)
+**Target Release**: December 26, 2025 (Friday @ 9am PT)
 
 ---
 
@@ -193,7 +193,7 @@ Version 0.1.29 focuses on backend model list auto-update and automatic context c
 
 ### For Users
 
-- v0.1.29 brings backend model auto-update and context compression:
+- v0.1.30 brings backend model auto-update and context compression:
 
   **Backend Model List Auto-Update:**
   - Automatic model listing from provider APIs
@@ -224,7 +224,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ---
 
-*This roadmap reflects v0.1.29 priorities focusing on backend model auto-update and automatic context compression.*
+*This roadmap reflects v0.1.30 priorities focusing on backend model auto-update and automatic context compression.*
 
-**Last Updated:** December 22, 2025
+**Last Updated:** December 24, 2025
 **Maintained By:** MassGen Team

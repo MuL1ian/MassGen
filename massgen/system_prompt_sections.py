@@ -1610,7 +1610,7 @@ Task D: Build website (deps: A, B, C)       ← Sequential, do yourself after A/
 
 1. **Isolated Workspace**: Each subagent gets its own workspace
    - You can READ files from subagent workspaces
-   - You CANNOT write to subagent workspaces
+   - You CANNOT write directly to subagent workspaces
 2. **Fresh Context**: Subagents start with a clean slate (just the task you provide)
 3. **Context Files**: Pass `context_files` to give the subagent READ-ONLY access to files
 4. **No Nesting**: Subagents cannot spawn their own subagents
@@ -1622,8 +1622,7 @@ Task D: Build website (deps: A, B, C)       ← Sequential, do yourself after A/
 When you spawn subagents:
 1. **Wait for the tool to return** - `spawn_subagents` blocks until ALL tasks complete
 2. **Do NOT say "I will now run subagents"** and submit an answer - wait for actual results first
-3. **While waiting**, you can do other useful work (read files, plan next steps) but do NOT submit a final answer
-4. **Only after receiving results** should you integrate outputs and submit your answer
+3. **Only after receiving results** should you integrate outputs and submit your answer
 
 **BAD**: "I spawned 5 subagents. I will now wait for them and report back." (submitting answer before results)
 **GOOD**: Wait for spawn tool to return → read results → integrate → then submit answer with completed work
@@ -1646,15 +1645,6 @@ When a subagent times out, the result still includes the `workspace` path. You M
 3. **Read and use any partial work** - even a half-finished file is better than nothing
 4. **Complete the remaining work yourself** - don't just report the timeout
 
-Example: If subagent timed out with workspace `/path/to/subagents/bio/workspace`:
-```python
-list_directory("/path/to/subagents/bio/workspace")  # See what files exist
-read_file("/path/to/subagents/bio/workspace/bio.md")  # Read partial work
-# Then complete the work in YOUR workspace
-```
-
-Do NOT just report "subagent X timed out" - salvage what's there and finish the job!
-
 **DO NOT:**
 - ❌ Submit answer before subagents finish
 - ❌ Say "I will run subagents and report back" as your answer
@@ -1674,8 +1664,8 @@ Do NOT just report "subagent X timed out" - salvage what's there and finish the 
 
 When a subagent creates files you need:
 1. **Check the answer**: The subagent lists relevant file paths in its answer
-2. **Read the files**: Use `read_file` to read from the paths in the answer
-3. **Copy to your workspace**: Use `write_file` to save files you need to your workspace
+2. **Read the files**: Read from the paths in the answer
+3. **Copy to your workspace**: Save files you need to your workspace
 
 **IMPORTANT**: Only copy files you actually need. Context isolation is a key feature - you don't need every file the subagent created, just the relevant outputs.
 
@@ -1716,13 +1706,6 @@ spawn_subagents(
 - `list_subagents()` - List all spawned subagents with status
 - `get_subagent_result(subagent_id)` - Get result from a completed subagent
 - `check_subagent_status(subagent_id)` - Check status of a subagent
-
-## Best Practices
-
-1. **Clear Task Description**: Specify expected outputs and success criteria
-2. **Provide Context Files**: Share relevant code via `context_files` parameter
-3. **Check Results Before Using**: Verify quality before incorporating into your work
-4. **Handle Failures Gracefully**: Check status and handle timeouts
 
 ## Result Format
 

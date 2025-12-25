@@ -90,8 +90,7 @@ class CoordinationConfig:
         subagent_default_timeout: Default timeout in seconds for subagent execution (default 300).
         subagent_max_concurrent: Maximum number of concurrent subagents an agent can spawn (default 3).
         subagent_orchestrator: Configuration for subagent orchestrator mode. When enabled, subagents
-                              use a full Orchestrator with multiple agents instead of a single
-                              ConfigurableAgent. This enables multi-agent coordination within
+                              use a full Orchestrator with multiple agents. This enables multi-agent coordination within
                               subagent execution.
     """
 

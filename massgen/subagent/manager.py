@@ -14,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import yaml
+
 from massgen.subagent.models import (
     SubagentConfig,
     SubagentOrchestratorConfig,
@@ -316,7 +318,7 @@ class SubagentManager:
         Returns:
             System prompt string
         """
-        base_prompt = config.system_prompt or "You are a helpful assistant working on a specific task."
+        base_prompt = config.system_prompt
 
         # Build context section if provided
         context_section = ""
@@ -327,9 +329,7 @@ class SubagentManager:
 
 """
 
-        subagent_prompt = f"""{base_prompt}
-
-## Subagent Context
+        subagent_prompt = f"""## Subagent Context
 
 You are a subagent spawned to work on a specific task. Your workspace is isolated and independent.
 {context_section}
@@ -347,6 +347,9 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 **Your Task:**
 {config.task}
 """
+        if base_prompt:
+            subagent_prompt = f"{base_prompt}\n\n{subagent_prompt}"
+
         return subagent_prompt
 
     async def _execute_subagent(
@@ -408,8 +411,6 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         Returns:
             SubagentResult with execution outcome
         """
-        import yaml
-
         orch_config = self._subagent_orchestrator_config
 
         # Build context paths from config.context_files
@@ -421,11 +422,10 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             for ctx_file in config.context_files:
                 src_path = Path(ctx_file)
                 if src_path.exists():
-                    # ALWAYS read-only - no write access for subagents
                     context_paths.append(
                         {
                             "path": str(src_path.resolve()),
-                            "permission": "read",  # Never "write" - enforced by design
+                            "permission": "read",
                         },
                     )
                     logger.info(f"[SubagentManager] Adding read-only context path: {src_path}")
@@ -984,6 +984,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         system_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
+        NOTE: Not supported yet, currently all subagents are blocking.
+
         Spawn a subagent in the background (non-blocking).
 
         Returns immediately with subagent info. Use get_subagent_status() or
