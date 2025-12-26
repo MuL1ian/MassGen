@@ -149,8 +149,8 @@ class AzureOpenAIBackend(LLMBackend):
                 f"has_workflow_tools={has_workflow_tools}",
             )
 
-            # Modify messages to include workflow tool instructions if needed
-            modified_messages = self._prepare_messages_with_workflow_tools(messages, workflow_tools) if has_workflow_tools else messages
+            # Use messages as-is - tools are passed to API natively
+            modified_messages = messages
 
             # Filter out problematic tool messages for Azure OpenAI
             modified_messages = self._filter_tool_messages_for_azure(modified_messages)
@@ -221,8 +221,9 @@ class AzureOpenAIBackend(LLMBackend):
             # Create streaming response (now properly async)
             stream = await self.client.chat.completions.create(**api_params)
 
-            # Process streaming response with content accumulation
+            # Process streaming response with content and tool call accumulation
             accumulated_content = ""
+            accumulated_tool_calls = {}  # Track tool calls by index
             complete_response = ""  # Keep track of the complete response
             last_yield_type = None
 
@@ -256,6 +257,26 @@ class AzureOpenAIBackend(LLMBackend):
                         )
                         yield StreamChunk(type="content", content=accumulated_content)
                         accumulated_content = ""
+                elif converted.type == "tool_calls":
+                    # Accumulate tool call deltas
+                    for tc_delta in converted.tool_calls:
+                        index = getattr(tc_delta, "index", 0)
+                        if index not in accumulated_tool_calls:
+                            accumulated_tool_calls[index] = {
+                                "id": getattr(tc_delta, "id", None),
+                                "type": "function",
+                                "function": {
+                                    "name": "",
+                                    "arguments": "",
+                                },
+                            }
+
+                        # Accumulate function name and arguments
+                        if hasattr(tc_delta, "function") and tc_delta.function:
+                            if hasattr(tc_delta.function, "name") and tc_delta.function.name:
+                                accumulated_tool_calls[index]["function"]["name"] = tc_delta.function.name
+                            if hasattr(tc_delta.function, "arguments") and tc_delta.function.arguments:
+                                accumulated_tool_calls[index]["function"]["arguments"] += tc_delta.function.arguments
                 elif converted.type != "content":
                     # Log non-content chunks
                     if converted.type == "error":
@@ -287,36 +308,19 @@ class AzureOpenAIBackend(LLMBackend):
                 )
                 yield StreamChunk(type="content", content=accumulated_content)
 
-            # After streaming is complete, check if we have workflow tool calls
-            if has_workflow_tools:
-                # Add debug logging to see raw response
-                log_backend_activity(
-                    self.get_provider_name(),
-                    "Raw response for tool extraction",
-                    {"complete_response": complete_response},
-                    agent_id=agent_id,
+            # Yield any accumulated tool calls
+            if accumulated_tool_calls:
+                tool_calls_list = [
+                    accumulated_tool_calls[i] for i in sorted(accumulated_tool_calls.keys())
+                ]
+                log_stream_chunk(
+                    "backend.azure_openai",
+                    "tool_calls",
+                    tool_calls_list,
+                    agent_id,
                 )
-
-                workflow_tool_calls = self._extract_workflow_tool_calls(
-                    complete_response,
-                )
-                if workflow_tool_calls:
-                    log_stream_chunk(
-                        "backend.azure_openai",
-                        "tool_calls",
-                        workflow_tool_calls,
-                        agent_id,
-                    )
-                    yield StreamChunk(type="tool_calls", tool_calls=workflow_tool_calls)
-                    last_yield_type = "tool_calls"
-                else:
-                    # Log when no tool calls found
-                    log_backend_activity(
-                        self.get_provider_name(),
-                        "No workflow tool calls found in response",
-                        {"response_length": len(complete_response)},
-                        agent_id=agent_id,
-                    )
+                yield StreamChunk(type="tool_calls", tool_calls=tool_calls_list)
+                last_yield_type = "tool_calls"
 
             # Ensure stream termination is signaled
             if last_yield_type != "done":
@@ -784,18 +788,10 @@ class AzureOpenAIBackend(LLMBackend):
                     if hasattr(delta, "content") and delta.content:
                         return StreamChunk(type="content", content=delta.content)
 
-                    # Handle tool calls - but only if we actually want them
+                    # Handle tool calls - yield them as proper tool_calls chunks
                     if hasattr(delta, "tool_calls") and delta.tool_calls:
-                        # For now, let's ignore tool calls and treat them as content
-                        # This prevents the empty response issue
-                        tool_call_text = ""
-                        for tool_call in delta.tool_calls:
-                            if hasattr(tool_call, "function") and tool_call.function:
-                                if hasattr(tool_call.function, "arguments") and tool_call.function.arguments:
-                                    tool_call_text += tool_call.function.arguments
-
-                        if tool_call_text:
-                            return StreamChunk(type="content", content=tool_call_text)
+                        # Return tool_calls chunk - will be accumulated in stream_with_tools()
+                        return StreamChunk(type="tool_calls", tool_calls=delta.tool_calls)
 
                     # Handle finish reason
                     if hasattr(choice, "finish_reason") and choice.finish_reason:
