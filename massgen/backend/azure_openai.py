@@ -460,12 +460,18 @@ class AzureOpenAIBackend(LLMBackend):
         return filtered_messages
 
     def _extract_workflow_tool_calls(self, content: str) -> List[Dict[str, Any]]:
-        """Extract workflow tool calls from content."""
+        """Extract workflow tool calls from content.
+
+        Tries multiple extraction strategies in order:
+        1. Markdown JSON blocks with tool_name
+        2. Plain JSON objects with proper nested structure support
+        3. Fallback pattern for simple {"content": "..."} format
+        """
         try:
             import json
             import re
 
-            # Look for JSON inside markdown code blocks first
+            # Strategy 1: Look for JSON inside markdown code blocks first
             markdown_json_pattern = r"```json\s*(\{.*?\})\s*```"
             markdown_matches = re.findall(markdown_json_pattern, content, re.DOTALL)
 
@@ -483,33 +489,63 @@ class AzureOpenAIBackend(LLMBackend):
                             },
                         }
                         return [tool_call]
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    log_backend_activity(
+                        self.get_provider_name(),
+                        "Markdown JSON parse failed",
+                        {"error": str(e), "json_sample": match[:100]},
+                    )
                     continue
 
-            # Also look for JSON without markdown blocks
-            json_pattern = r'\{[^{}]*"tool_name"[^{}]*\}'
-            json_matches = re.findall(json_pattern, content, re.DOTALL)
+            # Strategy 2: Extract all potential JSON blocks and try parsing each
+            # This handles nested structures properly by finding balanced braces
+            # Pattern matches: { ... } blocks that may contain nested objects
+            potential_json_blocks = []
+            brace_count = 0
+            current_block_start = -1
 
-            for match in json_matches:
+            for i, char in enumerate(content):
+                if char == '{':
+                    if brace_count == 0:
+                        current_block_start = i
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0 and current_block_start != -1:
+                        potential_json_blocks.append(content[current_block_start:i+1])
+                        current_block_start = -1
+
+            # Try to parse each potential JSON block
+            for block in reversed(potential_json_blocks):  # Process from end to get latest
+                if '"tool_name"' not in block:
+                    continue
+
                 try:
-                    parsed = json.loads(match.strip())
+                    parsed = json.loads(block.strip())
                     if isinstance(parsed, dict) and "tool_name" in parsed:
                         # Convert to MassGen tool call format
                         tool_call = {
-                            "id": f"call_{hash(match) % 10000}",  # Generate a unique ID
+                            "id": f"call_{hash(block) % 10000}",
                             "type": "function",
                             "function": {
                                 "name": parsed["tool_name"],
-                                "arguments": json.dumps(parsed["arguments"]),
+                                "arguments": json.dumps(parsed.get("arguments", {})),
                             },
                         }
                         return [tool_call]
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    log_backend_activity(
+                        self.get_provider_name(),
+                        "JSON block parse failed",
+                        {"error": str(e), "json_sample": block[:100]},
+                    )
                     continue
 
-            # AZURE OPENAI FALLBACK: Handle {"content":"..."} format and convert to new_answer
-            azure_content_pattern = r'\{"content":"([^"]+)"\}'
-            azure_matches = re.findall(azure_content_pattern, content)
+            # Strategy 3: AZURE OPENAI FALLBACK
+            # Handle {"content": "..."} format with flexible whitespace and escaped characters
+            # Pattern allows: whitespace, escaped quotes, newlines
+            azure_content_pattern = r'\{\s*"content"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}'
+            azure_matches = re.findall(azure_content_pattern, content, re.DOTALL)
 
             if azure_matches:
                 # Take the last content match and convert to new_answer tool call
@@ -524,9 +560,22 @@ class AzureOpenAIBackend(LLMBackend):
                 }
                 return [tool_call]
 
+            # No tool calls found
+            log_backend_activity(
+                self.get_provider_name(),
+                "No workflow tool calls extracted",
+                {"content_length": len(content), "content_sample": content[:200]},
+            )
             return []
 
-        except Exception:
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            log_backend_activity(
+                self.get_provider_name(),
+                "Tool extraction failed with exception",
+                {"error": str(e), "traceback": error_details, "content_sample": content[:200]},
+            )
             return []
 
     def _convert_tools_format(
