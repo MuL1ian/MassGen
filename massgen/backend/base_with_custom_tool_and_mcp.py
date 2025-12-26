@@ -1242,6 +1242,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                 result_str, result_obj = await config.execution_callback(call["name"], call["arguments"])
                 result = result_str
 
+            # Capture execution end time immediately after tool completes
+            # (before yielding chunks, which can block on slow consumers)
+            execution_end_time = time.time()
+
             # Check for MCP failure after retries
             if config.tool_type == "mcp" and result_str.startswith("Error:"):
                 logger.warning(f"MCP tool {tool_name} failed after retries: {result_str}")
@@ -1254,8 +1258,8 @@ class CustomToolAndMCPBackend(LLMBackend):
                     content=f"{config.error_emoji} {error_msg}",
                     source=f"{config.source_prefix}{tool_name}",
                 )
-                # Record MCP failure metrics
-                metric.end_time = time.time()
+                # Record MCP failure metrics (use pre-captured execution end time)
+                metric.end_time = execution_end_time
                 metric.success = False
                 metric.error_message = error_msg[:500]
                 self._tool_execution_metrics.append(metric)
@@ -1326,8 +1330,9 @@ class CustomToolAndMCPBackend(LLMBackend):
             processed_call_ids.add(call.get("call_id", ""))
             logger.info(f"Executed {config.tool_type} tool: {tool_name}")
 
-            # Record successful execution metrics
-            metric.end_time = time.time()
+            # Record successful execution metrics (use pre-captured time, not current time
+            # which would include time spent waiting for stream consumers)
+            metric.end_time = execution_end_time
             metric.output_chars = len(display_result)
             metric.success = True
             self._tool_execution_metrics.append(metric)
@@ -1435,11 +1440,12 @@ class CustomToolAndMCPBackend(LLMBackend):
         if not all_calls:
             return
 
-        concurrent_execution = all_params.get("concurrent_tool_execution")
+        # Default to parallel execution for performance (can be disabled via config)
+        concurrent_execution = all_params.get("concurrent_tool_execution", True)
 
         # SEQUENTIAL EXECUTION
         if not concurrent_execution or len(all_calls) <= 1:
-            reason = "disabled by config" if not concurrent_execution else "single tool"
+            reason = "disabled by config" if concurrent_execution is False else "single tool"
             logger.info(f"{log_prefix} Executing {len(all_calls)} tools sequentially ({reason})")
 
             for call in all_calls:
