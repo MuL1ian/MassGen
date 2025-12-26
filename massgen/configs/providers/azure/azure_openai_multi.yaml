@@ -1,21 +1,55 @@
 # Azure OpenAI Multi-Agent Configuration
 # Usage: uv run python -m massgen.cli --config azure_openai_multi.yaml "Your question here"
 
-# Multiple agents configuration
+# Multiple agents configuration using services.ai.azure.com endpoint (OpenAI-compatible)
 agents:
-  - id: "azure_gpt4"
+  - id: agent_a
     backend:
-      type: "azure_openai"
-      model: "gpt-4.1"  # Your Azure OpenAI deployment name for GPT-4.1
-    system_message: "You are an expert AI assistant powered by Azure OpenAI GPT-4. Focus on providing comprehensive and accurate responses."
+      type: azure_openai
+      model: gpt-4o
+      base_url: ${AZURE_GPT4O_BASE_URL}
+      api_key: ${AZURE_OPENAI_API_KEY}
+      cwd: workspace1
+      exclude_file_operation_mcps: false
+      enable_web_search: false
 
-  - id: "azure_gpt5"
+  - id: agent_b
     backend:
-      type: "azure_openai"
-      model: "gpt-5-chat"  # Your Azure OpenAI deployment name for GPT-5-chat
-    system_message: "You are an expert AI assistant powered by Azure OpenAI GPT-5-chat. Collaborate with other agents to provide the best possible solution."
+      type: azure_openai
+      model: gpt41mini
+      base_url: ${AZURE_GPT41MINI_BASE_URL}
+      api_key: ${AZURE_GPT41MINI_KEY}
+      cwd: workspace2
+      exclude_file_operation_mcps: false
+      enable_web_search: false
+
+  - id: agent_c
+    backend:
+      type: azure_openai
+      model: Ministral-3B
+      base_url: ${AZURE_MINISTRAL_3B_BASE_URL}
+      api_key: ${AZURE_MINISTRAL_3B_KEY}
+      cwd: workspace3
+      exclude_file_operation_mcps: false
+      enable_web_search: false
+
+orchestrator:
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+  max_new_answers_per_agent: 5
+  coordination:
+    max_orchestration_restarts: 2
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+    enable_memory_filesystem_mode: true
+  context_paths: []
+  voting_sensitivity: lenient
+  answer_novelty_requirement: lenient
+
+timeout_settings:
+  orchestrator_timeout_seconds: 1800
 
 # Display configuration
 ui:
-  display_type: "rich_terminal"
+  type: rich_terminal
   logging_enabled: true
