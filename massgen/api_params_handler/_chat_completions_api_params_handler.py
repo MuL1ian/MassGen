@@ -22,6 +22,8 @@ class ChatCompletionsAPIParamsHandler(APIParamsHandlerBase):
                 "enable_web_search",
                 "engine",  # OpenRouter web search engine option (native/exa) - only used when enable_web_search=true
                 "max_results",  # OpenRouter web search max results option - only used when enable_web_search=true
+                "search_prompt",  # OpenRouter web search custom prompt - only used when enable_web_search=true
+                "search_context_size",  # OpenRouter web search context size (low/medium/high) - only used when enable_web_search=true
                 "enable_code_interpreter",
                 "allowed_tools",
                 "exclude_tools",
