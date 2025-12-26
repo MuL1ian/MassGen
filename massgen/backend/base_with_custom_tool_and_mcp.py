@@ -45,6 +45,10 @@ from ..nlip.schema import (
 from ..token_manager.token_manager import ToolExecutionMetric
 from ..tool import ToolManager
 from ..utils import CoordinationStage
+from ._constants import (
+    OPENROUTER_DEFAULT_WEB_ENGINE,
+    OPENROUTER_DEFAULT_WEB_MAX_RESULTS,
+)
 from .base import LLMBackend, StreamChunk
 
 
@@ -2525,6 +2529,29 @@ class CustomToolAndMCPBackend(LLMBackend):
                 # Chat Completions API (used by Grok, Groq, Together, Fireworks, etc.)
                 if api_params.get("stream"):
                     api_params["stream_options"] = {"include_usage": True}
+
+                # OpenRouter: Add plugins array for web search and cost tracking
+                base_url = all_params.get("base_url", "")
+                if "openrouter.ai" in base_url:
+                    extra_body = api_params.get("extra_body", {})
+                    if not isinstance(extra_body, dict):
+                        extra_body = {}
+                    # Enable cost tracking in usage response
+                    extra_body["usage"] = {"include": True}
+
+                    # Enable web search via plugins array
+                    if all_params.get("enable_web_search", False):
+                        web_plugin = {"id": "web"}
+                        # Add optional web search configuration
+                        web_plugin["engine"] = all_params.get("engine", OPENROUTER_DEFAULT_WEB_ENGINE)
+                        web_plugin["max_results"] = all_params.get("max_results", OPENROUTER_DEFAULT_WEB_MAX_RESULTS)
+
+                        if "plugins" not in extra_body:
+                            extra_body["plugins"] = []
+                        extra_body["plugins"].append(web_plugin)
+                        logger.info(f"[OpenRouter] Web search plugin enabled: {web_plugin} (base_url: {base_url})")
+
+                    api_params["extra_body"] = extra_body
 
                 # Track messages for interrupted stream estimation (multi-agent restart handling)
                 if hasattr(self, "_interrupted_stream_messages"):

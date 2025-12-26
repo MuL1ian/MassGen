@@ -31,15 +31,16 @@ from ..logger_config import log_backend_agent_message, log_stream_chunk, logger
 from ..stream_chunk import ChunkType
 
 # Local imports
+from ._constants import (
+    OPENROUTER_DEFAULT_WEB_ENGINE,
+    OPENROUTER_DEFAULT_WEB_MAX_RESULTS,
+)
 from .base import FilesystemSupport, StreamChunk
 from .base_with_custom_tool_and_mcp import (
     CustomToolAndMCPBackend,
     CustomToolChunk,
     ToolExecutionConfig,
 )
-
-OPENROUTER_DEFAULT_WEB_ENGINE = "exa"
-OPENROUTER_DEFAULT_WEB_MAX_RESULTS = 1
 
 
 class ChatCompletionsBackend(CustomToolAndMCPBackend):
@@ -220,6 +221,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                 if "plugins" not in extra_body:
                     extra_body["plugins"] = []
                 extra_body["plugins"].append(web_plugin)
+                logger.info(f"[OpenRouter] Web search plugin enabled: {web_plugin} (base_url: {base_url})")
 
             api_params["extra_body"] = extra_body
 
