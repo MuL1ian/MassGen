@@ -335,9 +335,8 @@ class TestMCPToolCodeGenerator:
         assert "def get_server_config(server: str)" in code
         assert "async def cleanup()" in code
 
-        # Verify event loop handling
-        assert "asyncio.get_event_loop()" in code
-        assert "loop.run_until_complete" in code
+        # Verify async handling (modernized to use run_async_safely)
+        assert "run_async_safely" in code
 
         # Verify prefixed tool name handling
         assert 'prefixed_tool_name = f"mcp__{server}__{tool}"' in code

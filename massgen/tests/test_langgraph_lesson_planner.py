@@ -68,7 +68,12 @@ class TestLangGraphLessonPlannerTool:
             del os.environ["OPENAI_API_KEY"]
 
         try:
-            result = await langgraph_lesson_planner(topic="test topic")
+            # The tool uses prompt parameter with message list format (injected via context_params)
+            messages = [{"role": "user", "content": "test topic"}]
+            result = None
+            async for res in langgraph_lesson_planner(prompt=messages):
+                result = res
+                break  # Get first result which should be the error
 
             # Should return error result
             assert isinstance(result, ExecutionResult)
@@ -128,21 +133,23 @@ class TestLangGraphToolIntegration:
     """Test LangGraph tool integration with MassGen tool system."""
 
     def test_tool_function_signature(self):
-        """Test that the tool has the correct async signature."""
+        """Test that the tool has the correct async generator signature."""
+        import collections.abc
         import inspect
+        from typing import get_origin
 
-        assert inspect.iscoroutinefunction(langgraph_lesson_planner)
+        # The function is an async generator (uses yield), not a coroutine
+        assert inspect.isasyncgenfunction(langgraph_lesson_planner)
 
         # Get function signature
         sig = inspect.signature(langgraph_lesson_planner)
         params = sig.parameters
 
-        # Verify parameters
-        assert "topic" in params
-        assert "api_key" in params
+        # Verify the prompt parameter exists (injected via context_params decorator)
+        assert "prompt" in params
 
-        # Verify return annotation
-        assert sig.return_annotation == ExecutionResult
+        # Verify return annotation is AsyncGenerator[ExecutionResult, None]
+        assert get_origin(sig.return_annotation) is collections.abc.AsyncGenerator
 
     @pytest.mark.asyncio
     async def test_execution_result_structure(self):
@@ -195,17 +202,17 @@ class TestLangGraphToolWithBackend:
             ],
         )
 
-        # Verify tool is registered
-        assert "langgraph_lesson_planner" in backend._custom_tool_names
+        # Verify tool is registered (with custom_tool__ prefix)
+        assert "custom_tool__langgraph_lesson_planner" in backend._custom_tool_names
 
         # Verify schema generation
         schemas = backend._get_custom_tools_schemas()
         assert len(schemas) >= 1
 
-        # Find our tool's schema
+        # Find our tool's schema (with custom_tool__ prefix)
         langgraph_schema = None
         for schema in schemas:
-            if schema["function"]["name"] == "langgraph_lesson_planner":
+            if schema["function"]["name"] == "custom_tool__langgraph_lesson_planner":
                 langgraph_schema = schema
                 break
 

@@ -534,7 +534,7 @@ Unlike the diagram earlier, this function expects precise `latitude` and `longit
 ### Function calling steps
 
 *   **Call model with [functions defined](/docs/guides/function-calling#defining-functions)** – along with your system and user messages.
-    
+
 
 Step 1: Call model with get\_weather tool defined
 
@@ -605,7 +605,7 @@ const response = await openai.responses.create({
 ```
 
 *   **Model decides to call function(s)** – model returns the **name** and **input arguments**.
-    
+
 
 response.output
 
@@ -620,7 +620,7 @@ response.output
 ```
 
 *   **Execute function code** – parse the model's response and [handle function calls](/docs/guides/function-calling#handling-function-calls).
-    
+
 
 Step 3: Execute get\_weather function
 
@@ -639,7 +639,7 @@ const result = await getWeather(args.latitude, args.longitude);
 ```
 
 *   **Supply model with results** – so it can incorporate them into its final response.
-    
+
 
 Step 4: Supply result and call model again
 
@@ -678,7 +678,7 @@ console.log(response2.output_text)
 ```
 
 *   **Model responds** – incorporating the result in its output.
-    
+
 
 response\_2.output\_text
 
@@ -739,25 +739,25 @@ Because the `parameters` are defined by a [JSON schema](https://json-schema.org/
 ### Best practices for defining functions
 
 1.  **Write clear and detailed function names, parameter descriptions, and instructions.**
-    
+
     *   **Explicitly describe the purpose of the function and each parameter** (and its format), and what the output represents.
     *   **Use the system prompt to describe when (and when not) to use each function.** Generally, tell the model _exactly_ what to do.
     *   **Include examples and edge cases**, especially to rectify any recurring failures. (**Note:** Adding examples may hurt performance for [reasoning models](/docs/guides/reasoning).)
 2.  **Apply software engineering best practices.**
-    
+
     *   **Make the functions obvious and intuitive**. ([principle of least surprise](https://en.wikipedia.org/wiki/Principle_of_least_astonishment))
     *   **Use enums** and object structure to make invalid states unrepresentable. (e.g. `toggle_light(on: bool, off: bool)` allows for invalid calls)
     *   **Pass the intern test.** Can an intern/human correctly use the function given nothing but what you gave the model? (If not, what questions do they ask you? Add the answers to the prompt.)
 3.  **Offload the burden from the model and use code where possible.**
-    
+
     *   **Don't make the model fill arguments you already know.** For example, if you already have an `order_id` based on a previous menu, don't have an `order_id` param – instead, have no params `submit_refund()` and pass the `order_id` with code.
     *   **Combine functions that are always called in sequence.** For example, if you always call `mark_location()` after `query_location()`, just move the marking logic into the query function call.
 4.  **Keep the number of functions small for higher accuracy.**
-    
+
     *   **Evaluate your performance** with different numbers of functions.
     *   **Aim for fewer than 20 functions** at any one time, though this is just a soft suggestion.
 5.  **Leverage OpenAI resources.**
-    
+
     *   **Generate and iterate on function schemas** in the [Playground](/playground).
     *   **Consider [fine-tuning](https://platform.openai.com/docs/guides/fine-tuning) to increase function calling accuracy** for large numbers of functions or difficult tasks. ([cookbook](https://cookbook.openai.com/examples/fine_tuning_for_function_calling))
 

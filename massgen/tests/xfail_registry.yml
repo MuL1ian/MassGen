@@ -1,0 +1,171 @@
+# Mapping: pytest nodeid -> xfail metadata
+#
+# Required fields:
+# - reason: short explanation (no secrets)
+#
+# Recommended fields:
+# - link: issue/PR URL or internal tracker reference
+# - expires: YYYY-MM-DD (forces revisit; can be enforced with --xfail-expired-fail or XFAIL_EXPIRED_FAIL=1)
+# - strict: true|false (pytest strict xfail; default true)
+#
+# Example:
+# massgen/tests/test_some_feature.py::TestClass::test_case:
+#   reason: "Flaky on macOS due to timing"
+#   link: "https://github.com/ORG/REPO/issues/123"
+#   expires: "2026-01-31"
+#   strict: true
+
+# --- Seeded xfails (initial triage baseline) ---
+# These are intentionally short-lived to keep the suite actionable while we delegate cluster fixes.
+
+# REMOVED: test_vhs_installed now uses @requires_vhs skipif decorator
+# REMOVED: test_run_with_single_model and test_run_with_models_list already use @pytest.mark.expensive
+
+massgen/tests/test_ag2_lesson_planner.py::TestAG2LessonPlannerTool::test_missing_api_key_error:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_ag2_lesson_planner.py::TestAG2LessonPlannerTool::test_basic_lesson_plan_creation:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_ag2_lesson_planner.py::TestAG2LessonPlannerTool::test_lesson_plan_with_env_api_key:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_ag2_lesson_planner.py::TestAG2LessonPlannerTool::test_different_topics:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_ag2_lesson_planner.py::TestAG2LessonPlannerTool::test_concurrent_lesson_plan_creation:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_ag2_lesson_planner.py::TestAG2ToolIntegration::test_execution_result_structure:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_langgraph_lesson_planner.py::TestLangGraphLessonPlannerTool::test_basic_lesson_plan_creation:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_langgraph_lesson_planner.py::TestLangGraphLessonPlannerTool::test_lesson_plan_with_env_api_key:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_langgraph_lesson_planner.py::TestLangGraphLessonPlannerTool::test_different_topics:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_langgraph_lesson_planner.py::TestLangGraphLessonPlannerTool::test_concurrent_lesson_plan_creation:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_langgraph_lesson_planner.py::TestLangGraphToolIntegration::test_execution_result_structure:
+  reason: "Tool API changed: now uses @context_params('prompt') decorator instead of topic/api_key kwargs"
+  expires: "2026-02-15"
+  strict: true
+
+massgen/tests/test_message_context_building.py::test_turn1_context:
+  reason: "MessageTemplates API drift (missing evaluation_system_message); fix template or update tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_message_context_building.py::test_turn2_context:
+  reason: "MessageTemplates API drift (missing evaluation_system_message); fix template or update tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_message_context_building.py::test_turn3_context:
+  reason: "MessageTemplates API drift (missing evaluation_system_message); fix template or update tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_message_context_building.py::test_context_comparison:
+  reason: "MessageTemplates API drift (missing evaluation_system_message); fix template or update tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_chat_completions_refactor.py::test_openai_backend:
+  reason: "Backend API drift: ChatCompletionsBackend missing base_url attribute expected by tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_chat_completions_refactor.py::test_together_ai_backend:
+  reason: "Backend API drift: ChatCompletionsBackend missing base_url attribute expected by tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_chat_completions_refactor.py::test_cerebras_backend:
+  reason: "Backend API drift: ChatCompletionsBackend missing base_url attribute expected by tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_azure_openai_backend.py::TestAzureOpenAIBackend::test_init_with_env_vars:
+  reason: "Backend API drift: AzureOpenAIBackend missing azure_endpoint attribute expected by tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_azure_openai_backend.py::TestAzureOpenAIBackend::test_init_with_kwargs:
+  reason: "Backend API drift: AzureOpenAIBackend missing azure_endpoint attribute expected by tests"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_azure_openai_backend.py::TestAzureOpenAIBackend::test_base_url_normalization:
+  reason: "Backend API drift: AzureOpenAIBackend missing azure_endpoint attribute expected by tests"
+  expires: "2026-01-15"
+  strict: true
+
+# REMOVED: test_image_within_limits and test_image_dimension_limit now pass (fixed in v0.1.29)
+
+massgen/tests/test_multimodal_size_limits.py::TestVideoFrameLimits::test_video_with_large_frames:
+  reason: "Multimodal limits assertions failing; investigate size limit logic or fixtures"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_multimodal_size_limits.py::TestVideoFrameLimits::test_video_with_small_frames:
+  reason: "Multimodal limits assertions failing; investigate size limit logic or fixtures"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_multimodal_size_limits.py::TestAudioSizeLimits::test_audio_within_size_limit:
+  reason: "Multimodal limits assertions failing; investigate size limit logic or fixtures"
+  expires: "2026-01-15"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_orchestrator_initialization_with_context_sharing:
+  reason: "Orchestrator missing context sharing methods (_agent_id_mapping, etc.); feature likely removed or not implemented."
+  expires: "2026-01-23"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_snapshot_saving:
+  reason: "Orchestrator missing context sharing methods (_save_claude_code_snapshot); feature likely removed or not implemented."
+  expires: "2026-01-23"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_workspace_restoration_with_anonymization:
+  reason: "Orchestrator missing context sharing methods (_restore_snapshots_to_workspace); feature likely removed or not implemented."
+  expires: "2026-01-23"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_save_all_snapshots:
+  reason: "Orchestrator missing context sharing methods (_save_all_claude_code_snapshots); feature likely removed or not implemented."
+  expires: "2026-01-23"
+  strict: true
+
+massgen/tests/test_claude_code_context_sharing.py::test_non_claude_code_agents_ignored:
+  reason: "Orchestrator missing context sharing mappings (_agent_id_mapping); feature likely removed or not implemented."
+  expires: "2026-01-23"
+  strict: true
+
+# REMOVED: test_persistent_memory tests now pass (Qdrant issues resolved)

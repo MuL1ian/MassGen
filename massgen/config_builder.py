@@ -1412,6 +1412,7 @@ class ConfigBuilder:
                                     "gemini",
                                     "grok",
                                     "azure_openai",
+                                    "openrouter",  # Supports web search via plugins array
                                 ]:
                                     agent["backend"]["enable_web_search"] = True
 
@@ -1549,6 +1550,7 @@ class ConfigBuilder:
                 "gemini",
                 "grok",
                 "azure_openai",
+                "openrouter",  # Supports web search via plugins array
             ]:
                 agent["backend"]["enable_web_search"] = True
 
@@ -1913,6 +1915,7 @@ class ConfigBuilder:
                                     "gemini",
                                     "grok",
                                     "azure_openai",
+                                    "openrouter",  # Supports web search via plugins array
                                 ]:
                                     agent["backend"]["enable_web_search"] = True
 
@@ -4580,6 +4583,50 @@ class ConfigBuilder:
                         except ValueError:
                             pass  # Ignore invalid input, use unlimited
 
+                # Persona Generation (multi-agent only)
+                console.print("\n[bold cyan]Persona Generation[/bold cyan]")
+                console.print(
+                    "[dim]Auto-generate diverse approaches for each agent to explore " "different regions of the solution space.[/dim]\n",
+                )
+
+                enable_personas = questionary.confirm(
+                    "Enable automatic persona generation?",
+                    default=True,
+                    style=questionary.Style(
+                        [
+                            ("question", "fg:cyan bold"),
+                        ],
+                    ),
+                ).ask()
+
+                if enable_personas is None:
+                    raise KeyboardInterrupt
+
+                if enable_personas:
+                    # Ask for diversity mode
+                    diversity_mode = questionary.select(
+                        "Diversity mode:",
+                        choices=[
+                            questionary.Choice(
+                                "Perspective - Different values/priorities (e.g., simplicity vs robustness)",
+                                value="perspective",
+                            ),
+                            questionary.Choice(
+                                "Implementation - Different solution types (e.g., minimal vs feature-rich)",
+                                value="implementation",
+                            ),
+                        ],
+                        default="perspective",
+                    ).ask()
+
+                    if diversity_mode is None:
+                        raise KeyboardInterrupt
+
+                    coordination_settings["persona_generator"] = {
+                        "enabled": True,
+                        "diversity_mode": diversity_mode,
+                    }
+
             # Step 6: Generate the full config
             console.print("\n[dim]Generating configuration...[/dim]")
 
@@ -4856,6 +4903,10 @@ class ConfigBuilder:
             # Add subagent orchestrator config if custom model was selected
             if coordination_settings.get("subagent_orchestrator"):
                 orchestrator_config["coordination"]["subagent_orchestrator"] = coordination_settings["subagent_orchestrator"]
+
+        # Add persona generator config if enabled
+        if coordination_settings.get("persona_generator"):
+            orchestrator_config["coordination"]["persona_generator"] = coordination_settings["persona_generator"]
 
         # Build full config
         config = {

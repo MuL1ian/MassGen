@@ -3,11 +3,16 @@
 """
 Test ClaudeCodeBackend with MassGen Orchestrator.
 This test demonstrates a workflow with Claude Code backend.
+
+Note: This is an integration test that requires ANTHROPIC_API_KEY.
 """
 
 import asyncio
 import os
 import sys
+import tempfile
+
+import pytest
 
 from massgen.agent_config import AgentConfig
 from massgen.backend.claude_code import ClaudeCodeBackend
@@ -18,14 +23,20 @@ from massgen.orchestrator import Orchestrator
 sys.path.insert(0, "/workspaces/MassGen")
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_claude_code_with_orchestrator():
     """Test Claude Code backend with MassGen Orchestrator."""
+
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        pytest.skip("ANTHROPIC_API_KEY not found in environment")
 
     print("🚀 Testing Claude Code Backend with MassGen Orchestrator")
     print("=" * 60)
 
-    # Create Claude Code backend
-    backend = ClaudeCodeBackend()
+    # Create Claude Code backend with temporary workspace
+    with tempfile.TemporaryDirectory() as tmpdir:
+        backend = ClaudeCodeBackend(cwd=tmpdir)
 
     print(f"✅ Backend initialized: {backend.get_provider_name()}")
     print(f"📊 Stateful backend: {backend.is_stateful()}")

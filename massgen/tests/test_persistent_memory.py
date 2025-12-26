@@ -58,7 +58,7 @@ class TestPersistentMemoryInitialization:
     @pytest.mark.skipif(not MEM0_AVAILABLE, reason="mem0 not installed")
     def test_initialization_without_backends_fails(self):
         """Test that initialization fails without required backends."""
-        with pytest.raises(ValueError, match="Both llm_backend and embedding_backend"):
+        with pytest.raises(ValueError, match="Either llm_config or llm_backend is required"):
             PersistentMemory(agent_name="test_agent")
         print("✅ Backend validation works")
 

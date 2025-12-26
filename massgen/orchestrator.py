@@ -138,6 +138,7 @@ class Orchestrator(ChatAgent):
         enable_nlip: bool = False,
         nlip_config: Optional[Dict[str, Any]] = None,
         enable_rate_limit: bool = False,
+        generated_personas: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize MassGen orchestrator.
@@ -159,6 +160,8 @@ class Orchestrator(ChatAgent):
             enable_nlip: Enable NLIP (Natural Language Interaction Protocol) support
             nlip_config: Optional NLIP configuration
             enable_rate_limit: Whether to enable rate limiting and cooldown delays (default: False)
+            generated_personas: Pre-generated personas from previous turn (for multi-turn persistence)
+                               Format: {agent_id: GeneratedPersona, ...}
         """
         super().__init__(session_id, shared_conversation_memory, shared_persistent_memory)
         self.orchestrator_id = orchestrator_id
@@ -240,8 +243,12 @@ class Orchestrator(ChatAgent):
         self._paraphrase_generation_errors: int = 0
 
         # Persona generation tracking
-        self._personas_generated: bool = False
-        self._generated_personas: Dict[str, Any] = {}  # agent_id -> GeneratedPersona
+        # If personas are passed in (from previous turn), use them and mark as already generated
+        self._generated_personas: Dict[str, Any] = generated_personas or {}  # agent_id -> GeneratedPersona
+        self._personas_generated: bool = bool(generated_personas)  # Skip generation if already have them
+        self._original_system_messages: Dict[str, Optional[str]] = {}  # agent_id -> original message
+        if self._personas_generated:
+            logger.info(f"📝 Restored {len(self._generated_personas)} persona(s) from previous turn")
 
         # Multi-turn session tracking (loaded by CLI, not managed by orchestrator)
         self._previous_turns: List[Dict[str, Any]] = previous_turns or []
@@ -917,38 +924,48 @@ class Orchestrator(ChatAgent):
         """
         Generate diverse personas for all agents and inject into their system messages.
 
-        This method uses an LLM (specified in persona_generator config) to create
+        This method uses a subagent (running the same models as parent) to generate
         complementary personas for each agent, increasing response diversity.
         The generated personas are prepended to existing system messages.
+
+        The subagent approach:
+        - Inherits the same models/backends as the parent config
+        - Uses stripped-down config (no filesystem/command line tools)
+        - If parent has N agents, subagent uses N agents to collaboratively generate personas
         """
         # Check if persona generation is enabled
         if not hasattr(self.config, "coordination_config"):
+            logger.info("[Orchestrator] No coordination_config, skipping persona generation")
             return
         if not hasattr(self.config.coordination_config, "persona_generator"):
+            logger.info("[Orchestrator] No persona_generator config, skipping persona generation")
             return
+
+        pg = self.config.coordination_config.persona_generator
+        logger.info(f"[Orchestrator] persona_generator config: type={type(pg)}, value={pg}")
+        if hasattr(pg, "enabled"):
+            logger.info(f"[Orchestrator] persona_generator.enabled = {pg.enabled}")
+        else:
+            logger.info(f"[Orchestrator] persona_generator has no 'enabled' attr, attrs={dir(pg)}")
+
         if not self.config.coordination_config.persona_generator.enabled:
+            logger.info("[Orchestrator] Persona generation disabled in config")
             return
 
         # Skip if already generated (for multi-turn scenarios)
         if self._personas_generated:
-            logger.debug("[Orchestrator] Personas already generated, skipping")
+            logger.info("[Orchestrator] Personas already generated, skipping")
             return
 
-        logger.info(f"[Orchestrator] Generating personas for {len(self.agents)} agents")
+        logger.info(f"[Orchestrator] Generating personas for {len(self.agents)} agents via subagent")
 
         try:
-            # Create backend for persona generation
-            from .cli import create_backend
-
             pg_config = self.config.coordination_config.persona_generator
-            backend_config = pg_config.backend
-            persona_backend = create_backend(backend_type=backend_config["type"], **{k: v for k, v in backend_config.items() if k != "type"})
 
             # Initialize generator
             generator = PersonaGenerator(
-                backend=persona_backend,
-                strategy=pg_config.strategy,
                 guidelines=pg_config.persona_guidelines,
+                diversity_mode=pg_config.diversity_mode,
             )
 
             # Get existing system messages
@@ -959,32 +976,63 @@ class Orchestrator(ChatAgent):
                 else:
                     existing_messages[agent_id] = None
 
-            # Generate personas
-            personas = await generator.generate_personas(
+            # Build parent agent configs for inheritance
+            parent_configs = []
+            for agent_id, agent in self.agents.items():
+                agent_cfg = {"id": agent_id}
+                if hasattr(agent, "backend") and hasattr(agent.backend, "config"):
+                    # Filter out non-serializable keys
+                    backend_cfg = {k: v for k, v in agent.backend.config.items() if k not in ("mcp_servers", "_config_path")}
+                    agent_cfg["backend"] = backend_cfg
+                parent_configs.append(agent_cfg)
+
+            # Get workspace path (use first agent's workspace or temp)
+            parent_workspace = None
+            for agent in self.agents.values():
+                if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
+                    if agent.backend.filesystem_manager and agent.backend.filesystem_manager.cwd:
+                        parent_workspace = str(agent.backend.filesystem_manager.cwd)
+                        break
+
+            if not parent_workspace:
+                import tempfile
+
+                parent_workspace = tempfile.mkdtemp(prefix="massgen_persona_")
+                logger.debug(f"[Orchestrator] Using temp workspace for persona generation: {parent_workspace}")
+
+            # Get log directory
+            log_directory = None
+            try:
+                log_dir = get_log_session_dir()
+                if log_dir:
+                    log_directory = str(log_dir)
+            except Exception:
+                pass
+
+            # Generate personas via subagent
+            personas = await generator.generate_personas_via_subagent(
                 agent_ids=list(self.agents.keys()),
                 task=self.current_task or "Complete the assigned task",
                 existing_system_messages=existing_messages,
+                parent_agent_configs=parent_configs,
+                parent_workspace=parent_workspace,
+                orchestrator_id=self.orchestrator_id,
+                log_directory=log_directory,
             )
 
-            # Inject personas into agents
-            for agent_id, agent in self.agents.items():
-                persona = personas.get(agent_id)
-                if persona:
-                    existing = existing_messages.get(agent_id) or ""
-                    # Prepend persona to existing system message
-                    new_message = f"{persona.persona_text}\n\n{existing}".strip()
-
-                    # Set the new system message
-                    if hasattr(agent, "set_system_message"):
-                        agent.set_system_message(new_message)
-                    elif hasattr(agent, "system_message"):
-                        agent.system_message = new_message
-
-                    logger.debug(f"[Orchestrator] Injected persona for {agent_id}: {persona.attributes.get('thinking_style', 'unknown')}")
-
-            # Store for logging/debugging
+            # Store personas and original system messages for phase-based injection
+            # We don't inject into agents here - we do it dynamically per execution
+            # based on whether they've seen other answers (exploration vs convergence)
             self._generated_personas = personas
+            self._original_system_messages = existing_messages
             self._personas_generated = True
+
+            for agent_id, persona in personas.items():
+                approach = persona.attributes.get(
+                    "approach_summary",
+                    persona.attributes.get("thinking_style", "unknown"),
+                )
+                logger.info(f"[Orchestrator] Generated persona for {agent_id}: {approach}")
 
             # Save personas to log file
             self._save_personas_to_log(personas)
@@ -995,6 +1043,38 @@ class Orchestrator(ChatAgent):
             logger.error(f"[Orchestrator] Failed to generate personas: {e}")
             logger.warning("[Orchestrator] Continuing without persona generation")
             self._personas_generated = True  # Don't retry on failure
+
+    def _get_persona_for_agent(self, agent_id: str, has_seen_answers: bool) -> Optional[str]:
+        """Get the appropriate persona text for an agent based on phase.
+
+        Args:
+            agent_id: The agent ID
+            has_seen_answers: True if agent has seen other agents' answers (convergence phase)
+
+        Returns:
+            The persona text to prepend, or None if no persona exists
+        """
+        if not self._generated_personas:
+            return None
+
+        persona = self._generated_personas.get(agent_id)
+        if not persona:
+            return None
+
+        if has_seen_answers:
+            # Convergence phase - use softened perspective
+            return persona.get_softened_text()
+        else:
+            # Exploration phase - use strong perspective
+            return persona.persona_text
+
+    def get_generated_personas(self) -> Dict[str, Any]:
+        """Get the generated personas for persistence across turns.
+
+        Returns:
+            Dictionary of agent_id -> GeneratedPersona
+        """
+        return self._generated_personas
 
     def _save_personas_to_log(self, personas: Dict[str, Any]) -> None:
         """
@@ -3780,6 +3860,15 @@ Your answer:"""
                 previous_turns=self._previous_turns,
                 human_qa_history=human_qa_history,
             )
+
+            # Inject phase-appropriate persona if enabled
+            has_seen_answers = bool(normalized_answers)
+            persona_text = self._get_persona_for_agent(agent_id, has_seen_answers)
+            if persona_text:
+                phase = "convergence" if has_seen_answers else "exploration"
+                logger.info(f"[Orchestrator] Injecting {phase} persona for {agent_id}")
+                system_message = f"{persona_text}\n\n{system_message}"
+
             logger.info(f"[Orchestrator] Structured system message built for {agent_id} (length: {len(system_message)} chars)")
 
             # Note: Broadcast communication section is now integrated in SystemMessageBuilder

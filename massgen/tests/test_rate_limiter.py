@@ -1,124 +1,76 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Test script for rate limiter functionality."""
+"""Tests for rate limiter functionality (fast, no real 60s waits)."""
 
 import asyncio
-import time
 
+import pytest
+
+from massgen.backend import rate_limiter
 from massgen.backend.rate_limiter import GlobalRateLimiter
 
 
-async def test_rate_limiter():
-    """Test that rate limiter properly blocks concurrent requests."""
-    print("Testing rate limiter with RPM=2...")
+@pytest.fixture(autouse=True)
+def _reset_limiters():
+    """Ensure clean limiter registry per test."""
+    GlobalRateLimiter.clear_limiters()
+    yield
+    GlobalRateLimiter.clear_limiters()
 
-    # Get a shared rate limiter for testing (simulating gemini-2.5-pro)
-    limiter = GlobalRateLimiter.get_multi_limiter_sync(
-        provider="test-gemini-2.5-pro",
-        rpm=2,
-        tpm=None,
-        rpd=None,
-    )
 
-    # Track when requests start
-    request_times = []
+@pytest.fixture
+def fast_clock(monkeypatch):
+    """Provide a virtual clock and fast sleep to avoid wall-clock delays."""
 
-    async def make_request(request_id: int):
-        """Simulate an API request with rate limiting."""
-        print(f"[Request {request_id}] Attempting to acquire rate limiter...")
+    original_sleep = asyncio.sleep
+
+    class _Clock:
+        def __init__(self, start: float = 1_000.0):
+            self.now = start
+
+        def time(self) -> float:
+            return self.now
+
+        async def sleep(self, seconds: float) -> None:
+            self.now += seconds
+            # Yield control so await points still cooperate with asyncio
+            await original_sleep(0)
+
+    clock = _Clock()
+
+    # Patch the module-local time and sleep used by MultiRateLimiter
+    monkeypatch.setattr(rate_limiter.time, "time", clock.time)
+    monkeypatch.setattr(rate_limiter.asyncio, "sleep", clock.sleep)
+
+    return clock
+
+
+@pytest.mark.asyncio
+async def test_shared_limiter_instances():
+    """Multiple requests for same provider share a single limiter instance."""
+    limiter1 = GlobalRateLimiter.get_multi_limiter_sync(provider="test-shared", rpm=2)
+    limiter2 = GlobalRateLimiter.get_multi_limiter_sync(provider="test-shared", rpm=2)
+
+    assert limiter1 is limiter2
+
+
+@pytest.mark.asyncio
+async def test_rpm_limit_waits_without_real_sleep(fast_clock):
+    """Third request waits ~60s (virtual) when RPM=2, without wall time passing."""
+
+    limiter = GlobalRateLimiter.get_multi_limiter_sync(provider="test-gemini-2.5-pro", rpm=2)
+    timestamps = []
+
+    async def make_request():
         async with limiter:
-            request_time = time.time()
-            request_times.append(request_time)
-            print(f"[Request {request_id}] Acquired at {request_time:.2f}")
-            # Simulate API call
-            await asyncio.sleep(0.1)
-        print(f"[Request {request_id}] Completed")
+            timestamps.append(fast_clock.time())
 
-    # Start 3 requests concurrently (should be rate-limited to 2 per minute)
-    start_time = time.time()
-    tasks = [make_request(i) for i in range(3)]
-    await asyncio.gather(*tasks)
-    end_time = time.time()
+    await asyncio.gather(*(make_request() for _ in range(3)))
 
-    print(f"\nTotal time: {end_time - start_time:.2f}s")
-    print(f"Request times: {[f'{t-start_time:.2f}s' for t in request_times]}")
+    assert len(timestamps) == 3
 
-    # Verify rate limiting worked
-    # First 2 requests should be close together
-    # 3rd request should be delayed by ~60 seconds
-    if len(request_times) == 3:
-        time_diff_1_2 = request_times[1] - request_times[0]
-        time_diff_2_3 = request_times[2] - request_times[1]
+    first_gap = timestamps[1] - timestamps[0]
+    second_gap = timestamps[2] - timestamps[1]
 
-        print(f"\nTime between request 1 and 2: {time_diff_1_2:.2f}s")
-        print(f"Time between request 2 and 3: {time_diff_2_3:.2f}s")
-
-        if time_diff_2_3 > 55:  # Should wait ~60 seconds
-            print("✅ Rate limiting is working correctly!")
-            return True
-        else:
-            print("❌ Rate limiting is NOT working - 3rd request was not delayed")
-            return False
-    else:
-        print("❌ Unexpected number of requests completed")
-        return False
-
-
-async def test_shared_limiter():
-    """Test that multiple backend instances share the same limiter."""
-    print("\n" + "=" * 60)
-    print("Testing shared limiter across multiple instances...")
-
-    # Get two "backend" instances with the same provider key
-    limiter1 = GlobalRateLimiter.get_multi_limiter_sync(
-        provider="test-shared",
-        rpm=2,
-        tpm=None,
-        rpd=None,
-    )
-
-    limiter2 = GlobalRateLimiter.get_multi_limiter_sync(
-        provider="test-shared",
-        rpm=2,
-        tpm=None,
-        rpd=None,
-    )
-
-    # Verify they are the same instance
-    if limiter1 is limiter2:
-        print("✅ Limiters are shared correctly (same instance)")
-        return True
-    else:
-        print("❌ Limiters are NOT shared (different instances)")
-        return False
-
-
-async def main():
-    """Run all tests."""
-    print("Rate Limiter Tests")
-    print("=" * 60)
-
-    # Test 1: Shared limiter
-    test1_passed = await test_shared_limiter()
-
-    # Test 2: Rate limiting with concurrent requests
-    # WARNING: This test takes ~60 seconds to run
-    print("\n⚠️  WARNING: Next test will take ~60 seconds to verify rate limiting")
-    response = input("Run full rate limit test? (y/n): ")
-
-    if response.lower() == "y":
-        test2_passed = await test_rate_limiter()
-    else:
-        print("Skipping full rate limit test")
-        test2_passed = True
-
-    # Summary
-    print("\n" + "=" * 60)
-    print("Test Summary:")
-    print(f"  Shared limiter test: {'✅ PASSED' if test1_passed else '❌ FAILED'}")
-    print(f"  Rate limiting test: {'✅ PASSED' if test2_passed else '❌ FAILED'}")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    # First two should be effectively back-to-back; third should be ~60s later (virtual)
+    assert first_gap < 1.0
+    assert second_gap >= 59.0

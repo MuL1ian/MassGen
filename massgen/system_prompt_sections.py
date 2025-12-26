@@ -2051,7 +2051,7 @@ After execution, the actual scripts live in `scripts/` and can be reused.
 
 1. **Be specific** - Workflow steps should be actionable, not vague
 2. **Document tools upfront** - Plan scripts before writing them
-3. **Verify outputs first** - Test the result as a user would (run code, view websites, check files)
+3. **Test like a user** - Verify artifacts through interaction, not just observation (click buttons, play games, navigate pages, run with edge cases, etc)
 4. **Update with learnings** - The skill improves through use
 5. **Keep scripts reusable** - Design tools to work in similar future tasks"""
 
@@ -2076,40 +2076,57 @@ class OutputFirstVerificationSection(SystemPromptSection):
     def build_content(self) -> str:
         return """## Output-First Iteration
 
-**Core Principle: Experience your work as a user would, then iterate until the outcome is excellent.**
+**Core Principle: Experience your work exactly as a user would - through dynamic interaction, not just static observation.**
 
 This is an **improvement loop**, not just a verification step:
-1. Run/view output → 2. Identify gaps or issues → 3. Fix and enhance → 4. Re-run → 5. Confirm improvements → 6. Repeat until excellent
+1. Run/view output → 2. **Interact as a user would** → 3. Identify gaps or issues → 4. Fix and enhance → 5. Re-run and re-interact → 6. Repeat until excellent
 
-| Artifact Type | Experience It (user view) | Then Improve (iterate) |
-|--------------|---------------------------|------------------------|
-| Script/Code | Run it, observe output | Fix errors, enhance behavior |
-| Website/App | View it in browser | Adjust layout, styling, UX |
-| Generated files | Open and read contents | Refine content, fix formatting |
-| API integration | Make test calls | Handle edge cases, improve responses |
-| Data processing | Check output data | Fix accuracy, optimize pipeline |
+### Dynamic Verification: Think Like a User
 
-**Why this matters:**
-- Code that "looks correct" but crashes needs **fixing**
-- A file generator that runs but produces weak content needs **improvement**
-- An API call that executes but has poor error handling needs **enhancement**
+Static screenshots or a single code run are often not sufficient. Users don't just look at artifacts - they interact with them:
 
-**The goal is to iterate on OUTCOMES until they meet or exceed the task requirements.**
+| Artifact Type | Static Check (incomplete) | Dynamic Check (required) |
+|--------------|---------------------------|--------------------------|
+| Website/App | Screenshot looks good | Click all buttons, navigate all pages, test forms, verify links work |
+| Game | Screenshot shows UI | Play the game - test controls, scoring, game over states, restart |
+| Interactive tool | Interface renders | Use every feature, test edge cases, verify all interactions |
+| Script/Code | No errors on run | Test with various inputs, edge cases, invalid data |
+| API | Single call works | Test all endpoints, error states, authentication flows |
+| Data pipeline | Output exists | Validate accuracy, test with edge case inputs |
+
+**For any artifact not listed above:** Apply the same principle - ask "How will a user actually USE this?" and test that way.
+The goal is always to verify the complete user experience, not just surface appearance.
+
+### The User Experience Test
+
+Before considering any interactive artifact complete, ask:
+1. **What will users click/interact with?** → Do it. Does it work?
+2. **What will users type/input?** → Try it. Does it respond correctly?
+3. **What paths will users take?** → Navigate them all. Any broken routes?
+4. **How will users break it?** → Try to break it. Does it handle errors gracefully?
+
+### Why this matters:
+- A website screenshot can look perfect while half the links are broken
+- A game screenshot shows nothing about whether gameplay works
+- An interactive tool may render but crash on first click
+- Any artifact may LOOK correct but FAIL when actually used
+
+**The goal is to verify INTERACTION OUTCOMES, not just visual appearance.**
 
 ### Apply at every stage:
-1. **During development** - short loops: run/view, improve, rerun
-2. **Before answering** - final iteration pass on the actual output
-3. **During evaluation** - judge by results, improve if gaps found
+1. **During development** - short loops: interact, improve, re-interact
+2. **Before answering** - full interaction test on the actual output
+3. **During evaluation** - judge by interaction results, improve if gaps found
 
 ### Iteration examples:
-- **Code**: `python script.py` → output missing edge case → add handling → rerun → confirm fixed
-- **Files**: Read generated file → content unclear → rewrite section → re-read → confirm improved
-- **Websites**: View in browser → layout broken on mobile → fix CSS → re-screenshot → confirm responsive
-- **APIs**: Test request → error handling weak → add try/catch → re-test → confirm robust
+- **Websites**: Visit all pages → click every nav link → found 2 broken links → fix routes → re-test all links → confirm working
+- **Games**: Play game → controls unresponsive → fix input handling → replay → confirm smooth gameplay
+- **Interactive tools**: Use all features → export fails on large files → add chunking → re-test export → confirm fixed
+- **Code**: Run with test inputs → crashes on empty array → add validation → rerun with edge cases → confirm robust
 
 ### Finalization:
-- Use `new_answer` when you produced work or iterated improvements based on output review.
-- Use `vote` only when an existing answer already meets the bar without needing changes."""
+- Use `new_answer` when you produced work or iterated improvements based on **interaction testing**.
+- Use `vote` only when an existing answer already meets the bar after **testing as a user would**."""
 
 
 class MultimodalToolsSection(SystemPromptSection):
@@ -2128,15 +2145,15 @@ class MultimodalToolsSection(SystemPromptSection):
         )
 
     def build_content(self) -> str:
-        return """## Visual Verification with read_media
+        return """## Visual & Interactive Verification
 
-For visual artifacts, use `read_media` to apply output-first verification:
+Use `read_media` for visual analysis, but remember: **interact first, screenshot second.**
 
-### When to use read_media:
-- **Websites/UIs**: Screenshot and analyze layout, styling, content
-- **Diagrams/Charts**: Verify labels are readable, data is correct
-- **Generated images**: Check quality and correctness
-- **Videos**: Verify content matches requirements
+### Key Principle
+Screenshots verify appearance. Interaction verifies functionality. Do both:
+1. **Interact** with the artifact as a user would (click, navigate, play, input)
+2. **Screenshot** key states during/after interaction
+3. **Analyze** with read_media to confirm visual quality
 
 ### Tool usage:
 ```
@@ -2150,11 +2167,7 @@ read_media(file_path="output.mp4", prompt="Does this show the expected content?"
 - Audio: mp3, wav, m4a, ogg, flac, aac
 - Video: mp4, mov, avi, mkv, webm
 
-### Website verification workflow:
-1. Start server or open HTML file
-2. Take screenshot (Playwright or screenshot command)
-3. Analyze: `read_media(file_path="screenshot.png", prompt="Does this look professional?")`
-4. Fix issues based on what you SEE, not what code suggests"""
+A beautiful screenshot means nothing if buttons don't work or links are broken. Test functionality, then verify visuals."""
 
 
 class SystemPromptBuilder:

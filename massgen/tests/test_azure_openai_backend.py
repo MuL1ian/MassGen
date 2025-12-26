@@ -43,14 +43,15 @@ class TestAzureOpenAIBackend:
     def test_init_missing_api_key(self):
         """Test initialization fails without API key."""
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="Azure OpenAI endpoint URL is required"):
+            with pytest.raises(ValueError, match="Azure OpenAI API key is required"):
                 AzureOpenAIBackend()
 
     def test_init_missing_endpoint(self):
-        """Test initialization fails without endpoint."""
+        """Test initialization succeeds without endpoint - endpoint is validated in stream_with_tools."""
         with patch.dict(os.environ, {"AZURE_OPENAI_API_KEY": "test-key"}, clear=True):
-            with pytest.raises(ValueError, match="Azure OpenAI endpoint URL is required"):
-                AzureOpenAIBackend()
+            # Endpoint validation happens in stream_with_tools, not in __init__
+            backend = AzureOpenAIBackend()
+            assert backend.api_key == "test-key"
 
     def test_init_missing_api_key_with_endpoint(self):
         """Test initialization fails without API key when endpoint is provided."""
@@ -136,11 +137,19 @@ class TestAzureOpenAIBackend:
         mock_chunk.choices[0].delta = MagicMock()
         mock_chunk.choices[0].delta.content = "Hello"
         mock_chunk.choices[0].finish_reason = "stop"
+        mock_chunk.usage = None  # No usage info in this mock chunk
 
-        mock_stream = [mock_chunk]
+        # Create an async iterator for the stream
+        async def mock_stream_iter():
+            yield mock_chunk
 
-        with patch.object(backend, "client") as mock_client:
-            mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
+        mock_stream = mock_stream_iter()
+
+        # Mock the openai.AsyncAzureOpenAI class (imported locally in stream_with_tools)
+        with patch("openai.AsyncAzureOpenAI") as mock_azure_client_class:
+            mock_client_instance = MagicMock()
+            mock_client_instance.chat.completions.create = AsyncMock(return_value=mock_stream)
+            mock_azure_client_class.return_value = mock_client_instance
 
             # Test that it doesn't raise an error with model parameter
             try:

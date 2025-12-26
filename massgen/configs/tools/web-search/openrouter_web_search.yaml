@@ -1,0 +1,44 @@
+# MassGen Configuration: OpenRouter Web Search
+# This configuration demonstrates OpenRouter's native web search plugin functionality
+#
+# Usage:
+#   massgen --config massgen/configs/tools/web-search/openrouter_web_search.yaml "What are the latest developments in AI in 2025?"
+#
+# Features:
+#   - Uses OpenRouter's native web search plugin (via plugins array)
+#   - Configurable search engine (exa or native)
+#   - Configurable max_results
+
+agents:
+  - id: "openrouter_research_agent"
+    backend:
+      type: "openrouter"
+      model: "deepseek/deepseek-r1"  # Tool-capable model that supports both plugins and function tools
+
+      # Enable OpenRouter's native web search plugin
+      enable_web_search: true
+
+      # Optional: Configure web search parameters
+      # engine: "exa"  # Options: "exa" (default) or "native"
+      # max_results: 1  # Number of search results to return (default: 1)
+
+      cwd: "workspace1"
+
+    system_message: |
+      You are a research assistant with access to real-time web search capabilities via OpenRouter.
+
+      When you need current information, recent news, or factual data, use the web search feature
+      to retrieve up-to-date information from the internet.
+
+      Provide comprehensive, well-sourced responses based on the latest information available.
+
+orchestrator:
+  type: sequential
+  max_turns: 5
+  snapshot_storage: ".massgen/snapshots"
+  agent_temporary_workspace: ".massgen/workspaces"
+
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true
+

@@ -496,17 +496,18 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         backend_type="openrouter",
         provider_name="OpenRouter",
         supported_capabilities={
+            "web_search",  # Via plugins array (enable_web_search: true)
             "mcp",
             "audio_understanding",
             "video_understanding",
             "image_generation",
         },
-        builtin_tools=[],
+        builtin_tools=[],  # OpenRouter is a routing service, tools depend on underlying models
         filesystem_support="mcp",
-        models=["custom"],  # OpenRouter supports 300+ models
+        models=["custom"],  # User-specified OpenRouter model ID
         default_model="custom",
         env_var="OPENROUTER_API_KEY",
-        notes="OpenAI-compatible API. Unified access to 300+ AI models.",
+        notes="OpenAI-compatible API. Unified access to 300+ AI models. Web search via plugins array. Tool support depends on underlying model capabilities.",
         base_url="https://openrouter.ai/api/v1",
     ),
     "moonshot": BackendCapabilities(

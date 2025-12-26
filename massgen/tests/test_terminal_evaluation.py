@@ -32,6 +32,13 @@ def check_vhs_installed() -> bool:
         return False
 
 
+# Skip marker for tests that require VHS
+requires_vhs = pytest.mark.skipif(
+    not check_vhs_installed(),
+    reason="VHS not installed (install with: brew install vhs or go install github.com/charmbracelet/vhs@latest)",
+)
+
+
 class TestTerminalEvaluation:
     """Test suite for terminal evaluation (run_massgen_with_recording)."""
 
@@ -62,9 +69,11 @@ ui:
         config_path.write_text(config_content)
         return config_path
 
+    @requires_vhs
     def test_vhs_installed(self):
         """Test that VHS is installed (prerequisite for terminal evaluation)."""
-        assert check_vhs_installed(), "VHS is not installed. Install with: brew install vhs (macOS) " "or go install github.com/charmbracelet/vhs@latest"
+        # This test verifies VHS works when installed
+        assert check_vhs_installed()
 
     @pytest.mark.asyncio
     async def test_vhs_check_function(self):
@@ -106,7 +115,7 @@ ui:
         assert f"Type `{command}`" in tape_content
         assert "Set Width 1200" in tape_content
         assert "Set Height 800" in tape_content
-        assert "Sleep 10s" in tape_content
+        assert "Sleep 2s" in tape_content
 
     @pytest.mark.asyncio
     async def test_tool_without_vhs(self, temp_dir, simple_config, monkeypatch):
@@ -156,10 +165,19 @@ ui:
         assert "Config file does not exist" in output_data["error"]
 
     @pytest.mark.asyncio
-    async def test_invalid_output_format(self, temp_dir, simple_config):
+    async def test_invalid_output_format(self, temp_dir, simple_config, monkeypatch):
         """Test that tool validates output format."""
         from massgen.tool._multimodal_tools.run_massgen_with_recording import (
             run_massgen_with_recording,
+        )
+
+        # Mock VHS as installed so we reach format validation
+        def mock_check_vhs():
+            return True
+
+        monkeypatch.setattr(
+            "massgen.tool._multimodal_tools.run_massgen_with_recording._check_vhs_installed",
+            mock_check_vhs,
         )
 
         result = await run_massgen_with_recording(

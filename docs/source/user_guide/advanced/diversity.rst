@@ -11,7 +11,7 @@ MassGen provides several mechanisms to increase diversity across agent teams:
 
 1. **Answer Novelty Requirements** - Prevent agents from rephrasing existing answers
 2. **Question Paraphrasing (DSPy)** - Give each agent a linguistically different question variant
-3. **System Prompt Variation** *(planned)* - Assign different roles and perspectives to agents
+3. **Persona Generation** - Automatically assign different perspectives or solution approaches to agents
 
 .. contents:: Table of Contents
    :local:
@@ -95,7 +95,7 @@ Quick Start
        enabled: true
        backend:
          type: "gemini"
-         model: "gemini-2.5-flash"
+         model: "gemini-3-flash-preview"
        num_variants: 3
        strategy: "balanced"
 
@@ -159,7 +159,7 @@ Under ``orchestrator.dspy.backend``:
 
    backend:
      type: "gemini"              # openai|anthropic|gemini|lmstudio|vllm|cerebras
-     model: "gemini-2.5-flash"   # Required
+     model: "gemini-3-flash-preview"   # Required
      api_key: "..."              # Optional (uses env var if omitted)
      temperature: 0.7            # Optional (overrides strategy temps)
      max_tokens: 150             # Optional
@@ -300,23 +300,124 @@ Try:
 .. seealso::
    **Detailed Implementation Guide**: See ``massgen/backend/docs/DSPY_IMPLEMENTATION_GUIDE.md`` for comprehensive technical documentation including temperature scheduling formulas, validation mechanisms, and debugging.
 
-System Prompt Variation
-=======================
+Persona Generation
+==================
 
-.. note::
-   **Planned Feature**: System prompt variation will allow different instruction sets and roles per agent.
+The persona generator automatically assigns different perspectives or approaches to each agent, encouraging diverse solutions without manual configuration.
 
-Overview
---------
+Quick Start
+-----------
 
-Future releases will support configuring different system prompts for each agent, encouraging conceptual diversity beyond linguistic variation.
+Enable persona generation in your config:
 
-**Planned capabilities:**
+.. code-block:: yaml
 
-* **Role-based prompts**: Assign expert roles (e.g., "security expert", "performance optimizer")
-* **Perspective variation**: Different focus areas (e.g., "prioritize maintainability")
-* **Template library**: Pre-built prompts for common scenarios
-* **Dynamic generation**: Auto-generate complementary prompts based on task
+   orchestrator:
+     coordination:
+       persona_generator:
+         enabled: true
+         diversity_mode: "perspective"  # or "implementation"
+
+Configuration Reference
+-----------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 15 50
+
+   * - Parameter
+     - Type
+     - Default
+     - Description
+   * - ``enabled``
+     - boolean
+     - ``false``
+     - Enable automatic persona generation
+   * - ``diversity_mode``
+     - string
+     - ``perspective``
+     - Type of diversity to encourage (see below)
+   * - ``persist_across_turns``
+     - boolean
+     - ``false``
+     - If true, reuse personas across turns. If false (default), generate fresh personas each turn.
+   * - ``backend``
+     - object
+     - (inherited)
+     - Optional LLM config for persona generation
+
+Diversity Modes
+~~~~~~~~~~~~~~~
+
+**perspective** (default)
+   Agents receive different *values and priorities* for the same problem. Each agent optimizes
+   for different qualities (e.g., simplicity vs robustness, user experience vs maintainability).
+
+   Example personas:
+
+   * "Prioritize long-term maintainability and clean architecture over quick solutions"
+   * "Optimize for the end user's experience - make it intuitive and delightful"
+
+**implementation**
+   Agents receive different *solution types or interpretations*. Each agent explores a
+   fundamentally different kind of solution to the problem.
+
+   Example personas:
+
+   * "Explore a minimalist, single-page approach focusing on essential content"
+   * "Consider a rich, interactive experience with dynamic elements"
+
+**Future: combined**
+   A mixed mode combining both perspective and implementation diversity is planned for future releases.
+
+Phase-Based Adaptation
+----------------------
+
+Persona injection adapts based on the coordination phase:
+
+**Exploration Phase** (no answers seen yet)
+   Agents receive their full perspective to encourage diverse initial solutions.
+
+**Convergence Phase** (after seeing other answers)
+   Perspectives are softened to encourage objective evaluation across all approaches.
+   Agents are reminded to evaluate ALL solutions on merit rather than defending their original perspective.
+
+This prevents personas from blocking convergence after restarts - agents naturally shift from
+"generate diverse ideas" to "find the best solution across all ideas."
+
+How It Works
+------------
+
+1. **Generate**: Before agents start, the system generates complementary perspectives
+2. **Assign**: Each agent receives a unique persona as part of their system message
+3. **Adapt**: Persona text adjusts based on whether the agent has seen other solutions
+4. **Preserve**: User-specified system prompts are preserved; personas are prepended
+
+Example Configuration
+---------------------
+
+Full configuration with all options:
+
+.. code-block:: yaml
+
+   orchestrator:
+     coordination:
+       persona_generator:
+         enabled: true
+         diversity_mode: "perspective"
+         backend:
+           type: "gemini"
+           model: "gemini-3-flash-preview"
+
+With implementation diversity:
+
+.. code-block:: yaml
+
+   orchestrator:
+     coordination:
+       persona_generator:
+         enabled: true
+         diversity_mode: "implementation"
 
 Combining Diversity Methods
 ============================
@@ -335,15 +436,22 @@ For maximum diversity, combine multiple techniques:
        enabled: true
        backend:
          type: "gemini"
-         model: "gemini-2.5-flash"
+         model: "gemini-3-flash-preview"
        num_variants: 3
        strategy: "diverse"
+
+     # Conceptual diversity via personas
+     coordination:
+       persona_generator:
+         enabled: true
+         diversity_mode: "perspective"
 
 This configuration ensures:
 
 1. Each agent receives a different question phrasing (DSPy)
-2. Agents must provide meaningfully different answers (novelty requirement)
-3. Limited attempts encourage quality over iteration (max_new_answers)
+2. Each agent has a different perspective/priority (persona generator)
+3. Agents must provide meaningfully different answers (novelty requirement)
+4. Limited attempts encourage quality over iteration (max_new_answers)
 
 When to Use What
 ================
@@ -360,10 +468,13 @@ When to Use What
 * ✅ Multi-agent systems seeking diverse perspectives
 * ❌ Skip for single-agent or simple factual queries (adds overhead)
 
-**System Prompt Variation** *(future)*
+**Persona Generation**
 
-* ✅ When different expert perspectives are valuable
-* ✅ Tasks requiring multiple complementary skillsets
+* ✅ Multi-agent systems where conceptual diversity matters
+* ✅ Creative tasks benefiting from different approaches or interpretations
+* ✅ Use ``perspective`` mode for different values/priorities
+* ✅ Use ``implementation`` mode for different solution types
+* ❌ Skip for single-agent setups (no benefit)
 
 Summary
 =======
@@ -374,10 +485,15 @@ MassGen's diversity framework includes:
 
 1. **Answer Novelty Requirements** - Prevents rephrasing, enforces meaningful differences
 2. **DSPy Question Paraphrasing** - Linguistic diversity through intelligent paraphrasing
+3. **Persona Generation** - Conceptual diversity through automatically assigned perspectives
+
+   * ``perspective`` mode: Different values and priorities
+   * ``implementation`` mode: Different solution types and interpretations
+   * Phase-based adaptation: Strong perspectives for exploration, softened for convergence
 
 **Future Features:**
 
-3. **System Prompt Variation** - Conceptual diversity through roles and perspectives
+4. **Combined Diversity Mode** - Mix perspective and implementation diversity in a single run
 
 Use these techniques individually or combined to maximize the quality and breadth of multi-agent coordination.
 

@@ -345,7 +345,7 @@ Create a `.env` file in the `massgen` directory as described in [README](README.
 
 ## 🔧 Development Workflow
 
-> **Important**: Our next version is v0.1.30. If you want to contribute, please contribute to the `dev/v0.1.30` branch (or `main` if dev/v0.1.30 doesn't exist yet).
+> **Important**: Our next version is v0.1.31. If you want to contribute, please contribute to the `dev/v0.1.31` branch (or `main` if dev/v0.1.31 doesn't exist yet).
 
 ### 1. Create Feature Branch
 
@@ -353,8 +353,8 @@ Create a `.env` file in the `massgen` directory as described in [README](README.
 # Fetch latest changes from upstream
 git fetch upstream
 
-# Create feature branch from dev/v0.1.30 (or main if dev branch doesn't exist yet)
-git checkout -b feature/your-feature-name upstream/dev/v0.1.30
+# Create feature branch from dev/v0.1.31 (or main if dev branch doesn't exist yet)
+git checkout -b feature/your-feature-name upstream/dev/v0.1.31
 ```
 
 ### 2. Make Your Changes
@@ -407,18 +407,51 @@ pre-commit run --all-files
 ### 4. Testing
 
 ```bash
-# Run all tests
-pytest massgen/tests/
+# Default test command (skips slow/API-dependent tests)
+uv run pytest -x -q -m "not expensive and not integration and not docker" --tb=no
 
 # Run specific test file
-pytest massgen/tests/test_specific.py
+uv run pytest massgen/tests/test_specific.py
 
 # Run with coverage
-pytest --cov=massgen massgen/tests/
+uv run pytest --cov=massgen massgen/tests/
+
+# Run integration tests (requires API keys, makes real API calls)
+uv run pytest --run-integration
+
+# Run all tests (integration, expensive, and docker)
+# Not recommended for now
+RUN_INTEGRATION=1 RUN_EXPENSIVE=1 RUN_DOCKER=1 uv run pytest
 
 # Test with different configurations
 massgen --config @examples/basic/single/single_agent "Test question"
 ```
+
+**Test Markers** - Use these when writing new tests:
+
+| Marker | When to Use | Example |
+|--------|-------------|---------|
+| `@pytest.mark.integration` | Test makes real API calls (OpenAI, Claude, etc.) | Testing actual model responses |
+| `@pytest.mark.expensive` | Test is slow (>10s) or costs money | Large-scale coordination tests |
+| `@pytest.mark.docker` | Test requires Docker to be running | Container execution tests |
+
+**For external dependencies** (binaries, services), use `skipif`:
+```python
+requires_vhs = pytest.mark.skipif(
+    not check_vhs_installed(),
+    reason="VHS not installed (brew install vhs)"
+)
+
+@requires_vhs
+def test_recording():
+    ...
+```
+
+**Best practices:**
+- Unit tests should NOT require API keys or external services
+- Mock external dependencies when possible
+- Use markers to separate fast unit tests from slow integration tests
+- All marked tests are skipped by default in CI
 
 ### 5. Commit Your Changes
 
@@ -451,7 +484,7 @@ git push origin feature/your-feature-name
 ```
 
 Then create a pull request on GitHub:
-- Base branch: `dev/v0.1.30` (or `main` if dev branch doesn't exist yet)
+- Base branch: `dev/v0.1.31` (or `main` if dev branch doesn't exist yet)
 - Compare branch: `feature/your-feature-name`
 - Add clear description of changes
 - Link any related issues
@@ -557,7 +590,7 @@ Have a significant feature idea not covered by existing tracks?
 - [ ] Tests pass locally
 - [ ] Documentation is updated if needed
 - [ ] Commit messages follow convention
-- [ ] PR targets `dev/v0.1.30` branch (or `main` if dev branch doesn't exist yet)
+- [ ] PR targets `dev/v0.1.31` branch (or `main` if dev branch doesn't exist yet)
 
 ### PR Description Should Include
 

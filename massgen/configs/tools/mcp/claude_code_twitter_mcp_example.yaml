@@ -4,7 +4,7 @@ agent:
     type: "claude_code"
     cwd: "claude_code_workspace_twitter_mcp"
     permission_mode: "bypassPermissions"
-    
+
     # Twitter MCP server - using EnesCinr/twitter-mcp
     mcp_servers:
       twitter:

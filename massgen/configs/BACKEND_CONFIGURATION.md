@@ -40,37 +40,37 @@ backend:
   api_key: "<optional_key>"          # Uses OPENAI_API_KEY env var by default
   temperature: 0.7                   # Not supported for GPT-5 series and o-series
   max_tokens: 2500                   # Not supported for GPT-5 series and o-series
-  
+
   # GPT-5 specific parameters
-  text: 
+  text:
     verbosity: "medium"              # low/medium/high (GPT-5 only)
-  reasoning:                         
+  reasoning:
     effort: "medium"                 # low/medium/high (GPT-5 and o-series)
     summary: "auto"                  # Automatic reasoning summaries
-  
+
   # Builtin tools
   enable_web_search: true            # Web search capability
   enable_code_interpreter: true      # Code interpreter capability
-  
+
   # MCP servers (v0.0.17+)
   mcp_servers:
     weather:
       type: "stdio"
       command: "npx"
       args: ["-y", "@modelcontextprotocol/server-weather"]
-    
+
     brave_search:
       type: "stdio"
       command: "npx"
       args: ["-y", "@modelcontextprotocol/server-brave-search"]
       env:
         BRAVE_API_KEY: "${BRAVE_API_KEY}"
-  
+
   # Tool control
   allowed_tools:                     # Whitelist specific tools
     - "mcp__weather__get_current_weather"
     - "mcp__brave_search__brave_web_search"
-  
+
   exclude_tools:                     # Blacklist specific tools
     - "mcp__weather__debug_mode"
 ```
@@ -92,35 +92,35 @@ backend:
   type: "claude"
   model: "claude-sonnet-4-20250514"  # claude-opus-4, claude-sonnet-4, claude-haiku-3.5
   api_key: "<optional_key>"          # Uses ANTHROPIC_API_KEY env var by default
-  temperature: 0.7                   
+  temperature: 0.7
   max_tokens: 4096                   # Claude supports larger context
-  
+
   # Builtin tools
-  enable_web_search: true            
-  enable_code_execution: true        
-  
+  enable_web_search: true
+  enable_code_execution: true
+
   # MCP servers (v0.0.20+)
   mcp_servers:
     test_server:
       type: "stdio"
       command: "python"
       args: ["-u", "-m", "massgen.tests.mcp_test_server"]
-    
+
     weather:
       type: "stdio"
       command: "npx"
       args: ["-y", "@fak111/weather-mcp"]
-    
+
     # HTTP-based MCP server
     api_server:
       type: "streamable-http"
       url: "http://localhost:5173/sse"
-  
+
   # Tool control
   allowed_tools:
     - "mcp__test_server__mcp_echo"
     - "mcp__weather__get_current_weather"
-  
+
   exclude_tools:
     - "mcp__test_server__current_time"
 ```
@@ -142,19 +142,19 @@ backend:
   type: "claude_code"
   cwd: "claude_code_workspace"       # Working directory for file operations
   api_key: "<optional_key>"          # Uses ANTHROPIC_API_KEY env var by default
-  
+
   # Claude Code specific options
   system_prompt: ""                  # Custom system prompt to replace default
   append_system_prompt: ""           # Custom system prompt to append
   max_thinking_tokens: 4096         # Maximum thinking tokens
-  
+
   # MCP servers
   mcp_servers:
     discord:
       type: "stdio"
       command: "npx"
       args: ["-y", "mcp-discord", "--config", "YOUR_DISCORD_TOKEN"]
-    
+
     playwright:
       type: "stdio"
       command: "npx"
@@ -165,11 +165,11 @@ backend:
         "--user-data-dir=/tmp/playwright-profile",
         "--save-trace"
       ]
-  
+
   # Native Claude Code tools
   allowed_tools:
     - "Read"           # Read files
-    - "Write"          # Write files  
+    - "Write"          # Write files
     - "Edit"           # Edit files
     - "MultiEdit"      # Multiple edits
     - "Bash"           # Shell commands
@@ -201,44 +201,44 @@ backend:
   type: "gemini"
   model: "gemini-2.5-flash"          # gemini-2.5-flash, gemini-2.5-pro
   api_key: "<optional_key>"          # Uses GOOGLE_API_KEY env var by default
-  temperature: 0.7                   
-  max_tokens: 2500                   
+  temperature: 0.7
+  max_tokens: 2500
   top_p: 0.95                        # Nucleus sampling parameter
-  
+
   # Builtin tools
-  enable_web_search: true            
-  enable_code_execution: true        
-  
+  enable_web_search: true
+  enable_code_execution: true
+
   # MCP servers (v0.0.15+)
   mcp_servers:
     weather:
       type: "stdio"
       command: "npx"
       args: ["-y", "@fak111/weather-mcp"]
-    
+
     brave_search:
       type: "stdio"
       command: "npx"
       args: ["-y", "@modelcontextprotocol/server-brave-search"]
       env:
         BRAVE_API_KEY: "${BRAVE_API_KEY}"
-    
+
     airbnb:
       type: "stdio"
       command: "npx"
       args: ["-y", "@openbnb/mcp-server-airbnb", "--ignore-robots-txt"]
-    
+
     # HTTP-based server
     custom_api:
       type: "streamable-http"
       url: "http://localhost:5173/sse"
-  
+
   # Tool control
   allowed_tools:
     - "mcp__weather__get_current_weather"
     - "mcp__brave_search__brave_web_search"
     - "mcp__airbnb__airbnb_search"
-  
+
   exclude_tools:
     - "mcp__airbnb__debug_mode"
 ```
@@ -260,27 +260,27 @@ backend:
   type: "grok"
   model: "grok-3-mini"               # grok-3, grok-3-mini, grok-4
   api_key: "<optional_key>"          # Uses XAI_API_KEY env var by default
-  temperature: 0.7                   
-  max_tokens: 2500                   
-  
+  temperature: 0.7
+  max_tokens: 2500
+
   # Grok Live Search
   enable_web_search: true            # Uses default: mode="auto", return_citations=true
-  
+
   # Automatic filesystem MCP when cwd is provided
   cwd: "workspace"                   # Enables filesystem MCP server
-  
+
   # MCP servers (v0.0.21+)
   mcp_servers:
     weather:
       type: "stdio"
       command: "npx"
       args: ["-y", "@fak111/weather-mcp"]
-  
+
   # Alternative: Manual search parameters (conflicts with enable_web_search)
   # extra_body:
   #   search_parameters:
-  #     mode: "auto"                 
-  #     return_citations: true       
+  #     mode: "auto"
+  #     return_citations: true
 ```
 
 ### Grok-Specific Features
@@ -302,9 +302,9 @@ backend:
   base_url: "https://your-resource.openai.azure.com/"  # Your Azure endpoint
   api_key: "<optional_key>"          # Uses AZURE_OPENAI_API_KEY env var by default
   api_version: "2024-02-15-preview"  # Azure API version
-  temperature: 0.7                   
-  max_tokens: 2500                   
-  
+  temperature: 0.7
+  max_tokens: 2500
+
   # Azure-specific features
   enable_code_interpreter: true      # Code interpreter capability
 ```
@@ -331,19 +331,19 @@ backend:
   api_key: "<optional_key>"          # Provider-specific API key
   temperature: 0.7
   max_tokens: 2500
-  
+
   # MCP servers (v0.0.18+)
   mcp_servers:
     weather:
       type: "stdio"
       command: "npx"
       args: ["-y", "@fak111/weather-mcp"]
-    
+
     test_server:
       type: "stdio"
       command: "python"
       args: ["-u", "-m", "massgen.tests.mcp_test_server"]
-  
+
   # Tool control
   allowed_tools:
     - "mcp__weather__get_current_weather"
@@ -370,7 +370,7 @@ backend:
   model: "glm-4.5"                   # GLM model variant
   base_url: "https://api.z.ai/api/paas/v4/"  # Z AI endpoint
   api_key: "<optional_key>"          # Uses ZAI_API_KEY env var by default
-  temperature: 0.7                   
+  temperature: 0.7
   top_p: 0.7                        # Nucleus sampling
 ```
 
@@ -389,9 +389,9 @@ Run open-source models locally with automatic server management (v0.0.7+).
 backend:
   type: "lmstudio"
   model: "qwen2.5-7b-instruct"       # Model to load
-  temperature: 0.7                   
-  max_tokens: 2000                   
-  
+  temperature: 0.7
+  max_tokens: 2000
+
   # LM Studio automatically handles:
   # - Server startup
   # - Model downloading

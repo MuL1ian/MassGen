@@ -69,7 +69,7 @@ class _FakeOpenAIClient(_FakeAsyncClientBase):
 
 @pytest.mark.asyncio
 async def test_response_backend_stream_closes_client(monkeypatch):
-    import sys
+    import openai
 
     created: List[_FakeOpenAIClient] = []
 
@@ -78,8 +78,8 @@ async def test_response_backend_stream_closes_client(monkeypatch):
         created.append(client)
         return client
 
-    # Inject fake openai module so in-function import resolves to our factory
-    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(AsyncOpenAI=_factory))
+    # Patch AsyncOpenAI on the already-imported openai module
+    monkeypatch.setattr(openai, "AsyncOpenAI", _factory)
 
     backend = ResponseBackend()
 
@@ -113,7 +113,7 @@ class _FakeOpenAIClientForGrok(_FakeAsyncClientBase):
 
 @pytest.mark.asyncio
 async def test_grok_backend_stream_closes_client(monkeypatch):
-    import sys
+    import openai
 
     created: List[_FakeOpenAIClientForGrok] = []
 
@@ -122,8 +122,8 @@ async def test_grok_backend_stream_closes_client(monkeypatch):
         created.append(client)
         return client
 
-    # Inject fake openai module for dynamic import inside function
-    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(AsyncOpenAI=_factory))
+    # Patch AsyncOpenAI on the already-imported openai module
+    monkeypatch.setattr(openai, "AsyncOpenAI", _factory)
 
     backend = GrokBackend()
     messages = [{"role": "user", "content": "hi"}]
@@ -156,7 +156,7 @@ class _FakeAnthropicClient(_FakeAsyncClientBase):
 
 @pytest.mark.asyncio
 async def test_claude_backend_stream_closes_client(monkeypatch):
-    import sys
+    import anthropic
 
     created: List[_FakeAnthropicClient] = []
 
@@ -165,8 +165,8 @@ async def test_claude_backend_stream_closes_client(monkeypatch):
         created.append(client)
         return client
 
-    # Inject fake anthropic module for dynamic import inside function
-    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(AsyncAnthropic=_factory))
+    # Patch AsyncAnthropic on the already-imported anthropic module
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _factory)
 
     backend = ClaudeBackend()
     messages = [{"role": "user", "content": "hi"}]

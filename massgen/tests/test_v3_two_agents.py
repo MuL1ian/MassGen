@@ -10,6 +10,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -20,6 +22,7 @@ from massgen.frontend.coordination_ui import CoordinationUI  # noqa: E402
 from massgen.orchestrator import Orchestrator  # noqa: E402
 
 
+@pytest.mark.integration
 async def test_two_agents_coordination():
     """Test two-agent coordination with different expertise areas."""
     print("🚀 MassGen - Two Agents Coordination Test")
@@ -28,9 +31,7 @@ async def test_two_agents_coordination():
     # Check if API key is available
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("❌ OPENAI_API_KEY not found in environment variables")
-        print("⚠️  Set OPENAI_API_KEY to test two-agent coordination")
-        return False
+        pytest.skip("OPENAI_API_KEY not found")
 
     try:
         # Create backend
@@ -86,6 +87,7 @@ async def test_two_agents_coordination():
         return False
 
 
+@pytest.mark.integration
 async def test_two_agents_simple():
     """Simple two-agent test without UI for basic functionality verification."""
     print("\n🧪 Simple Two-Agent Test (No UI)")
@@ -93,8 +95,7 @@ async def test_two_agents_simple():
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("❌ OPENAI_API_KEY not found - skipping simple test")
-        return False
+        pytest.skip("OPENAI_API_KEY not found")
 
     try:
         backend = ResponseBackend(api_key=api_key)

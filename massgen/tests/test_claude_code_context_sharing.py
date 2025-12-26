@@ -24,6 +24,17 @@ class MockClaudeCodeBackend:
 
     def __init__(self, cwd: str = None):
         self._cwd = cwd or "test_workspace"
+        self.filesystem_manager = MagicMock()
+        self.config = MagicMock()
+
+        # Mock setup_orchestration_paths to create directories as expected by the test
+        def side_effect(agent_id, snapshot_storage, agent_temporary_workspace, **kwargs):
+            if snapshot_storage:
+                (Path(snapshot_storage) / agent_id).mkdir(parents=True, exist_ok=True)
+            if agent_temporary_workspace:
+                (Path(agent_temporary_workspace) / agent_id).mkdir(parents=True, exist_ok=True)
+
+        self.filesystem_manager.setup_orchestration_paths.side_effect = side_effect
 
     def get_provider_name(self) -> str:
         return "claude_code"
@@ -45,6 +56,15 @@ class MockClaudeCodeAgent(ChatAgent):
                 "content": f"Working on task from {self.agent_id}",
             }
         yield {"type": "result", "data": ("answer", f"Solution from {self.agent_id}")}
+
+    def get_status(self) -> dict:
+        return {"agent_id": self.agent_id, "status": "mock"}
+
+    async def reset(self) -> None:
+        pass
+
+    def get_configurable_system_message(self) -> str | None:
+        return None
 
 
 @pytest.fixture
@@ -72,13 +92,14 @@ def test_workspace(tmp_path):
 
 
 @pytest.fixture
-def mock_agents():
-    """Create mock Claude Code agents."""
+def mock_agents(test_workspace):
+    """Create mock Claude Code agents using the temp workspace."""
     agents = {}
+    workspace_root = Path(test_workspace["workspace"])
     for i in range(1, 4):
         agent_id = f"claude_code_{i}"
-        cwd = f"test_workspace/agent_{i}"
-        agents[agent_id] = MockClaudeCodeAgent(agent_id, cwd)
+        cwd = workspace_root / f"agent_{i}"
+        agents[agent_id] = MockClaudeCodeAgent(agent_id, str(cwd))
     return agents
 
 
@@ -212,7 +233,10 @@ def test_non_claude_code_agents_ignored(test_workspace):
 
     # Create mixed agents (some Claude Code, some not)
     agents = {
-        "claude_code_1": MockClaudeCodeAgent("claude_code_1"),
+        "claude_code_1": MockClaudeCodeAgent(
+            "claude_code_1",
+            str(Path(test_workspace["workspace"]) / "agent_1"),
+        ),
         "regular_agent": MagicMock(backend=MagicMock(get_provider_name=lambda: "openai")),
     }
 
