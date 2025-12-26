@@ -31,6 +31,7 @@ from ..logger_config import log_backend_agent_message, log_stream_chunk, logger
 from ..stream_chunk import ChunkType
 
 # Local imports
+from ._constants import configure_openrouter_extra_body
 from .base import FilesystemSupport, StreamChunk
 from .base_with_custom_tool_and_mcp import (
     CustomToolAndMCPBackend,
@@ -190,13 +191,8 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         if "stream" in api_params and api_params["stream"]:
             api_params["stream_options"] = {"include_usage": True}
 
-        # OpenRouter: Enable cost tracking in usage response
-        # This adds the 'cost' field to the usage object
-        base_url = all_params.get("base_url", "")
-        if "openrouter.ai" in base_url:
-            extra_body = api_params.get("extra_body", {})
-            extra_body["usage"] = {"include": True}
-            api_params["extra_body"] = extra_body
+        # OpenRouter: Enable cost tracking and web search plugin
+        configure_openrouter_extra_body(api_params, all_params)
 
         # Add provider tools (web search, code interpreter) if enabled
         provider_tools = self.api_params_handler.get_provider_tools(all_params)

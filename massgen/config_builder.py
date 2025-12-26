@@ -1412,6 +1412,7 @@ class ConfigBuilder:
                                     "gemini",
                                     "grok",
                                     "azure_openai",
+                                    "openrouter",  # Supports web search via plugins array
                                 ]:
                                     agent["backend"]["enable_web_search"] = True
 
@@ -1549,6 +1550,7 @@ class ConfigBuilder:
                 "gemini",
                 "grok",
                 "azure_openai",
+                "openrouter",  # Supports web search via plugins array
             ]:
                 agent["backend"]["enable_web_search"] = True
 
@@ -1913,6 +1915,7 @@ class ConfigBuilder:
                                     "gemini",
                                     "grok",
                                     "azure_openai",
+                                    "openrouter",  # Supports web search via plugins array
                                 ]:
                                     agent["backend"]["enable_web_search"] = True
 
