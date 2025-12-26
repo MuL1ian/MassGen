@@ -35,13 +35,20 @@ class AzureOpenAIBackend(LLMBackend):
         self.api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
 
         if not self.api_key:
-            raise ValueError("Azure OpenAI API key is required. Set AZURE_OPENAI_API_KEY environment variable or pass api_key parameter.")
+            raise ValueError(
+                "Azure OpenAI API key is required. Set AZURE_OPENAI_API_KEY environment variable or pass api_key parameter.",
+            )
 
     def get_provider_name(self) -> str:
         """Get the name of this provider."""
         return "Azure OpenAI"
 
-    async def stream_with_tools(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], **kwargs) -> AsyncGenerator[StreamChunk, None]:
+    async def stream_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        **kwargs,
+    ) -> AsyncGenerator[StreamChunk, None]:
         """
         Stream a response with tool calling support using Azure OpenAI.
 
@@ -68,11 +75,16 @@ class AzureOpenAIBackend(LLMBackend):
             from openai import AsyncAzureOpenAI, AsyncOpenAI
 
             azure_endpoint = all_params.get("azure_endpoint") or all_params.get("base_url") or os.getenv("AZURE_OPENAI_ENDPOINT")
-            api_version = all_params.get("api_version") or os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+            api_version = all_params.get("api_version") or os.getenv(
+                "AZURE_OPENAI_API_VERSION",
+                "2024-12-01-preview",
+            )
 
             # Validate required configuration
             if not azure_endpoint:
-                raise ValueError("Azure OpenAI endpoint URL is required. Set AZURE_OPENAI_ENDPOINT environment variable or pass azure_endpoint/base_url parameter.")
+                raise ValueError(
+                    "Azure OpenAI endpoint URL is required. Set AZURE_OPENAI_ENDPOINT environment variable or pass azure_endpoint/base_url parameter.",
+                )
 
             # Clean up endpoint URL
             if azure_endpoint.endswith("/"):
@@ -97,7 +109,9 @@ class AzureOpenAIBackend(LLMBackend):
             else:
                 # Use Azure-specific client for traditional Azure OpenAI endpoints
                 if not api_version:
-                    raise ValueError("Azure OpenAI API version is required for Azure-specific endpoints. Set AZURE_OPENAI_API_VERSION environment variable or pass api_version parameter.")
+                    raise ValueError(
+                        "Azure OpenAI API version is required for Azure-specific endpoints. Set AZURE_OPENAI_API_VERSION environment variable or pass api_version parameter.",
+                    )
 
                 log_backend_activity(
                     self.get_provider_name(),
@@ -114,7 +128,9 @@ class AzureOpenAIBackend(LLMBackend):
             # Get deployment name from model parameter
             deployment_name = all_params.get("model")
             if not deployment_name:
-                raise ValueError("Azure OpenAI requires a deployment name. Pass it as the 'model' parameter.")
+                raise ValueError(
+                    "Azure OpenAI requires a deployment name. Pass it as the 'model' parameter.",
+                )
 
             # Check if workflow tools are present
             workflow_tools = [t for t in tools if t.get("function", {}).get("name") in ["new_answer", "vote", "submit", "restart_orchestration"]] if tools else []
@@ -134,7 +150,7 @@ class AzureOpenAIBackend(LLMBackend):
                     {
                         "workflow_tools_count": len(workflow_tools),
                         "workflow_tool_names": [t.get("function", {}).get("name") for t in workflow_tools],
-                        "system_message_length": len(modified_messages[0]["content"]) if modified_messages and modified_messages[0]["role"] == "system" else 0,
+                        "system_message_length": (len(modified_messages[0]["content"]) if modified_messages and modified_messages[0]["role"] == "system" else 0),
                     },
                     agent_id=agent_id,
                 )
@@ -158,7 +174,9 @@ class AzureOpenAIBackend(LLMBackend):
             # Ministral and some other models don't support stream_options
             models_without_stream_options = ["ministral", "mistral"]
             if not any(model_name.lower() in deployment_name.lower() for model_name in models_without_stream_options):
-                api_params["stream_options"] = {"include_usage": True}  # Enable usage tracking in stream
+                api_params["stream_options"] = {
+                    "include_usage": True,
+                }  # Enable usage tracking in stream
 
             # Only add tools if explicitly provided and not empty
             if tools and len(tools) > 0:
@@ -227,7 +245,12 @@ class AzureOpenAIBackend(LLMBackend):
                 elif converted.type != "content":
                     # Log non-content chunks
                     if converted.type == "error":
-                        log_stream_chunk("backend.azure_openai", "error", converted.error, agent_id)
+                        log_stream_chunk(
+                            "backend.azure_openai",
+                            "error",
+                            converted.error,
+                            agent_id,
+                        )
                     elif converted.type == "done":
                         log_stream_chunk("backend.azure_openai", "done", None, agent_id)
                     # Yield non-content chunks immediately
@@ -242,7 +265,12 @@ class AzureOpenAIBackend(LLMBackend):
                     {"content": accumulated_content},
                     backend_name=self.get_provider_name(),
                 )
-                log_stream_chunk("backend.azure_openai", "content", accumulated_content, agent_id)
+                log_stream_chunk(
+                    "backend.azure_openai",
+                    "content",
+                    accumulated_content,
+                    agent_id,
+                )
                 yield StreamChunk(type="content", content=accumulated_content)
 
             # After streaming is complete, check if we have workflow tool calls
@@ -255,7 +283,9 @@ class AzureOpenAIBackend(LLMBackend):
                     agent_id=agent_id,
                 )
 
-                workflow_tool_calls = self._extract_workflow_tool_calls(complete_response)
+                workflow_tool_calls = self._extract_workflow_tool_calls(
+                    complete_response,
+                )
                 if workflow_tool_calls:
                     log_stream_chunk(
                         "backend.azure_openai",
@@ -281,18 +311,27 @@ class AzureOpenAIBackend(LLMBackend):
 
         except Exception as e:
             import traceback
+
             error_details = traceback.format_exc()
             error_msg = f"Azure OpenAI API error: {str(e)}"
             log_backend_activity(
                 self.get_provider_name(),
                 "Error occurred",
-                {"error": str(e), "traceback": error_details, "endpoint": azure_endpoint if 'azure_endpoint' in locals() else 'unknown'},
+                {
+                    "error": str(e),
+                    "traceback": error_details,
+                    "endpoint": (azure_endpoint if "azure_endpoint" in locals() else "unknown"),
+                },
                 agent_id=agent_id,
             )
             log_stream_chunk("backend.azure_openai", "error", error_msg, agent_id)
             yield StreamChunk(type="error", error=error_msg)
 
-    def _prepare_messages_with_workflow_tools(self, messages: List[Dict[str, Any]], workflow_tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _prepare_messages_with_workflow_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        workflow_tools: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         """Prepare messages with workflow tool instructions."""
         if not workflow_tools:
             return messages
@@ -305,7 +344,10 @@ class AzureOpenAIBackend(LLMBackend):
                 break
 
         # Create enhanced system message with workflow tool instructions
-        enhanced_system = self._build_workflow_tools_system_prompt(system_message.get("content", "") if system_message else "", workflow_tools)
+        enhanced_system = self._build_workflow_tools_system_prompt(
+            system_message.get("content", "") if system_message else "",
+            workflow_tools,
+        )
 
         # Create new messages list with enhanced system message
         new_messages = []
@@ -317,7 +359,11 @@ class AzureOpenAIBackend(LLMBackend):
 
         return new_messages
 
-    def _build_workflow_tools_system_prompt(self, base_system: str, workflow_tools: List[Dict[str, Any]]) -> str:
+    def _build_workflow_tools_system_prompt(
+        self,
+        base_system: str,
+        workflow_tools: List[Dict[str, Any]],
+    ) -> str:
         """Build system prompt with workflow tool instructions."""
         system_parts = []
 
@@ -329,12 +375,17 @@ class AzureOpenAIBackend(LLMBackend):
             system_parts.append("\n--- Available Tools ---")
             for tool in workflow_tools:
                 name = tool.get("function", {}).get("name", "unknown")
-                description = tool.get("function", {}).get("description", "No description")
+                description = tool.get("function", {}).get(
+                    "description",
+                    "No description",
+                )
                 system_parts.append(f"- {name}: {description}")
 
                 # Add usage examples for workflow tools
                 if name == "new_answer":
-                    system_parts.append('    Usage: {"tool_name": "new_answer", ' '"arguments": {"content": "your answer"}}')
+                    system_parts.append(
+                        '    Usage: {"tool_name": "new_answer", ' '"arguments": {"content": "your answer"}}',
+                    )
                 elif name == "vote":
                     # Extract valid agent IDs from enum if available
                     agent_id_enum = None
@@ -347,9 +398,13 @@ class AzureOpenAIBackend(LLMBackend):
 
                     if agent_id_enum:
                         agent_list = ", ".join(agent_id_enum)
-                        system_parts.append(f'    Usage: {{"tool_name": "vote", ' f'"arguments": {{"agent_id": "agent1", ' f'"reason": "explanation"}}}} // Choose agent_id from: {agent_list}')
+                        system_parts.append(
+                            f'    Usage: {{"tool_name": "vote", ' f'"arguments": {{"agent_id": "agent1", ' f'"reason": "explanation"}}}} // Choose agent_id from: {agent_list}',
+                        )
                     else:
-                        system_parts.append('    Usage: {"tool_name": "vote", ' '"arguments": {"agent_id": "agent1", ' '"reason": "explanation"}}')
+                        system_parts.append(
+                            '    Usage: {"tool_name": "vote", ' '"arguments": {"agent_id": "agent1", ' '"reason": "explanation"}}',
+                        )
                 elif name == "submit":
                     system_parts.append(
                         '    Usage: {"tool_name": "submit", ' '"arguments": {"confirmed": true}}',
@@ -360,18 +415,31 @@ class AzureOpenAIBackend(LLMBackend):
                     )
 
             system_parts.append("\n--- MassGen Workflow Instructions ---")
-            system_parts.append("IMPORTANT: You must respond with a structured JSON decision at the end of your response.")
-            system_parts.append("You must use the coordination tools (new_answer, vote) " "to participate in multi-agent workflows.")
-            system_parts.append("The JSON MUST be formatted as a strict JSON code block:")
+            system_parts.append(
+                "IMPORTANT: You must respond with a structured JSON decision at the end of your response.",
+            )
+            system_parts.append(
+                "You must use the coordination tools (new_answer, vote) " "to participate in multi-agent workflows.",
+            )
+            system_parts.append(
+                "The JSON MUST be formatted as a strict JSON code block:",
+            )
             system_parts.append("1. Start with ```json on one line")
             system_parts.append("2. Include your JSON content (properly formatted)")
             system_parts.append("3. End with ``` on one line")
-            system_parts.append('Example format:\n```json\n{"tool_name": "vote", "arguments": {"agent_id": "agent1", "reason": "explanation"}}\n```')
-            system_parts.append("The JSON block should be placed at the very end of your response, after your analysis.")
+            system_parts.append(
+                'Example format:\n```json\n{"tool_name": "vote", "arguments": {"agent_id": "agent1", "reason": "explanation"}}\n```',
+            )
+            system_parts.append(
+                "The JSON block should be placed at the very end of your response, after your analysis.",
+            )
 
         return "\n".join(system_parts)
 
-    def _filter_tool_messages_for_azure(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _filter_tool_messages_for_azure(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         """Filter out tool messages that don't follow Azure OpenAI requirements."""
         filtered_messages = []
         last_message_had_tool_calls = False
@@ -461,7 +529,10 @@ class AzureOpenAIBackend(LLMBackend):
         except Exception:
             return []
 
-    def _convert_tools_format(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _convert_tools_format(
+        self,
+        tools: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         """Convert tools to Azure OpenAI format if needed."""
         # Azure OpenAI uses the same tool format as OpenAI
         return tools
