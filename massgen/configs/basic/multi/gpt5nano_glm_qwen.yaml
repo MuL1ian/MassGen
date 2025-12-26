@@ -1,5 +1,5 @@
 agents:
-  - id: "gpt-oss-1" # Cerebras AI  
+  - id: "gpt-oss-1" # Cerebras AI
     backend:
       type: "chatcompletion"
       model: "gpt-oss-120b"
@@ -19,8 +19,7 @@ agents:
       type: "lmstudio"
       model: "qwen/qwen3-4b-2507"
       # api_key: "lm-studio"
-  
+
 ui:
   display_type: "rich_terminal"
   logging_enabled: true
-  

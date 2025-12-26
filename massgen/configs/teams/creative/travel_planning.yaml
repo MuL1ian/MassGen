@@ -14,7 +14,7 @@ agents:
       enable_web_search: true
       enable_code_interpreter: true
     system_message: |
-      You are a travel researcher who excels at finding comprehensive 
+      You are a travel researcher who excels at finding comprehensive
       information about destinations, attractions, and travel logistics. Focus on:
       - Finding current attractions, events, and activities
       - Gathering practical travel information
@@ -28,7 +28,7 @@ agents:
       temperature: 0.6
       max_tokens: 3000
     system_message: |
-      You are a local travel expert who provides insider knowledge 
+      You are a local travel expert who provides insider knowledge
       and authentic recommendations for destinations. Focus on:
       - Hidden gems and local favorites
       - Practical tips and insider knowledge
@@ -47,7 +47,7 @@ agents:
       enable_web_search: true
       enable_code_interpreter: true
     system_message: |
-      You are a travel planner who organizes information into practical, 
+      You are a travel planner who organizes information into practical,
       actionable travel itineraries and recommendations. Focus on:
       - Creating well-structured travel plans
       - Organizing activities by location and timing

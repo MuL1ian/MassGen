@@ -36,4 +36,4 @@ streaming_display:
 logging:
   log_dir: "logs"
   session_id: null              # Auto-generate
-  non_blocking: true 
+  non_blocking: true

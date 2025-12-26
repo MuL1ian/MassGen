@@ -1,4 +1,4 @@
-# Example Gemini configuration for MassGen 
+# Example Gemini configuration for MassGen
 # Usage: python -m massgen.cli --config example_gemini_config.yaml "Your question here"
 
 # Single agent configuration
@@ -20,15 +20,15 @@ agent:
 #       model: "gemini-2.5-flash"
 #       enable_web_search: true
 #       enable_code_execution: false
-#   
+#
 #   compute_agent:
 #     system_message: "You are a computational specialist. Use code execution for calculations."
 #     backend:
-#       type: "gemini"  
+#       type: "gemini"
 #       model: "gemini-2.5-flash"
 #       enable_web_search: false
 #       enable_code_execution: true
-#   
+#
 #   analyst_agent:
 #     system_message: "You are a general analyst providing clear reasoning."
 #     backend:

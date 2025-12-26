@@ -100,9 +100,7 @@ class CustomToolChunk(NamedTuple):
     data: str  # Chunk data to stream to user
     completed: bool  # True for the last chunk only
     accumulated_result: str  # Final accumulated result (only when completed=True)
-    meta_info: Optional[Dict[str, Any]] = (
-        None  # Multimodal metadata (e.g., from read_media)
-    )
+    meta_info: Optional[Dict[str, Any]] = None  # Multimodal metadata (e.g., from read_media)
 
 
 class ExecutionContext(BaseModel):
@@ -112,9 +110,7 @@ class ExecutionContext(BaseModel):
     agent_system_message: Optional[str] = None
     agent_id: Optional[str] = None
     backend_name: Optional[str] = None
-    backend_type: Optional[str] = (
-        None  # Backend type for capability lookup (e.g., "openai", "claude")
-    )
+    backend_type: Optional[str] = None  # Backend type for capability lookup (e.g., "openai", "claude")
     model: Optional[str] = None  # Model name for capability lookup
     current_stage: Optional[CoordinationStage] = None
 
@@ -168,7 +164,7 @@ class ExecutionContext(BaseModel):
             elif self.current_stage == CoordinationStage.PRESENTATION:
                 if len(self.system_messages) > 1:
                     raise ValueError(
-                        "Execution Context expects only one system message during PRESENTATION stage"
+                        "Execution Context expects only one system message during PRESENTATION stage",
                     )
                 system_message = self._filter_system_message(self.system_messages[0])
                 self.prompt = [system_message] + self.user_messages
@@ -189,9 +185,7 @@ class ExecutionContext(BaseModel):
     @staticmethod
     def exec_instruction() -> dict:
         instruction = (
-            "You MUST digest existing answers, combine their strengths, "
-            "and do additional work to address their weaknesses, "
-            "then generate a better answer to address the ORIGINAL MESSAGE."
+            "You MUST digest existing answers, combine their strengths, " "and do additional work to address their weaknesses, " "then generate a better answer to address the ORIGINAL MESSAGE."
         )
         return {"role": "system", "content": instruction}
 
@@ -304,7 +298,8 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         # Register multimodal tools if enabled
         enable_multimodal = self.config.get(
-            "enable_multimodal_tools", False
+            "enable_multimodal_tools",
+            False,
         ) or kwargs.get("enable_multimodal_tools", False)
         if enable_multimodal:
             multimodal_tools = [
@@ -323,13 +318,14 @@ class CustomToolAndMCPBackend(LLMBackend):
             ]
             self._register_custom_tools(multimodal_tools)
             logger.info(
-                f"[{self.backend_name}] Multimodal tools enabled: read_media, generate_media"
+                f"[{self.backend_name}] Multimodal tools enabled: read_media, generate_media",
             )
 
         # Build multimodal config for injection into read_media and generate_media tools
         # Priority: explicit multimodal_config > individual config variables
         self._multimodal_config = self.config.get(
-            "multimodal_config", {}
+            "multimodal_config",
+            {},
         ) or kwargs.get("multimodal_config", {})
 
         # If not explicitly set, build from individual generation config variables
@@ -341,17 +337,14 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         # Auto-discovery: Merge registry servers when enabled
         auto_discover = self.config.get(
-            "auto_discover_custom_tools", False
+            "auto_discover_custom_tools",
+            False,
         ) or kwargs.get("auto_discover_custom_tools", False)
         if auto_discover:
             registry_servers = get_auto_discovery_servers()
             if registry_servers:
                 # Get server names already configured to avoid duplicates
-                configured_server_names = {
-                    s.get("name")
-                    for s in self.mcp_servers
-                    if isinstance(s, dict) and "name" in s
-                }
+                configured_server_names = {s.get("name") for s in self.mcp_servers if isinstance(s, dict) and "name" in s}
 
                 # Add registry servers that aren't already configured
                 added_servers = []
@@ -362,7 +355,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
                 if added_servers:
                     logger.info(
-                        f"[{self.backend_name}] Auto-discovery enabled: Added MCP servers from registry: {', '.join(added_servers)}"
+                        f"[{self.backend_name}] Auto-discovery enabled: Added MCP servers from registry: {', '.join(added_servers)}",
                     )
 
                     # Log info about unavailable servers
@@ -371,7 +364,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         unavailable = registry_info["unavailable_servers"]
                         missing_keys = registry_info.get("missing_api_keys", {})
                         logger.info(
-                            f"[{self.backend_name}] Registry servers not added (missing API keys): {', '.join([f'{s} (needs {missing_keys.get(s)})' for s in unavailable])}"
+                            f"[{self.backend_name}] Registry servers not added (missing API keys): {', '.join([f'{s} (needs {missing_keys.get(s)})' for s in unavailable])}",
                         )
 
         self.allowed_tools = kwargs.pop("allowed_tools", None)
@@ -395,18 +388,14 @@ class CustomToolAndMCPBackend(LLMBackend):
         # Initialize circuit breaker if available and MCP servers are configured
         if self._circuit_breakers_enabled and self.mcp_servers:
             # Use shared utility to build circuit breaker configuration
-            mcp_tools_config = (
-                MCPConfigHelper.build_circuit_breaker_config("mcp_tools")
-                if MCPConfigHelper
-                else None
-            )
+            mcp_tools_config = MCPConfigHelper.build_circuit_breaker_config("mcp_tools") if MCPConfigHelper else None
 
             if mcp_tools_config:
                 self._mcp_tools_circuit_breaker = MCPCircuitBreaker(mcp_tools_config)
                 logger.info("Circuit breaker initialized for MCP tools")
             else:
                 logger.warning(
-                    "MCP tools circuit breaker config not available, disabling circuit breaker functionality"
+                    "MCP tools circuit breaker config not available, disabling circuit breaker functionality",
                 )
                 self._circuit_breakers_enabled = False
         else:
@@ -415,7 +404,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 self._circuit_breakers_enabled = False
             else:
                 logger.warning(
-                    "Circuit breakers not available - proceeding without circuit breaker protection"
+                    "Circuit breakers not available - proceeding without circuit breaker protection",
                 )
 
         # Function registry for mcp_tools-based servers (stdio + streamable-http)
@@ -476,7 +465,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         if multimodal_config:
             logger.debug(
-                f"[{self.backend_name}] Built multimodal_config from params: {multimodal_config}"
+                f"[{self.backend_name}] Built multimodal_config from params: {multimodal_config}",
             )
 
         return multimodal_config
@@ -589,13 +578,12 @@ class CustomToolAndMCPBackend(LLMBackend):
                 except json.JSONDecodeError as exc:
                     snippet = args[:200] + "..." if len(args) > 200 else args
                     logger.error(
-                        f"[NLIP] Failed to parse arguments for {name}: {exc}. "
-                        f"Invalid JSON (truncated): {snippet}",
+                        f"[NLIP] Failed to parse arguments for {name}: {exc}. " f"Invalid JSON (truncated): {snippet}",
                     )
                     return None
             elif not isinstance(args, dict):
                 logger.error(
-                    f"[NLIP] Arguments must be string or dict, got {type(args)}"
+                    f"[NLIP] Arguments must be string or dict, got {type(args)}",
                 )
                 return None
 
@@ -616,22 +604,16 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         # Inject agent_cwd into arguments (same as standard path)
         original_args = call.get("arguments", "{}")
-        arguments = (
-            json.loads(original_args or "{}")
-            if isinstance(original_args, str)
-            else dict(original_args or {})
-        )
+        arguments = json.loads(original_args or "{}") if isinstance(original_args, str) else dict(original_args or {})
         if self.filesystem_manager and self.filesystem_manager.cwd:
             if "agent_cwd" not in arguments or arguments.get("agent_cwd") is None:
                 arguments["agent_cwd"] = self.filesystem_manager.cwd
                 logger.debug(
-                    f"[NLIP] Injected agent_cwd: {self.filesystem_manager.cwd}"
+                    f"[NLIP] Injected agent_cwd: {self.filesystem_manager.cwd}",
                 )
 
         call_with_cwd = call.copy()
-        call_with_cwd["arguments"] = (
-            json.dumps(arguments) if isinstance(original_args, str) else arguments
-        )
+        call_with_cwd["arguments"] = json.dumps(arguments) if isinstance(original_args, str) else arguments
 
         nlip_call = self._backend_call_to_nlip(call_with_cwd)
         if not nlip_call:
@@ -645,7 +627,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 logger.warning(f"[NLIP] Failed to serialize execution context: {exc}")
         else:
             logger.debug(
-                "[NLIP] No execution context available when building NLIP request"
+                "[NLIP] No execution context available when building NLIP request",
             )
 
         if self.filesystem_manager:
@@ -682,7 +664,10 @@ class CustomToolAndMCPBackend(LLMBackend):
 
     @abstractmethod
     async def _process_stream(
-        self, stream, all_params, agent_id: Optional[str] = None
+        self,
+        stream,
+        all_params,
+        agent_id: Optional[str] = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Process stream."""
         yield StreamChunk(type="error", error="Not implemented")
@@ -750,8 +735,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         functions = func_field
                     else:
                         logger.error(
-                            f"Invalid function field type: {type(func_field)}. "
-                            f"Must be str or List[str].",
+                            f"Invalid function field type: {type(func_field)}. " f"Must be str or List[str].",
                         )
                         continue
 
@@ -794,42 +778,37 @@ class CustomToolAndMCPBackend(LLMBackend):
                     # Register each function with its corresponding values
                     for i, func in enumerate(functions):
                         # Inject agent_cwd into preset_args if filesystem_manager is available
-                        final_preset_args = (
-                            preset_args_list[i].copy() if preset_args_list[i] else {}
-                        )
+                        final_preset_args = preset_args_list[i].copy() if preset_args_list[i] else {}
                         if self.filesystem_manager and self.filesystem_manager.cwd:
                             final_preset_args["agent_cwd"] = self.filesystem_manager.cwd
                             logger.info(
-                                f"Injecting agent_cwd for {func}: {self.filesystem_manager.cwd}"
+                                f"Injecting agent_cwd for {func}: {self.filesystem_manager.cwd}",
                             )
                         elif self.filesystem_manager:
                             logger.warning(
-                                f"filesystem_manager exists but cwd is None for {func}"
+                                f"filesystem_manager exists but cwd is None for {func}",
                             )
                         else:
                             logger.warning(
-                                f"No filesystem_manager available for {func}"
+                                f"No filesystem_manager available for {func}",
                             )
 
                         # Load the function first if custom name is needed
                         if names[i] and names[i] != func:
                             # Load function to apply custom name
                             if path:
-                                loaded_func = (
-                                    self.custom_tool_manager._load_function_from_path(
-                                        path, func
-                                    )
+                                loaded_func = self.custom_tool_manager._load_function_from_path(
+                                    path,
+                                    func,
                                 )
                             else:
-                                loaded_func = (
-                                    self.custom_tool_manager._load_builtin_function(
-                                        func
-                                    )
+                                loaded_func = self.custom_tool_manager._load_builtin_function(
+                                    func,
                                 )
 
                             if loaded_func is None:
                                 logger.error(
-                                    f"Could not load function '{func}' from path: {path}"
+                                    f"Could not load function '{func}' from path: {path}",
                                 )
                                 continue
 
@@ -861,13 +840,11 @@ class CustomToolAndMCPBackend(LLMBackend):
                             self._custom_tool_names.add(registered_name)
                         else:
                             self._custom_tool_names.add(
-                                f"custom_tool__{registered_name}"
+                                f"custom_tool__{registered_name}",
                             )
 
                         logger.info(
-                            f"Registered custom tool: {registered_name} from {path} "
-                            f"(category: {category}, "
-                            f"desc: '{descriptions[i][:50] if descriptions[i] else 'None'}...')",
+                            f"Registered custom tool: {registered_name} from {path} " f"(category: {category}, " f"desc: '{descriptions[i][:50] if descriptions[i] else 'None'}...')",
                         )
 
             except Exception as e:
@@ -1001,11 +978,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             "get_broadcast_responses",
         ) and hasattr(self, "_broadcast_toolkit"):
             # Parse arguments
-            arguments = (
-                call["arguments"]
-                if isinstance(call["arguments"], str)
-                else json.dumps(call["arguments"])
-            )
+            arguments = call["arguments"] if isinstance(call["arguments"], str) else json.dumps(call["arguments"])
             # Use explicit agent_id if provided, then instance agent_id, then execution context
             # Priority: agent_id_override > self.agent_id > _execution_context
             # This avoids race conditions when multiple agents run concurrently
@@ -1015,33 +988,29 @@ class CustomToolAndMCPBackend(LLMBackend):
             elif self.agent_id:
                 agent_id = self.agent_id
             else:
-                agent_id = (
-                    self._execution_context.agent_id
-                    if self._execution_context and self._execution_context.agent_id
-                    else "unknown"
-                )
+                agent_id = self._execution_context.agent_id if self._execution_context and self._execution_context.agent_id else "unknown"
 
             # Call broadcast toolkit method
             try:
                 if tool_name == "ask_others":
                     result = await self._broadcast_toolkit.execute_ask_others(
-                        arguments, agent_id
+                        arguments,
+                        agent_id,
                     )
                 elif tool_name == "respond_to_broadcast":
                     result = await self._broadcast_toolkit.execute_respond_to_broadcast(
-                        arguments, agent_id
+                        arguments,
+                        agent_id,
                     )
                 elif tool_name == "check_broadcast_status":
-                    result = (
-                        await self._broadcast_toolkit.execute_check_broadcast_status(
-                            arguments, agent_id
-                        )
+                    result = await self._broadcast_toolkit.execute_check_broadcast_status(
+                        arguments,
+                        agent_id,
                     )
                 elif tool_name == "get_broadcast_responses":
-                    result = (
-                        await self._broadcast_toolkit.execute_get_broadcast_responses(
-                            arguments, agent_id
-                        )
+                    result = await self._broadcast_toolkit.execute_get_broadcast_responses(
+                        arguments,
+                        agent_id,
                     )
 
                 # Yield final result
@@ -1061,11 +1030,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 return
 
         # Parse arguments for regular custom tools
-        arguments = (
-            json.loads(call["arguments"])
-            if isinstance(call["arguments"], str)
-            else call["arguments"]
-        )
+        arguments = json.loads(call["arguments"]) if isinstance(call["arguments"], str) else call["arguments"]
 
         # Ensure agent_cwd is always injected if filesystem_manager is available
         # This provides a fallback in case preset_args didn't work during registration
@@ -1073,7 +1038,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             if "agent_cwd" not in arguments or arguments.get("agent_cwd") is None:
                 arguments["agent_cwd"] = self.filesystem_manager.cwd
                 logger.info(
-                    f"Dynamically injected agent_cwd at execution time: {self.filesystem_manager.cwd}"
+                    f"Dynamically injected agent_cwd at execution time: {self.filesystem_manager.cwd}",
                 )
 
         # Inject multimodal_config if available (for read_media tool)
@@ -1092,7 +1057,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         # Stream all results and accumulate only is_log=True
         async for data, is_log, meta_info in self._stream_execution_results(
-            tool_request
+            tool_request,
         ):
             # Yield streaming chunk to user
             yield CustomToolChunk(
@@ -1234,9 +1199,7 @@ class CustomToolAndMCPBackend(LLMBackend):
         )
 
         if tool_name in ["new_answer", "vote"]:
-            error_msg = (
-                f"CRITICAL: Workflow tool {tool_name} incorrectly routed to execution"
-            )
+            error_msg = f"CRITICAL: Workflow tool {tool_name} incorrectly routed to execution"
             logger.error(error_msg)
             yield StreamChunk(
                 type=config.chunk_type,
@@ -1278,11 +1241,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                     result_meta_info = None
                     async for chunk in callback_result:
                         # Yield intermediate chunks if available
-                        if (
-                            hasattr(chunk, "data")
-                            and chunk.data
-                            and not chunk.completed
-                        ):
+                        if hasattr(chunk, "data") and chunk.data and not chunk.completed:
                             # Stream intermediate output to user
                             yield StreamChunk(
                                 type=config.chunk_type,
@@ -1308,18 +1267,22 @@ class CustomToolAndMCPBackend(LLMBackend):
                     result_str = str(result)
             else:  # MCP
                 result_str, result_obj = await config.execution_callback(
-                    call["name"], call["arguments"]
+                    call["name"],
+                    call["arguments"],
                 )
                 result = result_str
 
             # Check for MCP failure after retries
             if config.tool_type == "mcp" and result_str.startswith("Error:"):
                 logger.warning(
-                    f"MCP tool {tool_name} failed after retries: {result_str}"
+                    f"MCP tool {tool_name} failed after retries: {result_str}",
                 )
                 error_msg = result_str
                 self._append_tool_error_message(
-                    updated_messages, call, error_msg, config.tool_type
+                    updated_messages,
+                    call,
+                    error_msg,
+                    config.tool_type,
                 )
                 processed_call_ids.add(call.get("call_id", ""))
                 yield StreamChunk(
@@ -1337,7 +1300,10 @@ class CustomToolAndMCPBackend(LLMBackend):
 
             # Append result to messages
             self._append_tool_result_message(
-                updated_messages, call, result, config.tool_type
+                updated_messages,
+                call,
+                result,
+                config.tool_type,
             )
 
             # Check for reminder in tool result and inject as separate user message
@@ -1349,10 +1315,12 @@ class CustomToolAndMCPBackend(LLMBackend):
 
                     json_str = None
                     if hasattr(result_obj, "content") and isinstance(
-                        result_obj.content, list
+                        result_obj.content,
+                        list,
                     ):
                         if len(result_obj.content) > 0 and hasattr(
-                            result_obj.content[0], "text"
+                            result_obj.content[0],
+                            "text",
                         ):
                             json_str = result_obj.content[0].text
                     elif isinstance(result_obj, dict):
@@ -1381,7 +1349,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 }
                 updated_messages.append(reminder_message)
                 logger.info(
-                    f"[Tool Reminder] Injected reminder from {tool_name}: {reminder_text[:100]}..."
+                    f"[Tool Reminder] Injected reminder from {tool_name}: {reminder_text[:100]}...",
                 )
 
             # Yield results chunk
@@ -1390,10 +1358,12 @@ class CustomToolAndMCPBackend(LLMBackend):
             if config.tool_type == "mcp" and result_obj:
                 try:
                     if hasattr(result_obj, "content") and isinstance(
-                        result_obj.content, list
+                        result_obj.content,
+                        list,
                     ):
                         if len(result_obj.content) > 0 and hasattr(
-                            result_obj.content[0], "text"
+                            result_obj.content[0],
+                            "text",
                         ):
                             display_result = result_obj.content[0].text
                 except (AttributeError, IndexError, TypeError):
@@ -1449,7 +1419,10 @@ class CustomToolAndMCPBackend(LLMBackend):
 
             # Append error to messages
             self._append_tool_error_message(
-                updated_messages, call, error_msg, config.tool_type
+                updated_messages,
+                call,
+                error_msg,
+                config.tool_type,
             )
 
             processed_call_ids.add(call.get("call_id", ""))
@@ -1534,7 +1507,7 @@ class CustomToolAndMCPBackend(LLMBackend):
         if not concurrent_execution or len(all_calls) <= 1:
             reason = "disabled by config" if not concurrent_execution else "single tool"
             logger.info(
-                f"{log_prefix} Executing {len(all_calls)} tools sequentially ({reason})"
+                f"{log_prefix} Executing {len(all_calls)} tools sequentially ({reason})",
             )
 
             for call in all_calls:
@@ -1665,13 +1638,11 @@ class CustomToolAndMCPBackend(LLMBackend):
         )
 
         request = self._build_nlip_request(call)
-        call_descriptor = (
-            "MCP call" if config.tool_type == "mcp" else "custom tool call"
-        )
+        call_descriptor = "MCP call" if config.tool_type == "mcp" else "custom tool call"
         call_reference = f" (id {call_id})" if call_id else ""
         transfer_message = f"🔁 [NLIP Router] Transferring {call_descriptor} '{tool_name}' via NLIP router{call_reference}"
         logger.info(
-            f"[NLIP] Routing {call_descriptor} '{tool_name}'{call_reference} through NLIP router"
+            f"[NLIP] Routing {call_descriptor} '{tool_name}'{call_reference} through NLIP router",
         )
         yield StreamChunk(
             type=config.chunk_type,
@@ -1687,7 +1658,9 @@ class CustomToolAndMCPBackend(LLMBackend):
         try:
             async for response in nlip_generator:
                 chunk = self._convert_nlip_stream_chunk(
-                    response.content, config, tool_name
+                    response.content,
+                    config,
+                    tool_name,
                 )
                 if chunk:
                     yield chunk
@@ -1695,7 +1668,8 @@ class CustomToolAndMCPBackend(LLMBackend):
 
                 if response.tool_results:
                     matching_result = self._select_matching_tool_result(
-                        response.tool_results, call_id
+                        response.tool_results,
+                        call_id,
                     )
                     if not matching_result:
                         continue
@@ -1703,7 +1677,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                     if matching_result.status == "error":
                         error_msg = matching_result.error or "Unknown error"
                         self._append_tool_error_message(
-                            updated_messages, call, error_msg, config.tool_type
+                            updated_messages,
+                            call,
+                            error_msg,
+                            config.tool_type,
                         )
                         processed_call_ids.add(call_id)
                         yield StreamChunk(
@@ -1716,10 +1693,14 @@ class CustomToolAndMCPBackend(LLMBackend):
                         break
 
                     result_text = self._extract_nlip_result_text(
-                        matching_result, config.tool_type
+                        matching_result,
+                        config.tool_type,
                     )
                     self._append_tool_result_message(
-                        updated_messages, call, result_text, config.tool_type
+                        updated_messages,
+                        call,
+                        result_text,
+                        config.tool_type,
                     )
                     processed_call_ids.add(call_id)
 
@@ -1771,15 +1752,13 @@ class CustomToolAndMCPBackend(LLMBackend):
             content_str = json.dumps(stream_data)
             if len(content_str) > 10000:
                 logger.warning(
-                    f"[NLIP] Large stream chunk ({len(content_str)} chars) for {tool_name}"
+                    f"[NLIP] Large stream chunk ({len(content_str)} chars) for {tool_name}",
                 )
                 content_str = f"{content_str[:10000]}...[truncated]"
         else:
             content_str = str(stream_data)
 
-        status = (
-            "custom_tool_output" if config.tool_type == "custom" else "mcp_tool_output"
-        )
+        status = "custom_tool_output" if config.tool_type == "custom" else "mcp_tool_output"
         return StreamChunk(
             type=config.chunk_type,
             status=status,
@@ -1799,7 +1778,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         if not call_id:
             logger.warning(
-                "[NLIP] No call_id provided for tool result selection; defaulting to first result"
+                "[NLIP] No call_id provided for tool result selection; defaulting to first result",
             )
             return tool_results[0]
 
@@ -1809,8 +1788,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         available_ids = [result.tool_id for result in tool_results]
         logger.error(
-            f"[NLIP] No tool result matched call_id={call_id}. "
-            f"Available IDs: {available_ids}. Using first entry as fallback.",
+            f"[NLIP] No tool result matched call_id={call_id}. " f"Available IDs: {available_ids}. Using first entry as fallback.",
         )
         return tool_results[0]
 
@@ -1821,7 +1799,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         if isinstance(raw_result, str):
             logger.debug(
-                f"[NLIP] Extracted string result for {tool_name} ({len(raw_result)} chars)"
+                f"[NLIP] Extracted string result for {tool_name} ({len(raw_result)} chars)",
             )
             return raw_result
 
@@ -1843,11 +1821,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 return content_text
 
         if isinstance(raw_result, (dict, list)):
-            content_payload = (
-                raw_result.get("content")
-                if isinstance(raw_result, dict)
-                else raw_result
-            )
+            content_payload = raw_result.get("content") if isinstance(raw_result, dict) else raw_result
             content_text = self._extract_text_from_content(content_payload)
             if content_text:
                 logger.debug(
@@ -1860,14 +1834,9 @@ class CustomToolAndMCPBackend(LLMBackend):
             return ""
 
         logger.warning(
-            f"[NLIP] Falling back to stringified {type(raw_result).__name__} result "
-            f"for {tool_name}",
+            f"[NLIP] Falling back to stringified {type(raw_result).__name__} result " f"for {tool_name}",
         )
-        fallback = (
-            json.dumps(raw_result, indent=2, ensure_ascii=False)
-            if isinstance(raw_result, (dict, list))
-            else str(raw_result)
-        )
+        fallback = json.dumps(raw_result, indent=2, ensure_ascii=False) if isinstance(raw_result, (dict, list)) else str(raw_result)
         return fallback
 
     @staticmethod
@@ -1886,9 +1855,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 elif isinstance(item, dict):
                     if "text" in item:
                         text_parts.append(str(item["text"]))
-                    elif (
-                        "type" in item and item["type"] == "text" and "content" in item
-                    ):
+                    elif "type" in item and item["type"] == "text" and "content" in item:
                         text_parts.append(str(item["content"]))
                 elif isinstance(item, str):
                     text_parts.append(item)
@@ -1899,7 +1866,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 return str(content["text"])
             if "content" in content:
                 return CustomToolAndMCPBackend._extract_text_from_content(
-                    content["content"]
+                    content["content"],
                 )
 
         if isinstance(content, str):
@@ -1940,27 +1907,21 @@ class CustomToolAndMCPBackend(LLMBackend):
                 return
 
             # Apply circuit breaker filtering before connection attempts
-            if (
-                self._circuit_breakers_enabled
-                and self._mcp_tools_circuit_breaker
-                and MCPCircuitBreakerManager
-            ):
-                filtered_servers = (
-                    MCPCircuitBreakerManager.apply_circuit_breaker_filtering(
-                        mcp_tools_servers,
-                        self._mcp_tools_circuit_breaker,
-                        backend_name=self.backend_name,
-                        agent_id=self.agent_id,
-                    )
+            if self._circuit_breakers_enabled and self._mcp_tools_circuit_breaker and MCPCircuitBreakerManager:
+                filtered_servers = MCPCircuitBreakerManager.apply_circuit_breaker_filtering(
+                    mcp_tools_servers,
+                    self._mcp_tools_circuit_breaker,
+                    backend_name=self.backend_name,
+                    agent_id=self.agent_id,
                 )
                 if not filtered_servers:
                     logger.warning(
-                        "All MCP servers blocked by circuit breaker during setup"
+                        "All MCP servers blocked by circuit breaker during setup",
                     )
                     return
                 if len(filtered_servers) < len(mcp_tools_servers):
                     logger.info(
-                        f"Circuit breaker filtered {len(mcp_tools_servers) - len(filtered_servers)} servers during setup"
+                        f"Circuit breaker filtered {len(mcp_tools_servers) - len(filtered_servers)} servers during setup",
                     )
                 servers_to_use = filtered_servers
             else:
@@ -1985,7 +1946,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             if not self._mcp_client:
                 self._mcp_initialized = False
                 logger.warning(
-                    "MCP client setup failed, falling back to no-MCP streaming"
+                    "MCP client setup failed, falling back to no-MCP streaming",
                 )
                 return
 
@@ -2000,10 +1961,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             )
 
             # Setup code-based tools if enabled (CodeAct paradigm)
-            if (
-                self.filesystem_manager
-                and self.filesystem_manager.enable_code_based_tools
-            ):
+            if self.filesystem_manager and self.filesystem_manager.enable_code_based_tools:
                 # Filter out user MCP tools from protocol access (they're accessible via code)
                 # Framework MCPs remain as protocol tools
                 FRAMEWORK_MCPS = {
@@ -2019,20 +1977,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                 removed_tools = []
                 for tool_name, function in self._mcp_functions.items():
                     # Get server name from tool name (format: server__tool or just tool)
-                    server_name = (
-                        self._mcp_client._tool_to_server.get(tool_name)
-                        if self._mcp_client
-                        else None
-                    )
+                    server_name = self._mcp_client._tool_to_server.get(tool_name) if self._mcp_client else None
 
                     # Check if server is a framework MCP (exact match or prefix match like "planning_agent_a")
-                    is_framework_mcp = server_name and (
-                        server_name in FRAMEWORK_MCPS
-                        or any(
-                            server_name.startswith(f"{fmcp}_")
-                            for fmcp in FRAMEWORK_MCPS
-                        )
-                    )
+                    is_framework_mcp = server_name and (server_name in FRAMEWORK_MCPS or any(server_name.startswith(f"{fmcp}_") for fmcp in FRAMEWORK_MCPS))
 
                     if is_framework_mcp:
                         filtered_functions[tool_name] = function
@@ -2044,25 +1992,26 @@ class CustomToolAndMCPBackend(LLMBackend):
 
                 if removed_tools:
                     logger.info(
-                        f"[MCP] Filtered out user MCP tools (accessible via code): {removed_tools}"
+                        f"[MCP] Filtered out user MCP tools (accessible via code): {removed_tools}",
                     )
 
                 self._mcp_functions = filtered_functions
                 try:
                     logger.info("[MCP] Setting up code-based tools from MCP client")
                     await self.filesystem_manager.setup_code_based_tools_from_mcp_client(
-                        self._mcp_client
+                        self._mcp_client,
                     )
                 except Exception as e:
                     logger.error(
-                        f"[MCP] Failed to setup code-based tools: {e}", exc_info=True
+                        f"[MCP] Failed to setup code-based tools: {e}",
+                        exc_info=True,
                     )
                     # Don't fail MCP setup if code generation fails
                     # Agent can still use protocol-based tools
 
             self._mcp_initialized = True
             logger.info(
-                f"Successfully initialized MCP sessions with {len(self._mcp_functions)} tools converted to functions"
+                f"Successfully initialized MCP sessions with {len(self._mcp_functions)} tools converted to functions",
             )
 
             # Record success for circuit breaker
@@ -2086,7 +2035,7 @@ class CustomToolAndMCPBackend(LLMBackend):
         # Check if this specific MCP tool is blocked by planning mode
         if self.is_mcp_tool_blocked(function_name):
             logger.info(
-                f"[MCP] Planning mode enabled - blocking MCP tool: {function_name}"
+                f"[MCP] Planning mode enabled - blocking MCP tool: {function_name}",
             )
             error_str = f"🚫 [MCP] Tool '{function_name}' blocked during coordination (planning mode active)"
             return error_str, {
@@ -2097,11 +2046,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         # Convert JSON string to dict for shared utility
         try:
-            args = (
-                json.loads(arguments_json)
-                if isinstance(arguments_json, str)
-                else arguments_json
-            )
+            args = json.loads(arguments_json) if isinstance(arguments_json, str) else arguments_json
         except (json.JSONDecodeError, ValueError) as e:
             error_str = f"Error: Invalid JSON arguments: {e}"
             return error_str, {"error": error_str}
@@ -2119,11 +2064,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         # Circuit breaker callback
         async def circuit_breaker_callback(event: str, error_msg: str = "") -> None:
-            if not (
-                self._circuit_breakers_enabled
-                and MCPCircuitBreakerManager
-                and self._mcp_tools_circuit_breaker
-            ):
+            if not (self._circuit_breakers_enabled and MCPCircuitBreakerManager and self._mcp_tools_circuit_breaker):
                 return
 
             # For individual function calls, we don't have server configurations readily available
@@ -2148,7 +2089,7 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         if not MCPExecutionManager:
             return "Error: MCPExecutionManager unavailable", {
-                "error": "MCPExecutionManager unavailable"
+                "error": "MCPExecutionManager unavailable",
             }
 
         result = await MCPExecutionManager.execute_function_with_retry(
@@ -2233,7 +2174,8 @@ class CustomToolAndMCPBackend(LLMBackend):
             if file_path_value:
                 # Process file_path entry for File Search
                 file_content = self._process_file_path_entry(
-                    file_path_value, all_params
+                    file_path_value,
+                    all_params,
                 )
                 if file_content:
                     extra_content.append(file_content)
@@ -2262,11 +2204,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         raise UploadFileError(f"File not found: {resolved}")
 
                     # Enforce configurable media size limit (in MB) for images (parity with audio/video)
-                    limit_mb = (
-                        all_params.get("media_max_file_size_mb")
-                        or self.config.get("media_max_file_size_mb")
-                        or MEDIA_MAX_FILE_SIZE_MB
-                    )
+                    limit_mb = all_params.get("media_max_file_size_mb") or self.config.get("media_max_file_size_mb") or MEDIA_MAX_FILE_SIZE_MB
                     self._validate_media_size(resolved, int(limit_mb))
 
                     encoded, mime_type = self._read_base64(resolved)
@@ -2309,11 +2247,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         raise UploadFileError(f"Audio file not found: {resolved}")
 
                     # Enforce configurable media size limit (in MB)
-                    limit_mb = (
-                        all_params.get("media_max_file_size_mb")
-                        or self.config.get("media_max_file_size_mb")
-                        or MEDIA_MAX_FILE_SIZE_MB
-                    )
+                    limit_mb = all_params.get("media_max_file_size_mb") or self.config.get("media_max_file_size_mb") or MEDIA_MAX_FILE_SIZE_MB
 
                     self._validate_media_size(resolved, int(limit_mb))
 
@@ -2323,8 +2257,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                     mime_lower = (mime_type or "").split(";")[0].strip().lower()
                     if mime_lower not in SUPPORTED_AUDIO_MIME_TYPES:
                         raise UploadFileError(
-                            f"Unsupported audio format for {resolved}. "
-                            f"Supported formats: mp3, wav",
+                            f"Unsupported audio format for {resolved}. " f"Supported formats: mp3, wav",
                         )
 
                     # Normalize MIME type
@@ -2365,11 +2298,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         raise UploadFileError(f"Video file not found: {resolved}")
 
                     # Enforce configurable media size limit (in MB)
-                    limit_mb = (
-                        all_params.get("media_max_file_size_mb")
-                        or self.config.get("media_max_file_size_mb")
-                        or MEDIA_MAX_FILE_SIZE_MB
-                    )
+                    limit_mb = all_params.get("media_max_file_size_mb") or self.config.get("media_max_file_size_mb") or MEDIA_MAX_FILE_SIZE_MB
 
                     self._validate_media_size(resolved, int(limit_mb))
 
@@ -2408,13 +2337,8 @@ class CustomToolAndMCPBackend(LLMBackend):
                 last_content = [dict(last_content)]
             elif isinstance(last_content, list):
                 if all(isinstance(item, str) for item in last_content):
-                    last_content = [
-                        {"type": "text", "text": item} for item in last_content
-                    ]
-                elif all(
-                    isinstance(item, dict) and "type" in item and "text" in item
-                    for item in last_content
-                ):
+                    last_content = [{"type": "text", "text": item} for item in last_content]
+                elif all(isinstance(item, dict) and "type" in item and "text" in item for item in last_content):
                     last_content = list(last_content)
                 else:
                     last_content = []
@@ -2474,16 +2398,14 @@ class CustomToolAndMCPBackend(LLMBackend):
         file_ext = resolved.suffix.lower()
         if file_ext not in FILE_SEARCH_SUPPORTED_EXTENSIONS:
             raise UploadFileError(
-                f"File type {file_ext} not supported by File Search. "
-                f"Supported types: {', '.join(sorted(FILE_SEARCH_SUPPORTED_EXTENSIONS))}",
+                f"File type {file_ext} not supported by File Search. " f"Supported types: {', '.join(sorted(FILE_SEARCH_SUPPORTED_EXTENSIONS))}",
             )
 
         # Validate file size
         file_size = resolved.stat().st_size
         if file_size > FILE_SEARCH_MAX_FILE_SIZE:
             raise UploadFileError(
-                f"File size {file_size / (1024*1024):.2f} MB exceeds "
-                f"File Search limit of {FILE_SEARCH_MAX_FILE_SIZE / (1024*1024):.0f} MB",
+                f"File size {file_size / (1024*1024):.2f} MB exceeds " f"File Search limit of {FILE_SEARCH_MAX_FILE_SIZE / (1024*1024):.0f} MB",
             )
 
         # Determine MIME type
@@ -2552,11 +2474,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             UploadFileError: If fetch fails, format is unsupported, or size exceeds limit
         """
         # Get size limit from config (default 64MB)
-        limit_mb = (
-            all_params.get("media_max_file_size_mb")
-            or self.config.get("media_max_file_size_mb")
-            or MEDIA_MAX_FILE_SIZE_MB
-        )
+        limit_mb = all_params.get("media_max_file_size_mb") or self.config.get("media_max_file_size_mb") or MEDIA_MAX_FILE_SIZE_MB
         max_size_bytes = int(limit_mb) * 1024 * 1024
 
         async with httpx.AsyncClient() as http_client:
@@ -2584,8 +2502,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                     mime_type = guessed_mime.lower()
                 else:
                     raise UploadFileError(
-                        f"Unsupported audio format for {url}. "
-                        f"Supported formats: {', '.join(sorted(SUPPORTED_AUDIO_FORMATS))}",
+                        f"Unsupported audio format for {url}. " f"Supported formats: {', '.join(sorted(SUPPORTED_AUDIO_FORMATS))}",
                     )
 
             # Normalize MIME type
@@ -2607,8 +2524,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             encoded = base64.b64encode(audio_bytes).decode("utf-8")
 
             logger.info(
-                f"Fetched and encoded audio from URL: {url} "
-                f"({len(audio_bytes) / (1024 * 1024):.2f} MB, {mime_type})",
+                f"Fetched and encoded audio from URL: {url} " f"({len(audio_bytes) / (1024 * 1024):.2f} MB, {mime_type})",
             )
 
             return encoded, mime_type
@@ -2627,12 +2543,12 @@ class CustomToolAndMCPBackend(LLMBackend):
         self._execution_context = ExecutionContext(
             messages=messages,
             agent_system_message=kwargs.get("system_message", None),
-            agent_id=agent_id
-            or self.agent_id,  # Use kwargs agent_id, fallback to instance attribute
+            agent_id=agent_id or self.agent_id,  # Use kwargs agent_id, fallback to instance attribute
             backend_name=self.backend_name,
             backend_type=self.get_provider_name(),  # For multimodal capability lookup
             model=kwargs.get(
-                "model", ""
+                "model",
+                "",
             ),  # For model-specific multimodal capability lookup
             current_stage=self.coordination_stage,
         )
@@ -2668,7 +2584,10 @@ class CustomToolAndMCPBackend(LLMBackend):
 
                         # Start recursive MCP streaming
                         async for chunk in self._stream_with_custom_and_mcp_tools(
-                            current_messages, tools, client, **kwargs
+                            current_messages,
+                            tools,
+                            client,
+                            **kwargs,
                         ):
                             yield chunk
 
@@ -2678,7 +2597,10 @@ class CustomToolAndMCPBackend(LLMBackend):
 
                         # Start non-MCP streaming
                         async for chunk in self._stream_without_custom_and_mcp_tools(
-                            messages, tools, client, **kwargs
+                            messages,
+                            tools,
+                            client,
+                            **kwargs,
                         ):
                             yield chunk
 
@@ -2692,10 +2614,12 @@ class CustomToolAndMCPBackend(LLMBackend):
                         await self._record_mcp_circuit_breaker_failure(e, agent_id)
 
                         # Handle MCP exceptions with fallback
-                        async for (
-                            chunk
-                        ) in self._stream_handle_custom_and_mcp_exceptions(
-                            e, messages, tools, client, **kwargs
+                        async for (chunk) in self._stream_handle_custom_and_mcp_exceptions(
+                            e,
+                            messages,
+                            tools,
+                            client,
+                            **kwargs,
                         ):
                             yield chunk
                     else:
@@ -2713,11 +2637,16 @@ class CustomToolAndMCPBackend(LLMBackend):
                 client = self._create_client(**kwargs)
 
                 if isinstance(
-                    e, (MCPConnectionError, MCPTimeoutError, MCPServerError, MCPError)
+                    e,
+                    (MCPConnectionError, MCPTimeoutError, MCPServerError, MCPError),
                 ):
                     # Handle MCP exceptions with fallback
                     async for chunk in self._stream_handle_custom_and_mcp_exceptions(
-                        e, messages, tools, client, **kwargs
+                        e,
+                        messages,
+                        tools,
+                        client,
+                        **kwargs,
                     ):
                         yield chunk
                 else:
@@ -2732,7 +2661,10 @@ class CustomToolAndMCPBackend(LLMBackend):
 
                     # Proceed with non-MCP streaming
                     async for chunk in self._stream_without_custom_and_mcp_tools(
-                        messages, tools, client, **kwargs
+                        messages,
+                        tools,
+                        client,
+                        **kwargs,
                     ):
                         yield chunk
             except Exception as inner_e:
@@ -2768,7 +2700,9 @@ class CustomToolAndMCPBackend(LLMBackend):
         all_params = {**self.config, **kwargs}
         processed_messages = await self._process_upload_files(messages, all_params)
         api_params = await self.api_params_handler.build_api_params(
-            processed_messages, tools, all_params
+            processed_messages,
+            tools,
+            all_params,
         )
 
         # Remove any MCP tools from the tools list
@@ -2777,11 +2711,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             for tool in api_params.get("tools", []):
                 # Check different formats for MCP tools
                 if tool.get("type") == "function":
-                    name = (
-                        tool.get("function", {}).get("name")
-                        if "function" in tool
-                        else tool.get("name")
-                    )
+                    name = tool.get("function", {}).get("name") if "function" in tool else tool.get("name")
                     if name and name in self._mcp_function_names:
                         continue
                 elif tool.get("type") == "mcp":
@@ -2821,17 +2751,19 @@ class CustomToolAndMCPBackend(LLMBackend):
                         web_plugin = {"id": "web"}
                         # Add optional web search configuration
                         web_plugin["engine"] = all_params.get(
-                            "engine", OPENROUTER_DEFAULT_WEB_ENGINE
+                            "engine",
+                            OPENROUTER_DEFAULT_WEB_ENGINE,
                         )
                         web_plugin["max_results"] = all_params.get(
-                            "max_results", OPENROUTER_DEFAULT_WEB_MAX_RESULTS
+                            "max_results",
+                            OPENROUTER_DEFAULT_WEB_MAX_RESULTS,
                         )
 
                         if "plugins" not in extra_body:
                             extra_body["plugins"] = []
                         extra_body["plugins"].append(web_plugin)
                         logger.info(
-                            f"[OpenRouter] Web search plugin enabled: {web_plugin} (base_url: {base_url})"
+                            f"[OpenRouter] Web search plugin enabled: {web_plugin} (base_url: {base_url})",
                         )
 
                     api_params["extra_body"] = extra_body
@@ -2871,7 +2803,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             log_type, user_message = "mcp_error", "[MCP] Error occurred"
 
         logger.warning(
-            f"MCP tool call #{call_index_snapshot} failed - {log_type}: {error}"
+            f"MCP tool call #{call_index_snapshot} failed - {log_type}: {error}",
         )
 
         # Yield detailed MCP error status as StreamChunk
@@ -2889,7 +2821,10 @@ class CustomToolAndMCPBackend(LLMBackend):
         )
 
         async for chunk in self._stream_without_custom_and_mcp_tools(
-            messages, tools, client, **kwargs
+            messages,
+            tools,
+            client,
+            **kwargs,
         ):
             yield chunk
 
@@ -2897,28 +2832,19 @@ class CustomToolAndMCPBackend(LLMBackend):
         """Track MCP function names for fallback filtering."""
         for tool in tools:
             if tool.get("type") == "function":
-                name = (
-                    tool.get("function", {}).get("name")
-                    if "function" in tool
-                    else tool.get("name")
-                )
+                name = tool.get("function", {}).get("name") if "function" in tool else tool.get("name")
                 if name:
                     self._mcp_function_names.add(name)
 
     async def _check_circuit_breaker_before_execution(self) -> bool:
         """Check circuit breaker status before executing MCP functions."""
-        if not (
-            self._circuit_breakers_enabled
-            and self._mcp_tools_circuit_breaker
-            and MCPSetupManager
-            and MCPCircuitBreakerManager
-        ):
+        if not (self._circuit_breakers_enabled and self._mcp_tools_circuit_breaker and MCPSetupManager and MCPCircuitBreakerManager):
             return True
 
         # Get current mcp_tools servers using utility functions
         normalized_servers = MCPSetupManager.normalize_mcp_servers(self.mcp_servers)
         mcp_tools_servers = MCPSetupManager.separate_stdio_streamable_servers(
-            normalized_servers
+            normalized_servers,
         )
 
         filtered_servers = MCPCircuitBreakerManager.apply_circuit_breaker_filtering(
@@ -2942,10 +2868,10 @@ class CustomToolAndMCPBackend(LLMBackend):
             try:
                 # Get current mcp_tools servers for circuit breaker failure recording
                 normalized_servers = MCPSetupManager.normalize_mcp_servers(
-                    self.mcp_servers
+                    self.mcp_servers,
                 )
                 mcp_tools_servers = MCPSetupManager.separate_stdio_streamable_servers(
-                    normalized_servers
+                    normalized_servers,
                 )
 
                 await MCPCircuitBreakerManager.record_event(
@@ -2960,27 +2886,15 @@ class CustomToolAndMCPBackend(LLMBackend):
                 logger.warning(f"Failed to record circuit breaker failure: {cb_error}")
 
     async def _record_mcp_circuit_breaker_success(
-        self, servers_to_use: List[Dict[str, Any]]
+        self,
+        servers_to_use: List[Dict[str, Any]],
     ) -> None:
         """Record MCP success for circuit breaker if enabled."""
-        if (
-            self._circuit_breakers_enabled
-            and self._mcp_tools_circuit_breaker
-            and self._mcp_client
-            and MCPCircuitBreakerManager
-        ):
+        if self._circuit_breakers_enabled and self._mcp_tools_circuit_breaker and self._mcp_client and MCPCircuitBreakerManager:
             try:
-                connected_server_names = (
-                    self._mcp_client.get_server_names()
-                    if hasattr(self._mcp_client, "get_server_names")
-                    else []
-                )
+                connected_server_names = self._mcp_client.get_server_names() if hasattr(self._mcp_client, "get_server_names") else []
                 if connected_server_names:
-                    connected_server_configs = [
-                        server
-                        for server in servers_to_use
-                        if server.get("name") in connected_server_names
-                    ]
+                    connected_server_configs = [server for server in servers_to_use if server.get("name") in connected_server_names]
                     if connected_server_configs:
                         await MCPCircuitBreakerManager.record_event(
                             connected_server_configs,
@@ -2993,12 +2907,14 @@ class CustomToolAndMCPBackend(LLMBackend):
                 logger.warning(f"Failed to record circuit breaker success: {cb_error}")
 
     def _trim_message_history(
-        self, messages: List[Dict[str, Any]]
+        self,
+        messages: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """Trim message history to prevent unbounded growth."""
         if MCPMessageManager:
             return MCPMessageManager.trim_message_history(
-                messages, self._max_mcp_message_history
+                messages,
+                self._max_mcp_message_history,
             )
         return messages
 
@@ -3051,12 +2967,13 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         normalized_servers = MCPSetupManager.normalize_mcp_servers(self.mcp_servers)
         mcp_tools_servers = MCPSetupManager.separate_stdio_streamable_servers(
-            normalized_servers
+            normalized_servers,
         )
         return len(mcp_tools_servers)
 
     def yield_mcp_status_chunks(
-        self, use_mcp: bool
+        self,
+        use_mcp: bool,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Yield MCP status chunks for connection and availability."""
 

@@ -14,8 +14,8 @@ agents:
       enable_web_search: true
       enable_code_interpreter: true
     system_message: |
-      You are a creative storyteller who excels at crafting engaging narratives 
-      with rich characters, vivid descriptions, and compelling plot structures. 
+      You are a creative storyteller who excels at crafting engaging narratives
+      with rich characters, vivid descriptions, and compelling plot structures.
       Focus on:
       - Character development and emotional depth
       - Vivid imagery and sensory details
@@ -34,8 +34,8 @@ agents:
       enable_web_search: true
       enable_code_interpreter: true
     system_message: |
-      You are a skilled editor who evaluates creative works for structure, 
-      flow, and impact. You excel at identifying what makes a story compelling. 
+      You are a skilled editor who evaluates creative works for structure,
+      flow, and impact. You excel at identifying what makes a story compelling.
       Focus on:
       - Narrative structure and coherence
       - Character consistency and development
@@ -49,7 +49,7 @@ agents:
       temperature: 0.8
       max_tokens: 3000
     system_message: |
-      You are a literary critic who analyzes creative works with a discerning eye. 
+      You are a literary critic who analyzes creative works with a discerning eye.
       You evaluate originality, thematic depth, and artistic merit. Focus on:
       - Originality and creativity
       - Thematic depth and meaning
