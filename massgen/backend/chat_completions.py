@@ -920,11 +920,14 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         client = openai.AsyncOpenAI(api_key=self.api_key, base_url=base_url)
         # Instrument client for Logfire observability if enabled
         try:
-            from massgen.structured_logging import get_tracer
+            from massgen.structured_logging import get_tracer, is_observability_enabled
 
-            get_tracer().instrument_openai(client)
-        except Exception:
-            pass  # Logfire not configured or not available
+            if is_observability_enabled():
+                get_tracer().instrument_openai(client)
+        except ImportError:
+            pass  # structured_logging module not available
+        except Exception as e:
+            logger.warning(f"Failed to instrument OpenAI client for observability: {e}")
         return client
 
     def _handle_reasoning_transition(self, log_prefix: str, agent_id: Optional[str]) -> Optional[StreamChunk]:

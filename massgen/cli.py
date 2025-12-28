@@ -87,6 +87,25 @@ def load_env_file():
 # Load .env file at module import
 load_env_file()
 
+
+def _setup_logfire_observability():
+    """Configure Logfire observability and instrument all LLM providers.
+
+    This sets up structured logging/tracing via Logfire and instruments
+    all supported LLM provider clients (OpenAI, Anthropic, Google GenAI).
+    """
+    from .logger_config import integrate_logfire_with_loguru
+    from .structured_logging import configure_observability, get_tracer
+
+    configure_observability(enabled=True)
+    integrate_logfire_with_loguru()
+    # Instrument all LLM providers globally
+    tracer = get_tracer()
+    tracer.instrument_google_genai()  # Gemini
+    tracer.instrument_openai()  # OpenAI-compatible APIs
+    tracer.instrument_anthropic()  # Claude
+
+
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -4966,16 +4985,7 @@ async def main(args):
 
     # Configure Logfire observability if requested
     if getattr(args, "logfire", False):
-        from .logger_config import integrate_logfire_with_loguru
-        from .structured_logging import configure_observability, get_tracer
-
-        configure_observability(enabled=True)
-        integrate_logfire_with_loguru()
-        # Instrument all LLM providers globally
-        tracer = get_tracer()
-        tracer.instrument_google_genai()  # Gemini
-        tracer.instrument_openai()  # OpenAI-compatible APIs
-        tracer.instrument_anthropic()  # Claude
+        _setup_logfire_observability()
 
     if args.debug:
         logger.info("Debug mode enabled")
@@ -6075,16 +6085,7 @@ Environment Variables:
 
     # Configure Logfire observability if requested
     if args.logfire:
-        from .logger_config import integrate_logfire_with_loguru
-        from .structured_logging import configure_observability, get_tracer
-
-        configure_observability(enabled=True)
-        integrate_logfire_with_loguru()
-        # Instrument all LLM providers globally
-        tracer = get_tracer()
-        tracer.instrument_google_genai()  # Gemini
-        tracer.instrument_openai()  # OpenAI-compatible APIs
-        tracer.instrument_anthropic()  # Claude
+        _setup_logfire_observability()
 
     if args.debug:
         logger.info("Debug mode enabled")

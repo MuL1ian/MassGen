@@ -937,64 +937,83 @@ These attributes enable powerful filtering and analysis in the Logfire dashboard
 
 .. code-block:: sql
 
-   SELECT tool_name, execution_time_ms, agent_id
-   FROM spans
-   WHERE tool_type = 'mcp'
-   ORDER BY execution_time_ms DESC
+   SELECT
+     attributes->>'tool.name' as tool_name,
+     (attributes->>'tool.execution_time_ms')::float as execution_time_ms,
+     attributes->>'massgen.agent_id' as agent_id
+   FROM records
+   WHERE attributes->>'tool.type' = 'mcp'
+   ORDER BY (attributes->>'tool.execution_time_ms')::float DESC
 
 **Find failed tools with their arguments:**
 
 .. code-block:: sql
 
-   SELECT tool_name, arguments_preview, error_message, agent_id
-   FROM spans
-   WHERE success = false
+   SELECT
+     attributes->>'tool.name' as tool_name,
+     attributes->>'tool.arguments_preview' as arguments_preview,
+     attributes->>'tool.error_message' as error_message,
+     attributes->>'massgen.agent_id' as agent_id
+   FROM records
+   WHERE attributes->>'tool.success' = 'false'
 
 **Tools with large outputs (potential cost drivers):**
 
 .. code-block:: sql
 
-   SELECT server_name, tool_name, output_chars, agent_id
-   FROM spans
-   WHERE output_chars > 10000
-   ORDER BY output_chars DESC
+   SELECT
+     attributes->>'mcp.server' as server_name,
+     attributes->>'tool.name' as tool_name,
+     (attributes->>'tool.output_chars')::int as output_chars,
+     attributes->>'massgen.agent_id' as agent_id
+   FROM records
+   WHERE (attributes->>'tool.output_chars')::int > 10000
+   ORDER BY (attributes->>'tool.output_chars')::int DESC
 
 **Pattern analysis - which arguments lead to failures:**
 
 .. code-block:: sql
 
-   SELECT arguments_preview, COUNT(*) as fail_count
-   FROM spans
-   WHERE success = false
-   GROUP BY arguments_preview
+   SELECT
+     attributes->>'tool.arguments_preview' as arguments_preview,
+     COUNT(*) as fail_count
+   FROM records
+   WHERE attributes->>'tool.success' = 'false'
+   GROUP BY attributes->>'tool.arguments_preview'
    ORDER BY fail_count DESC
 
 **Tool usage by MCP server:**
 
 .. code-block:: sql
 
-   SELECT server_name, COUNT(*) as calls, AVG(execution_time_ms) as avg_time
-   FROM spans
-   WHERE tool_type = 'mcp'
-   GROUP BY server_name
+   SELECT
+     attributes->>'mcp.server' as server_name,
+     COUNT(*) as calls,
+     AVG((attributes->>'tool.execution_time_ms')::float) as avg_time_ms
+   FROM records
+   WHERE attributes->>'tool.type' = 'mcp'
+   GROUP BY attributes->>'mcp.server'
 
 **LLM calls by agent:**
 
 .. code-block:: sql
 
-   SELECT massgen.agent_id, llm.model, COUNT(*) as calls
-   FROM spans
+   SELECT
+     attributes->>'massgen.agent_id' as agent_id,
+     attributes->>'llm.model' as model,
+     COUNT(*) as calls
+   FROM records
    WHERE span_name LIKE 'llm.%'
-   GROUP BY massgen.agent_id, llm.model
+   GROUP BY attributes->>'massgen.agent_id', attributes->>'llm.model'
 
 **All activity for a specific agent:**
 
 .. code-block:: sql
 
-   SELECT span_name, timestamp, duration_ms
-   FROM spans
-   WHERE massgen.agent_id = 'agent_a' OR agent_id = 'agent_a'
-   ORDER BY timestamp
+   SELECT span_name, start_timestamp, duration
+   FROM records
+   WHERE attributes->>'massgen.agent_id' = 'agent_a'
+   ORDER BY start_timestamp
 
 Environment Variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -1010,9 +1029,9 @@ Environment Variables
    * - ``LOGFIRE_TOKEN``
      - Your Logfire API token (if not using ``logfire auth login``)
    * - ``LOGFIRE_SERVICE_NAME``
-     - Override the service name (default: ``massgen``)
+     - Override the service name (default: ``massgen``). Read by Logfire library.
    * - ``LOGFIRE_ENVIRONMENT``
-     - Set environment tag (e.g., ``production``, ``development``)
+     - Set environment tag (e.g., ``production``, ``development``). Read by Logfire library.
    * - ``OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT``
      - Set to ``true`` to capture Gemini prompts/completions (otherwise shows ``<elided>``)
 

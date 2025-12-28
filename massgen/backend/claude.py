@@ -1659,11 +1659,14 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         client = anthropic.AsyncAnthropic(api_key=self.api_key)
         # Instrument client for Logfire observability if enabled
         try:
-            from massgen.structured_logging import get_tracer
+            from massgen.structured_logging import get_tracer, is_observability_enabled
 
-            get_tracer().instrument_anthropic(client)
-        except Exception:
-            pass  # Logfire not configured or not available
+            if is_observability_enabled():
+                get_tracer().instrument_anthropic(client)
+        except ImportError:
+            pass  # structured_logging module not available
+        except Exception as e:
+            logger.warning(f"Failed to instrument Anthropic client for observability: {e}")
         return client
 
     def get_provider_name(self) -> str:

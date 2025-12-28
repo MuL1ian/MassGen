@@ -23,9 +23,9 @@ Usage:
         do_work()
 
 Environment Variables:
-    LOGFIRE_TOKEN: Write token for Logfire cloud (required for production)
+    LOGFIRE_TOKEN: Write token for Logfire cloud (required for production).
+        This is read by the Logfire library directly.
     MASSGEN_LOGFIRE_ENABLED: Set to "true" to enable Logfire (default: false)
-    MASSGEN_LOGFIRE_SERVICE_NAME: Service name for tracing (default: "massgen")
 """
 
 import os
@@ -309,7 +309,8 @@ class TracerProxy:
                 _instrumented_clients["openai"] = True
                 logger.debug("OpenAI globally instrumented for Logfire tracing")
         except Exception as e:
-            logger.debug(f"Could not instrument OpenAI: {e}")
+            # Log at warning level since user explicitly enabled observability
+            logger.warning(f"Could not instrument OpenAI for observability: {e}")
 
     def instrument_anthropic(self, client=None):
         """
@@ -344,7 +345,8 @@ class TracerProxy:
                 _instrumented_clients["anthropic"] = True
                 logger.debug("Anthropic globally instrumented for Logfire tracing")
         except Exception as e:
-            logger.debug(f"Could not instrument Anthropic: {e}")
+            # Log at warning level since user explicitly enabled observability
+            logger.warning(f"Could not instrument Anthropic for observability: {e}")
 
     def instrument_google_genai(self):
         """
@@ -362,7 +364,8 @@ class TracerProxy:
                 _instrumented_clients["google_genai"] = True
                 logger.debug("Google GenAI instrumented for Logfire tracing")
             except Exception as e:
-                logger.debug(f"Could not instrument Google GenAI: {e}")
+                # Log at warning level since user explicitly enabled observability
+                logger.warning(f"Could not instrument Google GenAI for observability: {e}")
 
     def instrument_aiohttp(self):
         """Instrument aiohttp for HTTP client tracing."""
@@ -375,7 +378,8 @@ class TracerProxy:
                 _instrumented_clients["aiohttp"] = True
                 logger.debug("aiohttp instrumented for Logfire tracing")
             except Exception as e:
-                logger.debug(f"Could not instrument aiohttp: {e}")
+                # Log at warning level since user explicitly enabled observability
+                logger.warning(f"Could not instrument aiohttp for observability: {e}")
 
 
 class _NoOpSpan:

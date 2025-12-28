@@ -717,7 +717,10 @@ class MCPClient:
 
         except asyncio.TimeoutError:
             execution_time_ms = (asyncio.get_event_loop().time() - start_time) * 1000
-            args_json = json.dumps(validated_arguments) if validated_arguments else ""
+            try:
+                args_json = json.dumps(validated_arguments) if validated_arguments else ""
+            except (TypeError, ValueError):
+                args_json = "<non-serializable>"
             log_tool_execution(
                 agent_id=effective_agent_id,
                 tool_name=tool_name,
@@ -754,7 +757,10 @@ class MCPClient:
             )
         except Exception as e:
             execution_time_ms = (asyncio.get_event_loop().time() - start_time) * 1000
-            args_json = json.dumps(validated_arguments) if validated_arguments else ""
+            try:
+                args_json = json.dumps(validated_arguments) if validated_arguments else ""
+            except (TypeError, ValueError):
+                args_json = "<non-serializable>"
             log_tool_execution(
                 agent_id=effective_agent_id,
                 tool_name=tool_name,

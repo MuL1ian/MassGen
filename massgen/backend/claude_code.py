@@ -1413,6 +1413,10 @@ class ClaudeCodeBackend(LLMBackend):
         agent_id = kwargs.get("agent_id", None)
         self._current_agent_id = agent_id  # Store for custom tool execution
 
+        # Initialize span tracking variables for proper cleanup in all code paths
+        llm_span = None
+        llm_span_open = False
+
         log_backend_activity(
             self.get_provider_name(),
             "Starting stream_with_tools",
@@ -1854,7 +1858,7 @@ class ClaudeCodeBackend(LLMBackend):
                         )
 
                     # Close LLM span on successful completion
-                    if "llm_span_open" in locals() and llm_span_open:
+                    if llm_span_open and llm_span:
                         if message.duration_ms:
                             llm_span.set_attribute("llm.duration_ms", message.duration_ms)
                         if message.total_cost_usd:
@@ -1893,7 +1897,7 @@ class ClaudeCodeBackend(LLMBackend):
             error_msg = str(e)
 
             # Close LLM span on error
-            if "llm_span_open" in locals() and llm_span_open:
+            if llm_span_open and llm_span:
                 llm_span.set_attribute("error", True)
                 llm_span.set_attribute("error.message", error_msg[:500])
                 llm_span.__exit__(type(e), e, e.__traceback__)

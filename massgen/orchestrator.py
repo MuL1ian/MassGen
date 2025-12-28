@@ -4621,10 +4621,11 @@ Your answer:"""
             # Wrap in try/except to handle OpenTelemetry context issues in async generators
             try:
                 _agent_span_cm.__exit__(None, None, None)
-            except ValueError:
-                # Context was created in a different async context - safe to ignore
+            except ValueError as e:
+                # Context detach failures are expected in async generators - safe to ignore
                 # The span is still closed, just the context token can't be detached
-                pass
+                if "context" not in str(e).lower() and "detach" not in str(e).lower():
+                    logger.debug(f"Unexpected ValueError closing agent span: {e}")
 
             # Clear the round context
             clear_current_round()
@@ -5243,9 +5244,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             # Wrap in try/except to handle OpenTelemetry context issues in async generators
             try:
                 _presentation_span_cm.__exit__(None, None, None)
-            except ValueError:
-                # Context was created in a different async context - safe to ignore
-                pass
+            except ValueError as e:
+                # Context detach failures are expected in async generators - safe to ignore
+                if "context" not in str(e).lower() and "detach" not in str(e).lower():
+                    logger.debug(f"Unexpected ValueError closing presentation span: {e}")
 
             # Clear the round context
             clear_current_round()
