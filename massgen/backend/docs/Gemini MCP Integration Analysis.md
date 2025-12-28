@@ -406,11 +406,11 @@ async def _setup_mcp_tools(self, agent_id: Optional[str] = None) -> None:
     if MCPConfigValidator is not None:
         validator = MCPConfigValidator()
         validated_config = validator.validate_backend_mcp_config(backend_config)
-    
+
     # Server normalization and filtering
     normalized_servers = self._normalize_mcp_servers()
     filtered_servers = self._apply_mcp_tools_circuit_breaker_filtering(normalized_servers)
-    
+
     # Client creation with retry logic
     self._mcp_client = await MultiMCPClient.create_and_connect(
         filtered_servers,
@@ -611,7 +611,7 @@ except (MCPConnectionError, MCPTimeoutError, MCPServerError, MCPError) as e:
     # Emit user-friendly error message
     async for chunk in self._handle_mcp_error_and_fallback(e):
         yield chunk
-    
+
     # Fallback to non-MCP streaming
     manual_config = dict(config)
     if all_tools:
@@ -635,10 +635,10 @@ The circuit breaker prevents cascading failures:
 class MCPCircuitBreaker:
     def should_skip_server(self, server_name: str) -> bool:
         # Check if server should be skipped due to failures
-    
+
     def record_success(self, server_name: str) -> None:
         # Record successful operation
-    
+
     def record_failure(self, server_name: str) -> None:
         # Record failure and potentially open circuit
 ```
@@ -953,12 +953,12 @@ def calculate_cost(self, input_tokens: int, output_tokens: int, model: str) -> f
     # Base model costs
     input_cost = (input_tokens / 1_000_000) * rate
     output_cost = (output_tokens / 1_000_000) * rate
-    
+
     # Tool usage costs (estimates)
     tool_costs = 0.0
     if self.search_count > 0:
         tool_costs += self.search_count * 0.01
-    
+
     return input_cost + output_cost + tool_costs
 ```
 

@@ -227,7 +227,30 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.29 - Latest
+### v0.1.30 - Latest
+**New Features:** OpenRouter Web Search, Persona Diversity Modes, Azure Multi-Endpoint Support
+
+**Key Features:**
+- **OpenRouter Web Search Plugin**: Add real-time web search to OpenRouter models with `enable_web_search: true`
+- **Persona Diversity Modes**: Agents get unique personalities - prioritize different values or create different solution styles, with automatic softening when evaluating others' work
+- **Azure Multi-Endpoint**: Support both Azure-specific and OpenAI-compatible endpoints with auto-detection
+- **Environment Variable Expansion**: Keep API keys in `.env` and reference them with `${VAR}` syntax - safer to share configs
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# OpenRouter web search - search the web with any OpenRouter model
+uv run massgen --config massgen/configs/basic/single/single_openrouter_web_search.yaml \
+  "What are the latest developments in quantum computing?"
+
+# Persona diversity - automatic diverse personas for multi-agent collaboration
+uv run massgen --config massgen/configs/basic/multi/persona_diversity_example.yaml \
+  "Create a website about Bob Dylan"
+```
+
+### v0.1.29
 **New Features:** Subagent System, Tool Metrics Distribution, Per-Agent System Messages
 
 **Key Features:**
@@ -237,15 +260,12 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Subagent system - spawn parallel child processes for independent tasks
-uv run massgen --config massgen/configs/features/test_subagent_orchestrator.yaml \
+massgen --config massgen/configs/features/test_subagent_orchestrator.yaml \
   "Spawn a subagent to research Python async best practices"
 
 # Subagent with code-based tools and Docker execution
-uv run massgen --config massgen/configs/features/test_subagent_orchestrator_code_mode.yaml \
+massgen --config massgen/configs/features/test_subagent_orchestrator_code_mode.yaml \
   "Spawn a subagent to write a Python script that fetches the current weather"
 ```
 

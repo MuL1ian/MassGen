@@ -270,10 +270,11 @@ def test_gemini_planning_mode_vs_other_backends():
 
     # Gemini doesn't inherit from MCPBackend like Claude does
     from massgen.backend.base import LLMBackend
-    from massgen.backend.base_with_mcp import MCPBackend
+    from massgen.backend.base_with_custom_tool_and_mcp import CustomToolAndMCPBackend
 
     assert isinstance(backend, LLMBackend), "Gemini should inherit from LLMBackend"
-    assert not isinstance(backend, MCPBackend), "Gemini should NOT inherit from MCPBackend"
+    # Gemini actually inherits from CustomToolAndMCPBackend for MCP support
+    assert isinstance(backend, CustomToolAndMCPBackend), "Gemini should inherit from CustomToolAndMCPBackend"
     print("✅ Gemini has correct inheritance hierarchy")
 
     # Gemini should have its own MCP implementation

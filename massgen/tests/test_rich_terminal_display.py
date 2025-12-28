@@ -10,6 +10,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -86,19 +88,18 @@ async def test_rich_display_basic():
         return False
 
 
+@pytest.mark.integration
 async def test_rich_display_coordination():
     """Test RichTerminalDisplay with actual agent coordination."""
     print("\n🤖 Rich Display Coordination Test")
     print("-" * 40)
 
     if not is_rich_available():
-        print("⚠️  Skipping - Rich library not available")
-        return False
+        pytest.skip("Rich library not available")
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("❌ OPENAI_API_KEY not found - skipping coordination test")
-        return False
+        pytest.skip("OPENAI_API_KEY not found")
 
     try:
         # Create backend
@@ -162,19 +163,18 @@ async def test_rich_display_coordination():
         return False
 
 
+@pytest.mark.integration
 async def test_rich_convenience_function():
     """Test the coordinate_with_rich_ui convenience function."""
     print("\n🚀 Rich UI Convenience Function Test")
     print("-" * 40)
 
     if not is_rich_available():
-        print("⚠️  Skipping - Rich library not available")
-        return False
+        pytest.skip("Rich library not available")
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("❌ OPENAI_API_KEY not found - skipping convenience function test")
-        return False
+        pytest.skip("OPENAI_API_KEY not found")
 
     try:
         # Create backend and agents

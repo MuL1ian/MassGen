@@ -852,7 +852,10 @@ def create_app(
             "coordination": {  // optional
                 "voting_sensitivity": "balanced",  // lenient, balanced, strict
                 "answer_novelty_requirement": "lenient",  // lenient, balanced, strict
-                "max_new_answers_per_agent": 5  // optional, limit answers per agent
+                "max_new_answers_per_agent": 5,  // optional, limit answers per agent
+                "persona_generator": {  // optional, auto-generate diverse personas
+                    "enabled": true
+                }
             }
         }
 
@@ -3558,6 +3561,19 @@ async def run_coordination_with_history(
         # Apply coordination config from YAML (includes enable_agent_task_planning, etc.)
         coord_cfg = orchestrator_cfg.get("coordination", {})
         if coord_cfg:
+            # Parse persona_generator config if present
+            from massgen.persona_generator import PersonaGeneratorConfig
+
+            persona_generator_config = PersonaGeneratorConfig()
+            if "persona_generator" in coord_cfg:
+                pg_cfg = coord_cfg["persona_generator"]
+                persona_generator_config = PersonaGeneratorConfig(
+                    enabled=pg_cfg.get("enabled", False),
+                    diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
+                    persona_guidelines=pg_cfg.get("persona_guidelines"),
+                    persist_across_turns=pg_cfg.get("persist_across_turns", False),
+                )
+
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
                 planning_mode_instruction=coord_cfg.get(
@@ -3597,6 +3613,7 @@ async def run_coordination_with_history(
                     "load_previous_session_skills",
                     False,
                 ),
+                persona_generator=persona_generator_config,
             )
 
         # Get context sharing parameters
@@ -3930,6 +3947,19 @@ async def run_coordination(
         # Apply coordination config from YAML (includes enable_agent_task_planning, etc.)
         coord_cfg = orchestrator_cfg.get("coordination", {})
         if coord_cfg:
+            # Parse persona_generator config if present
+            from massgen.persona_generator import PersonaGeneratorConfig
+
+            persona_generator_config = PersonaGeneratorConfig()
+            if "persona_generator" in coord_cfg:
+                pg_cfg = coord_cfg["persona_generator"]
+                persona_generator_config = PersonaGeneratorConfig(
+                    enabled=pg_cfg.get("enabled", False),
+                    diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
+                    persona_guidelines=pg_cfg.get("persona_guidelines"),
+                    persist_across_turns=pg_cfg.get("persist_across_turns", False),
+                )
+
             orchestrator_config.coordination_config = CoordinationConfig(
                 enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
                 planning_mode_instruction=coord_cfg.get(
@@ -3969,6 +3999,7 @@ async def run_coordination(
                     "load_previous_session_skills",
                     False,
                 ),
+                persona_generator=persona_generator_config,
             )
 
         # Get context sharing parameters

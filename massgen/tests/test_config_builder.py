@@ -40,7 +40,7 @@ class TestCloneAgent:
 
         assert cloned["id"] == "agent_b"
         assert cloned["backend"]["type"] == "gemini"
-        assert cloned["backend"]["model"] == "gemini-2.5-flash"  # Default Gemini model
+        assert cloned["backend"]["model"] == "gemini-3-flash-preview"  # Default Gemini model
         assert cloned["backend"]["enable_web_search"] is True  # Compatible, should copy
         assert cloned["backend"]["cwd"] == "workspace2"  # Filesystem copied and updated to agent_b's number
 

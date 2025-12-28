@@ -10,7 +10,7 @@ agents:
     backend:
       type: "openai"
       model: "gpt-5"
-      text: 
+      text:
         verbosity: "medium"
       reasoning:
         effort: "high"
@@ -22,7 +22,7 @@ agents:
     backend:
       type: "openai"
       model: "gpt-5"
-      text: 
+      text:
         verbosity: "medium"
       reasoning:
         effort: "high"

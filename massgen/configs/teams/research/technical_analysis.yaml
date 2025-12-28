@@ -14,7 +14,7 @@ agents:
       enable_web_search: true
       enable_code_interpreter: true
     system_message: |
-      You are a technical researcher who specializes in finding accurate 
+      You are a technical researcher who specializes in finding accurate
       technical specifications, pricing, and system requirements. Focus on:
       - Finding official documentation and specifications
       - Gathering accurate pricing and cost information
@@ -28,7 +28,7 @@ agents:
       temperature: 0.2
       max_tokens: 3000
     system_message: |
-      You are a cost analyst who excels at calculating and estimating 
+      You are a cost analyst who excels at calculating and estimating
       technical costs and resource requirements. Focus on:
       - Accurate cost calculations and estimations
       - Understanding pricing models and structures
@@ -47,7 +47,7 @@ agents:
       enable_web_search: true
       enable_code_interpreter: true
     system_message: |
-      You are a technical advisor who synthesizes technical information 
+      You are a technical advisor who synthesizes technical information
       into practical recommendations and insights. Focus on:
       - Translating technical details into practical advice
       - Identifying key considerations and trade-offs

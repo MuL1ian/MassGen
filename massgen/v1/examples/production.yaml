@@ -67,4 +67,4 @@ logging:
 task:
   category: "production"
   domain: "business"
-  complexity: "high" 
+  complexity: "high"

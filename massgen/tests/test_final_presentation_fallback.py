@@ -46,6 +46,9 @@ async def test_final_presentation_fallback():
 
         # Create a mock agent that returns no content
         mock_agent = Mock()
+        # Ensure backend.filesystem_manager is None to skip snapshot copying
+        mock_agent.backend = Mock()
+        mock_agent.backend.filesystem_manager = None
 
         # Simulate empty response from agent
         async def empty_response(*args, **kwargs):
@@ -100,6 +103,9 @@ async def test_final_presentation_with_content():
 
         # Create a mock agent that returns content
         mock_agent = Mock()
+        # Ensure backend.filesystem_manager is None to skip snapshot copying
+        mock_agent.backend = Mock()
+        mock_agent.backend.filesystem_manager = None
 
         # Simulate normal response from agent
         async def normal_response(*args, **kwargs):
@@ -155,6 +161,9 @@ async def test_no_stored_answer_fallback():
 
         # Create a mock agent that returns no content
         mock_agent = Mock()
+        # Ensure backend.filesystem_manager is None to skip snapshot copying
+        mock_agent.backend = Mock()
+        mock_agent.backend.filesystem_manager = None
 
         # Simulate empty response from agent
         async def empty_response(*args, **kwargs):

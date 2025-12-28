@@ -7,7 +7,7 @@
 
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Vote, Sparkles, Info, ListOrdered, GitBranch, Cpu, Plus, Trash2 } from 'lucide-react';
+import { Settings, Vote, Sparkles, Info, ListOrdered, GitBranch, Cpu, Plus, Trash2, Users } from 'lucide-react';
 import { useWizardStore } from '../../stores/wizardStore';
 import { SearchableCombobox } from './SearchableCombobox';
 
@@ -135,6 +135,21 @@ export function CoordinationStep() {
       enable_subagents: enabled,
       // Reset subagent model choice when disabling
       ...(enabled ? {} : { subagent_model_choice: undefined, subagent_orchestrator: undefined })
+    });
+  };
+
+  const handlePersonaGeneratorChange = (enabled: boolean) => {
+    setCoordinationSettings({
+      persona_generator: enabled ? { enabled: true, diversity_mode: 'perspective' } : undefined
+    });
+  };
+
+  const handleDiversityModeChange = (mode: 'perspective' | 'implementation') => {
+    setCoordinationSettings({
+      persona_generator: {
+        enabled: true,
+        diversity_mode: mode
+      }
     });
   };
 
@@ -458,6 +473,81 @@ export function CoordinationStep() {
             </div>
           </div>
         </div>
+
+        {/* Enable persona generation - only show for multi-agent */}
+        {agentCount > 1 && (
+          <div className="p-5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <Users className="w-5 h-5 text-blue-500" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium text-gray-800 dark:text-gray-200">Persona Generation</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                      Auto-generate diverse approaches for each agent to explore different regions of the solution space
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={coordinationSettings.persona_generator?.enabled ?? false}
+                      onChange={(e) => handlePersonaGeneratorChange(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4
+                                    peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer
+                                    dark:bg-gray-700 peer-checked:after:translate-x-full
+                                    peer-checked:after:border-white after:content-[''] after:absolute
+                                    after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300
+                                    after:border after:rounded-full after:h-5 after:w-5 after:transition-all
+                                    dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {/* Diversity mode selector - show when persona generation is enabled */}
+                {coordinationSettings.persona_generator?.enabled && (
+                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Diversity Mode
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleDiversityModeChange('perspective')}
+                        className={`p-3 rounded-lg border text-left transition-all ${
+                          (coordinationSettings.persona_generator?.diversity_mode ?? 'perspective') === 'perspective'
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                        }`}
+                      >
+                        <div className="font-medium text-gray-800 dark:text-gray-200 text-sm">Perspective</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Different values & priorities (e.g., simplicity vs robustness)
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDiversityModeChange('implementation')}
+                        className={`p-3 rounded-lg border text-left transition-all ${
+                          coordinationSettings.persona_generator?.diversity_mode === 'implementation'
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                        }`}
+                      >
+                        <div className="font-medium text-gray-800 dark:text-gray-200 text-sm">Implementation</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Different solution types (e.g., minimal vs feature-rich)
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Current settings summary */}
@@ -479,6 +569,15 @@ export function CoordinationStep() {
                   : 'enabled (inherit parent)'
                 : 'disabled'}
             </span>.
+            {agentCount > 1 && (
+              <>
+                {' '}Personas: <span className="font-medium text-blue-600 dark:text-blue-400">
+                  {coordinationSettings.persona_generator?.enabled
+                    ? `enabled (${coordinationSettings.persona_generator?.diversity_mode ?? 'perspective'})`
+                    : 'disabled'}
+                </span>.
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -79,7 +79,7 @@ class TestExcludeFileOperationMCPs:
             assert tool in excluded_tools, f"{tool} should be excluded"
 
     def test_inject_filesystem_mcp_excludes_filesystem_server(self, temp_workspace):
-        """Test that inject_filesystem_mcp skips filesystem MCP when flag is True."""
+        """Test that inject_filesystem_mcp limits filesystem MCP tools when flag is True."""
         manager = FilesystemManager(
             cwd=temp_workspace["workspace"],
             agent_temporary_workspace_parent=temp_workspace["temp_workspace_parent"],
@@ -96,8 +96,8 @@ class TestExcludeFileOperationMCPs:
         # Get server names
         server_names = [server["name"] for server in result_config["mcp_servers"]]
 
-        # Verify filesystem MCP is NOT added
-        assert "filesystem" not in server_names
+        # Verify filesystem MCP IS added (but with limited tools - only write_file and edit_file)
+        assert "filesystem" in server_names
 
         # Verify workspace_tools is NOT added (no media generation enabled)
         assert "workspace_tools" not in server_names
@@ -124,8 +124,8 @@ class TestExcludeFileOperationMCPs:
         # Get server names
         server_names = [server["name"] for server in result_config["mcp_servers"]]
 
-        # Verify filesystem MCP is NOT added
-        assert "filesystem" not in server_names
+        # Verify filesystem MCP IS added (with limited tools - only write_file and edit_file)
+        assert "filesystem" in server_names
 
         # Verify workspace_tools IS added (for media generation)
         assert "workspace_tools" in server_names

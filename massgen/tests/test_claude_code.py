@@ -3,30 +3,37 @@
 """
 Real test of ClaudeCodeBackend with actual Claude Code API calls.
 This test outputs the actual stream chunks to verify functionality.
+
+Note: These tests require ANTHROPIC_API_KEY and are marked as integration tests.
 """
 
 import asyncio
 import os
+import tempfile
+
+import pytest
 
 from massgen.backend.claude_code import ClaudeCodeBackend
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_real_stream_with_tools():
     """Test real streaming with Claude Code API and output stream chunks."""
 
     # Check if API key is available
     if not os.getenv("ANTHROPIC_API_KEY"):
-        print("❌ ANTHROPIC_API_KEY not found in environment")
-        print("Set your API key: export ANTHROPIC_API_KEY=your-key-here")
+        pytest.skip("ANTHROPIC_API_KEY not found in environment")
         return
 
     print("🚀 Testing ClaudeCodeBackend with real Claude Code API")
     print("=" * 60)
 
-    # Initialize backend
-    backend = ClaudeCodeBackend()
-    print(f"✅ Backend initialized: {backend.get_provider_name()}")
-    print(f"📊 Supported tools: {len(backend.get_supported_builtin_tools())} tools")
+    # Initialize backend with temporary workspace
+    with tempfile.TemporaryDirectory() as tmpdir:
+        backend = ClaudeCodeBackend(cwd=tmpdir)
+        print(f"✅ Backend initialized: {backend.get_provider_name()}")
+        print(f"📊 Supported tools: {len(backend.get_supported_builtin_tools())} tools")
 
     # Test single turn conversation
     print("\n🔄 Testing single turn conversation...")
@@ -146,13 +153,19 @@ async def test_real_stream_with_tools():
     print("\n✅ Multi-turn conversation test completed successfully!")
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_with_workflow_tools():
     """Test with MassGen workflow tools."""
+
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        pytest.skip("ANTHROPIC_API_KEY not found in environment")
 
     print("\n" + "=" * 60)
     print("🛠️  Testing with workflow tools...")
 
-    backend = ClaudeCodeBackend()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        backend = ClaudeCodeBackend(cwd=tmpdir)
 
     # Define workflow tools
     workflow_tools = [

@@ -448,6 +448,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         # Build command to run MassGen as subprocess
         # Use --automation for minimal output and --output-file to capture the answer
+        # Use --no-session-registry to avoid polluting global session list with internal runs
         answer_file = workspace / "answer.txt"
         cmd = [
             "uv",
@@ -456,6 +457,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             "--config",
             str(yaml_path),
             "--automation",  # Silent mode with minimal output
+            "--no-session-registry",  # Don't register in global session list
             "--output-file",
             str(answer_file),  # Write final answer to file
             full_task,

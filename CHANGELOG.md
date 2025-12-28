@@ -9,16 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.30 (December 26, 2025)** - OpenRouter Web Search & Persona Diversity Modes
+OpenRouter native web search plugin via `enable_web_search`. Persona generator diversity modes (`perspective`/`implementation`) with phase-based adaptation. Azure OpenAI multi-endpoint support and environment variable expansion in configs.
+
 **v0.1.29 (December 24, 2025)** - Subagent System & Responses API Fixes
 New subagent system for spawning parallel child MassGen processes with isolated workspaces. Enhanced tool metrics with distribution statistics. CLI config builder per-agent system messages. OpenAI Responses API duplicate item and function call ID fixes.
 
 **v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
 Unified multimodal understanding via `read_media` tool and generation via `generate_media` tool. Web UI artifact previewer for documents, images, PDFs, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
 
-**v0.1.27 (December 19, 2025)** - Session Sharing, Log Analysis & Config Builder Enhancements
-Session sharing via GitHub Gist with `massgen export`. New `massgen logs` CLI command for run log analysis. Per-LLM call time tracking. Gemini 3 Flash model support. CLI config builder with per-agent web search, system messages, and coordination settings. Web UI context paths wizard and "Open in Browser" button.
-
 ---
+
+## [0.1.30] - 2025-12-26
+
+### Added
+- **OpenRouter Web Search Plugin**: Native web search integration via OpenRouter's plugins array
+  - Maps `enable_web_search` to `{"id": "web"}` plugin format
+  - Configurable search engine (`exa`/`native`) and `max_results` parameters
+  - Added to research preset's auto-enabled web search backends
+
+### Changed
+- **Persona Generator Diversity Modes**: Enhanced persona generation with two diversity modes and phase-based adaptation
+  - New `diversity_mode`: `perspective` (different values/priorities) or `implementation` (different solution types)
+  - Phase-based adaptation: strong personas for exploration, softened for convergence
+  - Multi-turn persistence via `persist_across_turns` option
+  - Web UI integration with toggle in coordination settings
+
+- **Azure OpenAI Multi-Endpoint Support**: Support both Azure-specific and OpenAI-compatible endpoints
+  - Auto-detect endpoint format and use appropriate client (`AsyncAzureOpenAI` vs `AsyncOpenAI`)
+  - Conditionally disable `stream_options` for Ministral/Mistral models
+
+- **Environment Variable Expansion in Configs**: Use `${VAR}` syntax in YAML/JSON config files for flexible configuration
+
+### Fixed
+- **Azure OpenAI Workflow Tool Extraction**: Improved JSON parsing with fallback patterns for models outputting tool arguments without `tool_name` wrapper
+
+- **Persistent Memory Retrieval**: Fixed regression by enabling retrieval on first turn
+
+- **Backend Tool Registration**: Fixed tool registration and updated binary file extensions list
+
+### Documentations, Configurations and Resources
+- **OpenRouter Web Search Configs**: New `single_openrouter_web_search.yaml` and `openrouter_web_search.yaml`
+- **Azure Multi-Endpoint Config**: Updated `azure_openai_multi.yaml` with env var examples
+- **Diversity Documentation**: Updated `docs/source/user_guide/advanced/diversity.rst` with new diversity modes
+
+### Technical Details
+- **Major Focus**: OpenRouter web search, persona diversity modes, Azure OpenAI compatibility
+- **Contributors**: @ncrispino @shubham2345 @AbhimanyuAryan @maxim-saplin and the MassGen team
 
 ## [0.1.29] - 2025-12-24
 

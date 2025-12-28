@@ -59,6 +59,12 @@ export interface SubagentOrchestratorConfig {
   }>;
 }
 
+// Persona generator configuration
+export interface PersonaGeneratorConfig {
+  enabled: boolean;
+  diversity_mode?: 'perspective' | 'implementation';
+}
+
 // Coordination settings (shared across all agents)
 export interface CoordinationSettings {
   voting_sensitivity: 'lenient' | 'balanced' | 'strict';
@@ -67,6 +73,7 @@ export interface CoordinationSettings {
   enable_subagents?: boolean;
   subagent_model_choice?: 'inherit' | 'custom';
   subagent_orchestrator?: SubagentOrchestratorConfig;
+  persona_generator?: PersonaGeneratorConfig;
 }
 
 export interface SetupStatus {

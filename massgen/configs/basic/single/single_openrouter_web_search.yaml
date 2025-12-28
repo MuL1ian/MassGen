@@ -1,0 +1,27 @@
+# OpenRouter Web Search Example
+# Single agent with OpenRouter's native web search plugin enabled
+#
+# Usage:
+#   massgen --config massgen/configs/basic/single/single_openrouter_web_search.yaml "What are the latest developments in quantum computing?"
+#
+# Features:
+#   - OpenRouter's native web search via plugins array
+#   - Configurable search engine (exa/native) and max_results
+
+agents:
+  - id: "openrouter_web_search_agent"
+    backend:
+      type: "openrouter"
+      model: "deepseek/deepseek-r1"  # Tool-capable model that supports both plugins and function tools
+
+      # Enable OpenRouter's native web search plugin
+      enable_web_search: true
+
+      # Optional web search configuration
+      # engine: "exa"  # Search engine: "exa" (default) or "native"
+      # max_results: 1  # Number of results (default: 1)
+
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true
+

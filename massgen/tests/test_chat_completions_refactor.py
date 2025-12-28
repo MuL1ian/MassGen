@@ -8,6 +8,8 @@ Tests integration with different OpenAI-compatible providers.
 import asyncio
 import os
 
+import pytest
+
 from massgen.backend import ChatCompletionsBackend
 
 
@@ -65,8 +67,14 @@ async def test_cerebras_backend():
     print(f"API Key configured: {'Yes' if backend.api_key else 'No'}")
 
 
+@pytest.mark.skip(reason="Backend API drift: convert_tools_to_chat_completions_format method was removed from ChatCompletionsBackend")
 async def test_tool_conversion():
-    """Test tool format conversion."""
+    """Test tool format conversion.
+
+    NOTE: This test is skipped because the convert_tools_to_chat_completions_format
+    method was removed during a backend refactoring. Tool conversion is now handled
+    internally by the api_params_handler.
+    """
     print("\n🔧 Testing tool format conversion...")
 
     backend = ChatCompletionsBackend()

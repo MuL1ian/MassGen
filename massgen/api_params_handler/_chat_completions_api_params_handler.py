@@ -20,6 +20,10 @@ class ChatCompletionsAPIParamsHandler(APIParamsHandlerBase):
             {
                 "base_url",  # Used for client initialization, not API calls
                 "enable_web_search",
+                "engine",  # OpenRouter web search engine option (native/exa) - only used when enable_web_search=true
+                "max_results",  # OpenRouter web search max results option - only used when enable_web_search=true
+                "search_prompt",  # OpenRouter web search custom prompt - only used when enable_web_search=true
+                "search_context_size",  # OpenRouter web search context size (low/medium/high) - only used when enable_web_search=true
                 "enable_code_interpreter",
                 "allowed_tools",
                 "exclude_tools",
@@ -39,9 +43,14 @@ class ChatCompletionsAPIParamsHandler(APIParamsHandlerBase):
         backend_provider = getattr(self.backend, "get_provider_name", lambda: "")()
         is_grok = backend_provider.lower() == "grok"
 
-        # Add web_search function tool for non-Grok backends
+        # Check if this is OpenRouter - OpenRouter uses plugins array instead of function tools
+        base_url = all_params.get("base_url", "")
+        is_openrouter = "openrouter.ai" in base_url
+
+        # Add web_search function tool for non-Grok and non-OpenRouter backends
         # Grok handles web search via extra_body.search_parameters (set in grok.py)
-        if all_params.get("enable_web_search", False) and not is_grok:
+        # OpenRouter handles web search via plugins array (set in chat_completions.py)
+        if all_params.get("enable_web_search", False) and not is_grok and not is_openrouter:
             provider_tools.append(
                 {
                     "type": "function",

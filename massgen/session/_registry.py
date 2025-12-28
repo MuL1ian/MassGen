@@ -195,6 +195,21 @@ class SessionRegistry:
         sessions = self.list_sessions(limit=1)
         return sessions[0] if sessions else None
 
+    def get_most_recent_continuable_session(self) -> Optional[Dict[str, Any]]:
+        """Get the most recent session that can be continued (has saved turns).
+
+        Skips empty sessions that have no turns saved yet.
+
+        Returns:
+            Session metadata dict for most recent non-empty session, or None if none found
+        """
+        sessions = self.list_sessions()  # Get all sessions, sorted by start_time desc
+        for session in sessions:
+            session_id = session.get("session_id")
+            if session_id and self.session_has_turns(session_id):
+                return session
+        return None
+
     def session_exists(self, session_id: str) -> bool:
         """Check if a session exists in the registry.
 
@@ -205,6 +220,26 @@ class SessionRegistry:
             True if session exists, False otherwise
         """
         return self.get_session(session_id) is not None
+
+    def session_has_turns(self, session_id: str) -> bool:
+        """Check if a session has any saved turns (is non-empty).
+
+        Args:
+            session_id: Session ID to check
+
+        Returns:
+            True if session has at least one turn, False otherwise
+        """
+        from pathlib import Path
+
+        # Check standard session storage location
+        session_dir = Path(".massgen/sessions") / session_id
+        if session_dir.exists():
+            # Look for turn_N directories
+            for item in session_dir.iterdir():
+                if item.is_dir() and item.name.startswith("turn_"):
+                    return True
+        return False
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a session from the registry.
