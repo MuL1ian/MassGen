@@ -7,6 +7,8 @@ Prerequisites
 
 MassGen requires **Python 3.11 or higher**.
 
+A guide to install python can be find `here <https://python.land/installing-python#google_vignette>`_
+
 .. code-block:: bash
 
    python --version  # Should be 3.11+
