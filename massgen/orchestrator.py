@@ -56,6 +56,7 @@ from .stream_chunk import ChunkType
 from .structured_logging import (
     clear_current_round,
     get_tracer,
+    log_agent_round_context,
     log_coordination_event,
     set_current_round,
 )
@@ -206,6 +207,7 @@ class Orchestrator(ChatAgent):
         self._coordination_messages: List[Dict[str, str]] = []
         self._selected_agent: Optional[str] = None
         self._final_presentation_content: Optional[str] = None
+        self._presentation_started: bool = False  # Guard against duplicate presentations
 
         # Track winning agents by turn for memory sharing
         # Format: [{"agent_id": "agent_b", "turn": 1}, {"agent_id": "agent_a", "turn": 2}]
@@ -2276,6 +2278,7 @@ Your answer:"""
         self.total_tokens = 0
         self.is_orchestrator_timeout = False
         self.timeout_reason = None
+        self._presentation_started = False  # Reset presentation guard for new attempt
 
         log_orchestrator_activity(
             self.orchestrator_id,
@@ -3891,6 +3894,15 @@ Your answer:"""
             # Normalize workspace paths in agent answers for better comparison from this agent's perspective
             normalized_answers = self._normalize_workspace_paths_in_answers(answers, agent_id) if answers else answers
 
+            # Log structured context for this agent's round (for observability/debugging)
+            log_agent_round_context(
+                agent_id=agent_id,
+                round_number=current_round,
+                round_type=round_type,
+                answers_in_context=normalized_answers,
+                answer_labels=context_labels,
+            )
+
             # Log the normalized answers this agent will see
             if normalized_answers:
                 logger.info(f"[Orchestrator] Agent {agent_id} sees normalized answers: {normalized_answers}")
@@ -4037,11 +4049,12 @@ Your answer:"""
             self.coordination_tracker.change_status(agent_id, AgentStatus.STREAMING)
 
             # Start round token tracking for this agent
+            # Note: round_type was computed earlier as "voting" if answers else "initial_answer"
             current_round = self.coordination_tracker.get_agent_round(agent_id)
             if hasattr(agent.backend, "start_round_tracking"):
                 agent.backend.start_round_tracking(
                     round_number=current_round,
-                    round_type="initial_answer",
+                    round_type=round_type,  # Use computed round_type (voting or initial_answer)
                     agent_id=agent_id,
                 )
 
@@ -4827,6 +4840,13 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
     async def get_final_presentation(self, selected_agent_id: str, vote_results: Dict[str, Any]) -> AsyncGenerator[StreamChunk, None]:
         """Ask the winning agent to present their final answer with voting context."""
+        # Guard against duplicate presentations (e.g., if timeout handler runs after presentation started)
+        if self._presentation_started:
+            logger.warning(f"Presentation already started, skipping duplicate call for {selected_agent_id}")
+            yield StreamChunk(type="status", content="Presentation already in progress, skipping duplicate...")
+            return
+        self._presentation_started = True
+
         # Start tracking the final round
         self.coordination_tracker.start_final_round(selected_agent_id)
 

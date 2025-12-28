@@ -368,6 +368,30 @@ class ToolManager:
             "tool.type": "custom",
             "massgen.agent_id": agent_id,
         }
+        # Add round tracking from execution context if available
+        if execution_context:
+            if execution_context.get("round_number") is not None:
+                span_attributes["massgen.round"] = execution_context["round_number"]
+            if execution_context.get("round_type"):
+                span_attributes["massgen.round_type"] = execution_context["round_type"]
+
+        # Add file path info if present in tool input (for workspace tracking)
+        if tool_input:
+            file_path = tool_input.get("file_path") or tool_input.get("path")
+            if file_path:
+                span_attributes["tool.file_path"] = str(file_path)[:500]  # Truncate long paths
+                # Extract workspace info from path if it's a MassGen workspace path
+                if ".massgen/workspaces/" in str(file_path):
+                    # Extract workspace name (e.g., "workspace1_47e43168")
+                    try:
+                        workspace_part = str(file_path).split(".massgen/workspaces/")[1]
+                        workspace_name = workspace_part.split("/")[0]
+                        span_attributes["tool.workspace"] = workspace_name
+                    except (IndexError, AttributeError):
+                        pass
+            # Also capture arguments preview for debugging
+            if args_json:
+                span_attributes["tool.arguments_preview"] = args_json[:200]
 
         with tracer.span(f"tool.custom.{tool_name}", attributes=span_attributes) as span:
             try:

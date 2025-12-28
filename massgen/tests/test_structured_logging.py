@@ -420,3 +420,162 @@ class TestLLMAPICallTracing:
                 raise ValueError("Test error")
         except ValueError:
             pass  # Expected
+
+
+class TestSubagentTracing:
+    """Tests for subagent tracing functions."""
+
+    def test_trace_subagent_execution_basic(self):
+        """trace_subagent_execution should work as a context manager."""
+        from massgen.structured_logging import trace_subagent_execution
+
+        with trace_subagent_execution(
+            subagent_id="sub_1",
+            parent_agent_id="agent_a",
+            task="Research topic",
+            model="gpt-4",
+            timeout_seconds=300,
+        ) as span:
+            # Span should be a valid object (or NoOpSpan)
+            assert span is not None
+
+    def test_trace_subagent_execution_yields_span(self):
+        """trace_subagent_execution should yield a span for attribute setting."""
+        from massgen.structured_logging import trace_subagent_execution
+
+        with trace_subagent_execution(
+            subagent_id="sub_2",
+            parent_agent_id="agent_b",
+            task="Analyze data",
+        ) as span:
+            # Should be able to set attributes on the span
+            span.set_attribute("subagent.success", True)
+            span.set_attribute("subagent.execution_time_seconds", 10.5)
+
+    def test_log_subagent_spawn(self):
+        """log_subagent_spawn should not raise."""
+        from massgen.structured_logging import log_subagent_spawn
+
+        log_subagent_spawn(
+            subagent_id="sub_3",
+            parent_agent_id="agent_c",
+            task="Write a report on market trends",
+            model="claude-3-opus",
+            timeout_seconds=600,
+            context_files=["data.csv", "report_template.md"],
+            execution_mode="foreground",
+        )
+
+    def test_log_subagent_spawn_minimal(self):
+        """log_subagent_spawn should work with minimal args."""
+        from massgen.structured_logging import log_subagent_spawn
+
+        log_subagent_spawn(
+            subagent_id="sub_4",
+            parent_agent_id="agent_d",
+            task="Simple task",
+        )
+
+    def test_log_subagent_complete_success(self):
+        """log_subagent_complete should handle success case."""
+        from massgen.structured_logging import log_subagent_complete
+
+        log_subagent_complete(
+            subagent_id="sub_5",
+            parent_agent_id="agent_e",
+            status="completed",
+            execution_time_seconds=45.3,
+            success=True,
+            token_usage={"input_tokens": 1000, "output_tokens": 500},
+            answer_preview="This is the beginning of the answer...",
+        )
+
+    def test_log_subagent_complete_timeout(self):
+        """log_subagent_complete should handle timeout case."""
+        from massgen.structured_logging import log_subagent_complete
+
+        log_subagent_complete(
+            subagent_id="sub_6",
+            parent_agent_id="agent_f",
+            status="timeout",
+            execution_time_seconds=300.0,
+            success=False,
+            error_message="Timed out after 300s",
+        )
+
+    def test_log_subagent_complete_failure(self):
+        """log_subagent_complete should handle failure case."""
+        from massgen.structured_logging import log_subagent_complete
+
+        log_subagent_complete(
+            subagent_id="sub_7",
+            parent_agent_id="agent_g",
+            status="failed",
+            execution_time_seconds=5.2,
+            success=False,
+            error_message="Connection refused",
+        )
+
+
+class TestPersonaGenerationTracing:
+    """Tests for persona generation tracing functions."""
+
+    def test_trace_persona_generation_basic(self):
+        """trace_persona_generation should work as a context manager."""
+        from massgen.structured_logging import trace_persona_generation
+
+        with trace_persona_generation(
+            num_agents=3,
+            strategy="cognitive_diversity",
+            diversity_mode="perspective",
+        ) as span:
+            assert span is not None
+
+    def test_trace_persona_generation_yields_span(self):
+        """trace_persona_generation should yield a span for attribute setting."""
+        from massgen.structured_logging import trace_persona_generation
+
+        with trace_persona_generation(
+            num_agents=5,
+            strategy="random",
+        ) as span:
+            span.set_attribute("persona.success", True)
+            span.set_attribute("persona.generation_time_ms", 150.5)
+
+    def test_log_persona_generation_success(self):
+        """log_persona_generation should handle success case."""
+        from massgen.structured_logging import log_persona_generation
+
+        log_persona_generation(
+            agent_ids=["agent_a", "agent_b", "agent_c"],
+            strategy="cognitive_diversity",
+            success=True,
+            generation_time_ms=250.5,
+            used_fallback=False,
+            diversity_mode="perspective",
+        )
+
+    def test_log_persona_generation_fallback(self):
+        """log_persona_generation should handle fallback case."""
+        from massgen.structured_logging import log_persona_generation
+
+        log_persona_generation(
+            agent_ids=["agent_d", "agent_e"],
+            strategy="implementation_diversity",
+            success=False,
+            generation_time_ms=50.0,
+            used_fallback=True,
+            diversity_mode="implementation",
+            error_message="LLM API timeout",
+        )
+
+    def test_log_persona_generation_minimal(self):
+        """log_persona_generation should work with minimal args."""
+        from massgen.structured_logging import log_persona_generation
+
+        log_persona_generation(
+            agent_ids=["agent_f"],
+            strategy="default",
+            success=True,
+            generation_time_ms=100.0,
+        )

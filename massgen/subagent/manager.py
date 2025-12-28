@@ -16,6 +16,11 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from massgen.structured_logging import (
+    log_subagent_complete,
+    log_subagent_spawn,
+    trace_subagent_execution,
+)
 from massgen.subagent.models import (
     SubagentConfig,
     SubagentOrchestratorConfig,
@@ -849,6 +854,17 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         logger.info(f"[SubagentManager] Spawning subagent {config.id} for task: {task[:100]}...")
 
+        # Log subagent spawn event for structured logging
+        log_subagent_spawn(
+            subagent_id=config.id,
+            parent_agent_id=self.parent_agent_id,
+            task=task,
+            model=config.model,
+            timeout_seconds=config.timeout_seconds,
+            context_files=config.context_files,
+            execution_mode="foreground",
+        )
+
         # Create workspace
         workspace = self._create_workspace(config.id)
 
@@ -869,25 +885,37 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         self._write_status(config.id, "running", task, progress="Starting execution...")
         self._append_conversation(config.id, "user", task)
 
-        # Execute with semaphore and timeout
-        async with self._semaphore:
-            try:
-                result = await asyncio.wait_for(
-                    self._execute_subagent(config, workspace),
-                    timeout=config.timeout_seconds,
-                )
-            except asyncio.TimeoutError:
-                result = SubagentResult.create_timeout(
-                    subagent_id=config.id,
-                    workspace_path=str(workspace),
-                    timeout_seconds=config.timeout_seconds,
-                )
-                self._write_status(
-                    config.id,
-                    "timeout",
-                    task,
-                    error=f"Timed out after {config.timeout_seconds}s",
-                )
+        # Execute with semaphore and timeout, wrapped in tracing span
+        with trace_subagent_execution(
+            subagent_id=config.id,
+            parent_agent_id=self.parent_agent_id,
+            task=task,
+            model=config.model,
+            timeout_seconds=config.timeout_seconds,
+        ) as span:
+            async with self._semaphore:
+                try:
+                    result = await asyncio.wait_for(
+                        self._execute_subagent(config, workspace),
+                        timeout=config.timeout_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    result = SubagentResult.create_timeout(
+                        subagent_id=config.id,
+                        workspace_path=str(workspace),
+                        timeout_seconds=config.timeout_seconds,
+                    )
+                    self._write_status(
+                        config.id,
+                        "timeout",
+                        task,
+                        error=f"Timed out after {config.timeout_seconds}s",
+                    )
+
+            # Set span attributes based on result
+            span.set_attribute("subagent.success", result.success)
+            span.set_attribute("subagent.status", result.status)
+            span.set_attribute("subagent.execution_time_seconds", result.execution_time_seconds)
 
         # Update state
         state.status = "completed" if result.success else ("timeout" if result.status == "timeout" else "failed")
@@ -914,6 +942,18 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         logger.info(
             f"[SubagentManager] Subagent {config.id} finished with status: {result.status}, " f"time: {result.execution_time_seconds:.2f}s",
+        )
+
+        # Log subagent completion event for structured logging
+        log_subagent_complete(
+            subagent_id=config.id,
+            parent_agent_id=self.parent_agent_id,
+            status=result.status,
+            execution_time_seconds=result.execution_time_seconds,
+            success=result.success,
+            token_usage=result.token_usage,
+            error_message=result.error,
+            answer_preview=result.answer[:200] if result.answer else None,
         )
 
         return result
@@ -1015,6 +1055,17 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         logger.info(f"[SubagentManager] Spawning background subagent {config.id} for task: {task[:100]}...")
 
+        # Log subagent spawn event for structured logging
+        log_subagent_spawn(
+            subagent_id=config.id,
+            parent_agent_id=self.parent_agent_id,
+            task=task,
+            model=config.model,
+            timeout_seconds=config.timeout_seconds,
+            context_files=config.context_files,
+            execution_mode="background",
+        )
+
         # Create workspace
         workspace = self._create_workspace(config.id)
 
@@ -1086,6 +1137,18 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
             logger.info(
                 f"[SubagentManager] Background subagent {config.id} finished with status: {result.status}, " f"time: {result.execution_time_seconds:.2f}s",
+            )
+
+            # Log subagent completion event for structured logging
+            log_subagent_complete(
+                subagent_id=config.id,
+                parent_agent_id=self.parent_agent_id,
+                status=result.status,
+                execution_time_seconds=result.execution_time_seconds,
+                success=result.success,
+                token_usage=result.token_usage,
+                error_message=result.error,
+                answer_preview=result.answer[:200] if result.answer else None,
             )
 
             # Clean up task reference

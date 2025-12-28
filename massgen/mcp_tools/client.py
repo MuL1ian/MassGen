@@ -698,6 +698,8 @@ class MCPClient:
                 server_name=server_name,
                 arguments_preview=args_json[:200] if args_json else None,
                 output_preview=output_text[:200] if output_text else None,
+                round_number=effective_round,
+                round_type=effective_round_type,
             )
 
             # Send tool call success status if callback is available
@@ -726,6 +728,8 @@ class MCPClient:
                 error_message=f"Timeout after {self.timeout_seconds}s",
                 server_name=server_name,
                 arguments_preview=args_json[:200] if args_json else None,
+                round_number=effective_round,
+                round_type=effective_round_type,
             )
 
             if self.status_callback:
@@ -761,6 +765,8 @@ class MCPClient:
                 error_message=str(e),
                 server_name=server_name,
                 arguments_preview=args_json[:200] if args_json else None,
+                round_number=effective_round,
+                round_type=effective_round_type,
             )
 
             logger.error(f"Tool call failed for {original_tool_name} on {server_name}: {e}", exc_info=True)

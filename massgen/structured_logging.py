@@ -891,6 +891,51 @@ def trace_agent_round(
         yield span
 
 
+def log_agent_round_context(
+    agent_id: str,
+    round_number: int,
+    round_type: str,
+    answers_in_context: Optional[Dict[str, str]] = None,
+    answer_labels: Optional[list] = None,
+):
+    """
+    Log the context an agent has when starting a round.
+
+    This is crucial for understanding what information each agent had available
+    when making decisions (voting, answering, etc.).
+
+    Args:
+        agent_id: ID of the agent.
+        round_number: The round number for this agent.
+        round_type: Type of round ("initial_answer", "voting", "presentation").
+        answers_in_context: Dict of agent_id -> answer content that this agent can see.
+        answer_labels: List of answer labels available (e.g., ["agent1.1", "agent2.1"]).
+    """
+    tracer = get_tracer()
+
+    num_answers = len(answers_in_context) if answers_in_context else 0
+    answer_providers = list(answers_in_context.keys()) if answers_in_context else []
+
+    # Create preview of each answer (first 150 chars)
+    answer_previews = {}
+    if answers_in_context:
+        for aid, content in answers_in_context.items():
+            if content:
+                answer_previews[aid] = content[:150] + "..." if len(content) > 150 else content
+
+    tracer.info(
+        f"Agent round context: {agent_id} round_{round_number}",
+        event_type="agent_round_context",
+        agent_id=agent_id,
+        round_number=round_number,
+        round_type=round_type,
+        num_answers_in_context=num_answers,
+        answer_providers=",".join(answer_providers) if answer_providers else None,
+        answer_labels=",".join(answer_labels) if answer_labels else None,
+        answer_previews=answer_previews if answer_previews else None,
+    )
+
+
 def log_agent_answer(
     agent_id: str,
     answer_label: str,
@@ -1086,6 +1131,250 @@ def trace_llm_api_call(
         yield span
 
 
+# ==============================================================================
+# Subagent Tracing
+# ==============================================================================
+
+
+@contextmanager
+def trace_subagent_execution(
+    subagent_id: str,
+    parent_agent_id: str,
+    task: str,
+    model: Optional[str] = None,
+    timeout_seconds: Optional[int] = None,
+    **extra_attributes,
+):
+    """
+    Context manager for tracing subagent execution.
+
+    This creates a span that covers the full lifecycle of a subagent,
+    from spawn to completion or timeout.
+
+    Args:
+        subagent_id: Unique ID of the subagent.
+        parent_agent_id: ID of the agent that spawned this subagent.
+        task: The task assigned to the subagent.
+        model: Model being used by the subagent.
+        timeout_seconds: Timeout configured for the subagent.
+        **extra_attributes: Additional attributes to attach.
+
+    Yields:
+        Span object for adding additional attributes.
+
+    Example:
+        with trace_subagent_execution("sub_1", "agent_a", "Research topic"):
+            result = await execute_subagent(...)
+            span.set_attribute("subagent.success", result.success)
+    """
+    tracer = get_tracer()
+    task_preview = task[:200] if task else ""
+
+    attributes = {
+        "massgen.subagent_id": subagent_id,
+        "massgen.parent_agent_id": parent_agent_id,
+        "subagent.task_preview": task_preview,
+    }
+    if model:
+        attributes["subagent.model"] = model
+    if timeout_seconds is not None:
+        attributes["subagent.timeout_seconds"] = timeout_seconds
+    attributes.update(extra_attributes)
+
+    with tracer.span(f"subagent.{subagent_id}", attributes=attributes) as span:
+        yield span
+
+
+def log_subagent_spawn(
+    subagent_id: str,
+    parent_agent_id: str,
+    task: str,
+    model: Optional[str] = None,
+    timeout_seconds: Optional[int] = None,
+    context_files: Optional[List[str]] = None,
+    execution_mode: str = "foreground",
+):
+    """
+    Log a subagent spawn event.
+
+    Args:
+        subagent_id: Unique ID of the subagent.
+        parent_agent_id: ID of the agent that spawned this subagent.
+        task: The task assigned to the subagent.
+        model: Model being used by the subagent.
+        timeout_seconds: Timeout configured for the subagent.
+        context_files: Files copied to subagent workspace.
+        execution_mode: "foreground", "background", or "parallel".
+    """
+    tracer = get_tracer()
+    task_preview = task[:200] if task else ""
+
+    attributes = {
+        "massgen.subagent_id": subagent_id,
+        "massgen.parent_agent_id": parent_agent_id,
+        "subagent.task_preview": task_preview,
+        "subagent.execution_mode": execution_mode,
+    }
+    if model:
+        attributes["subagent.model"] = model
+    if timeout_seconds is not None:
+        attributes["subagent.timeout_seconds"] = timeout_seconds
+    if context_files:
+        attributes["subagent.context_file_count"] = len(context_files)
+
+    tracer.info(
+        "Subagent spawned: {subagent_id} by {parent_agent_id}",
+        subagent_id=subagent_id,
+        parent_agent_id=parent_agent_id,
+        **attributes,
+    )
+
+
+def log_subagent_complete(
+    subagent_id: str,
+    parent_agent_id: str,
+    status: str,
+    execution_time_seconds: float,
+    success: bool,
+    token_usage: Optional[Dict[str, int]] = None,
+    error_message: Optional[str] = None,
+    answer_preview: Optional[str] = None,
+):
+    """
+    Log a subagent completion event.
+
+    Args:
+        subagent_id: Unique ID of the subagent.
+        parent_agent_id: ID of the agent that spawned this subagent.
+        status: Final status ("completed", "timeout", "failed", "cancelled").
+        execution_time_seconds: Total execution time.
+        success: Whether the subagent succeeded.
+        token_usage: Token usage statistics (input_tokens, output_tokens, etc).
+        error_message: Error message if failed.
+        answer_preview: First 200 chars of the answer if successful.
+    """
+    tracer = get_tracer()
+
+    attributes = {
+        "massgen.subagent_id": subagent_id,
+        "massgen.parent_agent_id": parent_agent_id,
+        "subagent.status": status,
+        "subagent.execution_time_seconds": execution_time_seconds,
+        "subagent.success": success,
+    }
+
+    if token_usage:
+        for key, value in token_usage.items():
+            attributes[f"subagent.tokens.{key}"] = value
+
+    if error_message:
+        attributes["subagent.error"] = error_message[:500]
+
+    if answer_preview:
+        attributes["subagent.answer_preview"] = answer_preview[:200]
+
+    log_func = tracer.info if success else tracer.warning
+    log_func(
+        "Subagent {status}: {subagent_id} in {execution_time_seconds:.2f}s",
+        subagent_id=subagent_id,
+        status=status,
+        execution_time_seconds=execution_time_seconds,
+        **attributes,
+    )
+
+
+# ==============================================================================
+# Persona Generation Tracing
+# ==============================================================================
+
+
+@contextmanager
+def trace_persona_generation(
+    num_agents: int,
+    strategy: str,
+    diversity_mode: Optional[str] = None,
+    **extra_attributes,
+):
+    """
+    Context manager for tracing persona generation.
+
+    This creates a span for the persona generation process.
+
+    Args:
+        num_agents: Number of agents personas are being generated for.
+        strategy: The generation strategy being used.
+        diversity_mode: The diversity mode (e.g., "perspective", "implementation").
+        **extra_attributes: Additional attributes.
+
+    Yields:
+        Span object for adding additional attributes.
+
+    Example:
+        with trace_persona_generation(3, "cognitive_diversity"):
+            personas = await generate_personas(...)
+    """
+    tracer = get_tracer()
+
+    attributes = {
+        "persona.num_agents": num_agents,
+        "persona.strategy": strategy,
+    }
+    if diversity_mode:
+        attributes["persona.diversity_mode"] = diversity_mode
+    attributes.update(extra_attributes)
+
+    with tracer.span("persona.generation", attributes=attributes) as span:
+        yield span
+
+
+def log_persona_generation(
+    agent_ids: List[str],
+    strategy: str,
+    success: bool,
+    generation_time_ms: float,
+    used_fallback: bool = False,
+    diversity_mode: Optional[str] = None,
+    error_message: Optional[str] = None,
+):
+    """
+    Log a persona generation event.
+
+    Args:
+        agent_ids: List of agent IDs personas were generated for.
+        strategy: The generation strategy used.
+        success: Whether generation succeeded.
+        generation_time_ms: Time taken in milliseconds.
+        used_fallback: Whether fallback personas were used.
+        diversity_mode: The diversity mode used.
+        error_message: Error message if failed.
+    """
+    tracer = get_tracer()
+
+    attributes = {
+        "persona.agent_ids": ",".join(agent_ids),
+        "persona.num_agents": len(agent_ids),
+        "persona.strategy": strategy,
+        "persona.success": success,
+        "persona.generation_time_ms": generation_time_ms,
+        "persona.used_fallback": used_fallback,
+    }
+
+    if diversity_mode:
+        attributes["persona.diversity_mode"] = diversity_mode
+
+    if error_message:
+        attributes["persona.error"] = error_message[:500]
+
+    log_func = tracer.info if success else tracer.warning
+    log_func(
+        "Persona generation {status} for {num_agents} agents in {time_ms:.0f}ms",
+        status="succeeded" if success else "failed",
+        num_agents=len(agent_ids),
+        time_ms=generation_time_ms,
+        **attributes,
+    )
+
+
 # Export all public symbols
 __all__ = [
     # Configuration
@@ -1105,14 +1394,26 @@ __all__ = [
     "trace_coordination_iteration",
     "trace_agent_round",
     "trace_llm_api_call",
+    # Round context (for propagating round info to nested calls)
+    "set_current_round",
+    "get_current_round",
+    "clear_current_round",
     # Event loggers
     "log_token_usage",
     "log_tool_execution",
     "log_coordination_event",
     # Coordination-specific loggers
+    "log_agent_round_context",
     "log_agent_answer",
     "log_agent_vote",
     "log_winner_selected",
     "log_final_answer",
     "log_iteration_end",
+    # Subagent tracing
+    "trace_subagent_execution",
+    "log_subagent_spawn",
+    "log_subagent_complete",
+    # Persona generation tracing
+    "trace_persona_generation",
+    "log_persona_generation",
 ]

@@ -43,7 +43,7 @@ from ..nlip.schema import (
     NLIPTokenField,
     NLIPToolCall,
 )
-from ..structured_logging import trace_llm_api_call
+from ..structured_logging import get_tracer, log_tool_execution, trace_llm_api_call
 from ..token_manager.token_manager import ToolExecutionMetric
 from ..tool import ToolManager
 from ..utils import CoordinationStage
@@ -1280,55 +1280,74 @@ class CustomToolAndMCPBackend(LLMBackend):
                 source=f"{config.source_prefix}{tool_name}",
             )
 
-            # Execute tool via callback
+            # Execute tool via callback with observability span
             result = None
             result_str = ""
             result_obj = None
 
-            if config.tool_type == "custom":
-                # Check if execution_callback returns an async generator (streaming)
-                callback_result = config.execution_callback(call)
+            # Create span for hierarchical tracing (similar to MCP tools)
+            tracer = get_tracer()
+            span_attributes = {
+                "tool.name": tool_name,
+                "tool.type": config.tool_type,
+            }
+            if self.agent_id:
+                span_attributes["massgen.agent_id"] = self.agent_id
+            if self._current_round_number is not None:
+                span_attributes["massgen.round"] = self._current_round_number
+            if self._current_round_type:
+                span_attributes["massgen.round_type"] = self._current_round_type
 
-                # Handle async generator (streaming custom tools)
-                if hasattr(callback_result, "__aiter__"):
-                    # This is an async generator - stream intermediate results
-                    result_meta_info = None
-                    async for chunk in callback_result:
-                        # Yield intermediate chunks if available
-                        if hasattr(chunk, "data") and chunk.data and not chunk.completed:
-                            # Stream intermediate output to user
-                            yield StreamChunk(
-                                type=config.chunk_type,
-                                status="custom_tool_output",
-                                content=chunk.data,
-                                source=f"{config.source_prefix}{tool_name}",
+            # Determine span name based on tool type
+            span_name = f"custom_tool.{tool_name}" if config.tool_type == "custom" else f"mcp_tool.{tool_name}"
+
+            with tracer.span(span_name, attributes=span_attributes) as tool_span:
+                if config.tool_type == "custom":
+                    # Check if execution_callback returns an async generator (streaming)
+                    callback_result = config.execution_callback(call)
+
+                    # Handle async generator (streaming custom tools)
+                    if hasattr(callback_result, "__aiter__"):
+                        # This is an async generator - stream intermediate results
+                        result_meta_info = None
+                        async for chunk in callback_result:
+                            # Yield intermediate chunks if available
+                            if hasattr(chunk, "data") and chunk.data and not chunk.completed:
+                                # Stream intermediate output to user
+                                yield StreamChunk(
+                                    type=config.chunk_type,
+                                    status="custom_tool_output",
+                                    content=chunk.data,
+                                    source=f"{config.source_prefix}{tool_name}",
+                                )
+                            elif hasattr(chunk, "completed") and chunk.completed:
+                                # Extract final accumulated result and metadata
+                                result_str = chunk.accumulated_result
+                                result_meta_info = getattr(chunk, "meta_info", None)
+                        # Wrap result with meta_info if multimodal data is present
+                        if result_meta_info:
+                            result = types.SimpleNamespace(
+                                text=result_str,
+                                meta_info=result_meta_info,
                             )
-                        elif hasattr(chunk, "completed") and chunk.completed:
-                            # Extract final accumulated result and metadata
-                            result_str = chunk.accumulated_result
-                            result_meta_info = getattr(chunk, "meta_info", None)
-                    # Wrap result with meta_info if multimodal data is present
-                    if result_meta_info:
-                        result = types.SimpleNamespace(
-                            text=result_str,
-                            meta_info=result_meta_info,
-                        )
+                        else:
+                            result = result_str
                     else:
-                        result = result_str
-                else:
-                    # Handle regular await (non-streaming custom tools)
-                    result = await callback_result
-                    result_str = str(result)
-            else:  # MCP
-                result_str, result_obj = await config.execution_callback(
-                    call["name"],
-                    call["arguments"],
-                )
-                result = result_str
+                        # Handle regular await (non-streaming custom tools)
+                        result = await callback_result
+                        result_str = str(result)
+                else:  # MCP
+                    result_str, result_obj = await config.execution_callback(
+                        call["name"],
+                        call["arguments"],
+                    )
+                    result = result_str
 
-            # Capture execution end time immediately after tool completes
-            # (before yielding chunks, which can block on slow consumers)
-            execution_end_time = time.time()
+                # Capture execution end time inside span
+                execution_end_time = time.time()
+                tool_span.set_attribute("tool.execution_time_ms", (execution_end_time - metric.start_time) * 1000)
+
+            # Note: execution_end_time is now set inside the span
 
             # Check for MCP failure after retries
             if config.tool_type == "mcp" and result_str.startswith("Error:"):
@@ -1354,6 +1373,22 @@ class CustomToolAndMCPBackend(LLMBackend):
                 metric.success = False
                 metric.error_message = error_msg[:500]
                 self._tool_execution_metrics.append(metric)
+
+                # Log structured tool execution for observability (MCP failure case)
+                execution_time_ms = (metric.end_time - metric.start_time) * 1000
+                log_tool_execution(
+                    agent_id=self.agent_id or "unknown",
+                    tool_name=tool_name,
+                    tool_type=config.tool_type,
+                    execution_time_ms=execution_time_ms,
+                    success=False,
+                    input_chars=len(arguments_str),
+                    output_chars=0,
+                    error_message=error_msg[:500],
+                    arguments_preview=arguments_str[:200] if arguments_str else None,
+                    round_number=self._current_round_number,
+                    round_type=self._current_round_type,
+                )
                 return
 
             # Append result to messages
@@ -1452,6 +1487,22 @@ class CustomToolAndMCPBackend(LLMBackend):
             metric.success = True
             self._tool_execution_metrics.append(metric)
 
+            # Log structured tool execution for observability
+            execution_time_ms = (metric.end_time - metric.start_time) * 1000
+            log_tool_execution(
+                agent_id=self.agent_id or "unknown",
+                tool_name=tool_name,
+                tool_type=config.tool_type,
+                execution_time_ms=execution_time_ms,
+                success=True,
+                input_chars=len(arguments_str),
+                output_chars=len(display_result),
+                arguments_preview=arguments_str[:200] if arguments_str else None,
+                output_preview=display_result[:200] if display_result else None,
+                round_number=self._current_round_number,
+                round_type=self._current_round_type,
+            )
+
         except Exception as e:
             # Log error
             logger.error(f"Error executing {config.tool_type} tool {tool_name}: {e}")
@@ -1491,6 +1542,22 @@ class CustomToolAndMCPBackend(LLMBackend):
             metric.success = False
             metric.error_message = str(e)[:500]  # Truncate long errors
             self._tool_execution_metrics.append(metric)
+
+            # Log structured tool execution for observability (failure case)
+            execution_time_ms = (metric.end_time - metric.start_time) * 1000
+            log_tool_execution(
+                agent_id=self.agent_id or "unknown",
+                tool_name=tool_name,
+                tool_type=config.tool_type,
+                execution_time_ms=execution_time_ms,
+                success=False,
+                input_chars=len(arguments_str),
+                output_chars=0,
+                error_message=str(e)[:500],
+                arguments_preview=arguments_str[:200] if arguments_str else None,
+                round_number=self._current_round_number,
+                round_type=self._current_round_type,
+            )
 
     async def _run_tool_call(
         self,

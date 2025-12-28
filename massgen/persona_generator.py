@@ -7,10 +7,13 @@ diversity without requiring users to manually craft different system messages.
 """
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
+
+from massgen.structured_logging import log_persona_generation, trace_persona_generation
 
 # Template for softening perspectives after agents see other solutions
 SOFTENED_PERSPECTIVE_TEMPLATE = """Your initial perspective was:
@@ -138,22 +141,60 @@ class PersonaGenerator:
 
         logger.info(f"Generating personas for {len(agent_ids)} agents using strategy: {self.strategy}")
 
-        try:
-            # Use stream_with_tools with empty tools to generate text
-            response_content = await self._generate_response(prompt)
-            personas = self._parse_response(response_content, agent_ids)
+        start_time = time.perf_counter()
 
-            # Log summary
-            for agent_id, persona in personas.items():
-                style = persona.attributes.get("thinking_style", "unknown")
-                logger.debug(f"Generated persona for {agent_id}: {style}")
+        with trace_persona_generation(
+            num_agents=len(agent_ids),
+            strategy=self.strategy,
+            diversity_mode=self.diversity_mode,
+        ) as span:
+            try:
+                # Use stream_with_tools with empty tools to generate text
+                response_content = await self._generate_response(prompt)
+                personas = self._parse_response(response_content, agent_ids)
 
-            return personas
+                # Log summary
+                for agent_id, persona in personas.items():
+                    style = persona.attributes.get("thinking_style", "unknown")
+                    logger.debug(f"Generated persona for {agent_id}: {style}")
 
-        except Exception as e:
-            logger.error(f"Failed to generate personas: {e}")
-            logger.info("Using fallback personas")
-            return self._generate_fallback_personas(agent_ids)
+                generation_time_ms = (time.perf_counter() - start_time) * 1000
+                span.set_attribute("persona.success", True)
+                span.set_attribute("persona.generation_time_ms", generation_time_ms)
+
+                # Log structured event
+                log_persona_generation(
+                    agent_ids=agent_ids,
+                    strategy=self.strategy,
+                    success=True,
+                    generation_time_ms=generation_time_ms,
+                    used_fallback=False,
+                    diversity_mode=self.diversity_mode,
+                )
+
+                return personas
+
+            except Exception as e:
+                logger.error(f"Failed to generate personas: {e}")
+                logger.info("Using fallback personas")
+
+                generation_time_ms = (time.perf_counter() - start_time) * 1000
+                span.set_attribute("persona.success", False)
+                span.set_attribute("persona.used_fallback", True)
+                span.set_attribute("persona.error", str(e))
+
+                # Log structured event for fallback case
+                log_persona_generation(
+                    agent_ids=agent_ids,
+                    strategy=self.strategy,
+                    success=False,
+                    generation_time_ms=generation_time_ms,
+                    used_fallback=True,
+                    diversity_mode=self.diversity_mode,
+                    error_message=str(e),
+                )
+
+                return self._generate_fallback_personas(agent_ids)
 
     async def _generate_response(self, prompt: str) -> str:
         """Generate a response from the LLM backend.

@@ -448,3 +448,477 @@ MassGen's backends use this for `llm.{provider}.stream` spans.
 5. **Use duration** to identify bottlenecks
 6. **Look at attributes** for MassGen-specific context
 7. **Create trace links** to share findings with team
+
+## Part 6: Comprehensive Log Analysis Pattern
+
+When asked to analyze a MassGen log run, follow this structured checklist covering **correctness**, **efficiency**, **errors**, and **agent behavior**.
+
+### Step 1: Get Session Overview
+
+First, identify the session and get high-level metrics:
+
+```sql
+-- Find recent sessions with basic stats
+SELECT
+  trace_id,
+  duration as session_duration_sec,
+  start_timestamp,
+  end_timestamp
+FROM records
+WHERE span_name = 'coordination.session'
+ORDER BY start_timestamp DESC
+LIMIT 5
+```
+
+### Step 2: Correctness Analysis
+
+**Goal:** Verify the coordination worked correctly and produced a valid answer.
+
+#### 2a. Check Coordination Flow
+```sql
+-- Verify all expected phases occurred
+SELECT span_name, start_timestamp, duration
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND (span_name LIKE 'Coordination event:%'
+       OR span_name LIKE 'Agent answer:%'
+       OR span_name LIKE 'Agent vote:%'
+       OR span_name LIKE 'Winner selected:%'
+       OR span_name LIKE 'Final answer%')
+ORDER BY start_timestamp
+```
+
+**Expected flow:**
+1. `Coordination event: coordination_started`
+2. `Agent answer: agent1.1`, `Agent answer: agent2.1` (initial answers)
+3. `Agent vote: agent_a -> ...`, `Agent vote: agent_b -> ...`
+4. `Coordination event: winner_selected`
+5. `Winner selected: ...`
+6. `Final answer from ...`
+
+#### 2b. Check for Incomplete Rounds
+```sql
+-- Find agents that started but didn't complete
+SELECT
+  span_name,
+  attributes->>'massgen.outcome' as outcome,
+  attributes->>'massgen.error_message' as error
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'agent.%'
+ORDER BY start_timestamp
+```
+
+**Red flags:**
+- `outcome = null` (round didn't complete)
+- `outcome = "error"` (agent failed)
+- Missing expected agent rounds
+
+#### 2c. Verify Voting Consistency
+```sql
+-- Check all votes were cast and valid
+SELECT
+  span_name,
+  attributes->>'massgen.agent_id' as voter,
+  attributes->>'massgen.voted_for' as voted_for,
+  attributes->>'massgen.voted_for_label' as voted_for_label
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'Agent vote:%'
+```
+
+### Step 3: Efficiency Analysis
+
+**Goal:** Identify bottlenecks and optimization opportunities.
+
+#### 3a. Phase Duration Breakdown
+```sql
+-- Time spent in each phase
+SELECT
+  CASE
+    WHEN span_name LIKE 'agent.%.round_0' THEN 'initial_answer'
+    WHEN span_name LIKE 'agent.%.round_%' THEN 'voting'
+    WHEN span_name LIKE 'agent.%.presentation' THEN 'presentation'
+    ELSE 'other'
+  END as phase,
+  COUNT(*) as count,
+  ROUND(AVG(duration), 2) as avg_duration_sec,
+  ROUND(MAX(duration), 2) as max_duration_sec,
+  ROUND(SUM(duration), 2) as total_duration_sec
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'agent.%'
+GROUP BY 1
+ORDER BY total_duration_sec DESC
+```
+
+#### 3b. Slowest Operations (Top Bottlenecks)
+```sql
+-- Find the 10 slowest spans
+SELECT span_name, duration, start_timestamp
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+ORDER BY duration DESC
+LIMIT 10
+```
+
+#### 3c. Tool Call Performance
+```sql
+-- Analyze tool call efficiency
+SELECT
+  span_name,
+  COUNT(*) as call_count,
+  ROUND(AVG(duration), 3) as avg_duration_sec,
+  ROUND(MAX(duration), 3) as max_duration_sec,
+  ROUND(SUM(duration), 3) as total_duration_sec
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'mcp.%'
+GROUP BY span_name
+ORDER BY total_duration_sec DESC
+```
+
+#### 3d. Slow Tool Calls (>1 second)
+```sql
+-- Find specific slow tool calls with their arguments
+SELECT
+  span_name,
+  duration,
+  attributes->>'massgen.agent_id' as agent,
+  attributes->>'massgen.round' as round,
+  attributes->>'massgen.round_type' as round_type,
+  start_timestamp
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'mcp.%'
+  AND duration > 1.0
+ORDER BY duration DESC
+```
+
+#### 3e. Repeated/Redundant Tool Calls
+```sql
+-- Check for duplicate tool calls (same tool called multiple times)
+SELECT
+  span_name,
+  attributes->>'massgen.agent_id' as agent,
+  attributes->>'massgen.round' as round,
+  COUNT(*) as call_count
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'mcp.%'
+GROUP BY span_name, attributes->>'massgen.agent_id', attributes->>'massgen.round'
+HAVING COUNT(*) > 1
+ORDER BY call_count DESC
+```
+
+#### 3f. LLM Call Latency
+```sql
+-- Analyze LLM response times
+SELECT
+  span_name,
+  duration,
+  attributes->>'gen_ai.request.model' as model,
+  attributes->>'massgen.agent_id' as agent,
+  start_timestamp
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'llm.%'
+ORDER BY duration DESC
+```
+
+### Step 4: Error Analysis
+
+**Goal:** Identify failures, exceptions, and error patterns.
+
+#### 4a. Find All Exceptions
+```sql
+-- All exceptions in the trace
+SELECT
+  span_name,
+  exception_type,
+  exception_message,
+  start_timestamp
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND is_exception = true
+ORDER BY start_timestamp
+```
+
+#### 4b. Failed Tool Calls
+```sql
+-- Tool calls that failed
+SELECT
+  span_name,
+  attributes->>'error_message' as error,
+  attributes->>'massgen.agent_id' as agent,
+  attributes->>'arguments_preview' as arguments,
+  duration,
+  start_timestamp
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'Tool execution:%'
+  AND attributes->>'success' = 'false'
+ORDER BY start_timestamp
+```
+
+#### 4c. Agent Errors
+```sql
+-- Agents that encountered errors
+SELECT
+  span_name,
+  attributes->>'massgen.outcome' as outcome,
+  attributes->>'massgen.error_message' as error,
+  duration
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'agent.%'
+  AND attributes->>'massgen.outcome' = 'error'
+```
+
+#### 4d. Timeout Analysis
+```sql
+-- Check for timeout-related errors
+SELECT
+  span_name,
+  exception_type,
+  exception_message,
+  duration
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND (exception_message LIKE '%timeout%'
+       OR exception_message LIKE '%Timeout%'
+       OR exception_type LIKE '%Timeout%')
+```
+
+### Step 5: Cost & Token Analysis
+
+**Goal:** Understand resource consumption.
+
+#### 5a. Token Usage by Agent
+```sql
+-- Token usage per agent
+SELECT
+  attributes->>'massgen.agent_id' as agent,
+  SUM((attributes->'massgen.usage.input')::int) as total_input_tokens,
+  SUM((attributes->'massgen.usage.output')::int) as total_output_tokens,
+  SUM((attributes->'massgen.usage.reasoning')::int) as total_reasoning_tokens,
+  SUM((attributes->'massgen.usage.cost')::float) as total_cost_usd
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'agent.%'
+  AND attributes->>'massgen.usage.input' IS NOT NULL
+GROUP BY attributes->>'massgen.agent_id'
+```
+
+#### 5b. Token Usage by Phase
+```sql
+-- Token usage by round type
+SELECT
+  attributes->>'massgen.round_type' as phase,
+  SUM((attributes->'massgen.usage.input')::int) as total_input_tokens,
+  SUM((attributes->'massgen.usage.output')::int) as total_output_tokens,
+  COUNT(*) as round_count
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'agent.%'
+  AND attributes->>'massgen.usage.input' IS NOT NULL
+GROUP BY attributes->>'massgen.round_type'
+```
+
+### Step 6: Agent Behavior Analysis
+
+**Goal:** Understand how agents collaborated and made decisions.
+
+#### 6a. Voting Patterns
+```sql
+-- Who voted for whom
+SELECT
+  attributes->>'massgen.agent_id' as voter,
+  attributes->>'massgen.voted_for_label' as voted_for,
+  span_name
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'Agent vote:%'
+ORDER BY start_timestamp
+```
+
+#### 6b. Answer Diversity
+```sql
+-- How many unique answers were generated
+SELECT
+  span_name,
+  attributes->>'massgen.answer_label' as answer_label,
+  start_timestamp
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'Agent answer:%'
+ORDER BY start_timestamp
+```
+
+#### 6c. Tool Usage by Agent & Round
+```sql
+-- Which tools each agent used in each round
+SELECT
+  attributes->>'massgen.agent_id' as agent,
+  attributes->>'massgen.round' as round,
+  attributes->>'massgen.round_type' as round_type,
+  span_name as tool,
+  COUNT(*) as call_count
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'mcp.%'
+GROUP BY 1, 2, 3, 4
+ORDER BY agent, round::int, call_count DESC
+```
+
+#### 6d. Tool Arguments Analysis (for debugging)
+```sql
+-- See what arguments were passed to tools
+SELECT
+  span_name,
+  attributes->>'arguments_preview' as arguments,
+  attributes->>'output_preview' as output,
+  attributes->>'massgen.agent_id' as agent,
+  attributes->>'massgen.round_type' as round_type
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'Tool execution:%'
+ORDER BY start_timestamp
+LIMIT 20
+```
+
+#### 6e. Slowest Tool Call Details
+```sql
+-- Get the slowest tool call with full context
+SELECT
+  span_name,
+  duration,
+  attributes->>'arguments_preview' as arguments,
+  attributes->>'output_preview' as output,
+  attributes->>'massgen.agent_id' as agent,
+  attributes->>'massgen.round' as round,
+  attributes->>'massgen.round_type' as round_type
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'mcp.%'
+ORDER BY duration DESC
+LIMIT 1
+```
+
+### Step 7: LLM Performance Analysis
+
+**Goal:** Understand LLM call timing and costs.
+
+#### 7a. All LLM Calls with Timing
+```sql
+-- Get all LLM calls with duration and model
+SELECT
+  span_name,
+  duration as duration_sec,
+  attributes->>'gen_ai.request.model' as model,
+  attributes->>'massgen.agent_id' as agent,
+  start_timestamp
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'llm.%'
+ORDER BY start_timestamp
+```
+
+#### 7b. LLM Timing Summary
+```sql
+-- Aggregate LLM timing stats
+SELECT
+  attributes->>'gen_ai.request.model' as model,
+  COUNT(*) as call_count,
+  ROUND(AVG(duration), 2) as avg_duration_sec,
+  ROUND(MIN(duration), 2) as min_duration_sec,
+  ROUND(MAX(duration), 2) as max_duration_sec,
+  ROUND(SUM(duration), 2) as total_duration_sec
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'llm.%'
+GROUP BY attributes->>'gen_ai.request.model'
+```
+
+#### 7c. Slowest LLM Call
+```sql
+-- Get the slowest LLM call with context
+SELECT
+  span_name,
+  duration,
+  attributes->>'gen_ai.request.model' as model,
+  attributes->>'massgen.agent_id' as agent,
+  start_timestamp
+FROM records
+WHERE trace_id = '[TRACE_ID]'
+  AND span_name LIKE 'llm.%'
+ORDER BY duration DESC
+LIMIT 1
+```
+
+### Analysis Summary Template
+
+After running the above queries, summarize findings in this format:
+
+```
+## Log Analysis Summary
+
+**Session:** [trace_id]
+**Duration:** X seconds
+**Agents:** [agent_a, agent_b]
+**Winner:** [agent_id]
+
+### Correctness
+- ✅/❌ All phases completed
+- ✅/❌ All agents submitted answers
+- ✅/❌ All agents voted
+- ✅/❌ Winner selected correctly
+
+### Efficiency
+
+**Phase Duration Breakdown:**
+| Phase | Count | Avg (s) | Max (s) | Total (s) |
+|-------|-------|---------|---------|-----------|
+| initial_answer | X | X.XX | X.XX | X.XX |
+| voting | X | X.XX | X.XX | X.XX |
+| presentation | X | X.XX | X.XX | X.XX |
+
+**Bottleneck:** [phase/operation] took X seconds
+
+### LLM Performance
+
+**LLM Calls Summary:**
+| Model | Calls | Avg (s) | Min (s) | Max (s) | Total (s) |
+|-------|-------|---------|---------|---------|-----------|
+| [model] | X | X.XX | X.XX | X.XX | X.XX |
+
+**Slowest LLM Call:** [model] in [agent] took X.XX seconds
+
+### Tool Performance
+
+**Tool Calls Summary:**
+| Tool | Calls | Avg (ms) | Max (ms) | Total (ms) |
+|------|-------|----------|----------|------------|
+| [tool] | X | X | X | X |
+
+**Slowest Tool Call:**
+- **Tool:** [mcp.server.tool_name]
+- **Duration:** X.XXms
+- **Agent:** [agent_id] in round [N] ([round_type])
+- **Command:** [Human-readable description of what the tool did based on arguments]
+- **Arguments:** `{"path": "...", ...}`
+
+### Errors
+- **Exceptions:** [count] total
+- **Failed tools:** [list]
+- **Agent errors:** [list]
+
+### Cost
+- **Total tokens:** X input, Y output
+- **Estimated cost:** $X.XX
+
+### Recommendations
+1. [Specific optimization suggestion]
+2. [Error fix needed]
+3. [Pattern to investigate]
+```
