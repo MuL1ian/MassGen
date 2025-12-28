@@ -33,6 +33,7 @@ from ..stream_chunk import ChunkType
 
 # Local imports
 from ._context_errors import is_context_length_error
+from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import FilesystemSupport, StreamChunk
 from .base_with_custom_tool_and_mcp import (
     CustomToolAndMCPBackend,
@@ -41,7 +42,7 @@ from .base_with_custom_tool_and_mcp import (
 )
 
 
-class ChatCompletionsBackend(CustomToolAndMCPBackend):
+class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
     """Complete OpenAI-compatible Chat Completions API backend.
 
     Can be used directly with any OpenAI-compatible provider by setting provider name.
@@ -104,6 +105,9 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Stream response using OpenAI Response API with unified MCP/non-MCP processing."""
+        # Clear streaming buffer at start (mixin respects _compression_retry)
+        self._clear_streaming_buffer(**kwargs)
+
         async for chunk in super().stream_with_tools(messages, tools, **kwargs):
             yield chunk
 
@@ -122,8 +126,13 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             result: Tool execution result
             tool_type: "custom" or "mcp"
         """
-        # Extract text from result - handle SimpleNamespace wrapper or string
-        result_text = getattr(result, "text", None) or str(result)
+        # Extract text from result - handle MCP CallToolResult objects properly
+        if hasattr(result, "content") and not isinstance(result, (dict, str)):
+            # MCP CallToolResult - extract text from content list
+            extracted = self._extract_text_from_content(result.content)
+            result_text = extracted if extracted is not None else str(result)
+        else:
+            result_text = getattr(result, "text", None) or str(result)
 
         function_output_msg = {
             "role": "tool",
@@ -131,6 +140,10 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             "content": result_text,
         }
         updated_messages.append(function_output_msg)
+
+        # Track tool result in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._append_tool_to_buffer(tool_name, result_text)
 
     def _append_tool_error_message(
         self,
@@ -153,6 +166,10 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             "content": error_msg,
         }
         updated_messages.append(error_output_msg)
+
+        # Track tool error in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._append_tool_to_buffer(tool_name, error_msg, is_error=True)
 
     async def _execute_custom_tool(self, call: Dict[str, Any]) -> AsyncGenerator[CustomToolChunk, None]:
         """Execute custom tool with streaming support - async generator for base class.
@@ -297,6 +314,8 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                             self.record_first_token()  # Record TTFT on first content
                             content_chunk = delta.content
                             content += content_chunk
+                            # Track content in streaming buffer for compression recovery
+                            self._append_to_streaming_buffer(content_chunk)
                             # Record chunk for LLM call logging
                             if llm_logger and llm_call_id:
                                 llm_logger.record_chunk(
@@ -379,6 +398,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                                     tool_calls=final_tool_calls,
                                     finish_reason="tool_calls",
                                 )
+                            self._append_tool_call_to_buffer(final_tool_calls)
                             yield StreamChunk(type="tool_calls", tool_calls=final_tool_calls)
 
                             response_completed = True
@@ -778,6 +798,8 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                                 yield reasoning_chunk
                             content_chunk = delta.content
                             content += content_chunk
+                            # Track content in streaming buffer for compression recovery
+                            self._append_to_streaming_buffer(content_chunk)
                             # Track content for interrupted stream estimation
                             self._interrupted_stream_content = content
                             log_backend_agent_message(
@@ -796,6 +818,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                             thinking_delta = getattr(delta, "reasoning_content")
                             if thinking_delta:
                                 log_stream_chunk(log_prefix, "reasoning", thinking_delta, agent_id)
+                                self._append_reasoning_to_buffer(thinking_delta)
                                 yield StreamChunk(
                                     type="reasoning",
                                     content=thinking_delta,
@@ -864,6 +887,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                                 )
 
                             log_stream_chunk(log_prefix, "tool_calls", final_tool_calls, agent_id)
+                            self._append_tool_call_to_buffer(final_tool_calls)
                             yield StreamChunk(type="tool_calls", tool_calls=final_tool_calls)
 
                             complete_message = {

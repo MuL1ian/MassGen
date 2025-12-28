@@ -38,6 +38,7 @@ from ..logger_config import (
     log_tool_call,
     logger,
 )
+from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import FilesystemSupport, StreamChunk
 from .base_with_custom_tool_and_mcp import (
     CustomToolAndMCPBackend,
@@ -210,7 +211,7 @@ def format_tool_response_as_json(response_text: str) -> str:
         return response_text
 
 
-class GeminiBackend(CustomToolAndMCPBackend):
+class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
     """Google Gemini backend using structured output for coordination and MCP tool integration."""
 
     def __init__(self, api_key: Optional[str] = None, **kwargs):
@@ -426,6 +427,7 @@ class GeminiBackend(CustomToolAndMCPBackend):
         - MCP tools: Blocked by planning mode during coordination, blocked by circuit breaker when servers fail
         - Provider tools (vote/new_answer): Emitted as StreamChunks but not executed (handled by orchestrator)
         """
+        self._clear_streaming_buffer(**kwargs)
         # Use instance agent_id (from __init__) or get from kwargs if not set
         agent_id = self.agent_id or kwargs.get("agent_id", None)
         client = None
@@ -747,6 +749,7 @@ class GeminiBackend(CustomToolAndMCPBackend):
                                 backend_name="gemini",
                             )
                             log_stream_chunk("backend.gemini", "content", chunk_text, agent_id)
+                            self._append_to_streaming_buffer(chunk_text)
                             yield StreamChunk(type="content", content=chunk_text)
 
                         # Buffer last chunk with candidates
@@ -1310,6 +1313,7 @@ class GeminiBackend(CustomToolAndMCPBackend):
                                         backend_name="gemini",
                                     )
                                     log_stream_chunk("backend.gemini", "content", chunk_text, agent_id)
+                                    self._append_to_streaming_buffer(chunk_text)
                                     yield StreamChunk(type="content", content=chunk_text)
 
                             # End API call timing on successful completion
@@ -1727,6 +1731,7 @@ class GeminiBackend(CustomToolAndMCPBackend):
                             log_stream_chunk("backend.gemini", "tool_calls", workflow_tool_calls, agent_id)
 
             if tool_calls_detected:
+                self._append_tool_call_to_buffer(tool_calls_detected)
                 yield StreamChunk(type="tool_calls", tool_calls=tool_calls_detected, source="gemini")
 
                 if mcp_used:
@@ -2009,8 +2014,13 @@ class GeminiBackend(CustomToolAndMCPBackend):
             tool_type: "custom" or "mcp"
 
         """
-        # Extract text from result - handle SimpleNamespace wrapper or string
-        result_text = getattr(result, "text", None) or str(result)
+        # Extract text from result - handle MCP CallToolResult objects properly
+        if hasattr(result, "content") and not isinstance(result, (dict, str)):
+            # MCP CallToolResult - extract text from content list
+            extracted = self._extract_text_from_content(result.content)
+            result_text = extracted if extracted is not None else str(result)
+        else:
+            result_text = getattr(result, "text", None) or str(result)
 
         tool_result_msg = {
             "role": "tool",
@@ -2023,6 +2033,10 @@ class GeminiBackend(CustomToolAndMCPBackend):
         call_id = call.get("call_id")
         if isinstance(tool_results_store, dict) and call_id:
             tool_results_store[call_id] = result_text
+
+        # Track in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._append_tool_to_buffer(tool_name, result_text)
 
     def _append_tool_error_message(
         self,
@@ -2051,6 +2065,10 @@ class GeminiBackend(CustomToolAndMCPBackend):
         call_id = call.get("call_id")
         if isinstance(tool_results_store, dict) and call_id:
             tool_results_store[call_id] = f"Error: {error_msg}"
+
+        # Track in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._append_tool_to_buffer(tool_name, error_msg, is_error=True)
 
     async def _execute_custom_tool(self, call: Dict[str, Any]) -> AsyncGenerator[CustomToolChunk, None]:
         """Execute custom tool with streaming support - async generator for base class.

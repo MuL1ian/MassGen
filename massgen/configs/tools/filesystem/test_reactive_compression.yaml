@@ -11,9 +11,7 @@
 # Only ONE backend should be active at a time.
 #
 # Run with:
-#   uv run massgen --automation --debug --save-llm-calls \
-#     --config massgen/configs/tools/filesystem/test_reactive_compression.yaml \
-#     "Read ALL Python files in massgen/backend/. Copy full contents verbatim."
+#   uv run massgen --debug --save-llm-calls --config massgen/configs/tools/filesystem/test_reactive_compression.yaml "Read all Python files in massgen/backend/ and summarize what each one does"
 #
 # The --save-llm-calls flag saves all API calls to llm_calls/ directory for debugging
 
@@ -22,8 +20,8 @@ agents:
     backend:
       # ==================== OPENAI (ResponseBackend) ====================
       # Uses ResponseBackend with Response API
-      # type: "openai"
-      # model: "gpt-4o-mini"  # 128K context - use smaller model to trigger faster
+      type: "openai"
+      model: "gpt-5"  # 128K context - use smaller model to trigger faster
 
       # ==================== CLAUDE ====================
       # Uses ClaudeBackend with Messages API
@@ -34,8 +32,8 @@ agents:
       # ==================== GEMINI ====================
       # Uses GeminiBackend with native Gemini SDK
       # Large context (1M+), harder to trigger compression
-      type: "gemini"
-      model: "gemini-3-flash-preview"
+      # type: "gemini"
+      # model: "gemini-3-flash-preview"
 
       # ==================== OPENROUTER (ChatCompletionsBackend) ====================
       # Uses ChatCompletionsBackend with OpenRouter API

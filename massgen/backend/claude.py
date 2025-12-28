@@ -36,6 +36,7 @@ from ..api_params_handler import ClaudeAPIParamsHandler
 from ..formatter import ClaudeFormatter
 from ..logger_config import log_backend_agent_message, log_stream_chunk, logger
 from ..mcp_tools.backend_utils import MCPErrorHandler
+from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import FilesystemSupport, StreamChunk
 from .base_with_custom_tool_and_mcp import (
     CustomToolAndMCPBackend,
@@ -45,7 +46,7 @@ from .base_with_custom_tool_and_mcp import (
 )
 
 
-class ClaudeBackend(CustomToolAndMCPBackend):
+class ClaudeBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
     """Claude backend using Anthropic's Messages API with full multi-tool support."""
 
     def __init__(self, api_key: Optional[str] = None, **kwargs):
@@ -69,6 +70,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Override to ensure Files API cleanup happens after streaming completes."""
+        self._clear_streaming_buffer(**kwargs)
         if self._nlip_enabled:
             logger.info(
                 f"[Claude] NLIP routing enabled for agent {kwargs.get('agent_id', self.agent_id)}",
@@ -627,8 +629,13 @@ class ClaudeBackend(CustomToolAndMCPBackend):
             Claude uses tool_result format with tool_use_id.
             All tool_result blocks for a given assistant turn MUST be in a SINGLE user message immediately after the assistant message with tool_use blocks.
         """
-        # Extract text from result - handle SimpleNamespace wrapper or string
-        result_text = getattr(result, "text", None) or str(result)
+        # Extract text from result - handle MCP CallToolResult objects properly
+        if hasattr(result, "content") and not isinstance(result, (dict, str)):
+            # MCP CallToolResult - extract text from content list
+            extracted = self._extract_text_from_content(result.content)
+            result_text = extracted if extracted is not None else str(result)
+        else:
+            result_text = getattr(result, "text", None) or str(result)
 
         tool_result_block = {
             "type": "tool_result",
@@ -658,6 +665,10 @@ class ClaudeBackend(CustomToolAndMCPBackend):
             "content": [tool_result_block],
         }
         updated_messages.append(tool_result_msg)
+
+        # Track in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._append_tool_to_buffer(tool_name, result_text)
 
     def _append_tool_error_message(
         self,
@@ -705,6 +716,10 @@ class ClaudeBackend(CustomToolAndMCPBackend):
             "content": [error_result_block],
         }
         updated_messages.append(error_result_msg)
+
+        # Track in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._append_tool_to_buffer(tool_name, error_msg, is_error=True)
 
     async def _execute_custom_tool(self, call: Dict[str, Any]) -> AsyncGenerator[CustomToolChunk, None]:
         """Execute custom tool with streaming support - async generator for base class.
@@ -915,6 +930,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                             self.record_first_token()  # Record TTFT on first content
                             text_chunk = event.delta.text
                             content += text_chunk
+                            self._append_to_streaming_buffer(text_chunk)
                             log_backend_agent_message(
                                 agent_id or "default",
                                 "RECV",
@@ -1069,6 +1085,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                     # Emit non-MCP/non-custom tool calls for the caller to execute
                     if non_mcp_non_custom_tool_calls:
                         log_stream_chunk("backend.claude", "tool_calls", non_mcp_non_custom_tool_calls, agent_id)
+                        self._append_tool_call_to_buffer(non_mcp_non_custom_tool_calls)
                         yield StreamChunk(type="tool_calls", tool_calls=non_mcp_non_custom_tool_calls)
                     self.end_api_call_timing(success=True)
                     response_completed = True
@@ -1392,6 +1409,7 @@ class ClaudeBackend(CustomToolAndMCPBackend):
                             self.record_first_token()  # Record TTFT on first content
                             text_chunk = chunk.delta.text
                             content_local += text_chunk
+                            self._append_to_streaming_buffer(text_chunk)
                             log_backend_agent_message(
                                 agent_id or "default",
                                 "RECV",

@@ -32,7 +32,12 @@ from typing import (
 import httpx
 from pydantic import BaseModel
 
-from ..filesystem_manager._constants import FRAMEWORK_MCPS
+from ..filesystem_manager._constants import (
+    EVICTED_RESULTS_DIR,
+    FRAMEWORK_MCPS,
+    TOOL_RESULT_EVICTION_PREVIEW_TOKENS,
+    TOOL_RESULT_EVICTION_THRESHOLD_TOKENS,
+)
 from ..llm_call_logger import get_llm_call_logger
 from ..logger_config import log_backend_activity, logger
 from ..mcp_tools.server_registry import get_auto_discovery_servers, get_registry_info
@@ -99,6 +104,19 @@ class CustomToolChunk(NamedTuple):
     completed: bool  # True for the last chunk only
     accumulated_result: str  # Final accumulated result (only when completed=True)
     meta_info: Optional[Dict[str, Any]] = None  # Multimodal metadata (e.g., from read_media)
+
+
+class EvictionResult(NamedTuple):
+    """Result of attempting to evict a large tool result to file.
+
+    Attributes:
+        text: Either the original result text (if not evicted) or a reference
+              message with preview (if evicted to file)
+        was_evicted: True if result was evicted to file, False if kept in memory
+    """
+
+    text: str
+    was_evicted: bool
 
 
 class ExecutionContext(BaseModel):
@@ -1134,6 +1152,122 @@ class CustomToolAndMCPBackend(LLMBackend):
         but with error content.
         """
 
+    def _truncate_to_token_limit(self, text: str, max_tokens: int) -> str:
+        """Truncate text to approximately max_tokens using binary search.
+
+        Args:
+            text: Text to truncate
+            max_tokens: Target maximum tokens
+
+        Returns:
+            Truncated text that fits within token limit
+        """
+        # Quick check - if already under limit, return as-is
+        if self.token_calculator.estimate_tokens(text) <= max_tokens:
+            return text
+
+        # Binary search for the right character cutoff
+        low, high = 0, len(text)
+        result = ""
+
+        while low < high:
+            mid = (low + high + 1) // 2
+            candidate = text[:mid]
+            tokens = self.token_calculator.estimate_tokens(candidate)
+
+            if tokens <= max_tokens:
+                result = candidate
+                low = mid
+            else:
+                high = mid - 1
+
+        return result
+
+    def _maybe_evict_large_tool_result(
+        self,
+        result_text: str,
+        tool_name: str,
+        call_id: str,
+    ) -> EvictionResult:
+        """Evict large tool result to file if it exceeds token threshold.
+
+        When tool results exceed TOOL_RESULT_EVICTION_THRESHOLD_TOKENS, they are
+        saved to a file in the agent's workspace and replaced with a reference
+        message containing a preview. This prevents context window saturation.
+
+        Args:
+            result_text: The full tool result text
+            tool_name: Name of the tool that produced the result
+            call_id: Unique call ID for this tool invocation
+
+        Returns:
+            EvictionResult with:
+            - text: reference_message if evicted, original_result_text otherwise
+            - was_evicted: True if evicted to file, False if kept in memory
+        """
+        # Estimate token count using tiktoken
+        token_count = self.token_calculator.estimate_tokens(result_text)
+
+        if token_count <= TOOL_RESULT_EVICTION_THRESHOLD_TOKENS:
+            return EvictionResult(text=result_text, was_evicted=False)
+
+        # Need to evict - get workspace path
+        if not self.filesystem_manager or not self.filesystem_manager.cwd:
+            logger.error(
+                f"[ToolEviction] Cannot evict {tool_name} result "
+                f"({token_count:,} tokens, limit {TOOL_RESULT_EVICTION_THRESHOLD_TOKENS:,}) - "
+                "no workspace available. Large result kept in context may cause overflow.",
+            )
+            return EvictionResult(text=result_text, was_evicted=False)
+
+        try:
+            # Create eviction directory
+            workspace = Path(self.filesystem_manager.cwd)
+            eviction_dir = workspace / EVICTED_RESULTS_DIR
+            eviction_dir.mkdir(exist_ok=True)
+
+            # Generate filename: tool_name_timestamp_callid.txt
+            safe_tool_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in tool_name)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            short_id = call_id[:8] if call_id else "unknown"
+            filename = f"{safe_tool_name}_{timestamp}_{short_id}.txt"
+            filepath = eviction_dir / filename
+
+            # Write result to file
+            filepath.write_text(result_text, encoding="utf-8")
+
+            # Build token-based preview (~2000 tokens)
+            preview = self._truncate_to_token_limit(
+                result_text,
+                TOOL_RESULT_EVICTION_PREVIEW_TOKENS,
+            )
+            preview_end_char = len(preview)
+            total_chars = len(result_text)
+
+            # Build reference message with character positions for chunked reading
+            # Use relative path from workspace for cleaner display
+            relative_path = f"{EVICTED_RESULTS_DIR}/{filename}"
+            reference = (
+                f"[Tool Result Evicted - Too Large for Context]\n\n"
+                f"The result from {tool_name} was {token_count:,} tokens / {total_chars:,} chars "
+                f"(limit: {TOOL_RESULT_EVICTION_THRESHOLD_TOKENS:,} tokens).\n"
+                f"Full result saved to: {relative_path}\n\n"
+                f"To read more: start at char {preview_end_char:,}, read in chunks.\n\n"
+                f"Preview (chars 0-{preview_end_char:,} of {total_chars:,}):\n{preview}"
+            )
+
+            logger.info(
+                f"[ToolEviction] Evicted {tool_name} result: " f"{token_count:,} tokens -> {filepath}",
+            )
+
+            return EvictionResult(text=reference, was_evicted=True)
+
+        except (OSError, IOError, PermissionError, UnicodeEncodeError) as e:
+            logger.warning(
+                f"[ToolEviction] Failed to evict {tool_name} result: {e}. " "Keeping result in memory.",
+            )
+            return EvictionResult(text=result_text, was_evicted=False)
+
     async def _execute_tool_with_logging(
         self,
         call: Dict[str, Any],
@@ -1241,7 +1375,8 @@ class CustomToolAndMCPBackend(LLMBackend):
                     result_str = str(result)
             else:  # MCP
                 result_str, result_obj = await config.execution_callback(call["name"], call["arguments"])
-                result = result_str
+                # Preserve CallToolResult object for proper text extraction in _append_tool_result_message
+                result = result_obj if result_obj is not None else result_str
 
             # Check for MCP failure after retries
             if config.tool_type == "mcp" and result_str.startswith("Error:"):
@@ -1262,8 +1397,44 @@ class CustomToolAndMCPBackend(LLMBackend):
                 self._tool_execution_metrics.append(metric)
                 return
 
-            # Append result to messages
-            self._append_tool_result_message(updated_messages, call, result, config.tool_type)
+            # Extract result text for eviction check - handle MCP CallToolResult properly
+            if hasattr(result, "content") and not isinstance(result, (dict, str)):
+                # MCP CallToolResult - extract text from content list
+                extracted = self._extract_text_from_content(result.content)
+                result_text_for_eviction = extracted if extracted is not None else str(result)
+            else:
+                result_text_for_eviction = getattr(result, "text", None) or str(result)
+
+            # Check for large result eviction before appending
+            eviction = self._maybe_evict_large_tool_result(
+                result_text_for_eviction,
+                tool_name,
+                call_id,
+            )
+
+            # Append result to messages (potentially evicted)
+            if eviction.was_evicted:
+                # Create a new result with the evicted reference
+                if hasattr(result, "text"):
+                    evicted_result = types.SimpleNamespace(
+                        text=eviction.text,
+                        meta_info=getattr(result, "meta_info", None),
+                    )
+                    self._append_tool_result_message(
+                        updated_messages,
+                        call,
+                        evicted_result,
+                        config.tool_type,
+                    )
+                else:
+                    self._append_tool_result_message(
+                        updated_messages,
+                        call,
+                        eviction.text,
+                        config.tool_type,
+                    )
+            else:
+                self._append_tool_result_message(updated_messages, call, result, config.tool_type)
 
             # Check for reminder in tool result and inject as separate user message
             reminder_text = None
@@ -1308,6 +1479,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                             display_result = result_obj.content[0].text
                 except (AttributeError, IndexError, TypeError):
                     pass  # Fall back to result_str
+
+            # If result was evicted, show the reference message in streaming output
+            if eviction.was_evicted:
+                display_result = eviction.text
 
             yield StreamChunk(
                 type=config.chunk_type,

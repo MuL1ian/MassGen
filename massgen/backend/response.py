@@ -27,6 +27,7 @@ from ..formatter import ResponseFormatter
 from ..llm_call_logger import get_llm_call_logger
 from ..logger_config import log_backend_agent_message, log_stream_chunk, logger
 from ..stream_chunk import ChunkType, TextStreamChunk
+from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import FilesystemSupport, StreamChunk
 from .base_with_custom_tool_and_mcp import (
     CustomToolAndMCPBackend,
@@ -36,7 +37,7 @@ from .base_with_custom_tool_and_mcp import (
 )
 
 
-class ResponseBackend(CustomToolAndMCPBackend):
+class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
     """Backend using the standard Response API format with multimodal support."""
 
     def __init__(self, api_key: Optional[str] = None, **kwargs):
@@ -59,10 +60,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
         self._vector_store_ids: List[str] = []
         self._uploaded_file_ids: List[str] = []
 
-        # Streaming buffer for compression recovery
-        # Tracks accumulated content during streaming so it can be included
-        # in compression summaries when context limits are exceeded
-        self._streaming_buffer: str = ""
+        # Note: _streaming_buffer is provided by StreamingBufferMixin
 
     def supports_upload_files(self) -> bool:
         return True
@@ -77,9 +75,8 @@ class ResponseBackend(CustomToolAndMCPBackend):
 
         Wraps parent implementation to ensure File Search cleanup happens after streaming completes.
         """
-        # Clear streaming buffer at start of new stream (unless this is a compression retry)
-        if not kwargs.get("_compression_retry", False):
-            self._streaming_buffer = ""
+        # Clear streaming buffer at start of new stream (mixin respects _compression_retry)
+        self._clear_streaming_buffer(**kwargs)
 
         try:
             async for chunk in super().stream_with_tools(messages, tools, **kwargs):
@@ -194,7 +191,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
 
                 # Compress messages and retry
                 # Include accumulated buffer content if available (may have content from prior calls)
-                buffer_for_compression = self._streaming_buffer if self._streaming_buffer else None
+                buffer_for_compression = self._get_streaming_buffer()
                 compressed_messages = await self._compress_messages_for_context_recovery(
                     processed_messages,
                     buffer_content=buffer_for_compression,
@@ -296,12 +293,16 @@ class ResponseBackend(CustomToolAndMCPBackend):
             The function_call is already present from response.output to maintain
             reasoning item continuity.
         """
-        # Extract text from result - handle SimpleNamespace wrapper or string
-        result_text = getattr(result, "text", None) or str(result)
+        # Extract text from result - handle MCP CallToolResult objects properly
+        if hasattr(result, "content") and not isinstance(result, (dict, str)):
+            # MCP CallToolResult - extract text from content list
+            extracted = self._extract_text_from_content(result.content)
+            result_text = extracted if extracted is not None else str(result)
+        else:
+            result_text = getattr(result, "text", None) or str(result)
 
         # Only add function output message
         # function_call is already included from response.output (with reasoning items)
-        str(result)
         function_output_msg = {
             "type": "function_call_output",
             "call_id": call.get("call_id", ""),
@@ -310,9 +311,8 @@ class ResponseBackend(CustomToolAndMCPBackend):
         updated_messages.append(function_output_msg)
 
         # Track tool result in streaming buffer for compression recovery
-        # This captures the actual data that makes context large
         tool_name = call.get("name", "unknown")
-        self._streaming_buffer += f"\n\n[Tool: {tool_name}]\n{result_text}"
+        self._append_tool_to_buffer(tool_name, result_text)
 
     def _append_tool_error_message(
         self,
@@ -346,7 +346,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
 
         # Track tool error in streaming buffer for compression recovery
         tool_name = call.get("name", "unknown")
-        self._streaming_buffer += f"\n\n[Tool Error: {tool_name}]\n{error_msg}"
+        self._append_tool_to_buffer(tool_name, error_msg, is_error=True)
 
     async def _execute_custom_tool(self, call: Dict[str, Any]) -> AsyncGenerator[CustomToolChunk, None]:
         """Execute custom tool with streaming support - async generator for base class.
@@ -443,7 +443,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
 
                 # Compress messages and retry
                 # Include accumulated buffer content if available (not first API call)
-                buffer_for_compression = self._streaming_buffer if self._streaming_buffer else None
+                buffer_for_compression = self._get_streaming_buffer()
                 compressed_messages = await self._compress_messages_for_context_recovery(
                     current_messages,
                     buffer_content=buffer_for_compression,
@@ -510,8 +510,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
                     self.record_first_token()  # Record TTFT on first content
                     delta = getattr(chunk, "delta", "")
                     # Track content in streaming buffer for compression recovery
-                    if delta:
-                        self._streaming_buffer += delta
+                    self._append_to_streaming_buffer(delta)
                     # Record content chunk for LLM call logging
                     if llm_logger and llm_call_id and delta:
                         llm_logger.record_chunk(
@@ -619,6 +618,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 # Emit tool_calls chunk for orchestrator to process
                 if workflow_tool_calls:
                     log_stream_chunk("backend.response", "tool_calls", workflow_tool_calls, kwargs.get("agent_id"))
+                    self._append_tool_call_to_buffer(workflow_tool_calls)
                     yield TextStreamChunk(
                         type=ChunkType.TOOL_CALLS,
                         tool_calls=workflow_tool_calls,
@@ -1157,6 +1157,8 @@ class ResponseBackend(CustomToolAndMCPBackend):
                 backend_name=self.get_provider_name(),
             )
             log_stream_chunk("backend.response", "content", chunk.delta, agent_id)
+            # Track content in streaming buffer for compression recovery
+            self._append_to_streaming_buffer(chunk.delta)
             return TextStreamChunk(
                 type=ChunkType.CONTENT,
                 content=chunk.delta,
@@ -1165,6 +1167,7 @@ class ResponseBackend(CustomToolAndMCPBackend):
 
         elif chunk_type == "response.reasoning_text.delta" and hasattr(chunk, "delta"):
             log_stream_chunk("backend.response", "reasoning", chunk.delta, agent_id)
+            self._append_reasoning_to_buffer(chunk.delta)
             return TextStreamChunk(
                 type=ChunkType.REASONING,
                 content=f"🧠 [Reasoning] {chunk.delta}",

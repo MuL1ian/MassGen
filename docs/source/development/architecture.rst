@@ -439,6 +439,105 @@ Adding External Frameworks
 
 Example: ``massgen/adapters/ag2/``
 
+Context Management
+------------------
+
+MassGen implements several strategies to manage LLM context windows efficiently.
+
+Reactive Compression
+~~~~~~~~~~~~~~~~~~~~
+
+When the LLM provider returns a context length error, MassGen automatically:
+
+1. Captures the streaming buffer content (tool calls, reasoning, partial work)
+2. Generates a summary of completed work
+3. Compresses older messages while preserving recent context
+4. Retries the request with the compressed context
+
+See :doc:`../user_guide/sessions/memory` for user-facing documentation.
+
+Implementation: ``massgen/backend/_compression_utils.py``
+
+MCP Tool Result Optimization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+MCP ``CallToolResult`` objects contain both structured and text representations.
+MassGen extracts only the clean text content to minimize context usage:
+
+.. code-block:: text
+
+   Raw CallToolResult (sent to context):
+   ❌ "meta=None content=[TextContent(type='text', text='file contents...')]
+       structuredContent={'content': 'file contents...'}"  ← Duplicated, bloated
+
+   Optimized extraction (sent to context):
+   ✅ "file contents..."  ← Clean, minimal
+
+This optimization typically reduces tool result size by 4-10x, significantly
+extending how many tool calls can fit within the context window.
+
+**Extraction Logic:**
+
+1. Check if result has ``.content`` attribute (MCP CallToolResult)
+2. Extract text from ``TextContent`` objects in the content list
+3. Fall back to ``.text`` attribute or ``str(result)`` for other result types
+
+Implementation: ``_extract_text_from_content()`` in each backend's
+``_append_tool_result_message()`` method.
+
+Large Tool Result Eviction
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Tool results exceeding a token threshold are automatically evicted to files,
+preventing context window saturation. Inspired by `LangChain DeepAgents Harness
+<https://docs.langchain.com/oss/python/deepagents/harness>`_.
+
+**How it works:**
+
+1. After tool execution, the result is checked against the token threshold
+2. If exceeding 20,000 tokens, the result is written to a file in the agent's workspace
+3. The result is replaced with a reference message containing:
+
+   - Token and character counts
+   - File path for retrieval
+   - Character position for chunked reading
+   - A 2,000 token preview of the content
+
+**Example reference message:**
+
+.. code-block:: text
+
+   [Tool Result Evicted - Too Large for Context]
+
+   The result from read_file was 50,000 tokens / 200,000 chars (limit: 20,000 tokens).
+   Full result saved to: .tool_results/read_file_20241225_143052_a1b2c3d4.txt
+
+   To read more: start at char 6,500, read in chunks.
+
+   Preview (chars 0-6,500 of 200,000):
+   {"data": [{"id": 1, "name": "Alice"...
+
+Note: The preview character count varies based on content (approximately 2,000 tokens).
+
+**Configuration:**
+
+Currently uses hardcoded thresholds defined in constants:
+
+- ``TOOL_RESULT_EVICTION_THRESHOLD_TOKENS = 20,000`` - Eviction trigger
+- ``TOOL_RESULT_EVICTION_PREVIEW_TOKENS = 2,000`` - Preview size
+- ``EVICTED_RESULTS_DIR = ".tool_results"`` - Storage directory
+
+**Implementation files:**
+
+- ``massgen/filesystem_manager/_constants.py`` - Threshold constants
+- ``massgen/backend/base_with_custom_tool_and_mcp.py`` - Eviction logic:
+
+  - ``_truncate_to_token_limit()`` - Binary search for token-based truncation
+  - ``_maybe_evict_large_tool_result()`` - Main eviction logic
+  - Integration in ``_execute_tool_with_logging()``
+
+**Testing:** ``massgen/tests/test_tool_result_eviction.py``
+
 Performance Considerations
 --------------------------
 
