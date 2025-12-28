@@ -1344,7 +1344,8 @@ class CustomToolAndMCPBackend(LLMBackend):
 
         except (OSError, IOError, PermissionError, UnicodeEncodeError) as e:
             logger.warning(
-                f"[ToolEviction] Failed to evict {tool_name} result: {e}. " "Keeping result in memory.",
+                f"[ToolEviction] Failed to evict {tool_name} result ({token_count:,} tokens): {e}. " "Keeping result in memory - this may cause context overflow on next API call.",
+                exc_info=True,
             )
             return EvictionResult(text=result_text, was_evicted=False)
 
@@ -2938,8 +2939,14 @@ class CustomToolAndMCPBackend(LLMBackend):
                                     f"[{self.get_provider_name()}] Compression recovery successful",
                                 )
                             except Exception as retry_error:
-                                logger.error(f"Compression recovery failed: {retry_error}")
-                                yield StreamChunk(type="error", error=str(retry_error))
+                                logger.error(
+                                    f"Compression recovery failed: {retry_error}",
+                                    exc_info=True,
+                                )
+                                yield StreamChunk(
+                                    type="error",
+                                    error=f"Compression recovery failed: {type(retry_error).__name__}: {retry_error}",
+                                )
                         else:
                             logger.error(f"Streaming error: {e}")
                             yield StreamChunk(type="error", error=str(e))

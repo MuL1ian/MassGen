@@ -6,9 +6,12 @@ Provides a simple message compression function that can be used by any backend
 when context length is exceeded.
 """
 
+import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+import httpx
 
 from ..logger_config import get_log_session_dir, logger
 
@@ -131,8 +134,19 @@ async def compress_messages_for_recovery(
         summary = await _generate_summary(backend, summary_context)
         logger.info(f"[CompressionUtils] Generated summary: {len(summary)} chars")
 
+    except (httpx.HTTPStatusError, httpx.TimeoutException, asyncio.TimeoutError) as e:
+        # Expected network/API errors - fallback to truncation is appropriate
+        logger.warning(
+            f"[CompressionUtils] Summarization failed due to API/network error: {e}. " "Using simple truncation.",
+        )
+        summary = "[Previous conversation content was truncated due to API error during compression. " "Some context may be incomplete.]"
+
     except Exception as e:
-        logger.error(f"[CompressionUtils] Summarization failed: {e}. Using simple truncation.")
+        # Unexpected error - log with full stack trace for debugging
+        logger.error(
+            f"[CompressionUtils] Unexpected error during summarization: {e}. " "Using simple truncation.",
+            exc_info=True,
+        )
         summary = "[Previous conversation content was truncated due to context limits]"
 
     # Build result: system → user message → summary → any additional recent messages
@@ -510,4 +524,7 @@ def _save_compression_debug(
         logger.debug(f"[CompressionUtils] Saved compression debug data: {filepath}")
 
     except Exception as e:
-        logger.warning(f"[CompressionUtils] Failed to save compression debug: {e}")
+        logger.warning(
+            f"[CompressionUtils] Failed to save compression debug: {e}",
+            exc_info=True,
+        )

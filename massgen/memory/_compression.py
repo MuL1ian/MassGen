@@ -142,7 +142,12 @@ class ContextCompressor:
             await self.conversation_memory.clear()
             await self.conversation_memory.add(messages_to_keep)
         except Exception as e:
-            logger.error(f"Failed to update conversation memory during compression: {e}")
+            logger.error(
+                f"Failed to update conversation memory during compression: {e}. " "Memory may be in inconsistent state.",
+                exc_info=True,
+            )
+            # Return None to signal failure - caller should handle gracefully
+            # Note: clear() may have succeeded, leaving memory empty
             return None
 
         # Log compression result
