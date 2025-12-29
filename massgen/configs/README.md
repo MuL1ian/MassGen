@@ -227,7 +227,29 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.30 - Latest
+### v0.1.31 - Latest
+**New Features:** Logfire Observability, Azure Tool Call Streaming
+
+**Key Features:**
+- **Logfire Observability Integration**: Comprehensive logging and tracing via [Logfire](https://logfire.pydantic.dev/) with automatic LLM instrumentation
+- **Azure OpenAI Tool Call Streaming**: Tool calls now accumulated and yielded as structured chunks
+- **OpenRouter Web Search Logging**: Fixed logging output for web search operations
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Enable Logfire observability - comprehensive logging and tracing
+massgen --logfire --config massgen/configs/basic/multi/three_agents_default.yaml \
+  "What are the benefits of multi-agent AI systems?"
+
+# Or enable via environment variable
+MASSGEN_LOGFIRE_ENABLED=true massgen --config massgen/configs/basic/multi/three_agents_default.yaml \
+  "Compare different AI architectures"
+```
+
+### v0.1.30
 **New Features:** OpenRouter Web Search, Persona Diversity Modes, Azure Multi-Endpoint Support
 
 **Key Features:**

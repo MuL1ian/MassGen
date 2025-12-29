@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.31 (December 29, 2025)** - Logfire Observability & Azure Tool Streaming
+
+Comprehensive logging and tracing via `Logfire <https://logfire.pydantic.dev/>`_ with automatic LLM instrumentation for OpenAI, Claude, and Gemini backends. Enable via ``--logfire`` CLI flag or ``MASSGEN_LOGFIRE_ENABLED=true``. Azure OpenAI tool calls now accumulated and yielded as structured chunks.
+
 **v0.1.30 (December 26, 2025)** - OpenRouter Web Search & Persona Diversity
 
 Add real-time web search to OpenRouter models with ``enable_web_search: true``. Persona diversity modes for unique agent personalities (``perspective``/``implementation``) with automatic softening when evaluating others' work. Azure OpenAI multi-endpoint support with auto-detection. Environment variable expansion in configs via ``${VAR}`` syntax.
@@ -164,10 +168,6 @@ Add real-time web search to OpenRouter models with ``enable_web_search: true``. 
 **v0.1.29 (December 24, 2025)** - Subagent System & Responses API Fixes
 
 New subagent system for spawning parallel child MassGen processes with isolated workspaces. Enhanced tool metrics with distribution statistics (min/max/median). CLI config builder per-agent system messages. OpenAI Responses API duplicate item and function call ID fixes.
-
-**v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
-
-Unified multimodal understanding via ``read_media`` tool and generation via ``generate_media`` tool. Web UI artifact previewer for PDFs, documents, images, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
 
 :doc:`Full changelog → <changelog>`
 

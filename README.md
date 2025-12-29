@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.30 Features](#-latest-features-v0130)
+- [v0.1.31 Features](#-latest-features-v0131)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.30)](#recent-achievements-v0130)
-- [Previous Achievements (v0.0.3 - v0.1.29)](#previous-achievements-v003---v0129)
+- [Recent Achievements (v0.1.31)](#recent-achievements-v0131)
+- [Previous Achievements (v0.0.3 - v0.1.30)](#previous-achievements-v003---v0130)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.30 Roadmap](#v0130-roadmap)
+- [v0.1.32 Roadmap](#v0132-roadmap)
 </details>
 
 <details open>
@@ -155,21 +155,16 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.30)
+## 🆕 Latest Features (v0.1.31)
 
-**🎉 Released: December 26, 2025**
+**🎉 Released: December 29, 2025**
 
-**What's New in v0.1.30:**
-- **🌐 OpenRouter Web Search** - Add real-time web search to OpenRouter models with `enable_web_search: true`
-- **🎭 Persona Diversity Modes** - Agents get unique personalities: prioritize different values (`perspective`) or create different solution styles (`implementation`), with automatic softening when evaluating others' work
-- **☁️ Azure Multi-Endpoint** - Support both Azure-specific and OpenAI-compatible endpoints with auto-detection
-- **🔧 Environment Variables in Configs** - Keep API keys in `.env` and reference them with `${VAR}` syntax - safer to share configs
+**What's New in v0.1.31:**
+- **📊 Logfire Observability** - Comprehensive logging and tracing via [Logfire](https://logfire.pydantic.dev/) with automatic LLM instrumentation for OpenAI, Claude, and Gemini backends
+- **☁️ Azure Tool Call Streaming** - Tool calls now accumulated and yielded as structured chunks for Azure OpenAI
+- **🔧 OpenRouter Web Search Logging** - Fixed logging output for web search operations
 
-**Bug Fixes:**
-- Azure OpenAI workflow tool extraction and backend tool registration
-- Persistent memory retrieval on first turn
-
-**Try v0.1.30 Features:**
+**Try v0.1.31 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
@@ -177,13 +172,13 @@ pip install --upgrade massgen
 # Or with uv (faster)
 uv pip install massgen
 
-# OpenRouter web search - search the web with any OpenRouter model
-uv run massgen --config massgen/configs/basic/single/single_openrouter_web_search.yaml \
-  "What are the latest developments in quantum computing?"
+# Enable Logfire observability - comprehensive logging and tracing
+massgen --logfire --config massgen/configs/basic/multi/three_agents_default.yaml \
+  "What are the benefits of multi-agent AI systems?"
 
-# Persona diversity - automatic diverse personas for multi-agent collaboration
-uv run massgen --config massgen/configs/basic/multi/persona_diversity_example.yaml \
-  "Create a website about Bob Dylan"
+# Or enable via environment variable
+MASSGEN_LOGFIRE_ENABLED=true massgen --config massgen/configs/basic/multi/three_agents_default.yaml \
+  "Compare different AI architectures"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1122,29 +1117,24 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.30)
+### Recent Achievements (v0.1.31)
 
-**🎉 Released: December 26, 2025**
+**🎉 Released: December 29, 2025**
 
-#### OpenRouter Web Search Plugin
-- **Native Web Search**: Maps `enable_web_search` to OpenRouter's `{"id": "web"}` plugin format
-- **Configurable Search**: Set search engine (`exa`/`native`) and `max_results` parameters
+#### Logfire Observability Integration
+- **Automatic LLM Instrumentation**: Tracing for OpenAI, Anthropic Claude, and Google Gemini backends
+- **Tool Execution Tracing**: Timing metrics for MCP and custom tools with agent coordination observability
+- **Enable via CLI**: Use `--logfire` flag or `MASSGEN_LOGFIRE_ENABLED=true` environment variable
 
-#### Persona Generator Diversity Modes
-- **Two Diversity Modes**: `perspective` (different values/priorities) or `implementation` (different solution types)
-- **Phase-Based Adaptation**: Strong personas for exploration, softened for convergence phases
-- **Multi-Turn Persistence**: Enable via `persist_across_turns` option
+#### Azure OpenAI Native Tool Call Streaming
+- **Structured Tool Chunks**: Tool calls accumulated and yielded as structured `tool_calls` chunks instead of plain content
 
-#### Azure OpenAI Multi-Endpoint Support
-- **Auto-Detection**: Automatically uses `AsyncAzureOpenAI` or `AsyncOpenAI` based on endpoint format
-- **Environment Variable Expansion**: Use `${VAR}` syntax in YAML/JSON config files
+#### Documentation
+- `docs/source/user_guide/logging.rst` - Logfire usage guide with SQL query examples
 
-#### Bug Fixes
-- Azure OpenAI workflow tool extraction with fallback patterns
-- Persistent memory retrieval on first turn
-- Backend tool registration and binary file extensions list
+### Previous Achievements (v0.0.3 - v0.1.30)
 
-### Previous Achievements (v0.0.3 - v0.1.29)
+✅ **OpenRouter Web Search & Persona Diversity (v0.1.30)**: Native web search via OpenRouter plugins with `enable_web_search`, persona diversity modes (`perspective`/`implementation`) with phase-based adaptation, Azure multi-endpoint auto-detection, environment variable expansion with `${VAR}` syntax
 
 ✅ **Subagent System & Tool Metrics (v0.1.29)**: Spawn parallel child MassGen processes with isolated workspaces and automatic result aggregation, enhanced tool metrics with per-call averages and min/max/median distribution, CLI per-agent system messages via `massgen --quickstart`
 
@@ -1348,9 +1338,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.31 Roadmap
+### v0.1.32 Roadmap
 
-Version 0.1.31 focuses on backend model auto-update and automatic context compression:
+Version 0.1.32 focuses on backend model auto-update and automatic context compression:
 
 #### Planned Features
 - **Backend Model List Auto-Update** (@ncrispino): Automatic model listing via provider APIs, third-party wrappers, or documented manual processes
@@ -1360,7 +1350,7 @@ Key technical approach:
 - **Backend Model List Auto-Update**: Native API implementation for OpenAI, Anthropic, Grok, Groq, Nebius; third-party wrappers where needed
 - **Automatic Context Compression**: Intelligent summarization with configurable thresholds and strategies
 
-For detailed milestones and technical specifications, see the [full v0.1.31 roadmap](ROADMAP_v0.1.31.md).
+For detailed milestones and technical specifications, see the [full v0.1.32 roadmap](ROADMAP_v0.1.32.md).
 
 ---
 

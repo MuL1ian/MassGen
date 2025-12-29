@@ -9,16 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.31 (December 29, 2025)** - Logfire Observability Integration
+Comprehensive structured logging via Logfire with automatic LLM instrumentation (OpenAI, Anthropic, Gemini), tool execution tracing, and agent coordination observability. Enable with `--logfire` CLI flag. Azure OpenAI native tool call streaming fixes.
+
 **v0.1.30 (December 26, 2025)** - OpenRouter Web Search & Persona Diversity Modes
 OpenRouter native web search plugin via `enable_web_search`. Persona generator diversity modes (`perspective`/`implementation`) with phase-based adaptation. Azure OpenAI multi-endpoint support and environment variable expansion in configs.
 
 **v0.1.29 (December 24, 2025)** - Subagent System & Responses API Fixes
 New subagent system for spawning parallel child MassGen processes with isolated workspaces. Enhanced tool metrics with distribution statistics. CLI config builder per-agent system messages. OpenAI Responses API duplicate item and function call ID fixes.
 
-**v0.1.28 (December 22, 2025)** - Unified Multimodal Tools & Artifact Previews
-Unified multimodal understanding via `read_media` tool and generation via `generate_media` tool. Web UI artifact previewer for documents, images, PDFs, and code. Azure OpenAI workflow fixes and OpenRouter tool-capable model filtering.
-
 ---
+
+## [0.1.31] - 2025-12-29
+
+### Added
+- **Logfire Observability Integration**: Comprehensive structured logging and tracing via [Logfire](https://logfire.pydantic.dev/)
+  - Automatic LLM instrumentation for OpenAI, Anthropic Claude, and Google Gemini backends
+  - Tool execution tracing for MCP and custom tools with timing metrics
+  - Agent coordination observability with per-round spans and token usage logging
+  - Enable via `--logfire` CLI flag or `MASSGEN_LOGFIRE_ENABLED=true` environment variable
+  - Graceful degradation to loguru when Logfire is disabled
+  - New `massgen-log-analyzer` skill for AI-assisted log analysis
+
+### Fixed
+- **Azure OpenAI Native Tool Call Streaming**: Tool calls now accumulated and yielded as structured `tool_calls` chunks instead of plain content
+
+- **OpenRouter Web Search Logging**: Fixed logging output for web search operations
+
+### Documentations, Configurations and Resources
+- **Logfire Documentation**: New `docs/source/user_guide/logging.rst` with usage guide and SQL query examples
+- **Python Installation Guide**: Added link to Python installation guide in quickstart docs
+
+### Technical Details
+- **Major Focus**: Logfire observability integration, Azure OpenAI tool call streaming
+- **Contributors**: @ncrispino @AbhimanyuAryan @shubham2345 @franklinnwren and the MassGen team
 
 ## [0.1.30] - 2025-12-26
 

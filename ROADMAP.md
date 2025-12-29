@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.30
+**Current Version:** v0.1.31
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** December 26, 2025
+**Last Updated:** December 29, 2025
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,32 +42,32 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.31** | 12/29/25 | Backend Model List Auto-Update | @ncrispino | Automatic model listing via provider APIs (like OpenRouter), third-party wrappers, or documented manual processes |
+| **v0.1.32** | 12/31/25 | Backend Model List Auto-Update | @ncrispino | Automatic model listing via provider APIs (like OpenRouter), third-party wrappers, or documented manual processes |
 | | | Automatic Context Compression | @ncrispino | Automatic context compression to manage long conversations efficiently |
-| **v0.1.32** | 12/31/25 | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
+| **v0.1.33** | 01/03/26 | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
 | | | Code-Based Tools in Web UI | @ncrispino | Ensure code-based tools work in Web UI along with new features |
-| **v0.1.33** | 01/03/26 | Test MassGen for PPTX Slides | @ncrispino | Verify and improve MassGen's ability to generate PowerPoint presentations |
+| **v0.1.34** | 01/06/26 | Test MassGen for PPTX Slides | @ncrispino | Verify and improve MassGen's ability to generate PowerPoint presentations |
+| | | OpenRouter Tool-Use Model Filtering | @shubham2345 | Restrict OpenRouter model list to only show models that support tool use |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.30 - OpenRouter Web Search & Persona Diversity Modes (COMPLETED)
+## ✅ v0.1.31 - Logfire Observability & Azure Tool Call Streaming (COMPLETED)
 
-**Released: December 26, 2025**
+**Released: December 29, 2025**
 
 ### Features
 
-- **OpenRouter Web Search Plugin**: Native web search integration via OpenRouter's plugins array with `enable_web_search`
-- **Persona Generator Diversity Modes**: Enhanced persona generation with `perspective`/`implementation` modes and phase-based adaptation
-- **Azure OpenAI Multi-Endpoint Support**: Support both Azure-specific and OpenAI-compatible endpoints with auto-detection
-- **Environment Variable Expansion**: Use `${VAR}` syntax in YAML/JSON config files
+- **Logfire Observability Integration**: Comprehensive structured logging and tracing via Logfire with automatic LLM instrumentation
+- **Azure OpenAI Native Tool Call Streaming**: Tool calls accumulated and yielded as structured chunks instead of plain content
+- **OpenRouter Web Search Logging**: Fixed logging output for web search operations
 
 *See [Ongoing Work](#-ongoing-work--continuous-releases) section for detailed track information.*
 
 ---
 
-## 📋 v0.1.31 - Backend Model List Auto-Update & Context Compression
+## 📋 v0.1.32 - Backend Model List Auto-Update & Context Compression
 
 ### Features
 
@@ -94,7 +94,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.32 - OpenAI-Compatible Server & Web UI Tools
+## 📋 v0.1.33 - OpenAI-Compatible Server & Web UI Tools
 
 ### Features
 
@@ -118,7 +118,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.33 - PPTX Testing
+## 📋 v0.1.34 - PPTX Testing & OpenRouter Model Filtering
 
 ### Features
 
@@ -128,8 +128,15 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Test slide generation workflows and output quality
 - **Use Case**: Ensure reliable PPTX generation for presentation creation tasks
 
+**2. OpenRouter Tool-Use Model Filtering** (@shubham2345)
+- Issue: [#647](https://github.com/massgen/MassGen/issues/647)
+- Restrict OpenRouter model list to only show models that support tool use
+- Filter based on `supported_parameters` capability checks
+- **Use Case**: Prevent users from selecting models that won't work with MassGen's tool-based workflows
+
 ### Success Criteria
 - ✅ PPTX generation works reliably across different use cases
+- ✅ OpenRouter model list only shows tool-capable models
 
 ---
 
@@ -546,42 +553,67 @@ These features are being actively developed on **separate parallel tracks** and 
 - Fixed persistent memory retrieval and backend tool registration
 - **Status:** ✅ Completed in v0.1.30
 
+### Track: Logfire Observability Integration (@ncrispino, nickcrispino)
+- PR: [#708](https://github.com/massgen/MassGen/pull/708)
+- Comprehensive structured logging and tracing via Logfire (Pydantic team)
+- Automatic LLM instrumentation for OpenAI, Anthropic Claude, and Google Gemini backends
+- Tool execution tracing with timing metrics and agent coordination observability
+- Enable via `--logfire` CLI flag or `MASSGEN_LOGFIRE_ENABLED=true` environment variable
+- **Status:** ✅ Completed in v0.1.31
+
+### Track: Azure OpenAI Native Tool Call Streaming (@AbhimanyuAryan, abhimanyuaryan)
+- PR: [#705](https://github.com/massgen/MassGen/pull/705)
+- Tool calls accumulated and yielded as structured `tool_calls` chunks
+- Fixed streaming behavior for Azure OpenAI tool calling
+- **Status:** ✅ Completed in v0.1.31
+
+### Track: OpenRouter Web Search Logging (@shubham2345)
+- PR: [#704](https://github.com/massgen/MassGen/pull/704)
+- Fixed logging output for web search operations
+- **Status:** ✅ Completed in v0.1.31
+
 ### Track: Backend Model List Auto-Update (@ncrispino, nickcrispino)
 - Issue: [#645](https://github.com/massgen/MassGen/issues/645)
 - Implement native model listing APIs (OpenAI, Anthropic, Grok, Groq, Nebius)
 - Research third-party wrappers; document manual update processes
-- **Target:** v0.1.31
+- **Target:** v0.1.32
 
 ### Track: Automatic Context Compression (@ncrispino, nickcrispino)
 - Issue: [#617](https://github.com/massgen/MassGen/issues/617)
 - Automatic context compression for long conversations
 - Intelligent summarization when context limits are reached
-- **Target:** v0.1.31
+- **Target:** v0.1.32
 
 ### Track: OpenAI-Compatible Chat Server (@ncrispino, nickcrispino)
 - Issue: [#628](https://github.com/massgen/MassGen/issues/628)
 - Run MassGen as an OpenAI-compatible API server
 - Integration with Cursor, Continue, and other tools
-- **Target:** v0.1.32
+- **Target:** v0.1.33
 
 ### Track: Code-Based Tools in Web UI (@ncrispino, nickcrispino)
 - Issue: [#612](https://github.com/massgen/MassGen/issues/612)
 - Ensure code-based tools work properly in Web UI
 - Integration with new Web UI features
-- **Target:** v0.1.32
+- **Target:** v0.1.33
 
 ### Track: RL Integration (@qidanrui, @praneeth999, danrui2020, ram2561)
 - Issue: [#527](https://github.com/massgen/MassGen/issues/527)
 - Reinforcement learning integration for agent optimization
 - Adaptive agent behavior based on feedback and outcomes
 - Reward modeling for multi-agent coordination
-- **Target:** v0.1.31
+- **Target:** v0.1.32
 
 ### Track: Test MassGen for PPTX Slides (@ncrispino, nickcrispino)
 - Issue: [#686](https://github.com/massgen/MassGen/issues/686)
 - Verify and improve PPTX generation capabilities
 - Test slide generation workflows and output quality
-- **Target:** v0.1.33
+- **Target:** v0.1.34
+
+### Track: OpenRouter Tool-Use Model Filtering (@shubham2345)
+- Issue: [#647](https://github.com/massgen/MassGen/issues/647)
+- Restrict OpenRouter model list to only show models that support tool use
+- Filter based on `supported_parameters` capability checks
+- **Target:** v0.1.34
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -658,5 +690,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** December 26, 2025
+**Last Updated:** December 29, 2025
 **Maintained By:** MassGen Team
