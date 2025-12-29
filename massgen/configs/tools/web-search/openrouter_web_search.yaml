@@ -20,7 +20,11 @@ agents:
 
       # Optional: Configure web search parameters
       # engine: "exa"  # Options: "exa" (default) or "native"
-      # max_results: 1  # Number of search results to return (default: 1)
+      # max_results: 5  # Number of search results to return (default: 5)
+
+      # Advanced web search options (optional)
+      # search_prompt: "Focus on recent, accurate information from reputable sources"  # Custom search instruction to guide search behavior
+      # search_context_size: "high"  # Amount of context per result: "low", "medium", or "high" (default: not set)
 
       cwd: "workspace1"
 

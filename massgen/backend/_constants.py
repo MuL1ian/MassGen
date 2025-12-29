@@ -5,10 +5,9 @@ This module defines common constants used across different backend implementatio
 including provider-specific defaults and configuration values.
 """
 
-import logging
 from typing import Any, Dict, Optional
 
-logger = logging.getLogger(__name__)
+from ..logger_config import logger
 
 # =============================================================================
 # OPENROUTER CONSTANTS
