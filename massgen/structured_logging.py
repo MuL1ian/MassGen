@@ -173,11 +173,18 @@ def configure_observability(
         return True
 
     except ImportError:
-        logger.warning("Logfire package not installed. Observability features disabled.")
+        logger.warning("Logfire package not installed. Install with: pip install massgen[observability]")
         _logfire_enabled = False
         return False
     except Exception as e:
-        logger.warning(f"Failed to configure Logfire: {e}. Observability features disabled.")
+        error_msg = str(e)
+        if "not logged in" in error_msg.lower():
+            logger.warning(
+                "Logfire requires authentication. Run 'logfire auth' to authenticate, "
+                "then re-run your command. Continuing without observability..."
+            )
+        else:
+            logger.warning(f"Failed to configure Logfire: {e}. Observability features disabled.")
         _logfire_enabled = False
         return False
 

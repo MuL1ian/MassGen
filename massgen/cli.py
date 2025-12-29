@@ -88,22 +88,38 @@ def load_env_file():
 load_env_file()
 
 
-def _setup_logfire_observability():
+def _setup_logfire_observability() -> bool:
     """Configure Logfire observability and instrument all LLM providers.
 
     This sets up structured logging/tracing via Logfire and instruments
     all supported LLM provider clients (OpenAI, Anthropic, Google GenAI).
+
+    Returns:
+        True if Logfire was successfully configured, False otherwise.
     """
+    try:
+        import logfire  # noqa: F401 - Check if logfire is installed
+    except ImportError:
+        print(
+            f"{BRIGHT_YELLOW}⚠️  Logfire not installed. "
+            f"Install with: pip install massgen[observability]{RESET}"
+        )
+        return False
+
     from .logger_config import integrate_logfire_with_loguru
     from .structured_logging import configure_observability, get_tracer
 
-    configure_observability(enabled=True)
+    success = configure_observability(enabled=True)
+    if not success:
+        return False
+
     integrate_logfire_with_loguru()
     # Instrument all LLM providers globally
     tracer = get_tracer()
     tracer.instrument_google_genai()  # Gemini
     tracer.instrument_openai()  # OpenAI-compatible APIs
     tracer.instrument_anthropic()  # Claude
+    return True
 
 
 # Add project root to path for imports

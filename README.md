@@ -160,7 +160,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 **🎉 Released: December 29, 2025**
 
 **What's New in v0.1.31:**
-- **📊 Logfire Observability** - Comprehensive logging and tracing via [Logfire](https://logfire.pydantic.dev/) with automatic LLM instrumentation for OpenAI, Claude, and Gemini backends
+- **📊 Logfire Observability (Optional)** - Comprehensive logging and tracing via [Logfire](https://logfire.pydantic.dev/) with automatic LLM instrumentation for OpenAI, Claude, and Gemini backends. Now an optional dependency for smaller installs.
 - **☁️ Azure Tool Call Streaming** - Tool calls now accumulated and yielded as structured chunks for Azure OpenAI
 - **🔧 OpenRouter Web Search Logging** - Fixed logging output for web search operations
 
@@ -171,6 +171,10 @@ pip install --upgrade massgen
 
 # Or with uv (faster)
 uv pip install massgen
+
+# Install with observability support (optional)
+pip install "massgen[observability]"
+logfire auth  # Authenticate with Logfire
 
 # Enable Logfire observability - comprehensive logging and tracing
 massgen --logfire --config massgen/configs/basic/multi/three_agents_default.yaml \
@@ -1121,9 +1125,11 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 **🎉 Released: December 29, 2025**
 
-#### Logfire Observability Integration
+#### Logfire Observability Integration (Now Optional)
+- **Optional Dependency**: Logfire is now an optional dependency - install with `pip install "massgen[observability]"`
 - **Automatic LLM Instrumentation**: Tracing for OpenAI, Anthropic Claude, and Google Gemini backends
 - **Tool Execution Tracing**: Timing metrics for MCP and custom tools with agent coordination observability
+- **Improved Error Messages**: Clear guidance when Logfire is not installed or not authenticated
 - **Enable via CLI**: Use `--logfire` flag or `MASSGEN_LOGFIRE_ENABLED=true` environment variable
 
 #### Azure OpenAI Native Tool Call Streaming
@@ -1131,6 +1137,7 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 #### Documentation
 - `docs/source/user_guide/logging.rst` - Logfire usage guide with SQL query examples
+- `docs/source/quickstart/installation.rst` - Added observability installation section
 
 ### Previous Achievements (v0.0.3 - v0.1.30)
 

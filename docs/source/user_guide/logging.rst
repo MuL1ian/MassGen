@@ -730,7 +730,19 @@ If the GitHub CLI is not installed:
 Logfire Observability
 ---------------------
 
-MassGen supports `Logfire <https://logfire.pydantic.dev/docs/>`_ for advanced structured tracing and observability. When enabled, Logfire provides:
+MassGen supports `Logfire <https://logfire.pydantic.dev/docs/>`_ for advanced structured tracing and observability.
+
+.. note::
+   Logfire is an **optional dependency**. Install it with:
+
+   .. code-block:: bash
+
+      pip install "massgen[observability]"
+
+      # Or with uv
+      uv pip install "massgen[observability]"
+
+When enabled, Logfire provides:
 
 * **Automatic LLM instrumentation** - Traces all OpenAI and Anthropic API calls with request/response details
 * **Tool execution tracing** - Spans for MCP tool calls with timing and success/failure metrics
@@ -757,27 +769,31 @@ Enabling Logfire
 Setting Up Logfire
 ~~~~~~~~~~~~~~~~~~
 
-1. **Create a Logfire account** at https://logfire.pydantic.dev/
-
-2. **Get your token:**
+1. **Install MassGen with observability support:**
 
    .. code-block:: bash
 
-      # Install logfire CLI
-      pip install logfire
+      pip install "massgen[observability]"
 
-      # Authenticate
-      logfire auth login
+      # Or with uv
+      uv pip install "massgen[observability]"
 
-   This creates ``~/.logfire/credentials.json`` with your token.
+2. **Create a Logfire account** at https://logfire.pydantic.dev/
 
-3. **Alternatively, set the token directly:**
+3. **Authenticate with Logfire:**
+
+   .. code-block:: bash
+
+      # Authenticate (this creates ~/.logfire/credentials.json)
+      logfire auth
+
+4. **Alternatively, set the token directly:**
 
    .. code-block:: bash
 
       export LOGFIRE_TOKEN=your_token_here
 
-4. **Run MassGen with Logfire enabled:**
+5. **Run MassGen with Logfire enabled:**
 
    .. code-block:: bash
 
@@ -1061,11 +1077,12 @@ Graceful Degradation
 
 Logfire integration is designed to be non-intrusive:
 
-* **No Logfire installed?** - Code runs normally without any errors
+* **Logfire not installed?** - You'll see a helpful message: ``⚠️ Logfire not installed. Install with: pip install massgen[observability]``
+* **Not authenticated?** - You'll see: ``Logfire requires authentication. Run 'logfire auth' to authenticate``
 * **Logfire disabled?** - All logging falls back to standard loguru
 * **Network issues?** - Logfire handles connectivity gracefully
 
-This means you can always enable the ``--logfire`` flag without worrying about breaking your workflow - it will simply be ignored if Logfire is not configured.
+This means you can always enable the ``--logfire`` flag without worrying about breaking your workflow - it will show helpful guidance if Logfire needs to be set up.
 
 See Also
 --------
