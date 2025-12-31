@@ -407,6 +407,10 @@ class TextualTerminalDisplay(TerminalDisplay):
 
     def show_final_answer(self, answer: str, vote_results=None, selected_agent=None):
         """Show final answer with flush effect."""
+        # Don't create files if no valid agent is selected
+        if not selected_agent:
+            return
+
         stream_buffer = self._final_stream_buffer.strip() if hasattr(self, "_final_stream_buffer") else ""
         display_answer = answer or stream_buffer
         if self._final_stream_active:
@@ -417,7 +421,7 @@ class TextualTerminalDisplay(TerminalDisplay):
             self._final_stream_buffer = display_answer
             self._call_app_method(
                 "begin_final_stream",
-                selected_agent or "Unknown",
+                selected_agent,
                 vote_results or {},
             )
             self._call_app_method("update_final_stream", display_answer)
@@ -565,6 +569,10 @@ class TextualTerminalDisplay(TerminalDisplay):
         if not chunk:
             return
 
+        # Don't stream if no valid agent is selected
+        if not selected_agent:
+            return
+
         if not self._final_stream_active:
             # Speed up flushing during final presentation
             try:
@@ -582,7 +590,7 @@ class TextualTerminalDisplay(TerminalDisplay):
             if self._app:
                 self._call_app_method(
                     "begin_final_stream",
-                    selected_agent or "Unknown",
+                    selected_agent,
                     vote_results or {},
                 )
 
@@ -1007,9 +1015,11 @@ if TEXTUAL_AVAILABLE:
             selected_agent=None,
         ):
             """Display final answer modal with flush effect."""
+            # Don't show if no valid agent is selected
+            if not selected_agent:
+                return
             if self.final_stream_panel:
-                agent_label = selected_agent or "Unknown"
-                self.final_stream_panel.begin(agent_label, vote_results or {})
+                self.final_stream_panel.begin(selected_agent, vote_results or {})
                 if answer:
                     self.final_stream_panel.append_chunk(answer)
                 self.final_stream_panel.end()

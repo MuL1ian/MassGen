@@ -202,5 +202,72 @@ async def test_post_evaluation_tools_api_formats():
     assert tools_response[0]["type"] == "function"
 
 
+def test_set_log_attempt_conditional():
+    """Test that set_log_attempt is conditional and doesn't duplicate calls."""
+    import massgen.logger_config as logger_config
+
+    # Reset state
+    original_attempt = logger_config._CURRENT_ATTEMPT
+    original_dir = logger_config._LOG_SESSION_DIR
+
+    try:
+        # Set to attempt 2
+        logger_config.set_log_attempt(2)
+        assert logger_config._CURRENT_ATTEMPT == 2
+
+        # Store the directory after first set
+        logger_config._LOG_SESSION_DIR = None  # Force recreation
+        logger_config.get_log_session_dir()
+
+        # Set to same attempt again - should be idempotent conceptually
+        # (the orchestrator now checks before calling)
+        logger_config.set_log_attempt(2)
+        assert logger_config._CURRENT_ATTEMPT == 2
+
+    finally:
+        # Restore original state
+        logger_config._CURRENT_ATTEMPT = original_attempt
+        logger_config._LOG_SESSION_DIR = original_dir
+
+
+def test_get_log_session_dir_uses_current_attempt():
+    """Test that get_log_session_dir uses _CURRENT_ATTEMPT to build path."""
+    from pathlib import Path
+
+    import massgen.logger_config as logger_config
+
+    # Reset state
+    original_attempt = logger_config._CURRENT_ATTEMPT
+    original_dir = logger_config._LOG_SESSION_DIR
+    original_base = logger_config._LOG_BASE_SESSION_DIR
+
+    try:
+        # Setup a base session dir
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger_config._LOG_BASE_SESSION_DIR = Path(tmpdir)
+            logger_config._LOG_SESSION_DIR = None
+            logger_config._CURRENT_ATTEMPT = 1
+
+            # Get dir for attempt 1
+            dir1 = logger_config.get_log_session_dir()
+            assert "attempt_1" in str(dir1)
+
+            # Change to attempt 2
+            logger_config.set_log_attempt(2)
+            dir2 = logger_config.get_log_session_dir()
+            assert "attempt_2" in str(dir2)
+
+            # Directories should be different
+            assert dir1 != dir2
+
+    finally:
+        # Restore original state
+        logger_config._CURRENT_ATTEMPT = original_attempt
+        logger_config._LOG_SESSION_DIR = original_dir
+        logger_config._LOG_BASE_SESSION_DIR = original_base
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

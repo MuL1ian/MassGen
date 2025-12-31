@@ -38,6 +38,9 @@ class SilentDisplay(BaseDisplay):
         super().__init__(agent_ids, **kwargs)
         self.log_dir = None
         self.start_time = None
+        self.output_dir = None
+        self.agent_files = {}
+        self.system_status_file = None
 
     def initialize(self, question: str, log_filename: Optional[str] = None):
         """Initialize the display with essential information only.
@@ -51,6 +54,7 @@ class SilentDisplay(BaseDisplay):
             question: The user's question
             log_filename: Path to the main log file (used to determine log directory)
         """
+
         self.start_time = time.time()
 
         # Store log dir for internal use (paths already printed by cli.py)
@@ -59,14 +63,40 @@ class SilentDisplay(BaseDisplay):
         log_session_dir = get_log_session_dir()
         if log_session_dir:
             self.log_dir = log_session_dir
+            # Setup agent output files (same as RichTerminalDisplay)
+            self.output_dir = log_session_dir / "agent_outputs"
+            self._setup_agent_files()
 
         print(f"QUESTION: {question}")
         print("[Coordination in progress - monitor status.json for real-time updates]")
 
+    def _setup_agent_files(self):
+        """Setup individual txt files for each agent and system status file."""
+        from pathlib import Path
+
+        if not self.output_dir:
+            return
+
+        # Create output directory if it doesn't exist
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Initialize file paths for each agent
+        for agent_id in self.agent_ids:
+            file_path = Path(self.output_dir) / f"{agent_id}.txt"
+            self.agent_files[agent_id] = file_path
+            # Clear existing file content
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(f"=== {agent_id.upper()} OUTPUT LOG ===\n\n")
+
+        # Initialize system status file
+        self.system_status_file = Path(self.output_dir) / "system_status.txt"
+        with open(str(self.system_status_file), "w", encoding="utf-8") as f:
+            f.write("=== SYSTEM STATUS LOG ===\n\n")
+
     def update_agent_content(self, agent_id: str, content: str, content_type: str = "thinking"):
         """Update content for a specific agent (silent - no output).
 
-        Content is still stored internally but not printed to stdout.
+        Content is still stored internally and written to files but not printed to stdout.
         Monitor status.json for real-time agent activity.
 
         Args:
@@ -79,7 +109,28 @@ class SilentDisplay(BaseDisplay):
 
         # Store content internally for potential later use
         self.agent_outputs[agent_id].append(content)
+
+        # Write to agent output file (for sharing/export)
+        self._write_to_agent_file(agent_id, content, content_type)
         # But don't print anything to stdout
+
+    def _write_to_agent_file(self, agent_id: str, content: str, content_type: str):
+        """Write content to agent's individual txt file."""
+        if agent_id not in self.agent_files:
+            return
+
+        # Skip debug content from txt files
+        if content_type == "debug":
+            return
+
+        try:
+            file_path = self.agent_files[agent_id]
+            # Append to file
+            with open(file_path, "a", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            # Handle file write errors gracefully
+            pass
 
     def update_agent_status(self, agent_id: str, status: str):
         """Update status for a specific agent (silent - no output).

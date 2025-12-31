@@ -647,7 +647,7 @@ Use the ``massgen export`` command to share a session:
 
 .. code-block:: bash
 
-   # Share the most recent session
+   # Share the most recent session (all turns)
    massgen export
 
    # Share a specific session by log directory name
@@ -656,11 +656,59 @@ Use the ``massgen export`` command to share a session:
    # Share a specific session by full path
    massgen export /path/to/.massgen/massgen_logs/log_20251218_134125_867383
 
+**Multi-Turn Sessions:**
+
+For sessions with multiple turns, all turns are included by default. Use the ``--turns`` option to select specific turns:
+
+.. code-block:: bash
+
+   # Share only the first 3 turns
+   massgen export --turns 3
+
+   # Share turns 2 through 5
+   massgen export --turns 2-5
+
+   # Share only the latest turn
+   massgen export --turns latest
+
+   # Share all turns (default)
+   massgen export --turns all
+
+**Export Options:**
+
+.. code-block:: bash
+
+   # Preview what would be shared without creating a gist
+   massgen export --dry-run
+
+   # Show detailed file listing
+   massgen export --verbose
+
+   # Output result as JSON (for scripting)
+   massgen export --json
+
+   # Skip interactive prompts (use defaults)
+   massgen export --yes
+
+   # Exclude workspace artifacts
+   massgen export --no-workspace
+
+   # Set workspace size limit per agent (default: 500KB)
+   massgen export --workspace-limit 1MB
+
 **Output:**
 
 .. code-block:: text
 
-   Sharing session from: /path/to/.massgen/massgen_logs/log_20251218_134125/turn_1/attempt_1
+   Sharing session from: log_20251218_134125_867383
+
+   Session: log_20251218_134125_867383
+   Turns: 3
+
+     ✓ Turn 1 - What is the capital of France?
+     ✓ Turn 2 - Tell me more about Paris
+     ✓ Turn 3 - What are popular attractions?
+
    Collecting files...
    Uploading 45 files (1,234,567 bytes)...
 
@@ -675,21 +723,42 @@ The share URL opens the **MassGen Viewer**, a web-based session viewer that disp
 - Answers and votes with full content
 - Tool usage breakdown
 - Configuration used
+- Turn navigation (for multi-turn sessions)
+- Error details (for failed/interrupted sessions)
 
 **What gets uploaded:**
 
-- Metrics and status files
+- Session manifest (``_session_manifest.json``) with turn metadata
+- Metrics and status files for all turns
 - Coordination events and votes
 - Agent answers (intermediate and final)
 - Execution metadata (with API keys redacted)
-- Small workspace files (code, text, configs)
+- Workspace artifacts (HTML, CSS, JS, images up to size limit)
+- Error information for failed/interrupted sessions
 
 **What is excluded:**
 
-- Large files (>10MB)
+- Large files (>10MB or exceeding workspace limit)
 - Debug logs (``massgen.log``)
 - Binary files and caches
 - Sensitive data (API keys are automatically redacted)
+- Files matching sensitive patterns (detected with warning)
+
+**Sharing Error Sessions:**
+
+Failed or interrupted sessions can still be shared for debugging:
+
+.. code-block:: text
+
+   Session: log_20251218_134125_867383
+   Turns: 2
+
+     ✓ Turn 1 - What is the capital of France?
+     ✗ Turn 2 - Tell me more about Paris
+
+   [yellow]Warning: This session has errors[/yellow]
+
+The viewer will clearly indicate error status and show error details when available.
 
 Managing Shared Sessions
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -730,7 +799,19 @@ If the GitHub CLI is not installed:
 Logfire Observability
 ---------------------
 
-MassGen supports `Logfire <https://logfire.pydantic.dev/docs/>`_ for advanced structured tracing and observability. When enabled, Logfire provides:
+MassGen supports `Logfire <https://logfire.pydantic.dev/docs/>`_ for advanced structured tracing and observability.
+
+.. note::
+   Logfire is an **optional dependency**. Install it with:
+
+   .. code-block:: bash
+
+      pip install "massgen[observability]"
+
+      # Or with uv
+      uv pip install "massgen[observability]"
+
+When enabled, Logfire provides:
 
 * **Automatic LLM instrumentation** - Traces all OpenAI and Anthropic API calls with request/response details
 * **Tool execution tracing** - Spans for MCP tool calls with timing and success/failure metrics
@@ -757,27 +838,31 @@ Enabling Logfire
 Setting Up Logfire
 ~~~~~~~~~~~~~~~~~~
 
-1. **Create a Logfire account** at https://logfire.pydantic.dev/
-
-2. **Get your token:**
+1. **Install MassGen with observability support:**
 
    .. code-block:: bash
 
-      # Install logfire CLI
-      pip install logfire
+      pip install "massgen[observability]"
 
-      # Authenticate
-      logfire auth login
+      # Or with uv
+      uv pip install "massgen[observability]"
 
-   This creates ``~/.logfire/credentials.json`` with your token.
+2. **Create a Logfire account** at https://logfire.pydantic.dev/
 
-3. **Alternatively, set the token directly:**
+3. **Authenticate with Logfire:**
+
+   .. code-block:: bash
+
+      # Authenticate (this creates ~/.logfire/credentials.json)
+      uv run logfire auth
+
+4. **Alternatively, set the token directly:**
 
    .. code-block:: bash
 
       export LOGFIRE_TOKEN=your_token_here
 
-4. **Run MassGen with Logfire enabled:**
+5. **Run MassGen with Logfire enabled:**
 
    .. code-block:: bash
 
@@ -1061,11 +1146,12 @@ Graceful Degradation
 
 Logfire integration is designed to be non-intrusive:
 
-* **No Logfire installed?** - Code runs normally without any errors
+* **Logfire not installed?** - You'll see a helpful message: ``⚠️ Logfire not installed. Install with: pip install massgen[observability]``
+* **Not authenticated?** - You'll see: ``Logfire requires authentication. Run 'logfire auth' to authenticate``
 * **Logfire disabled?** - All logging falls back to standard loguru
 * **Network issues?** - Logfire handles connectivity gracefully
 
-This means you can always enable the ``--logfire`` flag without worrying about breaking your workflow - it will simply be ignored if Logfire is not configured.
+This means you can always enable the ``--logfire`` flag without worrying about breaking your workflow - it will show helpful guidance if Logfire needs to be set up.
 
 See Also
 --------

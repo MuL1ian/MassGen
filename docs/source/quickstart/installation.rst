@@ -137,6 +137,27 @@ Verify Installation
    # Run multi-agent collaboration
    uv run massgen --config @examples/basic/multi/three_agents_default "What is machine learning?"
 
+Optional: Observability
+=======================
+
+For structured logging and tracing with Logfire:
+
+.. code-block:: bash
+
+   # Install with observability support
+   pip install "massgen[observability]"
+
+   # Or with uv
+   uv pip install "massgen[observability]"
+
+   # Authenticate with Logfire
+   uv run logfire auth
+
+   # Run with observability enabled
+   uv run massgen --logfire --config your_config.yaml "Your question"
+
+See :doc:`../user_guide/logging` for detailed Logfire configuration.
+
 Optional: Docker & Skills
 =========================
 

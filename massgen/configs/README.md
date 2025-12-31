@@ -227,26 +227,43 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.31 - Latest
-**New Features:** Logfire Observability, Azure Tool Call Streaming
+### v0.1.32 - Latest
+**New Features:** Multi-Turn Session Export, Logfire Optional, Per-Attempt Logging
 
 **Key Features:**
-- **Logfire Observability Integration**: Comprehensive logging and tracing via [Logfire](https://logfire.pydantic.dev/) with automatic LLM instrumentation
-- **Azure OpenAI Tool Call Streaming**: Tool calls now accumulated and yielded as structured chunks
-- **OpenRouter Web Search Logging**: Fixed logging output for web search operations
+- **Multi-Turn Session Export**: Share sessions with turn range selection, workspace options, and export controls
+- **Logfire Optional Dependency**: Moved to `[observability]` extra for smaller default installs
+- **Per-Attempt Logging**: Each restart attempt gets separate log files for cleaner debugging
+- **Office PDF Conversion**: Automatic DOCX/PPTX/XLSX to PDF when sharing sessions
 
 **Try It:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Enable Logfire observability - comprehensive logging and tracing
+# Share a multi-turn session with turn selection
+massgen export --turns 1-3              # Export turns 1-3
+massgen export --turns latest           # Export only the latest turn
+massgen export --dry-run --verbose      # Preview what would be shared
+
+# Install with observability support (optional)
+pip install "massgen[observability]"
 massgen --logfire --config massgen/configs/basic/multi/three_agents_default.yaml \
   "What are the benefits of multi-agent AI systems?"
+```
 
-# Or enable via environment variable
-MASSGEN_LOGFIRE_ENABLED=true massgen --config massgen/configs/basic/multi/three_agents_default.yaml \
-  "Compare different AI architectures"
+### v0.1.31
+**New Features:** Logfire Observability, Azure Tool Call Streaming
+
+**Key Features:**
+- **Logfire Observability Integration**: Comprehensive logging and tracing via [Logfire](https://logfire.pydantic.dev/) with automatic LLM instrumentation
+- **Azure OpenAI Tool Call Streaming**: Tool calls now accumulated and yielded as structured chunks
+
+**Try It:**
+```bash
+# Enable Logfire observability
+massgen --logfire --config massgen/configs/basic/multi/three_agents_default.yaml \
+  "What are the benefits of multi-agent AI systems?"
 ```
 
 ### v0.1.30

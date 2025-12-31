@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.31 Features](#-latest-features-v0131)
+- [v0.1.32 Features](#-latest-features-v0132)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.31)](#recent-achievements-v0131)
-- [Previous Achievements (v0.0.3 - v0.1.30)](#previous-achievements-v003---v0130)
+- [Recent Achievements (v0.1.32)](#recent-achievements-v0132)
+- [Previous Achievements (v0.0.3 - v0.1.31)](#previous-achievements-v003---v0131)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.32 Roadmap](#v0132-roadmap)
+- [v0.1.33 Roadmap](#v0133-roadmap)
 </details>
 
 <details open>
@@ -154,16 +154,17 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.31)
+## 🆕 Latest Features (v0.1.32)
 
-**🎉 Released: December 29, 2025**
+**🎉 Released: December 31, 2025**
 
-**What's New in v0.1.31:**
-- **📊 Logfire Observability** - Comprehensive logging and tracing via [Logfire](https://logfire.pydantic.dev/) with automatic LLM instrumentation for OpenAI, Claude, and Gemini backends
-- **☁️ Azure Tool Call Streaming** - Tool calls now accumulated and yielded as structured chunks for Azure OpenAI
-- **🔧 OpenRouter Web Search Logging** - Fixed logging output for web search operations
+**What's New in v0.1.32:**
+- **📤 Multi-Turn Session Export** - Share multi-turn sessions with turn range selection (`--turns`), workspace options, and dry-run preview
+- **📊 Logfire Now Optional** - Moved to `[observability]` extra for smaller default installs with helpful error messages
+- **📁 Per-Attempt Logging** - Each orchestration restart gets its own log files for cleaner debugging
+- **📄 Office PDF Conversion** - Automatic DOCX/PPTX/XLSX to PDF conversion when sharing sessions for better previews
 
-**Try v0.1.31 Features:**
+**Try v0.1.32 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
@@ -171,13 +172,15 @@ pip install --upgrade massgen
 # Or with uv (faster)
 uv pip install massgen
 
-# Enable Logfire observability - comprehensive logging and tracing
+# Share a multi-turn session with turn selection
+massgen export --turns 1-3              # Export turns 1-3
+massgen export --turns latest           # Export only the latest turn
+massgen export --dry-run --verbose      # Preview what would be shared
+
+# Install with observability support (optional)
+pip install "massgen[observability]"
 massgen --logfire --config massgen/configs/basic/multi/three_agents_default.yaml \
   "What are the benefits of multi-agent AI systems?"
-
-# Or enable via environment variable
-MASSGEN_LOGFIRE_ENABLED=true massgen --config massgen/configs/basic/multi/three_agents_default.yaml \
-  "Compare different AI architectures"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1116,22 +1119,30 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.31)
+### Recent Achievements (v0.1.32)
 
-**🎉 Released: December 29, 2025**
+**🎉 Released: December 31, 2025**
 
-#### Logfire Observability Integration
-- **Automatic LLM Instrumentation**: Tracing for OpenAI, Anthropic Claude, and Google Gemini backends
-- **Tool Execution Tracing**: Timing metrics for MCP and custom tools with agent coordination observability
-- **Enable via CLI**: Use `--logfire` flag or `MASSGEN_LOGFIRE_ENABLED=true` environment variable
+#### Session Export Multi-Turn Support
+- **Turn Range Selection**: New `--turns` flag for exporting specific turns (`all`, `N`, `N-M`, `latest`)
+- **Workspace Options**: Control workspace export with `--no-workspace` and `--workspace-limit` flags
+- **Export Controls**: Preview exports with `--dry-run`, `--verbose`, and `--json` output modes
 
-#### Azure OpenAI Native Tool Call Streaming
-- **Structured Tool Chunks**: Tool calls accumulated and yielded as structured `tool_calls` chunks instead of plain content
+#### Logfire Optional Dependency
+- **Smaller Installs**: Logfire moved from required to optional `[observability]` extra
+- **Helpful Guidance**: Clear error message with install instructions when `--logfire` used without Logfire
 
-#### Documentation
-- `docs/source/user_guide/logging.rst` - Logfire usage guide with SQL query examples
+#### Per-Attempt Logging
+- **Isolated Log Files**: Each orchestration restart attempt gets separate `massgen.log` and metadata
+- **Handler Reconfiguration**: Log handlers automatically reconfigure on restart via `set_log_attempt()`
 
-### Previous Achievements (v0.0.3 - v0.1.30)
+#### Office Document PDF Conversion
+- **Automatic Conversion**: DOCX/PPTX/XLSX files converted to PDF when sharing sessions
+- **Better Previews**: Both original file (download) and PDF (preview) included in shared gists
+
+### Previous Achievements (v0.0.3 - v0.1.31)
+
+✅ **Logfire Observability & Azure Tool Streaming (v0.1.31)**: Optional Logfire integration with automatic LLM instrumentation for OpenAI, Claude, and Gemini backends, Azure OpenAI tool calls yielded as structured chunks, `--logfire` CLI flag and `MASSGEN_LOGFIRE_ENABLED` environment variable
 
 ✅ **OpenRouter Web Search & Persona Diversity (v0.1.30)**: Native web search via OpenRouter plugins with `enable_web_search`, persona diversity modes (`perspective`/`implementation`) with phase-based adaptation, Azure multi-endpoint auto-detection, environment variable expansion with `${VAR}` syntax
 
@@ -1337,9 +1348,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.32 Roadmap
+### v0.1.33 Roadmap
 
-Version 0.1.32 focuses on backend model auto-update and automatic context compression:
+Version 0.1.33 focuses on backend model auto-update and automatic context compression:
 
 #### Planned Features
 - **Backend Model List Auto-Update** (@ncrispino): Automatic model listing via provider APIs, third-party wrappers, or documented manual processes
@@ -1349,7 +1360,7 @@ Key technical approach:
 - **Backend Model List Auto-Update**: Native API implementation for OpenAI, Anthropic, Grok, Groq, Nebius; third-party wrappers where needed
 - **Automatic Context Compression**: Intelligent summarization with configurable thresholds and strategies
 
-For detailed milestones and technical specifications, see the [full v0.1.32 roadmap](ROADMAP_v0.1.32.md).
+For detailed milestones and technical specifications, see the [full v0.1.33 roadmap](ROADMAP_v0.1.33.md).
 
 ---
 

@@ -226,9 +226,10 @@ BINARY_FILE_EXTENSIONS = frozenset(
 # WORKSPACE FILE EXTENSIONS (for sharing)
 # =============================================================================
 
-# File extensions to include from workspace when sharing (small text files)
+# File extensions to include from workspace when sharing (text and previewable files)
 WORKSPACE_INCLUDE_EXTENSIONS = frozenset(
     {
+        # Text files
         ".txt",
         ".md",
         ".json",
@@ -244,21 +245,39 @@ WORKSPACE_INCLUDE_EXTENSIONS = frozenset(
         ".cfg",
         ".ini",
         ".xml",
+        # Office documents (binary - handled specially for preview conversion)
+        ".docx",
+        ".pptx",
+        ".xlsx",
+        # PDF (already previewable)
+        ".pdf",
     },
 )
+
+# Office document extensions that need PDF conversion for preview
+OFFICE_DOCUMENT_EXTENSIONS = frozenset({".docx", ".pptx", ".xlsx"})
 
 # =============================================================================
 # SIZE LIMITS
 # =============================================================================
 
-# Maximum file size for sharing (10MB)
-MAX_FILE_SIZE_FOR_SHARING = 10_000_000
+# Maximum file size for sharing (50MB for text files)
+# Using git push allows much larger files than API
+MAX_FILE_SIZE_FOR_SHARING = 50_000_000
 
-# Maximum total size for sharing (90MB, leaving buffer from 100MB gist limit)
-MAX_TOTAL_SIZE_FOR_SHARING = 90_000_000
+# Maximum file size for previewable binary files (75MB for pptx, pdf, images)
+# These are prioritized for sharing since they're often the main deliverable
+MAX_PREVIEWABLE_FILE_SIZE_FOR_SHARING = 75_000_000
+
+# Maximum total size for sharing (500MB - git push supports large uploads)
+# GitHub Gist via git push supports up to 100MB per file, generous total
+MAX_TOTAL_SIZE_FOR_SHARING = 500_000_000
 
 # Maximum number of files for sharing (290, leaving buffer from 300 gist limit)
 MAX_FILES_FOR_SHARING = 290
+
+# Extensions for previewable binary files (prioritized in sharing)
+PREVIEWABLE_EXTENSIONS = {".pptx", ".pdf", ".docx", ".xlsx", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 # Maximum items to log in workspace listings
 MAX_LOG_ITEMS = 50
