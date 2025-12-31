@@ -53,10 +53,11 @@ This will verify:
 - Default models exist in model lists
 """
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Set
-import os
+
 
 class Capability(Enum):
     """Enumeration of all possible backend capabilities."""
@@ -685,6 +686,8 @@ def validate_backend_config(backend_type: str, config: Dict) -> List[str]:
         )
 
     return errors
+
+
 def get_models_for_backend(backend_type: str) -> List[str]:
     """
     Return model list for a backend.
@@ -704,7 +707,7 @@ def get_models_for_backend(backend_type: str) -> List[str]:
             models = client.models.list()
 
             discovered = sorted(
-                [m.id for m in models.data if isinstance(m.id, str)]
+                [m.id for m in models.data if isinstance(m.id, str)],
             )
 
             if discovered:
@@ -714,4 +717,3 @@ def get_models_for_backend(backend_type: str) -> List[str]:
             pass
 
     return caps.models
-
