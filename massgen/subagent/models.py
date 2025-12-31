@@ -207,6 +207,7 @@ class SubagentResult:
         execution_time_seconds: How long the subagent ran
         error: Error message if status is error/timeout
         token_usage: Token usage statistics (if available)
+        log_path: Path to subagent log directory (for debugging on failure/timeout)
     """
 
     subagent_id: str
@@ -217,10 +218,11 @@ class SubagentResult:
     execution_time_seconds: float = 0.0
     error: Optional[str] = None
     token_usage: Dict[str, int] = field(default_factory=dict)
+    log_path: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for tool return value."""
-        return {
+        result = {
             "subagent_id": self.subagent_id,
             "status": self.status,
             "success": self.success,
@@ -230,6 +232,10 @@ class SubagentResult:
             "error": self.error,
             "token_usage": self.token_usage.copy(),
         }
+        # Include log_path if available (useful for debugging failed/timed out subagents)
+        if self.log_path:
+            result["log_path"] = self.log_path
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SubagentResult":
@@ -243,6 +249,7 @@ class SubagentResult:
             execution_time_seconds=data.get("execution_time_seconds", 0.0),
             error=data.get("error"),
             token_usage=data.get("token_usage", {}),
+            log_path=data.get("log_path"),
         )
 
     @classmethod
@@ -253,6 +260,7 @@ class SubagentResult:
         workspace_path: str,
         execution_time_seconds: float,
         token_usage: Optional[Dict[str, int]] = None,
+        log_path: Optional[str] = None,
     ) -> "SubagentResult":
         """Create a successful result."""
         return cls(
@@ -263,6 +271,7 @@ class SubagentResult:
             workspace_path=workspace_path,
             execution_time_seconds=execution_time_seconds,
             token_usage=token_usage or {},
+            log_path=log_path,
         )
 
     @classmethod
@@ -271,6 +280,7 @@ class SubagentResult:
         subagent_id: str,
         workspace_path: str,
         timeout_seconds: float,
+        log_path: Optional[str] = None,
     ) -> "SubagentResult":
         """Create a timeout result."""
         return cls(
@@ -281,6 +291,7 @@ class SubagentResult:
             workspace_path=workspace_path,
             execution_time_seconds=timeout_seconds,
             error=f"Subagent exceeded timeout of {timeout_seconds} seconds",
+            log_path=log_path,
         )
 
     @classmethod
@@ -290,6 +301,7 @@ class SubagentResult:
         error: str,
         workspace_path: str = "",
         execution_time_seconds: float = 0.0,
+        log_path: Optional[str] = None,
     ) -> "SubagentResult":
         """Create an error result."""
         return cls(
@@ -300,6 +312,7 @@ class SubagentResult:
             workspace_path=workspace_path,
             execution_time_seconds=execution_time_seconds,
             error=error,
+            log_path=log_path,
         )
 
 

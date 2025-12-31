@@ -238,9 +238,10 @@ This ensures the model doesn't re-read files or redo analysis after compression.
 .. code-block:: yaml
 
    coordination:
-     compression_target_ratio: 0.20  # Compress down to 20% of messages
+     compression_target_ratio: 0.20  # Preserve 20% of messages, summarize 80%
 
-The ``compression_target_ratio`` controls how aggressively to compress:
+The ``compression_target_ratio`` controls how aggressively to compress when the
+context limit is exceeded:
 
 - **0.20** (default): Preserve ~20% of messages verbatim, summarize the rest
 - **0.30**: More conservative, preserve ~30% of messages
@@ -248,10 +249,9 @@ The ``compression_target_ratio`` controls how aggressively to compress:
 
 .. note::
 
-   The ``compression_trigger_threshold`` setting is **not reliably enforceable** in
-   reactive mode. Since token counts are only available after each LLM call completes,
-   MassGen cannot predict when context will exceed a threshold. Compression only occurs
-   when the provider returns a context length error.
+   Compression is **reactive** - it only triggers when the provider returns a context
+   length error. MassGen cannot predict when context will exceed the limit because
+   token counts are only available after each LLM call completes.
 
 **Best Practices**
 

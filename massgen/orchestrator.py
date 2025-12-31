@@ -361,6 +361,14 @@ class Orchestrator(ChatAgent):
                 self._inject_subagent_tools_for_all_agents()
                 logger.info("[Orchestrator] Subagent tools injection complete")
 
+        # Set compression target ratio on all agent backends
+        if hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "compression_target_ratio"):
+            compression_ratio = self.config.coordination_config.compression_target_ratio
+            for agent_id, agent in self.agents.items():
+                if hasattr(agent, "backend") and agent.backend:
+                    agent.backend._compression_target_ratio = compression_ratio
+            logger.info(f"[Orchestrator] Set compression_target_ratio={compression_ratio} on {len(self.agents)} agent backends")
+
         # NLIP Configuration
         self.enable_nlip = enable_nlip
         self.nlip_config = nlip_config or {}

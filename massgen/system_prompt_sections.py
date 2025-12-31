@@ -1434,21 +1434,38 @@ class EvaluationSection(SystemPromptSection):
 
         # Determine evaluation criteria based on voting sensitivity
         if self.voting_sensitivity == "strict":
-            evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE exceptionally well? Consider:
+            evaluation_section = """Critically examine existing answers for flaws (be skeptical, not charitable),
+verify claims by checking actual files/outputs, and consider if you can build on or combine the best elements.
+
+Does the best CURRENT ANSWER address the ORIGINAL MESSAGE exceptionally well? Consider:
 - Is it comprehensive, addressing ALL aspects and edge cases?
 - Is it technically accurate and well-reasoned?
 - Does it provide clear explanations and proper justification?
 - Is it complete with no significant gaps or weaknesses?
 - Could it serve as a reference-quality solution?
 
-Only use the `vote` tool if the best answer meets high standards of excellence."""
+**Before voting, ask: Can I CREATE A BETTER ANSWER by:**
+- Combining strengths from multiple answers (e.g., Agent 1's visuals + Agent 2's content)?
+- Fixing errors or gaps you identified in the best answer?
+- Adding missing elements that would make it more complete?
+
+If YES to any of these, produce a `new_answer` instead of voting.
+Only vote if the best answer is truly excellent AND you cannot improve it."""
         elif self.voting_sensitivity == "balanced":
-            evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well? Consider:
+            evaluation_section = """Critically examine existing answers for flaws,
+verify claims by checking actual files/outputs, and consider if you can build on or combine approaches.
+
+Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well? Consider:
 - Is it comprehensive, accurate, and complete?
 - Could it be meaningfully improved, refined, or expanded?
 - Are there weaknesses, gaps, or better approaches?
 
-Only use the `vote` tool if the best answer is strong and complete."""
+**Before voting, ask: Can I CREATE A BETTER ANSWER by:**
+- Combining strengths from multiple answers (e.g., one agent's structure + another's execution)?
+- Fixing errors or gaps you identified?
+- Adding missing elements?
+
+If YES, produce a `new_answer`. Only vote if you genuinely cannot add meaningful value."""
         else:
             # Default to lenient (including explicit "lenient" or any other value)
             evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well?
@@ -1650,12 +1667,13 @@ After subagents complete (or timeout):
 4. **If a subagent timed out**: Check its workspace anyway - it may have created partial work you can use. Complete any remaining work yourself.
 5. **Your final answer**: Describe the COMPLETED work in your workspace, not what subagents did
 
-**Handling timeouts/failures - YOU MUST CHECK WORKSPACES:**
-When a subagent times out, the result still includes the `workspace` path. You MUST:
-1. **Read the workspace path** from the result (e.g., `/path/to/subagents/bio/workspace`)
-2. **List files in that directory** to see what was created before timeout
-3. **Read and use any partial work** - even a half-finished file is better than nothing
-4. **Complete the remaining work yourself** - don't just report the timeout
+**Handling timeouts/failures - YOU MUST CHECK WORKSPACES AND LOGS:**
+When a subagent times out or fails, the result includes both `workspace` and `log_path`. You MUST:
+1. **Check the workspace** (e.g., `/path/to/subagents/bio/workspace`) for partial work
+2. **Check the log_path** (if provided) for debugging info - contains `full_logs/` with conversation history
+3. **List files in both directories** to see what was created before failure
+4. **Read and use any partial work** - even a half-finished file is better than nothing
+5. **Complete the remaining work yourself** - don't just report the timeout
 
 **DO NOT:**
 - ❌ Submit answer before subagents finish
@@ -2165,13 +2183,25 @@ Use `read_media` for visual analysis, but remember: **interact first, screenshot
 Screenshots verify appearance. Interaction verifies functionality. Do both:
 1. **Interact** with the artifact as a user would (click, navigate, play, input)
 2. **Screenshot** key states during/after interaction
-3. **Analyze** with read_media to confirm visual quality
+3. **Analyze** with read_media using **critical prompts**
+
+### CRITICAL: Be Skeptical, Not Charitable
+When evaluating your own or others' work, use prompts that look for **flaws**:
+
+**BAD prompts (too charitable):**
+- "Does the layout look correct?"
+- "Describe this screenshot"
+
+**GOOD prompts (skeptical):**
+- "What flaws, issues, or missing elements do you see? Be critical."
+- "What would a demanding user complain about?"
+- "Does this fully meet the requirements, or are there gaps?"
 
 ### Tool usage:
 ```
-read_media(file_path="screenshot.png", prompt="Does the layout look correct?")
-read_media(file_path="diagram.png", prompt="Are all labels readable?")
-read_media(file_path="output.mp4", prompt="Does this show the expected content?")
+read_media(file_path="screenshot.png", prompt="What flaws or issues do you see? Be critical.")
+read_media(file_path="diagram.png", prompt="What's missing or poorly done?")
+read_media(file_path="output.mp4", prompt="What problems or gaps exist?")
 ```
 
 **Supported formats:**
@@ -2179,7 +2209,7 @@ read_media(file_path="output.mp4", prompt="Does this show the expected content?"
 - Audio: mp3, wav, m4a, ogg, flac, aac
 - Video: mp4, mov, avi, mkv, webm
 
-A beautiful screenshot means nothing if buttons don't work or links are broken. Test functionality, then verify visuals."""
+A beautiful screenshot means nothing if buttons don't work. Test functionality, then verify visuals with a critical eye."""
 
 
 class SystemPromptBuilder:

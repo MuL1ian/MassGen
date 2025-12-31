@@ -72,8 +72,9 @@ class CoordinationConfig:
                                        by writing Markdown files to memory/ directories. Short-term
                                        memories auto-inject into all agents' system prompts. Long-term
                                        memories are read on-demand. Inspired by Letta's context hierarchy.
-        compression_trigger_threshold: Deprecated, no longer used.
-        compression_target_ratio: Deprecated, no longer used.
+        compression_target_ratio: Target ratio for reactive compression when context limit is exceeded.
+                                 Value between 0 and 1, where 0.2 means preserve 20% of messages and
+                                 summarize the remaining 80%. Lower values = more aggressive compression.
         use_skills: If True, enables skills system using openskills. Agents can invoke skills
                    via bash commands (openskills read <skill-name>). Requires command line
                    execution to be enabled.
@@ -111,8 +112,7 @@ class CoordinationConfig:
     max_broadcasts_per_agent: int = 10
     task_planning_filesystem_mode: bool = False
     enable_memory_filesystem_mode: bool = False
-    compression_trigger_threshold: float = 0.75  # Deprecated
-    compression_target_ratio: float = 0.20  # Deprecated
+    compression_target_ratio: float = 0.20  # Preserve 20% of messages on context overflow
     use_skills: bool = False
     massgen_skills: List[str] = field(default_factory=list)
     skills_directory: str = ".agent/skills"

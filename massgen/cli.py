@@ -1687,10 +1687,6 @@ async def run_question_with_history(
                 "enable_memory_filesystem_mode",
                 False,
             ),
-            compression_trigger_threshold=coord_cfg.get(
-                "compression_trigger_threshold",
-                0.75,
-            ),
             compression_target_ratio=coord_cfg.get(
                 "compression_target_ratio",
                 0.20,
@@ -1830,10 +1826,6 @@ async def run_question_with_history(
                 enable_memory_filesystem_mode=coordination_settings.get(
                     "enable_memory_filesystem_mode",
                     False,
-                ),
-                compression_trigger_threshold=coordination_settings.get(
-                    "compression_trigger_threshold",
-                    0.75,
                 ),
                 compression_target_ratio=coordination_settings.get(
                     "compression_target_ratio",
@@ -2271,10 +2263,6 @@ async def run_single_question(
                     "enable_memory_filesystem_mode",
                     False,
                 ),
-                compression_trigger_threshold=coordination_settings.get(
-                    "compression_trigger_threshold",
-                    0.75,
-                ),
                 compression_target_ratio=coordination_settings.get(
                     "compression_target_ratio",
                     0.20,
@@ -2395,10 +2383,6 @@ async def run_single_question(
                 enable_memory_filesystem_mode=coord_cfg.get(
                     "enable_memory_filesystem_mode",
                     False,
-                ),
-                compression_trigger_threshold=coord_cfg.get(
-                    "compression_trigger_threshold",
-                    0.75,
                 ),
                 compression_target_ratio=coord_cfg.get(
                     "compression_target_ratio",

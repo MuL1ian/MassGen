@@ -277,10 +277,9 @@ orchestrator:
 
     # Filesystem Memory Mode
     enable_memory_filesystem_mode: true
-    # Compression settings (optional, defaults: 75% trigger, 20% target)
-    # For testing, use lower values to see compression in action:
-    compression_trigger_threshold: 0.50   # Trigger at 50% of context window
-    compression_target_ratio: 0.30        # Target 30% after compression
+    # Compression settings for reactive compression (when context limit is exceeded)
+    # Value between 0 and 1: 0.3 means preserve 30% of messages, summarize the rest
+    compression_target_ratio: 0.30
 
 
 # ============ Timeout Configuration ============

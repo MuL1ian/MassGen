@@ -747,7 +747,7 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                                 thinking_text = part.text
                                                 self._append_reasoning_to_buffer(thinking_text)
                                                 log_stream_chunk("backend.gemini", "reasoning", thinking_text, agent_id)
-                                                yield StreamChunk(type="reasoning", content=thinking_text)
+                                                yield StreamChunk(type="reasoning", reasoning_delta=thinking_text)
 
                         # Process regular text content (if not thinking)
                         if not has_thinking_content and hasattr(chunk, "text") and chunk.text:
@@ -1328,7 +1328,7 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                                         thinking_text = part.text
                                                         self._append_reasoning_to_buffer(thinking_text)
                                                         log_stream_chunk("backend.gemini", "reasoning", thinking_text, agent_id)
-                                                        yield StreamChunk(type="reasoning", content=thinking_text)
+                                                        yield StreamChunk(type="reasoning", reasoning_delta=thinking_text)
 
                                 # Process regular text content (if not thinking)
                                 if not has_thinking_content and hasattr(chunk, "text") and chunk.text:

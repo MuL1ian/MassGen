@@ -1423,6 +1423,7 @@ class ClaudeCodeBackend(LLMBackend):
 
         # Initialize span tracking variables for proper cleanup in all code paths
         llm_span = None
+        llm_span_cm = None  # Context manager for the span
         llm_span_open = False
 
         log_backend_activity(
@@ -1720,8 +1721,10 @@ class ClaudeCodeBackend(LLMBackend):
                 llm_span_attributes["massgen.round_type"] = llm_round_type
 
             # Enter span context - will be closed when ResultMessage is received or on error
-            llm_span = tracer.span("llm.claude_code.stream", attributes=llm_span_attributes)
-            llm_span.__enter__()
+            # Note: tracer.span() returns a context manager, so we need to store it
+            # and capture the actual span object from __enter__()
+            llm_span_cm = tracer.span("llm.claude_code.stream", attributes=llm_span_attributes)
+            llm_span = llm_span_cm.__enter__()
             llm_span_open = True
 
             await client.query(combined_query)
@@ -1866,12 +1869,12 @@ class ClaudeCodeBackend(LLMBackend):
                         )
 
                     # Close LLM span on successful completion
-                    if llm_span_open and llm_span:
+                    if llm_span_open and llm_span_cm:
                         if message.duration_ms:
                             llm_span.set_attribute("llm.duration_ms", message.duration_ms)
                         if message.total_cost_usd:
                             llm_span.set_attribute("llm.cost_usd", message.total_cost_usd)
-                        llm_span.__exit__(None, None, None)
+                        llm_span_cm.__exit__(None, None, None)
                         llm_span_open = False
 
                     # Yield completion
@@ -1905,10 +1908,10 @@ class ClaudeCodeBackend(LLMBackend):
             error_msg = str(e)
 
             # Close LLM span on error
-            if llm_span_open and llm_span:
+            if llm_span_open and llm_span_cm:
                 llm_span.set_attribute("error", True)
                 llm_span.set_attribute("error.message", error_msg[:500])
-                llm_span.__exit__(type(e), e, e.__traceback__)
+                llm_span_cm.__exit__(type(e), e, e.__traceback__)
                 llm_span_open = False
 
             # Provide helpful Windows-specific guidance

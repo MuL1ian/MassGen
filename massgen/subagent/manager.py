@@ -518,12 +518,16 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 # Write reference to subprocess log directory
                 self._write_subprocess_log_reference(config.id, subprocess_log_dir)
 
+                # Get log directory path for the result
+                log_dir = self._get_subagent_log_dir(config.id)
+
                 return SubagentResult.create_success(
                     subagent_id=config.id,
                     answer=answer,
                     workspace_path=str(workspace),
                     execution_time_seconds=execution_time,
                     token_usage=token_usage,
+                    log_path=str(log_dir) if log_dir else None,
                 )
             else:
                 stderr_text = stderr.decode() if stderr else ""
@@ -533,11 +537,13 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 # Still try to get log path for debugging
                 _, subprocess_log_dir = self._parse_subprocess_status(workspace)
                 self._write_subprocess_log_reference(config.id, subprocess_log_dir, error=error_msg)
+                log_dir = self._get_subagent_log_dir(config.id)
                 return SubagentResult.create_error(
                     subagent_id=config.id,
                     error=error_msg,
                     workspace_path=str(workspace),
                     execution_time_seconds=time.time() - start_time,
+                    log_path=str(log_dir) if log_dir else None,
                 )
 
         except asyncio.TimeoutError:
@@ -545,10 +551,12 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             # Still copy logs even on timeout - they contain useful debugging info
             _, subprocess_log_dir = self._parse_subprocess_status(workspace)
             self._write_subprocess_log_reference(config.id, subprocess_log_dir, error="Subagent timed out")
+            log_dir = self._get_subagent_log_dir(config.id)
             return SubagentResult.create_timeout(
                 subagent_id=config.id,
                 workspace_path=str(workspace),
                 timeout_seconds=config.timeout_seconds or self.default_timeout,
+                log_path=str(log_dir) if log_dir else None,
             )
         except asyncio.CancelledError:
             # Handle graceful cancellation (e.g., from Ctrl+C)
@@ -563,22 +571,26 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             # Still copy logs even on cancellation - they contain useful debugging info
             _, subprocess_log_dir = self._parse_subprocess_status(workspace)
             self._write_subprocess_log_reference(config.id, subprocess_log_dir, error="Subagent cancelled")
+            log_dir = self._get_subagent_log_dir(config.id)
             return SubagentResult.create_error(
                 subagent_id=config.id,
                 error="Subagent cancelled",
                 workspace_path=str(workspace),
                 execution_time_seconds=time.time() - start_time,
+                log_path=str(log_dir) if log_dir else None,
             )
         except Exception as e:
             logger.error(f"[SubagentManager] Subagent {config.id} error: {e}")
             # Still copy logs even on error - they contain useful debugging info
             _, subprocess_log_dir = self._parse_subprocess_status(workspace)
             self._write_subprocess_log_reference(config.id, subprocess_log_dir, error=str(e))
+            log_dir = self._get_subagent_log_dir(config.id)
             return SubagentResult.create_error(
                 subagent_id=config.id,
                 error=str(e),
                 workspace_path=str(workspace),
                 execution_time_seconds=time.time() - start_time,
+                log_path=str(log_dir) if log_dir else None,
             )
 
     def _generate_subagent_yaml_config(

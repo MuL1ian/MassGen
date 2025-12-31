@@ -99,16 +99,11 @@ def _check_exception_type(error: Exception) -> Optional[str]:
             return "groq"
 
     # Google/Gemini gRPC exceptions
-    if error_type in ("ResourceExhausted", "DeadlineExceeded"):
+    # Note: We only check DeadlineExceeded here. ResourceExhausted (code 8) is
+    # ambiguous - it can mean rate/quota limits OR context length. We rely on
+    # message pattern matching in is_context_length_error() for context errors.
+    if error_type == "DeadlineExceeded":
         return "google"
-
-    # Check for gRPC code 8 (RESOURCE_EXHAUSTED) - used by Gemini
-    if hasattr(error, "code"):
-        code = error.code
-        if callable(code):
-            code = code()
-        if code == 8:  # gRPC RESOURCE_EXHAUSTED
-            return "google"
 
     return None
 
@@ -147,13 +142,9 @@ def is_context_length_error(error: Exception) -> bool:
         # LiteLLM's ContextWindowExceededError is always a context error
         return True
 
-    # gRPC code 8 (RESOURCE_EXHAUSTED) from Gemini is a context/quota error
-    if hasattr(error, "code"):
-        code = error.code
-        if callable(code):
-            code = code()
-        if code == 8:  # gRPC RESOURCE_EXHAUSTED
-            return True
+    # Note: We intentionally do NOT check gRPC code 8 (RESOURCE_EXHAUSTED) here.
+    # Code 8 is ambiguous - it can indicate rate/quota limits (not context errors).
+    # Instead, we rely on message pattern matching below for Gemini context errors.
 
     # 2. Check HTTP status + message combination for reliability
     status = _get_http_status(error)

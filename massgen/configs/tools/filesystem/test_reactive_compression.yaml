@@ -59,12 +59,10 @@ orchestrator:
     - path: "massgen/backend/"
       permission: "read"
 
-  # Compression settings
-  # Note: trigger_threshold is not reliably enforceable (reactive only)
-  # target_ratio IS enforced - compress down to this % of messages
+  # Compression settings for reactive compression (when context limit is exceeded)
+  # Value between 0 and 1: 0.2 means preserve 20% of messages, summarize the rest
   coordination:
-    compression_trigger_threshold: 0.50  # Would trigger at 50% if proactive worked
-    compression_target_ratio: 0.20       # Preserve 20% of messages after compression
+    compression_target_ratio: 0.20
 
 timeout_settings:
   orchestrator_timeout_seconds: 600  # 10 minutes - compression takes time

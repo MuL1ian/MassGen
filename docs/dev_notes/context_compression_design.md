@@ -53,7 +53,34 @@ Claude API rejects assistant messages ending with trailing whitespace. The Claud
 
 ## Testing
 
-### Manual Testing Script
+### Unit Tests (pytest)
+
+These run without API keys and are part of the normal test suite:
+
+```bash
+# Run all compression-related unit tests
+uv run pytest massgen/tests/backend/test_compression_utils.py -v
+uv run pytest massgen/tests/test_streaming_buffer.py -v
+
+# Run memory compression tests
+uv run pytest massgen/tests/memory/test_agent_compression.py -v
+uv run pytest massgen/tests/memory/test_simple_compression.py -v
+```
+
+| Test File | What it Tests |
+|-----------|--------------|
+| `massgen/tests/backend/test_compression_utils.py` | Core compression: truncation, formatting, context fitting, error recovery |
+| `massgen/tests/test_streaming_buffer.py` | StreamingBufferMixin: buffer clearing, appending, compression retry preservation |
+| `massgen/tests/memory/test_agent_compression.py` | Agent-level compression integration |
+| `massgen/tests/memory/test_simple_compression.py` | Basic compression scenarios |
+
+### Manual Integration Tests (scripts/)
+
+These require API keys and make real API calls. They are **excluded from pytest** and must be run manually.
+
+#### Compression Backend Test
+
+Tests reactive compression across all supported backends by filling context to trigger errors:
 
 ```bash
 # Test all backends with per-backend optimal fill ratios
@@ -65,11 +92,33 @@ uv run python scripts/test_compression_backends.py --backend gemini
 # Test with custom fill ratio
 uv run python scripts/test_compression_backends.py --backend openai --fill-ratio 1.0
 
-# List available backends
+# List available backends with their default fill ratios
 uv run python scripts/test_compression_backends.py --list-backends
 ```
 
-**Note**: This test makes real API calls and costs money. It is excluded from the normal test suite.
+**Required env vars**: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `XAI_API_KEY`
+
+#### Streaming Buffer Reasoning Test
+
+Tests that reasoning/thinking content is captured in the streaming buffer for compression recovery:
+
+```bash
+# Test all providers
+uv run python scripts/test_streaming_buffer_reasoning.py
+
+# Test specific provider
+uv run python scripts/test_streaming_buffer_reasoning.py --provider claude
+uv run python scripts/test_streaming_buffer_reasoning.py --provider gemini
+
+# Custom prompt
+uv run python scripts/test_streaming_buffer_reasoning.py --prompt "Explain quantum entanglement"
+```
+
+**Providers tested**: Claude (extended thinking), Gemini (thinking parts), OpenAI (reasoning summaries), OpenRouter
+
+**Required env vars**: `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`
+
+**Note**: Both scripts make real API calls and cost money.
 
 ### Test Results (December 23, 2025)
 

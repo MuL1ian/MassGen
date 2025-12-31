@@ -84,10 +84,27 @@ async def read_media(
     - Audio: mp3, wav, m4a, ogg, flac, aac
     - Video: mp4, mov, avi, mkv, webm
 
+    CRITICAL - Be Skeptical When Evaluating Work:
+        When using this tool to evaluate your own or others' work, you MUST be
+        critical and skeptical, not charitable. Look for flaws, not just strengths:
+
+        - What's MISSING or incomplete?
+        - What looks broken, misaligned, or poorly implemented?
+        - Does it actually meet the requirements, or just look superficially OK?
+        - What would a demanding user complain about?
+
+        Include critique-focused language in your prompt, e.g.:
+        - "What flaws, issues, or missing elements do you see?"
+        - "What would a critical reviewer complain about?"
+        - "Does this fully meet requirements or are there gaps?"
+
+        Do NOT just ask "describe this" - that yields overly charitable analysis.
+
     Args:
         file_path: Path to the media file (relative or absolute).
                    Relative paths are resolved from agent's working directory.
         prompt: Optional prompt/question about the media content.
+                For evaluation: include critical/skeptical framing in your prompt.
         agent_cwd: Agent's current working directory (automatically injected).
         allowed_paths: List of allowed base paths for validation (optional).
         backend_type: Backend type (automatically injected from ExecutionContext).
@@ -103,8 +120,14 @@ async def read_media(
         ExecutionResult containing text description/analysis of the media
 
     Examples:
+        # Basic analysis
         read_media("screenshot.png")
         → Returns description of the image
+
+        # Critical evaluation (RECOMMENDED for evaluating work)
+        read_media("website_screenshot.png",
+                   prompt="What flaws, missing elements, or issues do you see? Be critical.")
+        → Returns critique-focused analysis
 
         read_media("recording.mp3", prompt="Transcribe this audio")
         → Returns transcription of the audio

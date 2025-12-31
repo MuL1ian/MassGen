@@ -109,6 +109,11 @@ class LLMBackend(ABC):
 
         self.token_calculator = TokenCostCalculator()
 
+        # Compression target ratio for reactive compression (context limit recovery)
+        # Default 0.2 = preserve 20% of messages, summarize 80%
+        # This is set by Orchestrator from CoordinationConfig.compression_target_ratio
+        self._compression_target_ratio: float = 0.20
+
         # Filesystem manager integration
         self.filesystem_manager = None
         cwd = kwargs.get("cwd")

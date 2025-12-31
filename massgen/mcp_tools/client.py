@@ -631,7 +631,6 @@ class MCPClient:
 
         tracer = get_tracer()
         start_time = asyncio.get_event_loop().time()
-        agent_id or "mcp"
 
         try:
             # Add timeout to tool calls with tracing span
