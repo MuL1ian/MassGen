@@ -1235,6 +1235,38 @@ class Orchestrator(ChatAgent):
 
         return str(chunk_type)
 
+    @staticmethod
+    def _is_tool_related_content(content: str) -> bool:
+        """
+        Check if content is tool-related output that should be excluded from clean answer.
+
+        Tool-related content includes:
+        - Tool calls: 🔧 tool_name(...)
+        - Tool results: 🔧 Tool ✅ Result: ... or 🔧 Tool ❌ Error: ...
+        - MCP status: 🔧 MCP: ...
+        - Backend status: Final Temp Working directory: ...
+
+        Args:
+            content: The content string to check
+
+        Returns:
+            True if content is tool-related and should be excluded from clean answer
+        """
+        if not content:
+            return False
+
+        # Tool calls and results from ClaudeCodeBackend
+        if content.startswith("🔧 "):
+            return True
+
+        # Backend status messages
+        if content.startswith("Final Temp Working directory:"):
+            return True
+        if content.startswith("Final Session ID:"):
+            return True
+
+        return False
+
     async def chat(
         self,
         messages: List[Dict[str, Any]],
@@ -2291,8 +2323,15 @@ Your answer:"""
         )
 
         # Set log attempt for directory organization (only if restart feature is enabled)
+        # For restarts (attempt 2+), CLI sets this before creating the UI
+        # For first attempt, we still need to set it here
         if self.config.coordination_config.max_orchestration_restarts > 0:
-            set_log_attempt(self.current_attempt + 1)
+            from massgen.logger_config import _CURRENT_ATTEMPT
+
+            expected_attempt = self.current_attempt + 1
+            # Only set if not already set to the expected value (CLI may have set it for restarts)
+            if _CURRENT_ATTEMPT != expected_attempt:
+                set_log_attempt(expected_attempt)
 
         # Track active coordination state for cleanup
         self._active_streams = {}
@@ -5046,7 +5085,8 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             )
 
         # Use agent's chat method with proper system message (reset chat for clean presentation)
-        presentation_content = ""
+        presentation_content = ""  # All content for display/logging
+        clean_answer_content = ""  # Only clean text for answer.txt (excludes tool calls/results)
         final_snapshot_saved = False  # Track whether snapshot was saved during stream
         was_cancelled = False  # Track if we broke out due to cancellation
 
@@ -5073,6 +5113,9 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 # Use the same streaming approach as regular coordination
                 if chunk_type == "content" and chunk.content:
                     presentation_content += chunk.content
+                    # Only add to clean answer if not tool-related content
+                    if not self._is_tool_related_content(chunk.content):
+                        clean_answer_content += chunk.content
                     log_stream_chunk("orchestrator", "content", chunk.content, selected_agent_id)
                     yield StreamChunk(type="content", content=chunk.content, source=selected_agent_id)
                 elif chunk_type in [
@@ -5116,7 +5159,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     yield StreamChunk(type="content", content=mcp_content, source=selected_agent_id)
                 elif chunk_type == "done":
                     # Save the final workspace snapshot (from final workspace directory)
-                    final_answer = presentation_content.strip() if presentation_content.strip() else self.agent_states[selected_agent_id].answer  # fallback to stored answer if no content generated
+                    # Use clean_answer_content (excludes tool calls/results) for answer.txt
+                    final_answer = (
+                        clean_answer_content.strip() if clean_answer_content.strip() else self.agent_states[selected_agent_id].answer
+                    )  # fallback to stored answer if no clean content generated
                     final_context = self.get_last_context(selected_agent_id)
                     await self._save_agent_snapshot(
                         self._selected_agent,
@@ -5125,7 +5171,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         context_data=final_context,
                     )
 
-                    # Track the final answer in coordination tracker
+                    # Track the final answer in coordination tracker (use clean content)
                     self.coordination_tracker.set_final_answer(selected_agent_id, final_answer, snapshot_timestamp="final")
 
                     # Mark snapshot as saved
@@ -5178,7 +5224,8 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         finally:
             # Ensure final snapshot is always saved (even if "done" chunk wasn't yielded)
             if not final_snapshot_saved:
-                final_answer = presentation_content.strip() if presentation_content.strip() else self.agent_states[selected_agent_id].answer
+                # Use clean_answer_content (excludes tool calls/results) for answer.txt
+                final_answer = clean_answer_content.strip() if clean_answer_content.strip() else self.agent_states[selected_agent_id].answer
                 final_context = self.get_last_context(selected_agent_id)
                 await self._save_agent_snapshot(
                     self._selected_agent,
@@ -5187,13 +5234,14 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     context_data=final_context,
                 )
 
-                # Track the final answer in coordination tracker
+                # Track the final answer in coordination tracker (use clean content)
                 self.coordination_tracker.set_final_answer(selected_agent_id, final_answer, snapshot_timestamp="final")
 
-            # Store the final presentation content for logging
-            if presentation_content.strip():
-                # Store the synthesized final answer
-                self._final_presentation_content = presentation_content.strip()
+            # Store the final presentation content for post-evaluation and history
+            # Use clean_answer_content (excludes tool calls/results)
+            if clean_answer_content.strip():
+                # Store the clean final answer (used by post-evaluation and conversation history)
+                self._final_presentation_content = clean_answer_content.strip()
             elif not was_cancelled:
                 # Only yield fallback content if NOT cancelled - yielding after cancellation
                 # causes display issues since the UI has already raised CancellationRequested

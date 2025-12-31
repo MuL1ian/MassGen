@@ -226,9 +226,10 @@ BINARY_FILE_EXTENSIONS = frozenset(
 # WORKSPACE FILE EXTENSIONS (for sharing)
 # =============================================================================
 
-# File extensions to include from workspace when sharing (small text files)
+# File extensions to include from workspace when sharing (text and previewable files)
 WORKSPACE_INCLUDE_EXTENSIONS = frozenset(
     {
+        # Text files
         ".txt",
         ".md",
         ".json",
@@ -244,8 +245,17 @@ WORKSPACE_INCLUDE_EXTENSIONS = frozenset(
         ".cfg",
         ".ini",
         ".xml",
+        # Office documents (binary - handled specially for preview conversion)
+        ".docx",
+        ".pptx",
+        ".xlsx",
+        # PDF (already previewable)
+        ".pdf",
     },
 )
+
+# Office document extensions that need PDF conversion for preview
+OFFICE_DOCUMENT_EXTENSIONS = frozenset({".docx", ".pptx", ".xlsx"})
 
 # =============================================================================
 # SIZE LIMITS

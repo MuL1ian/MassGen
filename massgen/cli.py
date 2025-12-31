@@ -2446,6 +2446,25 @@ async def run_single_question(
                     )
                     print(f"{'='*80}\n")
 
+                # Set log attempt BEFORE creating new UI so display gets correct path
+                # orchestrator.current_attempt was already incremented by _reset_for_restart()
+                from massgen.logger_config import set_log_attempt
+
+                set_log_attempt(orchestrator.current_attempt + 1)
+
+                # Save execution metadata for this attempt
+                save_execution_metadata(
+                    query=question,
+                    config_path=None,  # Not available in this scope
+                    config_content=None,  # Not available in this scope
+                    cli_args={
+                        "mode": "coordination_restart",
+                        "attempt": orchestrator.current_attempt + 1,
+                        "session_id": session_id,
+                        "restart_reason": orchestrator.restart_reason,
+                    },
+                )
+
                 # Reset all agent backends to ensure clean state for next attempt
                 for agent_id, agent in orchestrator.agents.items():
                     if hasattr(agent.backend, "reset_state"):
@@ -5644,6 +5663,44 @@ def cli_main():
             "log_dir",
             nargs="?",
             help="Log directory to export (default: latest). Can be full path or log name.",
+        )
+        export_parser.add_argument(
+            "--turns",
+            "-t",
+            default="all",
+            help='Turn range to export: "all", "N" (turns 1-N), "N-M", or "latest" (default: all)',
+        )
+        export_parser.add_argument(
+            "--no-workspace",
+            action="store_true",
+            help="Exclude workspace artifacts from export",
+        )
+        export_parser.add_argument(
+            "--workspace-limit",
+            default="500KB",
+            help="Max workspace size per agent (e.g., 500KB, 1MB). Default: 500KB",
+        )
+        export_parser.add_argument(
+            "--yes",
+            "-y",
+            action="store_true",
+            help="Skip interactive prompts and use defaults",
+        )
+        export_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Show what would be shared without creating gist",
+        )
+        export_parser.add_argument(
+            "--verbose",
+            "-v",
+            action="store_true",
+            help="Show detailed file listing",
+        )
+        export_parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Output result as JSON (useful for scripting)",
         )
 
         export_args = export_parser.parse_args(sys.argv[2:])
