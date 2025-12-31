@@ -13,6 +13,7 @@ Enhanced to support:
 import base64
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -25,8 +26,14 @@ from rich.console import Console
 
 from .filesystem_manager._constants import MAX_FILE_SIZE_FOR_SHARING as MAX_FILE_SIZE
 from .filesystem_manager._constants import MAX_FILES_FOR_SHARING as MAX_FILES
+from .filesystem_manager._constants import (
+    MAX_PREVIEWABLE_FILE_SIZE_FOR_SHARING as MAX_PREVIEWABLE_FILE_SIZE,
+)
 from .filesystem_manager._constants import MAX_TOTAL_SIZE_FOR_SHARING as MAX_TOTAL_SIZE
-from .filesystem_manager._constants import OFFICE_DOCUMENT_EXTENSIONS
+from .filesystem_manager._constants import (
+    OFFICE_DOCUMENT_EXTENSIONS,
+    PREVIEWABLE_EXTENSIONS,
+)
 from .filesystem_manager._constants import SHARE_EXCLUDE_DIRS as EXCLUDE_PATTERNS
 from .filesystem_manager._constants import (
     SHARE_EXCLUDE_EXTENSIONS as EXCLUDE_EXTENSIONS,
@@ -235,6 +242,7 @@ class WorkspaceDecision:
 
 # Priority files to always include (most important first)
 PRIORITY_FILES = [
+    "answer.txt",  # Always include answer files
     "metrics_summary.json",
     "status.json",
     "coordination_events.json",
@@ -242,6 +250,21 @@ PRIORITY_FILES = [
     "coordination_table.txt",
     "execution_metadata.yaml",
 ]
+
+
+def is_previewable_file(file_path: Path) -> bool:
+    """Check if a file is a previewable binary (pptx, pdf, images).
+
+    These files get higher size limits and priority since they're often
+    the main deliverable from agent work.
+    """
+    return file_path.suffix.lower() in PREVIEWABLE_EXTENSIONS
+
+
+def is_answer_file(rel_path: str) -> bool:
+    """Check if a file is an answer file that should always be included."""
+    return rel_path.endswith("answer.txt") or "/answer.txt" in rel_path
+
 
 # Pattern to match redundant final presentation files in agent_outputs
 EXCLUDE_FILE_PATTERN = "final_presentation_*_latest.txt"
@@ -264,6 +287,11 @@ def should_exclude(path: Path, rel_path: str) -> bool:
     Returns:
         True if file should be excluded
     """
+    # Exclude hidden/system files by name
+    excluded_filenames = {".DS_Store", "Thumbs.db", ".gitignore", ".gitkeep"}
+    if path.name in excluded_filenames:
+        return True
+
     # Check excluded files by pattern
     if fnmatch.fnmatch(path.name, EXCLUDE_FILE_PATTERN):
         return True
@@ -443,36 +471,121 @@ def collect_files_multi_turn(
                 size = file_path.stat().st_size
                 if size == 0:
                     continue
-                if size > MAX_FILE_SIZE:
+                # Use higher limit for previewable binary files (pptx, pdf, images)
+                # and answer files (must always be included)
+                is_previewable = is_previewable_file(file_path)
+                is_answer = is_answer_file(rel_path)
+                max_size = MAX_PREVIEWABLE_FILE_SIZE if (is_previewable or is_answer) else MAX_FILE_SIZE
+                if size > max_size:
                     skipped.append((f"{turn_prefix}{rel_path}", size))
                     continue
-                candidates.append((rel_path, file_path, size))
+                candidates.append((rel_path, file_path, size, is_previewable, is_answer))
             except OSError:
                 continue
 
-        # Sort: priority files first, then by size
-        def sort_key(item: Tuple[str, Path, int]) -> Tuple[int, int, int]:
-            rel_path, _, size = item
+        # Sort: priority order (balanced across agents)
+        # 1. Answer files (must include)
+        # 2. FINAL workspace previewable files (the actual deliverable)
+        # 3. Priority metadata files
+        # 4. Latest timestamp workspace per agent (balanced - one per agent first)
+        # 5. Older timestamp workspaces
+        # 6. Other files by size
+
+        # First, identify the latest timestamp per agent for workspace files
+        agent_timestamps: Dict[str, List[str]] = {}
+        for rel_path, _, _, _, _ in candidates:
+            if "workspace" in rel_path and "/final/" not in rel_path:
+                import re
+
+                # Extract agent_id and timestamp from path like: agent_a/20251231_093357/workspace/file
+                agent_match = re.match(r"^([^/]+)/(\d{8}_\d+)/", rel_path)
+                if agent_match:
+                    agent_id = agent_match.group(1)
+                    timestamp = agent_match.group(2)
+                    if agent_id not in agent_timestamps:
+                        agent_timestamps[agent_id] = []
+                    if timestamp not in agent_timestamps[agent_id]:
+                        agent_timestamps[agent_id].append(timestamp)
+
+        # Sort timestamps descending (newest first) for each agent
+        for agent_id in agent_timestamps:
+            agent_timestamps[agent_id].sort(reverse=True)
+
+        def sort_key(item: Tuple[str, Path, int, bool, bool]) -> Tuple[int, int, int, str, int]:
+            rel_path, file_path, size, is_previewable, is_answer = item
             filename = Path(rel_path).name
+
+            # Priority 0: Answer files (must include)
+            if is_answer:
+                return (0, 0, 0, "", size)
+
+            # Check if this is a workspace file
+            is_workspace = "workspace" in rel_path
+            is_final_workspace = is_workspace and "/final/" in rel_path
+
+            # Priority 1: FINAL workspace previewable files (the main deliverable)
+            if is_final_workspace and is_previewable:
+                return (1, 0, 0, "", size)
+
+            # Priority 2: Named priority files (metadata)
             if filename in PRIORITY_FILES:
-                return (0, PRIORITY_FILES.index(filename), size)
-            return (1, 0, size)
+                return (2, PRIORITY_FILES.index(filename), 0, "", size)
+
+            # Priority 3: FINAL workspace non-previewable files
+            if is_final_workspace:
+                return (3, 0, 0, "", size)
+
+            # For timestamped workspaces, get agent and timestamp rank
+            if is_workspace and not is_final_workspace:
+                import re
+
+                agent_match = re.match(r"^([^/]+)/(\d{8}_\d+)/", rel_path)
+                if agent_match:
+                    agent_id = agent_match.group(1)
+                    timestamp = agent_match.group(2)
+                    ts_list = agent_timestamps.get(agent_id, [])
+                    # Rank is position in sorted list (0 = newest)
+                    ts_rank = ts_list.index(timestamp) if timestamp in ts_list else 999
+
+                    # Priority 4: Previewable workspace files, sorted by timestamp rank (balanced across agents)
+                    # ts_rank ensures we get newest from each agent first
+                    if is_previewable:
+                        return (4, ts_rank, 0, agent_id, size)
+
+                    # Priority 6: Non-previewable workspace files
+                    return (6, ts_rank, 0, agent_id, size)
+
+            # Priority 5: Other previewable files
+            if is_previewable:
+                return (5, 0, 0, "", size)
+
+            # Priority 7: Everything else by size
+            return (7, 0, 0, "", size)
 
         candidates.sort(key=sort_key)
 
         # Add files within limits
-        for rel_path, file_path, size in candidates:
+        for rel_path, file_path, size, is_previewable, is_answer in candidates:
             if len(files) >= MAX_FILES:
                 skipped.append((f"{turn_prefix}{rel_path}", size))
                 continue
-            if total_size + size > MAX_TOTAL_SIZE:
+
+            # Calculate estimated final size including base64 overhead (~1.37x) and PDF conversion
+            suffix = file_path.suffix.lower()
+            is_binary = suffix in OFFICE_DOCUMENT_EXTENSIONS or suffix == ".pdf" or suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+            # Base64 encoding adds ~37% overhead
+            estimated_size = int(size * 1.37) if is_binary else size
+            # Office docs also get PDF conversion - estimate PDF is similar size to original
+            if suffix in OFFICE_DOCUMENT_EXTENSIONS:
+                estimated_size += int(size * 1.37)  # Add estimated PDF size
+
+            if total_size + estimated_size > MAX_TOTAL_SIZE:
                 skipped.append((f"{turn_prefix}{rel_path}", size))
                 continue
 
             try:
                 # Flatten path with turn prefix
                 flat_name = turn_prefix + rel_path.replace("/", "__").replace("\\", "__")
-                suffix = file_path.suffix.lower()
 
                 # Handle Office documents specially (binary files)
                 if suffix in OFFICE_DOCUMENT_EXTENSIONS:
@@ -480,7 +593,7 @@ def collect_files_multi_turn(
                     binary_content = file_path.read_bytes()
                     content = base64.b64encode(binary_content).decode("utf-8")
                     files[flat_name] = content
-                    total_size += size
+                    total_size += len(content)  # Use actual encoded size
 
                     # Also convert to PDF for preview
                     pdf_bytes = convert_office_to_pdf(
@@ -490,9 +603,8 @@ def collect_files_multi_turn(
                     if pdf_bytes:
                         pdf_content = base64.b64encode(pdf_bytes).decode("utf-8")
                         pdf_flat_name = flat_name + ".pdf"
-                        pdf_size = len(pdf_bytes)
                         files[pdf_flat_name] = pdf_content
-                        total_size += pdf_size
+                        total_size += len(pdf_content)  # Use actual encoded size
                         if console:
                             console.print(f"  [dim]Converted {file_path.name} → PDF for preview[/dim]")
                     else:
@@ -502,14 +614,20 @@ def collect_files_multi_turn(
                     binary_content = file_path.read_bytes()
                     content = base64.b64encode(binary_content).decode("utf-8")
                     files[flat_name] = content
-                    total_size += size
+                    total_size += len(content)  # Use actual encoded size
+                elif suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+                    # Image files - read as binary and encode as base64
+                    binary_content = file_path.read_bytes()
+                    content = base64.b64encode(binary_content).decode("utf-8")
+                    files[flat_name] = content
+                    total_size += len(content)  # Use actual encoded size
                 else:
                     # Text files - read as text
                     content = file_path.read_text(errors="replace")
                     if not content.strip():
                         continue
                     files[flat_name] = content
-                    total_size += size
+                    total_size += len(content)  # Use actual content size
 
                     # Track if we found key session files
                     if rel_path == "execution_metadata.yaml":
@@ -1084,12 +1202,17 @@ def parse_size(size_str: str) -> int:
     raise ValueError(f'Invalid size string: "{size_str}". Use format like "500KB" or "1MB".')
 
 
-def create_gist(files: Dict[str, str], description: str) -> str:
+def create_gist(files: Dict[str, str], description: str, console: Optional[Console] = None) -> str:
     """Create a secret gist and return the gist ID.
+
+    Uses a two-step process for large files:
+    1. Create an empty gist via `gh gist create`
+    2. Clone, add files, and push via git (allows up to 100MB per file)
 
     Args:
         files: Dict mapping filenames to content
         description: Gist description
+        console: Optional console for status messages
 
     Returns:
         Gist ID
@@ -1097,40 +1220,168 @@ def create_gist(files: Dict[str, str], description: str) -> str:
     Raises:
         ShareError: If gist creation fails
     """
+    # Calculate total size to decide which method to use
+    total_size = sum(len(content) for content in files.values())
+    # Use git push for large uploads (>10MB) to avoid API limits
+    use_git_push = total_size > 10_000_000
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
 
-        # Write files to temp directory
-        for name, content in files.items():
-            (tmpdir_path / name).write_text(content, encoding="utf-8")
+        if use_git_push:
+            # Method 2: Create empty gist, then git push (supports large files)
+            return _create_gist_via_git(files, description, tmpdir_path, console)
+        else:
+            # Method 1: Direct API upload (faster for small files)
+            return _create_gist_via_api(files, description, tmpdir_path)
 
-        file_args = [str(tmpdir_path / name) for name in files.keys()]
 
-        try:
-            # Note: gh gist create defaults to secret, no flag needed
-            result = subprocess.run(
-                ["gh", "gist", "create", "-d", description] + file_args,
-                capture_output=True,
-                text=True,
-                check=True,
+def _create_gist_via_api(files: Dict[str, str], description: str, tmpdir_path: Path) -> str:
+    """Create gist using gh CLI API (limited to ~1MB per file)."""
+    # Write files to temp directory
+    for name, content in files.items():
+        (tmpdir_path / name).write_text(content, encoding="utf-8")
+
+    file_args = [str(tmpdir_path / name) for name in files.keys()]
+
+    try:
+        result = subprocess.run(
+            ["gh", "gist", "create", "-d", description] + file_args,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        gist_url = result.stdout.strip()
+        gist_id = gist_url.split("/")[-1]
+        return gist_id
+
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr or ""
+        if "gh auth login" in stderr or "not logged in" in stderr.lower():
+            raise ShareError(
+                "Not authenticated with GitHub.\n" "Run 'gh auth login' to enable sharing.",
             )
+        raise ShareError(f"Failed to create gist: {stderr}")
+    except FileNotFoundError:
+        raise ShareError(
+            "GitHub CLI (gh) not found.\n" "Install it from https://cli.github.com/",
+        )
 
-            # Output is the gist URL: https://gist.github.com/username/abc123
-            gist_url = result.stdout.strip()
-            gist_id = gist_url.split("/")[-1]
-            return gist_id
 
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr or ""
-            if "gh auth login" in stderr or "not logged in" in stderr.lower():
-                raise ShareError(
-                    "Not authenticated with GitHub.\n" "Run 'gh auth login' to enable sharing.",
-                )
-            raise ShareError(f"Failed to create gist: {stderr}")
-        except FileNotFoundError:
+def _create_gist_via_git(
+    files: Dict[str, str],
+    description: str,
+    tmpdir_path: Path,
+    console: Optional[Console] = None,
+) -> str:
+    """Create gist using git push (supports up to 100MB per file).
+
+    Process:
+    1. Create a minimal gist with a placeholder file via API
+    2. Clone the gist repo
+    3. Add all files and commit
+    4. Push to origin
+    """
+    try:
+        # Step 1: Create minimal gist with placeholder
+        placeholder_file = tmpdir_path / ".massgen_placeholder"
+        placeholder_file.write_text("# MassGen Session\nUploading files...")
+
+        result = subprocess.run(
+            ["gh", "gist", "create", "-d", description, str(placeholder_file)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        gist_url = result.stdout.strip()
+        gist_id = gist_url.split("/")[-1]
+
+        if console:
+            console.print(f"  [dim]Created gist {gist_id}, pushing files via git...[/dim]")
+
+        # Step 2: Clone the gist using gh CLI's git credential helper
+        clone_dir = tmpdir_path / "gist_repo"
+
+        # Use HTTPS URL - gh CLI will handle auth via credential helper
+        gist_git_url = f"https://gist.github.com/{gist_id}.git"
+
+        # Set up environment to use gh as git credential helper
+        git_env = os.environ.copy()
+        git_env["GIT_ASKPASS"] = ""  # Disable interactive prompts
+        git_env["GIT_TERMINAL_PROMPT"] = "0"
+
+        # Configure git to use gh for gist.github.com credentials
+        subprocess.run(
+            ["git", "config", "--global", "credential.https://gist.github.com.helper", "!gh auth git-credential"],
+            capture_output=True,
+            text=True,
+            check=False,  # Don't fail if already set
+        )
+
+        subprocess.run(
+            ["git", "clone", gist_git_url, str(clone_dir)],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=tmpdir_path,
+            env=git_env,
+        )
+
+        # Step 3: Remove placeholder and add all files
+        placeholder_in_repo = clone_dir / ".massgen_placeholder"
+        if placeholder_in_repo.exists():
+            placeholder_in_repo.unlink()
+
+        for name, content in files.items():
+            file_path = clone_dir / name
+            file_path.write_text(content, encoding="utf-8")
+
+        # Step 4: Git add, commit, push
+        subprocess.run(
+            ["git", "add", "-A"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=clone_dir,
+        )
+
+        subprocess.run(
+            ["git", "commit", "-m", "Add MassGen session files"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=clone_dir,
+        )
+
+        subprocess.run(
+            ["git", "push", "origin", "main"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=clone_dir,
+        )
+
+        return gist_id
+
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr or ""
+        if "gh auth login" in stderr or "not logged in" in stderr.lower():
+            raise ShareError(
+                "Not authenticated with GitHub.\n" "Run 'gh auth login' to enable sharing.",
+            )
+        if "Permission denied" in stderr or "publickey" in stderr:
+            raise ShareError(
+                "Git SSH authentication failed.\n" "Ensure your SSH key is added to GitHub: https://github.com/settings/keys",
+            )
+        raise ShareError(f"Failed to create gist: {stderr}")
+    except FileNotFoundError as e:
+        if "gh" in str(e):
             raise ShareError(
                 "GitHub CLI (gh) not found.\n" "Install it from https://cli.github.com/",
             )
+        if "git" in str(e):
+            raise ShareError("Git not found. Please install git.")
+        raise ShareError(f"Command not found: {e}")
 
 
 def share_session_multi_turn(
@@ -1267,7 +1518,7 @@ def share_session_multi_turn(
             console.print(f"[dim]Description: {description}[/dim]")
         return "DRY_RUN"
 
-    gist_id = create_gist(files, description)
+    gist_id = create_gist(files, description, console)
 
     return f"{VIEWER_URL_BASE}?gist={gist_id}"
 
@@ -1328,7 +1579,7 @@ def share_session(log_dir: Path | str, console: Optional[Console] = None) -> str
         except (json.JSONDecodeError, KeyError):
             pass
 
-    gist_id = create_gist(files, description)
+    gist_id = create_gist(files, description, console)
 
     return f"{VIEWER_URL_BASE}?gist={gist_id}"
 
