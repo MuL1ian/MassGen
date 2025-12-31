@@ -44,10 +44,6 @@ OpenRouter native web search plugin via `enable_web_search`. Persona generator d
   - Includes both original file (for download) and PDF (for preview) in gists
   - Tries sudo image first (`mcp-runtime-sudo`), falls back to standard image
 
-- **Docker Container Flexibility**: MassGen Docker operations now support multiple container images
-  - Prefers `ghcr.io/massgen/mcp-runtime-sudo:latest` for operations requiring elevated permissions
-  - Falls back to `ghcr.io/massgen/mcp-runtime:latest` when sudo image unavailable
-
 ### Documentations, Configurations and Resources
 - **Installation Documentation**: Clarified `uv run` commands for tests and examples in README and quickstart docs
 - **Logfire Documentation**: Updated installation instructions for observability optional extra
