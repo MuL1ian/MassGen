@@ -9,16 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.32 (December 31, 2025)** - Multi-Turn Export & Logfire Optional
+Enhanced session export with multi-turn support, turn range selection, and workspace options. Logfire moved to optional `[observability]` dependency. Per-attempt logging with separate log files. Office document PDF conversion for sharing previews.
+
 **v0.1.31 (December 29, 2025)** - Logfire Observability Integration
 Comprehensive structured logging via Logfire with automatic LLM instrumentation (OpenAI, Anthropic, Gemini), tool execution tracing, and agent coordination observability. Enable with `--logfire` CLI flag. Azure OpenAI native tool call streaming fixes.
 
 **v0.1.30 (December 26, 2025)** - OpenRouter Web Search & Persona Diversity Modes
 OpenRouter native web search plugin via `enable_web_search`. Persona generator diversity modes (`perspective`/`implementation`) with phase-based adaptation. Azure OpenAI multi-endpoint support and environment variable expansion in configs.
 
-**v0.1.29 (December 24, 2025)** - Subagent System & Responses API Fixes
-New subagent system for spawning parallel child MassGen processes with isolated workspaces. Enhanced tool metrics with distribution statistics. CLI config builder per-agent system messages. OpenAI Responses API duplicate item and function call ID fixes.
-
 ---
+
+## [0.1.32] - 2025-12-31
+
+### Changed
+- **Session Export Multi-Turn Support**: Enhanced `massgen export` command with multi-turn session handling
+  - New `--turns` flag for turn range selection (`all`, `N`, `N-M`, `latest`)
+  - Workspace options: `--no-workspace`, `--workspace-limit` (default 500KB per agent)
+  - Export controls: `--yes` (skip prompts), `--dry-run`, `--verbose`, `--json`
+  - Multi-turn file collection preserves turn/attempt structure in exported gists
+
+- **Logfire Optional Dependency**: Moved Logfire from required to optional `[observability]` dependency
+  - Install with `pip install massgen[observability]` to enable Logfire tracing
+  - Helpful error message when `--logfire` flag used without Logfire installed
+  - Reduces default installation size for users who don't need observability
+
+- **Per-Attempt Logging**: Each orchestration restart attempt now has isolated log files
+  - Separate `massgen.log` and `execution_metadata.yaml` per attempt directory
+  - Log handlers reconfigured on restart via `set_log_attempt()` function
+  - Viewer adjusted to handle multiple attempt directories
+
+- **Office Document PDF Conversion**: Automatic PDF conversion for DOCX/PPTX/XLSX when sharing sessions
+  - Uses Docker + LibreOffice for headless conversion
+  - Includes both original file (for download) and PDF (for preview) in gists
+  - Tries sudo image first (`mcp-runtime-sudo`), falls back to standard image
+
+### Documentations, Configurations and Resources
+- **Installation Documentation**: Clarified `uv run` commands for tests and examples in README and quickstart docs
+- **Logfire Documentation**: Updated installation instructions for observability optional extra
+
+### Technical Details
+- **Major Focus**: Multi-turn session export, Logfire optional dependency, per-attempt logging
+- **Contributors**: @ncrispino @AbhimanyuAryan and the MassGen team
 
 ## [0.1.31] - 2025-12-29
 
