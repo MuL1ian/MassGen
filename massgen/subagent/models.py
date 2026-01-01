@@ -10,6 +10,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
+# Subagent timeout bounds (in seconds)
+SUBAGENT_MIN_TIMEOUT = 300  # 5 minutes
+SUBAGENT_MAX_TIMEOUT = 600  # 10 minutes
+SUBAGENT_DEFAULT_TIMEOUT = 300  # 5 minutes
+
 
 @dataclass
 class SubagentConfig:
@@ -21,7 +26,7 @@ class SubagentConfig:
         task: The task/prompt for the subagent to execute
         parent_agent_id: ID of the agent that spawned this subagent
         model: Optional model override (inherits from parent if None)
-        timeout_seconds: Maximum execution time (default 300s / 5 min)
+        timeout_seconds: Maximum execution time (clamped to 5-10 min range)
         context_files: List of file paths the subagent can READ (read-only access enforced)
         use_docker: Whether to use Docker container (inherits from parent settings)
         system_prompt: Optional custom system prompt for the subagent
@@ -47,7 +52,7 @@ class SubagentConfig:
         parent_agent_id: str,
         subagent_id: Optional[str] = None,
         model: Optional[str] = None,
-        timeout_seconds: int = 300,
+        timeout_seconds: int = SUBAGENT_DEFAULT_TIMEOUT,
         context_files: Optional[List[str]] = None,
         use_docker: bool = True,
         system_prompt: Optional[str] = None,
@@ -62,7 +67,7 @@ class SubagentConfig:
             parent_agent_id: ID of the parent agent
             subagent_id: Optional custom ID (generates UUID if not provided)
             model: Optional model override
-            timeout_seconds: Execution timeout
+            timeout_seconds: Execution timeout (clamped to 5-10 min range)
             context_files: File paths subagent can read (read-only, no write access)
             use_docker: Whether to use Docker
             system_prompt: Optional custom system prompt
@@ -72,12 +77,15 @@ class SubagentConfig:
         Returns:
             Configured SubagentConfig instance
         """
+        # Clamp timeout to valid range (5-10 minutes)
+        clamped_timeout = max(SUBAGENT_MIN_TIMEOUT, min(SUBAGENT_MAX_TIMEOUT, timeout_seconds))
+
         return cls(
             id=subagent_id or f"sub_{uuid.uuid4().hex[:8]}",
             task=task,
             parent_agent_id=parent_agent_id,
             model=model,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=clamped_timeout,
             context_files=context_files or [],
             use_docker=use_docker,
             system_prompt=system_prompt,
@@ -104,12 +112,16 @@ class SubagentConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SubagentConfig":
         """Create config from dictionary."""
+        # Clamp timeout to valid range (5-10 minutes)
+        raw_timeout = data.get("timeout_seconds", SUBAGENT_DEFAULT_TIMEOUT)
+        clamped_timeout = max(SUBAGENT_MIN_TIMEOUT, min(SUBAGENT_MAX_TIMEOUT, raw_timeout))
+
         return cls(
             id=data["id"],
             task=data["task"],
             parent_agent_id=data["parent_agent_id"],
             model=data.get("model"),
-            timeout_seconds=data.get("timeout_seconds", 300),
+            timeout_seconds=clamped_timeout,
             context_files=data.get("context_files", []),
             use_docker=data.get("use_docker", True),
             system_prompt=data.get("system_prompt"),

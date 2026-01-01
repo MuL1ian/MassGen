@@ -22,6 +22,7 @@ from massgen.structured_logging import (
     trace_subagent_execution,
 )
 from massgen.subagent.models import (
+    SUBAGENT_DEFAULT_TIMEOUT,
     SubagentConfig,
     SubagentOrchestratorConfig,
     SubagentPointer,
@@ -53,7 +54,7 @@ class SubagentManager:
         orchestrator_id: str,
         parent_agent_configs: List[Dict[str, Any]],
         max_concurrent: int = 3,
-        default_timeout: int = 300,
+        default_timeout: int = SUBAGENT_DEFAULT_TIMEOUT,
         subagent_orchestrator_config: Optional[SubagentOrchestratorConfig] = None,
         log_directory: Optional[str] = None,
     ):
@@ -704,15 +705,16 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         coord_settings = orch_config.coordination.copy() if orch_config and orch_config.coordination else {}
         coord_settings["enable_subagents"] = False  # CRITICAL: prevent nesting
 
-        # Apply max_new_answers limit to prevent runaway iterations
-        if orch_config and orch_config.max_new_answers:
-            coord_settings["max_new_answers"] = orch_config.max_new_answers
-
         orchestrator_config = {
             "snapshot_storage": str(workspace / "snapshots"),
             "agent_temporary_workspace": str(workspace / "temp"),
             "coordination": coord_settings,
         }
+
+        # Apply max_new_answers limit to prevent runaway iterations
+        # This must be at the top level of orchestrator config (not inside coordination)
+        if orch_config and orch_config.max_new_answers:
+            orchestrator_config["max_new_answers_per_agent"] = orch_config.max_new_answers
 
         # Add context paths if provided
         if context_paths:

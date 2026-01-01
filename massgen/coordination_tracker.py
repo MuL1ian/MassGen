@@ -49,6 +49,7 @@ class EventType(str, Enum):
     AGENT_TIMEOUT = "agent_timeout"
     AGENT_CANCELLED = "agent_cancelled"
     UPDATE_INJECTED = "update_injected"
+    VOTE_IGNORED = "vote_ignored"
 
     # Broadcast/communication events
     BROADCAST_CREATED = "broadcast_created"
@@ -63,6 +64,7 @@ ACTION_TO_EVENT = {
     ActionType.TIMEOUT: EventType.AGENT_TIMEOUT,
     ActionType.CANCELLED: EventType.AGENT_CANCELLED,
     ActionType.UPDATE_INJECTED: EventType.UPDATE_INJECTED,
+    ActionType.VOTE_IGNORED: EventType.VOTE_IGNORED,
 }
 
 

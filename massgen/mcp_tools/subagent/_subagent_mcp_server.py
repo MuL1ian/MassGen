@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 import fastmcp
 
 from massgen.subagent.manager import SubagentManager
-from massgen.subagent.models import SubagentOrchestratorConfig
+from massgen.subagent.models import SUBAGENT_DEFAULT_TIMEOUT, SubagentOrchestratorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ _parent_agent_configs: List[Dict[str, Any]] = []
 _subagent_orchestrator_config: Optional[SubagentOrchestratorConfig] = None
 _log_directory: Optional[str] = None
 _max_concurrent: int = 3
-_default_timeout: int = 300
+_default_timeout: int = SUBAGENT_DEFAULT_TIMEOUT
 
 
 def _get_manager() -> SubagentManager:

@@ -4380,12 +4380,18 @@ Your answer:"""
                         elif tool_name.startswith("mcp") or "__" in tool_name:
                             # MCP tools (with or without mcp__ prefix) and custom tools are handled by the backend
                             # Tool results are streamed separately via StreamChunks
-                            # Mark as workflow progress to avoid retry enforcement while agent is doing work
-                            workflow_tool_found = True
+                            # Only mark as workflow progress if agent can still provide answers.
+                            # If they've hit their answer limit, they MUST vote - MCP tools shouldn't delay this.
+                            can_answer, _ = self._check_answer_count_limit(agent_id)
+                            if can_answer:
+                                workflow_tool_found = True
+                            # else: agent must vote, don't set workflow_tool_found so enforcement triggers
                         elif tool_name.startswith("custom_tool"):
                             # Custom tools are handled by the backend and their results are streamed separately
-                            # Mark as workflow progress to avoid retry enforcement while agent is doing work
-                            workflow_tool_found = True
+                            # Only mark as workflow progress if agent can still provide answers.
+                            can_answer, _ = self._check_answer_count_limit(agent_id)
+                            if can_answer:
+                                workflow_tool_found = True
                         else:
                             # Non-workflow tools not yet implemented
                             yield (
