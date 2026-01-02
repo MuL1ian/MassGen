@@ -503,7 +503,12 @@ class MCPCircuitBreakerManager:
                 if event == "success":
                     circuit_breaker.record_success(server_name, agent_id=agent_id)
                 else:
-                    circuit_breaker.record_failure(server_name, agent_id=agent_id)
+                    circuit_breaker.record_failure(
+                        server_name,
+                        agent_id=agent_id,
+                        error_type="tool_call",
+                        error_message=error_message,
+                    )
                 count += 1
             except Exception as cb_error:
                 log_mcp_activity(

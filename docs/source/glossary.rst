@@ -10,6 +10,9 @@ Standard terminology used throughout MassGen documentation.
    Agent
       An AI assistant configured with a specific backend (model) and capabilities. Agents work independently or collaborate with other agents to solve tasks.
 
+   Attempt
+      A single orchestration execution within a :term:`Turn`. If orchestration fails or restarts (due to errors, timeouts, or explicit restart requests), each restart creates a new attempt. Attempts are numbered sequentially (attempt_1, attempt_2, etc.). Most turns complete in a single attempt. See also: :term:`Turn`, :term:`Round`.
+
    Backend
       The AI model provider integration (e.g., OpenAI, Claude, Gemini). Each backend connects to a specific AI service and provides access to its models.
 
@@ -23,10 +26,10 @@ Standard terminology used throughout MassGen documentation.
       A shared directory that agents can access during multi-agent collaboration. Context paths have permissions (read or write) and enable project integration.
 
    Coordination Phase
-      The period when agents observe each other's solutions and vote on the best approach. During coordination, agents can refine their answers based on others' work.
+      The period when agents observe each other's solutions and vote on the best approach. During coordination, agents can refine their answers based on others' work. Coordination completes when all agents have voted.
 
-   Coordination Round
-      One iteration of the coordination phase. Multiple rounds allow agents to iteratively improve solutions through observation and voting.
+   Round
+      A single LLM call cycle for an agent during coordination, where the agent receives the current context (previous answers), processes it, and produces output (either a ``new_answer`` or a ``vote``). Multiple rounds occur as agents iteratively refine solutions. Each round includes: receiving context → LLM streaming → tool execution (if any) → output. See also: :term:`Turn`, :term:`Attempt`.
 
    Final Agent
       The agent whose solution is selected after coordination completes. This agent presents the final answer and can execute write operations to context paths.
@@ -62,10 +65,19 @@ Standard terminology used throughout MassGen documentation.
       See :term:`MCP Planning Mode`.
 
    Session
-      A multi-turn conversation saved in ``.massgen/sessions/``. Sessions preserve context across multiple interactions with the same agent team.
+      A multi-turn conversation saved in ``.massgen/sessions/``. Sessions preserve context across multiple :term:`turns<Turn>` with the same agent team. A session can span multiple user interactions over time.
+
+   Turn
+      A single user interaction in a :term:`Session`. Each turn represents one question/task submitted to the agents, triggering a complete coordination cycle. In multi-turn mode, turns are numbered sequentially (turn_1, turn_2, etc.). Each turn may have one or more :term:`attempts<Attempt>`. The log directory structure is: ``log_TIMESTAMP/turn_N/attempt_N/``. See also: :term:`Round`, :term:`Attempt`.
 
    Snapshot
       A workspace state captured during coordination. Snapshots allow agents to share file-based work with each other.
+
+   Streaming
+      Real-time delivery of LLM responses as they are generated, rather than waiting for the complete response. MassGen uses streaming for all LLM calls, enabling live progress display and early tool execution detection.
+
+   Stream Chunk
+      A single piece of data from a streaming LLM response. Chunk types include: ``content`` (text), ``tool_calls`` (function invocations), ``reasoning`` (thinking), and ``done`` (completion signal).
 
    Snapshot Storage
       Directory where workspace snapshots are stored. Configured via ``orchestrator.snapshot_storage`` in YAML.

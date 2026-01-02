@@ -57,6 +57,10 @@ agents:
       exclude_file_operation_mcps: true      # Use command-line for file ops (write_file/edit_file kept for clean file creation)
       enable_mcp_command_line: true          # Enable execute_command
 
+      # Parallel tool execution - tools called together run simultaneously
+      # WARNING: Do not call dependent tools together (e.g., mkdir + write to that dir)
+      concurrent_tool_execution: true
+
       # Command line execution (required for code-based tools)
       command_line_execution_mode: "docker"
       command_line_docker_network_mode: "bridge"
@@ -121,6 +125,10 @@ agents:
       exclude_file_operation_mcps: true      # Use command-line for file ops (write_file/edit_file kept for clean file creation)
       enable_mcp_command_line: true          # Enable execute_command
 
+      # Parallel tool execution - tools called together run simultaneously
+      # WARNING: Do not call dependent tools together (e.g., mkdir + write to that dir)
+      concurrent_tool_execution: true
+
       # Command line execution (required for code-based tools)
       command_line_execution_mode: "docker"
       command_line_docker_network_mode: "bridge"
@@ -164,6 +172,72 @@ agents:
       #     command: "npx"
       #     args: ["-y", "@fak111/weather-mcp"]
 
+  # - id: "agent_b"
+  #   backend:
+  #     # type: "claude_code"
+  #     # model: "claude-sonnet-4-5-20250929"
+  #     type: "chatcompletion"
+  #     base_url: "https://openrouter.ai/api/v1"
+  #     model: "x-ai/grok-4.1-fast"
+  #     # type: "claude"
+  #     # model: "claude-sonnet-4-5-20250929"
+  #     # enable_strict_tool_use: true
+  #     # type: "grok"
+  #     # model: "grok-4-1-fast-reasoning"
+  #     cwd: "workspace2"
+
+  #     # Enable code-based tools (CodeAct paradigm)
+  #     enable_code_based_tools: true          # MCP tools → Python code in servers/
+  #     exclude_file_operation_mcps: true      # Use command-line for file ops (write_file/edit_file kept for clean file creation)
+  #     enable_mcp_command_line: true          # Enable execute_command
+
+  #     # Parallel tool execution - tools called together run simultaneously
+  #     # WARNING: Do not call dependent tools together (e.g., mkdir + write to that dir)
+  #     concurrent_tool_execution: true
+
+  #     # Command line execution (required for code-based tools)
+  #     command_line_execution_mode: "docker"
+  #     command_line_docker_network_mode: "bridge"
+  #     command_line_docker_enable_sudo: true
+
+  #     # IMPORTANT: Pass API keys to Docker (required for most custom tools)
+  #     # Most tools in massgen/tool/ need API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+  #     # Check requirements: rg "^requires_api_keys:" massgen/tool/*/TOOL.md
+  #     command_line_docker_credentials:
+  #       env_file: ".env"  # Load from .env file in project root
+  #       env_vars_from_file:
+  #         - "OPENAI_API_KEY"
+  #         - "GOOGLE_API_KEY"
+  #         - "GEMINI_API_KEY"
+
+  #     # Shared tools directory (optional) - tools generated once, shared across agents
+  #     # If not specified, tools are generated in each agent's workspace
+  #     shared_tools_directory: "shared_tools"
+
+  #     # Custom tools - choose one approach:
+  #     # Option 1: Auto-discover all tools from massgen/tool/ directory
+  #     auto_discover_custom_tools: true
+
+  #     # Option 2: Specify custom path (takes precedence over auto_discover)
+  #     # custom_tools_path: "massgen/tool/_code_based_example"
+
+  #     # Exclude specific custom tools (optional)
+  #     # NOTE: Tools requiring unavailable API keys are AUTOMATICALLY excluded
+  #     # This option is for manual exclusions (e.g., heavy dependencies, unwanted features)
+  #     exclude_custom_tools:
+  #       - "_computer_use"  # Manual exclusion: Requires OPENAI_API_KEY
+  #       - "_claude_computer_use"  # Manual exclusion: Requires ANTHROPIC_API_KEY
+  #       - "_gemini_computer_use"   # Manual exclusion: Requires GOOGLE_API_KEY
+  #       - "_browser_automation"    # Manual exclusion: Better to just do via CLI else image gets passed
+  #       # - "_video_tools"           # Manual exclusion: Heavy FFmpeg dependencies
+
+  #     # MCP servers - these will be converted to Python wrappers in servers/
+  #     # mcp_servers:
+  #     #   - name: "weather"
+  #     #     type: "stdio"
+  #     #     command: "npx"
+  #     #     args: ["-y", "@fak111/weather-mcp"]
+
 orchestrator:
   snapshot_storage: "snapshots"
   agent_temporary_workspace: "temp_workspaces"
@@ -203,6 +277,9 @@ orchestrator:
 
     # Filesystem Memory Mode
     enable_memory_filesystem_mode: true
+    # Compression settings for reactive compression (when context limit is exceeded)
+    # Value between 0 and 1: 0.3 means preserve 30% of messages, summarize the rest
+    compression_target_ratio: 0.30
 
 
 # ============ Timeout Configuration ============

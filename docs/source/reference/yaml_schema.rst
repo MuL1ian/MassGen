@@ -21,7 +21,8 @@ MassGen configurations have a clear hierarchy of settings. Understanding this st
 1. **Top Level** - Global settings
 
    - ``agents`` or ``agent``: List of agents (or single agent)
-   - ``memory``: Memory system configuration (conversation + persistent)
+   - ``memory``: Memory system configuration (conversation + persistent with Qdrant)
+   - ``filesystem_memory``: Filesystem-based memory with auto-compression
    - ``orchestrator``: Coordination and workspace settings
    - ``ui``: Display and logging settings
 
@@ -374,6 +375,76 @@ UI Configuration
      display_type: "rich_terminal"  # or "simple"
      logging_enabled: true
 
+Filesystem Memory Configuration
+-------------------------------
+
+Filesystem memory provides automatic context compression and memory persistence for long-running agent conversations. When the context window approaches capacity, the agent is prompted to summarize important information to markdown files before the conversation is truncated.
+
+.. note::
+
+   This is separate from the ``memory`` section, which configures Qdrant-based vector memory. ``filesystem_memory`` uses plain files for simpler, more transparent memory management.
+
+Basic Configuration
+~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   filesystem_memory:
+     enabled: true
+     compression:
+       trigger_threshold: 0.75   # Compress at 75% context usage
+       target_ratio: 0.20        # Keep 20% after compression
+
+How Auto-Compression Works
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. **Monitoring**: The system monitors context window usage each turn
+2. **Trigger**: When usage reaches ``trigger_threshold`` (default 75%), compression begins
+3. **Agent Summary**: A compression request is injected asking the agent to:
+
+   - Write a conversation summary to ``memory/short_term/recent.md``
+   - Optionally write important facts to ``memory/long_term/*.md``
+   - Call the ``compression_complete`` tool to signal completion
+
+4. **Validation**: System validates that ``recent.md`` was written
+5. **Truncation**: Conversation is truncated to ``target_ratio`` (default 20%), keeping recent messages
+6. **Fallback**: If agent fails after 2 attempts, algorithmic compression is used (with warning)
+
+Memory File Structure
+~~~~~~~~~~~~~~~~~~~~~
+
+After compression, the agent's workspace contains:
+
+.. code-block:: text
+
+   workspace/
+   └── memory/
+       ├── short_term/
+       │   └── recent.md       # Conversation summary (auto-injected on future turns)
+       └── long_term/
+           ├── user_prefs.md   # Optional: persistent facts
+           └── project_notes.md
+
+Example with Full Options
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   # Enable filesystem memory with custom thresholds
+   filesystem_memory:
+     enabled: true
+     compression:
+       trigger_threshold: 0.80   # More aggressive: wait until 80%
+       target_ratio: 0.30        # Keep more context: 30%
+
+   # Agent with memory-aware configuration
+   agents:
+     - id: "assistant"
+       backend:
+         type: "gemini"
+         model: "gemini-2.5-flash"
+         enable_mcp_command_line: true  # Required for file writing
+
 Complete Example
 ----------------
 
@@ -628,6 +699,11 @@ Backend
      - No
      - All with MCP support
      - Shared directory for code-based tools. Tools generated once and shared across agents (default: per-agent)
+   * - ``concurrent_tool_execution``
+     - boolean
+     - No
+     - All with MCP support
+     - Execute multiple tool calls in parallel (default: false). When enabled, tools called together run simultaneously. WARNING: Do not call dependent tools together (e.g., mkdir + write to that dir)
    * - ``enable_mcp_command_line``
      - boolean
      - No
@@ -1016,6 +1092,44 @@ UI
      - boolean
      - No
      - Enable/disable logging
+
+Filesystem Memory
+~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - ``enabled``
+     - boolean
+     - No
+     - Enable filesystem memory and auto-compression (default: true)
+   * - ``compression``
+     - object
+     - No
+     - Compression settings (see below)
+
+Filesystem Memory Compression
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - ``trigger_threshold``
+     - float
+     - No
+     - Context usage percentage (0.0-1.0) at which to trigger compression (default: 0.75)
+   * - ``target_ratio``
+     - float
+     - No
+     - Target context percentage (0.0-1.0) after compression (default: 0.20)
 
 See Also
 --------

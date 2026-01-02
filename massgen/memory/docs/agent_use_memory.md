@@ -142,10 +142,10 @@ This only affects ConversationMemory - PersistentMemory is preserved across rese
 
 #### Chat Flags
 
-The `chat()` method supports flags for memory control:
+The `chat()` method supports flags for memory and state control:
 
 - **`clear_history=True`**: Clears conversation memory before processing new messages
-- **`reset_chat=True`**: Resets the conversation memory state
+- **`reset_chat=True`**: Resets conversation history to provided messages
 
 ```python
 # Start a new conversation, clearing previous history
@@ -329,7 +329,7 @@ User Message
     ├─── Check clear_history/reset_chat flags
     │         │
     │         ├─── If clear_history: Clear ConversationMemory
-    │         └─── If reset_chat: Reset ConversationMemory
+    │         └─── If reset_chat: Reset conversation_history to provided messages
     │
     ├─── Retrieve from PersistentMemory
     │         │
@@ -337,6 +337,8 @@ User Message
     │
     ├─── Process messages with LLM backend
     │         │
+    │         ├─── Stream content
+    │         ├─── Tool calls
     │         └─── Generate response
     │
     └─── Record to Memories

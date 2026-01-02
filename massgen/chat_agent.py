@@ -194,6 +194,7 @@ class SingleAgent(ChatAgent):
 
         # Create context compressor if monitor and conversation_memory exist
         self.context_compressor = None
+
         if self.context_monitor and self.conversation_memory:
             from .memory._compression import ContextCompressor
             from .token_manager.token_manager import TokenCostCalculator
@@ -219,6 +220,46 @@ class SingleAgent(ChatAgent):
         self._current_turn_tool_calls = []  # Tool calls made
         self._current_turn_reasoning = []  # Reasoning/thinking (if enabled)
         self._current_turn_mcp_calls = []  # MCP tool calls with args/results
+
+    @staticmethod
+    def _sanitize_messages_for_openai(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Sanitize messages to ensure they are valid for OpenAI API.
+
+        OpenAI requires:
+        - Assistant messages with tool_calls can have content=None
+        - Assistant messages without tool_calls MUST have content as string (not None)
+        - All other roles must have content as string
+
+        Args:
+            messages: List of message dicts (may have None content values)
+
+        Returns:
+            Sanitized list of messages safe for OpenAI API
+        """
+        sanitized = []
+        for msg in messages:
+            msg_copy = msg.copy()
+            role = msg_copy.get("role", "")
+            content = msg_copy.get("content")
+            tool_calls = msg_copy.get("tool_calls")
+
+            if role == "assistant":
+                # Assistant with tool_calls can have None content
+                if tool_calls:
+                    # Keep content as-is (can be None)
+                    pass
+                else:
+                    # No tool_calls - content must be a string
+                    if content is None:
+                        msg_copy["content"] = ""
+            else:
+                # Other roles: content should be string, not None
+                if content is None:
+                    msg_copy["content"] = ""
+
+            sanitized.append(msg_copy)
+        return sanitized
 
     @staticmethod
     def _get_chunk_type_value(chunk) -> str:
@@ -541,17 +582,41 @@ class SingleAgent(ChatAgent):
 
                     # Log context usage after response (if monitor enabled)
                     if self.context_monitor:
-                        # Use conversation history for accurate token count
-                        current_history = self.conversation_history if not self.conversation_memory else await self.conversation_memory.get_messages()
-                        usage_info = self.context_monitor.log_context_usage(current_history, turn_number=self._turn_number)
+                        # Use official API token counts (most accurate for cost/pricing)
+                        actual_input_tokens = None
+                        if hasattr(self, "backend") and hasattr(self.backend, "_last_call_input_tokens"):
+                            actual_input_tokens = self.backend._last_call_input_tokens
 
-                        # Compress if needed
+                        if actual_input_tokens and actual_input_tokens > 0:
+                            # Use official API token count (available at stream end)
+                            usage_info = self.context_monitor.log_context_usage_from_tokens(
+                                actual_input_tokens,
+                                turn_number=self._turn_number,
+                            )
+                            logger.debug(
+                                f"[{self.agent_id}] Using official API token count: {actual_input_tokens:,} tokens",
+                            )
+                        else:
+                            # No API token count available - use default empty usage info
+                            usage_info = {
+                                "current_tokens": 0,
+                                "max_tokens": self.context_monitor.context_window,
+                                "usage_percent": 0,
+                                "should_compress": False,
+                                "target_tokens": int(self.context_monitor.context_window * self.context_monitor.target_ratio),
+                            }
+                            logger.debug(
+                                f"[{self.agent_id}] No API token count available",
+                            )
+
+                        # Use algorithmic compression if threshold exceeded
                         if self.context_compressor and usage_info.get("should_compress"):
                             logger.info(
-                                f"🔄 Attempting compression for {self.agent_id} " f"({usage_info['current_tokens']:,} → {usage_info['target_tokens']:,} tokens)",
+                                f"🔄 Attempting algorithmic compression for {self.agent_id} " f"({usage_info['current_tokens']:,} → {usage_info['target_tokens']:,} tokens)",
                             )
+                            # Get messages for compression
                             compression_stats = await self.context_compressor.compress_if_needed(
-                                messages=current_history,
+                                messages=self.conversation_history,
                                 current_tokens=usage_info["current_tokens"],
                                 target_tokens=usage_info["target_tokens"],
                                 should_compress=True,
@@ -589,15 +654,22 @@ class SingleAgent(ChatAgent):
         current_stage: CoordinationStage = None,
         orchestrator_turn: Optional[int] = None,
         previous_winners: Optional[List[Dict[str, Any]]] = None,
+        vote_only: bool = False,
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Process messages through single backend with tool support.
 
         Args:
+            reset_chat: Reset conversation history to provided messages
+            clear_history: Clear conversation history but keep system messages
             orchestrator_turn: Current orchestrator turn number (for turn-aware memory)
             previous_winners: List of previous winning agents with turns
                              Format: [{"agent_id": "agent_b", "turn": 1}, ...]
+            vote_only: If True, agent is in vote-only mode (reached answer limit)
+                       Backends like Gemini will use a vote-only schema
         """
+        # Store vote_only for use in _get_backend_params
+        self._vote_only = vote_only
         # Update orchestrator turn if provided
         if orchestrator_turn is not None:
             logger.debug(f"🔍 [chat] Setting orchestrator_turn={orchestrator_turn} for {self.agent_id}")
@@ -621,15 +693,8 @@ class SingleAgent(ChatAgent):
                 await self.conversation_memory.clear()
 
         if reset_chat:
-            # Skip pre-restart recording - messages are already recorded via done chunks
-            # Pre-restart would duplicate content and include orchestrator system prompts (noise)
-            # The conversation_memory contains:
-            # 1. User messages - will be in new conversation after reset
-            # 2. Agent responses - already recorded to persistent_memory via done chunks
-            # 3. System messages - orchestrator prompts, don't want in long-term memory
-            logger.debug(f"🔄 Resetting chat for {self.agent_id} (skipping pre-restart recording - already captured via done chunks)")
-
             # Reset conversation history to the provided messages
+            logger.debug(f"🔄 Resetting chat for {self.agent_id}")
             self.conversation_history = messages.copy()
             # Reset backend state completely
             if self.backend.is_stateful():
@@ -699,6 +764,9 @@ class SingleAgent(ChatAgent):
                 f"⏭️  Skipping retrieval for {self.agent_id} " f"(no compression yet, all context in conversation_memory)",
             )
 
+        if current_stage:
+            self.backend.set_stage(current_stage)
+
         # Handle stateful vs stateless backends differently
         if self.backend.is_stateful():
             # Stateful: only send new messages, backend maintains context
@@ -711,25 +779,81 @@ class SingleAgent(ChatAgent):
                 }
                 backend_messages.insert(0, memory_msg)
         else:
-            # Stateless: send full conversation history
+            # Stateless: use conversation_history as source of truth
             backend_messages = self.conversation_history.copy()
-            # Inject memory context after system message but before conversation
+            # Inject memory context before user messages if available
             if memory_context:
                 memory_msg = {
                     "role": "system",
                     "content": f"Relevant memories:\n{memory_context}",
                 }
-                # Insert after existing system messages
-                system_count = sum(1 for msg in backend_messages if msg.get("role") == "system")
-                backend_messages.insert(system_count, memory_msg)
-
-        if current_stage:
-            self.backend.set_stage(current_stage)
+                # Insert after any existing system message but before other messages
+                insert_idx = 0
+                for i, msg in enumerate(backend_messages):
+                    if msg.get("role") == "system":
+                        insert_idx = i + 1
+                    else:
+                        break
+                backend_messages.insert(insert_idx, memory_msg)
 
         # Log context usage before processing (if monitor enabled)
+        # Use litellm.token_counter for accurate count including tools
         self._turn_number += 1
         if self.context_monitor:
-            self.context_monitor.log_context_usage(backend_messages, turn_number=self._turn_number)
+            try:
+                import litellm
+
+                # Get model name from backend
+                model_name = getattr(self.backend, "model", None)
+                if not model_name and hasattr(self.backend, "config"):
+                    model_name = self.backend.config.get("model", "gpt-4")
+
+                # Pre-flight token count with messages + tools
+                tool_count = len(tools) if tools else 0
+                preflight_tokens = litellm.token_counter(
+                    model=model_name or "gpt-4",
+                    messages=backend_messages,
+                    tools=tools if tools else None,
+                )
+                logger.info(
+                    f"🔍 Pre-flight token count for {self.agent_id}: " f"{preflight_tokens:,} tokens ({len(backend_messages)} messages, {tool_count} tools)",
+                )
+
+                # Log with actual pre-flight count
+                usage_info = self.context_monitor.log_context_usage_from_tokens(
+                    current_tokens=preflight_tokens,
+                    turn_number=self._turn_number,
+                )
+
+                # Check if we should compress BEFORE making the API call
+                if usage_info.get("should_compress") and self.context_compressor:
+                    logger.warning(
+                        f"⚠️ Pre-flight check: {preflight_tokens:,} tokens exceeds threshold. " f"Compressing before API call...",
+                    )
+                    # Compress using conversation_history
+                    compression_stats = await self.context_compressor.compress_if_needed(
+                        messages=self.conversation_history,
+                        current_tokens=preflight_tokens,
+                        target_tokens=usage_info.get("target_tokens", int(self.context_monitor.context_window * 0.5)),
+                        should_compress=True,
+                    )
+                    if compression_stats and self.conversation_memory:
+                        self.conversation_history = await self.conversation_memory.get_messages()
+                        self._compression_has_occurred = True
+                        # Sanitize messages for OpenAI (ensure no None content without tool_calls)
+                        # This is needed because compression may produce messages with None content
+                        backend_messages = self._sanitize_messages_for_openai(self.conversation_history)
+                        logger.info(f"✅ Pre-flight compression complete: {len(self.conversation_history)} messages")
+
+            except Exception as e:
+                # Log error but continue
+                logger.debug(f"Pre-flight token count failed: {e}")
+
+        # Sanitize messages before sending to backend
+        # This ensures no None content values for non-tool-call messages (OpenAI requirement)
+        provider = self.backend.get_provider_name()
+        if provider.lower() in ("openai", "azure", "azure openai"):
+            backend_messages = self._sanitize_messages_for_openai(backend_messages)
 
         # Create backend stream and process it
         backend_stream = self.backend.stream_with_tools(
@@ -746,7 +870,11 @@ class SingleAgent(ChatAgent):
 
     def _get_backend_params(self) -> Dict[str, Any]:
         """Get additional backend parameters. Override in subclasses."""
-        return {}
+        params = {}
+        # Include vote_only if set (for Gemini vote-only schema)
+        if hasattr(self, "_vote_only") and self._vote_only:
+            params["vote_only"] = True
+        return params
 
     def get_status(self) -> Dict[str, Any]:
         """Get current agent status."""
@@ -882,7 +1010,11 @@ class ConfigurableAgent(SingleAgent):
 
     def _get_backend_params(self) -> Dict[str, Any]:
         """Get backend parameters from config."""
-        return self.config.get_backend_params()
+        params = self.config.get_backend_params()
+        # Include vote_only if set (for Gemini vote-only schema)
+        if hasattr(self, "_vote_only") and self._vote_only:
+            params["vote_only"] = True
+        return params
 
     def get_status(self) -> Dict[str, Any]:
         """Get current agent status with config details."""

@@ -1708,6 +1708,10 @@ async def run_question_with_history(
                 "enable_memory_filesystem_mode",
                 False,
             ),
+            compression_target_ratio=coord_cfg.get(
+                "compression_target_ratio",
+                0.20,
+            ),
             use_skills=coord_cfg.get("use_skills", False),
             massgen_skills=coord_cfg.get("massgen_skills", []),
             skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
@@ -1843,6 +1847,10 @@ async def run_question_with_history(
                 enable_memory_filesystem_mode=coordination_settings.get(
                     "enable_memory_filesystem_mode",
                     False,
+                ),
+                compression_target_ratio=coordination_settings.get(
+                    "compression_target_ratio",
+                    0.20,
                 ),
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
@@ -2276,6 +2284,10 @@ async def run_single_question(
                     "enable_memory_filesystem_mode",
                     False,
                 ),
+                compression_target_ratio=coordination_settings.get(
+                    "compression_target_ratio",
+                    0.20,
+                ),
                 use_skills=coordination_settings.get("use_skills", False),
                 massgen_skills=coordination_settings.get("massgen_skills", []),
                 skills_directory=coordination_settings.get(
@@ -2392,6 +2404,10 @@ async def run_single_question(
                 enable_memory_filesystem_mode=coord_cfg.get(
                     "enable_memory_filesystem_mode",
                     False,
+                ),
+                compression_target_ratio=coord_cfg.get(
+                    "compression_target_ratio",
+                    0.20,
                 ),
                 use_skills=coord_cfg.get("use_skills", False),
                 massgen_skills=coord_cfg.get("massgen_skills", []),
@@ -5031,6 +5047,12 @@ async def main(args):
         logger.info("Debug mode enabled")
         logger.debug(f"Command line arguments: {vars(args)}")
 
+    # Initialize streaming buffer saving if requested
+    if args.save_streaming_buffers:
+        from .backend._streaming_buffer_mixin import set_save_streaming_buffers
+
+        set_save_streaming_buffers(True)
+
     # Check if bare `massgen` with no args - use default config if it exists
     if not args.backend and not args.model and not args.config:
         # Use resolve_config_path to check project-level then global config
@@ -5857,6 +5879,11 @@ Environment Variables:
         "--debug",
         action="store_true",
         help="Enable debug mode with verbose logging",
+    )
+    parser.add_argument(
+        "--save-streaming-buffers",
+        action="store_true",
+        help="Save streaming buffers to files in streaming_buffers/ directory (works with all backends)",
     )
     parser.add_argument(
         "--logfire",

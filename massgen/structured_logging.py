@@ -774,6 +774,46 @@ def log_tool_execution(
     )
 
 
+def log_context_compression(
+    agent_id: str,
+    reason: str,
+    original_message_count: int,
+    compressed_message_count: int,
+    original_char_count: int = 0,
+    compressed_char_count: int = 0,
+    compression_ratio: float = 0.0,
+    success: bool = True,
+    error_message: Optional[str] = None,
+):
+    """
+    Log context compression event as a structured event.
+
+    Args:
+        agent_id: ID of the agent whose context was compressed.
+        reason: Reason for compression (e.g., "context_length_exceeded", "proactive").
+        original_message_count: Number of messages before compression.
+        compressed_message_count: Number of messages after compression.
+        original_char_count: Character count before compression.
+        compressed_char_count: Character count after compression.
+        compression_ratio: Ratio of compression (0.0-1.0, where 0.2 means 20% of original).
+        success: Whether compression was successful.
+        error_message: Error message if compression failed.
+    """
+    tracer = get_tracer()
+    tracer.info(
+        "Context compression performed",
+        agent_id=agent_id,
+        reason=reason,
+        original_message_count=original_message_count,
+        compressed_message_count=compressed_message_count,
+        original_char_count=original_char_count,
+        compressed_char_count=compressed_char_count,
+        compression_ratio=round(compression_ratio, 4),
+        success=success,
+        error_message=error_message,
+    )
+
+
 def log_coordination_event(
     event_type: str,
     agent_id: Optional[str] = None,
@@ -793,6 +833,38 @@ def log_coordination_event(
         event_type=event_type,
         agent_id=agent_id,
         **(details or {}),
+    )
+
+
+def log_agent_restart(
+    agent_id: str,
+    reason: str,
+    triggering_agent: Optional[str] = None,
+    restart_count: int = 1,
+    affected_agents: Optional[List[str]] = None,
+):
+    """
+    Log when an agent restart is triggered or completed.
+
+    This is crucial for understanding coordination flow and debugging
+    why agents restarted during a session.
+
+    Args:
+        agent_id: ID of the agent being restarted.
+        reason: Reason for the restart (e.g., "new_answer_available", "api_error", "mcp_disconnect").
+        triggering_agent: ID of the agent that triggered this restart (if any).
+        restart_count: How many times this agent has restarted in this session.
+        affected_agents: List of all agents affected by this restart event.
+    """
+    tracer = get_tracer()
+    tracer.info(
+        "Agent restart: {agent_id} (reason: {reason})",
+        event_type="agent_restart",
+        agent_id=agent_id,
+        reason=reason,
+        triggering_agent=triggering_agent,
+        restart_count=restart_count,
+        affected_agents=",".join(affected_agents) if affected_agents else None,
     )
 
 
@@ -1448,6 +1520,7 @@ __all__ = [
     "log_token_usage",
     "log_tool_execution",
     "log_coordination_event",
+    "log_agent_restart",
     # Coordination-specific loggers
     "log_agent_round_context",
     "log_agent_answer",

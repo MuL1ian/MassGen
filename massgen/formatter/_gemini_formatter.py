@@ -107,7 +107,12 @@ class GeminiFormatter(FormatterBase):
     # Coordination helpers
 
     def has_coordination_tools(self, tools: List[Dict[str, Any]]) -> bool:
-        """Detect if tools contain vote/new_answer coordination tools."""
+        """Detect if tools contain vote/new_answer coordination tools.
+
+        Returns True if:
+        - Both vote AND new_answer are present (normal coordination mode)
+        - Only vote is present (vote-only mode - agent reached answer limit)
+        """
         if not tools:
             return False
 
@@ -119,7 +124,10 @@ class GeminiFormatter(FormatterBase):
                 elif "name" in tool:
                     tool_names.add(tool.get("name", ""))
 
-        return "vote" in tool_names and "new_answer" in tool_names
+        # Normal mode: both vote and new_answer present
+        # Vote-only mode: only vote present (new_answer removed when agent reached limit)
+        # In both cases, having vote means we're in coordination mode
+        return "vote" in tool_names
 
     def has_post_evaluation_tools(self, tools: List[Dict[str, Any]]) -> bool:
         """Detect if tools contain submit/restart_orchestration post-evaluation tools."""
@@ -136,11 +144,42 @@ class GeminiFormatter(FormatterBase):
 
         return "submit" in tool_names and "restart_orchestration" in tool_names
 
-    def build_structured_output_prompt(self, base_content: str, valid_agent_ids: Optional[List[str]] = None, broadcast_enabled: bool = False) -> str:
-        """Build prompt that encourages structured output for coordination."""
+    def build_structured_output_prompt(
+        self,
+        base_content: str,
+        valid_agent_ids: Optional[List[str]] = None,
+        broadcast_enabled: bool = False,
+        vote_only: bool = False,
+    ) -> str:
+        """Build prompt that encourages structured output for coordination.
+
+        Args:
+            base_content: The base prompt content
+            valid_agent_ids: List of valid agent IDs for voting
+            broadcast_enabled: Whether ask_others is available
+            vote_only: If True, only include vote option (agent reached answer limit)
+        """
         agent_list = ""
         if valid_agent_ids:
             agent_list = f"Valid agents: {', '.join(valid_agent_ids)}"
+
+        # In vote-only mode, only show vote option
+        if vote_only:
+            return f"""{base_content}
+
+You must respond with a structured JSON decision at the end of your response.
+
+You must VOTE for the best existing agent's answer:
+{{
+  "action_type": "vote",
+  "vote_data": {{
+    "action": "vote",
+    "agent_id": "agent1",  // Choose from: {agent_list or "agent1, agent2, agent3, etc."}
+    "reason": "Brief reason for your vote"
+  }}
+}}
+
+Make your decision about which agent to vote for and include the vote JSON at the very end of your response."""
 
         # Build ask_others section conditionally
         ask_others_section = ""

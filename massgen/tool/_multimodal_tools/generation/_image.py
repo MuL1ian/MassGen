@@ -9,7 +9,7 @@ routed through by generate_media when mode="image".
 import base64
 
 import requests
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from massgen.logger_config import logger
 from massgen.tool._multimodal_tools.generation._base import (
@@ -64,7 +64,7 @@ async def _generate_image_openai(config: GenerationConfig) -> GenerationResult:
         )
 
     try:
-        client = OpenAI(api_key=api_key)
+        client = AsyncOpenAI(api_key=api_key)
         model = config.model or get_default_model("openai", MediaType.IMAGE)
 
         # Build input content (supports optional input_images for image-to-image)
@@ -78,8 +78,8 @@ async def _generate_image_openai(config: GenerationConfig) -> GenerationResult:
         else:
             input_content = config.prompt
 
-        # Generate image using OpenAI Responses API
-        response = client.responses.create(
+        # Generate image using OpenAI Responses API (async)
+        response = await client.responses.create(
             model=model,
             input=input_content,
             tools=[{"type": "image_generation"}],

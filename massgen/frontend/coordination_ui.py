@@ -189,6 +189,14 @@ class CoordinationUI:
                         self.logger.log_chunk(source, content, chunk_type)
                     continue
 
+                # Display compression status - show in agent panel
+                elif chunk_type == "compression_status":
+                    if self.display and source and source in self.agent_ids:
+                        self.display.update_agent_content(source, content, "tool")
+                    if self.logger:
+                        self.logger.log_chunk(source, content, chunk_type)
+                    continue
+
                 # Handle reasoning streams
                 elif chunk_type in [
                     "reasoning",
@@ -673,6 +681,14 @@ class CoordinationUI:
                         self.logger.log_chunk(source, content, chunk_type)
                     continue
 
+                # Display compression status - show in agent panel
+                elif chunk_type == "compression_status":
+                    if source and source in self.agent_ids:
+                        self.display.update_agent_content(source, content, "tool")
+                    if self.logger:
+                        self.logger.log_chunk(source, content, chunk_type)
+                    continue
+
                 # builtin_tool_results handling removed - now handled as simple content
 
                 # Handle reasoning streams
@@ -1080,6 +1096,14 @@ class CoordinationUI:
                 # Filter out mcp_status chunks - display via agent panel instead of console
                 elif chunk_type == "mcp_status":
                     # Let the display handle MCP status via agent panel
+                    if source and source in self.agent_ids:
+                        self.display.update_agent_content(source, content, "tool")
+                    if self.logger:
+                        self.logger.log_chunk(source, content, chunk_type)
+                    continue
+
+                # Display compression status - show in agent panel
+                elif chunk_type == "compression_status":
                     if source and source in self.agent_ids:
                         self.display.update_agent_content(source, content, "tool")
                     if self.logger:

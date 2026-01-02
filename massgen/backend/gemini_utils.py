@@ -21,6 +21,12 @@ class ActionType(enum.Enum):
     ASK_OTHERS = "ask_others"
 
 
+class VoteOnlyActionType(enum.Enum):
+    """Action type for vote-only mode (when agent has reached answer limit)."""
+
+    VOTE = "vote"
+
+
 class PostEvaluationActionType(enum.Enum):
     """Action types for post-evaluation structured output."""
 
@@ -62,6 +68,25 @@ class CoordinationResponse(BaseModel):
     vote_data: Optional[VoteAction] = Field(default=None, description="Vote data if action is vote")
     answer_data: Optional[NewAnswerAction] = Field(default=None, description="Answer data if action is new_answer")
     ask_others_data: Optional[AskOthersAction] = Field(default=None, description="Ask others data if action is ask_others")
+
+
+class VoteOnlyVoteAction(BaseModel):
+    """Structured output for voting action in vote-only mode."""
+
+    action: VoteOnlyActionType = Field(default=VoteOnlyActionType.VOTE, description="Action type (must be vote)")
+    agent_id: str = Field(description="Anonymous agent ID to vote for (e.g., 'agent1', 'agent2')")
+    reason: str = Field(description="Brief reason why this agent has the best answer")
+
+
+class VoteOnlyCoordinationResponse(BaseModel):
+    """Structured response for vote-only mode (when agent has reached answer limit).
+
+    In vote-only mode, agents can ONLY vote - they cannot submit new answers.
+    This is used when max_new_answers_per_agent limit has been reached.
+    """
+
+    action_type: VoteOnlyActionType = Field(description="Type of action to take (must be vote)")
+    vote_data: VoteOnlyVoteAction = Field(description="Vote data - REQUIRED in vote-only mode")
 
 
 class SubmitAction(BaseModel):

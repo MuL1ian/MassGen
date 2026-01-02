@@ -94,8 +94,9 @@ class ChatCompletionsAPIParamsHandler(APIParamsHandlerBase):
         }
 
         # Direct passthrough of all parameters except those handled separately
+        # Also filter out internal parameters (starting with _)
         for key, value in all_params.items():
-            if key not in self.get_excluded_params() and value is not None:
+            if key not in self.get_excluded_params() and not key.startswith("_") and value is not None:
                 api_params[key] = value
 
         return api_params
@@ -121,9 +122,10 @@ class ChatCompletionsAPIParamsHandler(APIParamsHandlerBase):
         }
 
         # Add filtered parameters
+        # Also filter out internal parameters (starting with _)
         excluded = self.get_excluded_params()
         for key, value in all_params.items():
-            if key not in excluded and value is not None:
+            if key not in excluded and not key.startswith("_") and value is not None:
                 api_params[key] = value
 
         # Combine all tools

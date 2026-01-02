@@ -77,6 +77,15 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
             "stream": True,
         }
 
+        # Set default reasoning effort for GPT-5.1 and GPT-5.2 models
+        # Per OpenAI docs, GPT-5.1 and GPT-5.2 default to reasoning=none, but GPT-5 defaults to medium
+        # We want GPT-5.1/5.2 to behave like GPT-5 for better task completion
+        # See: https://cookbook.openai.com/examples/gpt-5/gpt-5-2_prompting_guide#8-prompt-migration-guide-to-gpt-52
+        model_name = all_params.get("model", "").lower()
+        if model_name.startswith("gpt-5.") and "reasoning" not in all_params:
+            all_params["reasoning"] = {"effort": "medium"}
+            logger.info(f"[ResponseAPIParamsHandler] Set default reasoning effort 'medium' for {model_name}")
+
         # Pass previous_response_id for reasoning model continuity (e.g., GPT-5)
         # This ensures reasoning items from previous responses are available
         previous_response_id = all_params.get("previous_response_id")

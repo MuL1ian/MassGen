@@ -20,12 +20,11 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
 
 from ..logger_config import log_stream_chunk
-from .base import StreamChunk
 from .chat_completions import ChatCompletionsBackend
 
 logger = logging.getLogger(__name__)
@@ -45,8 +44,15 @@ class GrokBackend(ChatCompletionsBackend):
 
         return openai.AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
 
-    def _add_grok_search_params(self, api_params: Dict[str, Any], all_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Add Grok Live Search parameters to API params if web search is enabled."""
+    def _customize_api_params(
+        self,
+        api_params: Dict[str, Any],
+        all_params: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Add Grok Live Search parameters to API params if web search is enabled.
+
+        This hook is called by the parent class before making the API call.
+        """
         enable_web_search = all_params.get("enable_web_search", False)
 
         if enable_web_search:
@@ -64,49 +70,6 @@ class GrokBackend(ChatCompletionsBackend):
             api_params["extra_body"] = merged_extra
 
         return api_params
-
-    async def _stream_with_custom_and_mcp_tools(
-        self,
-        current_messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        client,
-        **kwargs,
-    ) -> AsyncGenerator[StreamChunk, None]:
-        """Override to add Grok-specific search parameters before API call."""
-        # Build API params using parent method
-        all_params = {**self.config, **kwargs}
-        api_params = await self.api_params_handler.build_api_params(current_messages, tools, all_params)
-
-        # Enable usage tracking in streaming responses (required for token counting)
-        if "stream" in api_params and api_params["stream"]:
-            api_params["stream_options"] = {"include_usage": True}
-
-        # Add provider tools (web search, code interpreter) if enabled
-        # Note: For Grok, get_provider_tools() won't add web_search function tool
-        provider_tools = self.api_params_handler.get_provider_tools(all_params)
-
-        if provider_tools:
-            if "tools" not in api_params:
-                api_params["tools"] = []
-            api_params["tools"].extend(provider_tools)
-
-        # Add Grok-specific web search parameters via extra_body
-        api_params = self._add_grok_search_params(api_params, all_params)
-
-        # Start API call timing
-        model = all_params.get("model", "")
-        self.start_api_call_timing(model)
-
-        try:
-            # Start streaming
-            stream = await client.chat.completions.create(**api_params)
-
-            # Delegate to parent's stream processing
-            async for chunk in super()._process_stream(stream, all_params, self.agent_id):
-                yield chunk
-        except Exception as e:
-            self.end_api_call_timing(success=False, error=str(e))
-            raise
 
     def get_provider_name(self) -> str:
         """Get the name of this provider."""

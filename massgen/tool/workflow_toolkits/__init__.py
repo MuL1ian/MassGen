@@ -30,6 +30,7 @@ def get_workflow_tools(
     orchestrator: Optional[Any] = None,
     broadcast_mode: Optional[str] = None,
     broadcast_wait_by_default: bool = True,
+    vote_only: bool = False,
 ) -> List[Dict]:
     """
     Get workflow tool definitions with proper formatting.
@@ -41,6 +42,8 @@ def get_workflow_tools(
         orchestrator: Optional orchestrator instance (for broadcast tools)
         broadcast_mode: Broadcast mode ("agents", "human", or None to disable)
         broadcast_wait_by_default: Default waiting behavior for broadcasts
+        vote_only: If True, only include vote tool (exclude new_answer and broadcast).
+                   Used when agent has reached max_new_answers_per_agent limit.
 
     Returns:
         List of tool definitions
@@ -55,19 +58,20 @@ def get_workflow_tools(
         "broadcast_enabled": bool(broadcast_mode and broadcast_mode is not False),
     }
 
-    # Get new_answer tool
-    new_answer_toolkit = NewAnswerToolkit(template_overrides=template_overrides)
-    tools.extend(new_answer_toolkit.get_tools(config))
+    # Get new_answer tool (unless vote_only mode)
+    if not vote_only:
+        new_answer_toolkit = NewAnswerToolkit(template_overrides=template_overrides)
+        tools.extend(new_answer_toolkit.get_tools(config))
 
-    # Get vote tool
+    # Get vote tool (always included)
     vote_toolkit = VoteToolkit(
         valid_agent_ids=valid_agent_ids,
         template_overrides=template_overrides,
     )
     tools.extend(vote_toolkit.get_tools(config))
 
-    # Get broadcast tools if enabled
-    if broadcast_mode and broadcast_mode is not False:
+    # Get broadcast tools if enabled (unless vote_only mode)
+    if broadcast_mode and broadcast_mode is not False and not vote_only:
         broadcast_toolkit = BroadcastToolkit(
             orchestrator=orchestrator,
             broadcast_mode=broadcast_mode,

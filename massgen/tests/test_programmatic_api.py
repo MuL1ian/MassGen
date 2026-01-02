@@ -28,9 +28,9 @@ class TestBuildConfig:
         assert len(config["agents"]) == 2  # Default is 2 agents
         assert "orchestrator" in config
 
-        # Check default model is gpt-5.1-codex (current default in ConfigBuilder)
+        # Check default model is gpt-5.2 (current default in ConfigBuilder)
         for agent in config["agents"]:
-            assert agent["backend"]["model"] == "gpt-5.1-codex"
+            assert agent["backend"]["model"] == "gpt-5.2"
 
     def test_build_config_with_num_agents(self):
         """Test config with specified number of agents."""

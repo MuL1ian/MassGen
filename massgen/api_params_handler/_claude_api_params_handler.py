@@ -174,6 +174,18 @@ class ClaudeAPIParamsHandler(APIParamsHandlerBase):
         # Convert messages to Claude format and extract system message
         converted_messages, system_message = self.formatter.format_messages_and_system(messages)
 
+        # Strip trailing whitespace from assistant messages (Claude API rejects trailing whitespace)
+        for msg in converted_messages:
+            if msg.get("role") == "assistant":
+                content = msg.get("content")
+                if isinstance(content, str):
+                    msg["content"] = content.rstrip()
+                elif isinstance(content, list):
+                    # Handle multimodal content
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            item["text"] = item.get("text", "").rstrip()
+
         # Build base parameters
         api_params: Dict[str, Any] = {
             "messages": converted_messages,

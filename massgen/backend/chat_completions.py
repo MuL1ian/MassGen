@@ -33,6 +33,8 @@ from ..structured_logging import trace_llm_api_call
 
 # Local imports
 from ._constants import configure_openrouter_extra_body
+from ._context_errors import is_context_length_error
+from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import FilesystemSupport, StreamChunk
 from .base_with_custom_tool_and_mcp import (
     CustomToolAndMCPBackend,
@@ -41,7 +43,7 @@ from .base_with_custom_tool_and_mcp import (
 )
 
 
-class ChatCompletionsBackend(CustomToolAndMCPBackend):
+class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
     """Complete OpenAI-compatible Chat Completions API backend.
 
     Can be used directly with any OpenAI-compatible provider by setting provider name.
@@ -104,8 +106,16 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Stream response using OpenAI Response API with unified MCP/non-MCP processing."""
-        async for chunk in super().stream_with_tools(messages, tools, **kwargs):
-            yield chunk
+        # Clear streaming buffer at start (mixin respects _compression_retry)
+        self._clear_streaming_buffer(**kwargs)
+        agent_id = kwargs.get("agent_id", self.agent_id)
+
+        try:
+            async for chunk in super().stream_with_tools(messages, tools, **kwargs):
+                yield chunk
+        finally:
+            # Save streaming buffer before cleanup
+            self._finalize_streaming_buffer(agent_id=agent_id)
 
     def _append_tool_result_message(
         self,
@@ -122,8 +132,13 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             result: Tool execution result
             tool_type: "custom" or "mcp"
         """
-        # Extract text from result - handle SimpleNamespace wrapper or string
-        result_text = getattr(result, "text", None) or str(result)
+        # Extract text from result - handle MCP CallToolResult objects properly
+        if hasattr(result, "content") and not isinstance(result, (dict, str)):
+            # MCP CallToolResult - extract text from content list
+            extracted = self._extract_text_from_content(result.content)
+            result_text = extracted if extracted is not None else str(result)
+        else:
+            result_text = getattr(result, "text", None) or str(result)
 
         function_output_msg = {
             "role": "tool",
@@ -131,6 +146,10 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             "content": result_text,
         }
         updated_messages.append(function_output_msg)
+
+        # Track tool result in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._append_tool_to_buffer(tool_name, result_text)
 
     def _append_tool_error_message(
         self,
@@ -154,6 +173,10 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         }
         updated_messages.append(error_output_msg)
 
+        # Track tool error in streaming buffer for compression recovery
+        tool_name = call.get("name", "unknown")
+        self._append_tool_to_buffer(tool_name, error_msg, is_error=True)
+
     async def _execute_custom_tool(self, call: Dict[str, Any]) -> AsyncGenerator[CustomToolChunk, None]:
         """Execute custom tool with streaming support - async generator for base class.
 
@@ -175,16 +198,45 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
         async for chunk in self.stream_custom_tool_execution(call):
             yield chunk
 
+    def _customize_api_params(
+        self,
+        api_params: Dict[str, Any],
+        all_params: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Hook for subclasses to modify API params before making the API call.
+
+        Override this method to add provider-specific parameters to the API request.
+        For example, GrokBackend uses this to add Grok Live Search parameters.
+
+        Args:
+            api_params: The API parameters built by the params handler
+            all_params: All configuration parameters including backend config
+
+        Returns:
+            The modified api_params dict
+        """
+        return api_params
+
     async def _stream_with_custom_and_mcp_tools(
         self,
         current_messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
         client,
+        _compression_retry: bool = False,  # Prevents infinite loops on context errors
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
-        """Recursively stream responses, executing custom and MCP tool calls as needed."""
+        """Recursively stream responses, executing custom and MCP tool calls as needed.
+
+        Args:
+            current_messages: Messages to send to the API
+            tools: Tool definitions
+            client: OpenAI client
+            _compression_retry: If True, this is a retry after compression (prevents loops)
+            **kwargs: Additional parameters
+        """
 
         # Build API params for this iteration
+        # Internal parameters (starting with _) are filtered by the API params handler
         all_params = {**self.config, **kwargs}
         agent_id = kwargs.get("agent_id")
         api_params = await self.api_params_handler.build_api_params(current_messages, tools, all_params)
@@ -204,6 +256,10 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                 api_params["tools"] = []
             api_params["tools"].extend(provider_tools)
 
+        # Hook for subclasses to modify api_params before making the API call
+        # Used by GrokBackend to add Grok Live Search parameters
+        api_params = self._customize_api_params(api_params, all_params)
+
         # Start API call timing
         model = api_params.get("model", "unknown")
         provider = self.get_provider_name().lower()
@@ -215,13 +271,43 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
             provider=provider,
             model=model,
             operation="stream",
-        ):
-            # Start streaming
+        ) as llm_span:
+            # Start streaming - wrap in try/except for context length errors
             try:
                 stream = await client.chat.completions.create(**api_params)
             except Exception as e:
-                self.end_api_call_timing(success=False, error=str(e))
-                raise
+                if is_context_length_error(e) and not _compression_retry:
+                    # Context length exceeded on initial request - compress and retry
+                    llm_span.set_attribute("massgen.context_compression", True)
+                    llm_span.set_attribute("massgen.compression_reason", "context_length_exceeded")
+                    logger.warning(
+                        f"[{self.get_provider_name()}] Context length exceeded on request, " f"triggering reactive compression: {e}",
+                    )
+                    self.end_api_call_timing(success=False, error=str(e))
+                    yield StreamChunk(
+                        type="status",
+                        content="⚠️ Context limit reached, compressing conversation...",
+                    )
+
+                    # Compress messages and retry
+                    compressed_messages = await self._compress_messages_for_context_recovery(
+                        current_messages,
+                        buffer_content=None,  # No partial response yet
+                    )
+
+                    # Retry with compressed messages (recursive call has its own trace)
+                    async for chunk in self._stream_with_custom_and_mcp_tools(
+                        compressed_messages,
+                        tools,
+                        client,
+                        _compression_retry=True,  # Prevent infinite loops
+                        **kwargs,
+                    ):
+                        yield chunk
+                    return
+                else:
+                    self.end_api_call_timing(success=False, error=str(e))
+                    raise  # Re-raise non-context errors or if already retried
 
         # Track function calls in this iteration
         captured_function_calls = []
@@ -242,15 +328,46 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
 
-                        # Capture reasoning_details from delta
-                        if getattr(delta, "reasoning_details", None):
-                            reasoning_details.extend(delta.reasoning_details)
+                        # Capture reasoning_details from delta (OpenRouter models)
+                        # Check both direct attribute and model_extra (SDK may not parse custom fields)
+                        delta_reasoning_details = getattr(delta, "reasoning_details", None)
+                        if not delta_reasoning_details:
+                            delta_extra = getattr(delta, "model_extra", None) or {}
+                            delta_reasoning_details = delta_extra.get("reasoning_details")
+                        if delta_reasoning_details:
+                            reasoning_details.extend(delta_reasoning_details)
+                            # Buffer reasoning details for compression recovery
+                            for detail in delta_reasoning_details:
+                                # Handle both object and dict formats
+                                # OpenRouter uses "summary" field, others use "text"
+                                detail_text = None
+                                if hasattr(detail, "text") and detail.text:
+                                    detail_text = detail.text
+                                elif hasattr(detail, "summary") and detail.summary:
+                                    detail_text = detail.summary
+                                elif isinstance(detail, dict):
+                                    detail_text = detail.get("text") or detail.get("summary")
+                                if detail_text:
+                                    self._append_reasoning_to_buffer(detail_text)
+
+                        # Capture reasoning_content from delta (DeepSeek, Qwen, Grok models via OpenRouter)
+                        if getattr(delta, "reasoning_content", None):
+                            reasoning_chunk = delta.reasoning_content
+                            if reasoning_chunk:
+                                self._append_reasoning_to_buffer(reasoning_chunk)
+                                yield StreamChunk(
+                                    type="reasoning",
+                                    content=reasoning_chunk,
+                                    reasoning_delta=reasoning_chunk,
+                                )
 
                         # Plain text content
                         if getattr(delta, "content", None):
                             self.record_first_token()  # Record TTFT on first content
                             content_chunk = delta.content
                             content += content_chunk
+                            # Track content in streaming buffer for compression recovery
+                            self._append_to_streaming_buffer(content_chunk)
                             yield StreamChunk(type="content", content=content_chunk)
 
                         # Tool calls streaming (OpenAI-style)
@@ -318,6 +435,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                                     },
                                 )
 
+                            self._append_tool_call_to_buffer(final_tool_calls)
                             yield StreamChunk(type="tool_calls", tool_calls=final_tool_calls)
 
                             response_completed = True
@@ -631,9 +749,27 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
 
-                        # Capture reasoning_details from delta
-                        if getattr(delta, "reasoning_details", None):
-                            reasoning_details.extend(delta.reasoning_details)
+                        # Capture reasoning_details from delta (OpenRouter models)
+                        # Check both direct attribute and model_extra (SDK may not parse custom fields)
+                        delta_reasoning_details = getattr(delta, "reasoning_details", None)
+                        if not delta_reasoning_details:
+                            delta_extra = getattr(delta, "model_extra", None) or {}
+                            delta_reasoning_details = delta_extra.get("reasoning_details")
+                        if delta_reasoning_details:
+                            reasoning_details.extend(delta_reasoning_details)
+                            # Buffer reasoning details for compression recovery
+                            for detail in delta_reasoning_details:
+                                # Handle both object and dict formats
+                                # OpenRouter uses "summary" field, others use "text"
+                                detail_text = None
+                                if hasattr(detail, "text") and detail.text:
+                                    detail_text = detail.text
+                                elif hasattr(detail, "summary") and detail.summary:
+                                    detail_text = detail.summary
+                                elif isinstance(detail, dict):
+                                    detail_text = detail.get("text") or detail.get("summary")
+                                if detail_text:
+                                    self._append_reasoning_to_buffer(detail_text)
 
                         # Plain text content
                         if getattr(delta, "content", None):
@@ -644,6 +780,8 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                                 yield reasoning_chunk
                             content_chunk = delta.content
                             content += content_chunk
+                            # Track content in streaming buffer for compression recovery
+                            self._append_to_streaming_buffer(content_chunk)
                             # Track content for interrupted stream estimation
                             self._interrupted_stream_content = content
                             log_backend_agent_message(
@@ -662,6 +800,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                             thinking_delta = getattr(delta, "reasoning_content")
                             if thinking_delta:
                                 log_stream_chunk(log_prefix, "reasoning", thinking_delta, agent_id)
+                                self._append_reasoning_to_buffer(thinking_delta)
                                 yield StreamChunk(
                                     type="reasoning",
                                     content=thinking_delta,
@@ -730,6 +869,7 @@ class ChatCompletionsBackend(CustomToolAndMCPBackend):
                                 )
 
                             log_stream_chunk(log_prefix, "tool_calls", final_tool_calls, agent_id)
+                            self._append_tool_call_to_buffer(final_tool_calls)
                             yield StreamChunk(type="tool_calls", tool_calls=final_tool_calls)
 
                             complete_message = {

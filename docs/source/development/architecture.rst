@@ -129,27 +129,38 @@ When an agent provides a ``new_answer`` while other agents are working, MassGen 
 
 .. code-block:: text
 
-   Agent A: Working on solution... [deep in analysis]
+   Agent A: Working on solution... [completes response]
    Agent B: Provides new_answer
             ↓
-   Agent A: Receive UPDATE → Inject new context → Continue working
-            ✅ Preserved all partial work and thinking
+   Agent A: Receive UPDATE → Append to conversation → New API call
+            ✅ Preserved conversation history
             ✅ Can now build on Agent B's answer
+
+**How It Works:**
+
+When Agent B provides a ``new_answer``, the orchestrator appends an UPDATE message to Agent A's
+conversation history containing Agent B's answer. Agent A then makes a **new API call** with
+this extended context. This preserves the conversation history but requires a fresh inference call.
+
+.. note::
+
+   **Future Enhancement**: True mid-stream injection within tool responses is planned, which would
+   allow updates to be injected while an agent is actively streaming, preserving in-progress thinking.
+   Currently, updates are only processed between API calls.
 
 **Benefits:**
 
-1. **Context Preservation**: Agents keep their full thinking history
-2. **Efficiency**: No wasted computation regenerating ideas
-3. **Better Collaboration**: Agents can synthesize multiple perspectives
-4. **Natural Building**: Agents reference and improve each other's work
+1. **Conversation Preservation**: Agents keep their full conversation history
+2. **Collaboration**: Agents can synthesize and build on each other's work
+3. **No Full Restart**: Agents don't lose their accumulated context
 
-**Update Injection**:
+**Update Injection Points**:
 
 Updates are injected at **safe points** during agent execution:
 
 * Between iteration loops (after completing a response)
 * When agent checks for new context
-* NOT mid-stream (would break agent reasoning)
+* Between API calls (not mid-stream)
 
 **Race Condition**: If an agent is deep in its first response when a new answer arrives, it won't see the injection until completing that response. By then, it may already have full context from the orchestrator's normal flow. This is acceptable - the agent still gets all answers, just via different mechanism (full context on next spawn vs. injection mid-work).
 
@@ -438,6 +449,191 @@ Adding External Frameworks
 4. Agents work seamlessly with native MassGen agents
 
 Example: ``massgen/adapters/ag2/``
+
+Context Management
+------------------
+
+MassGen implements several strategies to manage LLM context windows efficiently.
+
+Reactive Compression
+~~~~~~~~~~~~~~~~~~~~
+
+When the LLM provider returns a context length error, MassGen automatically:
+
+1. Captures the streaming buffer content (tool calls, reasoning, partial work)
+2. Generates a summary of completed work
+3. Compresses older messages while preserving recent context
+4. Retries the request with the compressed context
+
+See :doc:`../user_guide/sessions/memory` for user-facing documentation.
+
+Implementation: ``massgen/backend/_compression_utils.py``
+
+Streaming Buffer
+~~~~~~~~~~~~~~~~
+
+The ``StreamingBufferMixin`` captures streamed content during API calls, enabling
+compression recovery to preserve partial work when context limits are exceeded.
+
+**How it works:**
+
+1. As chunks stream from the API, content is accumulated in ``_streaming_buffer``
+2. If a context length error occurs mid-stream, the buffer contains partial work
+3. The buffer content is passed to compression, which summarizes it
+4. The summary is injected as an assistant message for retry
+
+**Buffer content flow:**
+
+.. code-block:: text
+
+   API Stream → _append_to_streaming_buffer() → _streaming_buffer accumulates
+                                              ↓
+                              Context error detected
+                                              ↓
+                              buffer_content passed to compress_messages_for_recovery()
+                                              ↓
+                              Summarized into: "[Tool execution results]\n{buffer}"
+                                              ↓
+                              Injected as assistant message in compressed result
+
+**Backend Support:**
+
+.. list-table:: Streaming Buffer Support by Backend
+   :header-rows: 1
+   :widths: 30 20 50
+
+   * - Backend
+     - Buffer Support
+     - Notes
+   * - ``ChatCompletionsBackend``
+     - ✅ Yes
+     - Base for OpenAI-compatible APIs
+   * - ``ClaudeBackend``
+     - ✅ Yes
+     - Anthropic Messages API
+   * - ``GeminiBackend``
+     - ✅ Yes
+     - Google Gemini SDK
+   * - ``ResponseBackend``
+     - ✅ Yes
+     - OpenAI Responses API
+   * - ``GrokBackend``
+     - ✅ Yes
+     - Inherits from ChatCompletionsBackend
+   * - ``LMStudioBackend``
+     - ✅ Yes
+     - Inherits from ChatCompletionsBackend
+   * - ``InferenceBackend``
+     - ✅ Yes
+     - Inherits from ChatCompletionsBackend
+   * - ``AzureOpenAIBackend``
+     - ❌ No
+     - Extends LLMBackend directly
+   * - ``ClaudeCodeBackend``
+     - ❌ No
+     - Streaming handled internally
+   * - ``ExternalAgentBackend``
+     - ❌ No
+     - Wrapper for external agents
+
+**Implementation:**
+
+- ``massgen/backend/_streaming_buffer_mixin.py`` - Mixin class providing buffer methods
+- Buffer methods: ``_clear_streaming_buffer()``, ``_append_to_streaming_buffer()``
+- Buffer respects ``_compression_retry`` flag to avoid clearing during retry
+
+**Adding buffer support to a backend:**
+
+.. code-block:: python
+
+   from ._streaming_buffer_mixin import StreamingBufferMixin
+
+   class MyBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
+       # StreamingBufferMixin MUST come first in MRO
+       pass
+
+**Note:** The mixin must appear before other base classes in the inheritance list
+to ensure proper method resolution order (MRO).
+
+MCP Tool Result Optimization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+MCP ``CallToolResult`` objects contain both structured and text representations.
+MassGen extracts only the clean text content to minimize context usage:
+
+.. code-block:: text
+
+   Raw CallToolResult (sent to context):
+   ❌ "meta=None content=[TextContent(type='text', text='file contents...')]
+       structuredContent={'content': 'file contents...'}"  ← Duplicated, bloated
+
+   Optimized extraction (sent to context):
+   ✅ "file contents..."  ← Clean, minimal
+
+This optimization typically reduces tool result size by 4-10x, significantly
+extending how many tool calls can fit within the context window.
+
+**Extraction Logic:**
+
+1. Check if result has ``.content`` attribute (MCP CallToolResult)
+2. Extract text from ``TextContent`` objects in the content list
+3. Fall back to ``.text`` attribute or ``str(result)`` for other result types
+
+Implementation: ``_extract_text_from_content()`` in each backend's
+``_append_tool_result_message()`` method.
+
+Large Tool Result Eviction
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Tool results exceeding a token threshold are automatically evicted to files,
+preventing context window saturation. Inspired by `LangChain DeepAgents Harness
+<https://docs.langchain.com/oss/python/deepagents/harness>`_.
+
+**How it works:**
+
+1. After tool execution, the result is checked against the token threshold
+2. If exceeding 20,000 tokens, the result is written to a file in the agent's workspace
+3. The result is replaced with a reference message containing:
+
+   - Token and character counts
+   - File path for retrieval
+   - Character position for chunked reading
+   - A 2,000 token preview of the content
+
+**Example reference message:**
+
+.. code-block:: text
+
+   [Tool Result Evicted - Too Large for Context]
+
+   The result from read_file was 50,000 tokens / 200,000 chars (limit: 20,000 tokens).
+   Full result saved to: .tool_results/read_file_20241225_143052_a1b2c3d4.txt
+
+   To read more: start at char 6,500, read in chunks.
+
+   Preview (chars 0-6,500 of 200,000):
+   {"data": [{"id": 1, "name": "Alice"...
+
+Note: The preview character count varies based on content (approximately 2,000 tokens).
+
+**Configuration:**
+
+Currently uses hardcoded thresholds defined in constants:
+
+- ``TOOL_RESULT_EVICTION_THRESHOLD_TOKENS = 20,000`` - Eviction trigger
+- ``TOOL_RESULT_EVICTION_PREVIEW_TOKENS = 2,000`` - Preview size
+- ``EVICTED_RESULTS_DIR = ".tool_results"`` - Storage directory
+
+**Implementation files:**
+
+- ``massgen/filesystem_manager/_constants.py`` - Threshold constants
+- ``massgen/backend/base_with_custom_tool_and_mcp.py`` - Eviction logic:
+
+  - ``_truncate_to_token_limit()`` - Binary search for token-based truncation
+  - ``_maybe_evict_large_tool_result()`` - Main eviction logic
+  - Integration in ``_execute_tool_with_logging()``
+
+**Testing:** ``massgen/tests/test_tool_result_eviction.py``
 
 Performance Considerations
 --------------------------

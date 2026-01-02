@@ -227,7 +227,34 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.32 - Latest
+### v0.1.33 - Latest
+**New Features:** Reactive Context Compression, Streaming Buffer System, MCP Tool Protections
+
+**Key Features:**
+- **Reactive Context Compression**: Automatic conversation compression when context length errors occur
+- **Streaming Buffer System**: Tracks partial agent responses for compression recovery
+- **File Overwrite Protection**: `write_file` tool refuses to overwrite existing files
+- **Task Plan Duplicate Prevention**: `create_task_plan` blocks duplicate plans after recovery
+- **Grok MCP Tools**: Fixed MCP tool visibility by adjusting tool handling in chat completions
+- **Gemini Vote-Only Mode**: Fixed `vote_only` parameter handling in Gemini backend streaming
+- **GPT-5 Model Behavior**: System prompt adjustments and default reasoning set for newer models
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Test reactive context compression (automatically handles long conversations)
+uv run massgen --debug --save-llm-calls \
+  --config massgen/configs/tools/filesystem/test_reactive_compression.yaml \
+  "Read all Python files in massgen/backend/ and summarize what each one does"
+
+# Compression activates automatically when context limits are reached
+# Agent progress is preserved through the streaming buffer system
+# Debug logs saved to .massgen/massgen_logs/<session>/compression_debug/
+```
+
+### v0.1.32
 **New Features:** Multi-Turn Session Export, Logfire Optional, Per-Attempt Logging
 
 **Key Features:**

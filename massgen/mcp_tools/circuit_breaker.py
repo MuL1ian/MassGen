@@ -7,7 +7,7 @@ Provides unified failure tracking and circuit breaker functionality across all M
 
 import time
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from ..logger_config import log_mcp_activity
 
@@ -17,9 +17,10 @@ class CircuitBreakerConfig:
     """Configuration for circuit breaker behavior."""
 
     max_failures: int = 3
-    reset_time_seconds: int = 300
+    reset_time_seconds: int = 30  # Base backoff time in seconds
     backoff_multiplier: int = 2
-    max_backoff_multiplier: int = 8
+    max_backoff_multiplier: int = 4  # Multiplier cap
+    max_backoff_seconds: int = 120  # Hard cap on final backoff time (2 minutes)
 
 
 @dataclass
@@ -98,14 +99,36 @@ class MCPCircuitBreaker:
             self._reset_server(server_name)
             return False
 
+        # Log that we're skipping with time remaining
+        time_remaining = backoff_time - time_since_failure
+        log_mcp_activity(
+            self.backend_name,
+            "Circuit breaker blocking server",
+            {
+                "server_name": server_name,
+                "failure_count": status.failure_count,
+                "backoff_time_seconds": backoff_time,
+                "time_remaining_seconds": round(time_remaining, 1),
+            },
+            agent_id=self.agent_id or agent_id,
+        )
         return True
 
-    def record_failure(self, server_name: str, agent_id: Optional[str] = None) -> None:
+    def record_failure(
+        self,
+        server_name: str,
+        agent_id: Optional[str] = None,
+        error_type: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
         """
         Record a server failure for circuit breaker.
 
         Args:
             server_name: Name of the server that failed
+            agent_id: Optional agent ID for logging context
+            error_type: Optional type of error (e.g., "timeout", "connection", "execution")
+            error_message: Optional error message for debugging
         """
         current_time = time.monotonic()
 
@@ -116,27 +139,31 @@ class MCPCircuitBreaker:
         status.failure_count += 1
         status.last_failure_time = current_time
 
+        # Build log details with optional error info
+        log_details: Dict[str, Any] = {
+            "server_name": server_name,
+            "failure_count": status.failure_count,
+        }
+        if error_type:
+            log_details["error_type"] = error_type
+        if error_message:
+            log_details["error_message"] = error_message
+
         if status.failure_count >= self.config.max_failures:
             backoff_time = self._calculate_backoff_time(status.failure_count)
+            log_details["backoff_time_seconds"] = backoff_time
             log_mcp_activity(
                 self.backend_name,
                 "Server circuit breaker opened",
-                {
-                    "server_name": server_name,
-                    "failure_count": status.failure_count,
-                    "backoff_time_seconds": backoff_time,
-                },
+                log_details,
                 agent_id=self.agent_id or agent_id,
             )
         else:
+            log_details["max_failures"] = self.config.max_failures
             log_mcp_activity(
                 self.backend_name,
                 "Server failure recorded",
-                {
-                    "server_name": server_name,
-                    "failure_count": status.failure_count,
-                    "max_failures": self.config.max_failures,
-                },
+                log_details,
                 agent_id=self.agent_id or agent_id,
             )
 
@@ -170,11 +197,15 @@ class MCPCircuitBreaker:
         """
         Calculate backoff time based on failure count.
 
+        Uses exponential backoff with two caps:
+        1. max_backoff_multiplier caps the multiplier growth
+        2. max_backoff_seconds provides a hard cap on the final value
+
         Args:
             failure_count: Number of failures
 
         Returns:
-            Backoff time in seconds
+            Backoff time in seconds (capped at max_backoff_seconds)
         """
         if failure_count < self.config.max_failures:
             return 0.0
@@ -186,7 +217,10 @@ class MCPCircuitBreaker:
             self.config.max_backoff_multiplier,
         )
 
-        return self.config.reset_time_seconds * multiplier
+        backoff = self.config.reset_time_seconds * multiplier
+
+        # Apply hard cap on final backoff time
+        return min(backoff, self.config.max_backoff_seconds)
 
     def __repr__(self) -> str:
         """String representation for debugging."""

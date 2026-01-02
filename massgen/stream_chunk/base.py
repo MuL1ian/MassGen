@@ -42,6 +42,9 @@ class ChunkType(Enum):
     ATTACHMENT = "attachment"
     ATTACHMENT_COMPLETE = "attachment_complete"
 
+    # Context management chunks
+    COMPRESSION_NEEDED = "compression_needed"  # Signal to trigger mid-stream compression
+
 
 @dataclass
 class BaseStreamChunk(ABC):

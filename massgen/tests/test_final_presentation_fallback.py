@@ -49,6 +49,14 @@ async def test_final_presentation_fallback():
         # Ensure backend.filesystem_manager is None to skip snapshot copying
         mock_agent.backend = Mock()
         mock_agent.backend.filesystem_manager = None
+        # Mock token_usage with proper numeric values (required by v0.1.32 token tracking)
+        mock_agent.backend.token_usage = Mock(
+            input_tokens=100,
+            output_tokens=50,
+            reasoning_tokens=0,
+            cached_input_tokens=0,
+            estimated_cost=0.001,
+        )
 
         # Simulate empty response from agent
         async def empty_response(*args, **kwargs):
@@ -60,6 +68,9 @@ async def test_final_presentation_fallback():
 
         # Add the mock agent to orchestrator
         orchestrator.agents = {"test_agent": mock_agent}
+
+        # Set the selected agent (required by orchestrator internals for end_round_tracking)
+        orchestrator._selected_agent = "test_agent"
 
         # Test the get_final_presentation method
         vote_results = {
@@ -106,6 +117,14 @@ async def test_final_presentation_with_content():
         # Ensure backend.filesystem_manager is None to skip snapshot copying
         mock_agent.backend = Mock()
         mock_agent.backend.filesystem_manager = None
+        # Mock token_usage with proper numeric values (required by v0.1.32 token tracking)
+        mock_agent.backend.token_usage = Mock(
+            input_tokens=100,
+            output_tokens=50,
+            reasoning_tokens=0,
+            cached_input_tokens=0,
+            estimated_cost=0.001,
+        )
 
         # Simulate normal response from agent
         async def normal_response(*args, **kwargs):
@@ -118,6 +137,9 @@ async def test_final_presentation_with_content():
 
         # Add the mock agent to orchestrator
         orchestrator.agents = {"test_agent": mock_agent}
+
+        # Set the selected agent (required by orchestrator internals for end_round_tracking)
+        orchestrator._selected_agent = "test_agent"
 
         # Test the get_final_presentation method
         vote_results = {
@@ -164,6 +186,14 @@ async def test_no_stored_answer_fallback():
         # Ensure backend.filesystem_manager is None to skip snapshot copying
         mock_agent.backend = Mock()
         mock_agent.backend.filesystem_manager = None
+        # Mock token_usage with proper numeric values (required by v0.1.32 token tracking)
+        mock_agent.backend.token_usage = Mock(
+            input_tokens=100,
+            output_tokens=50,
+            reasoning_tokens=0,
+            cached_input_tokens=0,
+            estimated_cost=0.001,
+        )
 
         # Simulate empty response from agent
         async def empty_response(*args, **kwargs):
@@ -175,6 +205,9 @@ async def test_no_stored_answer_fallback():
 
         # Add the mock agent to orchestrator
         orchestrator.agents = {"test_agent": mock_agent}
+
+        # Set the selected agent (required by orchestrator internals for end_round_tracking)
+        orchestrator._selected_agent = "test_agent"
 
         # Test the get_final_presentation method
         vote_results = {

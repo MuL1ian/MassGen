@@ -68,10 +68,13 @@ class CoordinationConfig:
         task_planning_filesystem_mode: If True, task planning MCP writes tasks to tasks/ directory
                                        in agent workspace for transparency and cross-agent visibility.
         enable_memory_filesystem_mode: If True, enables filesystem-based memory system with two-tier
-                                       hierarchy (short-term and long-term). Memory MCP tools are
-                                       provided for creating/updating/loading memories. Short-term
+                                       hierarchy (short-term and long-term). Agents create memories
+                                       by writing Markdown files to memory/ directories. Short-term
                                        memories auto-inject into all agents' system prompts. Long-term
-                                       memories load on-demand. Inspired by Letta's context hierarchy.
+                                       memories are read on-demand. Inspired by Letta's context hierarchy.
+        compression_target_ratio: Target ratio for reactive compression when context limit is exceeded.
+                                 Value between 0 and 1, where 0.2 means preserve 20% of messages and
+                                 summarize the remaining 80%. Lower values = more aggressive compression.
         use_skills: If True, enables skills system using openskills. Agents can invoke skills
                    via bash commands (openskills read <skill-name>). Requires command line
                    execution to be enabled.
@@ -109,6 +112,7 @@ class CoordinationConfig:
     max_broadcasts_per_agent: int = 10
     task_planning_filesystem_mode: bool = False
     enable_memory_filesystem_mode: bool = False
+    compression_target_ratio: float = 0.20  # Preserve 20% of messages on context overflow
     use_skills: bool = False
     massgen_skills: List[str] = field(default_factory=list)
     skills_directory: str = ".agent/skills"

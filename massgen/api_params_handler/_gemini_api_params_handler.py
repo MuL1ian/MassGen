@@ -24,6 +24,9 @@ class GeminiAPIParamsHandler(APIParamsHandlerBase):
             "enable_audio_generation",  # Internal flag for audio generation (used in system messages only)
             "enable_video_generation",  # Internal flag for video generation (used in system messages only)
             "function_calling_mode",  # Handled separately in build_api_params
+            "thinking_config",  # Handled separately in build_api_params
+            "thinking",  # Alternative name for thinking_config (consistency with Claude)
+            "include_thoughts",  # Convenience parameter for thinking_config
         }
         return set(base) | extra
 
@@ -98,5 +101,34 @@ class GeminiAPIParamsHandler(APIParamsHandlerBase):
                     )
             except ImportError:
                 logger.warning("[Gemini] google.genai.types not available. Ignoring function_calling_mode.")
+
+        # Handle thinking_config parameter for Gemini 2.5+ thinking models
+        # This enables thought summaries in responses
+        # Accepts: thinking_config dict, thinking dict (Claude-style), or include_thoughts bool
+        thinking_config = all_params.get("thinking_config") or all_params.get("thinking")
+        include_thoughts = all_params.get("include_thoughts")
+
+        if thinking_config or include_thoughts:
+            from ..logger_config import logger
+
+            try:
+                from google.genai.types import ThinkingConfig
+
+                if isinstance(thinking_config, dict):
+                    # Direct thinking_config dict: {"include_thoughts": True, "thinking_budget": 1024}
+                    config["thinking_config"] = ThinkingConfig(**thinking_config)
+                    logger.debug(f"[Gemini] Set thinking_config from dict: {thinking_config}")
+                elif include_thoughts:
+                    # Simple include_thoughts=True convenience parameter
+                    config["thinking_config"] = ThinkingConfig(include_thoughts=True)
+                    logger.debug("[Gemini] Set thinking_config with include_thoughts=True")
+                elif thinking_config is True:
+                    # thinking=True (Claude-style shorthand)
+                    config["thinking_config"] = ThinkingConfig(include_thoughts=True)
+                    logger.debug("[Gemini] Set thinking_config from thinking=True")
+            except ImportError:
+                logger.warning("[Gemini] google.genai.types.ThinkingConfig not available. Ignoring thinking_config.")
+            except Exception as e:
+                logger.warning(f"[Gemini] Failed to set thinking_config: {e}")
 
         return config

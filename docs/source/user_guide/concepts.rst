@@ -72,6 +72,50 @@ MassGen is currently run via command line (a Python library API is planned for f
 
 See :doc:`../reference/cli` for complete CLI reference.
 
+Execution Hierarchy
+-------------------
+
+Understanding MassGen's execution hierarchy helps navigate logs and debug issues.
+
+.. code-block:: text
+
+   Session (multi-turn conversation)
+   └── Turn 1 (first user question)
+   │   └── Attempt 1 (orchestration execution)
+   │       ├── Round 1: Agent A processes → new_answer
+   │       ├── Round 2: Agent B processes → new_answer
+   │       ├── Round 3: Agent A processes → vote for B
+   │       └── Round 4: Agent B processes → vote for self → CONSENSUS
+   │
+   └── Turn 2 (second user question)
+       └── Attempt 1
+           ├── Round 1: Agent A → new_answer
+           └── Round 2: Agent B → vote → CONSENSUS
+
+**Definitions:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 50 35
+
+   * - Term
+     - Definition
+     - Log Path
+   * - **Session**
+     - Multi-turn conversation. Spans multiple user interactions.
+     - ``.massgen/sessions/``
+   * - **Turn**
+     - Single user question/task. Triggers full coordination.
+     - ``log_TIMESTAMP/turn_N/``
+   * - **Attempt**
+     - One orchestration execution. Restarts create new attempts.
+     - ``turn_N/attempt_N/``
+   * - **Round**
+     - Single agent LLM call cycle: context → streaming → output.
+     - Recorded in ``llm_calls/``
+
+**Key Insight:** Coordination ends when all agents vote (no ``new_answer`` calls). Each ``new_answer`` extends coordination; each ``vote`` moves toward consensus.
+
 Multi-Agent Coordination
 -------------------------
 
@@ -172,12 +216,140 @@ Here's how agents asynchronously evaluate and respond during coordination:
 
 **Key Insights:**
 
-* **Asynchronous evaluation** - No "rounds", agents evaluate continuously and independently
+* **Asynchronous evaluation** - Agents evaluate continuously and independently (no synchronized rounds)
 * **Anonymized answers** - Agents don't know who provided which answer, reducing bias
 * **Actual agent prompt** - Agents evaluate "Does best CURRENT ANSWER address ORIGINAL MESSAGE well?"
-* **Inject-and-continue** - When any agent uses `new_answer` tool, other agents receive an update mid-work and continue (preserving their thinking), rather than restarting from scratch
-* **Natural consensus** - Coordination ends only when all agents vote (no agent provides new_answer)
+* **Inject-and-continue** - When any agent uses ``new_answer``, other agents receive an update appended to their conversation and continue (preserving their conversation history, though a new API call is made). Future versions will inject mid-stream within tool responses for true mid-thought continuation.
+* **Natural consensus** - Coordination ends only when all agents vote (no ``new_answer`` calls)
 * **Democratic selection** - Winner determined by peer voting
+
+Streaming Architecture
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Each agent :term:`round` involves streaming LLM responses with potential tool execution:
+
+.. code-block:: text
+
+   ┌─────────────────────────────────────────────────────────────────┐
+   │                    SINGLE AGENT ROUND                           │
+   └─────────────────────────────────────────────────────────────────┘
+
+   ┌──────────────┐     ┌──────────────────────────────────────────┐
+   │  1. CONTEXT  │────▶│  2. LLM API CALL (streaming)             │
+   │              │     │                                          │
+   │ • Messages   │     │  ┌────────────────────────────────────┐  │
+   │ • Tools      │     │  │ Stream Chunks:                     │  │
+   │ • Prev Ans   │     │  │   content → content → content →    │  │
+   └──────────────┘     │  │   tool_calls → done                │  │
+                        │  └────────────────────────────────────┘  │
+                        └──────────────────┬───────────────────────┘
+                                           │
+                              ┌────────────▼────────────┐
+                              │  3. TOOL EXECUTION?     │
+                              │     (if tool_calls)     │
+                              └────────────┬────────────┘
+                                           │
+                      ┌────────────────────┴────────────────────┐
+                      │                                         │
+               ┌──────▼──────┐                          ┌───────▼──────┐
+               │  Yes: MCP   │                          │  No: Done    │
+               │  or Custom  │                          │              │
+               │  Tool Call  │                          │  Output:     │
+               └──────┬──────┘                          │  new_answer  │
+                      │                                 │  or vote     │
+                      ▼                                 └──────────────┘
+               ┌─────────────┐
+               │ Execute &   │
+               │ Add Result  │
+               │ to Messages │
+               └──────┬──────┘
+                      │
+                      ▼
+               ┌─────────────┐
+               │ RECURSE:    │
+               │ New LLM     │──────▶ (back to step 2)
+               │ Call        │
+               └─────────────┘
+
+**Streaming Flow:**
+
+1. **Context Assembly** - Messages, tools, and previous answers prepared
+2. **LLM Streaming** - Response chunks arrive: ``content``, ``tool_calls``, ``reasoning``, ``done``
+3. **Tool Detection** - If ``tool_calls`` chunk received, execute tools
+4. **Recursive Call** - Tool results added to messages, new LLM call made
+5. **Completion** - When ``done`` received without tools, round complete
+
+Context Management & Injection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each agent maintains an **AgentConversationBuffer** - a unified store that captures all streaming content and supports context injection from other agents.
+
+**Why a Unified Buffer?**
+
+During streaming, agents accumulate content, tool calls, reasoning, and tool results. When one agent provides a ``new_answer``, other agents need to receive that update mid-work. The buffer ensures:
+
+* **Complete context** - All streaming content is captured and persisted
+* **Working injection** - Updates from other agents are immediately visible
+* **Single source of truth** - No fragmented storage locations
+
+**Data Flow During Streaming:**
+
+.. code-block:: text
+
+   Backend yields chunks:
+       │
+       ├── content chunk ──────► buffer.add_content("I'll analyze...")
+       │                              └── Accumulates in pending content
+       │
+       ├── reasoning chunk ────► buffer.add_reasoning("Let me think...")
+       │                              └── Accumulates in pending reasoning
+       │
+       ├── tool_call chunk ────► buffer.add_tool_call("read_file", {path: "x"})
+       │                              └── Added to pending tool calls
+       │
+       ├── tool_result chunk ──► buffer.add_tool_result("read_file", "call_1", "...")
+       │                              └── Updates matching pending tool call
+       │
+       └── done chunk ─────────► buffer.flush_turn()
+                                     │
+                                     ├── Creates permanent entries from pending data
+                                     └── Clears all pending accumulators
+
+**Data Flow During Injection:**
+
+When Agent A provides a ``new_answer``, other agents receive an injection:
+
+.. code-block:: text
+
+   Agent A provides new_answer
+            │
+            ▼
+   Orchestrator detects new_answer, sets restart_pending[B] = True
+            │
+            ▼
+   Agent B reaches safe point (between LLM calls)
+            │
+            ▼
+   Orchestrator injects into Agent B's buffer:
+       buffer_b.inject_update({"<anonymized>": "Here's my answer..."})
+            │
+            ├── Formats injection message with <NEW_ANSWERS> tags
+            └── Creates INJECTION entry in buffer
+            │
+            ▼
+   Agent B's next LLM call:
+       messages = buffer_b.to_messages()  ← Includes injection entry
+            │
+            ▼
+       agent.chat(messages)  ← Agent sees the injected update!
+
+**Key Insight:** The buffer ensures that when Agent B receives an injection, it sees:
+
+1. **Original context** - The initial user question and system messages
+2. **Own previous work** - All content, tool calls, and results from its streaming
+3. **New injection** - The update from Agent A, formatted as a new user message
+
+This allows agents to seamlessly continue their work with full awareness of what other agents have discovered.
 
 What Agents See
 ~~~~~~~~~~~~~~~
@@ -262,7 +434,7 @@ Coordination ends when one of these conditions is met:
 
 **Typical Duration:**
 
-* Simple tasks: 1-5 minutes (2-3 coordination rounds)
+* Simple tasks: 1-5 minutes (2-3 :term:`rounds<Round>` total across all agents)
 * Standard tasks: 5-15 minutes (3-5 rounds)
 * Complex tasks: 15-30 minutes (5-10 rounds)
 

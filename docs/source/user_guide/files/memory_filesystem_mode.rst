@@ -4,7 +4,7 @@ Memory Filesystem Mode
 .. warning::
    **This feature is currently in development and experimental.** Multi-turn persistence and some advanced features may not work as expected.
 
-MassGen's filesystem-based memory mode provides a simple, transparent two-tier memory system for agents. Memories are automatically saved to the filesystem, visible across agents, and can be managed using MCP tools.
+MassGen's filesystem-based memory mode provides a simple, transparent two-tier memory system for agents. Memories are saved to the filesystem as Markdown files, visible across agents, and managed using standard file operations.
 
 .. note::
 
@@ -23,7 +23,7 @@ The filesystem memory mode introduces a **two-tier hierarchy** inspired by `Lett
    Always injected into all agents' system prompts. Use for tactical observations, user preferences, and quick reference information needed frequently. These are small (<100 lines), immediately useful notes. Auto-loaded every turn.
 
 **Long-term Memory** (Tier 2)
-   Summary (name + description only) shown in system prompt, full content loaded on-demand via ``load_memory()``. Use for detailed analyses, comprehensive reports, and information that's useful but not needed every turn (>100 lines). Manual load when needed.
+   Summary (name + description only) shown in system prompt, full content loaded on-demand by reading the file. Use for detailed analyses, comprehensive reports, and information that's useful but not needed every turn (>100 lines). Manual load when needed.
 
 Key Features
 ~~~~~~~~~~~~
@@ -35,7 +35,7 @@ Key Features
 - **Smart Deduplication**: Historical archives show only latest version of each memory
 - **Automatic Injection**: Short-term memories always in-context, no action needed
 - **Two-Tier Design**: Balance between immediate availability and context window efficiency
-- **MCP Tools**: Create, update, remove, and load memories programmatically
+- **Standard File Operations**: Create, update, and remove memories using normal file tools
 
 Quick Start
 -----------
@@ -59,37 +59,49 @@ Add to your YAML config:
 Basic Usage
 ~~~~~~~~~~~
 
+Agents create memories by writing Markdown files with YAML frontmatter to the memory directories.
+
 **Creating a short-term memory** (always in-context):
 
-.. code-block:: python
+.. code-block:: markdown
 
-   # Create a memory that will be auto-injected into all agents' prompts
-   create_memory(
-       name="user_preferences",
-       description="User's coding style preferences",
-       content="# Preferences\n- Uses tabs over spaces\n- Prefers functional programming\n- Avoids global state",
-       tier="short_term"
-   )
+   # Write to: memory/short_term/user_preferences.md
+
+   ---
+   name: user_preferences
+   description: User's coding style preferences
+   created: 2025-01-12T10:30:00Z
+   updated: 2025-01-12T10:30:00Z
+   ---
+
+   # Preferences
+   - Uses tabs over spaces
+   - Prefers functional programming
+   - Avoids global state
 
 **Creating a long-term memory** (load on-demand):
 
-.. code-block:: python
+.. code-block:: markdown
 
-   # Create a reference memory that won't be auto-injected
-   create_memory(
-       name="project_history",
-       description="Project background and architectural decisions",
-       content="# Project History\n## Initial Setup (2024-01)...",
-       tier="long_term"
-   )
+   # Write to: memory/long_term/project_history.md
 
-**Loading a long-term memory**:
+   ---
+   name: project_history
+   description: Project background and architectural decisions
+   created: 2025-01-12T10:30:00Z
+   updated: 2025-01-12T10:30:00Z
+   ---
 
-.. code-block:: python
+   # Project History
+   ## Initial Setup (2024-01)
+   ...
+
+**Reading a long-term memory**:
+
+.. code-block:: bash
 
    # When you need access to long-term memory content
-   result = load_memory(name="project_history")
-   print(result["content"])
+   cat memory/long_term/project_history.md
 
 Architecture
 ------------
@@ -179,7 +191,7 @@ All memories **MUST** use **Markdown with YAML frontmatter**:
 **Optional fields:**
 
 - ``tier``: "short_term" or "long_term" (inferred from directory if missing)
-- ``agent_id``: Which agent created it (auto-populated by MCP tools)
+- ``agent_id``: Which agent created it (optional, for tracking origin)
 
 System Prompt Injection
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -191,7 +203,7 @@ Injection Flow
 
 **1. Agent Creates Memory:**
 
-When an agent calls ``create_memory()``, the Memory MCP server saves to filesystem:
+When an agent writes a memory file using standard file tools:
 
 .. code-block:: text
 
@@ -283,7 +295,7 @@ Agents see memories from two sources in their system prompts:
 - **Current**: Shows ALL memories from all agents (no deduplication) for comparison
 - **Archived**: Shows deduplicated memories (newest version only) from previous answers
 - **Short-term**: Full content always shown
-- **Long-term**: Only name + description shown (load with ``load_memory()`` to see full content)
+- **Long-term**: Only name + description shown (read file directly to see full content)
 
 **Important Notes:**
 
@@ -292,123 +304,83 @@ Agents see memories from two sources in their system prompts:
 - **Automatic archiving**: Memories saved to ``.massgen/sessions/{session_id}/archived_memories/`` before workspace clearing
 - **Fresh reads**: Memory is always read from filesystem on every turn, never cached
 
-MCP Tools Reference
--------------------
+Working with Memory Files
+-------------------------
 
-create_memory
-~~~~~~~~~~~~~
+Creating Memories
+~~~~~~~~~~~~~~~~~
 
-Create a new memory in short-term or long-term storage.
+To create a memory, write a Markdown file with YAML frontmatter to the appropriate directory:
 
-.. code-block:: python
+**Short-term memory** (auto-injected every turn):
 
-   create_memory(
-       name: str,              # Unique identifier (filesystem-safe)
-       description: str,       # Short summary for tables/overviews
-       content: str,           # Full content (markdown supported)
-       tier: str = "short_term"  # "short_term" or "long_term"
-   ) -> Dict[str, Any]
+.. code-block:: bash
 
-**Parameters**:
+   # Write to memory/short_term/<name>.md
+   write_file memory/short_term/user_preferences.md "---
+   name: user_preferences
+   description: User's coding style preferences
+   created: 2025-01-12T10:30:00Z
+   updated: 2025-01-12T10:30:00Z
+   ---
 
-- ``name``: Unique identifier for the memory. Must be filesystem-safe (no special characters).
-- ``description``: Brief summary shown in tables and headers (1-2 sentences).
-- ``content``: Full memory content. Markdown formatting supported.
-- ``tier``: Either ``"short_term"`` (auto-inject) or ``"long_term"`` (load on-demand).
+   # Preferences
+   - Uses tabs over spaces
+   - Prefers functional programming
+   "
 
-**Returns**:
+**Long-term memory** (read on-demand):
 
-.. code-block:: python
+.. code-block:: bash
 
-   {
-       "success": True,
-       "operation": "create_memory",
-       "memory": {
-           "name": "user_preferences",
-           "description": "...",
-           "content": "...",
-           "tier": "short_term",
-           "agent_id": "agent_a",
-           "created": "2025-01-12T10:30:00Z",
-           "updated": "2025-01-12T10:30:00Z"
-       }
-   }
+   # Write to memory/long_term/<name>.md
+   write_file memory/long_term/project_history.md "---
+   name: project_history
+   description: Project background and decisions
+   created: 2025-01-12T10:30:00Z
+   updated: 2025-01-12T10:30:00Z
+   ---
 
-**Example**:
+   # Project History
+   Detailed content here...
+   "
 
-.. code-block:: python
+Updating Memories
+~~~~~~~~~~~~~~~~~
 
-   result = create_memory(
-       name="api_credentials",
-       description="API keys and authentication details",
-       content="API Key: sk-...\nEndpoint: https://api.example.com",
-       tier="short_term"
-   )
+To update a memory, simply overwrite the file with new content:
 
-update_memory
-~~~~~~~~~~~~~
+.. code-block:: bash
 
-Update existing memory content and/or description.
+   # Update the file, change the 'updated' timestamp
+   write_file memory/short_term/user_preferences.md "---
+   name: user_preferences
+   description: Updated user coding preferences
+   created: 2025-01-12T10:30:00Z
+   updated: 2025-01-12T11:45:00Z
+   ---
 
-.. code-block:: python
+   # Updated Preferences
+   - Now uses spaces (changed from tabs)
+   "
 
-   update_memory(
-       name: str,                    # Name of memory to update
-       content: str,                 # New content
-       description: Optional[str] = None  # Optional new description
-   ) -> Dict[str, Any]
+Removing Memories
+~~~~~~~~~~~~~~~~~
 
-**Example**:
+To remove a memory, delete the file:
 
-.. code-block:: python
+.. code-block:: bash
 
-   update_memory(
-       name="user_preferences",
-       content="# Updated Preferences\n- Now uses spaces (changed from tabs)",
-       description="Updated user coding preferences"
-   )
+   rm memory/short_term/old_preferences.md
 
-remove_memory
-~~~~~~~~~~~~~
+Reading Long-term Memories
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Delete a memory from storage.
+Long-term memories are not auto-injected. Read them when needed:
 
-.. code-block:: python
+.. code-block:: bash
 
-   remove_memory(name: str) -> Dict[str, Any]
-
-**Example**:
-
-.. code-block:: python
-
-   remove_memory(name="old_preferences")
-
-load_memory
-~~~~~~~~~~~
-
-Load a long-term memory into context. Returns full content for injection.
-
-.. code-block:: python
-
-   load_memory(name: str) -> Dict[str, Any]
-
-**Returns**:
-
-.. code-block:: python
-
-   {
-       "success": True,
-       "operation": "load_memory",
-       "memory": {...},
-       "content": "# Full memory content here..."
-   }
-
-**Example**:
-
-.. code-block:: python
-
-   result = load_memory(name="project_history")
-   print(result["content"])  # Access full content
+   cat memory/long_term/project_history.md
 
 Best Practices
 --------------
@@ -440,87 +412,87 @@ Memory Organization
 
 **Use clear, descriptive names**:
 
-.. code-block:: python
+.. code-block:: text
 
    # Good
-   create_memory(name="user_email_preferences", ...)
+   memory/short_term/user_email_preferences.md
 
    # Bad
-   create_memory(name="prefs", ...)
+   memory/short_term/prefs.md
 
 **Keep short-term memories concise**:
 
-.. code-block:: python
+.. code-block:: text
 
-   # Good - focused and brief
-   create_memory(
-       name="user_style",
-       content="- Tabs over spaces\n- Functional style\n- No globals",
-       tier="short_term"
-   )
+   # Good - focused and brief (memory/short_term/user_style.md)
+   ---
+   name: user_style
+   description: Coding style preferences
+   ---
+   - Tabs over spaces
+   - Functional style
+   - No globals
 
-   # Bad - too verbose for short-term
-   create_memory(
-       name="user_style",
-       content="[100 lines of detailed style guide]",
-       tier="short_term"  # Should be long_term!
-   )
+   # Bad - too verbose for short-term (should be in memory/long_term/)
+   [100 lines of detailed style guide]
 
-**Use meaningful descriptions**:
+**Use meaningful descriptions** in frontmatter:
 
-.. code-block:: python
+.. code-block:: yaml
 
    # Good
-   description="User's Python coding style preferences and conventions"
+   description: User's Python coding style preferences and conventions
 
    # Bad
-   description="Preferences"
+   description: Preferences
 
 Cross-Agent Coordination
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 All agents see all memories with source attribution:
 
-.. code-block:: python
+.. code-block:: text
 
-   # Agent A creates a memory
-   create_memory(
-       name="research_findings",
-       description="Literature review on neural architectures",
-       content="[Research notes]",
-       tier="long_term"
-   )
+   # Agent A creates a memory file
+   # workspace1/memory/long_term/research_findings.md
+   ---
+   name: research_findings
+   description: Literature review on neural architectures
+   agent_id: agent_a
+   ---
+   [Research notes]
 
-   # Agent B sees it in their system prompt and can load it
-   result = load_memory(name="research_findings")
-   # Result includes agent_id to track origin
+   # Agent B sees it in their system prompt and can read it directly
+   cat workspace1/memory/long_term/research_findings.md
 
 **Tips**:
 
 - Use descriptive names to help other agents find relevant memories
 - Include agent context in descriptions when appropriate
-- Respect read/write patterns (each agent owns their memories)
+- Each agent's memories are in their own workspace directory
 
 Memory Lifecycle Management
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Clean up outdated memories**:
 
-.. code-block:: python
+.. code-block:: bash
 
    # When a memory is no longer needed
-   remove_memory(name="temporary_analysis")
+   rm memory/short_term/temporary_analysis.md
 
 **Update instead of creating duplicates**:
 
-.. code-block:: python
+.. code-block:: bash
 
-   # Check if memory exists, then update
-   try:
-       result = load_memory(name="user_prefs")
-       update_memory(name="user_prefs", content="[new content]")
-   except:
-       create_memory(name="user_prefs", ...)
+   # Check if memory exists, then update or create
+   if [ -f memory/short_term/user_prefs.md ]; then
+       # Update existing file (change 'updated' timestamp)
+       write_file memory/short_term/user_prefs.md "[new content]"
+   else
+       # Create new file
+       write_file memory/short_term/user_prefs.md "[initial content]"
+   fi
 
 Context Window Management
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -535,20 +507,10 @@ Short-term memories consume context window tokens. Recommended limits:
 
 **Promote/demote as needed**:
 
-.. code-block:: python
+.. code-block:: bash
 
    # If short-term gets too large, move less critical items to long-term
-   # (Manual process - load content, delete from short, recreate in long)
-
-   result = load_memory(name="detailed_notes")
-   content = result["content"]
-   remove_memory(name="detailed_notes")
-   create_memory(
-       name="detailed_notes",
-       description="Archived detailed notes",
-       content=content,
-       tier="long_term"
-   )
+   mv memory/short_term/detailed_notes.md memory/long_term/detailed_notes.md
 
 Use Cases
 ---------
@@ -558,67 +520,64 @@ Multi-Turn Conversations
 
 Persist context across conversation turns:
 
-.. code-block:: python
+.. code-block:: text
 
-   # Turn 1: Agent A saves findings
-   create_memory(
-       name="analysis_turn1",
-       description="Initial codebase analysis findings",
-       content="# Findings\n- Found 3 API endpoints\n- Auth uses JWT",
-       tier="long_term"
-   )
+   # Turn 1: Agent A saves findings to memory/long_term/analysis_turn1.md
+   ---
+   name: analysis_turn1
+   description: Initial codebase analysis findings
+   ---
+   # Findings
+   - Found 3 API endpoints
+   - Auth uses JWT
 
    # Turn 2: Agent B references previous work
-   prev_analysis = load_memory(name="analysis_turn1")
+   cat memory/long_term/analysis_turn1.md
    # Continue from where Agent A left off
 
 User Preferences Tracking
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Store and maintain user preferences:
+Store and maintain user preferences in ``memory/short_term/user_preferences.md``:
 
-.. code-block:: python
+.. code-block:: markdown
 
-   create_memory(
-       name="user_preferences",
-       description="User's project preferences and constraints",
-       content="""
-       # User Preferences
-       - Language: Python 3.11+
-       - Framework: FastAPI
-       - Testing: pytest with coverage >80%
-       - Documentation: Google-style docstrings
-       """,
-       tier="short_term"  # Always available
-   )
+   ---
+   name: user_preferences
+   description: User's project preferences and constraints
+   ---
+
+   # User Preferences
+   - Language: Python 3.11+
+   - Framework: FastAPI
+   - Testing: pytest with coverage >80%
+   - Documentation: Google-style docstrings
 
 Project Context Management
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Maintain project background and decisions:
+Maintain project background and decisions in ``memory/long_term/project_context.md``:
 
-.. code-block:: python
+.. code-block:: markdown
 
-   create_memory(
-       name="project_context",
-       description="Project overview and architectural decisions",
-       content="""
-       # Project Context
+   ---
+   name: project_context
+   description: Project overview and architectural decisions
+   ---
 
-       ## Overview
-       Building a multi-agent orchestration framework for AI coordination.
+   # Project Context
 
-       ## Key Decisions
-       - Using MCP for tool integration
-       - Filesystem-first for transparency
-       - Two-tier memory hierarchy
+   ## Overview
+   Building a multi-agent orchestration framework for AI coordination.
 
-       ## Current Sprint
-       - Implementing memory filesystem mode
-       - Target: v0.2.0 release
-       """,
-       tier="long_term"  # Load when needed
-   )
+   ## Key Decisions
+   - Using MCP for tool integration
+   - Filesystem-first for transparency
+   - Two-tier memory hierarchy
+
+   ## Current Sprint
+   - Implementing memory filesystem mode
+   - Target: v0.2.0 release
 
 Troubleshooting
 ---------------
@@ -652,8 +611,8 @@ Memories Not Appearing
 
 .. code-block:: bash
 
-   # Look for memory MCP injection logs
-   grep "Injecting memory tools" logs/massgen.log
+   # Look for memory directory setup logs
+   grep "memory" logs/massgen.log
    grep "enable_memory_filesystem_mode" logs/massgen.log
 
 Memory Not Loading
@@ -765,7 +724,7 @@ Filesystem Mode vs. Skills System
      - Two-tier (auto + manual)
      - Auto-inject or load
    * - Agent Creation
-     - Yes (via MCP tools)
+     - Yes (via file operations)
      - No (external files)
 
 **Complementary use**:

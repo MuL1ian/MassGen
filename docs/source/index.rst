@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.33 (January 2, 2026)** - Reactive Context Compression & MCP Protections
+
+Automatic conversation compression when context length errors occur with streaming buffer system for recovery. MCP tool protections: ``write_file`` refuses to overwrite existing files, ``create_task_plan`` blocks duplicate plans. Model fixes for Grok MCP tools visibility, Gemini vote-only mode, and GPT-5 coordination.
+
 **v0.1.32 (December 31, 2025)** - Multi-Turn Export & Logfire Optional
 
 Enhanced session export with multi-turn support, turn range selection (``--turns``), and workspace options. Logfire moved to optional ``[observability]`` dependency. Per-attempt logging with separate log files. Office document PDF conversion for sharing previews.
@@ -164,10 +168,6 @@ Enhanced session export with multi-turn support, turn range selection (``--turns
 **v0.1.31 (December 29, 2025)** - Logfire Observability & Azure Tool Streaming
 
 Comprehensive logging and tracing via `Logfire <https://logfire.pydantic.dev/>`_ with automatic LLM instrumentation for OpenAI, Claude, and Gemini backends. Enable via ``--logfire`` CLI flag or ``MASSGEN_LOGFIRE_ENABLED=true``. Azure OpenAI tool calls now accumulated and yielded as structured chunks.
-
-**v0.1.30 (December 26, 2025)** - OpenRouter Web Search & Persona Diversity
-
-Add real-time web search to OpenRouter models with ``enable_web_search: true``. Persona diversity modes for unique agent personalities (``perspective``/``implementation``) with automatic softening when evaluating others' work. Azure OpenAI multi-endpoint support with auto-detection. Environment variable expansion in configs via ``${VAR}`` syntax.
 
 :doc:`Full changelog → <changelog>`
 

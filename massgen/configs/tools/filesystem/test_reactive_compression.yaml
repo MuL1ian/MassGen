@@ -1,0 +1,84 @@
+# Test Configuration: Reactive Context Compression
+#
+# Use Case: Test reactive compression by reading many files to fill context window
+#
+# This config demonstrates reactive compression behavior:
+# - Single agent with filesystem access to read many files
+# - When context limit is exceeded, compression triggers automatically
+# - Debug logging shows compression input/output in compression_debug/
+#
+# Switch backends by uncommenting the desired type/model section below.
+# Only ONE backend should be active at a time.
+#
+# Run with:
+#   uv run massgen --debug --save-llm-calls --config massgen/configs/tools/filesystem/test_reactive_compression.yaml "Read all Python files in massgen/backend/ and summarize what each one does"
+#
+# The --save-llm-calls flag saves all API calls to llm_calls/ directory for debugging
+
+agents:
+  - id: "reader"
+    backend:
+      # ==================== OPENAI (ResponseBackend) ====================
+      # Uses ResponseBackend with Response API
+      type: "openai"
+      model: "gpt-5"  # 128K context - use smaller model to trigger faster
+
+      # ==================== CLAUDE ====================
+      # Uses ClaudeBackend with Messages API
+      # Compression handled via CustomToolAndMCPBackend base class
+      # type: "claude"
+      # model: "claude-sonnet-4-20250514"
+
+      # ==================== GEMINI ====================
+      # Uses GeminiBackend with native Gemini SDK
+      # Large context (1M+), harder to trigger compression
+      # type: "gemini"
+      # model: "gemini-3-flash-preview"
+
+      # ==================== OPENROUTER (ChatCompletionsBackend) ====================
+      # Uses ChatCompletionsBackend with OpenRouter API
+      # type: "chatcompletion"
+      # base_url: "https://openrouter.ai/api/v1"
+      # model: "openai/gpt-4o-mini"
+
+      # ==================== GROK ====================
+      # Uses GrokBackend (inherits from ChatCompletionsBackend)
+      # type: "grok"
+      # model: "grok-3-mini"
+
+      cwd: "workspace_reader"
+      enable_mcp_command_line: true
+      command_line_execution_mode: "docker"
+
+orchestrator:
+  snapshot_storage: "snapshots"
+  agent_temporary_workspace: "temp_workspaces"
+
+  # Shared read-only access to massgen source code
+  context_paths:
+    - path: "massgen/backend/"
+      permission: "read"
+
+  # Compression settings for reactive compression (when context limit is exceeded)
+  # Value between 0 and 1: 0.2 means preserve 20% of messages, summarize the rest
+  coordination:
+    compression_target_ratio: 0.20
+
+timeout_settings:
+  orchestrator_timeout_seconds: 600  # 10 minutes - compression takes time
+
+ui:
+  display_type: "rich_terminal"
+  logging_enabled: true
+
+# What happens:
+# 1. Agent reads files from massgen/backend/
+# 2. As context fills up, provider may return context_length_exceeded error
+# 3. Backend catches error, summarizes older messages using _compress_messages_for_context_recovery
+# 4. Retries with compressed context (summary + recent 20% of messages)
+# 5. Debug logs saved to .massgen/massgen_logs/<session>/compression_debug/
+#
+# Verification:
+# - Check logs for "[CompressionUtils] Compressing X messages"
+# - Check .massgen/massgen_logs/<session>/compression_debug/ for debug output
+# - Verify agent completes task after compression

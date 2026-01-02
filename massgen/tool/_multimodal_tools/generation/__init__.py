@@ -5,17 +5,26 @@ Unified media generation module.
 This module provides a unified interface for generating images, videos, and audio
 using multiple backends (OpenAI, Google, OpenRouter).
 
+Supports batch mode for parallel generation of multiple media items.
+
 Usage:
     from massgen.tool._multimodal_tools.generation import generate_media
 
-    # Generate an image
-    result = await generate_media("a cat in space", mode="image")
+    # Generate a single image
+    result = await generate_media(prompt="a cat in space", mode="image")
+
+    # Generate multiple images in parallel (batch mode)
+    result = await generate_media(
+        prompts=["a cat in space", "a dog on the moon", "a bird in a forest"],
+        mode="image",
+        max_concurrent=3
+    )
 
     # Generate a video with Google Veo
-    result = await generate_media("robot walking", mode="video", backend="google")
+    result = await generate_media(prompt="robot walking", mode="video", backend_type="google")
 
     # Generate audio
-    result = await generate_media("Hello world!", mode="audio", voice="nova")
+    result = await generate_media(prompt="Hello world!", mode="audio", voice="nova")
 """
 
 from ._base import (

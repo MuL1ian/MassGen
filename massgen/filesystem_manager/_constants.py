@@ -307,3 +307,17 @@ FRAMEWORK_MCPS = frozenset(
         "subagent",  # Subagent spawning (built-in when enabled)
     },
 )
+
+# =============================================================================
+# TOOL RESULT EVICTION
+# =============================================================================
+
+# Token threshold for evicting large tool results to files
+# Results exceeding this limit are saved to disk and replaced with a reference
+TOOL_RESULT_EVICTION_THRESHOLD_TOKENS = 20_000
+
+# Tokens to include as preview in the reference message
+TOOL_RESULT_EVICTION_PREVIEW_TOKENS = 2_000
+
+# Directory name for evicted results (within agent workspace)
+EVICTED_RESULTS_DIR = ".tool_results"

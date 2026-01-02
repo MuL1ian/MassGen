@@ -4,10 +4,13 @@ Unified media generation tool.
 
 This is the main entry point for all media generation in MassGen.
 It automatically selects the best available backend based on:
-1. Explicit `backend` parameter
+1. Explicit `backend_type` parameter
 2. `multimodal_config` overrides
 3. Available API keys and priority order
+
+Supports batch mode for parallel generation of multiple media items.
 """
+import asyncio
 import base64
 import json
 from datetime import datetime
@@ -142,154 +145,59 @@ def _get_extension(media_type: MediaType, audio_format: Optional[str] = None) ->
     return "bin"
 
 
-@context_params("agent_cwd", "allowed_paths", "multimodal_config")
-async def generate_media(
+async def _generate_single_with_input_images(
     prompt: str,
-    mode: Literal["image", "video", "audio"],
-    input_images: Optional[List[str]] = None,
-    storage_path: Optional[str] = None,
-    backend: Optional[str] = None,
-    model: Optional[str] = None,
-    quality: Optional[str] = None,
-    duration: Optional[int] = None,
-    voice: Optional[str] = None,
-    aspect_ratio: Optional[str] = None,
-    audio_format: Optional[str] = None,
-    instructions: Optional[str] = None,
-    extra_params: Optional[Dict[str, Any]] = None,
-    agent_cwd: Optional[str] = None,
-    allowed_paths: Optional[List[str]] = None,
-    multimodal_config: Optional[Dict[str, Any]] = None,
+    input_images: List[str],
+    output_dir: Path,
+    base_dir: Path,
+    allowed_paths_list: Optional[List[Path]],
+    selected_backend: str,
+    selected_model: Optional[str],
+    media_type: MediaType,
+    mode: str,
+    quality: Optional[str],
+    duration: Optional[int],
+    voice: Optional[str],
+    aspect_ratio: Optional[str],
+    extra_params: Optional[Dict[str, Any]],
+    instructions: Optional[str],
+    timestamp: str,
+    ext: str,
 ) -> ExecutionResult:
-    """
-    Generate media (image, video, or audio) from a text prompt.
+    """Handle single image generation with input images (image-to-image).
 
-    This is the unified entry point for all media generation in MassGen.
-    It automatically selects the best available backend based on:
-    1. Explicit `backend` parameter
-    2. `multimodal_config` overrides
-    3. Available API keys and priority order
-
-    Args:
-        prompt: Text description of what to generate (or text to speak for audio)
-        mode: Type of media to generate - "image", "video", or "audio"
-        input_images: Optional list of image paths for image-to-image (OpenAI Responses API)
-        storage_path: Directory to save generated media (optional)
-                     - Relative paths resolved from agent workspace
-                     - Absolute paths must be in allowed directories
-                     - Defaults to agent workspace root
-        backend: Preferred backend ("openai", "google", "openrouter", or "auto")
-                 Falls back to others if unavailable
-        model: Override the default model for the selected backend
-        quality: Quality setting ("standard", "hd") - backend-specific
-        duration: For video/audio: length in seconds
-        voice: For audio: voice ID (e.g., "alloy", "echo", "nova", "shimmer")
-        aspect_ratio: For image/video: aspect ratio (e.g., "16:9", "1:1")
-        audio_format: For audio: output format (mp3, wav, opus, etc.)
-        instructions: For audio: speaking instructions (tone, style)
-        extra_params: Backend-specific parameters
-        agent_cwd: Agent's working directory (auto-injected)
-        allowed_paths: Allowed directories for output (auto-injected)
-        multimodal_config: Per-modality backend/model overrides (auto-injected)
-
-    Returns:
-        ExecutionResult with generated file info or error
-
-    Examples:
-        # Generate an image
-        generate_media("a cat in space", mode="image")
-
-        # Generate video with Google Veo
-        generate_media(
-            "A robot walking through a city",
-            mode="video",
-            backend="google",
-            duration=8
-        )
-
-        # Generate audio with specific voice
-        generate_media(
-            "Hello world!",
-            mode="audio",
-            voice="nova"
-        )
-
-    Supported Backends:
-        Image: openai (GPT-4.1), google (Imagen), openrouter
-        Video: google (Veo), openai (Sora-2)
-        Audio: openai (gpt-4o-mini-tts)
+    This is separated because image-to-image requires special handling of
+    input image validation and loading, and only works with OpenAI backend.
     """
     try:
-        # Parse mode to MediaType
-        try:
-            media_type = MediaType(mode)
-        except ValueError:
-            return _error_result(
-                f"Invalid mode '{mode}'. Must be 'image', 'video', or 'audio'",
-            )
+        backend_forced_to_openai = False
 
-        base_dir = Path(agent_cwd) if agent_cwd else Path.cwd()
-        allowed_paths_list = [Path(p) for p in allowed_paths] if allowed_paths else None
+        if selected_backend != "openai":
+            if has_api_key("openai"):
+                backend_forced_to_openai = True
+                selected_backend = "openai"
+            else:
+                return _error_result(
+                    "Input images currently require the OpenAI backend (Responses API). " "Please set OPENAI_API_KEY to enable image-to-image generation.",
+                )
 
-        # Select backend and model (using config defaults when not specified)
-        selected_backend, selected_model = select_backend_and_model(
-            media_type=media_type,
-            preferred_backend=backend,
-            preferred_model=model,
-            config=multimodal_config,
+        input_image_content, input_image_paths = _prepare_input_images(
+            input_images,
+            base_dir,
+            allowed_paths_list,
         )
 
-        if not selected_backend:
-            hint = get_available_backends_hint(media_type)
-            return _error_result(f"No backend available for {mode} generation. {hint}")
-
-        # Optional: process input images for image-to-image generation (OpenAI only)
-        input_image_content: List[Dict[str, str]] = []
-        input_image_paths: List[str] = []
-        if media_type == MediaType.IMAGE and input_images:
-            backend_forced_to_openai = False
-
-            if selected_backend != "openai":
-                if has_api_key("openai"):
-                    backend_forced_to_openai = True
-                    selected_backend = "openai"
-                else:
-                    return _error_result(
-                        "Input images currently require the OpenAI backend (Responses API). " "Please set OPENAI_API_KEY to enable image-to-image generation.",
-                    )
-
-            input_image_content, input_image_paths = _prepare_input_images(
-                input_images,
-                base_dir,
-                allowed_paths_list,
-            )
-
-            if backend_forced_to_openai:
-                selected_model = get_default_model("openai", media_type)
-            elif selected_backend == "openai":
-                selected_model = selected_model or get_default_model("openai", media_type)
-
-        # Resolve output path
-        if storage_path:
-            if Path(storage_path).is_absolute():
-                output_dir = Path(storage_path).resolve()
-            else:
-                output_dir = (base_dir / storage_path).resolve()
-        else:
-            output_dir = base_dir
-
-        # Validate path access
-        _validate_path_access(output_dir, allowed_paths_list)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if backend_forced_to_openai:
+            selected_model = get_default_model("openai", media_type)
+        elif selected_backend == "openai":
+            selected_model = selected_model or get_default_model("openai", media_type)
 
         # Generate filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         clean_prompt = _clean_for_filename(prompt)
-        ext = _get_extension(media_type, audio_format)
         filename = f"{timestamp}_{clean_prompt}.{ext}"
         output_path = output_dir / filename
 
-        # Build config (selected_model includes priority: user param > config > default)
+        # Build config
         config = GenerationConfig(
             prompt=prompt,
             output_path=output_path,
@@ -309,15 +217,8 @@ async def generate_media(
         if instructions and media_type == MediaType.AUDIO:
             config.extra_params["instructions"] = instructions
 
-        # Execute generation based on media type
-        if media_type == MediaType.IMAGE:
-            result = await generate_image(config)
-        elif media_type == MediaType.VIDEO:
-            result = await generate_video(config)
-        elif media_type == MediaType.AUDIO:
-            result = await generate_audio(config)
-        else:
-            return _error_result(f"Unsupported media type: {mode}")
+        # Execute generation
+        result = await generate_image(config)
 
         # Return result
         if result.success:
@@ -348,6 +249,325 @@ async def generate_media(
             )
         else:
             return _error_result(result.error or "Generation failed")
+
+    except ValueError as e:
+        return _error_result(str(e))
+    except Exception as e:
+        logger.exception(f"generate_media with input_images failed: {e}")
+        return _error_result(f"Generation error: {str(e)}")
+
+
+@context_params("agent_cwd", "allowed_paths", "multimodal_config")
+async def generate_media(
+    prompt: Optional[str] = None,
+    mode: Literal["image", "video", "audio"] = "image",
+    prompts: Optional[List[str]] = None,
+    input_images: Optional[List[str]] = None,
+    storage_path: Optional[str] = None,
+    backend_type: Optional[str] = None,
+    model: Optional[str] = None,
+    quality: Optional[str] = None,
+    duration: Optional[int] = None,
+    voice: Optional[str] = None,
+    aspect_ratio: Optional[str] = None,
+    audio_format: Optional[str] = None,
+    instructions: Optional[str] = None,
+    extra_params: Optional[Dict[str, Any]] = None,
+    max_concurrent: int = 4,
+    agent_cwd: Optional[str] = None,
+    allowed_paths: Optional[List[str]] = None,
+    multimodal_config: Optional[Dict[str, Any]] = None,
+) -> ExecutionResult:
+    """
+    Generate media (image, video, or audio) from text prompt(s).
+
+    This is the unified entry point for all media generation in MassGen.
+    It automatically selects the best available backend based on:
+    1. Explicit `backend_type` parameter
+    2. `multimodal_config` overrides
+    3. Available API keys and priority order
+
+    Supports batch mode: provide `prompts` (list) instead of `prompt` (string)
+    to generate multiple media items in parallel.
+
+    Args:
+        prompt: Text description of what to generate (single item mode)
+        mode: Type of media to generate - "image", "video", or "audio"
+        prompts: List of text descriptions for batch generation (parallel mode).
+                 Use this instead of `prompt` to generate multiple items at once.
+        input_images: Optional list of image paths for image-to-image (OpenAI only, single mode)
+        storage_path: Directory to save generated media (optional)
+                     - Relative paths resolved from agent workspace
+                     - Absolute paths must be in allowed directories
+                     - Defaults to agent workspace root
+        backend_type: Preferred backend ("openai", "google", "openrouter", or "auto")
+                      Falls back to others if unavailable
+        model: Override the default model for the selected backend
+        quality: Quality setting ("standard", "hd") - backend-specific
+        duration: For video/audio: length in seconds
+        voice: For audio: voice ID (e.g., "alloy", "echo", "nova", "shimmer")
+        aspect_ratio: For image/video: aspect ratio (e.g., "16:9", "1:1")
+        audio_format: For audio: output format (mp3, wav, opus, etc.)
+        instructions: For audio: speaking instructions (tone, style)
+        extra_params: Backend-specific parameters
+        max_concurrent: Maximum concurrent generations for batch mode (default: 4)
+        agent_cwd: Agent's working directory (auto-injected)
+        allowed_paths: Allowed directories for output (auto-injected)
+        multimodal_config: Per-modality backend/model overrides (auto-injected)
+
+    Returns:
+        ExecutionResult with generated file info or error.
+        For batch mode, returns results array with per-item status.
+
+    Examples:
+        # Generate a single image
+        generate_media(prompt="a cat in space", mode="image")
+
+        # Generate multiple images in parallel (batch mode)
+        generate_media(
+            prompts=["a cat in space", "a dog on the moon", "a bird in a forest"],
+            mode="image",
+            max_concurrent=3
+        )
+
+        # Generate video with Google Veo
+        generate_media(
+            prompt="A robot walking through a city",
+            mode="video",
+            backend_type="google",
+            duration=8
+        )
+
+        # Generate audio with specific voice
+        generate_media(
+            prompt="Hello world!",
+            mode="audio",
+            voice="nova"
+        )
+
+    Supported Backends:
+        Image: openai (GPT-4.1), google (Imagen), openrouter
+        Video: google (Veo), openai (Sora-2)
+        Audio: openai (gpt-4o-mini-tts)
+    """
+    try:
+        # Validate prompt/prompts - exactly one must be provided
+        if prompt and prompts:
+            return _error_result("Provide either 'prompt' or 'prompts', not both")
+        if not prompt and not prompts:
+            return _error_result("Must provide either 'prompt' or 'prompts'")
+
+        # Normalize to list for unified processing
+        prompt_list = prompts if prompts else [prompt]
+        is_batch = len(prompt_list) > 1
+
+        # Parse mode to MediaType
+        try:
+            media_type = MediaType(mode)
+        except ValueError:
+            return _error_result(
+                f"Invalid mode '{mode}'. Must be 'image', 'video', or 'audio'",
+            )
+
+        base_dir = Path(agent_cwd) if agent_cwd else Path.cwd()
+        allowed_paths_list = [Path(p) for p in allowed_paths] if allowed_paths else None
+
+        # Select backend and model (using config defaults when not specified)
+        selected_backend, selected_model = select_backend_and_model(
+            media_type=media_type,
+            preferred_backend=backend_type,
+            preferred_model=model,
+            config=multimodal_config,
+        )
+
+        if not selected_backend:
+            hint = get_available_backends_hint(media_type)
+            return _error_result(f"No backend available for {mode} generation. {hint}")
+
+        # Resolve output path
+        if storage_path:
+            if Path(storage_path).is_absolute():
+                output_dir = Path(storage_path).resolve()
+            else:
+                output_dir = (base_dir / storage_path).resolve()
+        else:
+            output_dir = base_dir
+
+        # Validate path access
+        _validate_path_access(output_dir, allowed_paths_list)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Common generation parameters
+        ext = _get_extension(media_type, audio_format)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # For single prompt with input_images (image-to-image), handle specially
+        if not is_batch and input_images and media_type == MediaType.IMAGE:
+            return await _generate_single_with_input_images(
+                prompt=prompt_list[0],
+                input_images=input_images,
+                output_dir=output_dir,
+                base_dir=base_dir,
+                allowed_paths_list=allowed_paths_list,
+                selected_backend=selected_backend,
+                selected_model=selected_model,
+                media_type=media_type,
+                mode=mode,
+                quality=quality,
+                duration=duration,
+                voice=voice,
+                aspect_ratio=aspect_ratio,
+                extra_params=extra_params,
+                instructions=instructions,
+                timestamp=timestamp,
+                ext=ext,
+            )
+
+        # Define the single generation task
+        async def _generate_one(idx: int, single_prompt: str, semaphore: asyncio.Semaphore) -> Dict[str, Any]:
+            """Generate a single media item with concurrency control."""
+            async with semaphore:
+                try:
+                    # Generate unique filename with index for batch
+                    clean_prompt = _clean_for_filename(single_prompt)
+                    if is_batch:
+                        filename = f"{timestamp}_{idx:02d}_{clean_prompt}.{ext}"
+                    else:
+                        filename = f"{timestamp}_{clean_prompt}.{ext}"
+                    output_path = output_dir / filename
+
+                    # Build config
+                    config = GenerationConfig(
+                        prompt=single_prompt,
+                        output_path=output_path,
+                        media_type=media_type,
+                        backend=selected_backend,
+                        model=selected_model,
+                        quality=quality,
+                        duration=duration,
+                        voice=voice,
+                        aspect_ratio=aspect_ratio,
+                        extra_params=extra_params or {},
+                        input_images=[],
+                        input_image_paths=[],
+                    )
+
+                    # Add instructions to extra_params for audio
+                    if instructions and media_type == MediaType.AUDIO:
+                        config.extra_params["instructions"] = instructions
+
+                    # Execute generation based on media type
+                    if media_type == MediaType.IMAGE:
+                        result = await generate_image(config)
+                    elif media_type == MediaType.VIDEO:
+                        result = await generate_video(config)
+                    elif media_type == MediaType.AUDIO:
+                        result = await generate_audio(config)
+                    else:
+                        return {
+                            "prompt": single_prompt,
+                            "success": False,
+                            "error": f"Unsupported media type: {mode}",
+                        }
+
+                    if result.success:
+                        return {
+                            "prompt": single_prompt,
+                            "success": True,
+                            "file_path": str(result.output_path),
+                            "filename": result.output_path.name if result.output_path else None,
+                            "backend": result.backend_name,
+                            "model": result.model_used,
+                            "file_size": result.file_size_bytes,
+                            "duration_seconds": result.duration_seconds,
+                            "metadata": dict(result.metadata or {}),
+                        }
+                    else:
+                        return {
+                            "prompt": single_prompt,
+                            "success": False,
+                            "error": result.error or "Generation failed",
+                        }
+
+                except Exception as e:
+                    logger.exception(f"Generation failed for prompt: {single_prompt[:50]}...")
+                    return {
+                        "prompt": single_prompt,
+                        "success": False,
+                        "error": str(e),
+                    }
+
+        # Execute generation(s) with concurrency control
+        semaphore = asyncio.Semaphore(max_concurrent)
+        tasks = [_generate_one(i, p, semaphore) for i, p in enumerate(prompt_list)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Convert any exceptions to error results
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                final_results.append(
+                    {
+                        "prompt": prompt_list[i],
+                        "success": False,
+                        "error": str(result),
+                    },
+                )
+            else:
+                final_results.append(result)
+
+        # Calculate success/failure counts
+        succeeded = sum(1 for r in final_results if r.get("success"))
+        failed = len(final_results) - succeeded
+
+        # Return appropriate format based on batch vs single
+        if is_batch:
+            return ExecutionResult(
+                output_blocks=[
+                    TextContent(
+                        data=json.dumps(
+                            {
+                                "success": succeeded > 0,
+                                "operation": "generate_media",
+                                "mode": mode,
+                                "batch": True,
+                                "total": len(final_results),
+                                "succeeded": succeeded,
+                                "failed": failed,
+                                "results": final_results,
+                            },
+                            indent=2,
+                        ),
+                    ),
+                ],
+            )
+        else:
+            # Single prompt - return original format for backwards compatibility
+            result = final_results[0]
+            if result.get("success"):
+                return ExecutionResult(
+                    output_blocks=[
+                        TextContent(
+                            data=json.dumps(
+                                {
+                                    "success": True,
+                                    "operation": "generate_media",
+                                    "mode": mode,
+                                    "file_path": result.get("file_path"),
+                                    "filename": result.get("filename"),
+                                    "backend": result.get("backend"),
+                                    "model": result.get("model"),
+                                    "file_size": result.get("file_size"),
+                                    "duration_seconds": result.get("duration_seconds"),
+                                    "metadata": result.get("metadata", {}),
+                                },
+                                indent=2,
+                            ),
+                        ),
+                    ],
+                )
+            else:
+                return _error_result(result.get("error", "Generation failed"))
 
     except ValueError as e:
         return _error_result(str(e))

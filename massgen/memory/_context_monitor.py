@@ -20,7 +20,7 @@ class ContextWindowMonitor:
         model_name: str,
         provider: str = "openai",
         trigger_threshold: float = 0.75,
-        target_ratio: float = 0.40,
+        target_ratio: float = 0.20,
         enabled: bool = True,
     ):
         """
@@ -29,8 +29,8 @@ class ContextWindowMonitor:
         Args:
             model_name: Name of the model (e.g., "gpt-4o-mini")
             provider: Provider name (e.g., "openai", "anthropic")
-            trigger_threshold: Percentage (0-1) at which to warn about context usage
-            target_ratio: Target percentage after compression
+            trigger_threshold: Percentage (0-1) at which to warn about context usage (default 0.75)
+            target_ratio: Target percentage after compression (default 0.20 = 20%)
             enabled: Whether to enable logging
         """
         self.model_name = model_name
@@ -87,6 +87,13 @@ class ContextWindowMonitor:
         should_compress = usage_percent >= self.trigger_threshold
         target_tokens = int(self.context_window * self.target_ratio)
 
+        # Debug logging for compression decision
+        logger.debug(
+            f"[ContextMonitor] {len(messages)} messages, "
+            f"{current_tokens:,}/{self.context_window:,} tokens ({usage_percent*100:.1f}%), "
+            f"threshold={self.trigger_threshold*100:.0f}%, should_compress={should_compress}",
+        )
+
         # Build log message
         turn_str = f" (Turn {turn_number})" if turn_number is not None else ""
         status_emoji = "📊"
@@ -106,6 +113,69 @@ class ContextWindowMonitor:
         else:
             logger.info(
                 f"{status_emoji} Context Window{turn_str}: " f"{current_tokens:,} / {self.context_window:,} tokens " f"({usage_percent*100:.1f}%)",
+            )
+
+        return {
+            "current_tokens": current_tokens,
+            "max_tokens": self.context_window,
+            "usage_percent": usage_percent,
+            "should_compress": should_compress,
+            "target_tokens": target_tokens,
+            "trigger_threshold": self.trigger_threshold,
+            "target_ratio": self.target_ratio,
+        }
+
+    def log_context_usage_from_tokens(
+        self,
+        current_tokens: int,
+        turn_number: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Log context window usage from actual token count (from API response).
+
+        This is more accurate than estimating from messages because it captures
+        the full context including system prompts, tool definitions, etc.
+
+        Args:
+            current_tokens: Actual token count from API usage tracking
+            turn_number: Optional turn number to display
+
+        Returns:
+            Dict with usage stats (same format as log_context_usage)
+        """
+        if not self.enabled:
+            return {}
+
+        usage_percent = current_tokens / self.context_window
+        should_compress = usage_percent >= self.trigger_threshold
+        target_tokens = int(self.context_window * self.target_ratio)
+
+        # Debug logging for compression decision
+        logger.debug(
+            f"[ContextMonitor] actual API tokens: "
+            f"{current_tokens:,}/{self.context_window:,} ({usage_percent*100:.1f}%), "
+            f"threshold={self.trigger_threshold*100:.0f}%, should_compress={should_compress}",
+        )
+
+        # Build log message
+        turn_str = f" (Turn {turn_number})" if turn_number is not None else ""
+        status_emoji = "📊"
+
+        if usage_percent >= self.trigger_threshold:
+            status_emoji = "⚠️"
+            logger.warning(
+                f"{status_emoji} Context Window{turn_str}: " f"{current_tokens:,} / {self.context_window:,} tokens " f"({usage_percent*100:.1f}%) [API actual] - Approaching limit!",
+            )
+            logger.warning(
+                f"   Compression threshold reached. Target after compression: " f"{target_tokens:,} tokens ({self.target_ratio*100:.0f}%)",
+            )
+        elif usage_percent >= 0.50:
+            logger.info(
+                f"{status_emoji} Context Window{turn_str}: " f"{current_tokens:,} / {self.context_window:,} tokens " f"({usage_percent*100:.1f}%) [API actual]",
+            )
+        else:
+            logger.info(
+                f"{status_emoji} Context Window{turn_str}: " f"{current_tokens:,} / {self.context_window:,} tokens " f"({usage_percent*100:.1f}%) [API actual]",
             )
 
         return {
@@ -187,20 +257,32 @@ def create_monitor_from_config(
     """
     Create a context window monitor from YAML config.
 
+    Supports two config sections:
+    - filesystem_memory: New section for filesystem-based memory (preferred)
+    - memory: Legacy section for Qdrant-based memory (fallback)
+
     Args:
-        config: Config dict (should have 'memory' section)
+        config: Config dict (should have 'filesystem_memory' or 'memory' section)
         model_name: Model name
         provider: Provider name
 
     Returns:
         ContextWindowMonitor instance
     """
-    memory_config = config.get("memory", {})
-    compression_config = memory_config.get("compression", {})
+    # Prefer filesystem_memory config (new), fall back to memory config (legacy)
+    fs_memory_config = config.get("filesystem_memory", {})
+    legacy_memory_config = config.get("memory", {})
+
+    # Get compression config from filesystem_memory first, then legacy
+    if fs_memory_config:
+        compression_config = fs_memory_config.get("compression", {})
+        enabled = fs_memory_config.get("enabled", True)
+    else:
+        compression_config = legacy_memory_config.get("compression", {})
+        enabled = legacy_memory_config.get("enabled", True)
 
     trigger_threshold = compression_config.get("trigger_threshold", 0.75)
-    target_ratio = compression_config.get("target_ratio", 0.40)
-    enabled = memory_config.get("enabled", True)
+    target_ratio = compression_config.get("target_ratio", 0.20)  # Changed default to 0.20
 
     return ContextWindowMonitor(
         model_name=model_name,

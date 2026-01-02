@@ -130,12 +130,12 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "gpt-4o-mini",
             "o4-mini",
         ],
-        default_model="gpt-5.1-codex",
+        default_model="gpt-5.2",
         env_var="OPENAI_API_KEY",
         notes=(
-            "Codex models (gpt-5.1-codex, gpt-5-codex) are recommended for coding tasks. "
-            "Reasoning support in GPT-5 and o-series models. Audio/video generation (v0.0.30+). "
-            "Video generation via Sora-2 API (v0.0.31)."
+            "GPT-5.2 is the recommended default. Codex models (gpt-5.1-codex, gpt-5-codex) are optimized "
+            "for shorter system messages and may not work well with MassGen's coordination prompts. "
+            "Reasoning support in GPT-5 and o-series models. Audio/video generation (v0.0.30+)."
         ),
         model_release_dates={
             "gpt-5.2": "2025-12",

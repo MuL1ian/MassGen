@@ -183,23 +183,90 @@ See :ref:`recording-configuration` below for details.
 Context Compression
 ~~~~~~~~~~~~~~~~~~~
 
-When context usage exceeds the threshold (default 75%):
+MassGen uses **reactive compression** for context window management. This is due to
+a fundamental limitation of most LLM APIs.
 
-1. **Select messages to keep**: System messages + recent messages fitting in target ratio (default 40%)
-2. **Remove old messages** from conversation_memory (already in persistent_memory)
-3. **Enable retrieval** for subsequent turns
+**Why Reactive?**
+
+Most LLM providers (OpenAI, Anthropic, Google) only report token usage *after* a
+request completes. There is no mid-stream token counting or pre-flight validation API.
+This means MassGen cannot proactively prevent context overflow—it can only react when
+the provider returns a context length error.
+
+**How It Works**
+
+1. MassGen sends the conversation to the LLM
+2. If the context is too long, the provider returns an error
+3. MassGen catches the error and generates a summary of the work done so far
+4. The summarized conversation is retried automatically (single retry to prevent loops)
+
+**After compression**, the message structure looks like:
 
 .. code-block:: text
 
-   Before Compression:
-   📊 Context: 96,000 / 128,000 tokens (75%)
-   [user msg 1] → [agent response 1] → ... → [user msg 20] → [agent response 20]
+   Before Error:
+   [system] → [user 1] → [assistant 1] → ... → [user 20] → [assistant 20] ← ERROR
 
    After Compression:
-   📊 Context: 51,200 / 128,000 tokens (40%)
-   [user msg 15] → [agent response 15] → ... → [user msg 20] → [agent response 20]
+   [system] → [user request] → [summary as assistant message]
+   ↑           ↑                ↑
+   System      User's original  Summary of ALL work done so far
+   preserved   request          (most recent context - model continues from here)
 
-   Old messages (1-14) → Accessible via semantic search in persistent_memory
+**Key Design: User → Summary Ordering**
+
+The summary is placed *after* the user message as an assistant message. This ordering
+is critical for preventing redundant work:
+
+- The model sees its own summary as the most recent context
+- It naturally continues from the summary rather than starting fresh
+- File reads, analysis, and other completed work are preserved in the summary
+
+**What Gets Summarized**
+
+The compression system captures everything in the streaming buffer, including:
+
+- Tool calls and their results (file reads, directory listings, etc.)
+- Reasoning and analysis performed
+- Partial answers and work in progress
+- Any content that was streaming when the context limit was hit
+
+This ensures the model doesn't re-read files or redo analysis after compression.
+
+**Configuration**
+
+.. code-block:: yaml
+
+   coordination:
+     compression_target_ratio: 0.20  # Preserve 20% of messages, summarize 80%
+
+The ``compression_target_ratio`` controls how aggressively to compress when the
+context limit is exceeded:
+
+- **0.20** (default): Preserve ~20% of messages verbatim, summarize the rest
+- **0.30**: More conservative, preserve ~30% of messages
+- **0.10**: More aggressive, preserve only ~10% of messages
+
+.. note::
+
+   Compression is **reactive** - it only triggers when the provider returns a context
+   length error. MassGen cannot predict when context will exceed the limit because
+   token counts are only available after each LLM call completes.
+
+**Best Practices**
+
+- For very long tasks, consider breaking into multiple sessions
+- Use ``clear_history=True`` when starting unrelated topics
+- Critical information should be in recent messages or system prompt
+- Lower ``compression_target_ratio`` for more aggressive compression (preserves less)
+
+**Future Improvements**
+
+Some providers may add better token tracking in the future:
+
+- Pre-flight token counting APIs
+- Streaming token usage updates
+- Local models with tiktoken-based estimation
 
 Memory Retrieval
 ~~~~~~~~~~~~~~~~
@@ -550,13 +617,21 @@ Compression Settings
 .. code-block:: yaml
 
    compression:
-     trigger_threshold: 0.75  # Compress when 75% full
-     target_ratio: 0.40        # Keep 40% after compression
+     trigger_threshold: 0.75  # Not reliably enforceable - see note below
+     target_ratio: 0.20        # Preserve 20% of messages after compression
+
+.. note::
+
+   **Reactive Compression Limitation**: The ``trigger_threshold`` cannot be proactively
+   enforced because token counts are only available after each LLM call completes. MassGen
+   uses reactive compression—catching context length errors from the provider and
+   summarizing automatically. Only ``target_ratio`` is reliably enforced.
 
 Example configurations:
 
-- **Aggressive compression**: ``trigger_threshold: 0.50``, ``target_ratio: 0.20``
-- **Conservative**: ``trigger_threshold: 0.90``, ``target_ratio: 0.60``
+- **Aggressive compression**: ``target_ratio: 0.10`` (preserve only 10%)
+- **Moderate** (default): ``target_ratio: 0.20`` (preserve 20%)
+- **Conservative**: ``target_ratio: 0.40`` (preserve 40%)
 
 Retrieval Settings
 ^^^^^^^^^^^^^^^^^^
@@ -651,20 +726,43 @@ Monitoring and Debugging
 Context Window Logs
 ~~~~~~~~~~~~~~~~~~~
 
+MassGen uses **buffer-based context tracking** to accurately monitor token usage. The conversation buffer captures ALL content including tool calls, tool results, injections, and reasoning—not just turn-level messages.
+
+**Token Tracking Priority**:
+
+1. **Official API counts** (at stream end): Most accurate for cost/pricing
+2. **Buffer estimation** (fallback): Captures all content provided by API
+
 Monitor context usage in real-time:
 
 .. code-block:: text
 
-   📊 Context Window (Turn 5): 45,000 / 128,000 tokens (35%)
+   # Using official API token counts (most accurate)
+   📊 Context Window (Turn 5): 45,000 / 128,000 tokens (35%) [API actual]
+
+   # Using buffer estimation (fallback, assuming API provides all content)
+   📊 Context Buffer (Turn 5): 45,000 / 128,000 tokens (35%) [buffer]
 
 When compression triggers:
 
 .. code-block:: text
 
-   ⚠️  Context Window (Turn 11): 96,000 / 128,000 tokens (75%) - Approaching limit!
+   ⚠️  Context Buffer (Turn 11): 96,000 / 128,000 tokens (75%) [buffer] - Approaching limit!
    🔄 Attempting compression (96,000 → 51,200 tokens)
    📦 Context compressed: Removed 15 messages (44,800 tokens).
       Kept 8 recent messages (51,200 tokens).
+
+**Why Buffer-Based Tracking?**
+
+The conversation buffer is the true source of context sent to agents. Unlike message-based tracking, it includes:
+
+- Tool calls and their arguments
+- Tool results (can be very large)
+- Injections from other agents
+- Pending content not yet flushed
+- Reasoning/thinking content (may not be available, depending on the API)
+
+This provides accurate context usage even mid-stream, before official API counts are available.
 
 Memory Operations
 ~~~~~~~~~~~~~~~~~
@@ -1216,6 +1314,15 @@ For programmatic usage, see the memory module docstrings:
 - ``massgen.memory.ConversationMemory`` - Conversation memory API
 - ``massgen.memory._context_monitor`` - Context monitoring utilities
 
+  - ``log_context_usage_from_buffer(buffer, turn_number)`` - Buffer-based tracking (recommended)
+  - ``log_context_usage_from_tokens(tokens, turn_number)`` - Official API token counts
+  - ``log_context_usage(messages, turn_number)`` - Legacy message-based tracking
+
+- ``massgen.conversation_buffer.AgentConversationBuffer`` - Conversation buffer
+
+  - ``estimate_tokens(calculator)`` - Get total token count including pending content
+  - ``get_token_stats(calculator)`` - Get breakdown by entry type (user, assistant, tool_call, etc.)
+
 Examples
 --------
 
@@ -1233,25 +1340,26 @@ Future Improvements
 Planned Features
 ~~~~~~~~~~~~~~~~
 
-**1. Chunk-Level Token Tracking**
+**1. Proactive Streaming Interruption** *(Partially Implemented)*
 
-**Current**: Token counting happens after complete response (message-level)
+**Implemented**: Buffer-based token tracking captures ALL content during streaming:
 
 .. code-block:: text
 
    [Agent streaming response...]
-   → [Response complete]
-   → [Count tokens on full message]
+   → [Buffer tracks: tool calls, results, reasoning, content]
+   → [Pre-processing: 📊 Context Buffer: 45K / 128K tokens [buffer]]
+   → [Post-processing: 📊 Context Window: 45K / 128K tokens [API actual]]
    → [Compress if needed]
 
-**Issue**: Can't stop mid-stream if response exceeds budget
+**Remaining**: Proactive interruption when approaching budget
 
-**Planned**: Track tokens during streaming, warn agent when approaching limit
+**Planned**: Inject warning to agent mid-stream when approaching limit
 
 .. code-block:: text
 
    [Agent streaming...]
-   → [Token counter: 45K / 50K budget]
+   → [Buffer counter: 95K / 128K budget]
    → [Agent sees: "⚠️ Approaching token limit, wrap up"]
    → [Agent concludes early]
 
@@ -1290,29 +1398,34 @@ Planned Features
 
 **Benefit**: Capture tool usage patterns without overwhelming mem0's extraction LLM with 50KB directory trees
 
-**4. Memory Summarization on Compression**
+**4. Memory Summarization on Compression** *(Implemented)*
 
-**Current**: Just remove old messages
-
-**Planned**: Generate summary of compressed context
+Compression now generates a comprehensive summary of all work done:
 
 .. code-block:: text
 
-   Compression:
-   - Remove messages 1-10
-   - Generate summary: "User analyzed MassGen codebase, identified 3 key components..."
-   - Inject summary as context for future turns
+   Compression Flow:
+   1. Context limit error detected
+   2. Generate summary of buffer content (tool calls, results, analysis)
+   3. Rebuild context: [system] → [user request] → [summary]
+   4. Summary placed LAST so model continues from it (not restart)
+
+The user→summary ordering prevents models from re-reading files or redoing analysis
+that was already completed before compression.
 
 Known Limitations
 ~~~~~~~~~~~~~~~~~
 
-**Token Counting During Streaming**
+**Token Counting During Streaming** *(Improved in v0.1.25+)*
 
-Context is counted **after** response completes, not during streaming chunks. This means:
+Buffer-based tracking now provides context estimates during streaming:
 
-- ✅ Accurate final count
-- ❌ Can't stop mid-response if too large
-- ❌ No proactive budget warnings
+- ✅ **Before processing**: Buffer estimation shows current context size
+- ✅ **After response**: Official API counts used when available
+- ✅ **Accurate tracking**: Includes tool calls, results, injections, reasoning
+- ❌ Can't stop mid-response if too large (proactive interruption planned)
+- ❌ No real-time budget warnings to agent yet
+- ❌ Reasoning not provided by APIs so buffer can be inaccurate
 
 **Workaround**: Set conservative compression thresholds (50-60%) to leave headroom.
 

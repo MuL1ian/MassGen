@@ -25,6 +25,7 @@ from massgen.system_prompt_sections import (
     FileSearchSection,
     FilesystemBestPracticesSection,
     FilesystemOperationsSection,
+    GPT5GuidanceSection,
     MemorySection,
     MultimodalToolsSection,
     OutputFirstVerificationSection,
@@ -122,6 +123,15 @@ class SystemMessageBuilder:
         # PRIORITY 1 (CRITICAL): Core Behaviors - HOW to act
         builder.add_section(CoreBehaviorsSection())
 
+        # PRIORITY 4: File Persistence Guidance (solution persistence + tool preambles)
+        # Added for models that tend to output file contents in answers instead of using file tools
+        # GPT-5.x: Based on OpenAI's prompting guides
+        # Grok: Observed behavior of embedding HTML in answers instead of writing to files
+        model_name = agent.backend.config.get("model", "").lower()
+        if model_name.startswith("gpt-5") or model_name.startswith("grok"):
+            builder.add_section(GPT5GuidanceSection())
+            logger.info(f"[SystemMessageBuilder] Added file persistence guidance section for {agent_id} (model: {model_name})")
+
         # PRIORITY 1 (HIGH): Output-First Verification - verify outcomes, not implementations
         builder.add_section(OutputFirstVerificationSection())
 
@@ -209,14 +219,17 @@ class SystemMessageBuilder:
             enable_command_execution = False
             docker_mode = False
             enable_sudo = False
+            concurrent_tool_execution = False
             if hasattr(agent, "config") and agent.config:
                 enable_command_execution = agent.config.backend_params.get("enable_mcp_command_line", False)
                 docker_mode = agent.config.backend_params.get("command_line_execution_mode", "local") == "docker"
                 enable_sudo = agent.config.backend_params.get("command_line_docker_enable_sudo", False)
+                concurrent_tool_execution = agent.config.backend_params.get("concurrent_tool_execution", False)
             elif hasattr(agent, "backend") and hasattr(agent.backend, "backend_params"):
                 enable_command_execution = agent.backend.backend_params.get("enable_mcp_command_line", False)
                 docker_mode = agent.backend.backend_params.get("command_line_execution_mode", "local") == "docker"
                 enable_sudo = agent.backend.backend_params.get("command_line_docker_enable_sudo", False)
+                concurrent_tool_execution = agent.backend.backend_params.get("concurrent_tool_execution", False)
 
             # Build and add filesystem sections using consolidated helper
             fs_ops, fs_best, cmd_exec = self._build_filesystem_sections(
@@ -226,6 +239,7 @@ class SystemMessageBuilder:
                 enable_command_execution=enable_command_execution,
                 docker_mode=docker_mode,
                 enable_sudo=enable_sudo,
+                concurrent_tool_execution=concurrent_tool_execution,
             )
 
             builder.add_section(fs_ops)
@@ -326,6 +340,7 @@ class SystemMessageBuilder:
         enable_command_execution: bool = False,
         docker_mode: bool = False,
         enable_sudo: bool = False,
+        concurrent_tool_execution: bool = False,
     ) -> str:
         """Build system message for final presentation phase.
 
@@ -344,6 +359,7 @@ class SystemMessageBuilder:
             enable_command_execution: Whether command execution is enabled
             docker_mode: Whether commands run in Docker
             enable_sudo: Whether sudo is available
+            concurrent_tool_execution: Whether tools execute in parallel
 
         Returns:
             Complete system message string
@@ -375,6 +391,7 @@ class SystemMessageBuilder:
                 enable_command_execution=enable_command_execution,
                 docker_mode=docker_mode,
                 enable_sudo=enable_sudo,
+                concurrent_tool_execution=concurrent_tool_execution,
             )
 
             # Build sections list
@@ -503,6 +520,7 @@ This makes the work reusable for similar future tasks."""
         enable_command_execution: bool,
         docker_mode: bool = False,
         enable_sudo: bool = False,
+        concurrent_tool_execution: bool = False,
     ) -> Tuple[Any, Any, Optional[Any]]:  # Tuple[FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection]]
         """Build filesystem-related sections.
 
@@ -516,6 +534,7 @@ This makes the work reusable for similar future tasks."""
             enable_command_execution: Whether to include command execution section
             docker_mode: Whether commands run in Docker
             enable_sudo: Whether sudo is available
+            concurrent_tool_execution: Whether tools execute in parallel
 
         Returns:
             Tuple of (FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection])
@@ -550,7 +569,11 @@ This makes the work reusable for similar future tasks."""
         # Build command execution section if enabled
         cmd_exec = None
         if enable_command_execution:
-            cmd_exec = CommandExecutionSection(docker_mode=docker_mode, enable_sudo=enable_sudo)
+            cmd_exec = CommandExecutionSection(
+                docker_mode=docker_mode,
+                enable_sudo=enable_sudo,
+                concurrent_tool_execution=concurrent_tool_execution,
+            )
 
         return fs_ops, fs_best, cmd_exec
 

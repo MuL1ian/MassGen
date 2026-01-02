@@ -138,6 +138,23 @@ IMPORTANT: You are responding to the latest message in an ongoing conversation. 
 
         return "Finish your work above by making a tool call of `vote` or `new_answer`. Make sure you actually call the tool."
 
+    def evaluation_system_message_vote_only(self) -> str:
+        """System message when agent has reached their answer limit and must vote.
+
+        Used when max_new_answers_per_agent is reached. The agent can only use the
+        vote tool (new_answer and broadcast tools are removed).
+        """
+        if "evaluation_system_message_vote_only" in self._template_overrides:
+            return str(self._template_overrides["evaluation_system_message_vote_only"])
+
+        return """You are evaluating existing solutions to determine the best answer.
+
+You have provided your maximum number of new answers. Now you MUST vote for the best existing answer.
+
+Use your available tools to analyze the existing answers, then call the `vote` tool to select the best one.
+
+IMPORTANT: The only workflow action available to you is `vote`. You cannot submit new answers."""
+
     def tool_error_message(self, error_msg: str) -> Dict[str, str]:
         """Create a tool role message for tool usage errors."""
         return {"role": "tool", "content": error_msg}

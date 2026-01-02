@@ -30,9 +30,15 @@ from typing import (
 )
 
 import httpx
+import logfire
 from pydantic import BaseModel
 
-from ..filesystem_manager._constants import FRAMEWORK_MCPS
+from ..filesystem_manager._constants import (
+    EVICTED_RESULTS_DIR,
+    FRAMEWORK_MCPS,
+    TOOL_RESULT_EVICTION_PREVIEW_TOKENS,
+    TOOL_RESULT_EVICTION_THRESHOLD_TOKENS,
+)
 from ..logger_config import log_backend_activity, logger
 from ..mcp_tools.server_registry import get_auto_discovery_servers, get_registry_info
 from ..nlip.schema import (
@@ -102,6 +108,19 @@ class CustomToolChunk(NamedTuple):
     meta_info: Optional[Dict[str, Any]] = None  # Multimodal metadata (e.g., from read_media)
 
 
+class EvictionResult(NamedTuple):
+    """Result of attempting to evict a large tool result to file.
+
+    Attributes:
+        text: Either the original result text (if not evicted) or a reference
+              message with preview (if evicted to file)
+        was_evicted: True if result was evicted to file, False if kept in memory
+    """
+
+    text: str
+    was_evicted: bool
+
+
 class ExecutionContext(BaseModel):
     """Execution context for MCP tool execution."""
 
@@ -112,6 +131,11 @@ class ExecutionContext(BaseModel):
     backend_type: Optional[str] = None  # Backend type for capability lookup (e.g., "openai", "claude")
     model: Optional[str] = None  # Model name for capability lookup
     current_stage: Optional[CoordinationStage] = None
+
+    # Workspace context for file operations and multimodal tools
+    agent_cwd: Optional[str] = None  # Working directory for file operations
+    allowed_paths: Optional[List[str]] = None  # Allowed paths for file access
+    multimodal_config: Optional[Dict[str, Any]] = None  # Multimodal generation config
 
     # These will be computed after initialization
     system_messages: Optional[List[Dict[str, Any]]] = None
@@ -127,6 +151,9 @@ class ExecutionContext(BaseModel):
         backend_type: Optional[str] = None,
         model: Optional[str] = None,
         current_stage: Optional[CoordinationStage] = None,
+        agent_cwd: Optional[str] = None,
+        allowed_paths: Optional[List[str]] = None,
+        multimodal_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize execution context."""
         super().__init__(
@@ -137,6 +164,9 @@ class ExecutionContext(BaseModel):
             backend_type=backend_type,
             model=model,
             current_stage=current_stage,
+            agent_cwd=agent_cwd,
+            allowed_paths=allowed_paths,
+            multimodal_config=multimodal_config,
         )
         # Now you can process messages after Pydantic initialization
         self._process_messages()
@@ -289,6 +319,10 @@ class CustomToolAndMCPBackend(LLMBackend):
         # NLIP routing support (injected by agent configuration)
         self._nlip_router = None
         self._nlip_enabled = False
+
+        # Incomplete response recovery tracking
+        self._incomplete_response_count = 0
+        self._max_incomplete_response_retries = kwargs.get("max_incomplete_response_retries", 5)
 
         # Register custom tools if provided
         custom_tools = kwargs.get("custom_tools", [])
@@ -468,6 +502,18 @@ class CustomToolAndMCPBackend(LLMBackend):
             )
 
         return multimodal_config
+
+    def reset_incomplete_response_count(self) -> None:
+        """Reset the incomplete response recovery counter.
+
+        Should be called after a successful stream completion to reset
+        the counter for the next streaming operation.
+        """
+        if self._incomplete_response_count > 0:
+            logger.debug(
+                f"[{self.backend_name}] Resetting incomplete response count from {self._incomplete_response_count}",
+            )
+        self._incomplete_response_count = 0
 
     def set_nlip_router(self, nlip_router, enabled: bool = True) -> None:
         """
@@ -1214,6 +1260,123 @@ class CustomToolAndMCPBackend(LLMBackend):
         but with error content.
         """
 
+    def _truncate_to_token_limit(self, text: str, max_tokens: int) -> str:
+        """Truncate text to approximately max_tokens using binary search.
+
+        Args:
+            text: Text to truncate
+            max_tokens: Target maximum tokens
+
+        Returns:
+            Truncated text that fits within token limit
+        """
+        # Quick check - if already under limit, return as-is
+        if self.token_calculator.estimate_tokens(text) <= max_tokens:
+            return text
+
+        # Binary search for the right character cutoff
+        low, high = 0, len(text)
+        result = ""
+
+        while low < high:
+            mid = (low + high + 1) // 2
+            candidate = text[:mid]
+            tokens = self.token_calculator.estimate_tokens(candidate)
+
+            if tokens <= max_tokens:
+                result = candidate
+                low = mid
+            else:
+                high = mid - 1
+
+        return result
+
+    def _maybe_evict_large_tool_result(
+        self,
+        result_text: str,
+        tool_name: str,
+        call_id: str,
+    ) -> EvictionResult:
+        """Evict large tool result to file if it exceeds token threshold.
+
+        When tool results exceed TOOL_RESULT_EVICTION_THRESHOLD_TOKENS, they are
+        saved to a file in the agent's workspace and replaced with a reference
+        message containing a preview. This prevents context window saturation.
+
+        Args:
+            result_text: The full tool result text
+            tool_name: Name of the tool that produced the result
+            call_id: Unique call ID for this tool invocation
+
+        Returns:
+            EvictionResult with:
+            - text: reference_message if evicted, original_result_text otherwise
+            - was_evicted: True if evicted to file, False if kept in memory
+        """
+        # Estimate token count using tiktoken
+        token_count = self.token_calculator.estimate_tokens(result_text)
+
+        if token_count <= TOOL_RESULT_EVICTION_THRESHOLD_TOKENS:
+            return EvictionResult(text=result_text, was_evicted=False)
+
+        # Need to evict - get workspace path
+        if not self.filesystem_manager or not self.filesystem_manager.cwd:
+            logger.error(
+                f"[ToolEviction] Cannot evict {tool_name} result "
+                f"({token_count:,} tokens, limit {TOOL_RESULT_EVICTION_THRESHOLD_TOKENS:,}) - "
+                "no workspace available. Large result kept in context may cause overflow.",
+            )
+            return EvictionResult(text=result_text, was_evicted=False)
+
+        try:
+            # Create eviction directory
+            workspace = Path(self.filesystem_manager.cwd)
+            eviction_dir = workspace / EVICTED_RESULTS_DIR
+            eviction_dir.mkdir(exist_ok=True)
+
+            # Generate filename: tool_name_timestamp_callid.txt
+            safe_tool_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in tool_name)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            short_id = call_id[:8] if call_id else "unknown"
+            filename = f"{safe_tool_name}_{timestamp}_{short_id}.txt"
+            filepath = eviction_dir / filename
+
+            # Write result to file
+            filepath.write_text(result_text, encoding="utf-8")
+
+            # Build token-based preview (~2000 tokens)
+            preview = self._truncate_to_token_limit(
+                result_text,
+                TOOL_RESULT_EVICTION_PREVIEW_TOKENS,
+            )
+            preview_end_char = len(preview)
+            total_chars = len(result_text)
+
+            # Build reference message with character positions for chunked reading
+            # Use relative path from workspace for cleaner display
+            relative_path = f"{EVICTED_RESULTS_DIR}/{filename}"
+            reference = (
+                f"[Tool Result Evicted - Too Large for Context]\n\n"
+                f"The result from {tool_name} was {token_count:,} tokens / {total_chars:,} chars "
+                f"(limit: {TOOL_RESULT_EVICTION_THRESHOLD_TOKENS:,} tokens).\n"
+                f"Full result saved to: {relative_path}\n\n"
+                f"To read more: start at char {preview_end_char:,}, read in chunks.\n\n"
+                f"Preview (chars 0-{preview_end_char:,} of {total_chars:,}):\n{preview}"
+            )
+
+            logger.info(
+                f"[ToolEviction] Evicted {tool_name} result: " f"{token_count:,} tokens -> {filepath}",
+            )
+
+            return EvictionResult(text=reference, was_evicted=True)
+
+        except (OSError, IOError, PermissionError, UnicodeEncodeError) as e:
+            logger.warning(
+                f"[ToolEviction] Failed to evict {tool_name} result ({token_count:,} tokens): {e}. " "Keeping result in memory - this may cause context overflow on next API call.",
+                exc_info=True,
+            )
+            return EvictionResult(text=result_text, was_evicted=False)
+
     async def _execute_tool_with_logging(
         self,
         call: Dict[str, Any],
@@ -1341,7 +1504,8 @@ class CustomToolAndMCPBackend(LLMBackend):
                         call["name"],
                         call["arguments"],
                     )
-                    result = result_str
+                    # Preserve CallToolResult object for proper text extraction in _append_tool_result_message
+                    result = result_obj if result_obj is not None else result_str
 
                 # Capture execution end time inside span
                 execution_end_time = time.time()
@@ -1391,13 +1555,78 @@ class CustomToolAndMCPBackend(LLMBackend):
                 )
                 return
 
-            # Append result to messages
-            self._append_tool_result_message(
-                updated_messages,
-                call,
-                result,
-                config.tool_type,
+            # Extract result text for eviction check - handle MCP CallToolResult properly
+            if hasattr(result, "content") and not isinstance(result, (dict, str)):
+                # MCP CallToolResult - extract text from content list
+                extracted = self._extract_text_from_content(result.content)
+                result_text_for_eviction = extracted if extracted is not None else str(result)
+            else:
+                result_text_for_eviction = getattr(result, "text", None) or str(result)
+
+            # Check for large result eviction before appending
+            eviction = self._maybe_evict_large_tool_result(
+                result_text_for_eviction,
+                tool_name,
+                call_id,
             )
+
+            # Check for mid-stream injection content (updates from other agents)
+            injection_content = self.get_mid_stream_injection()
+
+            # Append result to messages (potentially evicted, potentially with injection)
+            if eviction.was_evicted:
+                # Create a new result with the evicted reference
+                result_text = eviction.text
+                if injection_content:
+                    result_text = f"{result_text}\n{injection_content}"
+
+                if hasattr(result, "text"):
+                    evicted_result = types.SimpleNamespace(
+                        text=result_text,
+                        meta_info=getattr(result, "meta_info", None),
+                    )
+                    self._append_tool_result_message(
+                        updated_messages,
+                        call,
+                        evicted_result,
+                        config.tool_type,
+                    )
+                else:
+                    self._append_tool_result_message(
+                        updated_messages,
+                        call,
+                        result_text,
+                        config.tool_type,
+                    )
+            else:
+                # Non-evicted result - potentially add injection
+                if injection_content:
+                    if hasattr(result, "text"):
+                        modified_result = types.SimpleNamespace(
+                            text=f"{result.text}\n{injection_content}",
+                            meta_info=getattr(result, "meta_info", None),
+                        )
+                        self._append_tool_result_message(
+                            updated_messages,
+                            call,
+                            modified_result,
+                            config.tool_type,
+                        )
+                    else:
+                        modified_result = f"{str(result)}\n{injection_content}"
+                        self._append_tool_result_message(
+                            updated_messages,
+                            call,
+                            modified_result,
+                            config.tool_type,
+                        )
+                else:
+                    self._append_tool_result_message(
+                        updated_messages,
+                        call,
+                        result,
+                        config.tool_type,
+                    )
 
             # Check for reminder in tool result and inject as separate user message
             reminder_text = None
@@ -1461,6 +1690,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                             display_result = result_obj.content[0].text
                 except (AttributeError, IndexError, TypeError):
                     pass  # Fall back to result_str
+
+            # If result was evicted, show the reference message in streaming output
+            if eviction.was_evicted:
+                display_result = eviction.text
 
             yield StreamChunk(
                 type=config.chunk_type,
@@ -2648,6 +2881,42 @@ class CustomToolAndMCPBackend(LLMBackend):
 
             return encoded, mime_type
 
+    async def _compress_messages_for_context_recovery(
+        self,
+        messages: List[Dict[str, Any]],
+        buffer_content: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Compress messages for context error recovery.
+
+        Default implementation that subclasses inherit automatically.
+        Subclasses can override if they need custom compression logic.
+
+        Args:
+            messages: The messages that caused the context length error
+            buffer_content: Optional partial response content from streaming buffer
+
+        Returns:
+            Compressed message list ready for retry
+        """
+        from ._compression_utils import compress_messages_for_recovery
+
+        logger.info(
+            f"[{self.get_provider_name()}] Compressing {len(messages)} messages " f"with target_ratio={self._compression_target_ratio}",
+        )
+
+        result = await compress_messages_for_recovery(
+            messages=messages,
+            backend=self,
+            target_ratio=self._compression_target_ratio,
+            buffer_content=buffer_content,
+        )
+
+        logger.info(
+            f"[{self.get_provider_name()}] Compressed {len(messages)} messages " f"to {len(result)} messages",
+        )
+
+        return result
+
     async def stream_with_tools(
         self,
         messages: List[Dict[str, Any]],
@@ -2670,6 +2939,14 @@ class CustomToolAndMCPBackend(LLMBackend):
                 "",
             ),  # For model-specific multimodal capability lookup
             current_stage=self.coordination_stage,
+            # Workspace context for file operations and multimodal tools
+            agent_cwd=str(self.filesystem_manager.cwd) if self.filesystem_manager else None,
+            allowed_paths=(
+                self.filesystem_manager.path_permission_manager.get_mcp_filesystem_paths()
+                if self.filesystem_manager and hasattr(self.filesystem_manager, "path_permission_manager") and self.filesystem_manager.path_permission_manager
+                else None
+            ),
+            multimodal_config=self._multimodal_config if hasattr(self, "_multimodal_config") else None,
         )
 
         log_backend_activity(
@@ -2742,8 +3019,143 @@ class CustomToolAndMCPBackend(LLMBackend):
                         ):
                             yield chunk
                     else:
-                        logger.error(f"Streaming error: {e}")
-                        yield StreamChunk(type="error", error=str(e))
+                        # Check if this is a context length error that we can recover from
+                        from ._context_errors import is_context_length_error
+
+                        _compression_retry = kwargs.get("_compression_retry", False)
+
+                        if is_context_length_error(e) and not _compression_retry and hasattr(self, "_compress_messages_for_context_recovery"):
+                            logger.warning(
+                                f"[{self.get_provider_name()}] Context length exceeded during streaming, " f"attempting compression recovery...",
+                            )
+                            try:
+                                agent_id = kwargs.get("agent_id")
+
+                                # Notify user that compression is starting
+                                yield StreamChunk(
+                                    type="compression_status",
+                                    status="compressing",
+                                    content=f"\n📦 [Compression] Context limit exceeded - summarizing {len(messages)} messages...",
+                                    source=agent_id,
+                                )
+
+                                # Get streaming buffer content if available (subclass may track this)
+                                buffer_content = getattr(self, "_streaming_buffer", None) or None
+
+                                # Compress messages and retry
+                                compressed_messages = await self._compress_messages_for_context_recovery(
+                                    messages,
+                                    buffer_content=buffer_content,
+                                )
+
+                                # Notify user that compression succeeded
+                                yield StreamChunk(
+                                    type="compression_status",
+                                    status="compression_complete",
+                                    content=f"✅ [Compression] Recovered with {len(compressed_messages)} messages - continuing...",
+                                    source=agent_id,
+                                )
+
+                                # Retry with compressed messages (with flag to prevent infinite loops)
+                                # CRITICAL: Remove previous_response_id - it would add all prior context server-side,
+                                # making our compression pointless (Response API maintains conversation state)
+                                retry_kwargs = {**kwargs, "_compression_retry": True}
+                                had_prev_id = retry_kwargs.pop("previous_response_id", None) is not None
+                                logger.warning(f"[Compression DEBUG base] Removed previous_response_id from retry_kwargs: was_present={had_prev_id}")
+
+                                if use_mcp or use_custom_tools:
+                                    async for chunk in self._stream_with_custom_and_mcp_tools(
+                                        compressed_messages,
+                                        tools,
+                                        client,
+                                        **retry_kwargs,
+                                    ):
+                                        yield chunk
+                                else:
+                                    async for chunk in self._stream_without_custom_and_mcp_tools(
+                                        compressed_messages,
+                                        tools,
+                                        client,
+                                        **retry_kwargs,
+                                    ):
+                                        yield chunk
+
+                                logger.info(
+                                    f"[{self.get_provider_name()}] Compression recovery successful",
+                                )
+                            except Exception as retry_error:
+                                # Save retry input to debug folder for analysis
+                                from ..backend._compression_utils import (
+                                    save_retry_input_debug,
+                                )
+
+                                save_retry_input_debug(
+                                    compressed_messages,
+                                    tools,
+                                    error=str(retry_error),
+                                )
+                                logger.error(
+                                    f"Compression recovery failed: {retry_error}",
+                                    exc_info=True,
+                                )
+                                yield StreamChunk(
+                                    type="error",
+                                    error=f"Compression recovery failed: {type(retry_error).__name__}: {retry_error}",
+                                )
+                        else:
+                            # Check if this is the known "response.completed" error from OpenAI SDK/Logfire
+                            # This happens when streams end early (e.g., after tool execution) - it's recoverable
+                            if "response.completed" in str(e):
+                                # Track incomplete response recovery attempts
+                                self._incomplete_response_count += 1
+
+                                # Get the streaming buffer content if available
+                                buffer_content = None
+                                if hasattr(self, "_get_streaming_buffer"):
+                                    buffer_content = self._get_streaming_buffer()
+
+                                # Get agent_id for logging
+                                agent_id = kwargs.get("agent_id")
+
+                                # Check retry limit (default 5)
+                                max_incomplete_retries = getattr(self, "_max_incomplete_response_retries", 5)
+
+                                # Log with Logfire span for visibility
+                                with logfire.span(
+                                    "incomplete_response_recovery",
+                                    attempt=self._incomplete_response_count,
+                                    max_attempts=max_incomplete_retries,
+                                    buffer_size=len(buffer_content or ""),
+                                    agent_id=agent_id,
+                                ):
+                                    logger.warning(
+                                        f"[IncompleteResponse] Recovery attempt {self._incomplete_response_count}/{max_incomplete_retries} - "
+                                        f"preserved {len(buffer_content or '')} chars of streamed content",
+                                    )
+
+                                if self._incomplete_response_count > max_incomplete_retries:
+                                    logger.error(
+                                        f"[IncompleteResponse] Max retries ({max_incomplete_retries}) exceeded",
+                                    )
+                                    yield StreamChunk(
+                                        type="error",
+                                        error=f"Max incomplete response retries ({max_incomplete_retries}) exceeded. " f"The API stream ended prematurely {self._incomplete_response_count} times.",
+                                    )
+                                else:
+                                    # Yield a special chunk to signal incomplete response recovery
+                                    # The orchestrator will continue with the existing context
+                                    # Note: Buffer content has already been streamed and is in the conversation history
+                                    yield StreamChunk(
+                                        type="incomplete_response_recovery",
+                                        content=buffer_content,
+                                        source=agent_id,
+                                        detail=f"Recovery attempt {self._incomplete_response_count}/{max_incomplete_retries}",
+                                    )
+                                    # Don't yield error chunk - this is recoverable
+                                    # The streaming loop will continue and make a new API call
+                            else:
+                                logger.error(f"Streaming error: {e}")
+                                yield StreamChunk(type="error", error=str(e))
 
                 finally:
                     await self._cleanup_client(client)
@@ -2790,6 +3202,9 @@ class CustomToolAndMCPBackend(LLMBackend):
                 logger.error(f"Streaming error during MCP setup fallback: {inner_e}")
                 yield StreamChunk(type="error", error=str(inner_e))
             finally:
+                # Save streaming buffer before cleanup
+                if hasattr(self, "_finalize_streaming_buffer"):
+                    self._finalize_streaming_buffer(agent_id=agent_id)
                 await self._cleanup_client(client)
 
     @abstractmethod
@@ -2814,6 +3229,9 @@ class CustomToolAndMCPBackend(LLMBackend):
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Simple passthrough streaming without MCP processing."""
+
+        # Extract internal flags before merging kwargs (prevents API errors from unknown params)
+        kwargs.pop("_compression_retry", None)
 
         agent_id = kwargs.get("agent_id", None)
         all_params = {**self.config, **kwargs}

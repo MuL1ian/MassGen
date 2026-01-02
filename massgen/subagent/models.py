@@ -10,6 +10,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
+# Subagent timeout bounds (in seconds)
+SUBAGENT_MIN_TIMEOUT = 300  # 5 minutes
+SUBAGENT_MAX_TIMEOUT = 600  # 10 minutes
+SUBAGENT_DEFAULT_TIMEOUT = 300  # 5 minutes
+
 
 @dataclass
 class SubagentConfig:
@@ -21,7 +26,7 @@ class SubagentConfig:
         task: The task/prompt for the subagent to execute
         parent_agent_id: ID of the agent that spawned this subagent
         model: Optional model override (inherits from parent if None)
-        timeout_seconds: Maximum execution time (default 300s / 5 min)
+        timeout_seconds: Maximum execution time (clamped to 5-10 min range)
         context_files: List of file paths the subagent can READ (read-only access enforced)
         use_docker: Whether to use Docker container (inherits from parent settings)
         system_prompt: Optional custom system prompt for the subagent
@@ -47,7 +52,7 @@ class SubagentConfig:
         parent_agent_id: str,
         subagent_id: Optional[str] = None,
         model: Optional[str] = None,
-        timeout_seconds: int = 300,
+        timeout_seconds: int = SUBAGENT_DEFAULT_TIMEOUT,
         context_files: Optional[List[str]] = None,
         use_docker: bool = True,
         system_prompt: Optional[str] = None,
@@ -62,7 +67,7 @@ class SubagentConfig:
             parent_agent_id: ID of the parent agent
             subagent_id: Optional custom ID (generates UUID if not provided)
             model: Optional model override
-            timeout_seconds: Execution timeout
+            timeout_seconds: Execution timeout (clamped to 5-10 min range)
             context_files: File paths subagent can read (read-only, no write access)
             use_docker: Whether to use Docker
             system_prompt: Optional custom system prompt
@@ -72,12 +77,15 @@ class SubagentConfig:
         Returns:
             Configured SubagentConfig instance
         """
+        # Clamp timeout to valid range (5-10 minutes)
+        clamped_timeout = max(SUBAGENT_MIN_TIMEOUT, min(SUBAGENT_MAX_TIMEOUT, timeout_seconds))
+
         return cls(
             id=subagent_id or f"sub_{uuid.uuid4().hex[:8]}",
             task=task,
             parent_agent_id=parent_agent_id,
             model=model,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=clamped_timeout,
             context_files=context_files or [],
             use_docker=use_docker,
             system_prompt=system_prompt,
@@ -104,12 +112,16 @@ class SubagentConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SubagentConfig":
         """Create config from dictionary."""
+        # Clamp timeout to valid range (5-10 minutes)
+        raw_timeout = data.get("timeout_seconds", SUBAGENT_DEFAULT_TIMEOUT)
+        clamped_timeout = max(SUBAGENT_MIN_TIMEOUT, min(SUBAGENT_MAX_TIMEOUT, raw_timeout))
+
         return cls(
             id=data["id"],
             task=data["task"],
             parent_agent_id=data["parent_agent_id"],
             model=data.get("model"),
-            timeout_seconds=data.get("timeout_seconds", 300),
+            timeout_seconds=clamped_timeout,
             context_files=data.get("context_files", []),
             use_docker=data.get("use_docker", True),
             system_prompt=data.get("system_prompt"),
@@ -134,11 +146,14 @@ class SubagentOrchestratorConfig:
                 backend (with type, model, base_url, etc.)
                 If empty/None, inherits from parent config.
         coordination: Optional coordination config subset (broadcast, planning, etc.)
+        max_new_answers: Maximum new answers per agent before forcing consensus.
+                        Default 3 for subagents to prevent runaway iterations.
     """
 
     enabled: bool = False
     agents: List[Dict[str, Any]] = field(default_factory=list)
     coordination: Dict[str, Any] = field(default_factory=dict)
+    max_new_answers: int = 3  # Conservative default for subagents
 
     @property
     def num_agents(self) -> int:
@@ -177,6 +192,7 @@ class SubagentOrchestratorConfig:
             enabled=data.get("enabled", False),
             agents=data.get("agents", []),
             coordination=data.get("coordination", {}),
+            max_new_answers=data.get("max_new_answers", 3),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -185,6 +201,7 @@ class SubagentOrchestratorConfig:
             "enabled": self.enabled,
             "agents": [a.copy() for a in self.agents] if self.agents else [],
             "coordination": self.coordination.copy() if self.coordination else {},
+            "max_new_answers": self.max_new_answers,
         }
 
 
@@ -202,6 +219,7 @@ class SubagentResult:
         execution_time_seconds: How long the subagent ran
         error: Error message if status is error/timeout
         token_usage: Token usage statistics (if available)
+        log_path: Path to subagent log directory (for debugging on failure/timeout)
     """
 
     subagent_id: str
@@ -212,10 +230,11 @@ class SubagentResult:
     execution_time_seconds: float = 0.0
     error: Optional[str] = None
     token_usage: Dict[str, int] = field(default_factory=dict)
+    log_path: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for tool return value."""
-        return {
+        result = {
             "subagent_id": self.subagent_id,
             "status": self.status,
             "success": self.success,
@@ -225,6 +244,10 @@ class SubagentResult:
             "error": self.error,
             "token_usage": self.token_usage.copy(),
         }
+        # Include log_path if available (useful for debugging failed/timed out subagents)
+        if self.log_path:
+            result["log_path"] = self.log_path
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SubagentResult":
@@ -238,6 +261,7 @@ class SubagentResult:
             execution_time_seconds=data.get("execution_time_seconds", 0.0),
             error=data.get("error"),
             token_usage=data.get("token_usage", {}),
+            log_path=data.get("log_path"),
         )
 
     @classmethod
@@ -248,6 +272,7 @@ class SubagentResult:
         workspace_path: str,
         execution_time_seconds: float,
         token_usage: Optional[Dict[str, int]] = None,
+        log_path: Optional[str] = None,
     ) -> "SubagentResult":
         """Create a successful result."""
         return cls(
@@ -258,6 +283,7 @@ class SubagentResult:
             workspace_path=workspace_path,
             execution_time_seconds=execution_time_seconds,
             token_usage=token_usage or {},
+            log_path=log_path,
         )
 
     @classmethod
@@ -266,6 +292,7 @@ class SubagentResult:
         subagent_id: str,
         workspace_path: str,
         timeout_seconds: float,
+        log_path: Optional[str] = None,
     ) -> "SubagentResult":
         """Create a timeout result."""
         return cls(
@@ -276,6 +303,7 @@ class SubagentResult:
             workspace_path=workspace_path,
             execution_time_seconds=timeout_seconds,
             error=f"Subagent exceeded timeout of {timeout_seconds} seconds",
+            log_path=log_path,
         )
 
     @classmethod
@@ -285,6 +313,7 @@ class SubagentResult:
         error: str,
         workspace_path: str = "",
         execution_time_seconds: float = 0.0,
+        log_path: Optional[str] = None,
     ) -> "SubagentResult":
         """Create an error result."""
         return cls(
@@ -295,6 +324,7 @@ class SubagentResult:
             workspace_path=workspace_path,
             execution_time_seconds=execution_time_seconds,
             error=error,
+            log_path=log_path,
         )
 
 

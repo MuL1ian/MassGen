@@ -2,15 +2,18 @@
 """
 Context Window Compression
 
-Automatically compresses conversation history when context window fills up.
-Since messages are already recorded to persistent memory after each turn,
-compression simply removes old messages from active context while keeping
-them accessible via semantic search.
+Provides algorithmic compression that removes old messages from conversation
+history when context window fills up.
+
+Note: A proactive "agent-driven" compression approach was designed but not
+implemented due to API limitations (providers only report token usage after
+requests complete). See docs/dev_notes/proactive_compression_design.md.
 """
 
 from typing import Any, Callable, Dict, List, Optional
 
 from ..logger_config import logger
+from ..structured_logging import log_context_compression
 from ..token_manager.token_manager import TokenCostCalculator
 from ._conversation import ConversationMemory
 from ._persistent import PersistentMemoryBase
@@ -37,10 +40,9 @@ class ContextCompressor:
     Compresses conversation history when context window fills up.
 
     Strategy:
-    - Messages are already recorded to persistent_memory after each turn
-    - Compression removes old messages from conversation_memory
-    - Recent messages stay in active context
-    - Old messages remain accessible via semantic retrieval
+    - Removes old messages from conversation_memory
+    - Preserves system messages (always kept)
+    - Keeps most recent messages that fit within token budget
 
     Features:
     - Token-aware compression (not just message count)
@@ -68,6 +70,7 @@ class ContextCompressor:
         conversation_memory: ConversationMemory,
         persistent_memory: Optional[PersistentMemoryBase] = None,
         on_compress: Optional[Callable[[CompressionStats], None]] = None,
+        agent_id: Optional[str] = None,
     ):
         """
         Initialize context compressor.
@@ -77,11 +80,13 @@ class ContextCompressor:
             conversation_memory: Conversation memory to compress
             persistent_memory: Optional persistent memory (for logging purposes)
             on_compress: Optional callback called after compression
+            agent_id: Optional agent ID for observability logging
         """
         self.token_calculator = token_calculator
         self.conversation_memory = conversation_memory
         self.persistent_memory = persistent_memory
         self.on_compress = on_compress
+        self.agent_id = agent_id or "unknown"
 
         # Stats tracking
         self.total_compressions = 0
@@ -137,7 +142,12 @@ class ContextCompressor:
             await self.conversation_memory.clear()
             await self.conversation_memory.add(messages_to_keep)
         except Exception as e:
-            logger.error(f"Failed to update conversation memory during compression: {e}")
+            logger.error(
+                f"Failed to update conversation memory during compression: {e}. " "Memory may be in inconsistent state.",
+                exc_info=True,
+            )
+            # Return None to signal failure - caller should handle gracefully
+            # Note: clear() may have succeeded, leaving memory empty
             return None
 
         # Log compression result
@@ -167,6 +177,23 @@ class ContextCompressor:
             tokens_removed=tokens_removed,
             messages_kept=len(messages_to_keep),
             tokens_kept=tokens_kept,
+        )
+
+        # Log to Logfire for observability
+        # Calculate original char count from all messages
+        original_char_count = sum(len(str(msg.get("content", ""))) for msg in messages)
+        compressed_char_count = sum(len(str(msg.get("content", ""))) for msg in messages_to_keep)
+        compression_ratio = compressed_char_count / original_char_count if original_char_count > 0 else 0
+
+        log_context_compression(
+            agent_id=self.agent_id,
+            reason="context_length_exceeded",
+            original_message_count=len(messages),
+            compressed_message_count=len(messages_to_keep),
+            original_char_count=original_char_count,
+            compressed_char_count=compressed_char_count,
+            compression_ratio=compression_ratio,
+            success=True,
         )
 
         # Trigger callback if provided

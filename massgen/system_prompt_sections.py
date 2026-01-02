@@ -198,6 +198,54 @@ previous calls to inform dependent values like the parameters, do NOT call these
 and instead call them sequentially. Never use placeholders or guess missing parameters in tool calls."""
 
 
+class GPT5GuidanceSection(SystemPromptSection):
+    """
+    GPT-5.x specific guidance for solution persistence and tool preambles.
+
+    Encourages autonomous, end-to-end task completion and structured tool
+    usage narration based on OpenAI's GPT-5 prompting guides.
+
+    Only included when the model is GPT-5.x (gpt-5, gpt-5.1, gpt-5.2, etc.)
+    Priority 4 places this alongside CoreBehaviorsSection.
+
+    References:
+        - https://cookbook.openai.com/examples/gpt-5/gpt-5-1_prompting_guide#encouraging-complete-solutions
+        - https://cookbook.openai.com/examples/gpt-5/gpt-5_prompting_guide#tool-preambles
+    """
+
+    def __init__(self):
+        super().__init__(
+            title="GPT-5 Guidance",
+            priority=4,  # Same priority as CoreBehaviorsSection
+            xml_tag=None,  # Uses internal XML tags for each subsection
+        )
+
+    def build_content(self) -> str:
+        return (
+            "<solution_persistence>\n"
+            "- Treat yourself as an autonomous senior pair-programmer: once the user gives a direction, "
+            "proactively gather context, plan, implement, test, and refine without waiting for additional "
+            "prompts at each step.\n"
+            "- Persist until the task is fully handled end-to-end within the current turn whenever feasible: "
+            "do not stop at analysis or partial fixes; carry changes through implementation, verification, "
+            "and a clear explanation of outcomes unless the user explicitly pauses or redirects you.\n"
+            "- Be extremely biased for action. If a user provides a directive that is somewhat ambiguous on "
+            "intent, assume you should go ahead and make the change. If the user asks a question like "
+            '"should we do x?" and your answer is "yes", you should also go ahead and perform the action. '
+            "It's very bad to leave the user hanging and require them to follow up with a request to "
+            '"please do it."\n'
+            "</solution_persistence>\n\n"
+            "<tool_preambles>\n"
+            "- As you execute your file edit(s) and other tool calls, narrate each step succinctly and "
+            "sequentially, marking progress clearly.\n"
+            "- CRITICAL: If your task requires creating or modifying files, you MUST use file tools to "
+            "actually write them to the filesystem. Do NOT just output file contents in the new_answer "
+            "text using markdown - the files will not exist unless you call the appropriate writing and "
+            "editing tools.\n"
+            "</tool_preambles>"
+        )
+
+
 class SkillsSection(SystemPromptSection):
     """
     Available skills that agents can invoke.
@@ -880,9 +928,10 @@ class CommandExecutionSection(SystemPromptSection):
     Args:
         docker_mode: Whether commands execute in Docker containers
         enable_sudo: Whether sudo is available in Docker containers
+        concurrent_tool_execution: Whether tools execute in parallel
     """
 
-    def __init__(self, docker_mode: bool = False, enable_sudo: bool = False):
+    def __init__(self, docker_mode: bool = False, enable_sudo: bool = False, concurrent_tool_execution: bool = False):
         super().__init__(
             title="Command Execution",
             priority=Priority.MEDIUM,
@@ -890,6 +939,7 @@ class CommandExecutionSection(SystemPromptSection):
         )
         self.docker_mode = docker_mode
         self.enable_sudo = enable_sudo
+        self.concurrent_tool_execution = concurrent_tool_execution
 
     def build_content(self) -> str:
         parts = ["## Command Execution"]
@@ -919,6 +969,16 @@ class CommandExecutionSection(SystemPromptSection):
                     "- For system packages, ask the user to rebuild the Docker image with " "needed packages",
                 )
 
+            parts.append("")
+
+        if self.concurrent_tool_execution:
+            parts.append("**PARALLEL TOOL EXECUTION ENABLED**")
+            parts.append("- Multiple tool calls in your response will execute SIMULTANEOUSLY, not sequentially")
+            parts.append("- Do NOT call dependent tools together in the same response:")
+            parts.append("  - BAD: `mkdir foo` + `write_file foo/bar.txt` (directory may not exist yet)")
+            parts.append("  - BAD: `execute_command 'python server.py'` + `execute_command 'curl localhost'` (server not ready)")
+            parts.append("- Each tool call should be independent and not rely on another tool's output")
+            parts.append("- If you need sequential execution, make separate responses for each step")
             parts.append("")
 
         return "\n".join(parts)
@@ -1422,21 +1482,38 @@ class EvaluationSection(SystemPromptSection):
 
         # Determine evaluation criteria based on voting sensitivity
         if self.voting_sensitivity == "strict":
-            evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE exceptionally well? Consider:
+            evaluation_section = """Critically examine existing answers for flaws (be skeptical, not charitable),
+verify claims by checking actual files/outputs, and consider if you can build on or combine the best elements.
+
+Does the best CURRENT ANSWER address the ORIGINAL MESSAGE exceptionally well? Consider:
 - Is it comprehensive, addressing ALL aspects and edge cases?
 - Is it technically accurate and well-reasoned?
 - Does it provide clear explanations and proper justification?
 - Is it complete with no significant gaps or weaknesses?
 - Could it serve as a reference-quality solution?
 
-Only use the `vote` tool if the best answer meets high standards of excellence."""
+**Before voting, ask: Can I CREATE A BETTER ANSWER by:**
+- Combining strengths from multiple answers (e.g., Agent 1's visuals + Agent 2's content)?
+- Fixing errors or gaps you identified in the best answer?
+- Adding missing elements that would make it more complete?
+
+If YES to any of these, produce a `new_answer` instead of voting.
+Only vote if the best answer is truly excellent AND you cannot improve it."""
         elif self.voting_sensitivity == "balanced":
-            evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well? Consider:
+            evaluation_section = """Critically examine existing answers for flaws,
+verify claims by checking actual files/outputs, and consider if you can build on or combine approaches.
+
+Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well? Consider:
 - Is it comprehensive, accurate, and complete?
 - Could it be meaningfully improved, refined, or expanded?
 - Are there weaknesses, gaps, or better approaches?
 
-Only use the `vote` tool if the best answer is strong and complete."""
+**Before voting, ask: Can I CREATE A BETTER ANSWER by:**
+- Combining strengths from multiple answers (e.g., one agent's structure + another's execution)?
+- Fixing errors or gaps you identified?
+- Adding missing elements?
+
+If YES, produce a `new_answer`. Only vote if you genuinely cannot add meaningful value."""
         else:
             # Default to lenient (including explicit "lenient" or any other value)
             evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well?
@@ -1638,12 +1715,13 @@ After subagents complete (or timeout):
 4. **If a subagent timed out**: Check its workspace anyway - it may have created partial work you can use. Complete any remaining work yourself.
 5. **Your final answer**: Describe the COMPLETED work in your workspace, not what subagents did
 
-**Handling timeouts/failures - YOU MUST CHECK WORKSPACES:**
-When a subagent times out, the result still includes the `workspace` path. You MUST:
-1. **Read the workspace path** from the result (e.g., `/path/to/subagents/bio/workspace`)
-2. **List files in that directory** to see what was created before timeout
-3. **Read and use any partial work** - even a half-finished file is better than nothing
-4. **Complete the remaining work yourself** - don't just report the timeout
+**Handling timeouts/failures - YOU MUST CHECK WORKSPACES AND LOGS:**
+When a subagent times out or fails, the result includes both `workspace` and `log_path`. You MUST:
+1. **Check the workspace** (e.g., `/path/to/subagents/bio/workspace`) for partial work
+2. **Check the log_path** (if provided) for debugging info - contains `full_logs/` with conversation history
+3. **List files in both directories** to see what was created before failure
+4. **Read and use any partial work** - even a half-finished file is better than nothing
+5. **Complete the remaining work yourself** - don't just report the timeout
 
 **DO NOT:**
 - ❌ Submit answer before subagents finish
@@ -2153,13 +2231,25 @@ Use `read_media` for visual analysis, but remember: **interact first, screenshot
 Screenshots verify appearance. Interaction verifies functionality. Do both:
 1. **Interact** with the artifact as a user would (click, navigate, play, input)
 2. **Screenshot** key states during/after interaction
-3. **Analyze** with read_media to confirm visual quality
+3. **Analyze** with read_media using **critical prompts**
+
+### CRITICAL: Be Skeptical, Not Charitable
+When evaluating your own or others' work, use prompts that look for **flaws**:
+
+**BAD prompts (too charitable):**
+- "Does the layout look correct?"
+- "Describe this screenshot"
+
+**GOOD prompts (skeptical):**
+- "What flaws, issues, or missing elements do you see? Be critical."
+- "What would a demanding user complain about?"
+- "Does this fully meet the requirements, or are there gaps?"
 
 ### Tool usage:
 ```
-read_media(file_path="screenshot.png", prompt="Does the layout look correct?")
-read_media(file_path="diagram.png", prompt="Are all labels readable?")
-read_media(file_path="output.mp4", prompt="Does this show the expected content?")
+read_media(file_path="screenshot.png", prompt="What flaws or issues do you see? Be critical.")
+read_media(file_path="diagram.png", prompt="What's missing or poorly done?")
+read_media(file_path="output.mp4", prompt="What problems or gaps exist?")
 ```
 
 **Supported formats:**
@@ -2167,7 +2257,7 @@ read_media(file_path="output.mp4", prompt="Does this show the expected content?"
 - Audio: mp3, wav, m4a, ogg, flac, aac
 - Video: mp4, mov, avi, mkv, webm
 
-A beautiful screenshot means nothing if buttons don't work or links are broken. Test functionality, then verify visuals."""
+A beautiful screenshot means nothing if buttons don't work. Test functionality, then verify visuals with a critical eye."""
 
 
 class SystemPromptBuilder:
