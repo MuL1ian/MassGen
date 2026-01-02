@@ -494,6 +494,31 @@ class PathPermissionManager:
 
         return False
 
+    def _is_pure_write_tool(self, tool_name: str) -> bool:
+        """
+        Check if tool is a pure write (create) tool, not edit.
+
+        Returns True for Write/write_file tools that create new files.
+        Returns False for Edit/edit_file tools that modify existing files.
+
+        This distinction is important because:
+        - Write tools should NOT overwrite existing files (use edit instead)
+        - Edit tools are expected to work on existing files
+        """
+        # Pure write tools - these create new files and should not overwrite
+        write_only_patterns = [
+            r"^Write$",  # Claude Code Write (exact match)
+            r"^write_file$",  # MCP write_file (exact match)
+            r"^mcp__filesystem__write_file$",  # Prefixed MCP filesystem
+            r"^mcp__[a-zA-Z0-9_]+__write_file$",  # Any MCP server write_file
+        ]
+
+        for pattern in write_only_patterns:
+            if re.match(pattern, tool_name):
+                return True
+
+        return False
+
     def _is_text_read_tool(self, tool_name: str) -> bool:
         """
         Check if a tool is a text-based read operation that should not access binary files.
@@ -889,6 +914,15 @@ class PathPermissionManager:
         # Resolve relative paths against workspace
         file_path = self._resolve_path_against_workspace(file_path)
         path = Path(file_path).resolve()
+
+        # Check for file overwrite protection: write_file should not overwrite existing files
+        # Use edit_file instead, or delete the file first then recreate
+        if self._is_pure_write_tool(tool_name) and path.exists() and path.is_file():
+            return (
+                False,
+                f"Cannot overwrite existing file '{path.name}' with write_file. " f"Use edit_file to modify existing files, or delete the file first then recreate it.",
+            )
+
         permission = self.get_permission(path)
         logger.debug(f"[PathPermissionManager] Validating write tool '{tool_name}' for path: {path} with permission: {permission}")
 

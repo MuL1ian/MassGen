@@ -282,9 +282,21 @@ async def create_server() -> fastmcp.FastMCP:
             # Get or create plan for this agent
             plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id)
 
-            # Clear existing tasks (creating new plan)
-            plan.tasks.clear()
-            plan._task_index.clear()
+            # Check if plan already has tasks - error to prevent duplicate work after recovery
+            if plan.tasks:
+                existing_count = len(plan.tasks)
+                completed = len([t for t in plan.tasks if t.status == "completed"])
+                in_progress = len([t for t in plan.tasks if t.status == "in_progress"])
+                pending = len([t for t in plan.tasks if t.status == "pending"])
+                return {
+                    "success": False,
+                    "operation": "create_task_plan",
+                    "error": (
+                        f"A task plan already exists with {existing_count} tasks "
+                        f"({completed} completed, {in_progress} in_progress, {pending} pending). "
+                        f"Use get_task_plan to see current state, or add_task to add new tasks."
+                    ),
+                }
 
             # Auto-insert discovery tasks based on enabled features
             preparation_tasks = []
