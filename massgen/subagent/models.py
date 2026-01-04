@@ -241,6 +241,7 @@ class SubagentResult:
     token_usage: Dict[str, int] = field(default_factory=dict)
     log_path: Optional[str] = None
     completion_percentage: Optional[int] = None
+    warning: Optional[str] = None  # Warning messages (e.g., context truncation)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for tool return value."""
@@ -260,6 +261,9 @@ class SubagentResult:
         # Include completion_percentage if available (for timeout recovery)
         if self.completion_percentage is not None:
             result["completion_percentage"] = self.completion_percentage
+        # Include warning if present (e.g., context truncation)
+        if self.warning:
+            result["warning"] = self.warning
         return result
 
     @classmethod
@@ -276,6 +280,7 @@ class SubagentResult:
             token_usage=data.get("token_usage", {}),
             log_path=data.get("log_path"),
             completion_percentage=data.get("completion_percentage"),
+            warning=data.get("warning"),
         )
 
     @classmethod
@@ -287,6 +292,7 @@ class SubagentResult:
         execution_time_seconds: float,
         token_usage: Optional[Dict[str, int]] = None,
         log_path: Optional[str] = None,
+        warning: Optional[str] = None,
     ) -> "SubagentResult":
         """Create a successful result."""
         return cls(
@@ -298,6 +304,7 @@ class SubagentResult:
             execution_time_seconds=execution_time_seconds,
             token_usage=token_usage or {},
             log_path=log_path,
+            warning=warning,
         )
 
     @classmethod
@@ -307,6 +314,7 @@ class SubagentResult:
         workspace_path: str,
         timeout_seconds: float,
         log_path: Optional[str] = None,
+        warning: Optional[str] = None,
     ) -> "SubagentResult":
         """Create a timeout result."""
         return cls(
@@ -318,6 +326,7 @@ class SubagentResult:
             execution_time_seconds=timeout_seconds,
             error=f"Subagent exceeded timeout of {timeout_seconds} seconds",
             log_path=log_path,
+            warning=warning,
         )
 
     @classmethod
@@ -328,6 +337,7 @@ class SubagentResult:
         workspace_path: str = "",
         execution_time_seconds: float = 0.0,
         log_path: Optional[str] = None,
+        warning: Optional[str] = None,
     ) -> "SubagentResult":
         """Create an error result."""
         return cls(
@@ -339,6 +349,7 @@ class SubagentResult:
             execution_time_seconds=execution_time_seconds,
             error=error,
             log_path=log_path,
+            warning=warning,
         )
 
     @classmethod
@@ -352,6 +363,7 @@ class SubagentResult:
         token_usage: Optional[Dict[str, Any]] = None,
         log_path: Optional[str] = None,
         is_partial: bool = False,
+        warning: Optional[str] = None,
     ) -> "SubagentResult":
         """
         Create a timeout result with recovered work from the workspace.
@@ -368,6 +380,7 @@ class SubagentResult:
             token_usage: Token costs extracted from status.json
             log_path: Path to log directory
             is_partial: True if work is partial (no winner selected)
+            warning: Warning message (e.g., context truncation)
 
         Returns:
             SubagentResult with appropriate status:
@@ -397,6 +410,7 @@ class SubagentResult:
             token_usage=token_usage or {},
             log_path=log_path,
             completion_percentage=completion_percentage,
+            warning=warning,
         )
 
 

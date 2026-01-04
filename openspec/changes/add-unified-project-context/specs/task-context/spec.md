@@ -87,3 +87,22 @@ The system message builder SHALL include instructions for main agents about:
 - **WHEN** an agent's system message is built
 - **AND** multimodal tools or subagents are available
 - **THEN** instructions for CONTEXT.md creation are included
+
+### Requirement: Context Truncation Warning
+
+When CONTEXT.md exceeds the maximum character limit (10000 chars), the system SHALL return a warning in tool and subagent responses so agents can see when context was truncated.
+
+The warning SHALL be included in:
+- Multimodal tool response objects (e.g., `{"success": true, "warning": "..."}`)
+- SubagentResult objects (accessible via `result.warning` field)
+
+#### Scenario: Tool returns truncation warning
+- **WHEN** a multimodal tool loads CONTEXT.md
+- **AND** the file exceeds 10000 characters
+- **THEN** the tool response includes a warning field with truncation details
+
+#### Scenario: Subagent result includes truncation warning
+- **WHEN** a subagent is spawned
+- **AND** CONTEXT.md in workspace exceeds 10000 characters
+- **THEN** the SubagentResult includes the warning field
+- **AND** the warning is visible to the parent agent (not just logged)

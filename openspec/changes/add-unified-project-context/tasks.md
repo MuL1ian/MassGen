@@ -31,6 +31,8 @@
 - [x] 5.1 Update `_copy_context_files()` to auto-copy CONTEXT.md if it exists
 - [x] 5.2 Update `_build_subagent_system_prompt()` to include context from CONTEXT.md
 - [x] 5.3 Subagents are read-only (receive copied CONTEXT.md, cannot create/modify)
+- [x] 5.4 Add `warning` field to SubagentResult for context truncation visibility
+- [x] 5.5 Propagate context warning to all SubagentResult creation paths (success, error, timeout)
 
 ## 6. Configuration
 

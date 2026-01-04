@@ -360,10 +360,9 @@ async def generate_media(
     try:
         # Load task_context dynamically from CONTEXT.md (it may be created during execution)
         # This allows agents to create CONTEXT.md after the backend starts streaming
-        if not task_context and agent_cwd:
-            from massgen.context.task_context import load_task_context
+        from massgen.context.task_context import load_task_context_with_warning
 
-            task_context = load_task_context(agent_cwd, required=False)
+        task_context, context_warning = load_task_context_with_warning(agent_cwd, task_context)
 
         # Require CONTEXT.md for external API calls
         if not task_context:
@@ -552,22 +551,22 @@ async def generate_media(
 
         # Return appropriate format based on batch vs single
         if is_batch:
+            response_data = {
+                "success": succeeded > 0,
+                "operation": "generate_media",
+                "mode": mode,
+                "batch": True,
+                "total": len(final_results),
+                "succeeded": succeeded,
+                "failed": failed,
+                "results": final_results,
+            }
+            if context_warning:
+                response_data["warning"] = context_warning
             return ExecutionResult(
                 output_blocks=[
                     TextContent(
-                        data=json.dumps(
-                            {
-                                "success": succeeded > 0,
-                                "operation": "generate_media",
-                                "mode": mode,
-                                "batch": True,
-                                "total": len(final_results),
-                                "succeeded": succeeded,
-                                "failed": failed,
-                                "results": final_results,
-                            },
-                            indent=2,
-                        ),
+                        data=json.dumps(response_data, indent=2),
                     ),
                 ],
             )
@@ -575,24 +574,24 @@ async def generate_media(
             # Single prompt - return original format for backwards compatibility
             result = final_results[0]
             if result.get("success"):
+                response_data = {
+                    "success": True,
+                    "operation": "generate_media",
+                    "mode": mode,
+                    "file_path": result.get("file_path"),
+                    "filename": result.get("filename"),
+                    "backend": result.get("backend"),
+                    "model": result.get("model"),
+                    "file_size": result.get("file_size"),
+                    "duration_seconds": result.get("duration_seconds"),
+                    "metadata": result.get("metadata", {}),
+                }
+                if context_warning:
+                    response_data["warning"] = context_warning
                 return ExecutionResult(
                     output_blocks=[
                         TextContent(
-                            data=json.dumps(
-                                {
-                                    "success": True,
-                                    "operation": "generate_media",
-                                    "mode": mode,
-                                    "file_path": result.get("file_path"),
-                                    "filename": result.get("filename"),
-                                    "backend": result.get("backend"),
-                                    "model": result.get("model"),
-                                    "file_size": result.get("file_size"),
-                                    "duration_seconds": result.get("duration_seconds"),
-                                    "metadata": result.get("metadata", {}),
-                                },
-                                indent=2,
-                            ),
+                            data=json.dumps(response_data, indent=2),
                         ),
                     ],
                 )
