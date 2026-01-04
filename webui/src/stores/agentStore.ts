@@ -1107,10 +1107,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             snapshot.agent_models
           );
 
-          // Restore agent statuses
-          if (snapshot.agent_status) {
+          // Restore agent statuses - but only if the agent has produced output.
+          // This prevents stale "completed" status from a previous session when
+          // the new session hasn't started yet (agent_outputs would be empty).
+          if (snapshot.agent_status && snapshot.agent_outputs) {
             Object.entries(snapshot.agent_status).forEach(([agentId, status]) => {
-              store.updateAgentStatus(agentId, status as AgentStatus);
+              // Only restore non-waiting status if agent has output (proves they actually worked)
+              const agentOutputs = snapshot.agent_outputs?.[agentId];
+              const hasOutput = agentOutputs && agentOutputs.length > 0 && agentOutputs.some(o => o.length > 0);
+              if (status === 'waiting' || hasOutput) {
+                store.updateAgentStatus(agentId, status as AgentStatus);
+              }
+              // If status is "completed" but no output, keep the default "waiting" from initSession
             });
           }
 

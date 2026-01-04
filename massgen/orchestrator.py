@@ -2559,13 +2559,15 @@ Your answer:"""
                             agent_id,
                         )
 
-                        # Emit agent completion status immediately upon result
-                        yield StreamChunk(
-                            type="agent_status",
-                            source=agent_id,
-                            status="completed",
-                            content="",
-                        )
+                        # Only emit "completed" status for votes - agents are truly done
+                        # after voting. For answers, they still need to vote.
+                        if result_type == "vote":
+                            yield StreamChunk(
+                                type="agent_status",
+                                source=agent_id,
+                                status="completed",
+                                content="",
+                            )
                         await self._close_agent_stream(agent_id, active_streams)
 
                         if result_type == "answer":
@@ -2815,19 +2817,19 @@ Your answer:"""
                         yield StreamChunk(type="content", content=mcp_message, source=agent_id)
 
                     elif chunk_type == "done":
-                        # Stream completed - emit completion status for frontend
-                        # End round token tracking with "restarted" outcome (done without result typically means restart)
+                        # Stream completed - this is just an end-of-stream marker
+                        # DON'T emit "completed" status here - that's handled by the "result" handler
+                        # when the agent actually provides an answer/vote.
+                        # The "done" chunk just means the backend stream ended, which happens
+                        # after every turn (including the first turn before any answer).
                         agent = self.agents.get(agent_id)
                         if agent and hasattr(agent.backend, "end_round_tracking"):
                             agent.backend.end_round_tracking("restarted")
                         completed_agent_ids.add(agent_id)
                         log_stream_chunk("orchestrator", "done", None, agent_id)
-                        yield StreamChunk(
-                            type="agent_status",
-                            source=agent_id,
-                            status="completed",
-                            content="",
-                        )
+                        # Note: Removed agent_status: completed emission here - it was causing
+                        # agents to show "Done" immediately before they've done any work.
+                        # Status updates are properly handled by the "result" handler.
                         await self._close_agent_stream(agent_id, active_streams)
 
                 except Exception as e:
