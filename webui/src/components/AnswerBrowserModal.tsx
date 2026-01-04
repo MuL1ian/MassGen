@@ -369,6 +369,51 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
     setMissingVersion(null);
   }, [sessionId]);
 
+  // Auto-select the final answer's workspace version when viewing a completed session
+  // This ensures that when a session has ended and final answer exists, we show
+  // the workspace from the winning agent's final answer, not "current" which may be empty
+  useEffect(() => {
+    debugLog.info('[HistoricalLoad] Auto-select effect running', {
+      hasFinalAnswer: !!finalAnswer,
+      selectedAgentWorkspace,
+      selectedAnswerLabel,
+      answersCount: answers.length,
+    });
+
+    if (!finalAnswer || !selectedAgentWorkspace || selectedAnswerLabel !== 'current') {
+      debugLog.info('[HistoricalLoad] Auto-select skipped', {
+        reason: !finalAnswer ? 'no finalAnswer' : !selectedAgentWorkspace ? 'no selectedAgentWorkspace' : 'not current',
+      });
+      return;
+    }
+
+    // Find the highest answer number for the selected agent (their final answer)
+    const agentAnswers = answers.filter(a => a.agentId === selectedAgentWorkspace && a.answerNumber > 0);
+    debugLog.info('[HistoricalLoad] Agent answers for auto-select', {
+      selectedAgentWorkspace,
+      agentAnswersCount: agentAnswers.length,
+      answerNumbers: agentAnswers.map(a => a.answerNumber),
+    });
+
+    if (agentAnswers.length === 0) return;
+
+    const latestAnswer = agentAnswers.reduce((latest, current) =>
+      current.answerNumber > latest.answerNumber ? current : latest
+    );
+
+    // Compute the answer label for this agent's final answer
+    const agentIdx = agentOrder.indexOf(selectedAgentWorkspace) + 1;
+    const latestLabel = `agent${agentIdx}.${latestAnswer.answerNumber}`;
+
+    debugLog.info('[HistoricalLoad] Auto-selecting final answer workspace', {
+      selectedAgentWorkspace,
+      latestAnswerNumber: latestAnswer.answerNumber,
+      latestLabel,
+    });
+
+    setSelectedAnswerLabel(latestLabel);
+  }, [finalAnswer, selectedAgentWorkspace, answers, agentOrder, selectedAnswerLabel]);
+
   // Cleanup debounce timeout on unmount
   useEffect(() => {
     return () => {
@@ -547,11 +592,20 @@ export function AnswerBrowserModal({ isOpen, onClose, initialTab = 'answers' }: 
         if (agentId) {
           setSelectedAgentWorkspace(agentId);
         }
-      } else if (data.current.length === 0) {
-        // No current workspaces – clear selection to avoid stale paths
-        setSelectedAgentWorkspace(null);
-        setSelectedFilePath('');
-        hasAutoPreviewedRef.current = null;
+      } else if (data.current.length === 0 && !selectedAgentWorkspace) {
+        // No current workspaces - try to use historical workspaces for completed sessions
+        if (data.historical.length > 0) {
+          // For completed sessions, select the first agent with historical workspaces
+          const firstHistorical = data.historical[0];
+          const agentId = firstHistorical.agentId || getAgentIdFromWorkspace(firstHistorical.name, agentOrder);
+          if (agentId) {
+            setSelectedAgentWorkspace(agentId);
+          }
+        } else {
+          // Clear selection only if no workspaces exist at all
+          setSelectedFilePath('');
+          hasAutoPreviewedRef.current = null;
+        }
       }
     } catch (err) {
       setWorkspaceError(err instanceof Error ? err.message : 'Failed to load workspaces');

@@ -132,6 +132,9 @@ export function InlineArtifactPreview({
   const [isHighlighting, setIsHighlighting] = useState(false);
   const [relatedFiles, setRelatedFiles] = useState<Record<string, string>>({});
 
+  // Track scheduled 404 callbacks to prevent stale 404s from clearing selection
+  const scheduledNotFoundRef = useRef<string | null>(null);
+
   // Detect artifact type
   const artifactType = useMemo((): ArtifactType => {
     if (!content) return 'code';
@@ -167,6 +170,12 @@ export function InlineArtifactPreview({
       setHighlightedHtml('');
       setCopied(false);
       setRelatedFiles({});
+
+      // Cancel any pending 404 callbacks from previous workspace
+      // This prevents stale 404s from clearing the new workspace's file selection
+      if (workspaceChanged) {
+        scheduledNotFoundRef.current = null;
+      }
 
       // Skip cache if workspace changed to ensure fresh data
       fetchFile(filePath, workspacePath, workspaceChanged);
@@ -417,9 +426,22 @@ export function InlineArtifactPreview({
     // For 404s: silently clear selection and show empty state
     // This handles race conditions where file was deleted after appearing in list
     if (is404 && onFileNotFound) {
-      // Call the callback to clear selection in parent
-      // Use setTimeout to avoid state update during render
-      setTimeout(() => onFileNotFound(), 0);
+      // Only schedule callback if we haven't already for this file+workspace combo
+      // This prevents stale 404s from clearing selection when workspace is changing
+      const currentKey = `${workspacePath}:${filePath}`;
+      if (scheduledNotFoundRef.current !== currentKey) {
+        scheduledNotFoundRef.current = currentKey;
+        // Call the callback to clear selection in parent
+        // Use setTimeout to avoid state update during render
+        setTimeout(() => {
+          // Double-check the error is still for this same file/workspace
+          // If workspace changed, don't clear selection
+          if (scheduledNotFoundRef.current === currentKey) {
+            onFileNotFound();
+          }
+          scheduledNotFoundRef.current = null;
+        }, 0);
+      }
       // Return empty state while parent updates
       return (
         <div className="flex flex-col items-center justify-center h-full text-gray-500">

@@ -19,12 +19,14 @@ export function PdfPreview({ content, fileName }: PdfPreviewProps) {
 
   // Convert base64 to Blob URL for better large file handling
   useEffect(() => {
-    console.log('PdfPreview received content:', {
-      fileName,
-      contentLength: content?.length,
-      contentPreview: content?.substring(0, 100),
-      startsWithData: content?.startsWith('data:'),
-    });
+    if (import.meta.env.DEV) {
+      console.log('PdfPreview received content:', {
+        fileName,
+        contentLength: content?.length,
+        contentPreview: content?.substring(0, 100),
+        startsWithData: content?.startsWith('data:'),
+      });
+    }
 
     // Validate content before attempting to decode
     if (!content || content.length === 0) {
@@ -65,7 +67,9 @@ export function PdfPreview({ content, fileName }: PdfPreviewProps) {
       // Create Blob and URL
       const blob = new Blob([bytes], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
-      console.log('PdfPreview created blob URL, size:', blob.size);
+      if (import.meta.env.DEV) {
+        console.log('PdfPreview created blob URL, size:', blob.size);
+      }
       setBlobUrl(url);
       setError(null);
 

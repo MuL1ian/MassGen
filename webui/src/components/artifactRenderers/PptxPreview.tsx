@@ -61,21 +61,27 @@ export function PptxPreview({ content, fileName, workspacePath, filePath }: Pptx
 
         const data = await response.json();
 
-        console.log('PPTX Docker conversion response:', {
-          success: data.success,
-          hasContent: !!data.content,
-          contentLength: data.content?.length,
-          contentPreview: data.content?.substring(0, 100),
-          error: data.error,
-          docker_required: data.docker_required,
-        });
+        if (import.meta.env.DEV) {
+          console.log('PPTX Docker conversion response:', {
+            success: data.success,
+            hasContent: !!data.content,
+            contentLength: data.content?.length,
+            contentPreview: data.content?.substring(0, 100),
+            error: data.error,
+            docker_required: data.docker_required,
+          });
+        }
 
         if (data.success && data.content) {
           setPdfContent(data.content);
           setDockerAvailable(true);
-          console.log('PPTX PDF content set, length:', data.content.length);
+          if (import.meta.env.DEV) {
+            console.log('PPTX PDF content set, length:', data.content.length);
+          }
         } else {
-          console.warn('PPTX conversion failed:', data.error);
+          if (import.meta.env.DEV) {
+            console.warn('PPTX conversion failed:', data.error);
+          }
           setDockerAvailable(data.docker_required === true ? false : null);
         }
       } catch (err) {

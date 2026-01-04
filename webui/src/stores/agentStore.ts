@@ -1123,10 +1123,20 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             store.updateVoteDistribution(snapshot.vote_distribution);
           }
 
-          // Restore vote targets
+          // Restore vote targets for UI state only (don't call recordVote as that would
+          // double-count votes since updateVoteDistribution already set the distribution)
           if (snapshot.vote_targets) {
-            Object.entries(snapshot.vote_targets).forEach(([voterId, targetId]) => {
-              store.recordVote(voterId, targetId, '');
+            set((state) => {
+              const updatedAgents = { ...state.agents };
+              Object.entries(snapshot.vote_targets!).forEach(([voterId, targetId]) => {
+                if (updatedAgents[voterId]) {
+                  updatedAgents[voterId] = {
+                    ...updatedAgents[voterId],
+                    voteTarget: targetId as string,
+                  };
+                }
+              });
+              return { agents: updatedAgents };
             });
           }
 

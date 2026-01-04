@@ -291,7 +291,10 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
     setIsLoadingWorkspaces(true);
     setWorkspaceError(null);
     try {
-      const response = await fetch('/api/workspaces');
+      const url = sessionId
+        ? `/api/workspaces?session_id=${encodeURIComponent(sessionId)}`
+        : '/api/workspaces';
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch workspaces');
       const data: WorkspacesResponse = await response.json();
       setWorkspaces(data);
@@ -300,7 +303,7 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
     } finally {
       setIsLoadingWorkspaces(false);
     }
-  }, []);
+  }, [sessionId]);
 
   // Fetch workspace files
   const fetchWorkspaceFiles = useCallback(async (workspace: WorkspaceInfo) => {
@@ -371,7 +374,20 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
       return null;
     }
 
-    // Get current workspace for the agent
+    // For FinalAnswerView, prioritize final workspace from log directory
+    // Look for workspace with /final/ in path from answerWorkspaces
+    const finalWs = answerWorkspaces.find(
+      (w) => w.agentId === targetAgent && w.workspacePath.includes('/final/')
+    );
+    if (finalWs) {
+      return {
+        name: 'Final',
+        path: finalWs.workspacePath,
+        type: 'historical' as const,
+      };
+    }
+
+    // Fallback: Get current workspace for the agent
     const ws = workspaces.current.find((w) => {
       const agentId = getAgentIdFromWorkspace(w.name, agentOrder);
       return agentId === targetAgent;

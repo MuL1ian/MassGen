@@ -61,11 +61,13 @@ export function debugPathComparison(
   const norm2 = normalizePath(path2);
   const match = norm1 === norm2;
 
-  console.log(`[Path:${context}] Comparison:`, {
-    original1: path1,
-    original2: path2,
-    normalized1: norm1,
-    normalized2: norm2,
-    match,
-  });
+  if (import.meta.env.DEV) {
+    console.log(`[Path:${context}] Comparison:`, {
+      original1: path1,
+      original2: path2,
+      normalized1: norm1,
+      normalized2: norm2,
+      match,
+    });
+  }
 }

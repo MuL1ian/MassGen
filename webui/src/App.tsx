@@ -495,7 +495,7 @@ export function App() {
                                 >
                                   <span className={isLeading ? 'font-medium' : ''}>{displayName}</span>
                                   <span className={`font-bold ${isLeading ? 'text-yellow-400' : 'text-gray-400'}`}>
-                                    {votes} vote{votes !== 1 ? 's' : ''}
+                                    {votes} {votes === 1 ? 'vote' : 'votes'}
                                   </span>
                                 </motion.div>
                               );

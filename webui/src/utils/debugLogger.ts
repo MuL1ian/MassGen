@@ -15,7 +15,8 @@ interface LogData {
 }
 
 class DebugLogger {
-  private enabled = true;
+  // Disable by default in production - enable with debugLog.setEnabled(true)
+  private enabled = import.meta.env.DEV;
   private queue: Array<{ level: LogLevel; message: string; data?: LogData; sessionId?: string }> = [];
   private flushTimeout: ReturnType<typeof setTimeout> | null = null;
   private sessionId: string | undefined;

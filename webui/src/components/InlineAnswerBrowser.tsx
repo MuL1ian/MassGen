@@ -249,10 +249,14 @@ export function InlineAnswerBrowser() {
 
   // Fetch available workspaces from API
   const fetchWorkspaces = useCallback(async () => {
+    const sessionId = useAgentStore.getState().sessionId;
     setIsLoadingWorkspaces(true);
     setWorkspaceError(null);
     try {
-      const response = await fetch('/api/workspaces');
+      const url = sessionId
+        ? `/api/workspaces?session_id=${encodeURIComponent(sessionId)}`
+        : '/api/workspaces';
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch workspaces');
       }

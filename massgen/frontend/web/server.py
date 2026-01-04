@@ -1938,6 +1938,45 @@ def create_app(
             if workspaces:
                 sources.append("log_dir_scan")
 
+            # Also scan for final/ directories (winner's workspace after consensus)
+            def scan_for_final_workspaces(base_dir: Path):
+                found = []
+                final_dir = base_dir / "final"
+                if final_dir.exists() and final_dir.is_dir():
+                    for agent_dir in final_dir.iterdir():
+                        if agent_dir.is_dir() and agent_dir.name.startswith("agent_"):
+                            agent_id = agent_dir.name
+                            ws_path = agent_dir / "workspace"
+                            if ws_path.exists():
+                                found.append(
+                                    {
+                                        "answerId": f"{agent_id}-final",
+                                        "agentId": agent_id,
+                                        "answerNumber": 0,  # 0 indicates final
+                                        "answerLabel": "Final",
+                                        "timestamp": "final",
+                                        "workspacePath": str(ws_path),
+                                    },
+                                )
+                return found
+
+            # Try to find final workspaces in log_session_dir
+            final_workspaces = scan_for_final_workspaces(log_session_dir)
+
+            # If not found, try turn_*/attempt_* subdirectories
+            if not final_workspaces:
+                for turn_dir in sorted(log_session_dir.glob("turn_*")):
+                    for attempt_dir in sorted(turn_dir.glob("attempt_*")):
+                        final_workspaces = scan_for_final_workspaces(attempt_dir)
+                        if final_workspaces:
+                            break
+                    if final_workspaces:
+                        break
+
+            if final_workspaces:
+                workspaces.extend(final_workspaces)
+                sources.append("final_scan")
+
         # Include current workspaces from cwd
         current = []
         for path in cwd.iterdir():

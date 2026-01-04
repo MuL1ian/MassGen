@@ -22,7 +22,9 @@ export function ImagePreview({ content, fileName, mimeType }: ImagePreviewProps)
   // Create image source URL
   const imageSrc = useMemo(() => {
     if (!content) {
-      console.warn('ImagePreview: No content provided');
+      if (import.meta.env.DEV) {
+        console.warn('ImagePreview: No content provided');
+      }
       return '';
     }
 
