@@ -73,6 +73,35 @@ if not workspace_logger.handlers:
 # File lists are now pre-fetched on connect and refreshed on-demand.
 # See: specs/001-fix-workspace-browser/data-model.md
 
+# Cache for PDF conversions (Office files converted via Docker)
+# Key: (workspace_path, file_path, mtime) -> base64 PDF content
+# This avoids re-converting the same file repeatedly (expensive Docker operation)
+_pdf_conversion_cache: Dict[tuple, str] = {}
+_PDF_CACHE_MAX_SIZE = 50  # Max number of cached conversions
+
+
+def _get_pdf_cache_key(workspace: str, file_path: str, mtime: float) -> tuple:
+    """Generate cache key for PDF conversion."""
+    return (workspace, file_path, mtime)
+
+
+def _get_cached_pdf(workspace: str, file_path: str, mtime: float) -> str | None:
+    """Get cached PDF conversion if available and still valid."""
+    key = _get_pdf_cache_key(workspace, file_path, mtime)
+    return _pdf_conversion_cache.get(key)
+
+
+def _cache_pdf(workspace: str, file_path: str, mtime: float, pdf_content: str) -> None:
+    """Cache a PDF conversion result."""
+    # Evict oldest entries if cache is full
+    if len(_pdf_conversion_cache) >= _PDF_CACHE_MAX_SIZE:
+        # Remove first (oldest) entry
+        oldest_key = next(iter(_pdf_conversion_cache))
+        del _pdf_conversion_cache[oldest_key]
+
+    key = _get_pdf_cache_key(workspace, file_path, mtime)
+    _pdf_conversion_cache[key] = pdf_content
+
 
 def _normalize_workspace_path(path: str) -> str:
     """Normalize a workspace path for consistent storage and lookup.
@@ -2203,8 +2232,8 @@ def create_app(
 
             if is_binary:
                 # For binary files, read and base64 encode the content
-                # Limit binary files to 10MB
-                max_binary_size = 10 * 1024 * 1024
+                # Limit binary files to 50MB (increased from 10MB for large presentations/PDFs)
+                max_binary_size = 50 * 1024 * 1024
                 if size > max_binary_size:
                     return {
                         "content": "",
@@ -2507,6 +2536,20 @@ def create_app(
                     status_code=404,
                 )
 
+            # Get file mtime for cache validation
+            file_mtime = file_path.stat().st_mtime
+
+            # Check cache first - avoid expensive Docker conversion if already done
+            cached_pdf = _get_cached_pdf(workspace, file_path_str, file_mtime)
+            if cached_pdf:
+                workspace_logger.info(f"PDF cache hit for {file_path_str}")
+                return {
+                    "success": True,
+                    "content": cached_pdf,
+                    "mimeType": "application/pdf",
+                    "cached": True,
+                }
+
             # Check file extension
             suffix = file_path.suffix.lower()
             if suffix not in [
@@ -2606,6 +2649,10 @@ def create_app(
                     # Read and encode the PDF
                     with open(output_pdf, "rb") as f:
                         pdf_content = base64.b64encode(f.read()).decode("utf-8")
+
+                    # Cache the conversion result for future requests
+                    _cache_pdf(workspace, file_path_str, file_mtime, pdf_content)
+                    workspace_logger.info(f"PDF conversion cached for {file_path_str}")
 
                     return {
                         "success": True,

@@ -6,7 +6,7 @@
  * 2. Falling back to text extraction from slides
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Presentation, AlertCircle, Loader2, ChevronLeft, ChevronRight, FileImage, FileText } from 'lucide-react';
 import JSZip from 'jszip';
 import PdfPreview from './PdfPreview';
@@ -39,6 +39,9 @@ export function PptxPreview({ content, fileName, workspacePath, filePath }: Pptx
   const [isConverting, setIsConverting] = useState(false);
   const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null);
 
+  // AbortController for canceling in-flight requests
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Try Docker PDF conversion
   useEffect(() => {
     async function tryDockerConversion() {
@@ -46,6 +49,13 @@ export function PptxPreview({ content, fileName, workspacePath, filePath }: Pptx
         setDockerAvailable(false);
         return;
       }
+
+      // Cancel any previous conversion request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
       setIsConverting(true);
 
@@ -57,9 +67,16 @@ export function PptxPreview({ content, fileName, workspacePath, filePath }: Pptx
             path: filePath,
             workspace: workspacePath,
           }),
+          signal: controller.signal,
         });
 
+        // Check if request was aborted
+        if (controller.signal.aborted) return;
+
         const data = await response.json();
+
+        // Double-check abort status after parsing
+        if (controller.signal.aborted) return;
 
         if (import.meta.env.DEV) {
           console.log('PPTX Docker conversion response:', {
@@ -85,16 +102,28 @@ export function PptxPreview({ content, fileName, workspacePath, filePath }: Pptx
           setDockerAvailable(data.docker_required === true ? false : null);
         }
       } catch (err) {
+        // Ignore abort errors - they're expected when switching files
+        if (err instanceof Error && err.name === 'AbortError') return;
         console.error('Docker conversion failed:', err);
         setDockerAvailable(false);
       } finally {
-        setIsConverting(false);
+        // Only update loading state if this request wasn't aborted
+        if (!controller.signal.aborted) {
+          setIsConverting(false);
+        }
       }
     }
 
     if (previewMode === 'auto' || previewMode === 'pdf') {
       tryDockerConversion();
     }
+
+    // Cleanup: abort on unmount or when dependencies change
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [workspacePath, filePath, previewMode]);
 
   // Parse PPTX for text extraction (fallback)

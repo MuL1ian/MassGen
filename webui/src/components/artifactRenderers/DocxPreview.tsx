@@ -6,7 +6,7 @@
  * 2. Falling back to HTML conversion using mammoth.js
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { FileText, AlertCircle, Loader2, FileImage } from 'lucide-react';
 import mammoth from 'mammoth';
 import PdfPreview from './PdfPreview';
@@ -32,6 +32,9 @@ export function DocxPreview({ content, fileName, workspacePath, filePath }: Docx
   const [isConverting, setIsConverting] = useState(false);
   const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null);
 
+  // AbortController for canceling in-flight requests
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Try Docker PDF conversion
   useEffect(() => {
     async function tryDockerConversion() {
@@ -39,6 +42,13 @@ export function DocxPreview({ content, fileName, workspacePath, filePath }: Docx
         setDockerAvailable(false);
         return;
       }
+
+      // Cancel any previous conversion request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
       setIsConverting(true);
 
@@ -50,9 +60,16 @@ export function DocxPreview({ content, fileName, workspacePath, filePath }: Docx
             path: filePath,
             workspace: workspacePath,
           }),
+          signal: controller.signal,
         });
 
+        // Check if request was aborted
+        if (controller.signal.aborted) return;
+
         const data = await response.json();
+
+        // Double-check abort status after parsing
+        if (controller.signal.aborted) return;
 
         if (data.success && data.content) {
           setPdfContent(data.content);
@@ -61,16 +78,28 @@ export function DocxPreview({ content, fileName, workspacePath, filePath }: Docx
           setDockerAvailable(data.docker_required === true ? false : null);
         }
       } catch (err) {
+        // Ignore abort errors - they're expected when switching files
+        if (err instanceof Error && err.name === 'AbortError') return;
         console.error('Docker conversion failed:', err);
         setDockerAvailable(false);
       } finally {
-        setIsConverting(false);
+        // Only update loading state if this request wasn't aborted
+        if (!controller.signal.aborted) {
+          setIsConverting(false);
+        }
       }
     }
 
     if (previewMode === 'auto' || previewMode === 'pdf') {
       tryDockerConversion();
     }
+
+    // Cleanup: abort on unmount or when dependencies change
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [workspacePath, filePath, previewMode]);
 
   // Convert DOCX to HTML using mammoth (fallback)

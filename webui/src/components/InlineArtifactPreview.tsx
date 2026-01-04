@@ -197,58 +197,91 @@ export function InlineArtifactPreview({
     }
   }, [filePath, clearContent]);
 
+  // AbortController for canceling web asset fetches when file changes
+  const webAssetAbortRef = useRef<AbortController | null>(null);
+
   // Fetch CSS/JS/image files for HTML previews
   useEffect(() => {
+    // Cancel any previous web asset fetches
+    if (webAssetAbortRef.current) {
+      webAssetAbortRef.current.abort();
+    }
+
     async function fetchAllWebAssets() {
       if (!content?.content || artifactType !== 'html') {
         return;
       }
 
-      const allFiles = await fetchWorkspaceFiles(workspacePath);
-      const webAssets = allFiles.filter(isWebAsset);
-      const imageAssets = allFiles.filter(isImageFile);
+      const controller = new AbortController();
+      webAssetAbortRef.current = controller;
 
-      if (webAssets.length === 0 && imageAssets.length === 0) return;
+      try {
+        const allFiles = await fetchWorkspaceFiles(workspacePath);
+        if (controller.signal.aborted) return;
 
-      const fileMap: Record<string, string> = {};
+        const webAssets = allFiles.filter(isWebAsset);
+        const imageAssets = allFiles.filter(isImageFile);
 
-      // Fetch CSS/JS files (text content)
-      await Promise.all(
-        webAssets.map(async (assetPath) => {
-          const fileData = await fetchSingleFile(assetPath, workspacePath);
-          if (fileData?.content) {
-            const fileName = assetPath.split('/').pop() || assetPath;
-            fileMap[assetPath] = fileData.content;
-            fileMap[fileName] = fileData.content;
-            const cleanPath = assetPath.replace(/^\.?\//, '');
-            fileMap[cleanPath] = fileData.content;
-          }
-        })
-      );
+        if (webAssets.length === 0 && imageAssets.length === 0) return;
 
-      // Fetch image files (binary content as base64 data URLs)
-      await Promise.all(
-        imageAssets.map(async (assetPath) => {
-          const fileData = await fetchSingleFile(assetPath, workspacePath);
-          if (fileData?.content && fileData.binary) {
-            const fileName = assetPath.split('/').pop() || assetPath;
-            const mimeType = fileData.mimeType || 'image/png';
-            const dataUrl = `data:${mimeType};base64,${fileData.content}`;
-            // Store as data URL for all path variations
-            fileMap[assetPath] = dataUrl;
-            fileMap[fileName] = dataUrl;
-            fileMap[`./${assetPath}`] = dataUrl;
-            fileMap[`./${fileName}`] = dataUrl;
-            const cleanPath = assetPath.replace(/^\.?\//, '');
-            fileMap[cleanPath] = dataUrl;
-          }
-        })
-      );
+        const fileMap: Record<string, string> = {};
 
-      setRelatedFiles(fileMap);
+        // Fetch CSS/JS files (text content)
+        await Promise.all(
+          webAssets.map(async (assetPath) => {
+            if (controller.signal.aborted) return;
+            const fileData = await fetchSingleFile(assetPath, workspacePath);
+            if (controller.signal.aborted) return;
+            if (fileData?.content) {
+              const fileName = assetPath.split('/').pop() || assetPath;
+              fileMap[assetPath] = fileData.content;
+              fileMap[fileName] = fileData.content;
+              const cleanPath = assetPath.replace(/^\.?\//, '');
+              fileMap[cleanPath] = fileData.content;
+            }
+          })
+        );
+
+        if (controller.signal.aborted) return;
+
+        // Fetch image files (binary content as base64 data URLs)
+        await Promise.all(
+          imageAssets.map(async (assetPath) => {
+            if (controller.signal.aborted) return;
+            const fileData = await fetchSingleFile(assetPath, workspacePath);
+            if (controller.signal.aborted) return;
+            if (fileData?.content && fileData.binary) {
+              const fileName = assetPath.split('/').pop() || assetPath;
+              const mimeType = fileData.mimeType || 'image/png';
+              const dataUrl = `data:${mimeType};base64,${fileData.content}`;
+              // Store as data URL for all path variations
+              fileMap[assetPath] = dataUrl;
+              fileMap[fileName] = dataUrl;
+              fileMap[`./${assetPath}`] = dataUrl;
+              fileMap[`./${fileName}`] = dataUrl;
+              const cleanPath = assetPath.replace(/^\.?\//, '');
+              fileMap[cleanPath] = dataUrl;
+            }
+          })
+        );
+
+        if (controller.signal.aborted) return;
+        setRelatedFiles(fileMap);
+      } catch (err) {
+        // Ignore abort errors
+        if (err instanceof Error && err.name === 'AbortError') return;
+        console.error('Failed to fetch web assets:', err);
+      }
     }
 
     fetchAllWebAssets();
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (webAssetAbortRef.current) {
+        webAssetAbortRef.current.abort();
+      }
+    };
   }, [content, artifactType, workspacePath]);
 
   // Apply syntax highlighting for source view
