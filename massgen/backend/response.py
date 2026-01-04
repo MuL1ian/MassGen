@@ -191,45 +191,44 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                 yield StreamChunk(
                     type="compression_status",
                     status="compressing",
-                    content=f"\n📦 [Compression] Context limit exceeded - summarizing {len(processed_messages)} messages...",
+                    content=f"\n📦 [Compression] Context limit exceeded - compressing {len(processed_messages)} messages...",
                     source=agent_id,
                 )
 
                 # Compress messages and retry
                 # Include accumulated buffer content if available (may have content from prior calls)
                 buffer_for_compression = self._get_streaming_buffer()
+
+                # Compress messages using LLM-based summarization
                 compressed_messages = await self._compress_messages_for_context_recovery(
                     processed_messages,
                     buffer_content=buffer_for_compression,
                 )
 
-                # CRITICAL: Remove previous_response_id - it would add all prior context server-side,
-                # making our compression pointless (Response API maintains conversation state)
-                had_prev_id = "previous_response_id" in all_params
+                # Remove previous_response_id - it would add all prior context server-side,
+                # making compression pointless
                 compression_params = {k: v for k, v in all_params.items() if k != "previous_response_id"}
-                logger.warning(f"[Compression DEBUG _stream_api] Removed previous_response_id from all_params: was_present={had_prev_id}")
-
-                # Rebuild API params with compressed messages
                 api_params = await self.api_params_handler.build_api_params(
                     compressed_messages,
                     tools,
                     compression_params,
                 )
-                logger.warning(f"[Compression DEBUG _stream_api] Final api_params has previous_response_id: {'previous_response_id' in api_params}")
 
-                # Retry with compressed messages
+                # Retry with compressed context
                 stream = await client.responses.create(**api_params)
 
                 # Notify user that compression succeeded
+                input_count = len(compressed_messages) if compressed_messages else 0
+                result_msg = f"✅ [Compression] Recovered via summarization ({input_count} items) - continuing..."
                 yield StreamChunk(
                     type="compression_status",
                     status="compression_complete",
-                    content=f"✅ [Compression] Recovered with {len(compressed_messages)} messages - continuing...",
+                    content=result_msg,
                     source=agent_id,
                 )
 
                 logger.info(
-                    f"[{self.get_provider_name()}] Compression recovery successful, " f"continuing with {len(compressed_messages)} messages",
+                    f"[{self.get_provider_name()}] Compression recovery successful via summarization " f"({input_count} items)",
                 )
             else:
                 raise
@@ -373,11 +372,6 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         # Check for compression retry flag to prevent infinite loops
         _compression_retry = kwargs.get("_compression_retry", False)
 
-        # Debug: ALWAYS log before API call
-        prev_id = api_params.get("previous_response_id")
-        input_count = len(api_params.get("input", []))
-        logger.warning(f"[Response API DEBUG] About to call API: _compression_retry={_compression_retry}, previous_response_id={prev_id}, input_count={input_count}")
-
         # Start streaming with context error handling
         try:
             stream = await client.responses.create(**api_params)
@@ -411,48 +405,47 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                 yield StreamChunk(
                     type="compression_status",
                     status="compressing",
-                    content=f"\n📦 [Compression] Context limit exceeded - summarizing {len(current_messages)} messages...",
+                    content=f"\n📦 [Compression] Context limit exceeded - compressing {len(current_messages)} messages...",
                     source=agent_id,
                 )
 
                 # Compress messages and retry
                 # Include accumulated buffer content if available (not first API call)
                 buffer_for_compression = self._get_streaming_buffer()
+
+                # Compress messages using LLM-based summarization
                 compressed_messages = await self._compress_messages_for_context_recovery(
                     current_messages,
                     buffer_content=buffer_for_compression,
                 )
 
-                # CRITICAL: Remove previous_response_id - it would add all prior context server-side,
-                # making our compression pointless (Response API maintains conversation state)
-                had_prev_id = "previous_response_id" in all_params
+                # Remove previous_response_id - it would add all prior context server-side,
+                # making compression pointless
                 compression_params = {k: v for k, v in all_params.items() if k != "previous_response_id"}
-                logger.warning(f"[Compression DEBUG] Removed previous_response_id from all_params: was_present={had_prev_id}")
-
-                # Rebuild API params with compressed messages
                 api_params = await self.api_params_handler.build_api_params(
                     compressed_messages,
                     tools,
                     compression_params,
                 )
-                logger.warning(f"[Compression DEBUG] Final api_params has previous_response_id: {'previous_response_id' in api_params}")
-
-                # Retry with compressed messages
-                stream = await client.responses.create(**api_params)
 
                 # Update current_messages for subsequent recursions
                 current_messages = compressed_messages
 
+                # Retry with compressed context
+                stream = await client.responses.create(**api_params)
+
                 # Notify user that compression succeeded
+                input_count = len(compressed_messages) if compressed_messages else 0
+                result_msg = f"✅ [Compression] Recovered via summarization ({input_count} items) - continuing..."
                 yield StreamChunk(
                     type="compression_status",
                     status="compression_complete",
-                    content=f"✅ [Compression] Recovered with {len(compressed_messages)} messages - continuing...",
+                    content=result_msg,
                     source=agent_id,
                 )
 
                 logger.info(
-                    f"[{self.get_provider_name()}] Compression recovery successful, " f"continuing with {len(compressed_messages)} messages",
+                    f"[{self.get_provider_name()}] Compression recovery successful via summarization " f"({input_count} items)",
                 )
             else:
                 self.end_api_call_timing(success=False, error=str(e))
@@ -591,17 +584,24 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
             # Without reasoning items, subsequent API calls will fail with:
             # "Item 'msg_...' of type 'message' was provided without its required 'reasoning' item"
             #
-            # IMPORTANT: Only add items manually if we DON'T have a response_id
-            # When previous_response_id is passed to the API, it automatically includes
-            # all items from that response, so manually adding them causes duplicates
-            if response_output_items and not response_id:
+            # IMPORTANT: Only add items manually if we WON'T use previous_response_id
+            # in the recursive call. When previous_response_id is passed to the API,
+            # it automatically includes all items from that response.
+            #
+            # BUG FIX: During compression retry (_compression_retry=True), we stay
+            # stateless and don't pass previous_response_id, so we MUST add items
+            # manually even though we have a response_id from the current response.
+            _compression_retry = kwargs.get("_compression_retry", False)
+            will_use_previous_response_id = response_id and not _compression_retry
+
+            if response_output_items and not will_use_previous_response_id:
                 # Deduplicate by 'id' field to avoid "Duplicate item found with id" errors
                 existing_ids = {msg.get("id") for msg in updated_messages if msg.get("id")}
                 unique_items = [item for item in response_output_items if item.get("id") not in existing_ids]
 
                 updated_messages.extend(unique_items)
                 logger.debug(f"Added {len(unique_items)} response output items to messages for reasoning continuity (filtered {len(response_output_items) - len(unique_items)} duplicates)")
-            elif response_id:
+            elif will_use_previous_response_id:
                 logger.debug(f"Skipping manual item addition - using previous_response_id={response_id} for automatic continuity")
 
             # Configuration for custom tool execution
@@ -1490,17 +1490,14 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         messages: List[Dict[str, Any]],
         buffer_content: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Compress messages for context error recovery.
-
-        Uses the shared compression utility to compress messages when
-        context length is exceeded.
+        """Compress messages for context error recovery using LLM-based summarization.
 
         Args:
             messages: The messages that caused the context length error
             buffer_content: Optional partial response content from streaming
 
         Returns:
-            Compressed message list ready for retry
+            List of compressed messages to use as input
         """
         from ._compression_utils import compress_messages_for_recovery
 

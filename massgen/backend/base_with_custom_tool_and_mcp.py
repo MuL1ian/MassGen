@@ -3060,26 +3060,27 @@ class CustomToolAndMCPBackend(LLMBackend):
                                 # Get streaming buffer content if available (subclass may track this)
                                 buffer_content = getattr(self, "_streaming_buffer", None) or None
 
-                                # Compress messages and retry
+                                # Compress messages using LLM-based summarization
                                 compressed_messages = await self._compress_messages_for_context_recovery(
                                     messages,
                                     buffer_content=buffer_content,
                                 )
 
                                 # Notify user that compression succeeded
+                                input_count = len(compressed_messages) if compressed_messages else 0
+                                result_msg = f"✅ [Compression] Recovered via summarization ({input_count} items) - continuing..."
                                 yield StreamChunk(
                                     type="compression_status",
                                     status="compression_complete",
-                                    content=f"✅ [Compression] Recovered with {len(compressed_messages)} messages - continuing...",
+                                    content=result_msg,
                                     source=agent_id,
                                 )
 
                                 # Retry with compressed messages (with flag to prevent infinite loops)
-                                # CRITICAL: Remove previous_response_id - it would add all prior context server-side,
-                                # making our compression pointless (Response API maintains conversation state)
+                                # Remove previous_response_id - it would add all prior context server-side,
+                                # making compression pointless
                                 retry_kwargs = {**kwargs, "_compression_retry": True}
-                                had_prev_id = retry_kwargs.pop("previous_response_id", None) is not None
-                                logger.warning(f"[Compression DEBUG base] Removed previous_response_id from retry_kwargs: was_present={had_prev_id}")
+                                retry_kwargs.pop("previous_response_id", None)
 
                                 if use_mcp or use_custom_tools:
                                     async for chunk in self._stream_with_custom_and_mcp_tools(
