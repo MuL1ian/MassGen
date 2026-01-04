@@ -712,12 +712,15 @@ export function FinalAnswerView({ onBackToAgents, onFollowUp, onNewSession, isCo
                           onClick={() => {
                             setSelectedAgentWorkspace(agentId);
                             // For winner, default to 'current' (Final)
-                            // For non-winners, default to first historical workspace if available
+                            // For non-winners, default to most recent (highest answerNumber) workspace
                             if (agentId === selectedAgent) {
                               setSelectedAnswerLabel('current');
                             } else {
-                              const agentWs = answerWorkspaces.filter(w => w.agentId === agentId);
+                              const agentWs = answerWorkspaces
+                                .filter(w => w.agentId === agentId)
+                                .sort((a, b) => (b.answerNumber || 0) - (a.answerNumber || 0));
                               if (agentWs.length > 0) {
+                                // Select the most recent answer (highest answerNumber)
                                 setSelectedAnswerLabel(agentWs[0].answerLabel);
                               } else {
                                 setSelectedAnswerLabel('current'); // Will show empty state

@@ -277,15 +277,30 @@ export function TimelineView({ onNodeClick }: TimelineViewProps) {
               const nodePos = nodePositions.get(node.id);
               if (!nodePos || !node.votedFor) return null;
 
-              // Find the voted-for agent's latest answer node
-              const targetAnswer = timelineData.nodes.find(
-                n => n.type === 'answer' && n.agentId === node.votedFor
+              // votedFor can be either an answer label (e.g., "agent2.3") or an agent ID (e.g., "agent_b")
+              // Try to find by answer label first, then fall back to agent ID
+              let targetAnswer = timelineData.nodes.find(
+                n => n.type === 'answer' && n.label === node.votedFor
               );
 
+              // Fallback: try matching by agent ID (old format)
               if (!targetAnswer) {
-                // Fallback: point to the agent's column if no answer node found
-                const targetAgentIndex = timelineData.agents.indexOf(node.votedFor);
-                if (targetAgentIndex === -1) return null;
+                targetAnswer = timelineData.nodes.find(
+                  n => n.type === 'answer' && n.agentId === node.votedFor
+                );
+              }
+
+              if (!targetAnswer) {
+                // Final fallback: point to the agent's column if no answer node found
+                // Extract agent from label like "agent2.3" -> find agent at index 1 (agent2)
+                const labelMatch = node.votedFor.match(/agent(\d+)/);
+                let targetAgentIndex = -1;
+                if (labelMatch) {
+                  targetAgentIndex = parseInt(labelMatch[1], 10) - 1;
+                } else {
+                  targetAgentIndex = timelineData.agents.indexOf(node.votedFor);
+                }
+                if (targetAgentIndex === -1 || targetAgentIndex >= timelineData.agents.length) return null;
                 const targetX = PADDING + targetAgentIndex * COLUMN_WIDTH + COLUMN_WIDTH / 2;
                 return (
                   <TimelineArrow

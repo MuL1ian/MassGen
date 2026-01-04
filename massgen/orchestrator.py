@@ -2806,10 +2806,16 @@ Your answer:"""
                                         # Use format like "vote1.1" (matches answer format "agent1.1")
                                         vote_label = f"vote{agent_num}.{vote_number}"
                                         available_answers = self.coordination_tracker.iteration_available_labels.copy()
+                                        # Get the answer label that was voted for (e.g., "agent2.3")
+                                        voted_for_agent = result_data.get("agent_id", "")
+                                        voted_for_label = self.coordination_tracker.get_voted_for_label(
+                                            agent_id,
+                                            voted_for_agent,
+                                        )
                                         display.record_vote_with_context(
                                             voter_id=agent_id,
                                             vote_label=vote_label,
-                                            voted_for=result_data.get("agent_id", ""),
+                                            voted_for=voted_for_label or voted_for_agent,
                                             available_answers=available_answers,
                                         )
                                 # Update status file for real-time monitoring

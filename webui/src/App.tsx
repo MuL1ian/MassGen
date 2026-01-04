@@ -487,7 +487,7 @@ export function App() {
                                   initial={{ opacity: 0, x: -20 }}
                                   animate={{ opacity: 1, x: 0 }}
                                   transition={{ delay: idx * 0.1 }}
-                                  className={`flex items-center justify-between px-3 py-2 rounded-lg ${
+                                  className={`flex items-center justify-between gap-4 px-3 py-2 rounded-lg ${
                                     isLeading
                                       ? 'bg-yellow-500/30 border border-yellow-500/50'
                                       : 'bg-gray-700/50'
