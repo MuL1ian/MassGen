@@ -76,11 +76,15 @@ def load_env_file():
     Search order (later files override earlier ones):
     1. MassGen package .env (development fallback)
     2. User home ~/.massgen/.env (global user config)
-    3. Current directory .env (project-specific, highest priority)
+    3. User config ~/.config/massgen/.env
+    4. Project configs/.env (project-specific, optional)
+    5. Current directory .env (project-specific, highest priority)
     """
     # Load in priority order (later overrides earlier)
     load_dotenv(Path(__file__).parent / ".env")  # Package fallback
     load_dotenv(Path.home() / ".massgen" / ".env")  # User global
+    load_dotenv(Path.home() / ".config" / "massgen" / ".env")  # User config
+    load_dotenv(Path.cwd() / "configs" / ".env")  # Project configs
     load_dotenv()  # Current directory (highest priority)
 
 
@@ -5672,6 +5676,65 @@ def cli_main():
         # Parse logs arguments (skip 'massgen logs')
         logs_args = logs_parser.parse_args(sys.argv[2:])
         sys.exit(logs_command(logs_args))
+
+    # Handle 'serve' subcommand (OpenAI-compatible HTTP server)
+    if len(sys.argv) >= 2 and sys.argv[1] == "serve":
+        import uvicorn
+
+        from massgen.server.app import create_app
+        from massgen.server.settings import ServerSettings
+
+        serve_parser = argparse.ArgumentParser(
+            prog="massgen serve",
+            description="Run MassGen OpenAI-compatible server (FastAPI + Uvicorn)",
+        )
+        serve_parser.add_argument("--host", type=str, default=None, help="Host to bind (default: 0.0.0.0)")
+        serve_parser.add_argument("--port", type=int, default=None, help="Port to bind (default: 4000)")
+        serve_parser.add_argument("--config", type=str, default=None, help="Default MassGen config file path")
+        serve_parser.add_argument("--reload", action="store_true", help="Enable auto-reload (dev only)")
+
+        serve_args = serve_parser.parse_args(sys.argv[2:])
+
+        # Reload env in case the user expects serve to pick up .env changes.
+        load_env_file()
+
+        # Resolve config path using same logic as main command
+        # If --config provided, use it; otherwise auto-discover default config
+        resolved_config = None
+        if serve_args.config:
+            resolved_config = resolve_config_path(serve_args.config)
+        else:
+            # Auto-discover: .massgen/config.yaml or ~/.config/massgen/config.yaml
+            resolved_config = resolve_config_path(None)
+            if resolved_config:
+                print(f"📁 Using default config: {resolved_config}")
+
+        settings = ServerSettings.from_env()
+        if serve_args.host:
+            settings = ServerSettings(
+                host=serve_args.host,
+                port=settings.port,
+                default_config=settings.default_config,
+                debug=settings.debug,
+            )
+        if serve_args.port:
+            settings = ServerSettings(
+                host=settings.host,
+                port=serve_args.port,
+                default_config=settings.default_config,
+                debug=settings.debug,
+            )
+        if resolved_config:
+            settings = ServerSettings(
+                host=settings.host,
+                port=settings.port,
+                default_config=str(resolved_config),
+                debug=settings.debug,
+            )
+
+        app = create_app(settings=settings)
+        uvicorn.run(app, host=settings.host, port=settings.port, reload=serve_args.reload)
+        return
 
     # Handle 'export' subcommand specially before main argument parsing
     if len(sys.argv) >= 2 and sys.argv[1] == "export":

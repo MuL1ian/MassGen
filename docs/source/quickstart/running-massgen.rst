@@ -6,7 +6,7 @@ This guide shows you how to run MassGen using different modes and configurations
 Choosing Your Mode
 ------------------
 
-MassGen offers three ways to run multi-agent workflows:
+MassGen offers four ways to run multi-agent workflows:
 
 .. list-table::
    :header-rows: 1
@@ -24,6 +24,9 @@ MassGen offers three ways to run multi-agent workflows:
    * - **LiteLLM**
      - Application integration, LangChain, existing LiteLLM users
      - Standard OpenAI interface, drop-in replacement
+   * - **HTTP Server**
+     - Integrating via HTTP, OpenAI-compatible clients, proxies/gateways
+     - OpenAI-compatible endpoints (``/v1/chat/completions``), SSE streaming, tool calling
 
 For advanced programmatic control, see the :doc:`../user_guide/integration/python_api` (async-first, headless execution).
 
@@ -76,6 +79,39 @@ Quick Start Examples
          print(response.choices[0].message.content)
 
       Standard OpenAI-compatible interface for seamless integration with existing applications.
+
+   .. tab:: HTTP Server
+
+      .. code-block:: bash
+
+         # Start an OpenAI-compatible HTTP server (defaults: 0.0.0.0:4000)
+         uv run massgen serve
+
+         # With a specific config
+         uv run massgen serve --config @examples/basic/multi/three_agents_default
+
+         # Health check
+         curl http://localhost:4000/health
+
+         # OpenAI-compatible Chat Completions
+         curl http://localhost:4000/v1/chat/completions \
+           -H "Content-Type: application/json" \
+           -d '{"model":"massgen","messages":[{"role":"user","content":"Analyze renewable energy"}]}'
+
+      OpenAI-compatible HTTP API for integrating MassGen into existing clients and server workflows.
+
+      .. note::
+
+         **Config Selection:** Use the ``model`` parameter to select configs:
+
+         - ``model="massgen"`` - Use the default config (from ``--config`` or auto-discovered)
+         - ``model="massgen/basic_multi"`` - Use a built-in example config
+         - ``model="massgen/path:/path/to/config.yaml"`` - Use a specific config file
+
+         **Full Parity:** The HTTP server uses ``massgen.run()`` internally, providing identical behavior
+         to CLI, WebUI, and LiteLLM modes - including logging to ``.massgen/massgen_logs/``, metrics,
+         and session management. The ``massgen_metadata`` field in responses contains the same data
+         as ``massgen.run()`` returns.
 
 CLI Usage
 ---------

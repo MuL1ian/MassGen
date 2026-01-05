@@ -67,7 +67,23 @@ from .chat_agent import (
 )
 
 # LiteLLM integration
-from .litellm_provider import MassGenLLM, register_with_litellm
+#
+# LiteLLM integration
+#
+# NOTE:
+# Some environments (including restricted sandboxes / CI hardening) may forbid
+# reading system CA bundle locations during module import. `litellm` currently
+# initializes an HTTP client + SSL context at import-time, which can raise
+# PermissionError and prevent *any* MassGen import (and therefore pytest
+# collection). Treat LiteLLM as an optional integration and fail soft.
+try:
+    from .litellm_provider import MassGenLLM, register_with_litellm
+
+    LITELLM_AVAILABLE = True
+except Exception:  # pragma: no cover - environment-specific import side effects
+    MassGenLLM = None  # type: ignore[assignment]
+    register_with_litellm = None  # type: ignore[assignment]
+    LITELLM_AVAILABLE = False
 from .message_templates import MessageTemplates, get_templates
 from .orchestrator import Orchestrator, create_orchestrator
 
@@ -346,7 +362,7 @@ async def run(
         run_question_with_history,
         run_single_question,
     )
-    from .logger_config import setup_logging
+    from .logger_config import save_execution_metadata, setup_logging
     from .utils import get_backend_type_from_model
 
     # Initialize logging for programmatic API
@@ -430,6 +446,20 @@ async def run(
     if not agents:
         raise ValueError("No agents configured")
 
+    # Save execution metadata for debugging and reconstruction (matches CLI behavior)
+    save_execution_metadata(
+        query=query,
+        config_path=config_path_used if config_path_used and not config_path_used.startswith(("config_dict", "multi-agent:", "agent:", "single-agent-light:")) else None,
+        config_content=config_dict,
+        cli_args={
+            "mode": "programmatic_api",
+            "session_id": session_id,
+            "enable_logging": enable_logging,
+            "verbose": verbose,
+            "config_source": config_path_used,
+        },
+    )
+
     # Force headless UI config for programmatic API usage
     # Override any UI settings from the config file to ensure non-interactive operation
     ui_config = {
@@ -491,7 +521,8 @@ async def run(
         result["answers"] = coordination_result.get("answers")  # List with label, agent_id, answer_path, content
         result["log_directory"] = coordination_result.get("log_directory")
         result["final_answer_path"] = coordination_result.get("final_answer_path")
-        result["agent_mapping"] = coordination_result.get("agent_mapping")  # Maps agent_a -> real_id
+        result["usage"] = coordination_result.get("usage")  # Token usage stats
+        # Note: agent_mapping is inside vote_results (vote_results.agent_mapping)
     elif enable_logging:
         # Fallback: add log directory even without full coordination result
         try:
