@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.33
+**Current Version:** v0.1.34
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** January 2, 2026
+**Last Updated:** January 6, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,92 +42,88 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.34** | 01/06/26 | Expose MassGen as OpenAI-Compatible Chat Server | @ncrispino | Run MassGen as an OpenAI-compatible API server for integration with other tools |
-| **v0.1.35** | 01/08/26 | Test MassGen for PPTX Slides | @ncrispino | Verify and improve MassGen's ability to generate PowerPoint presentations |
-| | | OpenRouter Tool-Use Model Filtering | @shubham2345 | Restrict OpenRouter model list to only show models that support tool use |
-| **v0.1.36** | 01/10/26 | Code-Based Tools in Web UI | @ncrispino | Ensure code-based tools work in Web UI along with new features |
-| | | Backend Model List Auto-Update | @ncrispino | Automatic model listing via provider APIs (like OpenRouter), third-party wrappers, or documented manual processes |
+| **v0.1.35** | 01/07/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization |
+| | | Improve Logging | @ncrispino | Enhanced logging for better debugging and observability |
+| **v0.1.36** | 01/09/26 | Add GPT-5.2 Codex to Capabilities | @ncrispino | Support for GPT-5.2 Codex model in capabilities list |
+| | | Add Fara-7B for Computer Use | @ncrispino | Support for Fara-7B model for computer use tasks |
+| **v0.1.37** | 01/12/26 | Integrate Smart Semantic Search | @ncrispino | Advanced semantic search capabilities for improved retrieval |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.33 - Reactive Context Compression & Streaming Buffers (COMPLETED)
+## ✅ v0.1.34 - OpenAI-Compatible Server & Model Discovery (COMPLETED)
 
-**Released: January 2, 2026**
+**Released: January 6, 2026**
 
 ### Features
 
-- **Reactive Context Compression**: Automatic conversation compression when context length errors are detected, supporting all major backends (OpenAI, Claude, Gemini, OpenRouter, Grok)
-- **Streaming Buffer System**: Tracks accumulated streaming content for compression recovery, capturing text deltas, tool calls, and reasoning/thinking content when available
-- **File Overwrite Protection**: `write_file` tool now refuses to overwrite existing files (use `edit_file` instead)
-- **Task Plan Duplicate Protection**: `create_task_plan` MCP tool prevents re-creating plans after recovery
-- **Grok Backend MCP Tools**: Fixed MCP tools visibility by removing incorrect stream method override
-- **Gemini Vote-Only Mode**: Fixed `vote_only` parameter handling in Gemini backend streaming
+- **OpenAI-Compatible Server**: Local HTTP server exposing MassGen as an OpenAI-compatible API
+- **Dynamic Model Discovery**: Authenticated model listing for Groq and Together backends via API
+- **WebUI Improvements**: File diff display, answer refresh polling, workspace browser optimizations
+- **Subagent Reliability**: Better status tracking, cancellation recovery, and error handling
+- **Review Skill**: New skill for code review workflows
 
 *See [Ongoing Work](#-ongoing-work--continuous-releases) section for detailed track information.*
 
 ---
 
-## 📋 v0.1.34 - OpenAI-Compatible Server
+## 📋 v0.1.35 - OpenAI Compact Endpoint & Logging Improvements
 
 ### Features
 
-**1. Expose MassGen as OpenAI-Compatible Chat Server** (@ncrispino)
-- Issue: [#628](https://github.com/massgen/MassGen/issues/628)
-- Run MassGen as an OpenAI-compatible API server
-- Enable integration with tools expecting OpenAI API format (Cursor, Continue, etc.)
-- Support for streaming responses and tool calling
-- **Use Case**: Use MassGen multi-agent coordination as a drop-in replacement for OpenAI API in existing workflows
+**1. OpenAI Responses /compact Endpoint** (@ncrispino)
+- Issue: [#739](https://github.com/massgen/MassGen/issues/739)
+- Use OpenAI's native `/compact` endpoint instead of custom summarization
+- Leverage API-level context compression for better efficiency
+- **Use Case**: Reduce token usage and improve response quality with native compression
+
+**2. Improve Logging** (@ncrispino)
+- Issue: [#683](https://github.com/massgen/MassGen/issues/683)
+- Enhanced logging for better debugging and observability
+- Improved log formatting and filtering capabilities
+- **Use Case**: Easier troubleshooting and monitoring of MassGen operations
 
 ### Success Criteria
-- ✅ MassGen server responds to OpenAI-compatible API calls
-- ✅ External tools can connect to MassGen as an OpenAI provider
+- ✅ OpenAI compact endpoint integration working
+- ✅ Logging improvements provide better debugging experience
 
 ---
 
-## 📋 v0.1.35 - PPTX Testing & OpenRouter Model Filtering
+## 📋 v0.1.36 - GPT-5.2 Codex & Fara-7B Support
 
 ### Features
 
-**1. Test MassGen for PPTX Slides** (@ncrispino)
-- Issue: [#686](https://github.com/massgen/MassGen/issues/686)
-- Verify and improve MassGen's ability to generate PowerPoint presentations
-- Test slide generation workflows and output quality
-- **Use Case**: Ensure reliable PPTX generation for presentation creation tasks
+**1. Add GPT-5.2 Codex to Capabilities** (@ncrispino)
+- Issue: [#660](https://github.com/massgen/MassGen/issues/660)
+- Add GPT-5.2 Codex model to the capabilities list
+- Configure appropriate parameters and pricing
+- **Use Case**: Enable users to leverage GPT-5.2 Codex for code generation tasks
 
-**2. OpenRouter Tool-Use Model Filtering** (@shubham2345)
-- Issue: [#647](https://github.com/massgen/MassGen/issues/647)
-- Restrict OpenRouter model list to only show models that support tool use
-- Filter based on `supported_parameters` capability checks
-- **Use Case**: Prevent users from selecting models that won't work with MassGen's tool-based workflows
+**2. Add Fara-7B for Computer Use** (@ncrispino)
+- Issue: [#646](https://github.com/massgen/MassGen/issues/646)
+- Support for Fara-7B model for computer use tasks
+- Integration with existing computer use infrastructure
+- **Use Case**: Alternative model option for GUI automation workflows
 
 ### Success Criteria
-- ✅ PPTX generation works reliably across different use cases
-- ✅ OpenRouter model list only shows tool-capable models
+- ✅ GPT-5.2 Codex available in model selection
+- ✅ Fara-7B working with computer use features
 
 ---
 
-## 📋 v0.1.36 - Code-Based Tools in Web UI & Backend Model Auto-Update
+## 📋 v0.1.37 - Smart Semantic Search Integration
 
 ### Features
 
-**1. Code-Based Tools in Web UI** (@ncrispino)
-- Issue: [#612](https://github.com/massgen/MassGen/issues/612)
-- Ensure code-based tools work properly in the Web UI
-- Integration with new Web UI features
-- **Use Case**: Enable full code-based tool functionality through browser interface
-
-**2. Backend Model List Auto-Update** (@ncrispino)
-- Issue: [#645](https://github.com/massgen/MassGen/issues/645)
-- Implement native model listing APIs for providers that support it (OpenAI, Anthropic, Grok, Groq, Nebius)
-- Research third-party wrappers for providers without native listing APIs
-- Document manual update process for providers requiring it
-- **Use Case**: Reduce manual model registry maintenance; OpenRouter already auto-fetches, extend to other providers
+**1. Integrate Smart Semantic Search** (@ncrispino)
+- Issue: [#639](https://github.com/massgen/MassGen/issues/639)
+- Advanced semantic search capabilities for improved retrieval
+- Integration with existing search infrastructure
+- **Use Case**: Better context retrieval and information discovery
 
 ### Success Criteria
-- ✅ Code-based tools function correctly in Web UI
-- ✅ Providers with listing APIs auto-fetch available models
+- ✅ Semantic search integrated and functional
 
 ---
 
@@ -596,33 +592,64 @@ These features are being actively developed on **separate parallel tracks** and 
 
 ### Track: Backend Model List Auto-Update (@ncrispino, nickcrispino)
 - Issue: [#645](https://github.com/massgen/MassGen/issues/645)
-- Implement native model listing APIs (OpenAI, Anthropic, Grok, Groq, Nebius)
+- PR: [#669](https://github.com/massgen/MassGen/pull/669)
+- Native model listing APIs for providers (Groq, Together, and others)
 - Research third-party wrappers; document manual update processes
-- **Target:** v0.1.36
+- **Status:** ✅ Completed in v0.1.34
 
-### Track: OpenAI-Compatible Chat Server (@ncrispino, nickcrispino)
+### Track: OpenAI-Compatible Chat Server (@maxim-saplin)
 - Issue: [#628](https://github.com/massgen/MassGen/issues/628)
+- PR: [#689](https://github.com/massgen/MassGen/pull/689)
 - Run MassGen as an OpenAI-compatible API server
-- Integration with Cursor, Continue, and other tools
-- **Target:** v0.1.34
+- **Status:** ✅ Completed in v0.1.34
 
 ### Track: Code-Based Tools in Web UI (@ncrispino, nickcrispino)
 - Issue: [#612](https://github.com/massgen/MassGen/issues/612)
 - Ensure code-based tools work properly in Web UI
 - Integration with new Web UI features
-- **Target:** v0.1.36
+- **Status:** ✅ Completed in v0.1.34
 
 ### Track: Test MassGen for PPTX Slides (@ncrispino, nickcrispino)
 - Issue: [#686](https://github.com/massgen/MassGen/issues/686)
 - Verify and improve PPTX generation capabilities
 - Test slide generation workflows and output quality
-- **Target:** v0.1.35
+- **Status:** ✅ Completed in v0.1.34
 
 ### Track: OpenRouter Tool-Use Model Filtering (@shubham2345)
 - Issue: [#647](https://github.com/massgen/MassGen/issues/647)
 - Restrict OpenRouter model list to only show models that support tool use
 - Filter based on `supported_parameters` capability checks
+- **Status:** ✅ Completed in v0.1.34
+
+### Track: OpenAI Responses /compact Endpoint (@ncrispino, nickcrispino)
+- Issue: [#739](https://github.com/massgen/MassGen/issues/739)
+- Use OpenAI's native `/compact` endpoint instead of custom summarization
+- Leverage API-level context compression for better efficiency
 - **Target:** v0.1.35
+
+### Track: Improve Logging (@ncrispino, nickcrispino)
+- Issue: [#683](https://github.com/massgen/MassGen/issues/683)
+- Enhanced logging for better debugging and observability
+- Improved log formatting and filtering capabilities
+- **Target:** v0.1.35
+
+### Track: Add GPT-5.2 Codex to Capabilities (@ncrispino, nickcrispino)
+- Issue: [#660](https://github.com/massgen/MassGen/issues/660)
+- Add GPT-5.2 Codex model to the capabilities list
+- Configure appropriate parameters and pricing
+- **Target:** v0.1.36
+
+### Track: Add Fara-7B for Computer Use (@ncrispino, nickcrispino)
+- Issue: [#646](https://github.com/massgen/MassGen/issues/646)
+- Support for Fara-7B model for computer use tasks
+- Integration with existing computer use infrastructure
+- **Target:** v0.1.36
+
+### Track: Integrate Smart Semantic Search (@ncrispino, nickcrispino)
+- Issue: [#639](https://github.com/massgen/MassGen/issues/639)
+- Advanced semantic search capabilities for improved retrieval
+- Integration with existing search infrastructure
+- **Target:** v0.1.37
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -699,5 +726,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** January 2, 2026
+**Last Updated:** January 5, 2026
 **Maintained By:** MassGen Team

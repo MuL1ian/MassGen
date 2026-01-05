@@ -50,6 +50,11 @@ mv docs/announcements/current-release.md docs/announcements/archive/v${VERSION}.
 
 ### 3. Generate CHANGELOG Entry
 
+**Update the Recent Releases section** at the top of `CHANGELOG.md`:
+- Add the new release summary at the top
+- Keep only the **3 newest releases** in this section
+- Remove older entries (they remain in the detailed changelog below)
+
 Create a structured entry following Keep a Changelog format:
 
 ```markdown
@@ -65,10 +70,17 @@ Create a structured entry following Keep a Changelog format:
 ### Fixed
 - **Bug #123**: Description of fix
 
-### Documentation
-- Updated user guide for new feature
-- Added case study: feature-name.md
+### Documentations, Configurations and Resources
+- **Feature Guide**: New `docs/source/user_guide/feature.rst` for feature usage
+- **Design Document**: New `docs/dev_notes/feature_design.md` for implementation details
+- **Updated Docs**: Updated `docs/source/reference/cli.rst` with new commands
+- **Skills**: New `massgen/skills/skill-name/SKILL.md` for automation
 ```
+
+**Documentation section rules:**
+- Reference specific file paths (`.rst`, `.md`, `.yaml` files)
+- Use "New" for newly added files, "Updated" for modified files
+- Run `git diff <last-tag>..HEAD --name-only -- "*.md" "*.rst" "*.yaml"` to find changed docs
 
 **Categorization rules:**
 - `feat:` commits → Added
@@ -76,6 +88,10 @@ Create a structured entry following Keep a Changelog format:
 - `docs:` commits → Documentation
 - `refactor:`, `perf:` commits → Changed
 - Breaking changes → highlight with ⚠️
+
+**Contributors:**
+- Run `git shortlog -sn <last-tag>..HEAD` to find all contributors
+- List contributors by commit count in the Technical Details section
 
 ### 4. Generate Announcement
 

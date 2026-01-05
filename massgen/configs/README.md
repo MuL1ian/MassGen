@@ -227,7 +227,35 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.33 - Latest
+### v0.1.34 - Latest
+**New Features:** OpenAI-Compatible Server, Dynamic Model Discovery, WebUI Improvements, Subagent Reliability
+
+**Key Features:**
+- **OpenAI-Compatible Server**: Run MassGen as a local HTTP server with `massgen serve` command
+- **Dynamic Model Discovery**: Groq and Together backends fetch available models via authenticated API calls
+- **WebUI File Diffs**: View workspace file changes with diff highlighting
+- **Answer Refresh Polling**: Real-time answer display with polling-based updates
+- **Subagent Status Tracking**: Improved status monitoring and error handling for subagent workflows
+- **Cancellation Recovery**: Better handling of cancelled subagent operations
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Start OpenAI-compatible server with default config
+massgen serve --host 0.0.0.0 --port 4000
+
+# Or specify a custom config
+massgen serve --config @examples/basic/multi/three_agents_default
+
+# Use with any OpenAI SDK client
+curl http://localhost:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "massgen", "messages": [{"role": "user", "content": "Explain multi-agent systems in LLMs"}]}'
+```
+
+### v0.1.33
 **New Features:** Reactive Context Compression, Streaming Buffer System, MCP Tool Protections
 
 **Key Features:**
