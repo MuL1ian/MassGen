@@ -9,7 +9,7 @@ After posting, update the social links below.
 
 We're excited to release MassGen v0.1.34, adding an OpenAI-Compatible Server! 🚀
 
-Run MassGen as a local HTTP server that any OpenAI SDK client can connect to.
+Run MassGen as a local server that provides a Chat Completions-compatible API, allowing any OpenAI SDK client to connect.
 
 **Plus:** Dynamic model discovery for Groq and Together backends, WebUI improvements (file diffs, answer refresh, faster workspace browser), subagent reliability fixes, and a new review skill.
 
@@ -33,7 +33,7 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.34, adding an OpenAI-Compatible Server! 🚀 Run MassGen as a local HTTP server that any OpenAI SDK client can connect to. Plus: Dynamic model discovery for Groq and Together backends, WebUI improvements (file diffs, answer refresh, faster workspace browser), subagent reliability fixes, and a new review skill.
+We're excited to release MassGen v0.1.34, adding an OpenAI-Compatible Server! 🚀 Run MassGen as a local server that provides a Chat Completions-compatible API, allowing any OpenAI SDK client to connect. Plus: Dynamic model discovery for Groq and Together backends, WebUI improvements (file diffs, answer refresh, faster workspace browser), subagent reliability fixes, and a new review skill.
 
 Install: `pip install massgen==0.1.34`
 
