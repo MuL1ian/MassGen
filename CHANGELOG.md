@@ -9,16 +9,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.34 (January 5, 2026)** - OpenAI-Compatible Server & Model Discovery
+Local OpenAI-compatible HTTP server enables integration with any OpenAI SDK client. Dynamic model discovery for Groq and Together backends fetches available models via authenticated API calls. WebUI improvements include file diffs, answer refresh polling, and workspace browser optimizations. Subagent reliability enhancements for status tracking, cancellation recovery, and error handling.
+
 **v0.1.33 (January 2, 2026)** - Reactive Context Compression & Streaming Buffers
 Reactive context compression recovers from context length errors by summarizing conversation history. Streaming buffer system tracks partial responses for compression recovery. File overwrite and task plan duplicate protections. Grok MCP tools visibility and Gemini vote-only mode fixes.
 
 **v0.1.32 (December 31, 2025)** - Multi-Turn Export & Logfire Optional
 Enhanced session export with multi-turn support, turn range selection, and workspace options. Logfire moved to optional `[observability]` dependency. Per-attempt logging with separate log files. Office document PDF conversion for sharing previews.
 
-**v0.1.31 (December 29, 2025)** - Logfire Observability Integration
-Comprehensive structured logging via Logfire with automatic LLM instrumentation (OpenAI, Anthropic, Gemini), tool execution tracing, and agent coordination observability. Enable with `--logfire` CLI flag. Azure OpenAI native tool call streaming fixes.
-
 ---
+
+## [0.1.34] - 2026-01-05
+
+### Added
+- **OpenAI-Compatible Server**: Local HTTP server exposing MassGen as an OpenAI-compatible API
+  - Run with `massgen server` or `python -m massgen.openai_server`
+  - Compatible with any OpenAI SDK client for easy integration
+  - Aggregates usage statistics in server responses
+  - Uses `massgen run` backend for feature parity with CLI
+
+- **Dynamic Model Discovery**: Authenticated model listing for Groq and Together backends
+  - Fetches available models via API instead of hardcoded lists
+  - Supports OpenAI-compatible model discovery endpoints
+  - Design documentation in `docs/dev_notes/discovery/`
+
+- **Review Skill**: New skill for code review workflows
+
+### Changed
+- **WebUI Improvements**: Enhanced frontend experience
+  - File diff display for workspace changes
+  - Answer refresh polling for real-time updates
+  - Optimized workspace browser timing and performance
+  - Better caching for office documents and scanning
+  - Removed unnecessary workspace browser elements
+
+- **Subagent System Reliability**: Improved multi-agent coordination
+  - Better status tracking and error handling
+  - Cancellation recovery improvements
+  - Context and media handling fixes
+  - Warning improvements for subagent operations
+
+- **Pre-commit Workflow**: Added convenience scripts for pre-commit hooks
+
+### Fixed
+- **OpenAI Server**: Fixed null args handling in server responses
+
+- **WebUI Status Tracking**: Fixed "Done" status tracking error
+
+- **Responses Compression**: Fixed compression input issue
+
+- **Superseded Vote Tracking**: Fixed vote tracking for superseded responses
+
+- **Historical Workspace**: Fixed workspace history retrieval problems
+
+- **Logfire Optional**: Made Logfire truly optional in base_with_custom_tool_and_mcp.py
+
+- **Persona Handling**: Use persona JSONs even if generation not finished
+
+### Documentations, Configurations and Resources
+- **HTTP Server Integration Guide**: New `docs/source/user_guide/integration/http_server.rst` for OpenAI-compatible server usage
+- **Model Discovery Design**: New `docs/dev_notes/backend_model_listing.md` design document for backend model listing (MAS-163)
+- **Subagent Documentation**: Updated `docs/source/user_guide/advanced/subagents.rst` with status tracking and recovery details
+- **CLI Reference**: Updated `docs/source/reference/cli.rst` with server command documentation
+- **Skills**: New `massgen/skills/release-prep/SKILL.md` for release automation, new `massgen/skills/pr-checks/SKILL.md` for code review
+
+### Technical Details
+- **Major Focus**: OpenAI-compatible server, dynamic model discovery, WebUI improvements, subagent reliability
+- **Contributors**: @ncrispino, @Angela, @maxim-saplin, @chiwang, @randombet, @HenryQi and the MassGen team
 
 ## [0.1.33] - 2026-01-02
 
