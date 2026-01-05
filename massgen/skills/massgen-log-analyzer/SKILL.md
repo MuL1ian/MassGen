@@ -16,17 +16,59 @@ The log-analyzer skill helps you:
 - Measure performance and identify bottlenecks
 - Improve the logging structure itself
 
+## Logfire Setup
+
+Before using this skill, you need to set up Logfire for observability.
+
+### Step 1: Install MassGen with Observability Support
+
+```bash
+pip install "massgen[observability]"
+
+# Or with uv
+uv pip install "massgen[observability]"
+```
+
+### Step 2: Create a Logfire Account
+
+Go to https://logfire.pydantic.dev/ and create a free account.
+
+### Step 3: Authenticate with Logfire
+
+```bash
+# This creates ~/.logfire/credentials.json
+uv run logfire auth
+
+# Or set the token directly as an environment variable
+export LOGFIRE_TOKEN=your_token_here
+```
+
+### Step 4: Get Your Read Token for the MCP Server
+
+1. Go to https://logfire.pydantic.dev/ and log in
+2. Navigate to your project settings
+3. Create a **Read Token** (this is different from the write token used for authentication)
+4. Copy the token for use in Step 5
+
+### Step 5: Add the Logfire MCP Server
+
+```bash
+claude mcp add logfire -e LOGFIRE_READ_TOKEN="your-read-token-here" -- uvx logfire-mcp@latest
+```
+
+Then restart Claude Code and re-invoke this skill.
+
 ## Prerequisites
 
 **Required MCP Server:**
-This skill requires the Logfire MCP server to be configured. The MCP server provides these tools:
+This skill requires the Logfire MCP server to be configured (see setup above). The MCP server provides these tools:
 - `mcp__logfire__arbitrary_query` - Run SQL queries against logfire data
 - `mcp__logfire__schema_reference` - Get the database schema
 - `mcp__logfire__find_exceptions_in_file` - Find exceptions in a file
 - `mcp__logfire__logfire_link` - Create links to traces in the UI
 
 **Required Flags:**
-- `--automation` - Clean output for programmatic parsing
+- `--automation` - Clean output for programmatic parsing -- see `massgen-develops-massgen` skill for more info on this flag
 - `--logfire` - Enable Logfire tracing
 
 ## Part 1: Running MassGen Experiments
@@ -146,40 +188,6 @@ MassGen spans include these custom attributes (access via `attributes->'key'`):
 | `massgen.usage.reasoning` | Reasoning token count |
 | `massgen.usage.cached_input` | Cached input token count |
 | `massgen.usage.cost` | Estimated cost in USD |
-
-### Workflow Analysis Attributes (MAS-199)
-
-These attributes enable explaining agent behavior in natural language and detecting patterns:
-
-| Attribute | Description |
-|-----------|-------------|
-| `massgen.round.intent` | What the agent was asked to do this round (200 chars) |
-| `massgen.round.available_answers` | JSON array of answer labels available for reference |
-| `massgen.round.available_answer_count` | Number of answers agent could see |
-| `massgen.round.answer_previews` | JSON dict of truncated answer previews (100 chars each) |
-| `massgen.vote.reason` | Full voting reason (500 chars) |
-| `massgen.vote.agents_with_answers` | Count of agents who submitted answers |
-| `massgen.vote.answer_label_mapping` | JSON dict mapping labels to agent IDs |
-| `massgen.agent.files_created` | Comma-separated list of filenames created |
-| `massgen.agent.file_count` | Total files in agent workspace |
-| `massgen.agent.workspace_path` | Path to agent workspace directory |
-| `massgen.restart.reason` | Why the agent was restarted (200 chars) |
-| `massgen.restart.trigger` | Trigger type: "new_answer", "vote_change", "manual" |
-| `massgen.restart.triggered_by_agent` | Agent ID that triggered the restart |
-| `massgen.subagent.task` | Full subagent task (500 chars) |
-| `massgen.subagent.files_created` | Comma-separated list of subagent files |
-| `massgen.subagent.file_count` | Files in subagent workspace |
-| `massgen.subagent.workspace_path` | Path to subagent workspace |
-| `massgen.subagent.log_path` | Path to subagent log directory |
-| `massgen.tool.error_context` | Additional error context (500 chars) |
-| `massgen.log_path` | Path to the run's log directory |
-| `massgen.agent.log_path` | Path to agent's log directory |
-| `massgen.agent.answer_path` | Path to agent's answer file |
-
-**Hybrid Access Pattern:** When Logfire shows truncated previews, use the path attributes to retrieve full content locally:
-- `massgen.agent.log_path` → full context.txt, vote.json, answer.txt
-- `massgen.agent.answer_path` → complete answer content
-- `massgen.subagent.workspace_path` → all subagent files
 
 ## Part 3: Common Analysis Queries
 
