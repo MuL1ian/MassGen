@@ -26,6 +26,7 @@ from massgen.system_prompt_sections import (
     FilesystemBestPracticesSection,
     FilesystemOperationsSection,
     GPT5GuidanceSection,
+    GrokGuidanceSection,
     MemorySection,
     MultimodalToolsSection,
     OutputFirstVerificationSection,
@@ -133,7 +134,11 @@ class SystemMessageBuilder:
         model_name = agent.backend.config.get("model", "").lower()
         if model_name.startswith("gpt-5") or model_name.startswith("grok"):
             builder.add_section(GPT5GuidanceSection())
-            logger.info(f"[SystemMessageBuilder] Added file persistence guidance section for {agent_id} (model: {model_name})")
+            logger.info(f"[SystemMessageBuilder] Added GPT-5 guidance section for {agent_id} (model: {model_name})")
+        # Grok-specific: Prevent HTML-escaping of file content (known Grok 4.1 issue with SVG/XML/HTML)
+        if model_name.startswith("grok"):
+            builder.add_section(GrokGuidanceSection())
+            logger.info(f"[SystemMessageBuilder] Added Grok file encoding guidance for {agent_id} (model: {model_name})")
 
         # PRIORITY 1 (HIGH): Output-First Verification - verify outcomes, not implementations
         builder.add_section(OutputFirstVerificationSection())

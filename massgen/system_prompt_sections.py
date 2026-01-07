@@ -246,6 +246,36 @@ class GPT5GuidanceSection(SystemPromptSection):
         )
 
 
+class GrokGuidanceSection(SystemPromptSection):
+    """
+    Grok-specific guidance for file content encoding.
+
+    Addresses a known issue where Grok models (particularly Grok 4.1) HTML-escape
+    file content when writing SVG, XML, HTML, or other files containing angle
+    brackets. This results in corrupted files with &lt; instead of <, etc.
+
+    Only included when the model is Grok (grok-*).
+    Priority 4 places this alongside CoreBehaviorsSection.
+    """
+
+    def __init__(self):
+        super().__init__(
+            title="Grok Guidance",
+            priority=4,  # Same priority as CoreBehaviorsSection
+            xml_tag=None,  # Uses internal XML tags
+        )
+
+    def build_content(self) -> str:
+        return (
+            "<file_content_encoding>\n"
+            "CRITICAL: When writing file content, pass the content EXACTLY as it should appear in the file. "
+            "Do NOT HTML-escape or XML-escape the content.\n"
+            '- Write literal characters: use < not &lt;, use > not &gt;, use " not &quot;, use & not &amp;\n'
+            "- The file writing tool expects raw content, not escaped content. Escaping will corrupt the file.\n"
+            "</file_content_encoding>"
+        )
+
+
 class SkillsSection(SystemPromptSection):
     """
     Available skills that agents can invoke.
