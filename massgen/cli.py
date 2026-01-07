@@ -383,7 +383,7 @@ def resolve_config_path(config_arg: Optional[str]) -> Optional[Path]:
     )
 
 
-def load_config_file(config_path: str) -> Dict[str, Any]:
+def load_config_file(config_path: str) -> tuple[Dict[str, Any], Dict[str, Any]]:
     """Load configuration from YAML or JSON file.
 
     Search order:
@@ -391,7 +391,13 @@ def load_config_file(config_path: str) -> Dict[str, Any]:
     2. If just a filename, search in package's configs/ directory
     3. If a relative path, also try within package's configs/ directory
 
-    Supports variable substitution: ${cwd} in any string will be replaced with the agent's cwd value.
+    Supports variable substitution: ${VAR_NAME} in any string will be replaced
+    with the value of the VAR_NAME environment variable.
+
+    Returns:
+        Tuple of (expanded_config, raw_config) where:
+        - expanded_config: Config with ${VAR} replaced by actual env values
+        - raw_config: Original config preserving ${VAR} syntax (safe for logging)
     """
     path = Path(config_path)
 
@@ -422,16 +428,17 @@ def load_config_file(config_path: str) -> Dict[str, Any]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             if path.suffix.lower() in [".yaml", ".yml"]:
-                config = yaml.safe_load(f)
+                raw_config = yaml.safe_load(f)
             elif path.suffix.lower() == ".json":
-                config = json.load(f)
+                raw_config = json.load(f)
             else:
                 raise ConfigurationError(
                     f"Unsupported config file format: {path.suffix}",
                 )
 
-            # Expand environment variables in the config
-            return _expand_env_vars(config)
+            # Return both expanded (for runtime) and raw (for logging)
+            expanded_config = _expand_env_vars(copy.deepcopy(raw_config))
+            return expanded_config, raw_config
     except Exception as e:
         raise ConfigurationError(f"Error reading config file: {e}")
 
@@ -4360,12 +4367,14 @@ async def run_interactive_mode(
     initial_question: Optional[str] = None,
     restore_session_if_exists: bool = False,
     debug: bool = False,
+    raw_config_for_metadata: Dict[str, Any] = None,
     **kwargs,
 ):
     """Run MassGen in interactive mode with conversation history.
 
     Args:
         initial_question: Optional first question to auto-submit when entering interactive mode
+        raw_config_for_metadata: Raw config (unexpanded env vars) for safe logging to metadata files
     """
 
     # Use Rich console for better display
@@ -4942,11 +4951,11 @@ async def run_interactive_mode(
                 setup_logging(debug=_DEBUG_MODE, turn=next_turn)
                 logger.info(f"Starting turn {next_turn}")
 
-                # Save execution metadata for this turn (original_config already has pre-relocation paths)
+                # Save execution metadata for this turn (use raw config to avoid logging secrets)
                 save_execution_metadata(
                     query=question,
                     config_path=config_path,
-                    config_content=original_config,  # This is the pre-relocation config passed from main()
+                    config_content=raw_config_for_metadata or original_config,
                     cli_args={
                         "mode": "interactive",
                         "turn": next_turn,
@@ -5116,7 +5125,7 @@ async def main(args):
             if resolved_path is None:
                 # This shouldn't happen if we reached here, but handle it
                 raise ConfigurationError("Could not resolve config path")
-            config = load_config_file(str(resolved_path))
+            config, raw_config_for_metadata = load_config_file(str(resolved_path))
             if args.debug:
                 logger.debug(f"Resolved config path: {resolved_path}")
                 logger.debug(f"Config content: {json.dumps(config, indent=2)}")
@@ -5214,14 +5223,13 @@ async def main(args):
                 system_message=system_message,
                 base_url=args.base_url,
             )
+            # For simple configs, there's no env var expansion, so raw = config
+            raw_config_for_metadata = copy.deepcopy(config)
             if args.debug:
                 logger.debug(
                     f"Created simple config with backend: {backend}, model: {model}",
                 )
                 logger.debug(f"Config content: {json.dumps(config, indent=2)}")
-
-        # Save original config before relocation (for execution_metadata.yaml)
-        original_config_for_metadata = copy.deepcopy(config)
 
         # Validate that all context paths exist before proceeding
         validate_context_paths(config)
@@ -5439,11 +5447,11 @@ async def main(args):
 
         # Save execution metadata for debugging and reconstruction
         if args.question:
-            # For single question mode, save metadata now (use original config before .massgen/ relocation)
+            # For single question mode, save metadata now (use raw config to avoid logging secrets)
             save_execution_metadata(
                 query=args.question,
                 config_path=(str(resolved_path) if args.config and "resolved_path" in locals() else None),
-                config_content=original_config_for_metadata,
+                config_content=raw_config_for_metadata,
                 cli_args=vars(args),
             )
 
@@ -5475,6 +5483,7 @@ async def main(args):
                     initial_question=initial_q,
                     restore_session_if_exists=restore_existing_session,
                     debug=args.debug,
+                    raw_config_for_metadata=raw_config_for_metadata,
                     **interactive_kwargs,
                 )
         finally:
@@ -5660,6 +5669,16 @@ def cli_main():
             default=10,
             help="Number of runs to show",
         )
+        list_parser.add_argument(
+            "--analyzed",
+            action="store_true",
+            help="Show only logs with ANALYSIS_REPORT.md",
+        )
+        list_parser.add_argument(
+            "--unanalyzed",
+            action="store_true",
+            help="Show only logs without ANALYSIS_REPORT.md",
+        )
         list_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
         # logs open
@@ -5671,6 +5690,46 @@ def cli_main():
             "--log-dir",
             type=str,
             help="Path to specific log directory",
+        )
+
+        # logs analyze
+        analyze_parser = logs_subparsers.add_parser(
+            "analyze",
+            help="Generate analysis prompt or run self-analysis",
+        )
+        analyze_parser.add_argument(
+            "--log-dir",
+            type=str,
+            help="Path to specific log directory (default: latest)",
+        )
+        analyze_parser.add_argument(
+            "--mode",
+            choices=["prompt", "self"],
+            default="prompt",
+            help="Analysis mode: prompt (for Claude Code) or self (multi-agent)",
+        )
+        analyze_parser.add_argument(
+            "--config",
+            type=str,
+            help="Custom config file for self-analysis mode",
+        )
+        analyze_parser.add_argument(
+            "--ui",
+            choices=["automation", "rich_terminal", "webui"],
+            default="rich_terminal",
+            help="UI mode for self-analysis: rich_terminal (default), automation (headless), or webui",
+        )
+        analyze_parser.add_argument(
+            "--turn",
+            "-t",
+            type=int,
+            help="Specific turn number to analyze (default: latest turn)",
+        )
+        analyze_parser.add_argument(
+            "--force",
+            "-f",
+            action="store_true",
+            help="Overwrite existing report without prompting",
         )
 
         # Parse logs arguments (skip 'massgen logs')

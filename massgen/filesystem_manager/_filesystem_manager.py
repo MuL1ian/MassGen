@@ -67,6 +67,7 @@ class FilesystemManager:
         custom_tools_path: Optional[str] = None,
         auto_discover_custom_tools: bool = False,
         exclude_custom_tools: Optional[List[str]] = None,
+        direct_mcp_servers: Optional[List[str]] = None,
         shared_tools_directory: Optional[str] = None,
         instance_id: Optional[str] = None,
         filesystem_session_id: Optional[str] = None,
@@ -104,6 +105,9 @@ class FilesystemManager:
             custom_tools_path: Optional path to custom tools directory to copy into workspace
             auto_discover_custom_tools: If True and custom_tools_path is not set, automatically use default path 'massgen/tool/'
             exclude_custom_tools: Optional list of directory names to exclude when copying custom tools (e.g., ['_claude_computer_use', '_gemini_computer_use'])
+            direct_mcp_servers: Optional list of MCP server names to keep as direct protocol tools when enable_code_based_tools is True.
+                               These servers remain callable as native tools in the prompt rather than being filtered to code-only access.
+                               Example: ['logfire', 'context7']
             shared_tools_directory: Optional shared directory for code-based tools (servers/, custom_tools/, .mcp/).
                                     If provided, tools are generated once in shared location (read-only for all agents).
                                     If None, tools are generated in each agent's workspace (per-agent, in snapshots).
@@ -121,6 +125,7 @@ class FilesystemManager:
         self.use_mcpwrapped_for_tool_filtering = use_mcpwrapped_for_tool_filtering
         self.enable_code_based_tools = enable_code_based_tools
         self.exclude_custom_tools = exclude_custom_tools if exclude_custom_tools else []
+        self.direct_mcp_servers = direct_mcp_servers if direct_mcp_servers else []
 
         # Handle custom_tools_path with auto-discovery
         if custom_tools_path:
@@ -844,6 +849,12 @@ class FilesystemManager:
                 logger.debug(f"[FilesystemManager] Skipping framework MCP: {server_name}")
                 continue
 
+            # Skip direct MCP servers - they remain as protocol tools, not code-based
+            is_direct_mcp = server_name in (self.direct_mcp_servers or [])
+            if is_direct_mcp:
+                logger.debug(f"[FilesystemManager] Skipping direct MCP (kept as protocol tool): {server_name}")
+                continue
+
             # Initialize server entry if needed
             if server_name not in servers_with_tools:
                 # Find server config
@@ -1267,6 +1278,15 @@ class FilesystemManager:
         # Note: We do NOT filter user MCP servers here when code-based tools are enabled
         # The servers need to connect so we can extract their tool schemas for code generation
         # Tool filtering happens later in the backend after conversion to Function objects
+
+        # Validate direct_mcp_servers - warn if any aren't in configured mcp_servers
+        if self.direct_mcp_servers:
+            configured_server_names = set(existing_names)
+            for direct_server in self.direct_mcp_servers:
+                if direct_server not in configured_server_names:
+                    logger.warning(
+                        f"[FilesystemManager] direct_mcp_servers contains '{direct_server}' " f"but no MCP server with that name is configured in mcp_servers",
+                    )
 
         try:
             # Add filesystem server if missing

@@ -1242,8 +1242,10 @@ class Orchestrator(ChatAgent):
                 yield StreamChunk(type="preparation_status", status="Generating prompt variants...", detail="DSPy paraphrasing")
             await self._prepare_paraphrases_for_agents(self.current_task)
 
-            # Reinitialize session with user prompt now that we have it
-            self.coordination_tracker.initialize_session(list(self.agents.keys()), self.current_task)
+            # Reinitialize session with user prompt now that we have it (MAS-199: includes log_path)
+            log_dir = get_log_session_dir()
+            log_path = str(log_dir) if log_dir else None
+            self.coordination_tracker.initialize_session(list(self.agents.keys()), self.current_task, log_path=log_path)
             self.workflow_phase = "coordinating"
 
             # Reset restart_pending flag at start of coordination (will be set again if restart needed)
@@ -3855,12 +3857,16 @@ Your answer:"""
             normalized_answers = self._normalize_workspace_paths_in_answers(answers, agent_id) if answers else answers
 
             # Log structured context for this agent's round (for observability/debugging)
+            # Get agent's log directory path for hybrid access pattern (MAS-199)
+            log_session_dir = get_log_session_dir()
+            agent_log_path = str(log_session_dir / agent_id) if log_session_dir else None
             log_agent_round_context(
                 agent_id=agent_id,
                 round_number=current_round,
                 round_type=round_type,
                 answers_in_context=normalized_answers,
                 answer_labels=context_labels,
+                agent_log_path=agent_log_path,
             )
 
             # Log the normalized answers this agent will see
@@ -3882,6 +3888,12 @@ Your answer:"""
             if hasattr(self, "broadcast_channel") and self.broadcast_channel:
                 human_qa_history = self.broadcast_channel.get_human_qa_history()
 
+            # Check if agent is in vote-only mode (reached max_new_answers_per_agent)
+            # This affects both the system message and available tools
+            vote_only_for_system_message = self._is_vote_only_mode(agent_id)
+            if vote_only_for_system_message:
+                logger.info(f"[Orchestrator] Agent {agent_id} in vote-only mode for system message (answer limit reached)")
+
             system_message = self._get_system_message_builder().build_coordination_message(
                 agent=agent,
                 agent_id=agent_id,
@@ -3892,6 +3904,7 @@ Your answer:"""
                 enable_task_planning=self.config.coordination_config.enable_agent_task_planning,
                 previous_turns=self._previous_turns,
                 human_qa_history=human_qa_history,
+                vote_only=vote_only_for_system_message,
             )
 
             # Inject phase-appropriate persona if enabled
@@ -4174,8 +4187,8 @@ Your answer:"""
                 response_text = ""
                 tool_calls = []
                 workflow_tool_found = False
-                # Determine internal tool names for this run (includes broadcast tools if enabled).
-                internal_tool_names = {(t.get("function", {}) or {}).get("name") for t in (self.workflow_tools or []) if isinstance(t, dict)}
+                # Determine internal tool names for this run (uses agent-specific tools to respect vote-only mode).
+                internal_tool_names = {(t.get("function", {}) or {}).get("name") for t in (agent_workflow_tools or []) if isinstance(t, dict)}
 
                 logger.info(f"[Orchestrator] Agent {agent_id} starting to stream chat response...")
 
@@ -4243,14 +4256,37 @@ Your answer:"""
                         if hasattr(agent, "backend") and hasattr(agent.backend, "get_provider_name"):
                             backend_name = agent.backend.get_provider_name()
 
+                        # Build set of client-provided external tool names
+                        external_tool_names = {(t.get("function", {}) or {}).get("name") for t in (self._external_tools or []) if isinstance(t, dict)}
+
                         external_tool_calls = []
                         for tool_call in chunk_tool_calls:
                             tool_name = agent.backend.extract_tool_name(tool_call)
                             tool_args = agent.backend.extract_tool_arguments(tool_call)
 
-                            # Non-workflow tool calls are treated as external: surface to caller and end the turn.
-                            if tool_name and tool_name not in internal_tool_names:
+                            # Client-provided external tools: surface to caller and end the turn
+                            if tool_name and tool_name in external_tool_names:
                                 external_tool_calls.append(tool_call)
+                                continue
+
+                            # Check if this is an MCP or custom tool (handled by backend)
+                            is_mcp = hasattr(agent.backend, "is_mcp_tool_call") and agent.backend.is_mcp_tool_call(tool_name)
+                            is_custom = hasattr(agent.backend, "is_custom_tool_call") and agent.backend.is_custom_tool_call(tool_name)
+
+                            # MCP and custom tools are handled by backend - just log for UI, don't warn
+                            if is_mcp or is_custom:
+                                tool_type = "MCP" if is_mcp else "Custom"
+                                logger.debug(f"[Orchestrator] Agent {agent_id} called {tool_type} tool '{tool_name}' (handled by backend)")
+                                # Don't yield UI message here - backend streams its own status messages
+                                continue
+
+                            # Unknown tools (not workflow, not MCP, not custom, not external): log warning
+                            # This handles hallucinated tool names or model prefixes like "default_api:"
+                            if tool_name and tool_name not in internal_tool_names:
+                                logger.warning(
+                                    f"[Orchestrator] Agent {agent_id} called unknown tool '{tool_name}' - not registered as workflow, MCP, or custom tool",
+                                )
+                                yield self._trace_tuple(f"⚠️ Unknown tool: {tool_name} (not registered)", kind="coordination")
                                 continue
 
                             if tool_name == "new_answer":
@@ -4564,8 +4600,10 @@ Your answer:"""
                             workflow_tool_found = True
                             # Don't return - let the loop continue so agent can process broadcast result
                             # and provide a proper workflow response (new_answer or vote)
-                        elif tool_name.startswith("mcp") or "__" in tool_name:
-                            # MCP tools (with or without mcp__ prefix) and custom tools are handled by the backend
+                        elif (hasattr(agent.backend, "is_mcp_tool_call") and agent.backend.is_mcp_tool_call(tool_name)) or (
+                            hasattr(agent.backend, "is_custom_tool_call") and agent.backend.is_custom_tool_call(tool_name)
+                        ):
+                            # MCP and custom tools are handled by the backend
                             # Tool results are streamed separately via StreamChunks
                             # Only mark as workflow progress if agent can still provide answers.
                             # If they've hit their answer limit, they MUST vote - MCP tools shouldn't delay this.
@@ -4573,12 +4611,6 @@ Your answer:"""
                             if can_answer:
                                 workflow_tool_found = True
                             # else: agent must vote, don't set workflow_tool_found so enforcement triggers
-                        elif tool_name.startswith("custom_tool"):
-                            # Custom tools are handled by the backend and their results are streamed separately
-                            # Only mark as workflow progress if agent can still provide answers.
-                            can_answer, _ = self._check_answer_count_limit(agent_id)
-                            if can_answer:
-                                workflow_tool_found = True
                         else:
                             # Non-workflow tools not yet implemented
                             yield (
@@ -5491,9 +5523,11 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         self._selected_agent = None
         self._final_presentation_content = None
 
-        # Reset coordination tracker for new attempt
+        # Reset coordination tracker for new attempt (MAS-199: includes log_path)
         self.coordination_tracker = CoordinationTracker()
-        self.coordination_tracker.initialize_session(list(self.agents.keys()))
+        log_dir = get_log_session_dir()
+        log_path = str(log_dir) if log_dir else None
+        self.coordination_tracker.initialize_session(list(self.agents.keys()), log_path=log_path)
 
         # Reset workflow phase to idle so next coordinate() call starts fresh
         self.workflow_phase = "idle"

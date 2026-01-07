@@ -408,6 +408,15 @@ MassGen provides the ``massgen logs`` command for quick log analysis without man
    * - ``massgen logs open``
      - Open log directory in system file manager (Finder/Explorer)
 
+**Filtering by analysis status:**
+
+.. code-block:: bash
+
+   # Show which logs have been analyzed (have ANALYSIS_REPORT.md)
+   massgen logs list                    # Shows "Analyzed" column with ✓ for analyzed logs
+   massgen logs list --analyzed         # Only logs with ANALYSIS_REPORT.md
+   massgen logs list --unanalyzed       # Only logs without analysis
+
 **Common options:**
 
 .. code-block:: bash
@@ -441,13 +450,54 @@ MassGen provides the ``massgen logs`` command for quick log analysis without man
 
    massgen logs list --limit 5
 
-   # ┏━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-   # ┃ # ┃ Timestamp        ┃ Duration ┃  Cost ┃ Question                           ┃
-   # ┡━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-   # │ 1 │ 2025-12-18 13:41 │     7.2m │ $0.54 │ Create a website about Bob Dylan   │
-   # │ 2 │ 2025-12-17 23:01 │    16.2m │ $1.23 │ Build a REST API...                │
-   # │ 3 │ 2025-12-17 22:30 │     3.1m │ $0.12 │ Explain quantum computing...       │
-   # └───┴──────────────────┴──────────┴───────┴────────────────────────────────────┘
+   # ┏━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+   # ┃ # ┃ Timestamp        ┃ Duration ┃  Cost ┃ Analyzed ┃ Question                    ┃
+   # ┡━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+   # │ 1 │ 2025-12-18 13:41 │     7.2m │ $0.54 │    ✓     │ Create a website about...   │
+   # │ 2 │ 2025-12-17 23:01 │    16.2m │ $1.23 │    -     │ Build a REST API...         │
+   # │ 3 │ 2025-12-17 22:30 │     3.1m │ $0.12 │    ✓     │ Explain quantum computing...│
+   # └───┴──────────────────┴──────────┴───────┴──────────┴─────────────────────────────┘
+
+Analyzing Logs
+~~~~~~~~~~~~~~
+
+The ``massgen logs analyze`` command helps you generate analysis reports for log sessions.
+
+**Generate analysis prompt (for coding CLIs):**
+
+.. code-block:: bash
+
+   # Generate a prompt to use in Claude Code, Cursor, etc.
+   massgen logs analyze                 # Analyze latest log
+   massgen logs analyze --log-dir PATH  # Analyze specific log
+
+This outputs a prompt that references the ``massgen-log-analyzer`` skill, which you can paste into your coding CLI.
+
+**Run multi-agent self-analysis:**
+
+.. code-block:: bash
+
+   # Run MassGen with 3 agents to analyze the log from different perspectives
+   massgen logs analyze --mode self
+
+   # Choose UI mode (default: rich_terminal)
+   massgen logs analyze --mode self --ui automation   # Headless mode
+   massgen logs analyze --mode self --ui webui        # Web UI mode
+
+   # Use custom analysis config
+   massgen logs analyze --mode self --config my_analysis.yaml
+
+Self-analysis mode:
+
+* Runs a 2-agent team using Gemini Flash with Docker execution
+* Agents analyze from different perspectives (correctness, efficiency, behavior)
+* Produces an ``ANALYSIS_REPORT.md`` in the log directory
+* Log directory is mounted read-only to protect existing files
+
+.. note::
+   Self-analysis mode currently requires a **Gemini API key** (``GEMINI_API_KEY``); to use other models, see `massgen/configs/analysis/log_analysis.yaml` then adjust it or create a new one and pass it to the `analyze` command using `--config`
+   For Logfire integration, also set ``LOGFIRE_READ_TOKEN`` in your .env file.
+   Without it, agents will use local log files only.
 
 During Execution
 ~~~~~~~~~~~~~~~~

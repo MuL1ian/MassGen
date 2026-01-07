@@ -66,6 +66,30 @@ class NoFunctionCallWarning(logging.Filter):
 logging.getLogger("google_genai.types").addFilter(NoFunctionCallWarning())
 
 
+# Gemini API prefixes that should be stripped from tool names
+# Gemini sometimes returns tool names with prefixes like "default_api:" or other namespace qualifiers
+GEMINI_TOOL_NAME_PREFIXES = ("default_api:",)
+
+
+def _normalize_gemini_tool_name(tool_name: str) -> str:
+    """Strip Gemini-specific prefixes from tool names.
+
+    Gemini's API sometimes adds prefixes like 'default_api:' to tool names
+    when returning function calls. This normalizes the tool name by stripping
+    those prefixes so the tool can be matched against our registered tools.
+
+    Args:
+        tool_name: The raw tool name from Gemini API
+
+    Returns:
+        Normalized tool name without Gemini-specific prefixes
+    """
+    for prefix in GEMINI_TOOL_NAME_PREFIXES:
+        if tool_name.startswith(prefix):
+            return tool_name[len(prefix) :]
+    return tool_name
+
+
 @dataclass
 class BackoffConfig:
     """Configuration for exponential backoff on rate limit errors (always enabled)."""
@@ -383,10 +407,6 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
 
         if last_exc:
             raise last_exc
-
-    def _setup_permission_hooks(self):
-        """Override base class - Gemini uses session-based permissions, not function hooks."""
-        logger.debug("[Gemini] Using session-based permissions, skipping function hook setup")
 
     async def _process_stream(self, stream, all_params, agent_id: Optional[str] = None) -> AsyncGenerator[StreamChunk, None]:
         """
@@ -734,8 +754,8 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                         for part in candidate.content.parts:
                                             # Check for function_call part
                                             if hasattr(part, "function_call") and part.function_call:
-                                                # Extract call data
-                                                tool_name = part.function_call.name
+                                                # Extract call data and normalize tool name (strip prefixes like "default_api:")
+                                                tool_name = _normalize_gemini_tool_name(part.function_call.name)
                                                 tool_args = dict(part.function_call.args) if part.function_call.args else {}
 
                                                 # Create call record
@@ -1320,7 +1340,8 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                             if hasattr(candidate.content, "parts") and candidate.content.parts:
                                                 for part in candidate.content.parts:
                                                     if hasattr(part, "function_call") and part.function_call:
-                                                        tool_name = part.function_call.name
+                                                        # Normalize tool name (strip prefixes like "default_api:")
+                                                        tool_name = _normalize_gemini_tool_name(part.function_call.name)
                                                         tool_args = dict(part.function_call.args) if part.function_call.args else {}
                                                         call_id = f"call_{len(new_function_calls)}"
                                                         call_record = {

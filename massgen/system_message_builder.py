@@ -26,6 +26,7 @@ from massgen.system_prompt_sections import (
     FilesystemBestPracticesSection,
     FilesystemOperationsSection,
     GPT5GuidanceSection,
+    GrokGuidanceSection,
     MemorySection,
     MultimodalToolsSection,
     OutputFirstVerificationSection,
@@ -92,6 +93,7 @@ class SystemMessageBuilder:
         enable_task_planning: bool,
         previous_turns: List[Dict[str, Any]],
         human_qa_history: Optional[List[Dict[str, str]]] = None,
+        vote_only: bool = False,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -108,6 +110,7 @@ class SystemMessageBuilder:
             enable_task_planning: Whether to include task planning guidance
             previous_turns: List of previous turn data for filesystem context
             human_qa_history: List of human Q&A pairs from broadcast channel (human mode only)
+            vote_only: If True, agent has reached max answers and can only vote
 
         Returns:
             Complete system prompt string with XML structure
@@ -131,7 +134,11 @@ class SystemMessageBuilder:
         model_name = agent.backend.config.get("model", "").lower()
         if model_name.startswith("gpt-5") or model_name.startswith("grok"):
             builder.add_section(GPT5GuidanceSection())
-            logger.info(f"[SystemMessageBuilder] Added file persistence guidance section for {agent_id} (model: {model_name})")
+            logger.info(f"[SystemMessageBuilder] Added GPT-5 guidance section for {agent_id} (model: {model_name})")
+        # Grok-specific: Prevent HTML-escaping of file content (known Grok 4.1 issue with SVG/XML/HTML)
+        if model_name.startswith("grok"):
+            builder.add_section(GrokGuidanceSection())
+            logger.info(f"[SystemMessageBuilder] Added Grok file encoding guidance for {agent_id} (model: {model_name})")
 
         # PRIORITY 1 (HIGH): Output-First Verification - verify outcomes, not implementations
         builder.add_section(OutputFirstVerificationSection())
@@ -143,6 +150,7 @@ class SystemMessageBuilder:
             EvaluationSection(
                 voting_sensitivity=voting_sensitivity,
                 answer_novelty_requirement=answer_novelty_requirement,
+                vote_only=vote_only,
             ),
         )
 

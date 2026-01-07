@@ -1,0 +1,115 @@
+# MassGen Log Analysis Configuration
+#
+# Multi-agent configuration for analyzing MassGen logs.
+# Based on three_agents.yaml with context_paths for log access.
+#
+# Usage:
+#
+#   uv run massgen --config massgen/configs/analysis/log_analysis_cli.yaml "Use the massgen-log-analyzer skill to analyze the log directory at .massgen/massgen_logs/log_20260104_221531_023767. Read all relevant files and produce an ANALYSIS_REPORT.md"
+#
+# Prerequisites:
+#   - LOGFIRE_READ_TOKEN environment variable must be set for Logfire MCP access
+
+agents:
+- id: agent_a
+  backend:
+    type: gemini
+    model: gemini-3-flash-preview
+    cwd: workspace1
+    enable_code_based_tools: true
+    exclude_file_operation_mcps: true
+    enable_mcp_command_line: true
+    command_line_execution_mode: docker
+    command_line_docker_image: ghcr.io/massgen/mcp-runtime-sudo:latest
+    command_line_docker_network_mode: bridge
+    command_line_docker_enable_sudo: true
+    command_line_docker_credentials:
+      env_file: .env
+      env_vars_from_file:
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+    shared_tools_directory: shared_tools
+    auto_discover_custom_tools: true
+    exclude_custom_tools:
+    - _computer_use
+    - _claude_computer_use
+    - _gemini_computer_use
+    - _browser_automation
+    enable_web_search: true
+    direct_mcp_servers:
+    - logfire
+    mcp_servers:
+    - name: logfire
+      type: stdio
+      command: uvx
+      args: ["logfire-mcp@latest"]
+      env:
+        LOGFIRE_READ_TOKEN: ${LOGFIRE_READ_TOKEN}
+
+- id: agent_b
+  backend:
+    type: gemini
+    model: gemini-3-flash-preview
+    cwd: workspace2
+    enable_code_based_tools: true
+    exclude_file_operation_mcps: true
+    enable_mcp_command_line: true
+    command_line_execution_mode: docker
+    command_line_docker_image: ghcr.io/massgen/mcp-runtime-sudo:latest
+    command_line_docker_network_mode: bridge
+    command_line_docker_enable_sudo: true
+    command_line_docker_credentials:
+      env_file: .env
+      env_vars_from_file:
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+    shared_tools_directory: shared_tools
+    auto_discover_custom_tools: true
+    exclude_custom_tools:
+    - _computer_use
+    - _claude_computer_use
+    - _gemini_computer_use
+    - _browser_automation
+    enable_web_search: true
+    direct_mcp_servers:
+    - logfire
+    mcp_servers:
+    - name: logfire
+      type: stdio
+      command: uvx
+      args: ["logfire-mcp@latest"]
+      env:
+        LOGFIRE_READ_TOKEN: ${LOGFIRE_READ_TOKEN}
+
+orchestrator:
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+  voting_sensitivity: "balanced"
+  max_new_answers_per_agent: 3
+  enable_multimodal_tools: false
+  coordination:
+    max_orchestration_restarts: 2
+    use_skills: true
+    skills_directory: .agent/skills
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+    enable_memory_filesystem_mode: true
+    enable_subagents: false
+    persona_generator:
+      enabled: true
+      diversity_mode: implementation
+  # Provide all massgen logs as context here; the prompt will specify which log to analyze
+  context_paths:
+    - path: ".massgen/massgen_logs/"
+      permission: "read"
+
+timeout_settings:
+  orchestrator_timeout_seconds: 1800
+
+ui:
+  display_type: rich_terminal
+  logging_enabled: true

@@ -343,9 +343,17 @@ Analyze and browse session logs without manual file navigation.
    * - ``massgen logs tools --sort calls``
      - Sort tools by call count instead of time
    * - ``massgen logs list``
-     - List recent runs with timestamps, costs, and questions
+     - List recent runs with timestamps, costs, questions, and analysis status
+   * - ``massgen logs list --analyzed``
+     - Show only logs with ANALYSIS_REPORT.md
+   * - ``massgen logs list --unanalyzed``
+     - Show only logs without analysis
    * - ``massgen logs list --limit 20``
      - Show more runs (default: 10)
+   * - ``massgen logs analyze``
+     - Generate analysis prompt for use in coding CLIs
+   * - ``massgen logs analyze --mode self``
+     - Run multi-agent self-analysis using a preset MassGen team (customizable via ``--config``)
    * - ``massgen logs open``
      - Open log directory in system file manager
 
@@ -361,6 +369,12 @@ Analyze and browse session logs without manual file navigation.
      - Analyze a specific log directory instead of the most recent
    * - ``--json``
      - Output raw JSON for scripting
+   * - ``--mode {prompt,self}``
+     - For ``analyze``: ``prompt`` (default) outputs a prompt; ``self`` runs multi-agent analysis
+   * - ``--ui {automation,rich_terminal,webui}``
+     - For ``analyze --mode self``: UI mode (default: ``rich_terminal``)
+   * - ``--config PATH``
+     - For ``analyze --mode self``: Custom analysis config file
 
 Share Session (``massgen export``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

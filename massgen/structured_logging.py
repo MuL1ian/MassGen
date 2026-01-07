@@ -726,6 +726,8 @@ def log_tool_execution(
     output_preview: Optional[str] = None,
     round_number: Optional[int] = None,
     round_type: Optional[str] = None,
+    # New workflow analysis fields (MAS-199)
+    error_context: Optional[str] = None,
 ):
     """
     Log tool execution as a structured event.
@@ -744,6 +746,7 @@ def log_tool_execution(
         output_preview: First 200 chars of tool output.
         round_number: Which round this tool was called in.
         round_type: Type of round (initial_answer, voting, presentation).
+        error_context: Additional error context for debugging (MAS-199).
     """
     tracer = get_tracer()
     log_func = tracer.info if success else tracer.warning
@@ -755,6 +758,13 @@ def log_tool_execution(
             round_number = ctx_round
         if round_type is None:
             round_type = ctx_type
+
+    # Prepare error context preview (MAS-199)
+    from massgen.structured_logging_utils import PREVIEW_ERROR_CONTEXT
+
+    error_context_preview = None
+    if error_context:
+        error_context_preview = error_context[:PREVIEW_ERROR_CONTEXT] + "..." if len(error_context) > PREVIEW_ERROR_CONTEXT else error_context
 
     log_func(
         f"Tool execution: {tool_name}",
@@ -771,6 +781,8 @@ def log_tool_execution(
         output_preview=output_preview[:200] if output_preview else None,
         round_number=round_number,
         round_type=round_type,
+        # Workflow analysis attribute (MAS-199)
+        **{"massgen.tool.error_context": error_context_preview} if error_context_preview else {},
     )
 
 
@@ -842,6 +854,8 @@ def log_agent_restart(
     triggering_agent: Optional[str] = None,
     restart_count: int = 1,
     affected_agents: Optional[List[str]] = None,
+    # New workflow analysis fields (MAS-199)
+    restart_trigger: Optional[str] = None,
 ):
     """
     Log when an agent restart is triggered or completed.
@@ -855,16 +869,29 @@ def log_agent_restart(
         triggering_agent: ID of the agent that triggered this restart (if any).
         restart_count: How many times this agent has restarted in this session.
         affected_agents: List of all agents affected by this restart event.
+        restart_trigger: Type of trigger - "new_answer", "vote_change", "manual" (MAS-199).
     """
     tracer = get_tracer()
+
+    from massgen.structured_logging_utils import PREVIEW_RESTART_REASON
+
+    # Truncate reason for logging
+    reason_preview = reason[:PREVIEW_RESTART_REASON] + "..." if reason and len(reason) > PREVIEW_RESTART_REASON else reason
+
     tracer.info(
         "Agent restart: {agent_id} (reason: {reason})",
         event_type="agent_restart",
         agent_id=agent_id,
-        reason=reason,
+        reason=reason_preview,
         triggering_agent=triggering_agent,
         restart_count=restart_count,
         affected_agents=",".join(affected_agents) if affected_agents else None,
+        # Workflow analysis attributes (MAS-199)
+        **{
+            "massgen.restart.reason": reason_preview,
+            "massgen.restart.trigger": restart_trigger,
+            "massgen.restart.triggered_by_agent": triggering_agent,
+        },
     )
 
 
@@ -878,6 +905,8 @@ def trace_coordination_session(
     task: str,
     num_agents: int,
     agent_ids: Optional[list] = None,
+    # New workflow analysis fields (MAS-199)
+    log_path: Optional[str] = None,
     **extra_attributes,
 ):
     """
@@ -890,6 +919,7 @@ def trace_coordination_session(
         task: The user's question/task being processed.
         num_agents: Number of agents participating.
         agent_ids: List of agent IDs.
+        log_path: Path to the run's log directory (MAS-199).
         **extra_attributes: Additional attributes to attach to the span.
 
     Yields:
@@ -911,6 +941,9 @@ def trace_coordination_session(
     }
     if agent_ids:
         attributes["massgen.agent_ids"] = ",".join(agent_ids)
+    # Workflow analysis attribute (MAS-199)
+    if log_path:
+        attributes["massgen.log_path"] = log_path
     attributes.update(extra_attributes)
 
     with tracer.span("coordination.session", attributes=attributes) as span:
@@ -1015,6 +1048,9 @@ def log_agent_round_context(
     round_type: str,
     answers_in_context: Optional[Dict[str, str]] = None,
     answer_labels: Optional[list] = None,
+    # New workflow analysis fields (MAS-199)
+    round_intent: Optional[str] = None,
+    agent_log_path: Optional[str] = None,
 ):
     """
     Log the context an agent has when starting a round.
@@ -1028,18 +1064,31 @@ def log_agent_round_context(
         round_type: Type of round ("initial_answer", "voting", "presentation").
         answers_in_context: Dict of agent_id -> answer content that this agent can see.
         answer_labels: List of answer labels available (e.g., ["agent1.1", "agent2.1"]).
+        round_intent: What the agent was asked to do this round (for workflow analysis).
+        agent_log_path: Path to agent's log directory (for hybrid local access).
     """
     tracer = get_tracer()
 
     num_answers = len(answers_in_context) if answers_in_context else 0
     answer_providers = list(answers_in_context.keys()) if answers_in_context else []
 
-    # Create preview of each answer (first 150 chars)
+    # Create preview of each answer (using PREVIEW_ANSWER_EACH constant)
+    from massgen.structured_logging_utils import (
+        PREVIEW_ANSWER_EACH,
+        PREVIEW_ROUND_INTENT,
+    )
+
     answer_previews = {}
     if answers_in_context:
         for aid, content in answers_in_context.items():
             if content:
-                answer_previews[aid] = content[:150] + "..." if len(content) > 150 else content
+                preview_len = PREVIEW_ANSWER_EACH
+                answer_previews[aid] = content[:preview_len] + "..." if len(content) > preview_len else content
+
+    # Truncate round intent
+    intent_preview = None
+    if round_intent:
+        intent_preview = round_intent[:PREVIEW_ROUND_INTENT] + "..." if len(round_intent) > PREVIEW_ROUND_INTENT else round_intent
 
     tracer.info(
         f"Agent round context: {agent_id} round_{round_number}",
@@ -1051,6 +1100,14 @@ def log_agent_round_context(
         answer_providers=",".join(answer_providers) if answer_providers else None,
         answer_labels=",".join(answer_labels) if answer_labels else None,
         answer_previews=answer_previews if answer_previews else None,
+        # Workflow analysis attributes (MAS-199)
+        **{
+            "massgen.round.intent": intent_preview,
+            "massgen.round.available_answers": answer_labels if answer_labels else None,
+            "massgen.round.available_answer_count": num_answers,
+            "massgen.round.answer_previews": answer_previews if answer_previews else None,
+            "massgen.agent.log_path": agent_log_path,
+        },
     )
 
 
@@ -1060,6 +1117,8 @@ def log_agent_answer(
     iteration: int,
     round_number: int,
     answer_preview: Optional[str] = None,
+    # New workflow analysis fields (MAS-199)
+    answer_path: Optional[str] = None,
 ):
     """
     Log when an agent submits an answer.
@@ -1070,6 +1129,7 @@ def log_agent_answer(
         iteration: Current iteration number.
         round_number: Agent's round number.
         answer_preview: First 200 chars of the answer (optional).
+        answer_path: Path to the agent's answer file (MAS-199).
     """
     tracer = get_tracer()
     tracer.info(
@@ -1080,6 +1140,8 @@ def log_agent_answer(
         iteration=iteration,
         round=round_number,
         answer_preview=answer_preview[:200] if answer_preview else None,
+        # Workflow analysis attribute (MAS-199)
+        **{"massgen.agent.answer_path": answer_path} if answer_path else {},
     )
 
     # Also add as span event if we have a current iteration span
@@ -1090,6 +1152,47 @@ def log_agent_answer(
         )
 
 
+def log_agent_workspace_files(
+    agent_id: str,
+    files_created: Optional[List[str]] = None,
+    file_count: int = 0,
+    workspace_path: Optional[str] = None,
+):
+    """
+    Log files created by an agent in their workspace (MAS-199).
+
+    This enables detection of repeated work and understanding of agent outputs
+    through Logfire queries.
+
+    Args:
+        agent_id: ID of the agent.
+        files_created: List of filenames created (max MAX_FILES_CREATED).
+        file_count: Total number of files in workspace.
+        workspace_path: Path to agent's workspace directory.
+    """
+    tracer = get_tracer()
+
+    from massgen.structured_logging_utils import MAX_FILES_CREATED
+
+    # Limit files list
+    files_list = None
+    if files_created:
+        limited_files = files_created[:MAX_FILES_CREATED]
+        files_list = ",".join(limited_files)
+
+    if file_count > 0 or files_created:
+        tracer.info(
+            f"Agent workspace files: {agent_id} ({file_count} files)",
+            event_type="agent_workspace_files",
+            agent_id=agent_id,
+            **{
+                "massgen.agent.files_created": files_list,
+                "massgen.agent.file_count": file_count,
+                "massgen.agent.workspace_path": workspace_path,
+            },
+        )
+
+
 def log_agent_vote(
     agent_id: str,
     voted_for_label: str,
@@ -1097,6 +1200,9 @@ def log_agent_vote(
     round_number: int,
     reason: Optional[str] = None,
     available_answers: Optional[list] = None,
+    # New workflow analysis fields (MAS-199)
+    agents_with_answers: Optional[int] = None,
+    answer_label_mapping: Optional[Dict[str, str]] = None,
 ):
     """
     Log when an agent casts a vote.
@@ -1108,8 +1214,18 @@ def log_agent_vote(
         round_number: Agent's round number.
         reason: Agent's reason for voting (optional).
         available_answers: List of available answer labels when voting.
+        agents_with_answers: Count of agents who submitted answers (MAS-199).
+        answer_label_mapping: Map of labels to agent IDs (MAS-199).
     """
     tracer = get_tracer()
+
+    # Use extended vote reason length (500 chars instead of 200)
+    from massgen.structured_logging_utils import PREVIEW_VOTE_REASON
+
+    reason_preview = None
+    if reason:
+        reason_preview = reason[:PREVIEW_VOTE_REASON] + "..." if len(reason) > PREVIEW_VOTE_REASON else reason
+
     tracer.info(
         f"Agent vote: {agent_id} -> {voted_for_label}",
         event_type="vote_cast",
@@ -1117,8 +1233,14 @@ def log_agent_vote(
         voted_for_label=voted_for_label,
         iteration=iteration,
         round=round_number,
-        reason=reason[:200] if reason else None,
+        reason=reason_preview,
         available_answers=",".join(available_answers) if available_answers else None,
+        # Workflow analysis attributes (MAS-199)
+        **{
+            "massgen.vote.reason": reason_preview,
+            "massgen.vote.agents_with_answers": agents_with_answers,
+            "massgen.vote.answer_label_mapping": answer_label_mapping,
+        },
     )
 
     # Also add as span event if we have a current iteration span
@@ -1261,6 +1383,8 @@ def trace_subagent_execution(
     task: str,
     model: Optional[str] = None,
     timeout_seconds: Optional[int] = None,
+    # New workflow analysis fields (MAS-199)
+    subagent_log_path: Optional[str] = None,
     **extra_attributes,
 ):
     """
@@ -1275,6 +1399,7 @@ def trace_subagent_execution(
         task: The task assigned to the subagent.
         model: Model being used by the subagent.
         timeout_seconds: Timeout configured for the subagent.
+        subagent_log_path: Path to subagent's log directory (MAS-199).
         **extra_attributes: Additional attributes to attach.
 
     Yields:
@@ -1286,17 +1411,25 @@ def trace_subagent_execution(
             span.set_attribute("subagent.success", result.success)
     """
     tracer = get_tracer()
-    task_preview = task[:200] if task else ""
+
+    # Use extended task preview (500 chars instead of 200)
+    from massgen.structured_logging_utils import PREVIEW_SUBAGENT_TASK
+
+    task_preview = task[:PREVIEW_SUBAGENT_TASK] if task else ""
 
     attributes = {
         "massgen.subagent_id": subagent_id,
         "massgen.parent_agent_id": parent_agent_id,
         "subagent.task_preview": task_preview,
+        # Extended task for workflow analysis (MAS-199)
+        "massgen.subagent.task": task_preview,
     }
     if model:
         attributes["subagent.model"] = model
     if timeout_seconds is not None:
         attributes["subagent.timeout_seconds"] = timeout_seconds
+    if subagent_log_path:
+        attributes["massgen.subagent.log_path"] = subagent_log_path
     attributes.update(extra_attributes)
 
     with tracer.span(f"subagent.{subagent_id}", attributes=attributes) as span:
@@ -1311,6 +1444,8 @@ def log_subagent_spawn(
     timeout_seconds: Optional[int] = None,
     context_files: Optional[List[str]] = None,
     execution_mode: str = "foreground",
+    # New workflow analysis fields (MAS-199)
+    subagent_log_path: Optional[str] = None,
 ):
     """
     Log a subagent spawn event.
@@ -1323,15 +1458,22 @@ def log_subagent_spawn(
         timeout_seconds: Timeout configured for the subagent.
         context_files: Files copied to subagent workspace.
         execution_mode: "foreground", "background", or "parallel".
+        subagent_log_path: Path to subagent's log directory (MAS-199).
     """
     tracer = get_tracer()
-    task_preview = task[:200] if task else ""
+
+    # Use extended task preview (500 chars instead of 200)
+    from massgen.structured_logging_utils import PREVIEW_SUBAGENT_TASK
+
+    task_preview = task[:PREVIEW_SUBAGENT_TASK] if task else ""
 
     attributes = {
         "massgen.subagent_id": subagent_id,
         "massgen.parent_agent_id": parent_agent_id,
         "subagent.task_preview": task_preview,
         "subagent.execution_mode": execution_mode,
+        # Extended task for workflow analysis (MAS-199)
+        "massgen.subagent.task": task_preview,
     }
     if model:
         attributes["subagent.model"] = model
@@ -1339,6 +1481,8 @@ def log_subagent_spawn(
         attributes["subagent.timeout_seconds"] = timeout_seconds
     if context_files:
         attributes["subagent.context_file_count"] = len(context_files)
+    if subagent_log_path:
+        attributes["massgen.subagent.log_path"] = subagent_log_path
 
     tracer.info(
         "Subagent spawned: {subagent_id} by {parent_agent_id}",
@@ -1357,6 +1501,10 @@ def log_subagent_complete(
     token_usage: Optional[Dict[str, int]] = None,
     error_message: Optional[str] = None,
     answer_preview: Optional[str] = None,
+    # New workflow analysis fields (MAS-199)
+    files_created: Optional[List[str]] = None,
+    file_count: int = 0,
+    workspace_path: Optional[str] = None,
 ):
     """
     Log a subagent completion event.
@@ -1370,8 +1518,13 @@ def log_subagent_complete(
         token_usage: Token usage statistics (input_tokens, output_tokens, etc).
         error_message: Error message if failed.
         answer_preview: First 200 chars of the answer if successful.
+        files_created: List of filenames created in workspace (MAS-199).
+        file_count: Total number of files in workspace (MAS-199).
+        workspace_path: Path to subagent's workspace directory (MAS-199).
     """
     tracer = get_tracer()
+
+    from massgen.structured_logging_utils import MAX_FILES_CREATED
 
     attributes = {
         "massgen.subagent_id": subagent_id,
@@ -1390,6 +1543,14 @@ def log_subagent_complete(
 
     if answer_preview:
         attributes["subagent.answer_preview"] = answer_preview[:200]
+
+    # Workflow analysis attributes (MAS-199)
+    if files_created:
+        limited_files = files_created[:MAX_FILES_CREATED]
+        attributes["massgen.subagent.files_created"] = ",".join(limited_files)
+    attributes["massgen.subagent.file_count"] = file_count
+    if workspace_path:
+        attributes["massgen.subagent.workspace_path"] = workspace_path
 
     log_func = tracer.info if success else tracer.warning
     log_func(
@@ -1524,6 +1685,7 @@ __all__ = [
     # Coordination-specific loggers
     "log_agent_round_context",
     "log_agent_answer",
+    "log_agent_workspace_files",  # MAS-199
     "log_agent_vote",
     "log_winner_selected",
     "log_final_answer",

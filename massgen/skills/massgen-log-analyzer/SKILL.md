@@ -1,6 +1,6 @@
 ---
 name: massgen-log-analyzer
-description: Run MassGen experiments and analyze logs using automation mode, logfire tracing, and SQL queries. Use this skill for performance analysis, debugging agent behavior, evaluating coordination patterns, and improving the logging structure.
+description: Run MassGen experiments and analyze logs using automation mode, logfire tracing, and SQL queries. Use this skill for performance analysis, debugging agent behavior, evaluating coordination patterns, and improving the logging structure, or whenever an ANALYSIS_REPORT.md is needed in a log directory.
 ---
 
 # MassGen Log Analyzer
@@ -15,19 +15,143 @@ The log-analyzer skill helps you:
 - Debug agent behavior and coordination patterns
 - Measure performance and identify bottlenecks
 - Improve the logging structure itself
+- **Generate markdown analysis reports** saved to the log directory
+
+## CLI Quick Reference
+
+The `massgen logs` CLI provides quick access to log analysis:
+
+### List Logs with Analysis Status
+```bash
+uv run massgen logs list                    # Show all recent logs with analysis status
+uv run massgen logs list --analyzed         # Only logs with ANALYSIS_REPORT.md
+uv run massgen logs list --unanalyzed       # Only logs needing analysis
+uv run massgen logs list --limit 20         # Show more logs
+```
+
+### Generate Analysis Prompt
+```bash
+# Run from within your coding CLI (e.g., Claude Code) so it sees output
+uv run massgen logs analyze                 # Analyze latest turn of latest log
+uv run massgen logs analyze --log-dir PATH  # Analyze specific log
+uv run massgen logs analyze --turn 1        # Analyze specific turn
+```
+
+The prompt output tells your coding CLI to use this skill on the specified log directory.
+
+### Multi-Agent Self-Analysis
+```bash
+uv run massgen logs analyze --mode self                 # Run 3-agent analysis team (prompts if report exists)
+uv run massgen logs analyze --mode self --force         # Overwrite existing report without prompting
+uv run massgen logs analyze --mode self --turn 2        # Analyze specific turn
+uv run massgen logs analyze --mode self --config PATH   # Use custom config
+```
+
+Self-analysis mode runs MassGen with multiple agents to analyze logs from different perspectives (correctness, efficiency, behavior) and produces a combined ANALYSIS_REPORT.md.
+
+### Multi-Turn Sessions
+
+MassGen log directories support multiple turns (coordination sessions). Each turn has its own `turn_N/` directory with attempts inside:
+
+```text
+log_YYYYMMDD_HHMMSS/
+├── turn_1/                    # First coordination session
+│   ├── ANALYSIS_REPORT.md     # Report for turn 1
+│   ├── attempt_1/             # First attempt
+│   └── attempt_2/             # Retry if orchestration restarted
+├── turn_2/                    # Second coordination session (if multi-turn)
+│   ├── ANALYSIS_REPORT.md     # Report for turn 2
+│   └── attempt_1/
+```
+
+When analyzing, the `--turn` flag specifies which turn to analyze. Without it, the latest turn is analyzed.
+
+## When to Use Logfire vs Local Logs
+
+**Use Local Log Files When:**
+- Analyzing command patterns and repetition (commands are in `streaming_debug.log`)
+- Checking detailed tool arguments and outputs (in `coordination_events.json`)
+- Reading vote reasoning and agent decisions (in `agent_*/*/vote.json`)
+- Viewing the coordination flow table (in `coordination_table.txt`)
+- Getting cost/token summaries (in `metrics_summary.json`)
+
+**Use Logfire When:**
+- You need precise timing data with millisecond accuracy
+- Analyzing span hierarchy and parent-child relationships
+- Finding exceptions and error stack traces
+- Creating shareable trace links for collaboration
+- Querying across multiple sessions (e.g., "find all sessions with errors")
+- Real-time monitoring of running experiments
+
+**Rate Limiting:** If Logfire returns a rate limit error, **wait up to 60 seconds and retry** rather than falling back to local logs. The rate limit resets quickly and Logfire data is worth waiting for when timing/hierarchy analysis is needed.
+
+**Key Local Log Files:**
+
+| File | Contains |
+|------|----------|
+| `metrics_summary.json` | Cost, tokens, tool stats, round history |
+| `coordination_events.json` | Full event timeline with tool calls |
+| `coordination_table.txt` | Human-readable coordination flow |
+| `streaming_debug.log` | Raw streaming data including command strings |
+| `agent_*/*/vote.json` | Vote reasoning and context |
+| `execution_metadata.yaml` | Config and session metadata |
+
+## Logfire Setup
+
+Before using this skill, you need to set up Logfire for observability.
+
+### Step 1: Install MassGen with Observability Support
+
+```bash
+pip install "massgen[observability]"
+
+# Or with uv
+uv pip install "massgen[observability]"
+```
+
+### Step 2: Create a Logfire Account
+
+Go to <https://logfire.pydantic.dev/> and create a free account.
+
+### Step 3: Authenticate with Logfire
+
+```bash
+# This creates ~/.logfire/credentials.json
+uv run logfire auth
+
+# Or set the token directly as an environment variable
+export LOGFIRE_TOKEN=your_token_here
+```
+
+### Step 4: Get Your Read Token for the MCP Server
+
+1. Go to <https://logfire.pydantic.dev/> and log in
+2. Navigate to your project settings
+3. Create a **Read Token** (this is different from the write token used for authentication)
+4. Copy the token for use in Step 5
+
+### Step 5: Add the Logfire MCP Server
+
+```bash
+claude mcp add logfire -e LOGFIRE_READ_TOKEN="your-read-token-here" -- uvx logfire-mcp@latest
+```
+
+Then restart Claude Code and re-invoke this skill.
 
 ## Prerequisites
 
-**Required MCP Server:**
-This skill requires the Logfire MCP server to be configured. The MCP server provides these tools:
+**Logfire MCP Server (Optional but Recommended):**
+The Logfire MCP server provides enhanced analysis with precise timing data and cross-session queries. If `LOGFIRE_READ_TOKEN` is not set, self-analysis mode will automatically disable the Logfire MCP and fall back to local log files only.
+
+When configured, the MCP server provides these tools:
 - `mcp__logfire__arbitrary_query` - Run SQL queries against logfire data
 - `mcp__logfire__schema_reference` - Get the database schema
 - `mcp__logfire__find_exceptions_in_file` - Find exceptions in a file
 - `mcp__logfire__logfire_link` - Create links to traces in the UI
 
 **Required Flags:**
-- `--automation` - Clean output for programmatic parsing
-- `--logfire` - Enable Logfire tracing
+- `--automation` - Clean output for programmatic parsing -- see `massgen-develops-massgen` skill for more info on this flag
+- `--logfire` - Enable Logfire tracing (optional, but required to populate Logfire data)
 
 ## Part 1: Running MassGen Experiments
 
@@ -352,7 +476,7 @@ with tracer.span("my_operation", attributes={
 
 ## Logfire Documentation Reference
 
-**Main Documentation:** https://logfire.pydantic.dev/docs/
+**Main Documentation:** <https://logfire.pydantic.dev/docs/>
 
 ### Key Pages to Know
 
@@ -384,7 +508,7 @@ with tracer.span("my_operation", attributes={
 
 ### Live View Features
 
-The Logfire Live View UI (https://logfire.pydantic.dev/) provides:
+The Logfire Live View UI (<https://logfire.pydantic.dev/>) provides:
 - **Real-time streaming** of traces as they arrive
 - **SQL search pane** (press `/` to open) with auto-complete
 - **Natural language to SQL** - describe what you want and get a query
@@ -426,12 +550,12 @@ MassGen's backends use this for `llm.{provider}.stream` spans.
 ## Reference Documentation
 
 **Logfire:**
-- Main docs: https://logfire.pydantic.dev/docs/
-- Live View: https://logfire.pydantic.dev/docs/guides/web-ui/live/
-- SQL Explorer: https://logfire.pydantic.dev/docs/guides/web-ui/explore/
-- Query API: https://logfire.pydantic.dev/docs/how-to-guides/query-api/
-- Manual tracing: https://logfire.pydantic.dev/docs/guides/onboarding-checklist/add-manual-tracing/
-- OpenAI integration: https://logfire.pydantic.dev/docs/integrations/llms/openai/
+- Main docs: <https://logfire.pydantic.dev/docs/>
+- Live View: <https://logfire.pydantic.dev/docs/guides/web-ui/live/>
+- SQL Explorer: <https://logfire.pydantic.dev/docs/guides/web-ui/explore/>
+- Query API: <https://logfire.pydantic.dev/docs/how-to-guides/query-api/>
+- Manual tracing: <https://logfire.pydantic.dev/docs/guides/onboarding-checklist/add-manual-tracing/>
+- OpenAI integration: <https://logfire.pydantic.dev/docs/integrations/llms/openai/>
 - Schema reference: Use `mcp__logfire__schema_reference` tool
 
 **MassGen:**
@@ -449,34 +573,298 @@ MassGen's backends use this for `llm.{provider}.stream` spans.
 6. **Look at attributes** for MassGen-specific context
 7. **Create trace links** to share findings with team
 
-## Part 6: Comprehensive Log Analysis Pattern
-
-When asked to analyze a MassGen log run, follow this structured checklist covering **correctness**, **efficiency**, **errors**, and **agent behavior**.
-
-### Step 1: Get Session Overview
-
-First, identify the session and get high-level metrics:
-
-```sql
--- Find recent sessions with basic stats
-SELECT
-  trace_id,
-  duration as session_duration_sec,
-  start_timestamp,
-  end_timestamp
-FROM records
-WHERE span_name = 'coordination.session'
-ORDER BY start_timestamp DESC
-LIMIT 5
+Note that you may get an error like so:
+```bash
+Error: Error executing tool arbitrary_query: b'{"detail":"Rate limit exceeded for organization xxx: per minute
+     limit reached."}'
 ```
 
-### Step 2: Correctness Analysis
+In this case, please sleep (for up to a minute) and try again.
 
-**Goal:** Verify the coordination worked correctly and produced a valid answer.
+## Part 6: Comprehensive Log Analysis Report
 
-#### 2a. Check Coordination Flow
+When asked to analyze a MassGen log run, generate a **markdown report** saved to `[log_dir]/turn_N/ANALYSIS_REPORT.md` where N is the turn being analyzed. Each turn (coordination session) gets its own analysis report as a sibling to the attempt directories. The report must cover the **Standard Analysis Questions** below.
+
+### Standard Analysis Questions
+
+Every analysis report MUST answer these questions:
+
+#### 1. Correctness
+- Did coordination complete successfully?
+- Did all agents submit answers?
+- Did voting occur correctly?
+- Was a winner selected and did they provide a final answer?
+
+#### 2. Efficiency & Bottlenecks
+- What was the total duration and breakdown by phase?
+- What were the slowest operations?
+- Which tools took the most time?
+
+#### 3. Command Pattern Analysis
+- **Were there frequently repeated commands that could be avoided?** (e.g., `openskills read`, `npm install`, `ls -R`)
+- **What commands produced unnecessarily long output?** (e.g., skill docs, directory listings)
+- **What were the slowest `execute_command` patterns?** (e.g., web scraping, package installs)
+
+#### 4. Work Duplication Analysis
+- **Was expensive work (like image generation) unnecessarily redone?**
+- **Did both agents generate similar/identical assets?**
+- **Were assets regenerated after restarts instead of being reused?**
+- **Could caching or sharing have saved time/cost?**
+
+#### 5. Agent Behavior & Decision Making
+- **How did agents evaluate previous answers?** What reasoning did they provide?
+- **How did agents decide between voting vs providing a new answer?**
+- **Did agents genuinely build upon each other's work or work in isolation?**
+- **Were there timeouts or incomplete rounds?**
+
+#### 6. Cost & Token Analysis
+- Total cost and breakdown by agent
+- Token usage (input, output, reasoning, cached)
+- Cache hit rate
+
+#### 7. Errors & Issues
+- Any exceptions or failures?
+- Any timeouts?
+- Any agent errors?
+
+### Data Sources for Each Question
+
+| Question | Primary Source | Secondary Source |
+|----------|----------------|------------------|
+| Correctness | `coordination_events.json`, `coordination_table.txt` | Logfire coordination events |
+| Efficiency | `metrics_summary.json` | Logfire duration queries |
+| Command patterns | `streaming_debug.log` (grep for `"command":`) | - |
+| Work duplication | `streaming_debug.log` (grep for tool prompts/args) | `metrics_summary.json` tool counts |
+| Agent decisions | `agent_*/*/vote.json`, `coordination_events.json` | Logfire vote spans |
+| Cost/tokens | `metrics_summary.json` | Logfire usage attributes |
+| Errors | `coordination_events.json`, `metrics_summary.json` | Logfire `is_exception=true` |
+
+### Analysis Commands
+
+**Find repeated commands:**
+```bash
+grep -o '"command": "[^"]*"' streaming_debug.log | sed 's/"command": "//;s/"$//' | sort | uniq -c | sort -rn | head -30
+```
+
+**Find generate_media prompts (to check for duplication):**
+```bash
+grep -o '"prompts": \[.*\]' streaming_debug.log
+```
+
+**Check vote reasoning:**
+```bash
+cat agent_*/*/vote.json | jq '.reason'
+```
+
+**Find timeout events:**
+```bash
+cat coordination_events.json | jq '.events[] | select(.event_type == "agent_timeout")'
+```
+
+### Report Template
+
+Save this report to `[log_dir]/turn_N/ANALYSIS_REPORT.md` (where N is the turn number being analyzed):
+
+```markdown
+# MassGen Log Analysis Report
+
+**Session:** [log_dir name]
+**Trace ID:** [trace_id if available]
+**Generated:** [timestamp]
+**Logfire Link:** [link if available]
+
+## Executive Summary
+
+[2-3 sentence summary of the run: what was the task, did it succeed, key findings]
+
+## Session Overview
+
+| Metric | Value |
+|--------|-------|
+| Duration | X minutes |
+| Agents | [list] |
+| Winner | [agent_id] |
+| Total Cost | $X.XX |
+| Total Answers | X |
+| Total Votes | X |
+| Total Restarts | X |
+
+## 1. Correctness Analysis
+
+### Coordination Flow
+[Timeline of key events]
+
+### Status
+- [ ] All phases completed
+- [ ] All agents submitted answers
+- [ ] Voting completed correctly
+- [ ] Winner selected
+- [ ] Final answer delivered
+
+### Issues Found
+[List any correctness issues]
+
+## 2. Efficiency Analysis
+
+### Phase Duration Breakdown
+| Phase | Count | Avg (s) | Max (s) | Total (s) | % of Total |
+|-------|-------|---------|---------|-----------|------------|
+| initial_answer | | | | | |
+| voting | | | | | |
+| presentation | | | | | |
+
+### Top Bottlenecks
+1. [Operation] - X seconds (X% of total)
+2. [Operation] - X seconds
+3. [Operation] - X seconds
+
+## 3. Command Pattern Analysis
+
+### Frequently Repeated Commands
+| Command | Times Run | Issue | Recommendation |
+|---------|-----------|-------|----------------|
+| `openskills read pptx` | X | Long output (~5KB) re-read after restarts | Cache skill docs |
+| `npm install ...` | X | Reinstalled after each restart | Persist node_modules |
+| ... | | | |
+
+### Commands with Excessive Output
+| Command | Output Size | Issue |
+|---------|-------------|-------|
+| | | |
+
+### Slowest Command Patterns
+| Pattern | Max Time | Avg Time | Notes |
+|---------|----------|----------|-------|
+| Web scraping (crawl4ai) | Xs | Xs | |
+| npm install | Xs | Xs | |
+| PPTX pipeline | Xs | Xs | |
+
+## 4. Work Duplication Analysis
+
+### Duplicated Work Found
+| Work Type | Times Repeated | Wasted Time | Wasted Cost |
+|-----------|----------------|-------------|-------------|
+| Image generation | X | X min | $X.XX |
+| Research/scraping | X | X min | - |
+| Package installs | X | X min | - |
+
+### Specific Examples
+[List specific examples of duplicated work with prompts/commands]
+
+### Recommendations
+1. [Specific recommendation to avoid duplication]
+2. [Specific recommendation]
+
+## 5. Agent Behavior Analysis
+
+### Answer Progression
+| Label | Agent | Time | Summary |
+|-------|-------|------|---------|
+| agent1.1 | agent_a | HH:MM | [brief description] |
+| agent2.1 | agent_b | HH:MM | [brief description] |
+| ... | | | |
+
+### Voting Analysis
+| Voter | Voted For | Reasoning Summary |
+|-------|-----------|-------------------|
+| agent_b | agent1.1 | "[key quote from reasoning]" |
+
+### Vote vs New Answer Decisions
+[Explain how agents decided whether to vote or provide new answers]
+
+### Agent Collaboration Quality
+- Did agents read each other's answers? [Yes/No with evidence]
+- Did agents build upon previous work? [Yes/No with evidence]
+- Did agents provide genuine evaluation? [Yes/No with evidence]
+
+### Timeouts/Incomplete Rounds
+[List any timeouts with context]
+
+## 6. Cost & Token Analysis
+
+### Cost Breakdown
+| Agent | Input Tokens | Output Tokens | Reasoning | Cost |
+|-------|--------------|---------------|-----------|------|
+| agent_a | | | | $X.XX |
+| agent_b | | | | $X.XX |
+| **Total** | | | | **$X.XX** |
+
+### Cache Efficiency
+- Cached input tokens: X (X% cache hit rate)
+
+### Tool Cost Impact
+| Tool | Calls | Est. Time Cost | Notes |
+|------|-------|----------------|-------|
+| generate_media | X | X min | |
+| command_line | X | X min | |
+
+## 7. Errors & Issues
+
+### Exceptions
+[List any exceptions with type and message]
+
+### Failed Tool Calls
+[List any failed tools]
+
+### Agent Errors
+[List any agent-level errors]
+
+### Timeouts
+[List any timeouts with duration and context]
+
+## 8. Recommendations
+
+### High Priority
+1. **[Issue]**: [Specific actionable recommendation]
+2. **[Issue]**: [Specific actionable recommendation]
+
+### Medium Priority
+1. **[Issue]**: [Recommendation]
+
+### Low Priority / Future Improvements
+1. **[Issue]**: [Recommendation]
+
+## 9. Suggested Linear Issues
+
+Based on the analysis, the following issues are suggested for tracking. If you have access to the Linear project and the session is interactive, **present these to the user for approval before creating.** Regardless of access, you should write them in a section as below, as we want to learn from the logs to propose and later solve concrete issues:
+
+| Priority | Title | Description | Labels |
+|----------|-------|-------------|--------|
+| High | [Short title] | [1-2 sentence description] | log-analysis, [area] |
+| Medium | [Short title] | [Description] | log-analysis, [area] |
+
+**After user approval**, create issues in Linear with:
+- Project: MassGen
+- Label: `log-analysis` (to identify issues from log analysis)
+- Additional labels as appropriate (e.g., `performance`, `agent-behavior`, `tooling`)
+
+## Appendix
+
+### Configuration Used
+[Key config settings from execution_metadata.yaml]
+
+### Files Generated
+[List of output files in the workspace]
+```
+
+### Workflow for Generating Report
+
+1. **Read local files first** (metrics_summary.json, coordination_table.txt, coordination_events.json)
+2. **Query Logfire** for trace_id and timing data (if available; wait and retry on rate limits)
+3. **Analyze streaming_debug.log** for command patterns
+4. **Check vote.json files** for agent reasoning
+5. **Generate the report** using the template
+6. **Save to** `[log_dir]/turn_N/ANALYSIS_REPORT.md` (N = turn number being analyzed)
+7. **Print summary** to the user
+8. **Suggest Linear issues** based on findings - present to user for approval, if session is interactive
+9. **Create approved issues** in Linear with `log-analysis` label
+
+## Part 7: Quick Reference - SQL Queries
+
+### Correctness Queries
+
 ```sql
--- Verify all expected phases occurred
+-- Check coordination flow
 SELECT span_name, start_timestamp, duration
 FROM records
 WHERE trace_id = '[TRACE_ID]'
@@ -488,52 +876,10 @@ WHERE trace_id = '[TRACE_ID]'
 ORDER BY start_timestamp
 ```
 
-**Expected flow:**
-1. `Coordination event: coordination_started`
-2. `Agent answer: agent1.1`, `Agent answer: agent2.1` (initial answers)
-3. `Agent vote: agent_a -> ...`, `Agent vote: agent_b -> ...`
-4. `Coordination event: winner_selected`
-5. `Winner selected: ...`
-6. `Final answer from ...`
+### Efficiency Queries
 
-#### 2b. Check for Incomplete Rounds
 ```sql
--- Find agents that started but didn't complete
-SELECT
-  span_name,
-  attributes->>'massgen.outcome' as outcome,
-  attributes->>'massgen.error_message' as error
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'agent.%'
-ORDER BY start_timestamp
-```
-
-**Red flags:**
-- `outcome = null` (round didn't complete)
-- `outcome = "error"` (agent failed)
-- Missing expected agent rounds
-
-#### 2c. Verify Voting Consistency
-```sql
--- Check all votes were cast and valid
-SELECT
-  span_name,
-  attributes->>'massgen.agent_id' as voter,
-  attributes->>'massgen.voted_for' as voted_for,
-  attributes->>'massgen.voted_for_label' as voted_for_label
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'Agent vote:%'
-```
-
-### Step 3: Efficiency Analysis
-
-**Goal:** Identify bottlenecks and optimization opportunities.
-
-#### 3a. Phase Duration Breakdown
-```sql
--- Time spent in each phase
+-- Phase duration breakdown
 SELECT
   CASE
     WHEN span_name LIKE 'agent.%.round_0' THEN 'initial_answer'
@@ -542,9 +888,9 @@ SELECT
     ELSE 'other'
   END as phase,
   COUNT(*) as count,
-  ROUND(AVG(duration), 2) as avg_duration_sec,
-  ROUND(MAX(duration), 2) as max_duration_sec,
-  ROUND(SUM(duration), 2) as total_duration_sec
+  ROUND(AVG(duration)::numeric, 2) as avg_duration_sec,
+  ROUND(MAX(duration)::numeric, 2) as max_duration_sec,
+  ROUND(SUM(duration)::numeric, 2) as total_duration_sec
 FROM records
 WHERE trace_id = '[TRACE_ID]'
   AND span_name LIKE 'agent.%'
@@ -552,373 +898,28 @@ GROUP BY 1
 ORDER BY total_duration_sec DESC
 ```
 
-#### 3b. Slowest Operations (Top Bottlenecks)
+### Error Queries
+
 ```sql
--- Find the 10 slowest spans
-SELECT span_name, duration, start_timestamp
+-- Find all exceptions
+SELECT span_name, exception_type, exception_message, start_timestamp
 FROM records
-WHERE trace_id = '[TRACE_ID]'
-ORDER BY duration DESC
-LIMIT 10
-```
-
-#### 3c. Tool Call Performance
-```sql
--- Analyze tool call efficiency
-SELECT
-  span_name,
-  COUNT(*) as call_count,
-  ROUND(AVG(duration), 3) as avg_duration_sec,
-  ROUND(MAX(duration), 3) as max_duration_sec,
-  ROUND(SUM(duration), 3) as total_duration_sec
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'mcp.%'
-GROUP BY span_name
-ORDER BY total_duration_sec DESC
-```
-
-#### 3d. Slow Tool Calls (>1 second)
-```sql
--- Find specific slow tool calls with their arguments
-SELECT
-  span_name,
-  duration,
-  attributes->>'massgen.agent_id' as agent,
-  attributes->>'massgen.round' as round,
-  attributes->>'massgen.round_type' as round_type,
-  start_timestamp
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'mcp.%'
-  AND duration > 1.0
-ORDER BY duration DESC
-```
-
-#### 3e. Repeated/Redundant Tool Calls
-```sql
--- Check for duplicate tool calls (same tool called multiple times)
-SELECT
-  span_name,
-  attributes->>'massgen.agent_id' as agent,
-  attributes->>'massgen.round' as round,
-  COUNT(*) as call_count
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'mcp.%'
-GROUP BY span_name, attributes->>'massgen.agent_id', attributes->>'massgen.round'
-HAVING COUNT(*) > 1
-ORDER BY call_count DESC
-```
-
-#### 3f. LLM Call Latency
-```sql
--- Analyze LLM response times
-SELECT
-  span_name,
-  duration,
-  attributes->>'gen_ai.request.model' as model,
-  attributes->>'massgen.agent_id' as agent,
-  start_timestamp
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'llm.%'
-ORDER BY duration DESC
-```
-
-### Step 4: Error Analysis
-
-**Goal:** Identify failures, exceptions, and error patterns.
-
-#### 4a. Find All Exceptions
-```sql
--- All exceptions in the trace
-SELECT
-  span_name,
-  exception_type,
-  exception_message,
-  start_timestamp
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND is_exception = true
+WHERE trace_id = '[TRACE_ID]' AND is_exception = true
 ORDER BY start_timestamp
 ```
 
-#### 4b. Failed Tool Calls
+### Cost Queries
+
 ```sql
--- Tool calls that failed
-SELECT
-  span_name,
-  attributes->>'error_message' as error,
-  attributes->>'massgen.agent_id' as agent,
-  attributes->>'arguments_preview' as arguments,
-  duration,
-  start_timestamp
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'Tool execution:%'
-  AND attributes->>'success' = 'false'
-ORDER BY start_timestamp
-```
-
-#### 4c. Agent Errors
-```sql
--- Agents that encountered errors
-SELECT
-  span_name,
-  attributes->>'massgen.outcome' as outcome,
-  attributes->>'massgen.error_message' as error,
-  duration
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'agent.%'
-  AND attributes->>'massgen.outcome' = 'error'
-```
-
-#### 4d. Timeout Analysis
-```sql
--- Check for timeout-related errors
-SELECT
-  span_name,
-  exception_type,
-  exception_message,
-  duration
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND (exception_message LIKE '%timeout%'
-       OR exception_message LIKE '%Timeout%'
-       OR exception_type LIKE '%Timeout%')
-```
-
-### Step 5: Cost & Token Analysis
-
-**Goal:** Understand resource consumption.
-
-#### 5a. Token Usage by Agent
-```sql
--- Token usage per agent
+-- Token usage by agent
 SELECT
   attributes->>'massgen.agent_id' as agent,
   SUM((attributes->'massgen.usage.input')::int) as total_input_tokens,
   SUM((attributes->'massgen.usage.output')::int) as total_output_tokens,
-  SUM((attributes->'massgen.usage.reasoning')::int) as total_reasoning_tokens,
   SUM((attributes->'massgen.usage.cost')::float) as total_cost_usd
 FROM records
 WHERE trace_id = '[TRACE_ID]'
   AND span_name LIKE 'agent.%'
   AND attributes->>'massgen.usage.input' IS NOT NULL
 GROUP BY attributes->>'massgen.agent_id'
-```
-
-#### 5b. Token Usage by Phase
-```sql
--- Token usage by round type
-SELECT
-  attributes->>'massgen.round_type' as phase,
-  SUM((attributes->'massgen.usage.input')::int) as total_input_tokens,
-  SUM((attributes->'massgen.usage.output')::int) as total_output_tokens,
-  COUNT(*) as round_count
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'agent.%'
-  AND attributes->>'massgen.usage.input' IS NOT NULL
-GROUP BY attributes->>'massgen.round_type'
-```
-
-### Step 6: Agent Behavior Analysis
-
-**Goal:** Understand how agents collaborated and made decisions.
-
-#### 6a. Voting Patterns
-```sql
--- Who voted for whom
-SELECT
-  attributes->>'massgen.agent_id' as voter,
-  attributes->>'massgen.voted_for_label' as voted_for,
-  span_name
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'Agent vote:%'
-ORDER BY start_timestamp
-```
-
-#### 6b. Answer Diversity
-```sql
--- How many unique answers were generated
-SELECT
-  span_name,
-  attributes->>'massgen.answer_label' as answer_label,
-  start_timestamp
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'Agent answer:%'
-ORDER BY start_timestamp
-```
-
-#### 6c. Tool Usage by Agent & Round
-```sql
--- Which tools each agent used in each round
-SELECT
-  attributes->>'massgen.agent_id' as agent,
-  attributes->>'massgen.round' as round,
-  attributes->>'massgen.round_type' as round_type,
-  span_name as tool,
-  COUNT(*) as call_count
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'mcp.%'
-GROUP BY 1, 2, 3, 4
-ORDER BY agent, round::int, call_count DESC
-```
-
-#### 6d. Tool Arguments Analysis (for debugging)
-```sql
--- See what arguments were passed to tools
-SELECT
-  span_name,
-  attributes->>'arguments_preview' as arguments,
-  attributes->>'output_preview' as output,
-  attributes->>'massgen.agent_id' as agent,
-  attributes->>'massgen.round_type' as round_type
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'Tool execution:%'
-ORDER BY start_timestamp
-LIMIT 20
-```
-
-#### 6e. Slowest Tool Call Details
-```sql
--- Get the slowest tool call with full context
-SELECT
-  span_name,
-  duration,
-  attributes->>'arguments_preview' as arguments,
-  attributes->>'output_preview' as output,
-  attributes->>'massgen.agent_id' as agent,
-  attributes->>'massgen.round' as round,
-  attributes->>'massgen.round_type' as round_type
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'mcp.%'
-ORDER BY duration DESC
-LIMIT 1
-```
-
-### Step 7: LLM Performance Analysis
-
-**Goal:** Understand LLM call timing and costs.
-
-#### 7a. All LLM Calls with Timing
-```sql
--- Get all LLM calls with duration and model
-SELECT
-  span_name,
-  duration as duration_sec,
-  attributes->>'gen_ai.request.model' as model,
-  attributes->>'massgen.agent_id' as agent,
-  start_timestamp
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'llm.%'
-ORDER BY start_timestamp
-```
-
-#### 7b. LLM Timing Summary
-```sql
--- Aggregate LLM timing stats
-SELECT
-  attributes->>'gen_ai.request.model' as model,
-  COUNT(*) as call_count,
-  ROUND(AVG(duration), 2) as avg_duration_sec,
-  ROUND(MIN(duration), 2) as min_duration_sec,
-  ROUND(MAX(duration), 2) as max_duration_sec,
-  ROUND(SUM(duration), 2) as total_duration_sec
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'llm.%'
-GROUP BY attributes->>'gen_ai.request.model'
-```
-
-#### 7c. Slowest LLM Call
-```sql
--- Get the slowest LLM call with context
-SELECT
-  span_name,
-  duration,
-  attributes->>'gen_ai.request.model' as model,
-  attributes->>'massgen.agent_id' as agent,
-  start_timestamp
-FROM records
-WHERE trace_id = '[TRACE_ID]'
-  AND span_name LIKE 'llm.%'
-ORDER BY duration DESC
-LIMIT 1
-```
-
-### Analysis Summary Template
-
-After running the above queries, summarize findings in this format:
-
-```
-## Log Analysis Summary
-
-**Session:** [trace_id]
-**Duration:** X seconds
-**Agents:** [agent_a, agent_b]
-**Winner:** [agent_id]
-
-### Correctness
-- ✅/❌ All phases completed
-- ✅/❌ All agents submitted answers
-- ✅/❌ All agents voted
-- ✅/❌ Winner selected correctly
-
-### Efficiency
-
-**Phase Duration Breakdown:**
-| Phase | Count | Avg (s) | Max (s) | Total (s) |
-|-------|-------|---------|---------|-----------|
-| initial_answer | X | X.XX | X.XX | X.XX |
-| voting | X | X.XX | X.XX | X.XX |
-| presentation | X | X.XX | X.XX | X.XX |
-
-**Bottleneck:** [phase/operation] took X seconds
-
-### LLM Performance
-
-**LLM Calls Summary:**
-| Model | Calls | Avg (s) | Min (s) | Max (s) | Total (s) |
-|-------|-------|---------|---------|---------|-----------|
-| [model] | X | X.XX | X.XX | X.XX | X.XX |
-
-**Slowest LLM Call:** [model] in [agent] took X.XX seconds
-
-### Tool Performance
-
-**Tool Calls Summary:**
-| Tool | Calls | Avg (ms) | Max (ms) | Total (ms) |
-|------|-------|----------|----------|------------|
-| [tool] | X | X | X | X |
-
-**Slowest Tool Call:**
-- **Tool:** [mcp.server.tool_name]
-- **Duration:** X.XXms
-- **Agent:** [agent_id] in round [N] ([round_type])
-- **Command:** [Human-readable description of what the tool did based on arguments]
-- **Arguments:** `{"path": "...", ...}`
-
-### Errors
-- **Exceptions:** [count] total
-- **Failed tools:** [list]
-- **Agent errors:** [list]
-
-### Cost
-- **Total tokens:** X input, Y output
-- **Estimated cost:** $X.XX
-
-### Recommendations
-1. [Specific optimization suggestion]
-2. [Error fix needed]
-3. [Pattern to investigate]
 ```

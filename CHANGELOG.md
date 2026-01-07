@@ -9,16 +9,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.35 (January 7, 2026)** - Enhanced Log Analysis & Workflow Observability
+New `massgen logs analyze` command generates analysis prompts or launches multi-agent self-analysis using MassGen. Comprehensive Logfire attributes for workflow explanation including round context, vote context, and local file references. New `direct_mcp_servers` config option for code-based tools mode to keep specific MCP servers as direct protocol tools. Grok and Gemini tool fixes, vote-only mode improvements.
+
 **v0.1.34 (January 5, 2026)** - OpenAI-Compatible Server & Model Discovery
 Local OpenAI-compatible HTTP server enables integration with any OpenAI SDK client. Dynamic model discovery for Groq and Together backends fetches available models via authenticated API calls. WebUI improvements include file diffs, answer refresh polling, and workspace browser optimizations. Subagent reliability enhancements for status tracking, cancellation recovery, and error handling.
 
 **v0.1.33 (January 2, 2026)** - Reactive Context Compression & Streaming Buffers
 Reactive context compression recovers from context length errors by summarizing conversation history. Streaming buffer system tracks partial responses for compression recovery. File overwrite and task plan duplicate protections. Grok MCP tools visibility and Gemini vote-only mode fixes.
 
-**v0.1.32 (December 31, 2025)** - Multi-Turn Export & Logfire Optional
-Enhanced session export with multi-turn support, turn range selection, and workspace options. Logfire moved to optional `[observability]` dependency. Per-attempt logging with separate log files. Office document PDF conversion for sharing previews.
-
 ---
+
+## [0.1.35] - 2026-01-07
+
+### Added
+- **Log Analysis CLI Command**: New `massgen logs analyze` for AI-assisted log analysis ([MAS-227](https://linear.app/massgen-ai/issue/MAS-227))
+  - **Prompt mode** (default): Generates analysis prompt referencing `massgen-log-analyzer` skill for coding CLIs
+  - **Self-analysis mode** (`--mode self`): Runs 3-agent MassGen team for multi-perspective analysis
+  - **Per-turn analysis reports**: Reports placed at `turn_N/ANALYSIS_REPORT.md` instead of per-attempt
+  - Supports `--turn/-t` for specific turn, `--force/-f` for overwrite, `--ui` for UI mode selection
+  - Enhanced `massgen logs list` with "Analyzed" column and `--analyzed`/`--unanalyzed` filters
+
+- **Logfire Workflow Analysis Attributes**: Comprehensive observability for understanding agent behavior ([MAS-199](https://linear.app/massgen-ai/issue/MAS-199))
+  - **Round context**: `massgen.round.intent`, `available_answers`, `answer_previews` for workflow explanation
+  - **Vote context**: Extended `massgen.vote.reason` (500 chars), `answer_label_mapping` for vote analysis
+  - **Agent work products**: `massgen.agent.files_created`, `file_count` for detecting repeated work
+  - **Restart context**: `massgen.restart.reason`, `trigger`, `triggered_by_agent`
+  - **Local file references**: `massgen.log_path`, `agent.log_path`, `answer_path` for hybrid access
+
+- **`direct_mcp_servers` Config Option**: Keep specific MCP servers as direct protocol tools
+  - When `enable_code_based_tools: true`, exempts specified servers from code-only filtering
+  - Useful for debugging/monitoring tools (e.g., Logfire) that need immediate access
+  - Subagents automatically inherit `direct_mcp_servers` from parent
+  - Logs warning if server not found in `mcp_servers`
+
+- **Task Context Module**: New `massgen/context/` package for unified context management
+  - `TaskContext` class for managing agent task state and context
+
+### Changed
+- **Skill & Voting Improvements**: Enhanced skill execution and voting coordination
+  - MCPs can now run directly in certain scenarios
+  - Improved skill parameter handling
+
+- **Analysis Per-Turn**: Log analysis now operates at turn level rather than attempt level
+  - More intuitive organization of analysis reports
+
+### Fixed
+- **Unknown Tool Handling**: Unknown/malformed tool names (e.g., Gemini's `default_api:` prefix) no longer cause agent termination ([MAS-225](https://linear.app/massgen-ai/issue/MAS-225))
+  - Only client-provided external tools trigger external tool call path
+  - Unknown tools logged and skipped gracefully
+
+- **Vote-Only Mode**: Fixed agents wasting rounds when reaching `max_new_answers_per_agent`
+  - System message now correctly omits `new_answer` tool
+  - Internal tool filtering uses agent-specific tools
+  - Prevents hallucinated `new_answer` calls from passing validation
+
+- **Grok Backend**: Fixed tool handling issues
+
+- **Gemini Backend**: Fixed tool-related problems and parameter handling
+
+- **Metadata Saving**: Config loader now returns raw/unexpanded config to avoid logging secrets
+
+### Documentations, Configurations and Resources
+- **Logging Guide**: Updated `docs/source/user_guide/logging.rst` with CLI quick reference and analysis workflow
+- **Code-Based Tools Guide**: New "Direct MCP Servers" section in `docs/source/user_guide/tools/code_based_tools.rst`
+- **CLI Reference**: Updated `docs/source/reference/cli.rst` with `logs analyze` command documentation
+- **YAML Schema**: Added `direct_mcp_servers` parameter in `docs/source/reference/yaml_schema.rst`
+- **Analysis Configs**: New `massgen/configs/analysis/log_analysis.yaml` and `log_analysis_cli.yaml`
+- **Skill Update**: Comprehensive update to `massgen/skills/massgen-log-analyzer/SKILL.md`
+- **OpenSpec**: New `openspec/changes/add-logfire-workflow-analysis/` with proposal and specs
+
+### Technical Details
+- **Major Focus**: Log analysis CLI, Logfire workflow attributes, direct MCP servers, tool handling fixes
+- **Contributors**: @ncrispino, @chiwang, @HenryQi and the MassGen team
 
 ## [0.1.34] - 2026-01-05
 

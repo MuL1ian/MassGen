@@ -14,7 +14,7 @@ Target: ~2000 chars to leave room for per-release intro (~1000 chars) within Lin
 
 🛠️ **Work with files, apps, and projects** — With MCP tools and agent skills, agents can read/write files, browse websites, connect to apps, use computers, and edit existing project files with a robust permission system. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/index.html
 
-💾 **Session continuity** — Multi-turn conversations with session resumption and evolving skills that persist and improve across sessions. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/skills.html#evolving-skills-code-mode
+💾 **Session continuity** — Multi-turn conversations with context compression, session resumption, and evolving skills that persist and improve across sessions. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/skills.html#evolving-skills-code-mode
 
 🖼️ **Multi-modal support** — Agents can understand and generate files, videos, images, and audio collaboratively. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/advanced/multimodal.html
 

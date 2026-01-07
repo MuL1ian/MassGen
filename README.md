@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.34 Features](#-latest-features-v0134)
+- [v0.1.35 Features](#-latest-features-v0135)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.34)](#recent-achievements-v0134)
-- [Previous Achievements (v0.0.3 - v0.1.33)](#previous-achievements-v003---v0133)
+- [Recent Achievements (v0.1.35)](#recent-achievements-v0135)
+- [Previous Achievements (v0.0.3 - v0.1.34)](#previous-achievements-v003---v0134)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.35 Roadmap](#v0135-roadmap)
+- [v0.1.36 Roadmap](#v0136-roadmap)
 </details>
 
 <details open>
@@ -155,17 +155,17 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.34)
+## 🆕 Latest Features (v0.1.35)
 
-**🎉 Released: January 5, 2026** | **Next Update: January 7, 2026**
+**🎉 Released: January 7, 2026** | **Next Update: January 9, 2026**
 
-**What's New in v0.1.34:**
-- **🌐 OpenAI-Compatible Server** - Run MassGen as a local HTTP server compatible with any OpenAI SDK client
-- **🔍 Dynamic Model Discovery** - Groq and Together backends dynamically fetch available models via authenticated API calls
-- **🖥️ WebUI Improvements** - File diffs, answer refresh polling, faster workspace browser
-- **🔧 Subagent Reliability** - Better status tracking, cancellation recovery, and error handling
+**What's New in v0.1.35:**
+- **📊 Log Analysis CLI** - New `massgen logs analyze` command with prompt mode and multi-agent self-analysis using MassGen
+- **🔍 Logfire Workflow Attributes** - Comprehensive observability with round context, vote reasoning, and local file references
+- **🔧 Direct MCP Servers** - New `direct_mcp_servers` config to keep specific MCPs as protocol tools when using code-based tools
+- **🐛 Tool Handling Fixes** - Unknown tools handled gracefully, vote-only mode improvements, Grok and Gemini backend fixes
 
-**Try v0.1.34 Features:**
+**Try v0.1.35 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
@@ -173,16 +173,18 @@ pip install --upgrade massgen
 # Or with uv (faster)
 uv pip install massgen
 
-# Start OpenAI-compatible server with default config
-massgen serve --host 0.0.0.0 --port 4000
+# List your runs and see which have been analyzed
+uv run massgen logs list
 
-# Or specify a custom config
-massgen serve --config @examples/basic/multi/three_agents_default
+# Generate an analysis prompt (defaults to most recent log)
+uv run massgen logs analyze
 
-# Use with any OpenAI SDK client
-curl http://localhost:4000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "massgen", "messages": [{"role": "user", "content": "Explain multi-agent systems in LLMs"}]}'
+# Run multi-agent self-analysis on your logs
+uv run massgen logs analyze --mode self
+
+# Use direct MCP servers with code-based tools for multi-agent log analysis
+uv run massgen --config massgen/configs/analysis/log_analysis_cli.yaml \
+  "Use the massgen-log-analyzer skill to analyze the log directory at .massgen/massgen_logs/log_20260107_123456. Read all relevant files and produce an ANALYSIS_REPORT.md"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1170,30 +1172,33 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.34)
+### Recent Achievements (v0.1.35)
 
-**🎉 Released: January 5, 2026**
+**🎉 Released: January 7, 2026**
 
-#### OpenAI-Compatible Server
-- **Local HTTP API**: Run MassGen as a server with `massgen serve` command
-- **OpenAI SDK Compatibility**: Works with any client that supports OpenAI's chat completions API
-- **Full Feature Parity**: Uses `massgen run` backend for consistent behavior with CLI
+#### Log Analysis CLI
+- **`massgen logs analyze` Command**: AI-assisted log analysis with prompt mode (for coding CLIs) and self-analysis mode (3-agent team)
+- **Per-Turn Reports**: Analysis reports at `turn_N/ANALYSIS_REPORT.md` with enhanced `massgen logs list` showing "Analyzed" status
 
-#### Dynamic Model Discovery
-- **Authenticated API Calls**: Groq and Together backends fetch available models via authenticated API instead of hardcoded lists
-- **OpenAI-Compatible Endpoints**: Supports standard model discovery for dynamic backend configuration
+#### Logfire Workflow Observability
+- **Round Context**: `massgen.round.intent`, `available_answers`, `answer_previews` for understanding coordination decisions
+- **Vote Context**: Extended `massgen.vote.reason` (500 chars) and `answer_label_mapping` for vote analysis
+- **Local File References**: `massgen.log_path`, `agent.log_path`, `answer_path` for hybrid Logfire + local access
 
-#### WebUI Improvements
-- **File Diffs**: View workspace file changes with diff highlighting
-- **Answer Refresh**: Polling-based updates for real-time answer display
-- **Performance**: Faster workspace browser with optimized caching
+#### Direct MCP Servers
+- **`direct_mcp_servers` Config**: Keep specific MCP servers as protocol tools when using `enable_code_based_tools: true`
+- **Subagent Inheritance**: Child agents automatically inherit direct MCP server configuration
 
-#### Subagent System Reliability
-- **Status Tracking**: Improved subagent status monitoring and error handling
-- **Cancellation Recovery**: Better handling of cancelled subagent operations
-- **Context Handling**: Fixed context and media handling for subagent workflows
+#### Tool Handling Fixes
+- **Unknown Tools**: Malformed tool names (e.g., Gemini's `default_api:` prefix) no longer cause agent termination
+- **Vote-Only Mode**: Fixed agents wasting rounds with rejected `new_answer` calls when at `max_new_answers_per_agent`
+- **Grok & Gemini**: Backend-specific tool handling and parameter fixes
 
-### Previous Achievements (v0.0.3 - v0.1.33)
+**New Files:** `massgen/configs/analysis/log_analysis.yaml`, `log_analysis_cli.yaml`
+
+### Previous Achievements (v0.0.3 - v0.1.34)
+
+✅ **OpenAI-Compatible Server & Model Discovery (v0.1.34)**: Local HTTP server with `massgen serve` compatible with any OpenAI SDK client, dynamic model discovery for Groq and Together backends via authenticated API calls, WebUI file diffs and answer refresh polling, subagent status tracking and cancellation recovery improvements
 
 ✅ **Reactive Context Compression & Streaming Buffers (v0.1.33)**: Automatic conversation compression when context length errors occur, streaming buffer system tracking partial responses for recovery, file overwrite protection in `write_file` tool, task plan duplicate prevention, Grok MCP tools visibility fix, Gemini vote-only mode fix, GPT-5 model behavior improvements
 
@@ -1405,19 +1410,19 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.35 Roadmap
+### v0.1.36 Roadmap
 
-Version 0.1.35 focuses on OpenAI Responses API improvements and enhanced logging:
+Version 0.1.36 focuses on OpenAI Responses API improvements and computer use model support:
 
 #### Planned Features
 - **OpenAI Responses /compact Endpoint** (@ncrispino): Use OpenAI's native `/compact` endpoint for context compression instead of custom summarization
-- **Logging Improvements** (@ncrispino): Enhanced log formatting, filtering capabilities, and contextual information for better debugging
+- **Fara-7B for Computer Use** (@ncrispino): Support for Fara-7B model for GUI automation and computer use tasks
 
 Key technical approach:
 - **Native Context Compression**: Leverage OpenAI's API-level compression for better token efficiency
-- **Structured Logging**: Improved log output with trace IDs and better error messages
+- **Alternative Computer Use Model**: Fara-7B integration with existing computer use infrastructure
 
-For detailed milestones and technical specifications, see the [full v0.1.35 roadmap](ROADMAP_v0.1.35.md).
+For detailed milestones and technical specifications, see the [full v0.1.36 roadmap](ROADMAP_v0.1.36.md).
 
 ---
 

@@ -4127,7 +4127,7 @@ async def run_coordination_with_history(
         if resolved_path is None:
             raise ValueError(f"Could not resolve config path: {config_path}")
 
-        config = load_config_file(str(resolved_path))
+        config, raw_config_for_metadata = load_config_file(str(resolved_path))
 
         # Extract orchestrator config dict from YAML
         orchestrator_cfg = config.get("orchestrator", {})
@@ -4300,11 +4300,12 @@ async def run_coordination_with_history(
         )
 
         # Save execution metadata for session export/sharing (same as CLI)
+        # Use raw_config_for_metadata to avoid logging expanded secrets
         if display.log_session_dir:
             save_execution_metadata(
                 query=question,
                 config_path=str(resolved_path),
-                config_content=config,
+                config_content=raw_config_for_metadata,
             )
 
             # IMPORTANT: Save initial status.json with workspace paths immediately
@@ -4503,7 +4504,7 @@ async def run_coordination(
         if resolved_path is None:
             raise ValueError(f"Could not resolve config path: {config_path}")
 
-        config = load_config_file(str(resolved_path))
+        config, raw_config_for_metadata = load_config_file(str(resolved_path))
 
         # Extract orchestrator config dict from YAML
         orchestrator_cfg = config.get("orchestrator", {})
@@ -4696,10 +4697,11 @@ async def run_coordination(
             print(f"STATUS: {display.log_session_dir / 'status.json'}")
 
             # Save execution metadata for session export/sharing (same as CLI)
+            # Use raw_config_for_metadata to avoid logging expanded secrets
             save_execution_metadata(
                 query=question,
                 config_path=str(resolved_path),
-                config_content=config,
+                config_content=raw_config_for_metadata,
             )
 
             # IMPORTANT: Save initial status.json with workspace paths immediately
