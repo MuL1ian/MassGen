@@ -23,25 +23,25 @@ The `massgen logs` CLI provides quick access to log analysis:
 
 ### List Logs with Analysis Status
 ```bash
-massgen logs list                    # Show all recent logs with analysis status
-massgen logs list --analyzed         # Only logs with ANALYSIS_REPORT.md
-massgen logs list --unanalyzed       # Only logs needing analysis
-massgen logs list --limit 20         # Show more logs
+uv run massgen logs list                    # Show all recent logs with analysis status
+uv run massgen logs list --analyzed         # Only logs with ANALYSIS_REPORT.md
+uv run massgen logs list --unanalyzed       # Only logs needing analysis
+uv run massgen logs list --limit 20         # Show more logs
 ```
 
 ### Generate Analysis Prompt
 ```bash
 # Run from within your coding CLI (e.g., Claude Code) so it sees output
-massgen logs analyze                 # Analyze latest log
-massgen logs analyze --log-dir PATH  # Analyze specific log
+uv run massgen logs analyze                 # Analyze latest log
+uv run massgen logs analyze --log-dir PATH  # Analyze specific log
 ```
 
 The prompt output tells your coding CLI to use this skill on the specified log directory.
 
 ### Multi-Agent Self-Analysis
 ```bash
-massgen logs analyze --mode self                 # Run 3-agent analysis team
-massgen logs analyze --mode self --config PATH   # Use custom config
+uv run massgen logs analyze --mode self                 # Run 3-agent analysis team
+uv run massgen logs analyze --mode self --config PATH   # Use custom config
 ```
 
 Self-analysis mode runs MassGen with multiple agents to analyze logs from different perspectives (correctness, efficiency, behavior) and produces a combined ANALYSIS_REPORT.md.
@@ -803,7 +803,7 @@ Save this report to `[log_dir]/turn_1/attempt_1/ANALYSIS_REPORT.md`:
 
 ## 9. Suggested Linear Issues
 
-Based on the analysis, the following issues are suggested for tracking. **Present these to the user for approval before creating.**
+Based on the analysis, the following issues are suggested for tracking. If you have access to the Linear project and the session is interactive, **present these to the user for approval before creating.** Regardless of access, you should write them in a section as below, as we want to learn from the logs to propose and later solve concrete issues:
 
 | Priority | Title | Description | Labels |
 |----------|-------|-------------|--------|
@@ -833,7 +833,7 @@ Based on the analysis, the following issues are suggested for tracking. **Presen
 5. **Generate the report** using the template
 6. **Save to** `[log_dir]/turn_1/attempt_1/ANALYSIS_REPORT.md`
 7. **Print summary** to the user
-8. **Suggest Linear issues** based on findings - present to user for approval
+8. **Suggest Linear issues** based on findings - present to user for approval, if session is interactive
 9. **Create approved issues** in Linear with `log-analysis` label
 
 ## Part 7: Quick Reference - SQL Queries

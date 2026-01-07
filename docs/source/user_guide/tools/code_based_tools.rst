@@ -281,6 +281,54 @@ Your custom tools directory will be copied into ``workspace/custom_tools/`` wher
 
    Use ``rg "^requires_api_keys:" massgen/tool/*/TOOL.md`` to check which tools need which API keys.
 
+Direct MCP Servers
+------------------
+
+When using code-based tools, all user MCP servers are normally filtered out from direct protocol access and become accessible only via generated Python code. However, you may want certain MCP servers (like debugging or monitoring tools) to remain as direct native tools in the prompt.
+
+Use ``direct_mcp_servers`` to specify which MCP servers should bypass code-based filtering:
+
+.. code-block:: yaml
+
+   backend:
+     type: gemini
+     model: gemini-3-flash-preview
+     enable_code_based_tools: true
+     auto_discover_custom_tools: true
+
+     # Keep logfire as a native tool in the prompt
+     direct_mcp_servers:
+       - logfire
+
+     mcp_servers:
+       - name: logfire
+         type: stdio
+         command: uvx
+         args: ["logfire-mcp@latest"]
+         env:
+           LOGFIRE_READ_TOKEN: ${LOGFIRE_READ_TOKEN}
+
+       - name: weather
+         # This MCP will be filtered to code-only access
+         type: stdio
+         command: uvx
+         args: ["weather-mcp@latest"]
+
+In this example:
+
+- ``logfire`` tools appear directly in the prompt as callable functions
+- ``weather`` tools are converted to Python code in the workspace
+
+**When to Use Direct MCP Servers:**
+
+- **Debugging/monitoring tools**: Keep tools like Logfire that you want immediate access to
+- **Frequently-used MCPs**: Tools called often that benefit from direct invocation
+- **Framework-adjacent MCPs**: Tools that feel like core capabilities rather than external services
+
+.. note::
+
+   Subagents automatically inherit ``direct_mcp_servers`` from their parent agent.
+
 Agent Usage Patterns
 --------------------
 

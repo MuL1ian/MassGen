@@ -39,6 +39,8 @@ agents:
     - _gemini_computer_use
     - _browser_automation
     enable_web_search: true
+    direct_mcp_servers:
+    - logfire
     mcp_servers:
     - name: logfire
       type: stdio
@@ -74,6 +76,8 @@ agents:
     - _gemini_computer_use
     - _browser_automation
     enable_web_search: true
+    direct_mcp_servers:
+    - logfire
     mcp_servers:
     - name: logfire
       type: stdio
@@ -109,6 +113,8 @@ agents:
 #     - _gemini_computer_use
 #     - _browser_automation
 #     enable_web_search: true
+#     direct_mcp_servers:
+#     - logfire
 #     # mcp_servers:
 #     # - name: logfire
 #     #   type: stdio

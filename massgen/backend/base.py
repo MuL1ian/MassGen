@@ -161,6 +161,7 @@ class LLMBackend(ABC):
                     "custom_tools_path": kwargs.get("custom_tools_path"),
                     "auto_discover_custom_tools": kwargs.get("auto_discover_custom_tools", False),
                     "exclude_custom_tools": kwargs.get("exclude_custom_tools"),
+                    "direct_mcp_servers": kwargs.get("direct_mcp_servers"),
                     "shared_tools_directory": kwargs.get("shared_tools_directory"),
                     # Instance ID for parallel execution (Docker container naming)
                     "instance_id": self._instance_id,
@@ -268,6 +269,7 @@ class LLMBackend(ABC):
             "custom_tools_path",
             "auto_discover_custom_tools",
             "exclude_custom_tools",
+            "direct_mcp_servers",
             "shared_tools_directory",
             # Backend identification (handled by orchestrator)
             "type",

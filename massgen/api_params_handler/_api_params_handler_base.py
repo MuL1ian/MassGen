@@ -90,6 +90,7 @@ class APIParamsHandlerBase(ABC):
             "custom_tools_path",
             "auto_discover_custom_tools",
             "exclude_custom_tools",
+            "direct_mcp_servers",
             "shared_tools_directory",
             # Backend identification (handled by orchestrator)
             "type",
