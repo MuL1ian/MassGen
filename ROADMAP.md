@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.34
+**Current Version:** v0.1.35
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** January 6, 2026
+**Last Updated:** January 7, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,33 +42,48 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.35** | 01/07/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization |
-| | | Improve Logging | @ncrispino | Enhanced logging for better debugging and observability |
-| **v0.1.36** | 01/09/26 | Add GPT-5.2 Codex to Capabilities | @ncrispino | Support for GPT-5.2 Codex model in capabilities list |
+| **v0.1.36** | 01/09/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization |
 | | | Add Fara-7B for Computer Use | @ncrispino | Support for Fara-7B model for computer use tasks |
 | **v0.1.37** | 01/12/26 | Integrate Smart Semantic Search | @ncrispino | Advanced semantic search capabilities for improved retrieval |
+| | | General Hook Framework | @ncrispino | Agent lifecycle event hooks for extensibility |
+| **v0.1.38** | 01/14/26 | Improve Log Sharing and Analysis | @ncrispino | Enhanced log sharing workflows and analysis tools |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.34 - OpenAI-Compatible Server & Model Discovery (COMPLETED)
+## ✅ v0.1.35 - Enhanced Log Analysis & Workflow Observability (COMPLETED)
 
-**Released: January 6, 2026**
+**Released: January 7, 2026**
 
 ### Features
 
-- **OpenAI-Compatible Server**: Local HTTP server exposing MassGen as an OpenAI-compatible API
-- **Dynamic Model Discovery**: Authenticated model listing for Groq and Together backends via API
-- **WebUI Improvements**: File diff display, answer refresh polling, workspace browser optimizations
-- **Subagent Reliability**: Better status tracking, cancellation recovery, and error handling
-- **Review Skill**: New skill for code review workflows
+- **Log Analysis CLI Command**: New `massgen logs analyze` for AI-assisted log analysis ([PR #761](https://github.com/massgen/MassGen/pull/761))
+  - Prompt mode generates analysis prompts referencing `massgen-log-analyzer` skill
+  - Self-analysis mode runs 3-agent MassGen team for multi-perspective analysis
+  - Per-turn analysis reports at `turn_N/ANALYSIS_REPORT.md`
+  - Enhanced `massgen logs list` with "Analyzed" column and filtering
+
+- **Logfire Workflow Analysis Attributes**: Comprehensive observability for agent behavior ([MAS-199](https://linear.app/massgen-ai/issue/MAS-199))
+  - Round context: intent, available answers, answer previews
+  - Vote context: extended reason (500 chars), answer label mapping
+  - Agent work products: files created, file count
+  - Restart context: reason, trigger, triggered_by_agent
+  - Local file references for hybrid access
+
+- **`direct_mcp_servers` Config**: Keep specific MCP servers as direct protocol tools when using code-based tools
+
+### Fixed
+
+- Unknown tool handling no longer causes agent termination
+- Vote-only mode no longer wastes rounds with rejected `new_answer` calls
+- Grok and Gemini backend tool fixes
 
 *See [Ongoing Work](#-ongoing-work--continuous-releases) section for detailed track information.*
 
 ---
 
-## 📋 v0.1.35 - OpenAI Compact Endpoint & Logging Improvements
+## 📋 v0.1.36 - OpenAI Compact Endpoint & Model Support
 
 ### Features
 
@@ -78,28 +93,6 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Leverage API-level context compression for better efficiency
 - **Use Case**: Reduce token usage and improve response quality with native compression
 
-**2. Improve Logging** (@ncrispino)
-- Issue: [#683](https://github.com/massgen/MassGen/issues/683)
-- Enhanced logging for better debugging and observability
-- Improved log formatting and filtering capabilities
-- **Use Case**: Easier troubleshooting and monitoring of MassGen operations
-
-### Success Criteria
-- ✅ OpenAI compact endpoint integration working
-- ✅ Logging improvements provide better debugging experience
-
----
-
-## 📋 v0.1.36 - GPT-5.2 Codex & Fara-7B Support
-
-### Features
-
-**1. Add GPT-5.2 Codex to Capabilities** (@ncrispino)
-- Issue: [#660](https://github.com/massgen/MassGen/issues/660)
-- Add GPT-5.2 Codex model to the capabilities list
-- Configure appropriate parameters and pricing
-- **Use Case**: Enable users to leverage GPT-5.2 Codex for code generation tasks
-
 **2. Add Fara-7B for Computer Use** (@ncrispino)
 - Issue: [#646](https://github.com/massgen/MassGen/issues/646)
 - Support for Fara-7B model for computer use tasks
@@ -107,12 +100,12 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - **Use Case**: Alternative model option for GUI automation workflows
 
 ### Success Criteria
-- ✅ GPT-5.2 Codex available in model selection
+- ✅ OpenAI compact endpoint integration working
 - ✅ Fara-7B working with computer use features
 
 ---
 
-## 📋 v0.1.37 - Smart Semantic Search Integration
+## 📋 v0.1.37 - Smart Semantic Search & Hook Framework
 
 ### Features
 
@@ -122,8 +115,30 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Integration with existing search infrastructure
 - **Use Case**: Better context retrieval and information discovery
 
+**2. General Hook Framework for Agent Lifecycle Events** (@ncrispino)
+- Issue: [#745](https://github.com/massgen/MassGen/issues/745)
+- Extensible hook system for agent lifecycle events
+- Enable custom actions at key orchestration points
+- **Use Case**: Plugin architecture and custom integrations
+
 ### Success Criteria
 - ✅ Semantic search integrated and functional
+- ✅ Hook framework allows lifecycle event subscriptions
+
+---
+
+## 📋 v0.1.38 - Log Sharing & Analysis
+
+### Features
+
+**1. Improve Log Sharing and Analysis** (@ncrispino)
+- Issue: [#722](https://github.com/massgen/MassGen/issues/722)
+- Enhanced log sharing workflows
+- Improved analysis tools and visualizations
+- **Use Case**: Better collaboration and debugging workflows
+
+### Success Criteria
+- ✅ Log sharing improvements deployed
 
 ---
 
@@ -625,19 +640,14 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#739](https://github.com/massgen/MassGen/issues/739)
 - Use OpenAI's native `/compact` endpoint instead of custom summarization
 - Leverage API-level context compression for better efficiency
-- **Target:** v0.1.35
+- **Target:** v0.1.36
 
 ### Track: Improve Logging (@ncrispino, nickcrispino)
 - Issue: [#683](https://github.com/massgen/MassGen/issues/683)
-- Enhanced logging for better debugging and observability
-- Improved log formatting and filtering capabilities
-- **Target:** v0.1.35
-
-### Track: Add GPT-5.2 Codex to Capabilities (@ncrispino, nickcrispino)
-- Issue: [#660](https://github.com/massgen/MassGen/issues/660)
-- Add GPT-5.2 Codex model to the capabilities list
-- Configure appropriate parameters and pricing
-- **Target:** v0.1.36
+- PR: [#761](https://github.com/massgen/MassGen/pull/761)
+- Enhanced logging for better debugging and observability via Logfire workflow attributes
+- New `massgen logs analyze` CLI command with self-analysis mode
+- **Status:** ✅ Completed in v0.1.35
 
 ### Track: Add Fara-7B for Computer Use (@ncrispino, nickcrispino)
 - Issue: [#646](https://github.com/massgen/MassGen/issues/646)
@@ -650,6 +660,18 @@ These features are being actively developed on **separate parallel tracks** and 
 - Advanced semantic search capabilities for improved retrieval
 - Integration with existing search infrastructure
 - **Target:** v0.1.37
+
+### Track: General Hook Framework (@ncrispino, nickcrispino)
+- Issue: [#745](https://github.com/massgen/MassGen/issues/745)
+- Extensible hook system for agent lifecycle events
+- Enable custom actions at key orchestration points
+- **Target:** v0.1.37
+
+### Track: Improve Log Sharing and Analysis (@ncrispino, nickcrispino)
+- Issue: [#722](https://github.com/massgen/MassGen/issues/722)
+- Enhanced log sharing workflows
+- Improved analysis tools and visualizations
+- **Target:** v0.1.38
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -726,5 +748,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** January 5, 2026
+**Last Updated:** January 7, 2026
 **Maintained By:** MassGen Team

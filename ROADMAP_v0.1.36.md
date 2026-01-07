@@ -1,19 +1,19 @@
-# MassGen v0.1.35 Roadmap
+# MassGen v0.1.36 Roadmap
 
 ## Overview
 
-Version 0.1.35 focuses on OpenAI Responses API improvements and enhanced logging.
+Version 0.1.36 focuses on OpenAI Responses API improvements and computer use model support.
 
 - **OpenAI Responses /compact Endpoint** (Required): Use OpenAI's native `/compact` endpoint instead of custom summarization
-- **Improve Logging** (Required): Enhanced logging for better debugging and observability
+- **Add Fara-7B for Computer Use** (Required): Support for Fara-7B model for computer use tasks
 
 ## Key Technical Priorities
 
 1. **OpenAI Responses /compact Endpoint**: Leverage API-level context compression for better efficiency
    **Use Case**: Reduce token usage and improve response quality with native compression
 
-2. **Improve Logging**: Enhanced logging for better debugging and observability
-   **Use Case**: Easier troubleshooting and monitoring of MassGen operations
+2. **Add Fara-7B for Computer Use**: Support for Fara-7B model for GUI automation
+   **Use Case**: Alternative model option for computer use workflows
 
 ## Key Milestones
 
@@ -51,36 +51,36 @@ Version 0.1.35 focuses on OpenAI Responses API improvements and enhanced logging
 
 ---
 
-### Milestone 2: Improve Logging (REQUIRED)
+### Milestone 2: Add Fara-7B for Computer Use (REQUIRED)
 
-**Goal**: Enhanced logging for better debugging and observability
+**Goal**: Support for Fara-7B model for computer use tasks
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#683](https://github.com/massgen/MassGen/issues/683)
+**Issue**: [#646](https://github.com/massgen/MassGen/issues/646)
 
-#### 2.1 Logging Infrastructure
-- [ ] Review current logging implementation
-- [ ] Identify areas for improvement
-- [ ] Implement enhanced log formatting
-- [ ] Add structured logging where needed
+#### 2.1 Model Integration
+- [ ] Research Fara-7B model capabilities and API
+- [ ] Add Fara-7B to capabilities registry
+- [ ] Configure model parameters and pricing
+- [ ] Implement backend support
 
-#### 2.2 Debugging Features
-- [ ] Improve log filtering capabilities
-- [ ] Add contextual information to logs
-- [ ] Better error message formatting
-- [ ] Add trace IDs for request tracking
+#### 2.2 Computer Use Integration
+- [ ] Integrate with existing computer use infrastructure
+- [ ] Test with Docker automation workflows
+- [ ] Validate GUI interaction capabilities
+- [ ] Add example configurations
 
 #### 2.3 Documentation
-- [ ] Document logging configuration options
-- [ ] Add troubleshooting guide
-- [ ] Update debugging documentation
+- [ ] Document Fara-7B configuration options
+- [ ] Add computer use examples
+- [ ] Update model selection guide
 
 **Success Criteria**:
-- Logging improvements provide better debugging experience
-- Log output is more readable and informative
-- Filtering and searching logs is easier
-- Documentation updated
+- Fara-7B available in model selection
+- Computer use workflows function correctly
+- Documentation updated with examples
+- Performance comparable to existing models
 
 ---
 
@@ -94,16 +94,16 @@ Version 0.1.35 focuses on OpenAI Responses API improvements and enhanced logging
 - [ ] Fallback for non-OpenAI backends works
 - [ ] No regression in response quality
 
-**Improve Logging:**
-- [ ] Enhanced log formatting implemented
-- [ ] Filtering capabilities improved
-- [ ] Contextual information added
-- [ ] Documentation updated
+**Fara-7B for Computer Use:**
+- [ ] Model added to capabilities
+- [ ] Computer use integration working
+- [ ] Example configs provided
+- [ ] Documentation complete
 
 ### Performance Requirements
 - [ ] Token usage reduced with compact endpoint
-- [ ] No performance degradation from logging changes
-- [ ] Log output doesn't impact runtime performance
+- [ ] Fara-7B performs adequately for GUI automation
+- [ ] No performance degradation in existing workflows
 
 ### Quality Requirements
 - [ ] All tests passing
@@ -117,23 +117,23 @@ Version 0.1.35 focuses on OpenAI Responses API improvements and enhanced logging
 
 ### Dependencies
 - **OpenAI Compact Endpoint**: OpenAI API access, Responses API support
-- **Logging**: Existing logging infrastructure (loguru, Logfire)
+- **Fara-7B**: Model availability, HuggingFace/inference endpoint access
 
 ### Risks & Mitigations
 1. **API Changes**: *Mitigation*: Monitor OpenAI API updates, implement version checks
-2. **Performance Impact**: *Mitigation*: Benchmark logging changes, use async logging
+2. **Model Availability**: *Mitigation*: Fallback to alternative models if Fara-7B unavailable
 3. **Backend Compatibility**: *Mitigation*: Implement proper fallback for non-OpenAI backends
 
 ---
 
-## Future Enhancements (Post-v0.1.35)
-
-### v0.1.36 Plans
-- **Add GPT-5.2 Codex to Capabilities** (@ncrispino): Support for GPT-5.2 Codex model ([#660](https://github.com/massgen/MassGen/issues/660))
-- **Add Fara-7B for Computer Use** (@ncrispino): Support for Fara-7B model for computer use tasks ([#646](https://github.com/massgen/MassGen/issues/646))
+## Future Enhancements (Post-v0.1.36)
 
 ### v0.1.37 Plans
 - **Integrate Smart Semantic Search** (@ncrispino): Advanced semantic search capabilities ([#639](https://github.com/massgen/MassGen/issues/639))
+- **General Hook Framework** (@ncrispino): Agent lifecycle event hooks for extensibility ([#745](https://github.com/massgen/MassGen/issues/745))
+
+### v0.1.38 Plans
+- **Improve Log Sharing and Analysis** (@ncrispino): Enhanced log sharing workflows ([#722](https://github.com/massgen/MassGen/issues/722))
 
 ### Long-term Vision
 - **Advanced Agent Communication**: Sophisticated inter-agent protocols and negotiation
@@ -148,9 +148,9 @@ Version 0.1.35 focuses on OpenAI Responses API improvements and enhanced logging
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
 | Phase 1 | OpenAI Compact Endpoint | API integration, token savings | @ncrispino | **REQUIRED** |
-| Phase 2 | Logging Improvements | Enhanced formatting, filtering | @ncrispino | **REQUIRED** |
+| Phase 2 | Fara-7B Computer Use | Model integration, GUI automation | @ncrispino | **REQUIRED** |
 
-**Target Release**: January 7, 2026 (Wednesday @ 9am PT)
+**Target Release**: January 9, 2026 (Thursday @ 9am PT)
 
 ---
 
@@ -165,26 +165,26 @@ Version 0.1.35 focuses on OpenAI Responses API improvements and enhanced logging
 4. Test with various conversation lengths
 5. Benchmark token savings
 
-**Improve Logging:**
-1. Review current logging implementation
-2. Identify improvement areas
-3. Implement enhanced formatting
-4. Add filtering capabilities
+**Fara-7B for Computer Use:**
+1. Research Fara-7B model capabilities
+2. Add to capabilities registry
+3. Integrate with computer use infrastructure
+4. Create example configurations
 5. Update documentation
 
 ### For Users
 
-- v0.1.35 brings API improvements and better logging:
+- v0.1.36 brings API improvements and new model support:
 
   **OpenAI Responses /compact Endpoint:**
   - Native context compression via OpenAI API
   - Reduced token usage
   - Better response quality
 
-  **Improved Logging:**
-  - Better debugging experience
-  - Enhanced log formatting
-  - Easier troubleshooting
+  **Fara-7B for Computer Use:**
+  - Alternative model for GUI automation
+  - Integration with existing computer use workflows
+  - Optimized for browser and desktop tasks
 
 ---
 
@@ -198,11 +198,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 **Contact Track Owner:**
 - OpenAI Compact Endpoint: @ncrispino on Discord (nickcrispino)
-- Logging Improvements: @ncrispino on Discord (nickcrispino)
+- Fara-7B Computer Use: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.35 priorities focusing on OpenAI compact endpoint and logging improvements.*
+*This roadmap reflects v0.1.36 priorities focusing on OpenAI compact endpoint and Fara-7B model support.*
 
-**Last Updated:** January 5, 2026
+**Last Updated:** January 7, 2026
 **Maintained By:** MassGen Team

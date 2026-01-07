@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.35 (January 7, 2026)** - Log Analysis & Workflow Observability
+
+New ``massgen logs analyze`` command generates analysis prompts or launches multi-agent self-analysis using MassGen. Logfire workflow attributes capture round intent, vote reasoning, and local file references. ``direct_mcp_servers`` config option for code-based tools mode to keep specific MCPs as protocol tools. Tool handling fixes for Grok, Gemini, unknown tools, and vote-only mode.
+
 **v0.1.34 (January 5, 2026)** - OpenAI-Compatible Server & Model Discovery
 
 Run MassGen as a local HTTP server with ``massgen serve`` compatible with any OpenAI SDK client. Dynamic model discovery for Groq and Together backends via authenticated API calls. WebUI improvements: file diffs, answer refresh polling, faster workspace browser. Subagent reliability enhancements for status tracking and cancellation recovery.
@@ -164,10 +168,6 @@ Run MassGen as a local HTTP server with ``massgen serve`` compatible with any Op
 **v0.1.33 (January 2, 2026)** - Reactive Context Compression & MCP Protections
 
 Automatic conversation compression when context length errors occur with streaming buffer system for recovery. MCP tool protections: ``write_file`` refuses to overwrite existing files, ``create_task_plan`` blocks duplicate plans. Model fixes for Grok MCP tools visibility, Gemini vote-only mode, and GPT-5 coordination.
-
-**v0.1.32 (December 31, 2025)** - Multi-Turn Export & Logfire Optional
-
-Enhanced session export with multi-turn support, turn range selection (``--turns``), and workspace options. Logfire moved to optional ``[observability]`` dependency. Per-attempt logging with separate log files. Office document PDF conversion for sharing previews.
 
 :doc:`Full changelog → <changelog>`
 
