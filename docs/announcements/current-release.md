@@ -1,4 +1,4 @@
-# MassGen v0.1.34 Release Announcement
+# MassGen v0.1.35 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,21 +7,21 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.34, adding an OpenAI-Compatible Server! 🚀
+We're excited to release MassGen v0.1.35, adding Enhanced Log Analysis & Workflow Observability!
 
-Run MassGen as a local server that provides a Chat Completions-compatible API, allowing any OpenAI SDK client to connect.
+Run `massgen logs analyze` to generate analysis prompts or launch multi-agent self-analysis using MassGen. New Logfire attributes provide comprehensive workflow context including round intent, vote reasoning, and local file references for hybrid access.
 
-**Plus:** Dynamic model discovery for Groq and Together backends, WebUI improvements (file diffs, answer refresh, faster workspace browser), subagent reliability fixes, and a new review skill.
+**Plus:** `direct_mcp_servers` config option for code-based tools mode to keep specific MCPs as protocol tools, Grok and Gemini tool fixes, and vote-only mode improvements.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.34
+pip install massgen==0.1.35
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.34
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.35
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -33,11 +33,11 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.34, adding an OpenAI-Compatible Server! 🚀 Run MassGen as a local server that provides a Chat Completions-compatible API, allowing any OpenAI SDK client to connect. Plus: Dynamic model discovery for Groq and Together backends, WebUI improvements (file diffs, answer refresh, faster workspace browser), subagent reliability fixes, and a new review skill.
+We're excited to release MassGen v0.1.35, adding Enhanced Log Analysis & Workflow Observability!
 
-Install: `pip install massgen==0.1.34`
+Run `massgen logs analyze` to generate analysis prompts or launch multi-agent self-analysis using MassGen. New Logfire attributes provide comprehensive workflow context including round intent, vote reasoning, and local file references for hybrid access. Plus: `direct_mcp_servers` config option for code-based tools mode to keep specific MCPs as protocol tools, Grok and Gemini tool fixes, and vote-only mode improvements.
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.34
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.35
 
 Feature highlights:
 
