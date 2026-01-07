@@ -372,11 +372,13 @@ async def run(
 
     # Determine config to use (priority order)
     final_config_dict = None
+    raw_config_for_metadata = None  # Raw config (unexpanded env vars) for safe logging
     config_path_used = None
 
     if config_dict:
         # 1. Pre-built config dict provided directly
         final_config_dict = config_dict
+        raw_config_for_metadata = config_dict  # No env expansion for dict input
         config_path_used = "config_dict"
 
     elif models:
@@ -386,6 +388,7 @@ async def run(
             use_docker=use_docker,
             context_paths=kwargs.get("context_paths"),
         )
+        raw_config_for_metadata = final_config_dict  # No env expansion for built config
         config_path_used = f"multi-agent:{','.join(models)}"
 
     elif model and enable_filesystem:
@@ -396,6 +399,7 @@ async def run(
             use_docker=use_docker,
             context_paths=kwargs.get("context_paths"),
         )
+        raw_config_for_metadata = final_config_dict  # No env expansion for built config
         config_path_used = f"agent:{model}x{num_agents or 1}"
 
     elif config:
@@ -403,7 +407,7 @@ async def run(
         resolved_path = resolve_config_path(config)
         if resolved_path is None:
             raise ValueError("Could not resolve config path. Use --init to create default config.")
-        final_config_dict = load_config_file(str(resolved_path))
+        final_config_dict, raw_config_for_metadata = load_config_file(str(resolved_path))
         config_path_used = str(resolved_path)
 
     elif model:
@@ -420,13 +424,14 @@ async def run(
             base_url=kwargs.get("base_url"),
             ui_config=headless_ui_config,
         )
+        raw_config_for_metadata = final_config_dict  # No env expansion for simple config
         config_path_used = f"single-agent-light:{model}"
 
     else:
         # 6. Try default config
         default_config = Path.home() / ".config/massgen/config.yaml"
         if default_config.exists():
-            final_config_dict = load_config_file(str(default_config))
+            final_config_dict, raw_config_for_metadata = load_config_file(str(default_config))
             config_path_used = str(default_config)
         else:
             raise ValueError(
@@ -445,10 +450,11 @@ async def run(
         raise ValueError("No agents configured")
 
     # Save execution metadata for debugging and reconstruction (matches CLI behavior)
+    # Use raw_config_for_metadata to avoid logging expanded secrets
     save_execution_metadata(
         query=query,
         config_path=config_path_used if config_path_used and not config_path_used.startswith(("config_dict", "multi-agent:", "agent:", "single-agent-light:")) else None,
-        config_content=config_dict,
+        config_content=raw_config_for_metadata,
         cli_args={
             "mode": "programmatic_api",
             "session_id": session_id,

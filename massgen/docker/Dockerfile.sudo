@@ -28,6 +28,7 @@ ENV PYTHONUNBUFFERED=1 \
 # - ffmpeg: Video encoding (for VHS terminal recording)
 # - golang-go: Go runtime (for VHS installation)
 # - wget: For downloading ttyd binary
+# - jq: JSON processing in shell scripts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -39,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     golang-go \
     wget \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install document processing tools for skills (DOCX, PPTX, XLSX, PDF)

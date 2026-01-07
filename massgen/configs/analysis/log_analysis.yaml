@@ -1,0 +1,128 @@
+# MassGen Log Analysis Configuration
+#
+# Multi-agent configuration for analyzing MassGen logs.
+#
+# Usage:
+#   massgen logs analyze --mode self [--log-dir LOG_DIR]
+#
+# Note: context_paths will be injected dynamically when using --mode self
+# Note: This is not meant to run directly as a config file but instead used internally by massgen logs analyze
+#
+# Prerequisites:
+#   - LOGFIRE_READ_TOKEN environment variable must be set for Logfire MCP access
+
+agents:
+- id: agent_a
+  backend:
+    type: gemini
+    model: gemini-3-flash-preview
+    cwd: workspace1
+    enable_code_based_tools: true
+    exclude_file_operation_mcps: true
+    enable_mcp_command_line: true
+    command_line_execution_mode: docker
+    command_line_docker_image: ghcr.io/massgen/mcp-runtime-sudo:latest
+    command_line_docker_network_mode: bridge
+    command_line_docker_enable_sudo: true
+    command_line_docker_credentials:
+      env_file: .env
+      env_vars_from_file:
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+    shared_tools_directory: shared_tools
+    auto_discover_custom_tools: true
+    exclude_custom_tools:
+    - _computer_use
+    - _claude_computer_use
+    - _gemini_computer_use
+    - _browser_automation
+    enable_web_search: true
+    direct_mcp_servers:
+    - logfire
+    mcp_servers:
+    - name: logfire
+      type: stdio
+      command: uvx
+      args: ["logfire-mcp@latest"]
+      env:
+        LOGFIRE_READ_TOKEN: ${LOGFIRE_READ_TOKEN}
+
+- id: agent_b
+  backend:
+    type: gemini
+    model: gemini-3-flash-preview
+    cwd: workspace2
+    enable_code_based_tools: true
+    exclude_file_operation_mcps: true
+    enable_mcp_command_line: true
+    command_line_execution_mode: docker
+    command_line_docker_image: ghcr.io/massgen/mcp-runtime-sudo:latest
+    command_line_docker_network_mode: bridge
+    command_line_docker_enable_sudo: true
+    command_line_docker_credentials:
+      env_file: .env
+      env_vars_from_file:
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+    shared_tools_directory: shared_tools
+    auto_discover_custom_tools: true
+    exclude_custom_tools:
+    - _computer_use
+    - _claude_computer_use
+    - _gemini_computer_use
+    - _browser_automation
+    enable_web_search: true
+    direct_mcp_servers:
+    - logfire
+    mcp_servers:
+    - name: logfire
+      type: stdio
+      command: uvx
+      args: ["logfire-mcp@latest"]
+      env:
+        LOGFIRE_READ_TOKEN: ${LOGFIRE_READ_TOKEN}
+
+orchestrator:
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+  voting_sensitivity: "balanced"
+  max_new_answers_per_agent: 3
+  enable_multimodal_tools: false
+  coordination:
+    max_orchestration_restarts: 2
+    use_skills: true
+    skills_directory: .agent/skills
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+    enable_memory_filesystem_mode: true
+    enable_subagents: true
+    subagent_default_timeout: 300
+    subagent_max_concurrent: 3
+    subagent_orchestrator:
+      enabled: true
+      enable_web_search: true
+      agents:
+      - backend:
+          type: grok
+          model: grok-4-1-fast-reasoning
+      - backend:
+          type: grok
+          model: grok-4-1-fast-reasoning
+    persona_generator:
+      enabled: true
+      diversity_mode: implementation
+  # context_paths is injected dynamically for log analysis
+  # When using --mode self, the log directory will be added here with read permission
+  # and ANALYSIS_REPORT.md path with write permission
+  context_paths: []
+
+timeout_settings:
+  orchestrator_timeout_seconds: 1800
+
+ui:
+  display_type: rich_terminal
+  logging_enabled: true

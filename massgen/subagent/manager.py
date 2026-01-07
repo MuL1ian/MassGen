@@ -696,6 +696,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 "shared_tools_directory",
                 "auto_discover_custom_tools",
                 "exclude_custom_tools",
+                "direct_mcp_servers",
             ]
             for setting in code_tools_settings:
                 if setting in fallback_backend:

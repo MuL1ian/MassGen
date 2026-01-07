@@ -2345,7 +2345,10 @@ class CustomToolAndMCPBackend(LLMBackend):
             # Setup code-based tools if enabled (CodeAct paradigm)
             if self.filesystem_manager and self.filesystem_manager.enable_code_based_tools:
                 # Filter out user MCP tools from protocol access (they're accessible via code)
-                # Framework MCPs (from FRAMEWORK_MCPS constant) remain as protocol tools
+                # Framework MCPs (from FRAMEWORK_MCPS constant) and direct_mcp_servers remain as protocol tools
+
+                # Get direct MCP servers from filesystem manager (user-specified servers to keep as protocol tools)
+                direct_mcps = set(getattr(self.filesystem_manager, "direct_mcp_servers", []) or [])
 
                 # Remove user MCP tools from _mcp_functions
                 filtered_functions = {}
@@ -2357,7 +2360,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                     # Check if server is a framework MCP (exact match or prefix match like "planning_agent_a")
                     is_framework_mcp = server_name and (server_name in FRAMEWORK_MCPS or any(server_name.startswith(f"{fmcp}_") for fmcp in FRAMEWORK_MCPS))
 
-                    if is_framework_mcp:
+                    # Check if server is a user-specified direct MCP (keep as protocol tool)
+                    is_direct_mcp = server_name in direct_mcps
+
+                    if is_framework_mcp or is_direct_mcp:
                         filtered_functions[tool_name] = function
                     elif not server_name:
                         # Unknown server, keep it to be safe
@@ -3562,12 +3568,31 @@ class CustomToolAndMCPBackend(LLMBackend):
         return _generator()
 
     def is_mcp_tool_call(self, tool_name: str) -> bool:
-        """Check if a tool call is an MCP function."""
-        return tool_name in self._mcp_functions
+        """Check if a tool call is an MCP function.
+
+        Checks both the registered function set and the naming convention.
+        The naming convention fallback is important because _mcp_functions
+        gets cleared during cleanup, but we may still need to recognize
+        MCP tools in the orchestrator's enforcement phase after recovery.
+        """
+        # Check registered functions first
+        if tool_name in self._mcp_functions:
+            return True
+        # Fallback to naming convention (mcp__<server>__<tool>)
+        return tool_name.startswith("mcp__")
 
     def is_custom_tool_call(self, tool_name: str) -> bool:
-        """Check if a tool call is a custom tool function."""
-        return tool_name in self._custom_tool_names
+        """Check if a tool call is a custom tool function.
+
+        Checks both the registered tool names and the naming convention.
+        The naming convention fallback is important because _custom_tool_names
+        may not include all custom tools if they were registered dynamically.
+        """
+        # Check registered tool names first
+        if tool_name in self._custom_tool_names:
+            return True
+        # Fallback to naming convention (custom_tool__<name>)
+        return tool_name.startswith("custom_tool__")
 
     def get_mcp_tools_formatted(self) -> List[Dict[str, Any]]:
         """Get MCP tools formatted for specific API format."""

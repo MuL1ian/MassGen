@@ -694,6 +694,11 @@ Backend
      - No
      - All with MCP support
      - List of custom tool directories to exclude (e.g., ["_claude_computer_use"])
+   * - ``direct_mcp_servers``
+     - list
+     - No
+     - All with MCP support
+     - List of MCP server names to keep as direct protocol tools when ``enable_code_based_tools`` is true. These servers remain callable as native tools in the prompt rather than being filtered to code-only access. Example: ``["logfire", "context7"]``
    * - ``shared_tools_directory``
      - string
      - No

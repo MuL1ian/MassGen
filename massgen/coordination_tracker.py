@@ -169,6 +169,7 @@ class CoordinationTracker:
         self.final_context: Optional[Dict[str, Any]] = None  # Context provided to final agent
         self.is_final_round: bool = False  # Track if we're in the final presentation round
         self.user_prompt: Optional[str] = None  # Store the initial user prompt
+        self.log_path: Optional[str] = None  # MAS-199: Path to log directory for hybrid access
 
         # Agent mappings - coordination tracker is the single source of truth
         self.agent_context_labels: Dict[
@@ -208,12 +209,15 @@ class CoordinationTracker:
         self,
         agent_ids: List[str],
         user_prompt: Optional[str] = None,
+        # New workflow analysis fields (MAS-199)
+        log_path: Optional[str] = None,
     ):
         """Initialize a new coordination session."""
         self.start_time = time.time()
         self.agent_ids = agent_ids.copy()
         self.answers_by_agent = {aid: [] for aid in agent_ids}
         self.user_prompt = user_prompt
+        self.log_path = log_path  # Store for later use (MAS-199)
 
         # Initialize per-agent round tracking
         self.agent_rounds = {aid: 0 for aid in agent_ids}
@@ -229,11 +233,12 @@ class CoordinationTracker:
             f"Started with agents: {agent_ids}",
         )
 
-        # Start Logfire session span for hierarchical tracing
+        # Start Logfire session span for hierarchical tracing (MAS-199: includes log_path)
         self._session_span_context = trace_coordination_session(
             task=user_prompt or "",
             num_agents=len(agent_ids),
             agent_ids=agent_ids,
+            log_path=log_path,
         )
         try:
             self._session_span_context.__enter__()
@@ -561,13 +566,19 @@ class CoordinationTracker:
             context,
         )
 
-        # Log to Logfire for structured tracing
+        # Log to Logfire for structured tracing (MAS-199: add answer_path for hybrid access)
+        # Build answer path from log_path and snapshot path if available
+        answer_path = None
+        if self.log_path and snapshot_timestamp:
+            relative_path = self._make_snapshot_path("answer", agent_id, snapshot_timestamp)
+            answer_path = f"{self.log_path}/{relative_path}"
         log_agent_answer(
             agent_id=agent_id,
             answer_label=label,
             iteration=self.current_iteration,
             round_number=self.get_agent_round(agent_id),
             answer_preview=answer[:200] if answer else None,
+            answer_path=answer_path,
         )
 
     def add_agent_vote(
@@ -655,7 +666,18 @@ class CoordinationTracker:
             context,
         )
 
-        # Log to Logfire for structured tracing
+        # Log to Logfire for structured tracing (MAS-199: add vote context for workflow analysis)
+        # Count agents who have submitted at least one answer
+        agents_with_answers = sum(1 for aid in self.agent_ids if self.answers_by_agent.get(aid))
+        # Build mapping of answer labels to agent IDs for the available answers
+        answer_label_mapping = {}
+        for label in self.iteration_available_labels:
+            # Find which agent owns this label
+            for aid, answers_list in self.answers_by_agent.items():
+                for ans in answers_list:
+                    if ans.label == label:
+                        answer_label_mapping[label] = aid
+                        break
         log_agent_vote(
             agent_id=agent_id,
             voted_for_label=voted_for_label,
@@ -663,6 +685,8 @@ class CoordinationTracker:
             round_number=self.get_agent_round(agent_id),
             reason=reason,
             available_answers=self.iteration_available_labels.copy(),
+            agents_with_answers=agents_with_answers,
+            answer_label_mapping=answer_label_mapping,
         )
 
     def set_final_agent(
