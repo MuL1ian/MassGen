@@ -852,6 +852,16 @@ def logs_command(args) -> int:
                     if not custom_config.exists():
                         console.print(f"[red]Error:[/red] Config file not found: {custom_config}")
                         return 1
+                else:
+                    # Default config uses Gemini - check for API key
+                    api_key = os.environ.get("GEMINI_API_KEY", "")
+                    # Check it's not empty and not a placeholder from .env.example
+                    is_placeholder = api_key.lower().startswith("your-") and api_key.lower().endswith("-key-here")
+                    if not api_key or is_placeholder:
+                        console.print(
+                            "[red]Error:[/red] Self-analysis mode requires GEMINI_API_KEY.\n" "Set it in your environment or use --config with a custom analysis config.",
+                        )
+                        return 1
                 # Get UI mode
                 ui_mode = getattr(args, "ui", "automation")
                 return run_self_analysis(log_dir, custom_config, ui_mode, console, turn, force)

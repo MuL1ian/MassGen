@@ -489,13 +489,14 @@ This outputs a prompt that references the ``massgen-log-analyzer`` skill, which 
 
 Self-analysis mode:
 
-* Runs a 3-agent team using Gemini Flash with Docker execution
+* Runs a 2-agent team using Gemini Flash with Docker execution
 * Agents analyze from different perspectives (correctness, efficiency, behavior)
 * Produces an ``ANALYSIS_REPORT.md`` in the log directory
 * Log directory is mounted read-only to protect existing files
 
 .. note::
-   For Logfire integration in self-analysis, set ``LOGFIRE_READ_TOKEN`` in your environment.
+   Self-analysis mode currently requires a **Gemini API key** (``GEMINI_API_KEY``); to use other models, see `massgen/configs/analysis/log_analysis.yaml` then adjust it or create a new one and pass it to the `analyze` command using `--config`
+   For Logfire integration, also set ``LOGFIRE_READ_TOKEN`` in your .env file.
    Without it, agents will use local log files only.
 
 During Execution
