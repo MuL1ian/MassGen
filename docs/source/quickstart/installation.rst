@@ -20,7 +20,9 @@ Quick Install
 
       .. code-block:: bash
 
-         pip install uv                          # if needed
+         pip install uv          # if uv is not installed, the fastest way to check if uv is installed is to run "uv venv"
+         # if the above command fails, run "curl -LsSf https://astral.sh/uv/install.sh | sh" for macOS and Linux to install uv
+         # or run "powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" for Windows
          uv venv && source .venv/bin/activate
          uv pip install massgen
 
@@ -28,7 +30,9 @@ Quick Install
 
       .. code-block:: bash
 
-         pip install uv                          # if needed
+         pip install uv          # if uv is not installed, the fastest way to check if uv is installed is to run "uv venv"
+         # if the above command fails, run "curl -LsSf https://astral.sh/uv/install.sh | sh" for macOS and Linux to install uv
+         # or run "powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" for Windows
          uv venv && source .venv/bin/activate
          uv pip install massgen litellm python-dotenv
 
