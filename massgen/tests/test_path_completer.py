@@ -9,7 +9,7 @@ import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
-from massgen.path_completer import AtPathCompleter
+from massgen.path_handling import AtPathCompleter
 
 
 def get_completions(completer: AtPathCompleter, text: str) -> List[str]:

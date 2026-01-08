@@ -87,178 +87,6 @@ except ImportError:
     ROUNDED = DOUBLE = None  # type: ignore[assignment]
 
 
-class ScrollableContent:
-    """Manages scrollable content within a fixed-height panel.
-
-    Provides virtual scrolling with keyboard navigation support,
-    scroll indicators, cursor line pointer, and auto-scroll to follow new content.
-    """
-
-    def __init__(self, max_visible_lines: int = 20) -> None:
-        """Initialize scrollable content manager.
-
-        Args:
-            max_visible_lines: Maximum number of lines visible at once
-        """
-        self.lines: List[str] = []
-        self.scroll_offset: int = 0
-        self.max_visible: int = max_visible_lines
-        self.auto_scroll: bool = True  # Auto-follow new content
-        self.cursor_line: int = 0  # Cursor position (relative to visible area, 0 = first visible line)
-
-    def add_line(self, line: str) -> None:
-        """Add a new line to the content.
-
-        Args:
-            line: The line to add
-        """
-        self.lines.append(line)
-        if self.auto_scroll:
-            self.scroll_to_bottom()
-
-    def add_lines(self, lines: List[str]) -> None:
-        """Add multiple lines to the content.
-
-        Args:
-            lines: List of lines to add
-        """
-        self.lines.extend(lines)
-        if self.auto_scroll:
-            self.scroll_to_bottom()
-
-    def clear(self) -> None:
-        """Clear all content and reset scroll position."""
-        self.lines.clear()
-        self.scroll_offset = 0
-        self.cursor_line = 0
-        self.auto_scroll = True
-
-    def cursor_up(self) -> None:
-        """Move cursor up one line, scrolling if needed."""
-        if self.cursor_line > 0:
-            # Move cursor up within visible area
-            self.cursor_line -= 1
-        elif self.scroll_offset > 0:
-            # Scroll up to show more content
-            self.scroll_offset -= 1
-        self.auto_scroll = False
-
-    def cursor_down(self) -> None:
-        """Move cursor down one line, scrolling if needed."""
-        visible_lines = len(self.get_visible_lines())
-        if self.cursor_line < visible_lines - 1:
-            # Move cursor down within visible area
-            self.cursor_line += 1
-        elif self.scroll_offset < self._get_max_offset():
-            # Scroll down to show more content
-            self.scroll_offset += 1
-        # Re-enable auto-scroll if we're at the bottom
-        if self.scroll_offset >= self._get_max_offset() and self.cursor_line >= visible_lines - 1:
-            self.auto_scroll = True
-
-    def scroll_up(self, n: int = 1) -> None:
-        """Scroll up by n lines.
-
-        Args:
-            n: Number of lines to scroll up
-        """
-        self.scroll_offset = max(0, self.scroll_offset - n)
-        self.auto_scroll = False  # Disable auto-scroll when user scrolls manually
-
-    def scroll_down(self, n: int = 1) -> None:
-        """Scroll down by n lines.
-
-        Args:
-            n: Number of lines to scroll down
-        """
-        max_offset = self._get_max_offset()
-        self.scroll_offset = min(max_offset, self.scroll_offset + n)
-        # Re-enable auto-scroll if we're at the bottom
-        if self.scroll_offset >= max_offset:
-            self.auto_scroll = True
-
-    def scroll_to_top(self) -> None:
-        """Scroll to the top of the content."""
-        self.scroll_offset = 0
-        self.cursor_line = 0
-        self.auto_scroll = False
-
-    def scroll_to_bottom(self) -> None:
-        """Scroll to the bottom of the content."""
-        self.scroll_offset = self._get_max_offset()
-        # Put cursor on last visible line
-        visible = min(len(self.lines), self.max_visible)
-        self.cursor_line = max(0, visible - 1)
-        self.auto_scroll = True
-
-    def page_up(self) -> None:
-        """Scroll up by one page."""
-        self.scroll_up(self.max_visible)
-        self.cursor_line = 0
-
-    def page_down(self) -> None:
-        """Scroll down by one page."""
-        self.scroll_down(self.max_visible)
-        visible = len(self.get_visible_lines())
-        self.cursor_line = max(0, visible - 1)
-
-    def _get_max_offset(self) -> int:
-        """Get the maximum scroll offset."""
-        return max(0, len(self.lines) - self.max_visible)
-
-    def get_visible_lines(self) -> List[str]:
-        """Get the currently visible lines based on scroll position.
-
-        Returns:
-            List of visible lines
-        """
-        if not self.lines:
-            return []
-        start = self.scroll_offset
-        end = start + self.max_visible
-        return self.lines[start:end]
-
-    def get_cursor_line_index(self) -> int:
-        """Get the cursor line index within visible lines.
-
-        Returns:
-            Index of cursor line (0-based) within visible lines
-        """
-        visible = len(self.get_visible_lines())
-        return min(self.cursor_line, max(0, visible - 1))
-
-    def get_scroll_indicator(self) -> str:
-        """Get scroll position indicator string.
-
-        Returns:
-            Scroll indicator like "[45-60/120]" or empty string if no scrolling needed
-        """
-        total = len(self.lines)
-        if total <= self.max_visible:
-            return ""  # No scrolling needed
-
-        visible_start = self.scroll_offset + 1
-        visible_end = min(self.scroll_offset + self.max_visible, total)
-        return f"[{visible_start}-{visible_end}/{total}]"
-
-    def can_scroll_up(self) -> bool:
-        """Check if content can be scrolled up."""
-        return self.scroll_offset > 0
-
-    def can_scroll_down(self) -> bool:
-        """Check if content can be scrolled down."""
-        return self.scroll_offset < self._get_max_offset()
-
-    def has_overflow(self) -> bool:
-        """Check if content exceeds visible area."""
-        return len(self.lines) > self.max_visible
-
-    @property
-    def total_lines(self) -> int:
-        """Get total number of lines."""
-        return len(self.lines)
-
-
 class RichTerminalDisplay(TerminalDisplay):
     """Enhanced terminal display using Rich library for beautiful formatting."""
 
@@ -347,23 +175,9 @@ class RichTerminalDisplay(TerminalDisplay):
         self._agent_panels_cache: Dict[str, Panel] = {}
         self._header_cache = None
         self._footer_cache = None
-        self._cached_layout: Optional[Layout] = None
         self._layout_update_lock = threading.Lock()
         self._pending_updates: set[str] = set()
         self._shutdown_flag = False
-
-        # Dirty-flag tracking for incremental layout updates
-        self._dirty_agents: set[str] = set(agent_ids)  # All dirty initially
-        self._dirty_header: bool = True
-        self._dirty_footer: bool = True
-
-        # Visual hierarchy tracking
-        self._active_agent: Optional[str] = None  # Currently generating content
-        self._focused_agent: str = agent_ids[0] if agent_ids else ""  # For keyboard nav
-
-        # Scrollable content managers for each agent
-        # max_visible is panel height minus borders/title (3 lines)
-        self._scrollable_content: Dict[str, ScrollableContent] = {agent_id: ScrollableContent(max_visible_lines=max(5, self.agent_panel_height - 3)) for agent_id in agent_ids}
 
         # Priority update queue for critical status changes
         self._priority_updates: set[str] = set()
@@ -734,33 +548,26 @@ class RichTerminalDisplay(TerminalDisplay):
         self,
         user_override: Optional[int] = None,
     ) -> int:
-        """Get adaptive refresh rate based on terminal performance.
-
-        Increased refresh rates for smoother streaming.
-        """
+        """Get adaptive refresh rate based on terminal performance."""
         if user_override is not None:
             return user_override
 
         perf_tier = self._terminal_performance["performance_tier"]
         term_type = self._terminal_performance["type"]
 
-        # VSCode-specific optimization - increased from 2 Hz
+        # VSCode-specific optimization
         if term_type == "vscode":
-            # Higher refresh rate for VSCode while maintaining stability
-            return 6
+            # Lower refresh rate for VSCode to prevent flaky behavior
+            # VSCode terminal sometimes has rendering delays
+            return 2
 
-        # macOS terminals - increased from 5 Hz cap
-        if term_type in ["iterm", "macos_terminal"]:
-            return 8
-
-        # Standard refresh rates - increased across the board
         refresh_rates = {
-            "high": 15,  # Modern terminals (was 10)
-            "medium": 8,  # Standard terminals (was 5)
-            "low": 4,  # Multiplexers, SSH, legacy (was 2)
+            "high": 10,  # Modern terminals
+            "medium": 5,  # Standard terminals
+            "low": 2,  # Multiplexers, SSH, legacy
         }
 
-        return refresh_rates.get(perf_tier, 10)
+        return refresh_rates.get(perf_tier, 8)
 
     def _get_adaptive_update_interval(self) -> float:
         """Get adaptive update interval based on terminal performance."""
@@ -806,48 +613,40 @@ class RichTerminalDisplay(TerminalDisplay):
         return base_delay
 
     def _get_adaptive_buffer_length(self) -> int:
-        """Get adaptive buffer length based on terminal performance.
-
-        Reduced buffer sizes for more responsive streaming.
-        """
+        """Get adaptive buffer length based on terminal performance."""
         perf_tier = self._terminal_performance["performance_tier"]
         term_type = self._terminal_performance["type"]
 
-        # Reduced buffer lengths for more responsive streaming
         lengths = {
-            "high": 100,  # Much shorter for fast terminals (was 800)
-            "medium": 75,  # Shorter buffer (was 500)
-            "low": 50,  # Minimal buffer for slow terminals (was 200)
+            "high": 800,  # Longer buffers for fast terminals
+            "medium": 500,  # Standard buffer length
+            "low": 200,  # Shorter buffers for slow terminals
         }
 
-        base_length = lengths.get(perf_tier, 75)
+        base_length = lengths.get(perf_tier, 500)
 
-        # Slightly larger buffer for macOS terminals to prevent excessive updates
+        # Reduce buffer size for macOS terminals to improve responsiveness
         if term_type in ["iterm", "macos_terminal"]:
-            base_length = min(base_length + 25, 125)
+            base_length = min(base_length, 400)
 
         return base_length
 
     def _get_adaptive_buffer_timeout(self) -> float:
-        """Get adaptive buffer timeout based on terminal performance.
-
-        Reduced timeouts for more responsive streaming.
-        """
+        """Get adaptive buffer timeout based on terminal performance."""
         perf_tier = self._terminal_performance["performance_tier"]
         term_type = self._terminal_performance["type"]
 
-        # Reduced timeouts for faster text streaming (was 0.5/1.0/2.0)
         timeouts = {
-            "high": 0.1,  # Fast flush for responsive terminals
-            "medium": 0.15,  # Faster standard timeout
-            "low": 0.25,  # Still reasonable for slow terminals
+            "high": 0.5,  # Fast flush for responsive terminals
+            "medium": 1.0,  # Standard timeout
+            "low": 2.0,  # Longer timeout for slow terminals
         }
 
-        base_timeout = timeouts.get(perf_tier, 0.15)
+        base_timeout = timeouts.get(perf_tier, 1.0)
 
-        # Only slightly increase for macOS terminals (was 1.5x)
+        # Increase buffer timeout for macOS terminals for smoother text flow
         if term_type in ["iterm", "macos_terminal"]:
-            base_timeout *= 1.2  # 20% longer timeout for stability
+            base_timeout *= 1.5  # 50% longer timeout for stability
 
         return base_timeout
 
@@ -922,23 +721,13 @@ class RichTerminalDisplay(TerminalDisplay):
                 live.start()
                 live.stop()
                 return live
-            except Exception as e:
+            except Exception:
                 # Live display failed, try fallback
-                import sys
-                import traceback
-
-                print(f"\n[DEBUG] Live start/stop test failed: {e}", file=sys.stderr)
-                traceback.print_exc(file=sys.stderr)
                 self._fallback_to_simple_display()
                 return None
 
-        except Exception as e:
+        except Exception:
             # Any error in setup, use fallback
-            import sys
-            import traceback
-
-            print(f"\n[DEBUG] Live display creation failed: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
             self._fallback_to_simple_display()
             return None
 
@@ -1045,54 +834,43 @@ class RichTerminalDisplay(TerminalDisplay):
         return None  # No Live display
 
     def _update_display_safe(self) -> None:
-        """Safely update display with fallback support and simplified locking.
-
-        Uses non-blocking lock acquisition to skip frames when contention is high,
-        improving responsiveness.
-        """
+        """Safely update display with fallback support and terminal-specific synchronization."""
+        # Add extra synchronization for macOS terminals and VSCode to prevent race conditions
         term_type = self._terminal_performance["type"]
+        use_safe_mode = term_type in ["iterm", "macos_terminal", "vscode"]
 
-        # VSCode-specific stabilization (reduced delay)
+        # VSCode-specific stabilization
         if term_type == "vscode" and self._terminal_performance.get(
             "refresh_stabilization",
         ):
-            time.sleep(0.005)  # Reduced from 0.01
+            # Add small delay before refresh to let VSCode terminal stabilize
+            time.sleep(0.01)
 
         try:
-            # Use non-blocking lock acquisition with timeout
-            # Skip frame if lock is contended rather than blocking
-            acquired = self._layout_update_lock.acquire(timeout=0.01)
-            if not acquired:
-                return  # Skip this frame, will catch up on next update
-
-            try:
-                if hasattr(self, "_simple_display_mode") and self._simple_display_mode:
-                    self._update_simple_display()
-                else:
-                    # Use safe mode only for VSCode, not for macOS (they can handle faster updates)
-                    if term_type == "vscode":
-                        self._update_live_display_safe()
+            if use_safe_mode:
+                # For macOS terminals and VSCode, use more conservative locking
+                with self._layout_update_lock:
+                    with self._lock:  # Double locking for extra safety
+                        if hasattr(self, "_simple_display_mode") and self._simple_display_mode:
+                            self._update_simple_display()
+                        else:
+                            self._update_live_display_safe()
+            else:
+                with self._layout_update_lock:
+                    if hasattr(self, "_simple_display_mode") and self._simple_display_mode:
+                        self._update_simple_display()
                     else:
                         self._update_live_display()
-            finally:
-                self._layout_update_lock.release()
-
-        except Exception as e:
-            # Log the exception before falling back
-            import sys
-
-            print(f"\n[DEBUG] Exception in _update_display_safe: {type(e).__name__}: {e}", file=sys.stderr)
-            import traceback
-
-            traceback.print_exc(file=sys.stderr)
+        except Exception:
             # Fallback to simple display on any error
             self._fallback_to_simple_display()
 
-        # VSCode-specific post-refresh stabilization (reduced delay)
+        # VSCode-specific post-refresh stabilization
         if term_type == "vscode" and self._terminal_performance.get(
             "needs_flush_delay",
         ):
-            time.sleep(0.002)  # Reduced from 0.005  # Reduced from 0.005
+            # Small delay after refresh to prevent flicker
+            time.sleep(0.005)
 
     def _update_simple_display(self) -> None:
         """Update display in simple mode without Live."""
@@ -1306,41 +1084,13 @@ class RichTerminalDisplay(TerminalDisplay):
         self.console.print()
 
     def _create_layout(self) -> Layout:
-        """Create the main layout structure with incremental dirty-flag updates.
-
-        Only rebuilds components that have changed, significantly improving performance.
-        """
-        # Fast path: if nothing is dirty and we have a cached layout, return it
-        # (Only when not in special presentation modes that need full rebuild)
-        if (
-            self._cached_layout is not None
-            and not self._dirty_agents
-            and not self._dirty_header
-            and not self._dirty_footer
-            and not self._final_presentation_active
-            and not self._post_evaluation_active
-        ):
-            return self._cached_layout
-
-        # Update only dirty components
-        if self._dirty_header or self._header_cache is None:
-            self._header_cache = self._create_header()
-            self._dirty_header = False
-
-        if self._dirty_footer or self._footer_cache is None:
-            self._footer_cache = self._create_footer()
-            self._dirty_footer = False
-
-        # Update only dirty agent panels
-        for agent_id in list(self._dirty_agents):
-            self._agent_panels_cache[agent_id] = self._create_agent_panel(agent_id)
-        self._dirty_agents.clear()
-
-        # Create agent columns from cache
-        agent_columns = self._create_agent_columns_from_cache()
-
-        # Build layout
+        """Create the main layout structure with cached components."""
         layout = Layout()
+
+        # Use cached components if available, otherwise create new ones
+        header = self._header_cache if self._header_cache else self._create_header()
+        agent_columns = self._create_agent_columns_from_cache()
+        footer = self._footer_cache if self._footer_cache else self._create_footer()
 
         # Check if final presentation is active
         if self._final_presentation_active:
@@ -1350,14 +1100,14 @@ class RichTerminalDisplay(TerminalDisplay):
             # Arrange layout with ONLY presentation panel (hide header and agent columns for full width)
             layout.split_column(
                 Layout(presentation_panel, name="presentation"),
-                Layout(self._footer_cache, name="footer", size=8),
+                Layout(footer, name="footer", size=8),
             )
         else:
             # Build layout components
             layout_components = []
 
             # Add header
-            layout_components.append(Layout(self._header_cache, name="header", size=5))
+            layout_components.append(Layout(header, name="header", size=5))
 
             # Add agent columns
             layout_components.append(Layout(agent_columns, name="main"))
@@ -1368,13 +1118,10 @@ class RichTerminalDisplay(TerminalDisplay):
                 layout_components.append(Layout(post_eval_panel, name="post_eval", size=6))
 
             # Add footer
-            layout_components.append(Layout(self._footer_cache, name="footer", size=8))
+            layout_components.append(Layout(footer, name="footer", size=8))
 
             # Arrange layout
             layout.split_column(*layout_components)
-
-        # Cache the layout for fast-path reuse
-        self._cached_layout = layout
 
         return layout
 
@@ -1624,7 +1371,7 @@ class RichTerminalDisplay(TerminalDisplay):
         time.sleep(0.1)
 
     def _handle_key_press(self, key: str) -> None:
-        """Handle key press events for agent selection and scrolling."""
+        """Handle key press events for agent selection."""
         if key in self._agent_keys:
             agent_id = self._agent_keys[key]
             self._open_agent_in_default_text_editor(agent_id)
@@ -1639,66 +1386,8 @@ class RichTerminalDisplay(TerminalDisplay):
             # Update system status in display (will be visible until display stops)
             if hasattr(self, "update_system_status"):
                 self.update_system_status("⏸️ Cancelling turn...")
-        # Scroll navigation for focused agent
-        elif key == "j" or key == "\x1b[B":  # j or down arrow
-            self._scroll_focused_agent_down()
-        elif key == "k" or key == "\x1b[A":  # k or up arrow
-            self._scroll_focused_agent_up()
-        elif key == "g":  # Go to top
-            self._scroll_focused_agent_to_top()
-        elif key == "G":  # Go to bottom
-            self._scroll_focused_agent_to_bottom()
-        elif key == "\t":  # Tab cycles focus between agents
-            self._cycle_focused_agent()
-
-    def _scroll_focused_agent_down(self) -> None:
-        """Move cursor down in the focused agent's content."""
-        if self._focused_agent and self._focused_agent in self._scrollable_content:
-            self._scrollable_content[self._focused_agent].cursor_down()
-            self._dirty_agents.add(self._focused_agent)
-            self._schedule_async_update(force_update=True)
-
-    def _scroll_focused_agent_up(self) -> None:
-        """Move cursor up in the focused agent's content."""
-        if self._focused_agent and self._focused_agent in self._scrollable_content:
-            self._scrollable_content[self._focused_agent].cursor_up()
-            self._dirty_agents.add(self._focused_agent)
-            self._schedule_async_update(force_update=True)
-
-    def _scroll_focused_agent_to_top(self) -> None:
-        """Scroll the focused agent's content to the top."""
-        if self._focused_agent and self._focused_agent in self._scrollable_content:
-            self._scrollable_content[self._focused_agent].scroll_to_top()
-            self._dirty_agents.add(self._focused_agent)
-            self._schedule_async_update(force_update=True)
-
-    def _scroll_focused_agent_to_bottom(self) -> None:
-        """Scroll the focused agent's content to the bottom."""
-        if self._focused_agent and self._focused_agent in self._scrollable_content:
-            self._scrollable_content[self._focused_agent].scroll_to_bottom()
-            self._dirty_agents.add(self._focused_agent)
-            self._schedule_async_update(force_update=True)
-
-    def _cycle_focused_agent(self) -> None:
-        """Cycle focus to the next agent."""
-        if not self.agent_ids:
-            return
-        try:
-            current_idx = self.agent_ids.index(self._focused_agent)
-            next_idx = (current_idx + 1) % len(self.agent_ids)
-        except ValueError:
-            next_idx = 0
-
-        old_focused = self._focused_agent
-        self._focused_agent = self.agent_ids[next_idx]
-
-        # Mark both old and new focused agents as dirty for visual update
-        if old_focused:
-            self._dirty_agents.add(old_focused)
-        self._dirty_agents.add(self._focused_agent)
-        self._schedule_async_update(force_update=True)
-        # DON'T print to console here - the Rich Live display would overwrite it
-        # The message will be printed by cli.py AFTER the display is stopped
+            # DON'T print to console here - the Rich Live display would overwrite it
+            # The message will be printed by cli.py AFTER the display is stopped
 
     def _open_agent_in_default_text_editor(self, agent_id: str) -> None:
         """Open agent's txt file in default text editor."""
@@ -2652,56 +2341,39 @@ class RichTerminalDisplay(TerminalDisplay):
             )
 
     def _create_agent_panel(self, agent_id: str) -> Panel:
-        """Create a panel for a specific agent with scrolling and visual hierarchy."""
-        # Get agent content from scrollable content manager (with fallback to agent_outputs)
-        if agent_id in self._scrollable_content:
-            scrollable = self._scrollable_content[agent_id]
-            visible_lines = scrollable.get_visible_lines()
-            scroll_indicator = scrollable.get_scroll_indicator()
-            cursor_index = scrollable.get_cursor_line_index()
-        else:
-            # Fallback to legacy agent_outputs
-            agent_content = self.agent_outputs.get(agent_id, [])
-            max_lines = max(0, self.agent_panel_height - 3)
-            visible_lines = agent_content[-max_lines:] if agent_content else []
-            scroll_indicator = ""
-            cursor_index = -1  # No cursor in fallback mode
-
+        """Create a panel for a specific agent."""
+        # Get agent content
+        agent_content = self.agent_outputs.get(agent_id, [])
         status = self.agent_status.get(agent_id, "waiting")
         activity = self.agent_activity.get(agent_id, "waiting")
-
-        # Determine visual hierarchy state
-        is_active = agent_id == self._active_agent
-        is_focused = agent_id == self._focused_agent
 
         # Create content text
         content_text = Text()
 
-        if not visible_lines:
-            if is_focused:
-                content_text.append("→ ", style="bold cyan")
+        # Show more lines since we now support scrolling
+        # max_display_lines = min(len(agent_content), self.max_content_lines * 3) if agent_content else 0
+
+        # if max_display_lines == 0:
+        #     content_text.append("No activity yet...", style=self.colors['text'])
+        # else:
+        #     # Show recent content with scrolling support
+        #     display_content = agent_content[-max_display_lines:] if max_display_lines > 0 else agent_content
+
+        #     for line in display_content:
+        #         formatted_line = self._format_content_line(line)
+        #         content_text.append(formatted_line)
+        #         content_text.append("\n")
+
+        max_lines = max(0, self.agent_panel_height - 3)
+        if not agent_content:
             content_text.append(
                 "No activity yet...",
-                style=self.colors["text"] if is_focused else "dim",
+                style=self.colors["text"],
             )
         else:
-            for i, line in enumerate(visible_lines):
-                # Add cursor pointer for focused agent
-                if is_focused and i == cursor_index:
-                    content_text.append("→ ", style="bold cyan")
-                elif is_focused:
-                    content_text.append("  ", style="dim")  # Indent to align with pointer
-
+            for line in agent_content[-max_lines:]:
                 formatted_line = self._format_content_line(line)
-
-                # Apply dimming for non-focused panels
-                if not is_focused:
-                    content_text.append(formatted_line, style="dim")
-                elif i == cursor_index:
-                    # Highlight the cursor line
-                    content_text.append(formatted_line, style="bold")
-                else:
-                    content_text.append(formatted_line)
+                content_text.append(formatted_line)
                 content_text.append("\n")
 
         # Status indicator
@@ -2711,19 +2383,10 @@ class RichTerminalDisplay(TerminalDisplay):
         # Get backend info if available
         backend_name = self._get_backend_name(agent_id)
 
-        # Panel title - simpler now, focus shown by cursor inside
-        if is_active:
-            title = f"▶ {agent_id.upper()}"  # Active indicator
-        else:
-            title = f"{status_emoji} {agent_id.upper()}"
-
+        # Panel title with click indicator
+        title = f"{status_emoji} {agent_id.upper()}"
         if backend_name != "Unknown":
             title += f" ({backend_name})"
-
-        # Add scroll indicator to subtitle if there's overflow
-        subtitle = ""
-        if scroll_indicator:
-            subtitle = f"[dim]{scroll_indicator}[/dim]"
 
         # Add interactive indicator if enabled
         if self._keyboard_interactive_mode and hasattr(self, "_agent_keys"):
@@ -2732,25 +2395,13 @@ class RichTerminalDisplay(TerminalDisplay):
                 None,
             )
             if agent_key:
-                if subtitle:
-                    subtitle = f"[Press {agent_key}] {subtitle}"
-                else:
-                    subtitle = f"[Press {agent_key}]"
-
-        # Determine border style - focused gets bold, others normal
-        if is_focused:
-            border_style = f"bold {self.colors['primary']}"
-        elif is_active:
-            border_style = self.colors["success"]
-        else:
-            border_style = "dim"  # Dim border for non-focused panels
+                title += f" [Press {agent_key}]"
 
         # Create panel with scrollable content
         return Panel(
             content_text,
-            title=f"[{status_color}]{title}[/{status_color}]" if is_focused or is_active else f"[dim]{title}[/dim]",
-            subtitle=subtitle if subtitle else None,
-            border_style=border_style,
+            title=f"[{status_color}]{title}[/{status_color}]",
+            border_style=status_color,
             box=ROUNDED,
             height=self.agent_panel_height,
             width=self.fixed_column_width,
@@ -3293,9 +2944,9 @@ class RichTerminalDisplay(TerminalDisplay):
                 style="bold yellow",
             )
 
-        # Agent status summary (condensed to single line)
+        # Agent status summary
         footer_content.append(
-            "📊 Status: ",
+            "📊 Agent Status: ",
             style=self.colors["primary"],
         )
 
@@ -3306,46 +2957,55 @@ class RichTerminalDisplay(TerminalDisplay):
         status_parts = []
         for status, count in status_counts.items():
             emoji = self._get_status_emoji(status, status)
-            status_parts.append(f"{emoji}{count}")
+            status_parts.append(f"{emoji} {status.title()}: {count}")
 
         # Add final presentation status if active
         if self._final_presentation_active:
-            status_parts.append("🎤Active")
+            status_parts.append("🎤 Final Presentation: Active")
         elif hasattr(self, "_stored_final_presentation") and self._stored_final_presentation:
-            status_parts.append("🎤Done")
+            status_parts.append("🎤 Final Presentation: Complete")
 
         footer_content.append(
-            " ".join(status_parts),
+            " | ".join(status_parts),
             style=self.colors["text"],
         )
-
-        # Cost summary (condensed) - total is a TokenUsage object, not a dict
-        cost_data = self._get_all_agent_costs()
-        if cost_data["agents"] and cost_data["total"]:
-            total = cost_data["total"]
-            # TokenUsage is a dataclass with estimated_cost attribute
-            total_cost = getattr(total, "estimated_cost", 0)
-            if total_cost > 0:
-                footer_content.append(
-                    f" | 💰${total_cost:.4f}",
-                    style=self.colors["text"],
-                )
-
         footer_content.append("\n")
 
-        # Recent events (reduced to 2)
-        if self.orchestrator_events:
+        # Cost summary section
+        cost_data = self._get_all_agent_costs()
+        if cost_data["agents"]:
             footer_content.append(
-                "📋 Events: ",
+                "💰 Cost Summary: ",
                 style=self.colors["primary"],
             )
-            recent_events = self.orchestrator_events[-2:]  # Show last 2 events (was 3)
+
+            cost_parts = []
+            for agent_id in sorted(cost_data["agents"].keys()):
+                usage = cost_data["agents"][agent_id]
+                cost_parts.append(self._format_cost_line(agent_id, usage))
+
+            # Add total if multiple agents
+            if len(cost_data["agents"]) > 1:
+                cost_parts.append(self._format_cost_line("Total", cost_data["total"]))
+
+            footer_content.append(
+                " | ".join(cost_parts),
+                style=self.colors["text"],
+            )
+            footer_content.append("\n")
+
+        # Recent events
+        if self.orchestrator_events:
+            footer_content.append(
+                "📋 Recent Events:\n",
+                style=self.colors["primary"],
+            )
+            recent_events = self.orchestrator_events[-3:]  # Show last 3 events
             for event in recent_events:
                 footer_content.append(
-                    f"{event}  ",
+                    f"  • {event}\n",
                     style=self.colors["text"],
                 )
-            footer_content.append("\n")
 
         # Log file info
         if self.log_filename:
@@ -3354,36 +3014,40 @@ class RichTerminalDisplay(TerminalDisplay):
                 style=self.colors["info"],
             )
 
-        # Interactive mode instructions with scroll controls
+        # Interactive mode instructions
         if self._keyboard_interactive_mode and hasattr(self, "_agent_keys"):
             if self._safe_keyboard_mode:
                 footer_content.append(
-                    "📂 Safe Mode: Keyboard disabled\n",
+                    "📂 Safe Mode: Keyboard disabled to prevent rendering issues\n",
                     style=self.colors["warning"],
+                )
+                footer_content.append(
+                    f"Output files saved in: {self.output_dir}/",
+                    style=self.colors["info"],
                 )
             else:
                 footer_content.append(
-                    "🎮 Keys: ",
+                    "🎮 Live Mode Hotkeys: Press 1-",
                     style=self.colors["primary"],
                 )
-                hotkeys = f"1-{len(self.agent_ids)}=agent, s=status"
+                hotkeys = f"{len(self.agent_ids)} to open agent files in editor, 's' for system status"
 
                 # Add 'f' key if final presentation is available
                 if hasattr(self, "_stored_final_presentation") and self._stored_final_presentation:
-                    hotkeys += ", f=presentation"
-
-                # Add scroll controls
-                hotkeys += " | j/k=scroll, Tab=focus, g/G=top/bottom"
+                    hotkeys += ", 'f' for final presentation"
 
                 footer_content.append(
                     hotkeys,
                     style=self.colors["text"],
                 )
-                footer_content.append("\n")
+                footer_content.append(
+                    f"\n📂 Output files saved in: {self.output_dir}/",
+                    style=self.colors["info"],
+                )
 
         return Panel(
             footer_content,
-            title="[bold]System Status[/bold]",
+            title="[bold]System Status [Press s][/bold]",
             border_style=self.colors["border"],
             box=ROUNDED,
         )
@@ -3403,13 +3067,6 @@ class RichTerminalDisplay(TerminalDisplay):
             # Initialize agent outputs if needed
             if agent_id not in self.agent_outputs:
                 self.agent_outputs[agent_id] = []
-
-            # Mark this agent as dirty (needs panel rebuild)
-            self._dirty_agents.add(agent_id)
-
-            # Track active agent for visual hierarchy
-            if content_type in ["thinking", "presentation", "tool"]:
-                self._active_agent = agent_id
 
             # Write content to agent's txt file
             self._write_to_agent_file(agent_id, content, content_type)
@@ -3460,14 +3117,6 @@ class RichTerminalDisplay(TerminalDisplay):
             self._buffer_timers[agent_id].cancel()
             self._buffer_timers[agent_id] = None
 
-        # Helper to add lines to both agent_outputs and scrollable content
-        def add_line(line: str) -> None:
-            if line.strip():
-                self.agent_outputs[agent_id].append(line)
-                # Also add to scrollable content for scroll support
-                if agent_id in self._scrollable_content:
-                    self._scrollable_content[agent_id].add_line(line)
-
         # Special handling for content that should be displayed immediately
         if content_type in ["tool", "status", "presentation", "error"] or "\n" in content:
             # Flush any existing buffer first
@@ -3477,11 +3126,11 @@ class RichTerminalDisplay(TerminalDisplay):
             if "\n" in content:
                 for line in content.splitlines():
                     if line.strip() and not self._should_filter_line(line):
-                        add_line(line)
+                        self.agent_outputs[agent_id].append(line)
             else:
                 # Add single-line important content directly
                 if content.strip():
-                    add_line(content.strip())
+                    self.agent_outputs[agent_id].append(content.strip())
             return
 
         # Add content to buffer
@@ -3502,9 +3151,6 @@ class RichTerminalDisplay(TerminalDisplay):
             buffer_content = self._text_buffers[agent_id].strip()
             if buffer_content:
                 self.agent_outputs[agent_id].append(buffer_content)
-                # Also add to scrollable content for scroll support
-                if agent_id in self._scrollable_content:
-                    self._scrollable_content[agent_id].add_line(buffer_content)
             self._text_buffers[agent_id] = ""
 
         # Cancel any existing timer
@@ -3641,14 +3287,6 @@ class RichTerminalDisplay(TerminalDisplay):
             should_update = (old_status != status and last_tracked_status != status) or is_vote_status
 
             if should_update:
-                # Mark agent and footer as dirty for incremental update
-                self._dirty_agents.add(agent_id)
-                self._dirty_footer = True
-
-                # Track active agent based on status
-                if status in ["working", "thinking"]:
-                    self._active_agent = agent_id
-
                 # Truncate web search content when status changes for immediate focus on new status
                 if self._status_jump_enabled and self._web_search_truncate_on_status_change and old_status != status and agent_id in self.agent_outputs and self.agent_outputs[agent_id]:
                     self._truncate_web_search_content(agent_id)
@@ -3699,8 +3337,6 @@ class RichTerminalDisplay(TerminalDisplay):
 
             # Only update footer for important events that indicate real status changes
             if any(keyword in event.lower() for keyword in self._important_event_keywords):
-                # Mark footer as dirty for incremental update
-                self._dirty_footer = True
                 # Mark footer for async update
                 self._pending_updates.add("footer")
                 self._schedule_async_update(force_update=True)

@@ -3561,7 +3561,7 @@ def create_app(
                         # Parse @path references from question
                         context_paths = []
                         try:
-                            from massgen.prompt_parser import (
+                            from massgen.path_handling import (
                                 PromptParserError,
                                 parse_prompt_for_context,
                             )
@@ -3643,7 +3643,7 @@ def create_app(
                     # Parse @path references from follow-up question
                     context_paths = []
                     try:
-                        from massgen.prompt_parser import (
+                        from massgen.path_handling import (
                             PromptParserError,
                             parse_prompt_for_context,
                         )

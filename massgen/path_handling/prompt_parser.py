@@ -12,7 +12,7 @@ Syntax:
   \\@literal          - Escaped @ (not parsed as reference)
 
 Example:
-    >>> from massgen.prompt_parser import parse_prompt_for_context
+    >>> from massgen.path_handling import parse_prompt_for_context
     >>> result = parse_prompt_for_context("Review @src/main.py and update @src/config.py:w")
     >>> result.context_paths
     [{'path': 'src/main.py', 'permission': 'read'}, {'path': 'src/config.py', 'permission': 'write'}]

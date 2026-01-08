@@ -5,7 +5,7 @@ This module provides a custom prompt_toolkit Completer that triggers
 path completion when the user types @ followed by a path.
 
 Example:
-    >>> from massgen.path_completer import AtPathCompleter
+    >>> from massgen.path_handling import AtPathCompleter
     >>> from prompt_toolkit import prompt
     >>> completer = AtPathCompleter()
     >>> user_input = prompt("User: ", completer=completer)

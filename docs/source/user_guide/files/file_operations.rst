@@ -163,7 +163,7 @@ For the Python API, ``@`` parsing is opt-in:
    )
 
    # Or manually parse and handle paths
-   from massgen.prompt_parser import parse_prompt_for_context
+   from massgen.path_handling import parse_prompt_for_context
 
    parsed = parse_prompt_for_context("Review @src/main.py")
    print(parsed.context_paths)  # [{'path': '/abs/path/to/src/main.py', 'permission': 'read'}]

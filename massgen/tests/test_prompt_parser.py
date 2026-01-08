@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from massgen.prompt_parser import (
+from massgen.path_handling.prompt_parser import (
     ParsedPrompt,
     PromptParser,
     PromptParserError,

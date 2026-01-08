@@ -65,7 +65,7 @@ from .dspy_paraphraser import (
 from .frontend.coordination_ui import CoordinationUI
 from .logger_config import _DEBUG_MODE, logger, save_execution_metadata, setup_logging
 from .orchestrator import Orchestrator
-from .path_completer import AtPathCompleter
+from .path_handling import AtPathCompleter
 from .utils import get_backend_type_from_model
 
 # Session storage is internal state management - HARDCODED, NOT CONFIGURABLE
@@ -1563,7 +1563,7 @@ def inject_prompt_context_paths(
     Raises:
         ConfigurationError: If any referenced paths don't exist.
     """
-    from .prompt_parser import PromptParserError, parse_prompt_for_context
+    from .path_handling import PromptParserError, parse_prompt_for_context
 
     try:
         parsed = parse_prompt_for_context(prompt)
@@ -5170,7 +5170,7 @@ async def run_interactive_mode(
                     continue
 
                 # Parse @references from question and inject as context paths
-                from .prompt_parser import PromptParserError, parse_prompt_for_context
+                from .path_handling import PromptParserError, parse_prompt_for_context
 
                 new_paths = []  # Track new paths for later use
                 try:
