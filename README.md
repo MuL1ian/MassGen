@@ -176,10 +176,10 @@ uv pip install massgen
 uv run massgen
 # Then type: Analyze @src/main.py and suggest improvements
 
-# Use hook framework with global and per-agent hooks
-# See massgen/configs/hooks/example_hooks.yaml for full configuration
-uv run massgen --config massgen/configs/hooks/example_hooks.yaml \
-  "Create a document and save it to a file"
+# Test hook framework with built-in hooks
+uv run massgen --config massgen/configs/debug/injection_delay_test.yaml \
+  "Create a simple poem and write it into a file"
+# View logs for MidStreamInjectionHook (cross-agent updates) and HighPriorityTaskReminderHook (system reminders)
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
