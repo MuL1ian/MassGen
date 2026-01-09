@@ -5232,6 +5232,18 @@ async def run_interactive_mode(
                     elif new_paths:
                         # Agents exist but we have new paths - need to recreate
                         print(f"   {BRIGHT_YELLOW}🔄 Updating agents with new context paths...{RESET}")
+
+                        # Clean up existing agents before recreating to avoid resource leaks
+                        for agent_id, agent in agents.items():
+                            if hasattr(agent, "backend"):
+                                if hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
+                                    try:
+                                        agent.backend.filesystem_manager.cleanup()
+                                    except Exception as e:
+                                        logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {e}")
+                                if hasattr(agent.backend, "__aexit__"):
+                                    await agent.backend.__aexit__(None, None, None)
+
                         agents = create_agents_from_config(
                             original_config,
                             orchestrator_cfg,
