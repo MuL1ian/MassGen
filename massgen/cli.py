@@ -255,13 +255,10 @@ async def read_multiline_input_async(
     except (EOFError, KeyboardInterrupt):
         raise
     except Exception as e:
-        import sys
-
-        print(f"\n[DEBUG] prompt_toolkit async failed: {e}", file=sys.stderr)
+        if _DEBUG_MODE:
+            logger.debug(f"prompt_toolkit async failed; falling back to input(): {e}")
         # Fallback to basic input - run in executor to not block
-        import asyncio
-
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         # Strip ANSI codes for fallback
         plain_prompt = prompt if not use_ansi_prompt else "User: "
         first_line = await loop.run_in_executor(None, lambda: input(plain_prompt).strip())
@@ -282,9 +279,7 @@ async def read_multiline_input_async(
 
     # Collect multi-line input
     lines = [content] if content else []
-    import asyncio
-
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     while True:
         try:
             line = await loop.run_in_executor(None, input)

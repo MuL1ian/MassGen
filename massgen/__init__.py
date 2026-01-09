@@ -447,7 +447,10 @@ async def run(
 
     # Parse @references from query if opt-in
     if parse_at_references:
-        from .prompt_parser import PromptParserError, parse_prompt_for_context
+        from .path_handling.prompt_parser import (
+            PromptParserError,
+            parse_prompt_for_context,
+        )
 
         try:
             parsed = parse_prompt_for_context(query)
