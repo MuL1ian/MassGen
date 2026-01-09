@@ -3586,9 +3586,11 @@ def create_app(
                                 },
                             )
                             continue
-                        except ImportError:
-                            # prompt_parser not available, continue without parsing
-                            pass
+                        except ImportError as e:
+                            # Log warning - path_handling module not available
+                            workspace_logger.warning(
+                                f"Path handling module not available: {e}. " "@path syntax will not be processed.",
+                            )
 
                         # Send immediate acknowledgment that we received the prompt
                         await websocket.send_json(
@@ -3668,9 +3670,11 @@ def create_app(
                             },
                         )
                         continue
-                    except ImportError:
-                        # prompt_parser not available, continue without parsing
-                        pass
+                    except ImportError as e:
+                        # Log warning - path_handling module not available
+                        workspace_logger.warning(
+                            f"Path handling module not available: {e}. " "@path syntax will not be processed.",
+                        )
 
                     # Get session info from previous turn
                     session_log_dir = manager.session_log_dirs.get(session_id)

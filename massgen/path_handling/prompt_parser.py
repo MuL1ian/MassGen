@@ -144,9 +144,15 @@ class PromptParser:
         missing_paths: List[str] = []
 
         for path_str, suffix, _, _ in matches:
-            expanded_path = self._expand_path(path_str)
+            try:
+                expanded_path = self._expand_path(path_str)
+                path_exists = expanded_path.exists()
+            except (OSError, PermissionError, RuntimeError) as e:
+                # Treat inaccessible paths as non-existent with helpful message
+                missing_paths.append(f"{path_str} (access error: {e})")
+                continue
 
-            if not expanded_path.exists():
+            if not path_exists:
                 missing_paths.append(path_str)
                 continue
 
@@ -177,10 +183,14 @@ class PromptParser:
         # Process in reverse order to preserve positions
         for path_str, suffix, start, end in reversed(matches):
             # Check if this path was valid (not in missing_paths)
-            expanded = self._expand_path(path_str)
-            if expanded.exists():
-                # Replace @path:w with just the resolved path
-                cleaned_prompt = cleaned_prompt[:start] + str(expanded) + cleaned_prompt[end:]
+            try:
+                expanded = self._expand_path(path_str)
+                if expanded.exists():
+                    # Replace @path:w with just the resolved path
+                    cleaned_prompt = cleaned_prompt[:start] + str(expanded) + cleaned_prompt[end:]
+            except (OSError, PermissionError, RuntimeError):
+                # Skip paths that can't be resolved (already handled above)
+                pass
 
         # Handle escaped @ -> convert \@ to @
         cleaned_prompt = cleaned_prompt.replace("\\@", "@")
@@ -206,20 +216,37 @@ class PromptParser:
 
         Returns:
             Expanded and resolved Path object.
+
+        Raises:
+            PromptParserError: If home directory or cwd cannot be determined.
+            OSError: If path resolution fails.
+            RuntimeError: If path has circular symlinks.
         """
         # Remove trailing slash for directories (we'll detect dirs by existence)
         path_str = path_str.rstrip("/")
 
         # Expand ~ to home directory
         if path_str.startswith("~"):
-            path_str = str(Path.home()) + path_str[1:]
+            try:
+                home = Path.home()
+            except RuntimeError as e:
+                raise PromptParserError(
+                    f"Cannot expand '~' - home directory not available: {e}. " f"Use absolute path instead of: {path_str}",
+                ) from e
+            path_str = str(home) + path_str[1:]
 
         path = Path(path_str)
 
         # Resolve relative paths against CWD
         if not path.is_absolute():
-            path = Path.cwd() / path
+            try:
+                path = Path.cwd() / path
+            except OSError as e:
+                raise PromptParserError(
+                    f"Cannot resolve relative path - current directory unavailable: {e}. " f"Use absolute path instead of: {path_str}",
+                ) from e
 
+        # resolve() can raise OSError or RuntimeError
         return path.resolve()
 
     def _normalize_whitespace(self, text: str) -> str:
@@ -259,8 +286,12 @@ class PromptParser:
         parent_counts: Counter[str] = Counter()
         for ctx in paths:
             path = Path(ctx["path"])
-            if path.is_file():
-                parent_counts[str(path.parent)] += 1
+            try:
+                if path.is_file():
+                    parent_counts[str(path.parent)] += 1
+            except (OSError, PermissionError):
+                # Skip paths we can't check
+                continue
 
         suggestions = []
         for parent, count in parent_counts.items():

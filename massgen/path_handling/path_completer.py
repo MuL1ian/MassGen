@@ -56,7 +56,11 @@ class AtPathCompleter(Completer):
             expanduser: If True, expand ~ to home directory.
             file_filter: Optional callable to filter files (return True to include).
         """
-        self.base_path = base_path or Path.cwd()
+        try:
+            self.base_path = base_path or Path.cwd()
+        except OSError:
+            # Fallback if cwd is unavailable (deleted directory, etc.)
+            self.base_path = Path.home()
         self.only_directories = only_directories
         self.expanduser = expanduser
         self.file_filter = file_filter
@@ -127,9 +131,13 @@ class AtPathCompleter(Completer):
             # Build the completion text
             completed_path = path_text + completion.text
 
-            # Check if this is a directory
-            full_path = self._resolve_path(completed_path)
-            is_dir = full_path.is_dir() if full_path.exists() else False
+            # Check if this is a directory (with error handling for filesystem issues)
+            try:
+                full_path = self._resolve_path(completed_path)
+                is_dir = full_path.is_dir() if full_path.exists() else False
+            except (OSError, PermissionError, ValueError, RuntimeError):
+                # Skip completions we can't resolve (permission denied, invalid path, etc.)
+                continue
 
             # Add trailing slash for directories
             if is_dir and not completed_path.endswith("/"):
@@ -238,6 +246,11 @@ class AtPathCompleter(Completer):
 
         Returns:
             Resolved absolute Path.
+
+        Raises:
+            OSError: If path resolution fails (e.g., permission denied).
+            RuntimeError: If path has circular symlinks.
+            ValueError: If path contains invalid characters.
         """
         # Handle ~ expansion
         if path_str.startswith("~") and self.expanduser:
@@ -249,6 +262,7 @@ class AtPathCompleter(Completer):
         if not path.is_absolute():
             path = self.base_path / path
 
+        # resolve() can raise OSError or RuntimeError (circular symlinks)
         return path.resolve()
 
     def _get_file_type(self, path_str: str) -> str:

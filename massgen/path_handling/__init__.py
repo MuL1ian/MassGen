@@ -3,6 +3,7 @@
 
 This module provides:
 - AtPathCompleter: Prompt completion for @path references
+- PromptParser: Parser class for @path syntax extraction
 - parse_prompt_for_context: Extract context paths from prompts
 - ParsedPrompt: Dataclass for parsed prompt results
 """
@@ -10,6 +11,7 @@ This module provides:
 from massgen.path_handling.path_completer import AtPathCompleter
 from massgen.path_handling.prompt_parser import (
     ParsedPrompt,
+    PromptParser,
     PromptParserError,
     parse_prompt_for_context,
 )
@@ -17,6 +19,7 @@ from massgen.path_handling.prompt_parser import (
 __all__ = [
     "AtPathCompleter",
     "ParsedPrompt",
+    "PromptParser",
     "PromptParserError",
     "parse_prompt_for_context",
 ]

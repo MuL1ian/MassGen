@@ -210,6 +210,76 @@ class TestEdgeCases:
             assert any("second.py" in c for c in completions)
             assert not any("first.py" in c for c in completions)
 
+    def test_path_with_spaces_returns_no_completions(self):
+        """Test that paths with spaces return no completions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.py"
+            test_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            # Space in path text should return no completions
+            completions = get_completions(completer, "@path with space")
+            assert completions == []
+
+    def test_at_followed_by_space_returns_no_completions(self):
+        """Test that @ followed by space returns no completions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.py"
+            test_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            completions = get_completions(completer, "@ test")
+            assert completions == []
+
+
+class TestConstructorParameters:
+    """Tests for constructor parameters."""
+
+    def test_only_directories_parameter(self):
+        """Test only_directories=True excludes files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.py"
+            test_dir = Path(tmpdir) / "subdir"
+            test_file.touch()
+            test_dir.mkdir()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir), only_directories=True)
+            completions = get_completions(completer, "@")
+
+            # Should include directory but not file
+            assert any("subdir" in c for c in completions)
+            assert not any("test.py" in c for c in completions)
+
+    def test_file_filter_parameter(self):
+        """Test file_filter parameter filters completions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            py_file = Path(tmpdir) / "code.py"
+            txt_file = Path(tmpdir) / "notes.txt"
+            py_file.touch()
+            txt_file.touch()
+
+            # Filter to only show .py files
+            def py_filter(filename: str) -> bool:
+                return filename.endswith(".py")
+
+            completer = AtPathCompleter(base_path=Path(tmpdir), file_filter=py_filter)
+            completions = get_completions(completer, "@")
+
+            # Should include .py file but not .txt file
+            assert any("code.py" in c for c in completions)
+            assert not any("notes.txt" in c for c in completions)
+
+    def test_partial_write_suffix_typing(self):
+        """Test completion while typing :w suffix."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.py"
+            test_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            # User typing "@test:" should still complete
+            completions = get_completions(completer, "@test:")
+            assert any("test.py" in c for c in completions)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
