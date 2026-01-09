@@ -3345,17 +3345,27 @@ Your answer:"""
         agent: ChatAgent,
         answers: Dict[str, str],
     ) -> None:
-        """Set up GeneralHookManager with mid-stream injection and reminder extraction hooks.
+        """Set up hooks for agent - uses native adapter for Claude Code, GeneralHookManager for others.
 
-        This creates a hook manager with:
+        This routes hook setup based on backend capabilities:
+        - Backends with native hook support (Claude Code): Use NativeHookAdapter
+        - Standard backends: Use GeneralHookManager
+
+        Both paths set up the same hooks:
         1. MidStreamInjectionHook - injects answers from other agents into tool results
-        2. ReminderExtractionHook - extracts reminder fields from tool results
+        2. HighPriorityTaskReminderHook - reminds to document high-priority task completions
 
         Args:
             agent_id: The agent identifier
             agent: The ChatAgent instance
             answers: Dict of existing answers when agent started (used to detect new answers)
         """
+        # Check if backend supports native hooks (e.g., Claude Code)
+        if hasattr(agent.backend, "supports_native_hooks") and agent.backend.supports_native_hooks():
+            self._setup_native_hooks_for_agent(agent_id, agent, answers)
+            return
+
+        # Fall back to GeneralHookManager for standard backends
         if not hasattr(agent.backend, "set_general_hook_manager"):
             return
 
@@ -3460,6 +3470,126 @@ Your answer:"""
         # Set manager on backend
         agent.backend.set_general_hook_manager(manager)
         logger.debug(f"[Orchestrator] Set up hook manager for {agent_id} with mid-stream and reminder hooks")
+
+    def _setup_native_hooks_for_agent(
+        self,
+        agent_id: str,
+        agent: ChatAgent,
+        answers: Dict[str, str],
+    ) -> None:
+        """Set up native hooks for backends that support them (e.g., Claude Code).
+
+        This converts MassGen hooks to the backend's native format using the
+        NativeHookAdapter interface. The hooks are then executed natively by
+        the backend rather than through MassGen's GeneralHookManager.
+
+        Args:
+            agent_id: The agent identifier
+            agent: The ChatAgent instance
+            answers: Dict of existing answers when agent started (used to detect new answers)
+        """
+        # Get the native hook adapter from the backend
+        adapter = agent.backend.get_native_hook_adapter()
+        if not adapter:
+            logger.warning(f"[Orchestrator] Backend supports native hooks but adapter unavailable for {agent_id}")
+            return
+
+        # Create a GeneralHookManager to hold MassGen hooks
+        # (We'll convert these to native format)
+        manager = GeneralHookManager()
+
+        # Create mid-stream injection hook with closure-based callback
+        mid_stream_hook = MidStreamInjectionHook()
+
+        # Define the injection callback (same logic as GeneralHookManager path)
+        async def get_injection_content() -> Optional[str]:
+            """Check if mid-stream injection is needed and return content."""
+            if not self._check_restart_pending(agent_id):
+                return None
+
+            # In vote-only mode, skip injection and force a full restart instead.
+            if self._is_vote_only_mode(agent_id):
+                return None
+
+            # Get CURRENT answers from agent_states
+            current_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
+
+            # Filter to only NEW answers
+            new_answers = {aid: ans for aid, ans in current_answers.items() if aid not in answers}
+
+            if not new_answers:
+                return None
+
+            # TIMING CONSTRAINT: Only use mid-stream injection after first traditional injection
+            if self.agent_states[agent_id].injection_count == 0:
+                return None
+
+            # Copy snapshots from new answer agents to temp workspace
+            logger.info(f"[Orchestrator] Copying snapshots for mid-stream injection to {agent_id}")
+            await self._copy_all_snapshots_to_temp_workspace(agent_id)
+
+            # Build injection content
+            injection = self._build_tool_result_injection(agent_id, new_answers, existing_answers=answers)
+
+            # Clear restart_pending since injection satisfies the update need
+            self.agent_states[agent_id].restart_pending = False
+
+            # Increment injection count
+            self.agent_states[agent_id].injection_count += 1
+
+            # Track the injection
+            logger.info(
+                f"[Orchestrator] Mid-stream injection (native) for {agent_id}: {len(new_answers)} new answer(s)",
+            )
+            self.coordination_tracker.track_agent_action(
+                agent_id,
+                ActionType.UPDATE_INJECTED,
+                f"Mid-stream (native): {len(new_answers)} answer(s)",
+            )
+
+            # Update agent's context labels
+            self.coordination_tracker.update_agent_context_with_new_answers(
+                agent_id,
+                list(new_answers.keys()),
+            )
+
+            return injection
+
+        # Set callback on hook
+        mid_stream_hook.set_callback(get_injection_content)
+
+        # Register mid-stream injection hook
+        manager.register_global_hook(HookType.POST_TOOL_USE, mid_stream_hook)
+
+        # Register high-priority task reminder hook
+        reminder_hook = HighPriorityTaskReminderHook()
+        manager.register_global_hook(HookType.POST_TOOL_USE, reminder_hook)
+
+        # Register user-configured hooks from agent backend config
+        agent_hooks = agent.backend.config.get("hooks")
+        if agent_hooks:
+            manager.register_hooks_from_config(agent_hooks, agent_id=agent_id)
+
+        # Create context factory for hooks
+        def context_factory() -> Dict[str, Any]:
+            return {
+                "session_id": getattr(self, "session_id", ""),
+                "orchestrator_id": getattr(self, "orchestrator_id", ""),
+                "agent_id": agent_id,
+            }
+
+        # Convert to native format using adapter
+        native_config = adapter.build_native_hooks_config(
+            manager,
+            agent_id=agent_id,
+            context_factory=context_factory,
+        )
+
+        # Set native hooks config on backend
+        agent.backend.set_native_hooks_config(native_config)
+        logger.info(
+            f"[Orchestrator] Set up native hooks for {agent_id}: " f"PreToolUse={len(native_config.get('PreToolUse', []))}, " f"PostToolUse={len(native_config.get('PostToolUse', []))} hooks",
+        )
 
     def _normalize_workspace_paths_in_answers(self, answers: Dict[str, str], viewing_agent_id: Optional[str] = None) -> Dict[str, str]:
         """Normalize absolute workspace paths in agent answers to accessible temporary workspace paths.

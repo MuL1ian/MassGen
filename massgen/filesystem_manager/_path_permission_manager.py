@@ -326,7 +326,7 @@ class PathPermissionManager:
         Check if a path matches any default excluded patterns.
 
         System files like .massgen/, .env, .git/ are always excluded from write access,
-        EXCEPT when they are within a managed workspace path (which has explicit permissions).
+        EXCEPT when they are within a managed workspace or temp_workspace path (which have explicit permissions).
 
         Args:
             path: Path to check
@@ -334,9 +334,9 @@ class PathPermissionManager:
         Returns:
             True if path should be excluded from write access
         """
-        # First check if this path is inside a workspace - workspaces override exclusions
+        # First check if this path is inside a workspace or temp_workspace - these override exclusions
         for managed_path in self.managed_paths:
-            if managed_path.path_type == "workspace" and managed_path.contains(path):
+            if managed_path.path_type in ("workspace", "temp_workspace") and managed_path.contains(path):
                 return False
 
         # Now check if path contains any excluded patterns
@@ -1265,6 +1265,15 @@ class PathPermissionManager:
         workspace_paths = [str(mp.path) for mp in self.managed_paths if mp.path_type == "workspace"]
         other_paths = [str(mp.path) for mp in self.managed_paths if mp.path_type != "workspace" and not mp.is_file]
         out = workspace_paths + other_paths
+
+        # Log path existence for debugging MCP filesystem server issues
+        for path_str in out:
+            path = Path(path_str)
+            exists = path.exists()
+            logger.debug(f"[PathPermissionManager] MCP filesystem path: {path_str} (exists={exists})")
+            if not exists:
+                logger.warning(f"[PathPermissionManager] MCP filesystem path does not exist: {path_str}")
+
         return out
 
     def get_permission_summary(self) -> str:

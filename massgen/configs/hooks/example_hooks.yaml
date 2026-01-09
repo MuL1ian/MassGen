@@ -58,7 +58,3 @@ agents:
               type: python
 
         # PostToolUse not overridden - global hooks still apply
-
-coordination:
-  max_rounds: 3
-  consensus_threshold: 0.8

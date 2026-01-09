@@ -244,6 +244,11 @@ class FilesystemManager:
         # Add workspace to path manager (workspace is typically writable)
         self.path_permission_manager.add_path(self.cwd, Permission.WRITE, "workspace")
         # Add temporary workspace to path manager (read-only)
+        # Create the directory if it doesn't exist - MCP filesystem server requires
+        # directories to exist when validating allowed paths
+        if self.agent_temporary_workspace_parent and not self.agent_temporary_workspace_parent.exists():
+            self.agent_temporary_workspace_parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[FilesystemManager] Created temp workspace parent directory: {self.agent_temporary_workspace_parent}")
         self.path_permission_manager.add_path(self.agent_temporary_workspace_parent, Permission.READ, "temp_workspace")
 
         # Orchestration-specific paths (set by setup_orchestration_paths)
@@ -1060,6 +1065,7 @@ class FilesystemManager:
         """
         # Get all managed paths
         paths = self.path_permission_manager.get_mcp_filesystem_paths()
+        logger.debug(f"[FilesystemManager.get_mcp_filesystem_config] MCP filesystem paths for agent: {paths}")
 
         # Check if we should use globally installed package (Docker) vs npx (local)
         # In Docker, we pre-install with the zod-to-json-schema fix
@@ -1094,13 +1100,36 @@ class FilesystemManager:
             )
         else:
             # Standard configuration without mcpwrapped
-            config = {
-                "name": "filesystem",
-                "type": "stdio",
-                "command": base_command,
-                "args": base_args,
-                "cwd": str(self.cwd),
-            }
+            # Note: ALLOWED_PATHS env var is NOT supported by @modelcontextprotocol/server-filesystem
+            # (it's only a proposal: https://github.com/modelcontextprotocol/servers/issues/1879)
+            # Paths MUST be passed as command-line args
+
+            # Use no-roots wrapper by default to prevent MCP roots protocol from overriding our paths
+            # The MCP filesystem server supports "roots" protocol where client-provided roots
+            # completely replace command-line args. Claude Code SDK uses this, which breaks our
+            # multi-path setup (workspace + temp_workspaces). The wrapper intercepts and removes
+            # roots capability, forcing the server to use our command-line args.
+            # Set MASSGEN_FILESYSTEM_NO_ROOTS=0 to disable (not recommended for Claude Code backend)
+            use_no_roots = os.environ.get("MASSGEN_FILESYSTEM_NO_ROOTS", "1") == "1"
+            if use_no_roots:
+                wrapper_path = Path(__file__).parent.parent / "mcp_tools" / "filesystem_no_roots.py"
+                config = {
+                    "name": "filesystem",
+                    "type": "stdio",
+                    "command": "python3",
+                    "args": [str(wrapper_path)] + paths,
+                    "cwd": str(self.cwd),
+                }
+                logger.info(f"[FilesystemManager] Using no-roots wrapper for filesystem: {paths}")
+            else:
+                config = {
+                    "name": "filesystem",
+                    "type": "stdio",
+                    "command": base_command,
+                    "args": base_args,  # base_args includes the paths
+                    "cwd": str(self.cwd),
+                }
+                logger.info(f"[FilesystemManager] MCP filesystem config (roots enabled): {paths}")
 
             if include_only_write_tools:
                 # Code-based tools mode: Only include write_file and edit_file
@@ -1331,6 +1360,13 @@ class FilesystemManager:
 
         # Update backend config
         backend_config["mcp_servers"] = mcp_servers
+
+        # Log the final MCP server configs for debugging
+        for server in mcp_servers:
+            if isinstance(server, dict):
+                server_name = server.get("name", "unknown")
+                server_args = server.get("args", [])
+                logger.debug(f"[FilesystemManager.inject_filesystem_mcp] Server '{server_name}' args: {server_args}")
 
         return backend_config
 

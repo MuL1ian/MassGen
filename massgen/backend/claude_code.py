@@ -228,6 +228,17 @@ class ClaudeCodeBackend(LLMBackend):
 
                 logger.info(f"Registered SDK MCP server with {len(self._custom_tool_manager.registered_tools)} custom tools")
 
+        # Initialize native hook adapter for MassGen hooks integration
+        self._native_hook_adapter: Optional[Any] = None
+        self._massgen_hooks_config: Optional[Dict[str, Any]] = None
+        try:
+            from ..mcp_tools.native_hook_adapters import ClaudeCodeNativeHookAdapter
+
+            self._native_hook_adapter = ClaudeCodeNativeHookAdapter()
+            logger.debug("[ClaudeCodeBackend] Native hook adapter initialized")
+        except ImportError as e:
+            logger.debug(f"[ClaudeCodeBackend] Native hook adapter not available: {e}")
+
     def _setup_windows_subprocess_cleanup_suppression(self):
         """Comprehensive Windows subprocess cleanup warning suppression."""
         # All warning filters
@@ -321,6 +332,43 @@ class ClaudeCodeBackend(LLMBackend):
             True - Claude Code maintains server-side session state
         """
         return True
+
+    def supports_native_hooks(self) -> bool:
+        """Check if this backend supports native hook integration.
+
+        Claude Code backend supports native hooks via the Claude Agent SDK's
+        HookMatcher API, allowing MassGen hooks to be executed natively by
+        the Claude Code server.
+
+        Returns:
+            True if the native hook adapter is available
+        """
+        return self._native_hook_adapter is not None
+
+    def get_native_hook_adapter(self) -> Optional[Any]:
+        """Get the native hook adapter for this backend.
+
+        Returns:
+            ClaudeCodeNativeHookAdapter instance if available, None otherwise
+        """
+        return self._native_hook_adapter
+
+    def set_native_hooks_config(self, config: Dict[str, Any]) -> None:
+        """Set MassGen hooks converted to native format.
+
+        Called by the orchestrator to set up MassGen hooks (MidStreamInjection,
+        HighPriorityTaskReminder, user-configured hooks) in native format.
+        These hooks will be merged with permission hooks when building
+        ClaudeAgentOptions.
+
+        Args:
+            config: Native hooks configuration dict with PreToolUse and/or
+                   PostToolUse keys containing HookMatcher lists
+        """
+        self._massgen_hooks_config = config
+        logger.debug(
+            f"[ClaudeCodeBackend] Set native hooks config: " f"PreToolUse={len(config.get('PreToolUse', []))} hooks, " f"PostToolUse={len(config.get('PostToolUse', []))} hooks",
+        )
 
     async def _setup_code_based_tools_symlinks(self) -> None:
         """Setup symlinks to shared code-based tools if they already exist.
@@ -1323,8 +1371,20 @@ class ClaudeCodeBackend(LLMBackend):
         cwd_option = Path(str(self.filesystem_manager.get_current_workspace())).resolve()
         self._cwd = str(cwd_option)
 
-        # Get hooks configuration from filesystem manager
-        hooks_config = self.filesystem_manager.get_claude_code_hooks_config()
+        # Get hooks configuration from filesystem manager (permission hooks)
+        permission_hooks = self.filesystem_manager.get_claude_code_hooks_config()
+
+        # Merge permission hooks with MassGen hooks (MidStreamInjection, user hooks, etc.)
+        if self._massgen_hooks_config and self._native_hook_adapter:
+            hooks_config = self._native_hook_adapter.merge_native_configs(
+                permission_hooks,
+                self._massgen_hooks_config,
+            )
+            logger.debug(
+                f"[ClaudeCodeBackend] Merged hooks: " f"PreToolUse={len(hooks_config.get('PreToolUse', []))} total, " f"PostToolUse={len(hooks_config.get('PostToolUse', []))} total",
+            )
+        else:
+            hooks_config = permission_hooks
 
         # Convert mcp_servers from list format to dict format for ClaudeAgentOptions
         # List format: [{"name": "server1", "type": "stdio", ...}, ...]
@@ -1343,21 +1403,45 @@ class ClaudeCodeBackend(LLMBackend):
                             # Regular dictionary configuration
                             server_config = {k: v for k, v in server.items() if k != "name"}
                             mcp_servers_dict[server["name"]] = server_config
+                            # Log filesystem server args for debugging
+                            if server["name"] == "filesystem":
+                                logger.info(f"[ClaudeCodeBackend] Configuring filesystem MCP server with args: {server_config.get('args', [])}")
             elif isinstance(mcp_servers, dict):
                 # Already in dict format
                 mcp_servers_dict = mcp_servers
+
+        # Get additional directories from filesystem manager for Claude Code access
+        # This is required because Claude Code's built-in permission system restricts
+        # filesystem access to cwd by default. MCP server args alone aren't sufficient.
+        add_dirs = []
+        if self.filesystem_manager:
+            fs_paths = self.filesystem_manager.path_permission_manager.get_mcp_filesystem_paths()
+            # Add all paths except cwd (which is already accessible)
+            cwd_str = str(cwd_option)
+            for path in fs_paths:
+                if path != cwd_str:
+                    add_dirs.append(path)
+            if add_dirs:
+                logger.info(f"[ClaudeCodeBackend._build_claude_options] Adding extra dirs for Claude Code access: {add_dirs}")
 
         options = {
             "cwd": cwd_option,
             "resume": self.get_current_session_id(),
             "permission_mode": permission_mode,
             "allowed_tools": allowed_tools,
+            "add_dirs": add_dirs if add_dirs else [],
+            # Disable loading filesystem-based settings to ensure our programmatic config takes precedence
+            "setting_sources": [],
             **{k: v for k, v in options_kwargs.items() if k not in excluded_params},
         }
 
         # Add converted mcp_servers if present
         if mcp_servers_dict:
             options["mcp_servers"] = mcp_servers_dict
+            # Debug log the full filesystem server config
+            if "filesystem" in mcp_servers_dict:
+                fs_config = mcp_servers_dict["filesystem"]
+                logger.info(f"[ClaudeCodeBackend] Full filesystem MCP config being passed to SDK: {fs_config}")
 
         # System prompt handling based on use_default_prompt config
         # - use_default_prompt=True: Use Claude Code preset (for coding style guidelines)
@@ -1383,6 +1467,22 @@ class ClaudeCodeBackend(LLMBackend):
             return None
 
         options["can_use_tool"] = can_use_tool
+
+        # Debug: Log the full mcp_servers config being passed to SDK
+        if "mcp_servers" in options and "filesystem" in options["mcp_servers"]:
+            logger.info(f"[ClaudeCodeBackend] FINAL filesystem config to SDK: {options['mcp_servers']['filesystem']}")
+
+        # Debug: Log add_dirs to verify they're being passed
+        if options.get("add_dirs"):
+            logger.info(f"[ClaudeCodeBackend] FINAL add_dirs to SDK: {options['add_dirs']}")
+
+        # Add stderr callback to capture Claude Code SDK debug output (MCP logs, etc.)
+        # TEMPORARY: Always enabled for debugging MAS-215
+        def stderr_callback(line: str):
+            logger.info(f"[ClaudeCodeSDK:stderr] {line.rstrip()}")
+
+        options["stderr"] = stderr_callback
+        logger.info("[ClaudeCodeBackend] Enabled stderr callback for SDK debug output")
 
         return ClaudeAgentOptions(**options)
 
