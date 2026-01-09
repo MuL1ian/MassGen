@@ -144,12 +144,19 @@ async def main():
             forward_stdin(),
             forward_stdout(),
         )
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         print(f"[filesystem_no_roots] Error: {e}", file=sys.stderr)
+        raise
     finally:
         if process.returncode is None:
             process.terminate()
-            await process.wait()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
 
 
 if __name__ == "__main__":

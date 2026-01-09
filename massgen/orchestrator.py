@@ -3423,11 +3423,11 @@ Your answer:"""
                     if os.path.exists(workspace_path):
                         try:
                             files = os.listdir(workspace_path)
-                            logger.info(f"[Orchestrator] Injection workspace {workspace_path} contains: {files}")
-                        except Exception as e:
-                            logger.warning(f"[Orchestrator] Could not list workspace {workspace_path}: {e}")
+                            logger.debug(f"[Orchestrator] Injection workspace {workspace_path} contains: {files}")
+                        except OSError as e:
+                            logger.debug(f"[Orchestrator] Could not list workspace {workspace_path}: {e}")
                     else:
-                        logger.warning(f"[Orchestrator] Injection workspace {workspace_path} does NOT exist!")
+                        logger.debug(f"[Orchestrator] Injection workspace {workspace_path} does NOT exist!")
 
             # Clear restart_pending since injection satisfies the update need
             self.agent_states[agent_id].restart_pending = False
@@ -3439,10 +3439,9 @@ Your answer:"""
             logger.info(
                 f"[Orchestrator] Mid-stream injection for {agent_id}: {len(new_answers)} new answer(s)",
             )
-            # Log the actual injection content for debugging
-            logger.info(
-                f"[Orchestrator] Injection content:\n{injection}",
-            )
+            # Log the actual injection content at debug level (may contain sensitive data)
+            preview = injection[:2000] + ("..." if len(injection) > 2000 else "")
+            logger.debug(f"[Orchestrator] Injection content (truncated):\n{preview}")
             self.coordination_tracker.track_agent_action(
                 agent_id,
                 ActionType.UPDATE_INJECTED,
@@ -3466,6 +3465,13 @@ Your answer:"""
         # Register high-priority task reminder hook
         reminder_hook = HighPriorityTaskReminderHook()
         manager.register_global_hook(HookType.POST_TOOL_USE, reminder_hook)
+
+        # Register user-configured hooks from agent backend config
+        if hasattr(agent.backend, "config") and agent.backend.config:
+            agent_hooks = agent.backend.config.get("hooks")
+            if agent_hooks:
+                manager.register_hooks_from_config(agent_hooks, agent_id=agent_id)
+                logger.debug(f"[Orchestrator] Registered user-configured hooks for {agent_id}")
 
         # Set manager on backend
         agent.backend.set_general_hook_manager(manager)
@@ -4344,8 +4350,8 @@ Your answer:"""
                         yield ("done", None)
                         return
                     # else: injection_count >= 1, mid-stream callback will handle via tool results
-                    # Clear the flag since callback will inject on next tool call
-                    self.agent_states[agent_id].restart_pending = False
+                    # Do NOT clear restart_pending here - the callback checks this flag
+                    # and will clear it after injecting content (see get_injection_content)
 
                 # TODO: Need to still log this redo enforcement msg in the context.txt, and this & others in the coordination tracker.
 

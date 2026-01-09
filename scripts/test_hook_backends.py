@@ -344,7 +344,7 @@ async def test_high_priority_task_reminder_hook(
         )
         result = await manager.execute_hooks(
             HookType.POST_TOOL_USE,
-            "complete_task",  # Hook only matches this tool
+            "update_task_status",  # Hook matches *update_task_status pattern
             "{}",
             {},
             tool_output=tool_output,

@@ -228,14 +228,22 @@ class ClaudeCodeNativeHookAdapter(NativeHookAdapter):
             }
 
         # Handle PreToolUse with modified arguments
-        if hook_type == HT.PRE_TOOL_USE and result.updated_input:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                    "updatedInput": result.updated_input,
-                },
-            }
+        if hook_type == HT.PRE_TOOL_USE and (result.updated_input or result.modified_args):
+            # Prefer updated_input (dict), fall back to modified_args (JSON string)
+            updated = result.updated_input
+            if updated is None and result.modified_args:
+                try:
+                    updated = json.loads(result.modified_args)
+                except (json.JSONDecodeError, TypeError):
+                    updated = None
+            if isinstance(updated, dict) and updated:
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "allow",
+                        "updatedInput": updated,
+                    },
+                }
 
         # Handle PostToolUse with injection
         if hook_type == HT.POST_TOOL_USE and result.inject:

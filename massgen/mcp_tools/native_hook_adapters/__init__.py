@@ -21,7 +21,7 @@ from .base import NativeHookAdapter
 from .claude_code_adapter import ClaudeCodeNativeHookAdapter, is_claude_sdk_available
 
 __all__ = [
-    "NativeHookAdapter",
     "ClaudeCodeNativeHookAdapter",
+    "NativeHookAdapter",
     "is_claude_sdk_available",
 ]

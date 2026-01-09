@@ -146,7 +146,7 @@ class ClaudeCodeBackend(LLMBackend):
             bash_path = shutil.which("bash")
             if bash_path:
                 os.environ["CLAUDE_CODE_GIT_BASH_PATH"] = bash_path
-                print(f"[ClaudeCodeBackend] Set CLAUDE_CODE_GIT_BASH_PATH={bash_path}")
+                logger.info(f"[ClaudeCodeBackend] Set CLAUDE_CODE_GIT_BASH_PATH={bash_path}")
 
         # Comprehensive Windows subprocess cleanup warning suppression
         if sys.platform == "win32":
@@ -440,7 +440,7 @@ class ClaudeCodeBackend(LLMBackend):
 
         except Exception as e:
             # Fallback to full reset if /clear command fails
-            print(f"Warning: /clear command failed ({e}), falling back to full reset")
+            logger.warning(f"/clear command failed ({e}), falling back to full reset")
             await self.reset_state()
 
     async def reset_state(self) -> None:
@@ -1482,14 +1482,6 @@ class ClaudeCodeBackend(LLMBackend):
         if options.get("add_dirs"):
             logger.info(f"[ClaudeCodeBackend] FINAL add_dirs to SDK: {options['add_dirs']}")
 
-        # Add stderr callback to capture Claude Code SDK debug output (MCP logs, etc.)
-        # TEMPORARY: Always enabled for debugging MAS-215
-        def stderr_callback(line: str):
-            logger.info(f"[ClaudeCodeSDK:stderr] {line.rstrip()}")
-
-        options["stderr"] = stderr_callback
-        logger.info("[ClaudeCodeBackend] Enabled stderr callback for SDK debug output")
-
         return ClaudeAgentOptions(**options)
 
     def create_client(self, **options_kwargs) -> ClaudeSDKClient:
@@ -2052,7 +2044,6 @@ class ClaudeCodeBackend(LLMBackend):
         if ResultMessage is not None and isinstance(message, ResultMessage):
             # ResultMessage contains definitive session information
             if hasattr(message, "session_id") and message.session_id:
-                old_session_id = self._current_session_id
                 self._current_session_id = message.session_id
 
         elif SystemMessage is not None and isinstance(message, SystemMessage):
@@ -2060,10 +2051,7 @@ class ClaudeCodeBackend(LLMBackend):
             if hasattr(message, "data") and isinstance(message.data, dict):
                 # Extract session ID from system message data
                 if "session_id" in message.data and message.data["session_id"]:
-                    old_session_id = self._current_session_id
                     self._current_session_id = message.data["session_id"]
-                    if old_session_id != self._current_session_id:
-                        print(f"[ClaudeCodeBackend] Session ID from SystemMessage: {old_session_id} → {self._current_session_id}")
 
                 # Extract working directory from system message data
                 if "cwd" in message.data and message.data["cwd"]:

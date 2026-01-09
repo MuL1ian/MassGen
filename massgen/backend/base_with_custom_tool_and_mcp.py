@@ -1512,7 +1512,13 @@ class CustomToolAndMCPBackend(LLMBackend):
                         error_msg,
                         config.tool_type,
                     )
-                    processed_call_ids.add(call.get("call_id", ""))
+                    processed_call_ids.add(call_id)
+
+                    # Record metric for denied execution
+                    metric.end_time = time.time()
+                    metric.success = False
+                    metric.error_message = error_msg[:500]
+                    self._tool_execution_metrics.append(metric)
                     return
 
                 # Use modified arguments if provided
@@ -1698,9 +1704,10 @@ class CustomToolAndMCPBackend(LLMBackend):
                     logger.info(
                         f"[PostToolUse] Hook injection for {tool_name}: strategy={inject_strategy}, content_len={len(inject_content)}",
                     )
-                    # Log injection content for visibility
+                    # Log injection content at debug level (may contain sensitive data)
                     if inject_content:
-                        logger.info(f"[PostToolUse] Injection content:\n{inject_content}")
+                        preview = inject_content[:500] + ("..." if len(inject_content) > 500 else "")
+                        logger.debug(f"[PostToolUse] Injection preview:\n{preview}")
 
             # Use hook injection as the injection content
             # Mid-stream injection is now handled via MidStreamInjectionHook in the hook framework
