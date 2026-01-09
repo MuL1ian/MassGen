@@ -1,8 +1,8 @@
-# MassGen v0.1.36 Roadmap
+# MassGen v0.1.37 Roadmap
 
 ## Overview
 
-Version 0.1.36 focuses on OpenAI Responses API improvements and computer use model support.
+Version 0.1.37 focuses on OpenAI Responses API improvements and computer use model support.
 
 - **OpenAI Responses /compact Endpoint** (Required): Use OpenAI's native `/compact` endpoint instead of custom summarization
 - **Add Fara-7B for Computer Use** (Required): Support for Fara-7B model for computer use tasks
@@ -126,13 +126,13 @@ Version 0.1.36 focuses on OpenAI Responses API improvements and computer use mod
 
 ---
 
-## Future Enhancements (Post-v0.1.36)
-
-### v0.1.37 Plans
-- **Integrate Smart Semantic Search** (@ncrispino): Advanced semantic search capabilities ([#639](https://github.com/massgen/MassGen/issues/639))
-- **General Hook Framework** (@ncrispino): Agent lifecycle event hooks for extensibility ([#745](https://github.com/massgen/MassGen/issues/745))
+## Future Enhancements (Post-v0.1.37)
 
 ### v0.1.38 Plans
+- **Integrate Smart Semantic Search** (@ncrispino): Advanced semantic search capabilities ([#639](https://github.com/massgen/MassGen/issues/639))
+- **Add Model Selector for Log Analysis** (@ncrispino): Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766))
+
+### v0.1.39 Plans
 - **Improve Log Sharing and Analysis** (@ncrispino): Enhanced log sharing workflows ([#722](https://github.com/massgen/MassGen/issues/722))
 
 ### Long-term Vision
@@ -150,7 +150,7 @@ Version 0.1.36 focuses on OpenAI Responses API improvements and computer use mod
 | Phase 1 | OpenAI Compact Endpoint | API integration, token savings | @ncrispino | **REQUIRED** |
 | Phase 2 | Fara-7B Computer Use | Model integration, GUI automation | @ncrispino | **REQUIRED** |
 
-**Target Release**: January 9, 2026 (Thursday @ 9am PT)
+**Target Release**: January 12, 2026 (Sunday @ 9am PT)
 
 ---
 
@@ -174,7 +174,7 @@ Version 0.1.36 focuses on OpenAI Responses API improvements and computer use mod
 
 ### For Users
 
-- v0.1.36 brings API improvements and new model support:
+- v0.1.37 brings API improvements and new model support:
 
   **OpenAI Responses /compact Endpoint:**
   - Native context compression via OpenAI API
@@ -202,7 +202,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ---
 
-*This roadmap reflects v0.1.36 priorities focusing on OpenAI compact endpoint and Fara-7B model support.*
+*This roadmap reflects v0.1.37 priorities focusing on OpenAI compact endpoint and Fara-7B model support.*
 
-**Last Updated:** January 7, 2026
+**Last Updated:** January 9, 2026
 **Maintained By:** MassGen Team

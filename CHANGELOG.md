@@ -9,16 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.36 (January 9, 2026)** - Hook Framework & Unified @path Context Handling
+General hook framework for agent lifecycle events with PreToolUse/PostToolUse hooks, content injection strategies, and custom hook support. Unified `@path` syntax for inline context path references in CLI and Web UI with autocomplete file picker. Claude Code native hooks integration. Docker resource cleanup improvements when recreating agents for new path references.
+
 **v0.1.35 (January 7, 2026)** - Enhanced Log Analysis & Workflow Observability
 New `massgen logs analyze` command generates analysis prompts or launches multi-agent self-analysis using MassGen. Comprehensive Logfire attributes for workflow explanation including round context, vote context, and local file references. New `direct_mcp_servers` config option for code-based tools mode to keep specific MCP servers as direct protocol tools. Grok and Gemini tool fixes, vote-only mode improvements.
 
 **v0.1.34 (January 5, 2026)** - OpenAI-Compatible Server & Model Discovery
 Local OpenAI-compatible HTTP server enables integration with any OpenAI SDK client. Dynamic model discovery for Groq and Together backends fetches available models via authenticated API calls. WebUI improvements include file diffs, answer refresh polling, and workspace browser optimizations. Subagent reliability enhancements for status tracking, cancellation recovery, and error handling.
 
-**v0.1.33 (January 2, 2026)** - Reactive Context Compression & Streaming Buffers
-Reactive context compression recovers from context length errors by summarizing conversation history. Streaming buffer system tracks partial responses for compression recovery. File overwrite and task plan duplicate protections. Grok MCP tools visibility and Gemini vote-only mode fixes.
-
 ---
+
+## [0.1.36] - 2026-01-09
+
+### Added
+- **Hook Framework**: General hook framework for extending agent behavior at key execution points ([MAS-215](https://linear.app/massgen-ai/issue/MAS-215))
+  - **PreToolUse hooks**: Execute before tool invocation for permission validation and argument modification
+  - **PostToolUse hooks**: Execute after tool results for content injection and processing
+  - **Injection strategies**: `tool_result` (append to output) and `user_message` (separate message)
+  - **Built-in hooks**: MidStreamInjectionHook for cross-agent updates, HighPriorityTaskReminderHook for task completion
+  - **Custom hooks**: Python callable hooks with glob-style pattern matching (`*`, `Write|Edit`, `mcp__*`)
+  - **Error handling**: Configurable fail-open (default) or fail-closed behavior for security-critical hooks
+  - **Debug support**: `debug_delay_seconds` and `debug_delay_after_n_tools` for testing mid-stream injection
+
+- **Unified `@path` Context Handling**: Inline context path references in prompts
+  - **Inline file picker**: Type `@` in CLI to trigger autocomplete popup (like Claude Code)
+  - **Syntax support**: `@path` (read), `@path:w` (write), `@dir/` (directory)
+  - **Context accumulation**: Paths from earlier turns remain accessible in later turns
+  - **Permission upgrade**: `@file` in turn 1, `@file:w` in turn 2 grants write permission
+  - **Deferred agent creation**: Docker containers launch once with all paths from first prompt
+
+- **Claude Code Native Hooks**: Integration with Claude Code's hook system
+  - Support for Claude Code temp filesystem tools permission handling
+
+### Changed
+- **Docker Resource Management**: Clean up Docker resources when recreating agents for new `@path` references
+  - Prevents resource leaks during interactive sessions with path changes
+
+- **Installation Instructions**: Revised README with clearer `uv` installation steps
+  - Streamlined quickstart guide for faster onboarding
+
+### Fixed
+- **Path Handling**: Fixed path reference handling for Web UI and Rich CLI
+  - Consistent behavior across CLI interactive mode, automation mode, and Web UI
+
+### Documentations, Configurations and Resources
+- **Hook Framework Guide**: New `docs/source/user_guide/advanced/hooks.rst` with comprehensive hook documentation
+- **File Operations Guide**: Updated `docs/source/user_guide/files/file_operations.rst` with `@path` syntax
+- **Installation Guide**: Updated `docs/source/quickstart/installation.rst` with `uv` instructions
+- **Hook Config Example**: New `massgen/configs/hooks/example_hooks.yaml` for hook configuration
+- **Debug Config**: New `massgen/configs/debug/injection_delay_test.yaml` for testing mid-stream injection
+- **OpenSpec**: New `openspec/changes/add-hook-framework/` and `openspec/changes/unify-context-path-handling/` proposals
+
+### Technical Details
+- **Major Focus**: Hook framework for agent lifecycle events, unified `@path` syntax, Claude Code integration
+- **Contributors**: @ncrispino, @franklinnwren, @HenryQi and the MassGen team
 
 ## [0.1.35] - 2026-01-07
 

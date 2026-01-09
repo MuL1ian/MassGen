@@ -227,7 +227,30 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.35 - Latest
+### v0.1.36 - Latest
+**New Features:** @path Context Handling, Hook Framework, Claude Code Integration
+
+**Key Features:**
+- **@path Context Handling**: Reference files inline with `@path` syntax - type `@` to trigger autocomplete file picker (like Claude Code)
+- **Hook Framework**: Extend agent behavior with PreToolUse/PostToolUse hooks for permission validation, content injection, and custom processing
+- **Claude Code Integration**: Native Claude Code hooks compatibility and improved Docker resource management
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Reference files with @path syntax - autocomplete file picker
+uv run massgen
+# Then type: Analyze @src/main.py and suggest improvements
+
+# Test hook framework with built-in hooks
+uv run massgen --config massgen/configs/debug/injection_delay_test.yaml \
+  "Create a simple poem and write it into a file"
+# View logs for MidStreamInjectionHook (cross-agent updates) and HighPriorityTaskReminderHook (system reminders)
+```
+
+### v0.1.35
 **New Features:** Log Analysis CLI, Logfire Workflow Observability, Direct MCP Servers, Tool Handling Fixes
 
 **Key Features:**
