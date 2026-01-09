@@ -124,6 +124,12 @@ class ClaudeCodeBackend(LLMBackend):
             kwargs["use_mcpwrapped_for_tool_filtering"] = True
             logger.info("[ClaudeCodeBackend] Enabling mcpwrapped for MCP tool filtering (exclude_file_operation_mcps=True)")
 
+        # Claude Code SDK uses MCP roots protocol which overrides our command-line paths
+        # Use no-roots wrapper to prevent this and ensure both workspace and temp_workspaces are accessible
+        # See: MAS-215 - Claude Code agents couldn't access temp_workspaces for voting/evaluation
+        kwargs["use_no_roots_wrapper"] = True
+        logger.debug("[ClaudeCodeBackend] Enabling no-roots wrapper for MCP filesystem")
+
         super().__init__(api_key, **kwargs)
 
         self.api_key = api_key or os.getenv("CLAUDE_CODE_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
@@ -1362,7 +1368,7 @@ class ClaudeCodeBackend(LLMBackend):
             # MassGen-specific config options (not ClaudeAgentOptions parameters)
             "enable_web_search",  # Handled above - controls WebSearch/WebFetch tool availability
             "use_default_prompt",  # Handled in stream_with_tools - controls system prompt mode
-            "use_mcpwrapped_for_tool_filtering",  # MassGen internal - used by FilesystemManager
+            # Note: use_mcpwrapped_for_tool_filtering and use_no_roots_wrapper are in base excluded params
             # Note: system_prompt is NOT excluded - it's needed for internal workflow prompt injection
             # Validation prevents it from being set in YAML backend config
         }

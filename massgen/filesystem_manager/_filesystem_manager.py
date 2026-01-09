@@ -63,6 +63,7 @@ class FilesystemManager:
         enable_file_generation: bool = False,
         exclude_file_operation_mcps: bool = False,
         use_mcpwrapped_for_tool_filtering: bool = False,
+        use_no_roots_wrapper: bool = False,
         enable_code_based_tools: bool = False,
         custom_tools_path: Optional[str] = None,
         auto_discover_custom_tools: bool = False,
@@ -100,6 +101,10 @@ class FilesystemManager:
                                               Required for Claude Code backend which doesn't support allowed_tools for MCP tools.
                                               See: https://github.com/anthropics/claude-code/issues/7328
                                               Requires: npm i -g mcpwrapped (https://github.com/VitoLin/mcpwrapped)
+            use_no_roots_wrapper: If True, wrap MCP filesystem server with no-roots wrapper that intercepts
+                                  and removes the MCP roots protocol. This prevents clients (like Claude Code SDK)
+                                  from overriding our command-line paths with their own roots.
+                                  Required for Claude Code backend to access temp_workspaces.
             enable_code_based_tools: If True, generate Python wrapper code for MCP tools in servers/ directory.
                                      Agents discover and call tools via filesystem (CodeAct paradigm).
             custom_tools_path: Optional path to custom tools directory to copy into workspace
@@ -123,6 +128,7 @@ class FilesystemManager:
         self.enable_mcp_command_line = enable_mcp_command_line
         self.exclude_file_operation_mcps = exclude_file_operation_mcps
         self.use_mcpwrapped_for_tool_filtering = use_mcpwrapped_for_tool_filtering
+        self.use_no_roots_wrapper = use_no_roots_wrapper
         self.enable_code_based_tools = enable_code_based_tools
         self.exclude_custom_tools = exclude_custom_tools if exclude_custom_tools else []
         self.direct_mcp_servers = direct_mcp_servers if direct_mcp_servers else []
@@ -1045,6 +1051,7 @@ class FilesystemManager:
         self,
         include_only_write_tools: bool = False,
         use_mcpwrapped: bool = False,
+        use_no_roots_wrapper: bool = False,
     ) -> Dict[str, Any]:
         """
         Generate MCP filesystem server configuration.
@@ -1059,6 +1066,10 @@ class FilesystemManager:
                            Required for Claude Code backend since it doesn't support allowed_tools
                            for MCP tools. See: https://github.com/anthropics/claude-code/issues/7328
                            Uses: https://github.com/VitoLin/mcpwrapped
+            use_no_roots_wrapper: If True, wrap the server with our no-roots wrapper that
+                                  intercepts and removes the MCP roots protocol. This prevents
+                                  clients (like Claude Code SDK) from overriding our command-line
+                                  paths with their own roots. Required for Claude Code backend.
 
         Returns:
             Dictionary with MCP server configuration for filesystem access
@@ -1104,14 +1115,12 @@ class FilesystemManager:
             # (it's only a proposal: https://github.com/modelcontextprotocol/servers/issues/1879)
             # Paths MUST be passed as command-line args
 
-            # Use no-roots wrapper by default to prevent MCP roots protocol from overriding our paths
+            # Use no-roots wrapper to prevent MCP roots protocol from overriding our paths
             # The MCP filesystem server supports "roots" protocol where client-provided roots
             # completely replace command-line args. Claude Code SDK uses this, which breaks our
             # multi-path setup (workspace + temp_workspaces). The wrapper intercepts and removes
             # roots capability, forcing the server to use our command-line args.
-            # Set MASSGEN_FILESYSTEM_NO_ROOTS=0 to disable (not recommended for Claude Code backend)
-            use_no_roots = os.environ.get("MASSGEN_FILESYSTEM_NO_ROOTS", "1") == "1"
-            if use_no_roots:
+            if use_no_roots_wrapper:
                 wrapper_path = Path(__file__).parent.parent / "mcp_tools" / "filesystem_no_roots.py"
                 config = {
                     "name": "filesystem",
@@ -1129,7 +1138,7 @@ class FilesystemManager:
                     "args": base_args,  # base_args includes the paths
                     "cwd": str(self.cwd),
                 }
-                logger.info(f"[FilesystemManager] MCP filesystem config (roots enabled): {paths}")
+                logger.info(f"[FilesystemManager] MCP filesystem config: {paths}")
 
             if include_only_write_tools:
                 # Code-based tools mode: Only include write_file and edit_file
@@ -1326,6 +1335,7 @@ class FilesystemManager:
                     self.get_mcp_filesystem_config(
                         include_only_write_tools=self.exclude_file_operation_mcps,
                         use_mcpwrapped=self.use_mcpwrapped_for_tool_filtering,
+                        use_no_roots_wrapper=self.use_no_roots_wrapper,
                     ),
                 )
                 if self.exclude_file_operation_mcps:

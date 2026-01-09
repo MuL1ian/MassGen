@@ -157,6 +157,7 @@ class LLMBackend(ABC):
                     "enable_audio_generation": kwargs.get("enable_audio_generation", False),
                     "exclude_file_operation_mcps": kwargs.get("exclude_file_operation_mcps", False),
                     "use_mcpwrapped_for_tool_filtering": kwargs.get("use_mcpwrapped_for_tool_filtering", False),
+                    "use_no_roots_wrapper": kwargs.get("use_no_roots_wrapper", False),
                     "enable_code_based_tools": kwargs.get("enable_code_based_tools", False),
                     "custom_tools_path": kwargs.get("custom_tools_path"),
                     "auto_discover_custom_tools": kwargs.get("auto_discover_custom_tools", False),
@@ -264,6 +265,8 @@ class LLMBackend(ABC):
             "command_line_docker_credentials",
             "command_line_docker_packages",
             "exclude_file_operation_mcps",
+            "use_mcpwrapped_for_tool_filtering",
+            "use_no_roots_wrapper",
             # Code-based tools (CodeAct paradigm)
             "enable_code_based_tools",
             "custom_tools_path",
