@@ -16,5 +16,33 @@ TODO - Missing Frontend Features from v0.0.1:
 
 from .coordination_ui import CoordinationUI
 from .displays import SimpleDisplay, TerminalDisplay
+from .interactive_controller import (
+    CommandResult,
+    InteractiveSessionController,
+    QuestionSource,
+    RichInteractiveAdapter,
+    RichStdinQuestionSource,
+    SessionContext,
+    SlashCommandDispatcher,
+    TextualInteractiveAdapter,
+    TextualThreadQueueQuestionSource,
+    TurnResult,
+    UIAdapter,
+)
 
-__all__ = ["CoordinationUI", "TerminalDisplay", "SimpleDisplay"]
+__all__ = [
+    "CoordinationUI",
+    "TerminalDisplay",
+    "SimpleDisplay",
+    "InteractiveSessionController",
+    "QuestionSource",
+    "UIAdapter",
+    "TurnResult",
+    "CommandResult",
+    "SessionContext",
+    "SlashCommandDispatcher",
+    "RichStdinQuestionSource",
+    "TextualThreadQueueQuestionSource",
+    "RichInteractiveAdapter",
+    "TextualInteractiveAdapter",
+]

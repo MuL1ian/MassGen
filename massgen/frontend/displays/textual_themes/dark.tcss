@@ -5,7 +5,10 @@ Screen {
     color: #d4d4d4;
 }
 
-/* Adaptive layout classes */
+.hidden {
+    display: none;
+}
+
 #main_container {
     layout: horizontal;
     background: #1e1e1e;
@@ -74,7 +77,6 @@ Screen {
 }
 
 /* Agent panels */
-
 AgentPanel {
     background: #252526;
     border: solid #5a5a5a;
@@ -119,18 +121,66 @@ AgentPanel.status-error {
 }
 
 /* Headers */
-
 HeaderWidget {
-    background: #007ACC;
-    color: #ffffff;
-    padding: 1;
-    height: 3;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 0;
+    height: auto;
+    max-height: 25;
     dock: top;
+    overflow-y: auto;
+}
+
+#ascii_banner_label {
+    color: #4A90E2;
+    text-style: bold;
+}
+
+#session_config_label {
+    color: #4ec9b0;
+    margin-top: 1;
+}
+
+#help_box_label {
+    color: #858585;
+    margin-top: 1;
 }
 
 #question_label {
-    color: #ffffff;
+    color: #dcdcaa;
     text-style: bold;
+    margin-top: 1;
+}
+
+.header-box {
+    border: round #569cd6;
+    padding: 1;
+    margin: 1 0;
+    height: auto;
+}
+
+#question_input {
+    dock: bottom;
+    margin: 1;
+    background: #252526;
+    border: solid #007ACC;
+    padding: 0 1;
+}
+
+#question_input:focus {
+    border: double #007ACC;
+    background: #2a2d2e;
+}
+
+#question_input.-disabled {
+    background: #1e1e1e;
+    border: solid #5a5a5a;
+    color: #858585;
+}
+
+#question_input.-disabled:focus {
+    border: solid #5a5a5a;
+    background: #1e1e1e;
 }
 
 #restart_banner {
@@ -146,9 +196,8 @@ HeaderWidget {
     padding: 1;
 }
 
-/* Agent headers */
 Label {
-    height: 1;
+    height: auto;
     width: 100%;
 }
 
@@ -159,7 +208,6 @@ RichLog {
 }
 
 /* Status colors */
-
 .waiting {
     color: #858585;
 }
@@ -181,7 +229,6 @@ RichLog {
 }
 
 /* Content type colors */
-
 .tool {
     color: #9cdcfe;
 }
@@ -199,7 +246,6 @@ RichLog {
 }
 
 /* Streaming label */
-
 .streaming_label {
     color: #4ec9b0;
     text-style: italic bold;
@@ -211,7 +257,6 @@ RichLog {
 }
 
 /* Post-evaluation panel */
-
 #post_eval_container {
     background: #252526;
     border: solid #5a5a5a;
@@ -226,7 +271,6 @@ RichLog {
 }
 
 /* Final stream panel */
-
 #final_stream_container {
     background: #2d2d25;
     border: solid #dcdcaa;
@@ -256,7 +300,6 @@ RichLog {
 }
 
 /* Modals */
-
 ModalScreen {
     align: center middle;
 }
@@ -340,7 +383,6 @@ ModalScreen {
 }
 
 /* Buttons */
-
 Button {
     background: #007ACC;
     color: #ffffff;
@@ -358,7 +400,6 @@ Button:focus {
 }
 
 /* Lists */
-
 ListView {
     background: #1e1e1e;
     color: #d4d4d4;
@@ -382,7 +423,6 @@ ListItem:focus {
 }
 
 /* TextArea */
-
 TextArea {
     background: #1e1e1e;
     color: #d4d4d4;
@@ -393,7 +433,6 @@ TextArea:focus {
 }
 
 /* Scrollbars */
-
 Scrollbar {
     background: #3c3c3c;
 }
@@ -407,7 +446,6 @@ ScrollbarThumb:hover {
 }
 
 /* Footer */
-
 Footer {
     background: #007ACC;
     color: #ffffff;
