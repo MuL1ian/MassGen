@@ -328,6 +328,9 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
 
+                        # Track if we've already captured reasoning this chunk to avoid duplicates
+                        reasoning_captured_this_chunk = False
+
                         # Capture reasoning_details from delta (OpenRouter models)
                         # Check both direct attribute and model_extra (SDK may not parse custom fields)
                         delta_reasoning_details = getattr(delta, "reasoning_details", None)
@@ -336,7 +339,7 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                             delta_reasoning_details = delta_extra.get("reasoning_details")
                         if delta_reasoning_details:
                             reasoning_details.extend(delta_reasoning_details)
-                            # Buffer reasoning details for compression recovery
+                            # Buffer reasoning details and yield as reasoning chunks
                             for detail in delta_reasoning_details:
                                 # Handle both object and dict formats
                                 # OpenRouter uses "summary" field, others use "text"
@@ -349,9 +352,16 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                     detail_text = detail.get("text") or detail.get("summary")
                                 if detail_text:
                                     self._append_reasoning_to_buffer(detail_text)
+                                    yield StreamChunk(
+                                        type="reasoning",
+                                        content=detail_text,
+                                        reasoning_delta=detail_text,
+                                    )
+                                    reasoning_captured_this_chunk = True
 
                         # Capture reasoning_content from delta (DeepSeek, Qwen, Grok models via OpenRouter)
-                        if getattr(delta, "reasoning_content", None):
+                        # Skip if we already captured reasoning_details to avoid duplicates
+                        if not reasoning_captured_this_chunk and getattr(delta, "reasoning_content", None):
                             reasoning_chunk = delta.reasoning_content
                             if reasoning_chunk:
                                 self._append_reasoning_to_buffer(reasoning_chunk)
@@ -359,6 +369,23 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                     type="reasoning",
                                     content=reasoning_chunk,
                                     reasoning_delta=reasoning_chunk,
+                                )
+                                reasoning_captured_this_chunk = True
+
+                        # Capture reasoning field from delta (OpenRouter with include_reasoning=true)
+                        # This is different from reasoning_content - used by DeepSeek R1 models
+                        # Skip if we already captured reasoning to avoid duplicates
+                        if not reasoning_captured_this_chunk:
+                            delta_reasoning = getattr(delta, "reasoning", None)
+                            if not delta_reasoning:
+                                delta_extra = getattr(delta, "model_extra", None) or {}
+                                delta_reasoning = delta_extra.get("reasoning")
+                            if delta_reasoning:
+                                self._append_reasoning_to_buffer(delta_reasoning)
+                                yield StreamChunk(
+                                    type="reasoning",
+                                    content=delta_reasoning,
+                                    reasoning_delta=delta_reasoning,
                                 )
 
                         # Plain text content
@@ -749,6 +776,9 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
 
+                        # Track if we've already captured reasoning this chunk to avoid duplicates
+                        reasoning_captured_this_chunk = False
+
                         # Capture reasoning_details from delta (OpenRouter models)
                         # Check both direct attribute and model_extra (SDK may not parse custom fields)
                         delta_reasoning_details = getattr(delta, "reasoning_details", None)
@@ -757,7 +787,7 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                             delta_reasoning_details = delta_extra.get("reasoning_details")
                         if delta_reasoning_details:
                             reasoning_details.extend(delta_reasoning_details)
-                            # Buffer reasoning details for compression recovery
+                            # Buffer reasoning details and yield as reasoning chunks
                             for detail in delta_reasoning_details:
                                 # Handle both object and dict formats
                                 # OpenRouter uses "summary" field, others use "text"
@@ -770,6 +800,47 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                     detail_text = detail.get("text") or detail.get("summary")
                                 if detail_text:
                                     self._append_reasoning_to_buffer(detail_text)
+                                    yield StreamChunk(
+                                        type="reasoning",
+                                        content=detail_text,
+                                        reasoning_delta=detail_text,
+                                    )
+                                    reasoning_captured_this_chunk = True
+
+                        # Provider-specific reasoning/thinking streams (non-standard OpenAI fields)
+                        # Skip if we already captured reasoning_details to avoid duplicates
+                        if not reasoning_captured_this_chunk and getattr(delta, "reasoning_content", None):
+                            reasoning_active_key = "_reasoning_active"
+                            setattr(self, reasoning_active_key, True)
+                            thinking_delta = getattr(delta, "reasoning_content")
+                            if thinking_delta:
+                                log_stream_chunk(log_prefix, "reasoning", thinking_delta, agent_id)
+                                self._append_reasoning_to_buffer(thinking_delta)
+                                yield StreamChunk(
+                                    type="reasoning",
+                                    content=thinking_delta,
+                                    reasoning_delta=thinking_delta,
+                                )
+                                reasoning_captured_this_chunk = True
+
+                        # Capture reasoning field from delta (OpenRouter with include_reasoning=true)
+                        # This is different from reasoning_content - used by DeepSeek R1 models
+                        # Skip if we already captured reasoning to avoid duplicates
+                        if not reasoning_captured_this_chunk:
+                            delta_reasoning = getattr(delta, "reasoning", None)
+                            if not delta_reasoning:
+                                delta_extra = getattr(delta, "model_extra", None) or {}
+                                delta_reasoning = delta_extra.get("reasoning")
+                            if delta_reasoning:
+                                reasoning_active_key = "_reasoning_active"
+                                setattr(self, reasoning_active_key, True)
+                                log_stream_chunk(log_prefix, "reasoning", delta_reasoning, agent_id)
+                                self._append_reasoning_to_buffer(delta_reasoning)
+                                yield StreamChunk(
+                                    type="reasoning",
+                                    content=delta_reasoning,
+                                    reasoning_delta=delta_reasoning,
+                                )
 
                         # Plain text content
                         if getattr(delta, "content", None):
@@ -792,20 +863,6 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                             )
                             log_stream_chunk(log_prefix, "content", content_chunk, agent_id)
                             yield StreamChunk(type="content", content=content_chunk)
-
-                        # Provider-specific reasoning/thinking streams (non-standard OpenAI fields)
-                        if getattr(delta, "reasoning_content", None):
-                            reasoning_active_key = "_reasoning_active"
-                            setattr(self, reasoning_active_key, True)
-                            thinking_delta = getattr(delta, "reasoning_content")
-                            if thinking_delta:
-                                log_stream_chunk(log_prefix, "reasoning", thinking_delta, agent_id)
-                                self._append_reasoning_to_buffer(thinking_delta)
-                                yield StreamChunk(
-                                    type="reasoning",
-                                    content=thinking_delta,
-                                    reasoning_delta=thinking_delta,
-                                )
 
                         # Tool calls streaming (OpenAI-style)
                         if getattr(delta, "tool_calls", None):

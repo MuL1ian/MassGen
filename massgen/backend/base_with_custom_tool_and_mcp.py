@@ -1546,6 +1546,14 @@ class CustomToolAndMCPBackend(LLMBackend):
                 source=f"{config.source_prefix}{tool_name}",
             )
 
+            # Record tool call to execution trace (if available via mixin)
+            if hasattr(self, "_execution_trace") and self._execution_trace:
+                try:
+                    args_dict = json.loads(arguments_str) if arguments_str else {}
+                except (json.JSONDecodeError, TypeError):
+                    args_dict = {"raw": arguments_str}
+                self._execution_trace.add_tool_call(name=tool_name, args=args_dict)
+
             # Execute tool via callback with observability span
             result = None
             result_str = ""

@@ -10,8 +10,9 @@ Providers tested:
 1. Claude - Extended thinking (thinking_delta)
 2. Gemini - Thinking parts (thought=true)
 3. OpenAI - Reasoning summaries (response.reasoning_summary_text.delta)
-4. OpenRouter/OpenAI - reasoning_details
-5. OpenRouter/Qwen - reasoning_content
+4. Grok - reasoning_content (xAI)
+5. OpenRouter/OpenAI - reasoning_details
+6. OpenRouter/Qwen - reasoning_content
 
 Usage:
     uv run python scripts/test_streaming_buffer_reasoning.py
@@ -255,7 +256,7 @@ async def test_openrouter_openai() -> bool:
 
     print("Streaming response with reasoning_details...")
     print("Model: openai/gpt-5-mini (OpenAI reasoning model via OpenRouter)")
-    print("Config: reasoning={'effort': 'low', 'summary': 'auto'}")
+    print("Config: reasoning={'effort': 'high'}, include_reasoning=True")
     print("-" * 40)
 
     chunk_count = 0
@@ -265,8 +266,12 @@ async def test_openrouter_openai() -> bool:
             messages,
             [],
             model="openai/gpt-5-mini",
-            # Enable reasoning with summary for gpt-5-mini via OpenRouter
-            extra_body={"reasoning": {"effort": "low", "summary": "auto"}},
+            # Enable reasoning for gpt-5-mini via OpenRouter
+            # Try both reasoning parameter and include_reasoning
+            extra_body={
+                "reasoning": {"effort": "high"},
+                "include_reasoning": True,
+            },
         ):
             chunk_count += 1
             chunk_types_seen.add(chunk.type)
@@ -339,6 +344,57 @@ async def test_openrouter_qwen() -> bool:
     return print_buffer(buffer, "OpenRouter/Qwen")
 
 
+async def test_grok_reasoning() -> bool:
+    """Test Grok reasoning buffer capture."""
+    print_header("Testing Grok (grok-3-mini)")
+
+    api_key = os.getenv("XAI_API_KEY")
+    if not api_key:
+        print("⏭️  Skipping: XAI_API_KEY not set")
+        return False
+
+    from massgen.backend.grok import GrokBackend
+
+    backend = GrokBackend(api_key=api_key)
+
+    messages = [
+        {"role": "user", "content": PROMPT},
+    ]
+
+    print("Streaming response with reasoning_content...")
+    print("Model: grok-3-mini")
+    print("Config: reasoning_effort='high'")
+    print("-" * 40)
+
+    chunk_count = 0
+    chunk_types_seen = set()
+    try:
+        async for chunk in backend.stream_with_tools(
+            messages,
+            [],
+            model="grok-3-mini",
+            # Enable high reasoning effort for Grok 3 Mini
+            reasoning_effort="high",
+        ):
+            chunk_count += 1
+            chunk_types_seen.add(chunk.type)
+            if chunk.type == "content":
+                print(chunk.content, end="", flush=True)
+            elif chunk.type == "reasoning":
+                print(f"[REASONING] {chunk.content}", end="", flush=True)
+            elif chunk.type == "error":
+                print(f"\n[ERROR] {getattr(chunk, 'error', chunk)}")
+            elif chunk.type == "done":
+                break
+        print(f"\n(Received {chunk_count} chunks, types: {chunk_types_seen})")
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        return False
+
+    buffer = backend._get_streaming_buffer()
+    return print_buffer(buffer, "Grok")
+
+
 async def main():
     """Run reasoning buffer tests."""
     global PROMPT
@@ -346,7 +402,7 @@ async def main():
     parser = argparse.ArgumentParser(description="Test streaming buffer reasoning capture")
     parser.add_argument(
         "--provider",
-        choices=["claude", "gemini", "openai", "openrouter-openai", "openrouter-qwen", "all"],
+        choices=["claude", "gemini", "openai", "grok", "openrouter-openai", "openrouter-qwen", "all"],
         default="all",
         help="Which provider to test (default: all)",
     )
@@ -377,6 +433,9 @@ async def main():
 
     if args.provider in ("openai", "all"):
         results["OpenAI"] = await test_openai_reasoning()
+
+    if args.provider in ("grok", "all"):
+        results["Grok"] = await test_grok_reasoning()
 
     if args.provider in ("openrouter-openai", "all"):
         results["OpenRouter/OpenAI"] = await test_openrouter_openai()

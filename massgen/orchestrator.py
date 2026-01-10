@@ -3191,6 +3191,33 @@ Your answer:"""
             except Exception as ce:
                 logger.warning(f"[Orchestrator._save_agent_snapshot] Failed to save context for {agent_id}: {ce}")
 
+        # Save execution trace if available (for both answer and vote snapshots)
+        # Votes also contain valuable execution history (tool calls, reasoning, etc.)
+        if answer_content is not None or vote_data is not None or is_final:
+            try:
+                if hasattr(agent.backend, "_save_execution_trace"):
+                    # Save to log directory for historical tracking
+                    log_session_dir = get_log_session_dir()
+                    if log_session_dir:
+                        if is_final:
+                            timestamped_dir = log_session_dir / "final" / agent_id
+                        else:
+                            timestamped_dir = log_session_dir / agent_id / timestamp
+                        timestamped_dir.mkdir(parents=True, exist_ok=True)
+                        agent.backend._save_execution_trace(timestamped_dir)
+
+                    # Also save to snapshot_storage so other agents can access it
+                    # via temp_workspace when they receive context updates
+                    if agent.backend.filesystem_manager and agent.backend.filesystem_manager.snapshot_storage:
+                        snapshot_storage = agent.backend.filesystem_manager.snapshot_storage
+                        snapshot_storage.mkdir(parents=True, exist_ok=True)
+                        agent.backend._save_execution_trace(snapshot_storage)
+                        logger.debug(
+                            f"[Orchestrator._save_agent_snapshot] Saved execution trace to snapshot_storage: {snapshot_storage}",
+                        )
+            except Exception as te:
+                logger.warning(f"[Orchestrator._save_agent_snapshot] Failed to save execution trace for {agent_id}: {te}")
+
         # Return the timestamp for tracking
         return timestamp if not is_final else "final"
 
@@ -3211,6 +3238,39 @@ Your answer:"""
         """Check if agent should restart and yield restart message if needed. This will always be called when exiting out of _stream_agent_execution()."""
         restart_pending = self.agent_states[agent_id].restart_pending
         return restart_pending
+
+    async def _clear_framework_mcp_state(self, agent_id: str) -> None:
+        """
+        Clear in-memory state of framework MCP servers before agent restart.
+
+        This ensures stateful MCPs like planning don't retain old data across
+        answer submissions. Currently clears:
+        - Task plans (planning MCP)
+
+        Args:
+            agent_id: ID of the agent being restarted
+        """
+        agent = self.agents.get(agent_id)
+        if not agent or not hasattr(agent.backend, "_mcp_client") or not agent.backend._mcp_client:
+            return
+
+        # Find the planning MCP tool name for this agent
+        planning_tool_name = None
+        for tool_name in agent.backend._mcp_functions.keys():
+            if "clear_task_plan" in tool_name and f"planning_{agent_id}" in tool_name:
+                planning_tool_name = tool_name
+                break
+
+        if planning_tool_name:
+            try:
+                logger.info(f"[Orchestrator] Clearing task plan for {agent_id} via {planning_tool_name}")
+                result, _ = await agent.backend._execute_mcp_function_with_retry(
+                    planning_tool_name,
+                    "{}",  # No arguments needed
+                )
+                logger.info(f"[Orchestrator] Clear task plan result for {agent_id}: {result}")
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Failed to clear task plan for {agent_id}: {e}")
 
     async def _save_partial_work_on_restart(self, agent_id: str) -> Optional[str]:
         """
@@ -3325,6 +3385,7 @@ Your answer:"""
             "1. **ADD A TASK** to your plan: 'Evaluate agent answer(s) and decide next action'",
             "   - Use update_task_status or create a new task to track this evaluation",
             "   - Read their workspace files (paths above) to understand their solution",
+            "   - Read their execution_trace.md to see their full tool usage and reasoning",
             "   - Compare their approach to yours",
             "",
             "2. **THEN CHOOSE ONE**:",
@@ -3396,6 +3457,9 @@ Your answer:"""
             new_answers = {aid: ans for aid, ans in current_answers.items() if aid not in answers}
 
             if not new_answers:
+                # No new answers to inject - agent already has full context.
+                # Clear restart_pending since there's nothing new to show them.
+                self.agent_states[agent_id].restart_pending = False
                 return None
 
             # TIMING CONSTRAINT: Only use mid-stream injection after first traditional injection
@@ -3524,6 +3588,9 @@ Your answer:"""
             new_answers = {aid: ans for aid, ans in current_answers.items() if aid not in answers}
 
             if not new_answers:
+                # No new answers to inject - agent already has full context.
+                # Clear restart_pending since there's nothing new to show them.
+                self.agent_states[agent_id].restart_pending = False
                 return None
 
             # TIMING CONSTRAINT: Only use mid-stream injection after first traditional injection
@@ -4331,6 +4398,9 @@ Your answer:"""
                 if self._check_restart_pending(agent_id):
                     logger.info(f"[Orchestrator] Agent {agent_id} has restart_pending flag")
 
+                    # Clear framework MCP state before restart (e.g., task plans)
+                    await self._clear_framework_mcp_state(agent_id)
+
                     # In vote-only mode, always restart to get updated tool schemas.
                     # Mid-stream injection can't update the vote enum, so we need a full restart.
                     if self._is_vote_only_mode(agent_id):
@@ -4708,6 +4778,18 @@ Your answer:"""
                             _agent_voted_for = voted_agent
                             # Get the answer label that this voter was shown for voted-for agent
                             _agent_voted_for_label = self.coordination_tracker.get_voted_for_label(agent_id, voted_agent)
+
+                            # Record vote to execution trace (if available)
+                            if hasattr(agent.backend, "_add_vote_to_trace"):
+                                # Get available answer labels from voter's context
+                                available_options = self.coordination_tracker.get_agent_context_labels(agent_id)
+                                agent.backend._add_vote_to_trace(
+                                    voted_for_agent=voted_agent,
+                                    voted_for_label=_agent_voted_for_label,
+                                    reason=reason,
+                                    available_options=available_options,
+                                )
+
                             yield (
                                 "result",
                                 ("vote", {"agent_id": voted_agent, "reason": reason}),

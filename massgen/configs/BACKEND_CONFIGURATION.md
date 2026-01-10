@@ -146,7 +146,13 @@ backend:
   # Claude Code specific options
   system_prompt: ""                  # Custom system prompt to replace default
   append_system_prompt: ""           # Custom system prompt to append
-  max_thinking_tokens: 4096         # Maximum thinking tokens
+
+  # Extended Thinking (optional) - enables Claude's internal reasoning
+  # See: https://platform.claude.com/docs/en/build-with-claude/extended-thinking
+  max_thinking_tokens: 10000        # Token budget for reasoning (min: 1024)
+                                    # Recommended: 8000-10000 for most tasks
+                                    # Complex tasks: 16000-32000
+                                    # Note: Increases latency and cost
 
   # MCP servers
   mcp_servers:
@@ -189,6 +195,7 @@ backend:
 - **Task Management**: TodoWrite for tracking progress
 - **Jupyter Support**: Notebook editing capabilities
 - **MCP Integration**: Supports external MCP servers
+- **Extended Thinking**: Enable `max_thinking_tokens` for complex reasoning tasks (math, coding architecture, analysis). Returns ThinkingBlock outputs with Claude's internal reasoning process.
 
 ---
 

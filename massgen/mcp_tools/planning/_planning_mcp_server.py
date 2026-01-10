@@ -19,6 +19,7 @@ Tools provided:
 
 import argparse
 import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -26,6 +27,9 @@ from typing import Any, Dict, List, Optional, Union
 import fastmcp
 
 from massgen.mcp_tools.planning.planning_dataclasses import TaskPlan
+
+# Setup logging for debugging
+logger = logging.getLogger(__name__)
 
 # Global storage for task plans (keyed by agent_id)
 _task_plans: Dict[str, TaskPlan] = {}
@@ -63,17 +67,28 @@ def _load_plan_from_filesystem(agent_id: str) -> Optional[TaskPlan]:
     Returns:
         TaskPlan if found on filesystem, None otherwise
     """
+    logger.info(f"[PlanningMCP] _load_plan_from_filesystem called for agent_id={agent_id}")
+    logger.info(f"[PlanningMCP] _workspace_path={_workspace_path}")
+
     if _workspace_path is None:
+        logger.info("[PlanningMCP] No workspace path configured, skipping filesystem load")
         return None
 
     plan_file = _workspace_path / "tasks" / "plan.json"
+    logger.info(f"[PlanningMCP] Checking for plan file at: {plan_file}")
+    logger.info(f"[PlanningMCP] Plan file exists: {plan_file.exists()}")
+
     if not plan_file.exists():
+        logger.info("[PlanningMCP] Plan file does not exist")
         return None
 
     try:
         plan_data = json.loads(plan_file.read_text())
-        return TaskPlan.from_dict(plan_data)
-    except Exception:
+        plan = TaskPlan.from_dict(plan_data)
+        logger.info(f"[PlanningMCP] Loaded plan from filesystem with {len(plan.tasks)} tasks")
+        return plan
+    except Exception as e:
+        logger.warning(f"[PlanningMCP] Failed to load plan from filesystem: {e}")
         # If file is corrupted or invalid, return None
         return None
 
@@ -92,13 +107,25 @@ def _get_or_create_plan(agent_id: str, orchestrator_id: str) -> TaskPlan:
         TaskPlan for the agent
     """
     key = f"{orchestrator_id}:{agent_id}"
+    logger.info(f"[PlanningMCP] _get_or_create_plan called for key={key}")
+    logger.info(f"[PlanningMCP] Current _task_plans keys: {list(_task_plans.keys())}")
+    logger.info(f"[PlanningMCP] Key in _task_plans: {key in _task_plans}")
+    logger.info(f"[PlanningMCP] _workspace_path: {_workspace_path}")
+
     if key not in _task_plans:
+        logger.info("[PlanningMCP] Key not in memory, checking filesystem...")
         # Try loading from filesystem if configured
         loaded_plan = _load_plan_from_filesystem(key)
         if loaded_plan is not None:
+            logger.info(f"[PlanningMCP] Loaded plan from filesystem with {len(loaded_plan.tasks)} tasks")
             _task_plans[key] = loaded_plan
         else:
+            logger.info("[PlanningMCP] No plan on filesystem, creating fresh plan")
             _task_plans[key] = TaskPlan(agent_id=key)
+    else:
+        plan = _task_plans[key]
+        logger.info(f"[PlanningMCP] Found existing plan in memory with {len(plan.tasks)} tasks")
+
     return _task_plans[key]
 
 
@@ -203,9 +230,20 @@ async def create_server() -> fastmcp.FastMCP:
     )
     args = parser.parse_args()
 
+    # Configure logging to stderr so it appears in MCP server output
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    logger.info(f"[PlanningMCP] Server starting for agent_id={args.agent_id}, orchestrator_id={args.orchestrator_id}")
+    logger.info(f"[PlanningMCP] workspace_path={args.workspace_path}")
+    logger.info(f"[PlanningMCP] Initial _task_plans keys: {list(_task_plans.keys())}")
+
     # Set workspace path if provided
     if args.workspace_path:
         _workspace_path = Path(args.workspace_path)
+        logger.info(f"[PlanningMCP] Set _workspace_path to {_workspace_path}")
 
     # Create the FastMCP server
     mcp = fastmcp.FastMCP("Agent Task Planning")
@@ -218,6 +256,8 @@ async def create_server() -> fastmcp.FastMCP:
     mcp.skills_enabled = args.skills_enabled
     mcp.auto_discovery_enabled = args.auto_discovery_enabled
     mcp.memory_enabled = args.memory_enabled
+
+    logger.info(f"[PlanningMCP] Server configured - skills={args.skills_enabled}, auto_discovery={args.auto_discovery_enabled}, memory={args.memory_enabled}")
 
     @mcp.tool()
     def create_task_plan(tasks: List[Union[str, Dict[str, Any]]]) -> Dict[str, Any]:
@@ -256,6 +296,9 @@ async def create_server() -> fastmcp.FastMCP:
             - Tasks with dependencies wait until all deps are completed
         """
         try:
+            logger.info(f"[PlanningMCP] create_task_plan called with {len(tasks)} tasks")
+            logger.info(f"[PlanningMCP] agent_id={mcp.agent_id}, orchestrator_id={mcp.orchestrator_id}")
+
             # Get or create plan for this agent
             plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id)
 
@@ -265,6 +308,9 @@ async def create_server() -> fastmcp.FastMCP:
                 completed = len([t for t in plan.tasks if t.status == "completed"])
                 in_progress = len([t for t in plan.tasks if t.status == "in_progress"])
                 pending = len([t for t in plan.tasks if t.status == "pending"])
+                logger.warning(
+                    f"[PlanningMCP] REJECTING create_task_plan - plan already exists! " f"existing_count={existing_count}, completed={completed}, " f"in_progress={in_progress}, pending={pending}",
+                )
                 return {
                     "success": False,
                     "operation": "create_task_plan",
@@ -363,6 +409,34 @@ async def create_server() -> fastmcp.FastMCP:
                 "operation": "create_task_plan",
                 "error": str(e),
             }
+
+    @mcp.tool()
+    def clear_task_plan() -> Dict[str, Any]:
+        """
+        Clear the current task plan to start fresh.
+
+        Removes all tasks from memory. Called by framework on agent restart.
+
+        Returns:
+            Dictionary with operation status
+        """
+        key = f"{mcp.orchestrator_id}:{mcp.agent_id}"
+        logger.info(f"[PlanningMCP] clear_task_plan called for key={key}")
+
+        had_plan = key in _task_plans
+        if had_plan:
+            task_count = len(_task_plans[key].tasks)
+            del _task_plans[key]
+            logger.info(f"[PlanningMCP] Cleared plan from memory (had {task_count} tasks)")
+
+        # Also clear filesystem if configured
+        if _workspace_path is not None:
+            plan_file = _workspace_path / "tasks" / "plan.json"
+            if plan_file.exists():
+                plan_file.unlink()
+                logger.info(f"[PlanningMCP] Deleted plan file: {plan_file}")
+
+        return {"success": True, "operation": "clear_task_plan", "had_existing_plan": had_plan}
 
     @mcp.tool()
     def add_task(
