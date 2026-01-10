@@ -382,6 +382,95 @@ ModalScreen {
     align: center middle;
 }
 
+/* === Tool Detail Modal === */
+ToolDetailModal {
+    align: center middle;
+}
+
+ToolDetailModal > Container {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    background: #252526;
+    border: thick #007ACC;
+    padding: 1 2;
+}
+
+ToolDetailModal .modal-header {
+    height: 3;
+    width: 100%;
+    padding: 0 1;
+    layout: horizontal;
+}
+
+ToolDetailModal .modal-title {
+    width: 1fr;
+    text-style: bold;
+    color: #ffffff;
+}
+
+ToolDetailModal .modal-close {
+    dock: right;
+    width: auto;
+    min-width: 5;
+    background: #5a5a5a;
+}
+
+ToolDetailModal .modal-close:hover {
+    background: #f44747;
+}
+
+ToolDetailModal .modal-divider {
+    height: 1;
+    width: 100%;
+    color: #3c3c3c;
+}
+
+ToolDetailModal .modal-section-title {
+    height: 1;
+    margin-top: 1;
+    text-style: bold;
+    color: #9cdcfe;
+}
+
+ToolDetailModal .modal-content {
+    height: auto;
+    max-height: 15;
+    padding: 0 1;
+    margin-top: 1;
+    background: #1e1e1e;
+    border: solid #3c3c3c;
+    overflow-y: auto;
+}
+
+ToolDetailModal .args-content {
+    color: #b0b0b0;
+    padding: 1;
+}
+
+ToolDetailModal .result-content {
+    color: #d4d4d4;
+    padding: 1;
+}
+
+ToolDetailModal .error-content {
+    color: #f44747;
+    padding: 1;
+}
+
+ToolDetailModal .modal-footer {
+    height: 3;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+}
+
+ToolDetailModal .close-button {
+    width: auto;
+    min-width: 16;
+}
+
 #presentation_container {
     background: #252526;
     border: thick #007ACC;
@@ -543,15 +632,20 @@ Footer {
 ToolCallCard {
     width: 100%;
     height: auto;
-    min-height: 1;
-    max-height: 20;
+    min-height: 2;
+    max-height: 5;
     padding: 0 1;
-    margin: 0;
+    margin: 0 0 1 0;
     background: #2d333b;
 }
 
 ToolCallCard:hover {
     background: #363d47;
+}
+
+ToolCallCard:focus {
+    background: #3d4550;
+    outline: none;
 }
 
 ToolCallCard.status-running {
@@ -599,4 +693,212 @@ ToolCallCard.type-ai {
 
 ToolCallCard.type-memory {
     border-left: tall #b5cea8;
+}
+
+/* === Content Sections === */
+
+/* Tool Section - fixed size collapsible box for tool cards */
+ToolSection {
+    height: auto;
+    max-height: 40%;
+    margin: 0 0 1 0;
+    padding: 0;
+    border: round #3c3c3c;
+    background: #252526;
+}
+
+ToolSection.collapsed {
+    height: 3;
+    overflow: hidden;
+}
+
+ToolSection.hidden {
+    display: none;
+}
+
+ToolSection #tool_section_header {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: #2d333b;
+    color: #9cdcfe;
+}
+
+ToolSection #tool_section_header:hover {
+    background: #363d47;
+}
+
+ToolSection #tool_container {
+    height: auto;
+    max-height: 100%;
+    padding: 0;
+    background: #1e1e1e;
+    overflow-y: auto;
+}
+
+/* Timeline Section - chronological view of all content */
+TimelineSection {
+    height: 1fr;
+    padding: 0;
+    margin: 0;
+}
+
+TimelineSection #timeline_container {
+    height: 1fr;
+    padding: 0 1;
+    background: #1e1e1e;
+    overflow-y: auto;
+}
+
+/* Hide legacy RichLog in AgentPanel - using TimelineSection now */
+AgentPanel RichLog {
+    display: none;
+}
+
+AgentPanel .streaming_label {
+    display: none;
+}
+
+TimelineSection .timeline-text {
+    width: 100%;
+    padding: 0 0 1 0;
+}
+
+TimelineSection .timeline-text.status {
+    color: #569cd6;
+}
+
+TimelineSection .timeline-text.thinking {
+    color: #858585;
+}
+
+TimelineSection .timeline-text.response {
+    color: #4ec9b0;
+}
+
+/* Thinking Section - auto height, shrinks to content */
+ThinkingSection {
+    height: auto;
+    max-height: 50%;
+    padding: 0;
+}
+
+ThinkingSection #thinking_log {
+    height: auto;
+    max-height: 100%;
+    padding: 0 1;
+    background: #1e1e1e;
+    color: #b0b0b0;
+}
+
+/* Status Badge - compact inline indicator */
+StatusBadge {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    text-align: right;
+}
+
+StatusBadge.status-connected {
+    color: #4ec9b0;
+}
+
+StatusBadge.status-working {
+    color: #dcdcaa;
+}
+
+StatusBadge.status-streaming {
+    color: #569cd6;
+}
+
+StatusBadge.status-completed {
+    color: #4ec9b0;
+}
+
+StatusBadge.status-error {
+    color: #f44747;
+}
+
+StatusBadge.status-waiting {
+    color: #858585;
+}
+
+/* Completion Footer - subtle completion line */
+CompletionFooter {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    text-align: center;
+    dock: bottom;
+}
+
+CompletionFooter.hidden {
+    display: none;
+}
+
+CompletionFooter.status-completed {
+    color: #4ec9b0;
+}
+
+CompletionFooter.status-error {
+    color: #f44747;
+}
+
+/* === Status Bar === */
+StatusBar {
+    dock: bottom;
+    height: 1;
+    background: #2d2d30;
+    color: #d4d4d4;
+    padding: 0 1;
+    layout: horizontal;
+    border-top: solid #007ACC;
+}
+
+StatusBar > Static {
+    height: 1;
+}
+
+#status_phase {
+    width: auto;
+    color: #569cd6;
+    margin-right: 2;
+}
+
+#status_votes {
+    width: 1fr;
+    color: #4ec9b0;
+}
+
+#status_events {
+    width: auto;
+    color: #ce9178;
+    margin-right: 2;
+}
+
+#status_events.clickable:hover {
+    color: #ffffff;
+    text-style: underline;
+}
+
+#status_timer {
+    width: auto;
+    color: #dcdcaa;
+}
+
+/* Phase-specific border colors */
+StatusBar.phase-idle {
+    border-top: solid #858585;
+}
+
+StatusBar.phase-initial {
+    border-top: solid #569cd6;
+}
+
+StatusBar.phase-enforcement {
+    border-top: solid #4ec9b0;
+}
+
+StatusBar.phase-presentation {
+    border-top: solid #dcdcaa;
 }

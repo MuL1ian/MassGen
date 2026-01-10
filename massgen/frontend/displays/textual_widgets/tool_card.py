@@ -2,15 +2,15 @@
 """
 Tool Call Card Widget for MassGen TUI.
 
-Provides collapsible cards for displaying tool calls with their
-parameters, results, and status.
+Provides clickable cards for displaying tool calls with their
+parameters, results, and status. Clicking opens a detail modal.
 """
 
 from datetime import datetime
 from typing import Optional
 
 from rich.text import Text
-from textual.reactive import reactive
+from textual.message import Message
 from textual.widgets import Static
 
 # Tool category detection - maps tool names to semantic categories
@@ -194,19 +194,26 @@ def format_tool_display_name(tool_name: str) -> str:
 
 
 class ToolCallCard(Static):
-    """Collapsible card showing a tool call with status, params, and result.
+    """Clickable card showing a tool call with status, params, and result.
 
-    The card can be collapsed (showing just tool name and status) or
-    expanded (showing full parameters and result).
+    Clicking the card posts a ToolCardClicked message that can be
+    handled to show a detail modal.
 
     Attributes:
         tool_name: Name of the tool being called.
         tool_type: Type of tool (mcp, custom, etc.).
         status: Current status (running, success, error).
-        is_expanded: Whether the card is expanded.
     """
 
-    is_expanded = reactive(False)
+    class ToolCardClicked(Message):
+        """Posted when a tool card is clicked."""
+
+        def __init__(self, card: "ToolCallCard") -> None:
+            self.card = card
+            super().__init__()
+
+    # Enable clicking on the widget
+    can_focus = True
 
     STATUS_ICONS = {
         "running": "⏳",
@@ -239,8 +246,10 @@ class ToolCallCard(Static):
         self._status = "running"
         self._start_time = datetime.now()
         self._end_time: Optional[datetime] = None
-        self._params: Optional[str] = None
-        self._result: Optional[str] = None
+        self._params: Optional[str] = None  # Truncated for display
+        self._params_full: Optional[str] = None  # Full args for modal
+        self._result: Optional[str] = None  # Truncated for display
+        self._result_full: Optional[str] = None  # Full result for modal
         self._error: Optional[str] = None
 
         # Get category info for styling
@@ -252,103 +261,85 @@ class ToolCallCard(Static):
         self.add_class("status-running")
 
     def render(self) -> Text:
-        """Render the card based on expanded state."""
-        if self.is_expanded:
-            return self._render_expanded()
-        else:
-            return self._render_collapsed()
+        """Render the card as a single-line summary."""
+        return self._render_collapsed()
 
     def _render_collapsed(self) -> Text:
-        """Render collapsed view: icon + name + status + time."""
+        """Render card view: 2-3 lines with name, args, result.
+
+        Design (2-3 lines per tool):
+        ```
+        ▶ 📁 filesystem/write_file                              ⏳ running...
+          {"content": "In circuits humming...", "path": "/tmp/poem.txt"}
+        ```
+        or completed:
+        ```
+          📁 filesystem/read_file                               ✓ (0.3s)
+          {"path": "/tmp/example.txt"}
+          → File contents: Hello world...
+        ```
+        """
         icon = self._category["icon"]
         status_icon = self.STATUS_ICONS.get(self._status, "⏳")
         elapsed = self._get_elapsed_str()
 
-        # Build the collapsed line
         text = Text()
-        text.append("▶ ", style="dim")
+
+        # Line 1: Icon + name + status
+        if self._status == "running":
+            text.append("▶ ", style="bold cyan")
+        else:
+            text.append("  ")
+
         text.append(f"{icon} ", style=self._category["color"])
-        text.append(self._display_name, style="bold")
-        text.append("  ")
 
-        # Status with color
-        if self._status == "success":
-            text.append(f"{status_icon}", style="bold green")
-        elif self._status == "error":
-            text.append(f"{status_icon}", style="bold red")
+        if self._status == "running":
+            text.append(self._display_name, style="bold cyan")
         else:
-            text.append(f"{status_icon}", style="yellow")
+            text.append(self._display_name, style="bold")
 
-        if elapsed:
-            text.append(f" {elapsed}", style="dim")
-
-        return text
-
-    def _render_expanded(self) -> Text:
-        """Render expanded view with params and result."""
-        icon = self._category["icon"]
-        status_icon = self.STATUS_ICONS.get(self._status, "⏳")
-        elapsed = self._get_elapsed_str()
-        color = self._category["color"]
-
-        text = Text()
-
-        # Header line
-        text.append("▼ ", style="dim")
-        text.append(f"{icon} ", style=color)
-        text.append(self._display_name, style="bold")
-        text.append("  ")
+        # Padding to align status on right
+        name_len = len(self._display_name) + 4
+        padding = max(1, 55 - name_len)
+        text.append(" " * padding)
 
         if self._status == "success":
             text.append(f"{status_icon}", style="bold green")
         elif self._status == "error":
             text.append(f"{status_icon}", style="bold red")
-        else:
-            text.append(f"{status_icon}", style="yellow")
-
-        if elapsed:
-            text.append(f" {elapsed}", style="dim")
-
-        # Parameters (if any)
-        if self._params:
-            text.append("\n  │ ", style="dim")
-            text.append("Args: ", style="dim italic")
-            params_display = self._params
-            if len(params_display) > 100:
-                params_display = params_display[:100] + "..."
-            text.append(params_display, style="dim")
-
-        # Result or error
-        if self._error:
-            text.append("\n  │ ", style="dim")
-            text.append("Error: ", style="bold red")
-            error_display = self._error
-            if len(error_display) > 200:
-                error_display = error_display[:200] + "..."
-            text.append(error_display, style="red")
-        elif self._result:
-            text.append("\n  │ ", style="dim")
-            text.append("Result: ", style="dim italic")
-            result_lines = self._result.split("\n")
-            if len(result_lines) > 5:
-                result_display = "\n".join(result_lines[:5])
-                text.append(result_display, style="dim")
-                text.append(f"\n  │ ... [{len(result_lines) - 5} more lines]", style="dim italic")
-            else:
-                result_display = self._result
-                if len(result_display) > 300:
-                    result_display = result_display[:300] + "..."
-                text.append(result_display, style="dim")
         elif self._status == "running":
-            # Show waiting message when still running
-            text.append("\n  │ ", style="dim")
-            text.append("Waiting for result...", style="dim italic")
+            text.append(f"{status_icon}", style="bold yellow")
+        else:
+            text.append(f"{status_icon}", style="yellow")
+
+        if elapsed:
+            text.append(f" {elapsed}", style="dim")
+        elif self._status == "running":
+            text.append(" running...", style="italic yellow")
+
+        # Line 2: Args (if available) - show more content
+        if self._params:
+            text.append("\n    ")
+            args_display = self._params
+            if len(args_display) > 70:
+                args_display = args_display[:67] + "..."
+            text.append(args_display, style="dim")
+
+        # Line 3: Result or error preview (if completed)
+        if self._result:
+            text.append("\n    → ")
+            result_preview = self._result.replace("\n", " ")
+            if len(result_preview) > 60:
+                result_preview = result_preview[:57] + "..."
+            text.append(result_preview, style="dim green")
+        elif self._error:
+            text.append("\n    ✗ ")
+            error_preview = self._error.replace("\n", " ")
+            if len(error_preview) > 60:
+                error_preview = error_preview[:57] + "..."
+            text.append(error_preview, style="dim red")
 
         return text
-
-    def watch_is_expanded(self, expanded: bool) -> None:
-        """React to expansion state changes."""
-        self.refresh()
 
     def _get_elapsed_str(self) -> str:
         """Get elapsed time as formatted string."""
@@ -363,30 +354,30 @@ class ToolCallCard(Static):
             return f"({mins}m{secs}s)"
 
     def on_click(self) -> None:
-        """Handle click to toggle expanded state."""
-        self.toggle_expanded()
+        """Handle click to show detail modal."""
+        self.post_message(self.ToolCardClicked(self))
 
-    def toggle_expanded(self) -> None:
-        """Toggle between collapsed and expanded view."""
-        self.is_expanded = not self.is_expanded
-
-    def set_params(self, params: str) -> None:
+    def set_params(self, params: str, params_full: Optional[str] = None) -> None:
         """Set the tool parameters.
 
         Args:
-            params: Parameters string to display.
+            params: Truncated parameters for card display.
+            params_full: Full parameters for modal (if different from params).
         """
         self._params = params
+        self._params_full = params_full if params_full else params
         self.refresh()
 
-    def set_result(self, result: str) -> None:
+    def set_result(self, result: str, result_full: Optional[str] = None) -> None:
         """Set successful result.
 
         Args:
-            result: Result string to display.
+            result: Truncated result for card display.
+            result_full: Full result for modal (if different from result).
         """
         self._status = "success"
         self._result = result
+        self._result_full = result_full if result_full else result
         self._end_time = datetime.now()
         self.remove_class("status-running")
         self.add_class("status-success")
@@ -414,3 +405,28 @@ class ToolCallCard(Static):
     def display_name(self) -> str:
         """Get display name."""
         return self._display_name
+
+    @property
+    def icon(self) -> str:
+        """Get category icon."""
+        return self._category["icon"]
+
+    @property
+    def params(self) -> Optional[str]:
+        """Get full parameters string for modal."""
+        return self._params_full or self._params
+
+    @property
+    def result(self) -> Optional[str]:
+        """Get full result string for modal."""
+        return self._result_full or self._result
+
+    @property
+    def error(self) -> Optional[str]:
+        """Get error message."""
+        return self._error
+
+    @property
+    def elapsed_str(self) -> str:
+        """Get elapsed time string for modal."""
+        return self._get_elapsed_str()

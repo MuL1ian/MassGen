@@ -7,6 +7,7 @@ Main interface for coordinating agents with visual display.
 
 import asyncio
 import queue
+import re
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -85,6 +86,9 @@ class CoordinationUI:
         self._answer_timeout_task = None
         self._final_answer_shown = False
 
+        # Status bar tracking
+        self._last_phase = "idle"
+
     def _process_reasoning_summary(self, chunk_type: str, summary_delta: str, source: str) -> str:
         """Process reasoning summary content using display's shared logic."""
         if self.display and hasattr(self.display, "process_reasoning_content"):
@@ -159,6 +163,14 @@ class CoordinationUI:
                 content = getattr(chunk, "content", "") or ""
                 source = getattr(chunk, "source", None)
                 chunk_type = getattr(chunk, "type", "")
+
+                # Check for phase changes and notify status bar
+                if hasattr(orchestrator, "workflow_phase"):
+                    current_phase = orchestrator.workflow_phase
+                    if current_phase != self._last_phase:
+                        self._last_phase = current_phase
+                        if hasattr(self.display, "notify_phase"):
+                            self.display.notify_phase(current_phase)
 
                 # Handle agent status updates
                 if chunk_type == "agent_status":
@@ -1547,6 +1559,22 @@ class CoordinationUI:
                 self.display.add_orchestrator_event(event)
                 if self.logger:
                     self.logger.log_orchestrator_event(event)
+
+                # Parse vote events for status bar notification
+                # Format: "🗳️ Voting for [agent_id] (options: ...) : reason"
+                if "🗳️" in content and "Voting for" in content:
+                    vote_match = re.search(r"Voting for \[([^\]]+)\]", content)
+                    if vote_match and hasattr(self.display, "notify_vote"):
+                        voted_for = vote_match.group(1)
+                        # Get voter from orchestrator status if available
+                        voter = "Agent"  # Default fallback
+                        if self.orchestrator:
+                            # Try to get the agent that just voted from status
+                            status = self.orchestrator.get_status()
+                            # Use current agent context if available
+                            if hasattr(self.orchestrator, "_current_streaming_agent"):
+                                voter = self.orchestrator._current_streaming_agent
+                        self.display.notify_vote(voter, voted_for)
 
         # Handle final answer content - buffer it to prevent duplicate calls
         elif "Final Coordinated Answer" not in content and not any(

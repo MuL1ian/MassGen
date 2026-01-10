@@ -135,55 +135,66 @@
 
 ---
 
-## Phase 3: Status Bar & Toasts
+## Phase 3: Status Bar & Toasts ⚠️ PARTIAL
 **Goal**: Persistent status + ephemeral notifications
 **Estimated Effort**: Medium
 **Dependencies**: Phase 1
+**Status**: Core features implemented; using built-in notify() for toasts
 
-### Tasks
+### What Was Implemented
 
-- [ ] **3.1** Implement `StatusBar` widget
+- [x] **3.1** Implement `StatusBar` widget
   - Dock at bottom
-  - Vote count display per agent
-  - Current phase indicator
-  - Event counter (clickable)
-  - Elapsed timer
+  - Vote count display per agent (compact format: "A:2 B:1")
+  - Current phase indicator (idle/coordinating/voting/presenting)
+  - Event counter (clickable → opens OrchestratorEventsModal)
+  - Elapsed timer (starts when welcome screen dismisses)
 
-- [ ] **3.2** Implement `ToastNotification` widget
-  - Auto-dismiss after 5 seconds
-  - Type-based styling (vote, complete, error, info)
-  - Click to dismiss
-  - Fade-out animation (if supported)
+- [x] **3.2-3.3** Toast Notifications (via built-in `notify()`)
+  - Decision: Use Textual's built-in `notify()` method instead of custom widgets
+  - Auto-dismiss with configurable timeout (3-5 seconds)
+  - Type-based severity (information, warning, error)
+  - Vote notifications: "🗳️ Agent → VotedFor"
+  - Completion notifications: "✅ Agent completed"
+  - Error notifications with 5-second timeout
 
-- [ ] **3.3** Implement `ToastContainer` widget
-  - Bottom-right positioning
-  - Stack multiple toasts
-  - Limit to 3 visible
-  - Queue overflow toasts
-
-- [ ] **3.4** Integrate with orchestrator events
+- [x] **3.4** Integrate with orchestrator events
   - Vote events → toast + status bar update
   - Phase changes → status bar update
-  - Completions → toast notification
-  - Errors → toast notification
+  - Events counter increments with orchestrator events
 
-- [ ] **3.5** Update TCSS themes
-  - Status bar styles
-  - Toast styles by type
-  - Toast container positioning
+- [x] **3.5** Update TCSS themes
+  - StatusBar styles for dark.tcss and light.tcss
+  - Phase-specific border colors
+  - Clickable events counter with hover effect
+
+### What Was Deferred
 
 - [ ] **3.6** Write tests
   - Status bar update tests
   - Toast lifecycle tests
   - Event integration tests
 
-### Acceptance Criteria
-- [ ] Status bar always visible at bottom
-- [ ] Vote counts update in real-time
-- [ ] Phase indicator shows current phase
-- [ ] Toasts appear for important events
-- [ ] Toasts auto-dismiss after 5 seconds
-- [ ] Toasts stack properly (max 3)
+- [ ] **3.7** Improve mouse handling (moved to future phase)
+  - Add mouse mode toggle (Ctrl+M to disable mouse capture)
+  - Visual feedback for clickable elements
+  - Graceful fallback when mouse events conflict with terminal
+
+### Acceptance Criteria (Revised)
+- [x] Status bar always visible at bottom
+- [x] Vote counts update in real-time
+- [x] Phase indicator shows current phase
+- [x] Toasts appear for important events (via notify())
+- [x] Toasts auto-dismiss after timeout
+- [ ] ~~Toasts stack properly (max 3)~~ - Using built-in notify() stacking
+- [ ] Mouse mode toggle - Deferred
+- [ ] Clickable element indicators - Partial (events counter only)
+
+### Files Modified
+- `massgen/frontend/displays/textual_terminal_display.py` - StatusBar widget, notification methods
+- `massgen/frontend/coordination_ui.py` - Vote parsing, phase tracking
+- `massgen/frontend/displays/textual_themes/dark.tcss` - StatusBar styles
+- `massgen/frontend/displays/textual_themes/light.tcss` - StatusBar styles
 
 ---
 

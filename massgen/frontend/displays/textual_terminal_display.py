@@ -8,6 +8,7 @@ import functools
 import os
 import re
 import threading
+import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -22,10 +23,22 @@ try:
     from textual import events
     from textual.app import App, ComposeResult
     from textual.containers import Container, ScrollableContainer, Vertical
+    from textual.message import Message
     from textual.screen import ModalScreen
+    from textual.widget import Widget
     from textual.widgets import Button, Footer, Input, Label, RichLog, Static, TextArea
 
-    from .textual_widgets import AgentTabBar, AgentTabChanged
+    from .content_handlers import ThinkingContentHandler, ToolContentHandler
+    from .content_normalizer import ContentNormalizer
+    from .textual_widgets import (
+        AgentTabBar,
+        AgentTabChanged,
+        CompletionFooter,
+        TimelineSection,
+        ToolCallCard,
+        ToolDetailModal,
+        ToolSection,
+    )
 
     TEXTUAL_AVAILABLE = True
 except ImportError:
@@ -909,6 +922,35 @@ class TextualTerminalDisplay(TerminalDisplay):
         if self._app:
             self._app.request_flush()
             self._call_app_method("add_orchestrator_event", event)
+            # Also increment status bar event counter
+            self._call_app_method("add_status_bar_event")
+
+    # === Status Bar Notification Bridge Methods ===
+
+    def notify_vote(self, voter: str, voted_for: str):
+        """Notify the TUI of a vote cast - updates status bar and shows toast."""
+        if self._app:
+            self._call_app_method("notify_vote", voter, voted_for)
+
+    def notify_phase(self, phase: str):
+        """Notify the TUI of a phase change - updates status bar."""
+        if self._app:
+            self._call_app_method("notify_phase", phase)
+
+    def notify_completion(self, agent_id: str):
+        """Notify the TUI of agent completion - shows toast."""
+        if self._app:
+            self._call_app_method("notify_completion", agent_id)
+
+    def notify_error(self, agent_id: str, error: str):
+        """Notify the TUI of an error - shows error toast."""
+        if self._app:
+            self._call_app_method("notify_error", agent_id, error)
+
+    def update_status_bar_votes(self, vote_counts: Dict[str, int]):
+        """Update vote counts in the status bar."""
+        if self._app:
+            self._call_app_method("update_status_bar_votes", vote_counts)
 
     def show_final_answer(self, answer: str, vote_results=None, selected_agent=None):
         """Show final answer with flush effect."""
@@ -1400,6 +1442,174 @@ if TEXTUAL_AVAILABLE:
 
         return wrapper
 
+    class StatusBarEventsClicked(Message):
+        """Message emitted when the events counter in StatusBar is clicked."""
+
+    class StatusBar(Widget):
+        """Persistent status bar showing orchestration state at the bottom of the TUI."""
+
+        DEFAULT_CSS = """
+        StatusBar {
+            dock: bottom;
+            height: 1;
+            background: $surface;
+            color: $text;
+            padding: 0 1;
+            layout: horizontal;
+        }
+        """
+
+        def __init__(self, agent_ids: List[str] | None = None):
+            super().__init__(id="status_bar")
+            self._vote_counts: Dict[str, int] = {}
+            self._current_phase = "idle"
+            self._event_count = 0
+            self._start_time: float | None = None
+            self._timer_interval = None
+            self._agent_ids = agent_ids or []
+            # Initialize vote counts to 0 for all agents
+            for agent_id in self._agent_ids:
+                self._vote_counts[agent_id] = 0
+
+        def compose(self) -> ComposeResult:
+            """Create the status bar layout with phase, votes, events, and timer."""
+            yield Static("⏳ Idle", id="status_phase")
+            yield Static("", id="status_votes")
+            yield Static("📋 0 events", id="status_events", classes="clickable")
+            yield Static("⏱️ 0:00", id="status_timer")
+
+        def on_click(self, event: events.Click) -> None:
+            """Handle click on the events counter to open events modal."""
+            # Check if click was on the events element
+            target = event.target
+            if target and hasattr(target, "id") and target.id == "status_events":
+                self.post_message(StatusBarEventsClicked())
+
+        def update_phase(self, phase: str) -> None:
+            """Update the phase indicator."""
+            self._current_phase = phase
+            # Map workflow phases to display
+            phase_icons = {
+                "idle": "⏳ Idle",
+                "coordinating": "🔄 Coordinating",
+                "initial_answer": "✏️ Answering",
+                "enforcement": "🗳️ Voting",
+                "presenting": "🎯 Presenting",
+                "presentation": "🎯 Presenting",
+            }
+            display_text = phase_icons.get(phase, f"📋 {phase.title()}")
+
+            try:
+                phase_widget = self.query_one("#status_phase", Static)
+                phase_widget.update(display_text)
+            except Exception:
+                pass  # Widget not mounted yet
+
+            # Update phase-based styling
+            self.remove_class("phase-idle")
+            self.remove_class("phase-initial")
+            self.remove_class("phase-enforcement")
+            self.remove_class("phase-presentation")
+            if phase in ("initial_answer", "coordinating"):
+                self.add_class("phase-initial")
+            elif phase == "enforcement":
+                self.add_class("phase-enforcement")
+            elif phase in ("presenting", "presentation"):
+                self.add_class("phase-presentation")
+            else:
+                self.add_class("phase-idle")
+
+        def add_vote(self, voted_for: str) -> None:
+            """Increment vote count for an agent."""
+            if voted_for not in self._vote_counts:
+                self._vote_counts[voted_for] = 0
+            self._vote_counts[voted_for] += 1
+            self._update_votes_display()
+
+        def update_votes(self, vote_counts: Dict[str, int]) -> None:
+            """Update all vote counts at once."""
+            self._vote_counts = vote_counts.copy()
+            self._update_votes_display()
+
+        def _update_votes_display(self) -> None:
+            """Update the votes display widget."""
+            if not self._vote_counts or all(v == 0 for v in self._vote_counts.values()):
+                display_text = ""
+            else:
+                # Format as "A:2 B:1" - use first character of agent ID
+                parts = []
+                for agent_id, count in sorted(self._vote_counts.items()):
+                    if count > 0:
+                        # Use first character or first 3 chars if agent ID is long
+                        short_id = agent_id[0].upper() if len(agent_id) <= 3 else agent_id[:3]
+                        parts.append(f"{short_id}:{count}")
+                display_text = "🗳️ " + " ".join(parts) if parts else ""
+
+            try:
+                votes_widget = self.query_one("#status_votes", Static)
+                votes_widget.update(display_text)
+            except Exception:
+                pass  # Widget not mounted yet
+
+        def add_event(self) -> None:
+            """Increment the event counter."""
+            self._event_count += 1
+            self._update_events_display()
+
+        def _update_events_display(self) -> None:
+            """Update the events counter display."""
+            display_text = f"📋 {self._event_count} events"
+            try:
+                events_widget = self.query_one("#status_events", Static)
+                events_widget.update(display_text)
+            except Exception:
+                pass  # Widget not mounted yet
+
+        def start_timer(self) -> None:
+            """Start the elapsed timer."""
+            self._start_time = time.time()
+            self._schedule_timer_update()
+
+        def _schedule_timer_update(self) -> None:
+            """Schedule the next timer update."""
+            if self._start_time is not None:
+                self._timer_interval = self.set_interval(1.0, self._update_timer)
+
+        def _update_timer(self) -> None:
+            """Update the timer display."""
+            if self._start_time is None:
+                return
+            elapsed = time.time() - self._start_time
+            minutes = int(elapsed // 60)
+            seconds = int(elapsed % 60)
+            display_text = f"⏱️ {minutes}:{seconds:02d}"
+            try:
+                timer_widget = self.query_one("#status_timer", Static)
+                timer_widget.update(display_text)
+            except Exception:
+                pass  # Widget not mounted yet
+
+        def stop_timer(self) -> None:
+            """Stop the timer updates."""
+            if self._timer_interval:
+                self._timer_interval.stop()
+                self._timer_interval = None
+
+        def reset(self) -> None:
+            """Reset the status bar to initial state."""
+            self._vote_counts = {agent_id: 0 for agent_id in self._agent_ids}
+            self._event_count = 0
+            self._start_time = None
+            self.stop_timer()
+            self.update_phase("idle")
+            self._update_votes_display()
+            self._update_events_display()
+            try:
+                timer_widget = self.query_one("#status_timer", Static)
+                timer_widget.update("⏱️ 0:00")
+            except Exception:
+                pass
+
     class BaseModal(ModalScreen):
         """Base modal with common dismiss behavior for ESC and close buttons."""
 
@@ -1455,6 +1665,7 @@ if TEXTUAL_AVAILABLE:
             self._tab_bar: Optional[AgentTabBar] = None
             self._active_agent_id: Optional[str] = None
             self._welcome_screen: Optional["WelcomeScreen"] = None
+            self._status_bar: Optional["StatusBar"] = None
             # Show welcome if no real question (detect placeholder strings)
             is_placeholder = not question or question.lower().startswith("welcome")
             self._showing_welcome = is_placeholder
@@ -1540,6 +1751,12 @@ if TEXTUAL_AVAILABLE:
             self.safe_indicator = Label("", id="safe_indicator")
             yield self.safe_indicator
 
+            # Status bar showing phase, votes, events, timer (hidden during welcome)
+            self._status_bar = StatusBar(agent_ids=agent_ids)
+            if self._showing_welcome:
+                self._status_bar.add_class("hidden")
+            yield self._status_bar
+
             self.question_input = Input(
                 placeholder="Type your question or /help for commands...",
                 id="question_input",
@@ -1600,11 +1817,14 @@ if TEXTUAL_AVAILABLE:
             if self._welcome_screen:
                 self._welcome_screen.add_class("hidden")
 
-            # Show header, tab bar, and main container
+            # Show header, tab bar, main container, and status bar
             if self.header_widget:
                 self.header_widget.remove_class("hidden")
             if self._tab_bar:
                 self._tab_bar.remove_class("hidden")
+            if self._status_bar:
+                self._status_bar.remove_class("hidden")
+                self._status_bar.start_timer()
             try:
                 main_container = self.query_one("#main_container", Container)
                 main_container.remove_class("hidden")
@@ -1991,6 +2211,21 @@ Type your question and press Enter to ask the agents.
             self._switch_to_agent(event.agent_id)
             event.stop()
 
+        def on_tool_call_card_tool_card_clicked(self, event: ToolCallCard.ToolCardClicked) -> None:
+            """Handle tool card click - show detail modal."""
+            card = event.card
+            modal = ToolDetailModal(
+                tool_name=card.display_name,
+                icon=card.icon,
+                status=card.status,
+                elapsed=card.elapsed_str,
+                args=card.params,
+                result=card.result,
+                error=card.error,
+            )
+            self.push_screen(modal)
+            event.stop()
+
         def action_toggle_safe_keyboard(self):
             """Toggle safe keyboard mode to ignore hotkeys."""
             self.coordination_display.safe_keyboard_mode = not self.coordination_display.safe_keyboard_mode
@@ -2038,6 +2273,41 @@ Type your question and press Enter to ask the agents.
             """Display orchestrator events in a modal."""
             events_text = "\n".join(self._orchestrator_events) if self._orchestrator_events else "No events yet."
             self._show_modal_async(OrchestratorEventsModal(events_text))
+
+        def on_status_bar_events_clicked(self, event: StatusBarEventsClicked) -> None:
+            """Handle click on status bar events counter - opens orchestrator events modal."""
+            self._show_orchestrator_modal()
+
+        # === Status Bar Notification Methods ===
+
+        def notify_vote(self, voter: str, voted_for: str) -> None:
+            """Called when a vote is cast. Updates status bar and shows toast."""
+            if self._status_bar:
+                self._status_bar.add_vote(voted_for)
+            self.notify(f"🗳️ {voter} → {voted_for}", timeout=3)
+
+        def notify_phase(self, phase: str) -> None:
+            """Called on phase change. Updates status bar phase indicator."""
+            if self._status_bar:
+                self._status_bar.update_phase(phase)
+
+        def notify_completion(self, agent_id: str) -> None:
+            """Called when an agent completes their work."""
+            self.notify(f"✅ {agent_id} completed", severity="information", timeout=3)
+
+        def notify_error(self, agent_id: str, error: str) -> None:
+            """Called on agent error."""
+            self.notify(f"❌ {agent_id}: {error}", severity="error", timeout=5)
+
+        def add_status_bar_event(self) -> None:
+            """Increment the event counter in the status bar."""
+            if self._status_bar:
+                self._status_bar.add_event()
+
+        def update_status_bar_votes(self, vote_counts: Dict[str, int]) -> None:
+            """Update all vote counts in the status bar at once."""
+            if self._status_bar:
+                self._status_bar.update_votes(vote_counts)
 
         def on_key(self, event: events.Key):
             """Map number keys directly to agent inspection, mirroring Rich UI."""
@@ -2220,6 +2490,8 @@ Type your question and press Enter to ask the agents.
             self.status = "waiting"
             self._start_time: Optional[datetime] = None
             self._has_content = False  # Track if we've received any content
+
+            # Legacy RichLog for fallback
             self.content_log = RichLog(
                 id=f"log_{self._dom_safe_id}",
                 highlight=self.coordination_display.enable_syntax_highlighting,
@@ -2231,17 +2503,27 @@ Type your question and press Enter to ask the agents.
             self._header_dom_id = f"header_{self._dom_safe_id}"
             self._loading_id = f"loading_{self._dom_safe_id}"
 
-            # Tool tracking for timing and row alternation
-            self._pending_tool: Optional[dict] = None  # Track current tool for timing
-            self._tool_row_count = 0  # For alternating row colors
-            self._reasoning_header_shown = False  # Track if reasoning header was shown
+            # New section-based content handlers
+            self._tool_handler = ToolContentHandler()
+            self._thinking_handler = ThinkingContentHandler()
+
+            # Section widget IDs - using timeline for chronological view
+            self._timeline_section_id = f"timeline_section_{self._dom_safe_id}"
+            # Keep old IDs as aliases for compatibility
+            self._tool_section_id = self._timeline_section_id
+            self._thinking_section_id = self._timeline_section_id
+            self._status_badge_id = f"status_badge_{self._dom_safe_id}"
+            self._completion_footer_id = f"completion_footer_{self._dom_safe_id}"
+
+            # Legacy tool tracking (kept for restart detection)
+            self._pending_tool: Optional[dict] = None
+            self._tool_row_count = 0
+            self._reasoning_header_shown = False
 
             # Session/restart tracking
-            self._session_completed = False  # Track if session completed
-            self._session_count = 1  # Current session/attempt number
-            self._presentation_shown = (
-                False  # Track if presentation was shown (for restart detection)  # Current session/attempt number  # Track if reasoning header was shown  # For alternating row colors
-            )
+            self._session_completed = False
+            self._session_count = 1
+            self._presentation_shown = False
 
         def compose(self) -> ComposeResult:
             with Vertical():
@@ -2252,6 +2534,12 @@ Type your question and press Enter to ask the agents.
                 # Loading indicator - centered, shown when waiting with no content
                 with Container(id=self._loading_id, classes="loading-container"):
                     yield Label("⏳ Waiting for agent...", classes="loading-text")
+
+                # Chronological timeline layout - tools and text interleaved
+                yield TimelineSection(id=self._timeline_section_id)
+                yield CompletionFooter(id=self._completion_footer_id)
+
+                # Legacy RichLog kept for fallback/compatibility
                 yield self.content_log
                 yield self.current_line_label
 
@@ -2511,129 +2799,238 @@ Type your question and press Enter to ask the agents.
             self.content_log.write(Text(""))  # Blank line after  # Extra blank line  # Blank line after
 
         def add_content(self, content: str, content_type: str):
-            """Add content to agent panel.
+            """Add content to agent panel using section-based routing.
 
-            Content is routed based on type:
-            - tool: Formatted as full-width bars with alternating colors
-            - restart: Full-width restart separator banner
-            - status: Full-width status bar
-            - presentation: Final answer presentation
-            - thinking/default: Streaming text content (filtered for noise)
+            Content is normalized and routed to appropriate sections:
+            - Tool content -> ToolSection (collapsible tool cards)
+            - Thinking/text -> ThinkingSection (streaming RichLog)
+            - Status -> Updates status badge
+            - Presentation -> ThinkingSection with completion footer
+            - Restart -> Restart separator in ThinkingSection
             """
             self._hide_loading()  # Hide loading when any content arrives
 
-            if content_type == "tool":
-                # Check if this is a session restart indicator
-                # "Registered X tools" or "Connected to X servers" after presentation = new session
-                is_session_start = ("Registered" in content and "tools" in content) or ("Connected to" in content and "server" in content)
+            # Normalize content first
+            normalized = ContentNormalizer.normalize(content, content_type)
 
-                if is_session_start and getattr(self, "_presentation_shown", False):
-                    # New session starting after a presentation
-                    self._session_count = getattr(self, "_session_count", 1) + 1
-                    self.show_restart_separator(self._session_count, "New attempt")
-                    self._presentation_shown = False
-                    self._session_completed = False
-
-                self._handle_tool_content(content)
-                self._line_buffer = ""
-                self.current_line_label.update(Text(""))
+            # Route based on detected content type
+            if normalized.content_type.startswith("tool_"):
+                self._add_tool_content(normalized, content, content_type)
+            elif normalized.content_type == "status":
+                self._add_status_content(normalized)
+            elif normalized.content_type == "presentation":
+                self._add_presentation_content(normalized)
             elif content_type == "restart":
-                # Show restart separator - content may contain "attempt:N reason:..."
-                attempt = 1
-                reason = content
-                if "attempt:" in content:
-                    try:
-                        parts = content.split("attempt:")
-                        if len(parts) > 1:
-                            attempt_part = parts[1].split()[0]
-                            attempt = int(attempt_part)
-                            reason = content.replace(f"attempt:{attempt}", "").strip()
-                    except (ValueError, IndexError):
-                        pass
-                self.show_restart_separator(attempt, reason)
-                self._line_buffer = ""
-                self.current_line_label.update(Text(""))
-            elif content_type == "status":
-                # Detect session completion for restart tracking
-                if "completed" in content.lower():
-                    self._session_completed = True
-
-                # Make status messages full-width bars
-                status_bar = self._make_full_width_bar(f"  📊  {content}", "bold yellow on #2d333b")
-                self.content_log.write(status_bar)
-                self._line_buffer = ""
-                self.current_line_label.update(Text(""))
-            elif content_type == "presentation":
-                # Clean up the presentation content
-                # Filter raw JSON blocks that shouldn't be shown
-                if '"action_type"' in content or '"new_answer"' in content or '"vote"' in content:
-                    return
-                if '"reason":' in content or '"agent_id":' in content:
-                    return
-                if "Providing answer:" in content:
-                    # Mark that we showed a presentation (for restart detection)
-                    self._presentation_shown = True
-                    # Just show a clean "providing answer" without the full content
-                    presentation_bar = self._make_full_width_bar(
-                        "  🎤  Presenting final answer...",
-                        "bold magenta on #3d2d4d",
-                    )
-                    self.content_log.write(presentation_bar)
-                    self._line_buffer = ""
-                    self.current_line_label.update(Text(""))
-                    return
-                self.content_log.write(Text(f"🎤 {content}", style="magenta"))
-                self._line_buffer = ""
-                self.current_line_label.update(Text(""))
+                self._add_restart_content(content)
+            elif normalized.content_type in ("thinking", "text"):
+                self._add_thinking_content(normalized, content_type)
             else:
-                # Default text content - filter and format
+                # Fallback: route to thinking section if displayable
+                if normalized.should_display:
+                    self._add_thinking_content(normalized, content_type)
 
-                # Aggressive filtering for JSON/vote content
-                content_stripped = content.strip()
+        def _add_tool_content(self, normalized, raw_content: str, raw_type: str):
+            """Route tool content to TimelineSection (chronologically)."""
+            # Check for session restart indicator
+            is_session_start = ("Registered" in raw_content and "tools" in raw_content) or ("Connected to" in raw_content and "server" in raw_content)
 
-                # Filter out raw JSON-like content
-                if '"action_type"' in content:
-                    return
-                if '"vote_data"' in content or '"vote":' in content:
-                    return
-                if '"reason":' in content or '"agent_id":' in content:
-                    return
-                if content_stripped.startswith("{") or content_stripped.startswith("}"):
-                    return
-                if content_stripped.startswith('"') and '":' in content:
-                    return
+            if is_session_start and self._presentation_shown:
+                # New session starting after a presentation
+                self._session_count += 1
+                self._add_restart_content(f"attempt:{self._session_count} New attempt")
+                self._presentation_shown = False
+                self._session_completed = False
+                self._tool_handler.reset()
+                self._clear_timeline()
 
-                # Filter vote-related JSON fragments
-                if "action_type" in content or "new_answer" in content:
-                    return
+            # Process through handler
+            tool_data = self._tool_handler.process(normalized)
+            if not tool_data:
+                return
 
-                # Handle thinking/reasoning content
-                if content_type == "thinking":
-                    # Show reasoning header once, then stream content below
-                    if not self._reasoning_header_shown:
-                        reasoning_bar = self._make_full_width_bar(
-                            "  🤔  Reasoning",
-                            "bold white on #2a2d35",
-                        )
-                        self.content_log.write(reasoning_bar)
-                        self._reasoning_header_shown = True
+            # Add or update tool card in TimelineSection (chronologically)
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
 
-                    # Stream reasoning content below the header (dimmed)
+                if tool_data.status == "running":
+                    # Check if this is an args update for existing tool
+                    existing_card = timeline.get_tool(tool_data.tool_id)
+                    if existing_card:
+                        # Update existing card with args (both truncated and full)
+                        if tool_data.args_summary:
+                            existing_card.set_params(tool_data.args_summary, tool_data.args_full)
+                    else:
+                        # New tool started - add card to timeline
+                        timeline.add_tool(tool_data)
+                else:
+                    # Tool completed/failed - update existing card
+                    timeline.update_tool(tool_data.tool_id, tool_data)
+            except Exception:
+                # Fallback to legacy RichLog
+                self._handle_tool_content(raw_content)
+
+            self._line_buffer = ""
+            self.current_line_label.update(Text(""))
+
+        def _add_status_content(self, normalized):
+            """Route status content to TimelineSection with subtle display."""
+            if not normalized.should_display:
+                return
+
+            # Detect session completion for restart tracking
+            if "completed" in normalized.cleaned_content.lower():
+                self._session_completed = True
+                self._show_completion_footer()
+
+            # Add status to timeline as a subtle line
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.add_text(f"● {normalized.cleaned_content}", style="dim cyan", text_class="status")
+            except Exception:
+                # Fallback
+                status_bar = self._make_full_width_bar(f"  📊  {normalized.cleaned_content}", "bold yellow on #2d333b")
+                self.content_log.write(status_bar)
+
+            self._line_buffer = ""
+            self.current_line_label.update(Text(""))
+
+        def _add_presentation_content(self, normalized):
+            """Route presentation content to TimelineSection."""
+            if not normalized.should_display:
+                return
+
+            # Mark presentation shown for restart detection
+            if "Providing answer" in normalized.original:
+                self._presentation_shown = True
+                self._show_completion_footer()
+
+            # Add to timeline with response styling
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.add_text(normalized.cleaned_content, style="bold #4ec9b0", text_class="response")
+            except Exception:
+                # Fallback
+                self.content_log.write(Text(f"🎤 {normalized.cleaned_content}", style="magenta"))
+
+            self._line_buffer = ""
+            self.current_line_label.update(Text(""))
+
+        def _add_restart_content(self, content: str):
+            """Handle restart separator."""
+            # Parse attempt number
+            attempt = 1
+            reason = content
+            if "attempt:" in content:
+                try:
+                    parts = content.split("attempt:")
+                    if len(parts) > 1:
+                        attempt_part = parts[1].split()[0]
+                        attempt = int(attempt_part)
+                        reason = content.replace(f"attempt:{attempt}", "").strip()
+                except (ValueError, IndexError):
+                    pass
+
+            # Add to timeline as separator
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                label = f"⚡ RESTART — ATTEMPT {attempt}"
+                if reason and reason != "New attempt":
+                    short_reason = reason[:30] + "..." if len(reason) > 30 else reason
+                    label += f" — {short_reason}"
+                timeline.add_separator(label)
+
+                # Hide completion footer for new attempt
+                self._hide_completion_footer()
+            except Exception:
+                # Fallback to legacy method
+                self.show_restart_separator(attempt, reason)
+
+            self._line_buffer = ""
+            self.current_line_label.update(Text(""))
+
+        def _add_thinking_content(self, normalized, raw_type: str):
+            """Route thinking/text content to TimelineSection.
+
+            Coordination content (voting, reasoning about other agents) is
+            routed to a collapsible ReasoningSection within the timeline.
+            """
+            # Process through handler for extra filtering
+            cleaned = self._thinking_handler.process(normalized)
+            if not cleaned:
+                return
+
+            # Check if this is coordination content
+            is_coordination = getattr(normalized, "is_coordination", False)
+
+            # Add to timeline
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+
+                # Handle line buffering for streaming
+                def write_line(line: str):
+                    if is_coordination:
+                        # Route to collapsible reasoning section
+                        timeline.add_reasoning(line)
+                    elif raw_type == "thinking":
+                        timeline.add_text(line, style="dim", text_class="thinking")
+                    else:
+                        timeline.add_text(line)
+
+                self._line_buffer = _process_line_buffer(
+                    self._line_buffer,
+                    cleaned,
+                    write_line,
+                )
+                self.current_line_label.update(Text(self._line_buffer))
+            except Exception:
+                # Fallback to legacy RichLog
+                if raw_type == "thinking":
                     self._line_buffer = _process_line_buffer(
                         self._line_buffer,
-                        content,
+                        cleaned,
                         lambda line: self.content_log.write(Text(f"     {line}", style="dim")),
                     )
                     self.current_line_label.update(Text(self._line_buffer, style="dim"))
-                    return
+                else:
+                    self._line_buffer = _process_line_buffer(
+                        self._line_buffer,
+                        cleaned,
+                        lambda line: self.content_log.write(Text(line)),
+                    )
+                    self.current_line_label.update(Text(self._line_buffer))
 
-                # Regular streaming content
-                self._line_buffer = _process_line_buffer(
-                    self._line_buffer,
-                    content,
-                    lambda line: self.content_log.write(Text(line)),
-                )
-                self.current_line_label.update(Text(self._line_buffer))
+        def _clear_timeline(self):
+            """Clear the timeline for a new session."""
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.clear()
+            except Exception:
+                pass
+
+        def _clear_tool_section(self):
+            """Clear the tool section for a new session (legacy, calls _clear_timeline)."""
+            self._clear_timeline()
+            try:
+                tool_section = self.query_one(f"#{self._tool_section_id}", ToolSection)
+                tool_section.clear()
+            except Exception:
+                pass
+
+        def _show_completion_footer(self):
+            """Show the completion footer."""
+            try:
+                footer = self.query_one(f"#{self._completion_footer_id}", CompletionFooter)
+                footer.show_completed()
+            except Exception:
+                pass
+
+        def _hide_completion_footer(self):
+            """Hide the completion footer."""
+            try:
+                footer = self.query_one(f"#{self._completion_footer_id}", CompletionFooter)
+                footer.hide()
+            except Exception:
+                pass
 
         def update_status(self, status: str):
             """Update agent status."""
