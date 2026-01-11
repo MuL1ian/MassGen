@@ -21,6 +21,7 @@
 Screen {
     background: #0d1117;
     color: #e6edf3;
+    layers: base overlay;
 }
 
 .hidden {
@@ -76,7 +77,7 @@ Screen {
 #main_container {
     layout: vertical;
     background: #0d1117;
-    height: 100%;
+    height: 1fr;
     padding: 0 1;
 }
 
@@ -309,31 +310,37 @@ HeaderWidget {
 /* === Path Autocomplete Dropdown === */
 #path_dropdown {
     display: none;
+    layer: overlay;
+    dock: bottom;
     width: 100%;
+    height: auto;
     max-height: 12;
     background: #21262d;
     border: solid #58a6ff;
     padding: 0;
-    margin-bottom: 1;
+    margin-bottom: 7;
+    layout: vertical;
 }
 
 #path_dropdown.visible {
     display: block;
 }
 
-#path_dropdown > Vertical {
+#path_dropdown > #suggestions_container {
     height: auto;
-    max-height: 10;
+    max-height: 8;
     overflow-y: auto;
 }
 
-#path_dropdown .hint-bar {
-    height: 1;
-    background: #161b22;
-    color: #6e7681;
+#path_dropdown > .hint-bar {
+    dock: bottom;
+    height: 2;
+    width: 100%;
+    background: #30363d;
+    color: #e6edf3;
     text-align: center;
     padding: 0 1;
-    border-top: solid #30363d;
+    border-top: solid #58a6ff;
 }
 
 /* Path suggestion rows */
@@ -1363,12 +1370,13 @@ CompletionFooter.status-error {
 /* === Status Bar === */
 StatusBar {
     dock: bottom;
-    height: 1;
-    background: #161b22;
+    height: auto;
+    min-height: 1;
+    background: #21262d;
     color: #e6edf3;
     padding: 0 1;
     layout: horizontal;
-    border-top: solid #30363d;
+    border-top: solid #58a6ff;
 }
 
 StatusBar > Static {
@@ -1406,6 +1414,16 @@ StatusBar > Static {
 #status_timer {
     width: auto;
     color: #d29922;
+}
+
+#status_hints {
+    width: auto;
+    color: #6e7681;
+    margin-left: 1;
+}
+
+#status_hints.hidden {
+    display: none;
 }
 
 /* Phase-specific border colors */
@@ -1726,4 +1744,172 @@ StatusBar.consensus-reached #status_votes {
 #close_browser_button {
     width: 100%;
     margin-top: 1;
+}
+
+/* === Unified State Classes (Task 5.16) === */
+
+/* Success states */
+.state-success {
+    border: solid #3fb950;
+    background: #0d1f14;
+}
+
+.state-success-text {
+    color: #3fb950;
+}
+
+/* Warning states */
+.state-warning {
+    border: solid #d29922;
+    background: #2d2510;
+}
+
+.state-warning-text {
+    color: #d29922;
+}
+
+/* Error states */
+.state-error {
+    border: solid #f85149;
+    background: #1a0f0f;
+}
+
+.state-error-text {
+    color: #f85149;
+}
+
+/* Loading states */
+.state-loading {
+    border: dashed #58a6ff;
+}
+
+.state-loading-text {
+    color: #8b949e;
+    text-style: italic;
+}
+
+/* Muted/disabled states */
+.state-muted {
+    color: #6e7681;
+    text-style: dim;
+}
+
+/* === Pulse Animations (Task 5.16) === */
+
+/* Vote pulse - brief highlight */
+.pulse-vote {
+    background: #3fb950 20%;
+    text-style: bold;
+}
+
+/* Leader change pulse */
+.pulse-leader {
+    background: #d29922 20%;
+    text-style: bold;
+}
+
+/* Winner celebration pulse */
+.pulse-winner {
+    background: #dcdcaa 30%;
+    color: #0d1117;
+    text-style: bold;
+}
+
+/* Completion flash */
+.flash-complete {
+    background: #238636;
+    color: #ffffff;
+}
+
+/* === Action Button Types (Task 5.16) === */
+
+Button.action-primary {
+    background: #238636;
+    border: solid #238636;
+}
+
+Button.action-primary:hover {
+    background: #2ea043;
+    border: solid #2ea043;
+}
+
+Button.action-danger {
+    background: #da3633;
+    border: solid #da3633;
+}
+
+Button.action-danger:hover {
+    background: #f85149;
+    border: solid #f85149;
+}
+
+Button.action-secondary {
+    background: #21262d;
+    border: solid #30363d;
+}
+
+Button.action-secondary:hover {
+    background: #30363d;
+    border: solid #484f58;
+}
+
+/* === Progress Indicator (Task 5.15) === */
+
+ProgressIndicator {
+    height: 1;
+    width: auto;
+    padding: 0 1;
+    color: #8b949e;
+}
+
+ProgressIndicator.hidden {
+    display: none;
+}
+
+/* Loading container with spinner */
+.loading-container ProgressIndicator {
+    width: 100%;
+    text-align: center;
+}
+
+/* === Final Stream Panel Enhancements (Task 5.12) === */
+
+#final_stream_buttons {
+    height: 3;
+    margin-top: 1;
+    layout: horizontal;
+}
+
+#final_stream_buttons Button {
+    margin-right: 1;
+    min-width: 14;
+}
+
+#followup_container {
+    margin-top: 2;
+    padding: 1;
+    border-top: solid #30363d;
+}
+
+#followup_container.hidden {
+    display: none;
+}
+
+#followup_label {
+    color: #9cdcfe;
+    margin-bottom: 1;
+}
+
+#followup_input {
+    width: 100%;
+}
+
+/* Final stream winner styling */
+#final_stream_container.winner-complete {
+    border: solid #3fb950;
+    background: #0d1f14;
+}
+
+#final_stream_container.winner-complete #final_stream_label {
+    color: #3fb950;
 }

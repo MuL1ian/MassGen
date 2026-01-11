@@ -20,7 +20,7 @@ from .terminal_display import TerminalDisplay
 
 try:
     from rich.text import Text
-    from textual import events
+    from textual import events, on
     from textual.app import App, ComposeResult
     from textual.containers import (
         Container,
@@ -30,6 +30,7 @@ try:
         VerticalScroll,
     )
     from textual.message import Message
+    from textual.reactive import reactive
     from textual.screen import ModalScreen
     from textual.widget import Widget
     from textual.widgets import (
@@ -570,6 +571,161 @@ def _process_line_buffer(
     return buffer
 
 
+# Language mapping for syntax highlighting
+FILE_LANG_MAP = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".jsx": "jsx",
+    ".tsx": "tsx",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".html": "html",
+    ".css": "css",
+    ".scss": "scss",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "zsh",
+    ".rs": "rust",
+    ".go": "go",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".rb": "ruby",
+    ".php": "php",
+    ".sql": "sql",
+    ".xml": "xml",
+    ".r": "r",
+    ".lua": "lua",
+    ".vim": "vim",
+    ".dockerfile": "dockerfile",
+}
+
+# Binary file extensions to reject for preview
+BINARY_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".webp",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".7z",
+    ".rar",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".mp3",
+    ".mp4",
+    ".wav",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".pyc",
+    ".pyo",
+    ".class",
+    ".o",
+    ".obj",
+}
+
+
+def render_file_preview(
+    file_path: Path,
+    max_size: int = 50000,
+    theme: str = "monokai",
+) -> Tuple[Any, bool]:
+    """Render file content with syntax highlighting or markdown.
+
+    Args:
+        file_path: Path to the file to preview.
+        max_size: Maximum file size in bytes to render (default 50KB).
+        theme: Syntax highlighting theme (default "monokai").
+
+    Returns:
+        Tuple of (renderable, is_rich) where:
+        - renderable: Rich Markdown, Syntax, or plain string
+        - is_rich: True if renderable is a Rich object, False for plain text
+    """
+    from rich.markdown import Markdown
+    from rich.syntax import Syntax
+
+    try:
+        ext = file_path.suffix.lower()
+
+        # Handle binary files
+        if ext in BINARY_EXTENSIONS:
+            return f"[Binary file: {ext}]", False
+
+        # Check file size
+        if file_path.stat().st_size > max_size:
+            return f"[File too large: {file_path.stat().st_size:,} bytes]", False
+
+        # Read content
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return "[Binary or non-UTF-8 file]", False
+
+        # Empty file
+        if not content.strip():
+            return "[Empty file]", False
+
+        # Markdown files - render as Markdown
+        if ext in (".md", ".markdown"):
+            return Markdown(content), True
+
+        # Code files - render with syntax highlighting
+        if ext in FILE_LANG_MAP:
+            return (
+                Syntax(
+                    content,
+                    FILE_LANG_MAP[ext],
+                    theme=theme,
+                    line_numbers=True,
+                    word_wrap=True,
+                ),
+                True,
+            )
+
+        # Special files without extensions
+        if file_path.name.lower() in ("dockerfile", "makefile", "jenkinsfile"):
+            lang = file_path.name.lower()
+            if lang == "makefile":
+                lang = "make"
+            return Syntax(content, lang, theme=theme, line_numbers=True, word_wrap=True), True
+
+        # Default: plain text (truncate if very long)
+        lines = content.split("\n")
+        if len(lines) > 500:
+            content = "\n".join(lines[:500]) + f"\n\n... [{len(lines) - 500} more lines]"
+        return content, False
+
+    except FileNotFoundError:
+        return "[File not found]", False
+    except PermissionError:
+        return "[Permission denied]", False
+    except Exception as e:
+        return f"[Error reading file: {e}]", False
+
+
 # Emoji fallback mapping for terminals without Unicode support
 EMOJI_FALLBACKS = {
     "🚀": ">>",  # Launch
@@ -596,6 +752,89 @@ CRITICAL_PATTERNS = {
 }
 
 CRITICAL_CONTENT_TYPES = {"status", "presentation", "tool", "vote", "error"}
+
+
+class ProgressIndicator(Static):
+    """Animated spinner with optional progress bar for loading states.
+
+    Provides visual feedback during async operations with configurable
+    spinner styles and optional progress percentage display.
+    """
+
+    SPINNERS = {
+        "unicode": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+        "ascii": ["|", "/", "-", "\\"],
+        "dots": [".", "..", "...", ""],
+    }
+
+    progress = reactive(0.0)
+    message = reactive("Loading...")
+    is_spinning = reactive(False)
+
+    def __init__(
+        self,
+        message: str = "Loading...",
+        spinner_type: str = "unicode",
+        show_progress: bool = False,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self._message = message
+        self._spinner_type = spinner_type
+        self._show_progress = show_progress
+        self._spinner_index = 0
+        self._spinner_timer = None
+        self._frames = self.SPINNERS.get(spinner_type, self.SPINNERS["unicode"])
+
+    def render(self) -> str:
+        """Render the spinner with message."""
+        if not self.is_spinning:
+            return ""
+
+        spinner_char = self._frames[self._spinner_index % len(self._frames)]
+
+        if self._show_progress and self.progress > 0:
+            return f"{spinner_char} {self.message} ({int(self.progress * 100)}%)"
+        return f"{spinner_char} {self.message}"
+
+    def start_spinner(self, message: str = None) -> None:
+        """Start the spinner animation."""
+        if message:
+            self.message = message
+        self.is_spinning = True
+        self._spinner_index = 0
+        self._start_animation()
+
+    def stop_spinner(self) -> None:
+        """Stop the spinner animation."""
+        self.is_spinning = False
+        if self._spinner_timer:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
+        self.refresh()
+
+    def set_progress(self, value: float, message: str = None) -> None:
+        """Update progress value (0.0 to 1.0) and optional message."""
+        self.progress = max(0.0, min(1.0, value))
+        if message:
+            self.message = message
+        self.refresh()
+
+    def _start_animation(self) -> None:
+        """Start the spinner animation timer."""
+        if self._spinner_timer:
+            self._spinner_timer.stop()
+
+        def advance_spinner():
+            if self.is_spinning:
+                self._spinner_index = (self._spinner_index + 1) % len(self._frames)
+                self.refresh()
+
+        self._spinner_timer = self.set_interval(0.1, advance_spinner)
+
+    def on_unmount(self) -> None:
+        """Clean up timer when widget is removed."""
+        self.stop_spinner()
 
 
 class TextualTerminalDisplay(TerminalDisplay):
@@ -1547,16 +1786,7 @@ if TEXTUAL_AVAILABLE:
     class StatusBar(Widget):
         """Persistent status bar showing orchestration state at the bottom of the TUI."""
 
-        DEFAULT_CSS = """
-        StatusBar {
-            dock: bottom;
-            height: 1;
-            background: $surface;
-            color: $text;
-            padding: 0 1;
-            layout: horizontal;
-        }
-        """
+        # CSS is in external theme files (dark.tcss/light.tcss)
 
         def __init__(self, agent_ids: List[str] | None = None):
             super().__init__(id="status_bar")
@@ -1573,12 +1803,13 @@ if TEXTUAL_AVAILABLE:
                 self._vote_counts[agent_id] = 0
 
         def compose(self) -> ComposeResult:
-            """Create the status bar layout with phase, progress, votes, events, MCP, cancel, and timer."""
+            """Create the status bar layout with phase, progress, votes, events, MCP, cancel hint, and timer."""
             yield Static("⏳ Idle", id="status_phase")
             yield Static("", id="status_progress")  # Progress summary: "3 agents | 2 answers | 4/6 votes"
             yield Static("", id="status_votes")
             yield Static("", id="status_mcp")
             yield Static("📋 0 events", id="status_events", classes="clickable")
+            yield Static("[dim]q:cancel • ?:help[/]", id="status_hints")  # Visible by default, hidden when idle
             yield Static("⏱️ 0:00", id="status_timer")
             yield Static("", id="status_cancel", classes="cancel-button hidden")
 
@@ -1608,6 +1839,16 @@ if TEXTUAL_AVAILABLE:
             try:
                 phase_widget = self.query_one("#status_phase", Static)
                 phase_widget.update(display_text)
+            except Exception:
+                pass  # Widget not mounted yet
+
+            # Show/hide hints based on active phase
+            try:
+                hints_widget = self.query_one("#status_hints", Static)
+                if phase in ("idle",):
+                    hints_widget.add_class("hidden")
+                else:
+                    hints_widget.remove_class("hidden")
             except Exception:
                 pass  # Widget not mounted yet
 
@@ -1968,7 +2209,7 @@ if TEXTUAL_AVAILABLE:
             self.post_eval_panel = PostEvaluationPanel()
             yield self.post_eval_panel
 
-            self.final_stream_panel = FinalStreamPanel()
+            self.final_stream_panel = FinalStreamPanel(coordination_display=self.coordination_display)
             yield self.final_stream_panel
 
             self.safe_indicator = Label("", id="safe_indicator")
@@ -1980,12 +2221,12 @@ if TEXTUAL_AVAILABLE:
                 self._status_bar.add_class("hidden")
             yield self._status_bar
 
-            # Input area container with text input and @ autocomplete dropdown
-            with Container(id="input_area"):
-                # Path autocomplete dropdown (hidden by default, positioned above input)
-                self._path_dropdown = PathSuggestionDropdown(id="path_dropdown")
-                yield self._path_dropdown
+            # Path autocomplete dropdown (hidden by default, floats above input area)
+            self._path_dropdown = PathSuggestionDropdown(id="path_dropdown")
+            yield self._path_dropdown
 
+            # Input area container with text input
+            with Container(id="input_area"):
                 # Input header with hint and vim mode indicator (above input)
                 with Horizontal(id="input_header"):
                     # Hint for submission (updated dynamically for vim mode)
@@ -2080,15 +2321,28 @@ if TEXTUAL_AVAILABLE:
             Number keys 1-9 switch to specific agents (when not typing).
             All other shortcuts use Ctrl modifiers and are handled via BINDINGS.
             """
+            # DEBUG: Log all keys
+            with open("/tmp/at_debug.log", "a") as f:
+                f.write(f"[DEBUG App] on_key called: key={event.key}, dropdown_showing={hasattr(self, '_path_dropdown') and self._path_dropdown.is_showing}\n")
             # If @ autocomplete is showing, route keys to it first
             if hasattr(self, "_path_dropdown") and self._path_dropdown.is_showing:
+                with open("/tmp/at_debug.log", "a") as f:
+                    f.write(f"[DEBUG App] Routing to dropdown.handle_key for key={event.key}\n")
                 if self._path_dropdown.handle_key(event):
+                    with open("/tmp/at_debug.log", "a") as f:
+                        f.write(f"[DEBUG App] Dropdown handled key={event.key}, stopping event\n")
                     event.prevent_default()
                     event.stop()
                     return
 
             # Don't handle shortcuts when typing in input (supports both Input and MultiLineInput/TextArea)
             if isinstance(self.focused, (Input, TextArea)) and getattr(self.focused, "id", None) == "question_input":
+                # But allow Escape to unfocus from input
+                if event.key == "escape":
+                    self.set_focus(None)
+                    self.notify("Press any shortcut key (h for help)", severity="information", timeout=2)
+                    event.stop()
+                # Note: Tab key when dropdown is showing is handled above
                 return
 
             # Handle agent shortcuts
@@ -2103,6 +2357,12 @@ if TEXTUAL_AVAILABLE:
             """Handle Enter in the multi-line input."""
             if event.input.id == "question_input":
                 self._submit_question()
+
+        @on(TextArea.Changed, "#question_input")
+        def handle_question_input_changed(self, event: TextArea.Changed) -> None:
+            """Handle TextArea changes to trigger @ autocomplete check."""
+            if hasattr(self, "question_input") and hasattr(self.question_input, "_check_at_trigger"):
+                self.question_input._check_at_trigger()
 
         def on_multi_line_input_vim_mode_changed(self, event: MultiLineInput.VimModeChanged) -> None:
             """Handle vim mode changes to update the indicator."""
@@ -2120,6 +2380,11 @@ if TEXTUAL_AVAILABLE:
             if event.input.id == "question_input" and hasattr(self, "_path_dropdown"):
                 self._path_dropdown.dismiss()
                 self.question_input.autocomplete_active = False
+
+        def on_multi_line_input_tab_pressed_with_autocomplete(self, event: MultiLineInput.TabPressedWithAutocomplete) -> None:
+            """Handle Tab press while autocomplete is active - select current item."""
+            if event.input.id == "question_input" and hasattr(self, "_path_dropdown") and self._path_dropdown.is_showing:
+                self._path_dropdown._select_current()
 
         def on_path_suggestion_dropdown_path_selected(self, event: PathSuggestionDropdown.PathSelected) -> None:
             """Handle path selection from autocomplete dropdown."""
@@ -2474,7 +2739,9 @@ Type your question and press Enter to ask the agents.
             self._celebrate_winner(selected_agent, answer)
 
             if self.final_stream_panel:
-                self.final_stream_panel.begin(selected_agent, vote_results or {})
+                # Get model name for the winning agent
+                model_name = self.coordination_display.agent_models.get(selected_agent, "")
+                self.final_stream_panel.begin(selected_agent, model_name, vote_results or {})
                 if answer:
                     self.final_stream_panel.append_chunk(answer)
                 self.final_stream_panel.end()
@@ -2491,7 +2758,9 @@ Type your question and press Enter to ask the agents.
         def begin_final_stream(self, agent_id: str, vote_results: Dict[str, Any]):
             """Show streaming panel when the final agent starts presenting."""
             if self.final_stream_panel:
-                self.final_stream_panel.begin(agent_id, vote_results)
+                # Get model name for the winning agent
+                model_name = self.coordination_display.agent_models.get(agent_id, "")
+                self.final_stream_panel.begin(agent_id, model_name, vote_results)
 
         def update_final_stream(self, chunk: str):
             """Append streaming chunks to the panel."""
@@ -2601,7 +2870,11 @@ Type your question and press Enter to ask the agents.
 
         @keyboard_action
         def action_next_agent(self):
-            """Switch to next agent tab."""
+            """Switch to next agent tab, or select in dropdown if showing."""
+            # If dropdown is showing, Tab selects the current item
+            if hasattr(self, "_path_dropdown") and self._path_dropdown.is_showing:
+                self._path_dropdown._select_current()
+                return
             if self._tab_bar:
                 next_agent = self._tab_bar.get_next_agent()
                 if next_agent:
@@ -3100,7 +3373,22 @@ Type your question and press Enter to ask the agents.
                 self._status_bar.update_votes(vote_counts)
 
         def _handle_agent_shortcuts(self, event: events.Key) -> bool:
-            """Handle agent shortcuts. Returns True if event was handled."""
+            """Handle agent shortcuts. Returns True if event was handled.
+
+            Single-key shortcuts (when not typing in input):
+            - 1-9: Switch to agent by number
+            - q: Cancel/stop current execution
+            - s: System status
+            - o: Orchestrator events
+            - v: Vote results
+            - w: Workspace browser
+            - f: Final presentation / files
+            - c: Cost breakdown
+            - m: MCP status / metrics
+            - a: Answer browser
+            - t: Timeline
+            - h or ?: Help/shortcuts
+            """
             if self._keyboard_locked():
                 return False
 
@@ -3108,6 +3396,7 @@ Type your question and press Enter to ask the agents.
             if not key:
                 return False
 
+            # Number keys for agent switching
             if key.isdigit() and key != "0":
                 idx = int(key) - 1
                 if 0 <= idx < len(self.coordination_display.agent_ids):
@@ -3116,13 +3405,84 @@ Type your question and press Enter to ask the agents.
                     event.stop()
                     return True
 
-            if key.lower() == "s":
+            key_lower = key.lower()
+
+            # q - Cancel/quit current execution
+            if key_lower == "q":
+                self.coordination_display.request_cancellation()
+                event.stop()
+                return True
+
+            # s - System status
+            if key_lower == "s":
                 self.action_open_system_status()
                 event.stop()
                 return True
 
-            if key.lower() == "o":
+            # o - Orchestrator events
+            if key_lower == "o":
                 self.action_open_orchestrator()
+                event.stop()
+                return True
+
+            # v - Vote results
+            if key_lower == "v":
+                self.action_open_vote_results()
+                event.stop()
+                return True
+
+            # w - Workspace browser
+            if key_lower == "w":
+                self.action_open_workspace_browser()
+                event.stop()
+                return True
+
+            # f - Final presentation / file inspection
+            if key_lower == "f":
+                self._show_file_inspection_modal()
+                event.stop()
+                return True
+
+            # c - Cost breakdown
+            if key_lower == "c":
+                self.action_open_cost_breakdown()
+                event.stop()
+                return True
+
+            # m - MCP status or metrics
+            if key_lower == "m":
+                self.action_open_mcp_status()
+                event.stop()
+                return True
+
+            # a - Answer browser
+            if key_lower == "a":
+                self.action_open_answer_browser()
+                event.stop()
+                return True
+
+            # t - Timeline
+            if key_lower == "t":
+                self.action_open_timeline()
+                event.stop()
+                return True
+
+            # h or ? - Help/shortcuts
+            if key_lower == "h" or key == "?":
+                self.action_show_shortcuts()
+                event.stop()
+                return True
+
+            # i or / - Focus input (vim-like insert mode or search)
+            if key_lower == "i" or key == "/":
+                if hasattr(self, "question_input") and self.question_input:
+                    self.question_input.focus()
+                    event.stop()
+                    return True
+
+            # Escape when not in input - show hint
+            if event.key == "escape":
+                self.notify("Already in command mode. Press i or / to type.", severity="information", timeout=2)
                 event.stop()
                 return True
 
@@ -3369,7 +3729,10 @@ Type your question and press Enter to ask the agents.
                 )
                 # Loading indicator - centered, shown when waiting with no content
                 with Container(id=self._loading_id, classes="loading-container"):
-                    yield Label("⏳ Waiting for agent...", classes="loading-text")
+                    yield ProgressIndicator(
+                        message="Waiting for agent...",
+                        id=f"progress_{self._dom_safe_id}",
+                    )
 
                 # Chronological timeline layout - tools and text interleaved
                 yield TimelineSection(id=self._timeline_section_id)
@@ -3384,6 +3747,10 @@ Type your question and press Enter to ask the agents.
             if not self._has_content:
                 self._has_content = True
                 try:
+                    # Stop spinner animation
+                    progress = self.query_one(f"#progress_{self._dom_safe_id}")
+                    progress.stop_spinner()
+                    # Hide container
                     loading = self.query_one(f"#{self._loading_id}")
                     loading.add_class("hidden")
                 except Exception:
@@ -3392,10 +3759,22 @@ Type your question and press Enter to ask the agents.
         def _update_loading_text(self, text: str):
             """Update the loading indicator text."""
             try:
-                loading = self.query_one(f"#{self._loading_id} .loading-text")
-                loading.update(text)
+                progress = self.query_one(f"#progress_{self._dom_safe_id}")
+                progress.message = text
             except Exception:
                 pass
+
+        def _start_loading_spinner(self, message: str = "Waiting for agent..."):
+            """Start the loading spinner with a message."""
+            try:
+                progress = self.query_one(f"#progress_{self._dom_safe_id}")
+                progress.start_spinner(message)
+            except Exception:
+                pass
+
+        def on_mount(self) -> None:
+            """Start the loading spinner when the panel is mounted."""
+            self._start_loading_spinner("Waiting for agent...")
 
         def _make_full_width_bar(self, content: str, style: str) -> Text:
             """Create a full-width bar with background color spanning the entire display.
@@ -3990,34 +4369,38 @@ Type your question and press Enter to ask the agents.
 
             with Container(id="shortcuts_modal_container"):
                 yield Label("📖  Commands & Shortcuts", id="shortcuts_modal_header")
-                yield Label("Type /help for full command list", id="shortcuts_hint")
+                yield Label("Press Esc to unfocus input, then use single keys", id="shortcuts_hint")
                 with Container(id="shortcuts_content"):
                     yield Static(
+                        "[bold cyan]Quick Keys[/] [dim](when not typing)[/]\n"
+                        "  [yellow]q[/]              Cancel/stop execution\n"
+                        "  [yellow]w[/]              Workspace browser\n"
+                        "  [yellow]v[/]              Vote results\n"
+                        "  [yellow]a[/]              Answer browser\n"
+                        "  [yellow]t[/]              Timeline\n"
+                        "  [yellow]f[/]              File inspection\n"
+                        "  [yellow]c[/]              Cost breakdown\n"
+                        "  [yellow]m[/]              MCP status / metrics\n"
+                        "  [yellow]s[/]              System status\n"
+                        "  [yellow]o[/]              Orchestrator events\n"
+                        "  [yellow]h[/] or [yellow]?[/]        This help\n"
+                        "  [yellow]1-9[/]            Switch to agent N\n"
+                        "\n"
+                        "[bold cyan]Focus[/]\n"
+                        "  [yellow]Esc[/]            Unfocus input (enable quick keys)\n"
+                        "  [yellow]i[/] or [yellow]/[/]        Focus input (start typing)\n"
+                        "\n"
                         "[bold cyan]Input[/]\n"
                         "  [yellow]Enter[/]          Submit question\n"
                         "  [yellow]Shift+Enter[/]    New line\n"
                         "  [yellow]Tab[/]            Next agent\n"
                         "  [yellow]Shift+Tab[/]      Previous agent\n"
-                        "  [yellow]/vim[/]           Toggle vim mode\n"
                         "\n"
                         "[bold cyan]Quit[/]\n"
                         "  [yellow]Ctrl+C[/]         Exit MassGen\n"
-                        "  [yellow]Ctrl+D[/]         Exit MassGen\n"
-                        "  [yellow]/quit[/]          Exit MassGen\n"
+                        "  [yellow]q[/]              Cancel current turn\n"
                         "\n"
-                        "[bold cyan]Slash Commands[/]\n"
-                        "  [green]/help[/]         Full command list\n"
-                        "  [green]/output[/]       View agent output\n"
-                        "  [green]/answers[/]      Browse all answers\n"
-                        "  [green]/timeline[/]     Coordination timeline\n"
-                        "  [green]/files[/]        Workspace file browser\n"
-                        "  [green]/browser[/]      Unified browser\n"
-                        "  [green]/cost[/]         Cost breakdown\n"
-                        "  [green]/metrics[/]      Tool metrics\n"
-                        "  [green]/votes[/]        Vote results\n"
-                        "  [green]/mcp[/]          MCP server status\n"
-                        "  [green]/status[/]       System status\n"
-                        "  [green]/config[/]       Open config in editor",
+                        "[dim]Type /help for slash commands[/]",
                         id="shortcuts_text",
                         markup=True,
                     )
@@ -4544,7 +4927,8 @@ Type your question and press Enter to ask the agents.
             super().__init__()
             self.answers = answers
             self.agent_ids = agent_ids
-            self._selected_answer_idx: int = 0
+            # Default to most recent answer (last in list)
+            self._selected_answer_idx: int = len(answers) - 1 if answers else 0
             self._current_files: List[Dict[str, Any]] = []
             self._selected_file_idx: int = 0
             self._load_counter: int = 0  # Counter to ensure unique widget IDs
@@ -4556,12 +4940,14 @@ Type your question and press Enter to ask the agents.
                 # Answer selector
                 with Horizontal(id="workspace_answer_row"):
                     yield Label("Answer: ", id="workspace_answer_label")
-                    # Build answer options
+                    # Build answer options - most recent answer selected by default
                     if self.answers:
                         options = [(f"{a.get('answer_label', f'Answer {i+1}')} - {a['agent_id']}", i) for i, a in enumerate(self.answers)]
+                        default_idx = len(self.answers) - 1  # Most recent
                     else:
                         options = [("No answers yet", -1)]
-                    yield Select(options, id="answer_selector", value=0 if self.answers else -1)
+                        default_idx = -1
+                    yield Select(options, id="answer_selector", value=default_idx)
 
                 # Split view: file list on left, preview on right
                 with Horizontal(id="workspace_split"):
@@ -4578,9 +4964,10 @@ Type your question and press Enter to ask the agents.
                 yield Button("Close (ESC)", id="close_workspace_browser_button")
 
         def on_mount(self) -> None:
-            """Load files for the first answer."""
+            """Load files for the most recent answer."""
             if self.answers:
-                self._load_workspace_files(0)
+                # Load most recent answer (last in list)
+                self._load_workspace_files(len(self.answers) - 1)
 
         def _load_workspace_files(self, answer_idx: int) -> None:
             """Load files from the workspace path of the selected answer."""
@@ -4662,7 +5049,7 @@ Type your question and press Enter to ask the agents.
                 return f"{size // (1024 * 1024)}MB"
 
         def _preview_file(self, file_idx: int) -> None:
-            """Preview the selected file."""
+            """Preview the selected file with syntax highlighting."""
             from textual.widgets import Static
 
             preview = self.query_one("#workspace_preview", VerticalScroll)
@@ -4673,58 +5060,24 @@ Type your question and press Enter to ask the agents.
                 return
 
             f = self._current_files[file_idx]
-            full_path = f["full_path"]
+            full_path = Path(f["full_path"])
 
-            # Check if it's a text file we can preview
-            text_extensions = {
-                ".txt",
-                ".md",
-                ".py",
-                ".js",
-                ".ts",
-                ".json",
-                ".yaml",
-                ".yml",
-                ".html",
-                ".css",
-                ".xml",
-                ".csv",
-                ".log",
-                ".sh",
-                ".bash",
-                ".toml",
-                ".ini",
-                ".cfg",
-                ".conf",
-                ".rst",
-                ".tex",
-            }
+            # Add file header
+            header = Static(
+                f"[bold cyan]{f['rel_path']}[/]\n[dim]{'─' * 40}[/]",
+                markup=True,
+            )
+            preview.mount(header)
 
-            _, ext = os.path.splitext(full_path)
-            ext = ext.lower()
+            # Use render_file_preview for syntax highlighting
+            renderable, is_rich = render_file_preview(full_path)
 
-            if ext in text_extensions or f["size"] < 50000:  # Try text preview for small files
-                try:
-                    with open(full_path, "r", encoding="utf-8", errors="replace") as fp:
-                        content = fp.read(10000)  # Limit preview size
-                        if len(content) == 10000:
-                            content += "\n\n[dim]... (truncated)[/]"
-
-                    preview.mount(
-                        Static(
-                            f"[bold cyan]{f['rel_path']}[/]\n" f"[dim]{'─' * 40}[/]\n" f"{content}",
-                            markup=True,
-                        ),
-                    )
-                except Exception as e:
-                    preview.mount(Static(f"[red]Cannot preview: {e}[/]", markup=True))
+            if is_rich:
+                # Rich object (Syntax or Markdown)
+                preview.mount(Static(renderable))
             else:
-                preview.mount(
-                    Static(
-                        f"[bold cyan]{f['rel_path']}[/]\n" f"[dim]{'─' * 40}[/]\n" f"[dim]Binary file ({self._format_size(f['size'])})[/]\n" f"[dim]Path: {full_path}[/]",
-                        markup=True,
-                    ),
-                )
+                # Plain text or error message
+                preview.mount(Static(str(renderable), markup=True))
 
         def on_select_changed(self, event: Select.Changed) -> None:
             """Handle answer selection change."""
@@ -5531,10 +5884,11 @@ Type your question and press Enter to ask the agents.
             self.styles.display = "none"
 
     class FinalStreamPanel(Static):
-        """Live view of the winning agent's presentation stream."""
+        """Live view of the winning agent's presentation stream with action buttons."""
 
-        def __init__(self):
+        def __init__(self, coordination_display: "TextualTerminalDisplay" = None):
             super().__init__(id="final_stream_container")
+            self.coordination_display = coordination_display
             self.agent_label = Label("", id="final_stream_label")
             self.log_view = RichLog(id="final_stream_log", highlight=True, markup=True, wrap=True)
             self.current_line_label = Label("", classes="streaming_label")
@@ -5542,19 +5896,38 @@ Type your question and press Enter to ask the agents.
             self._header_base = ""
             self._vote_summary = ""
             self._is_streaming = False
+            self._winner_agent_id = ""
+            self._winner_model_name = ""
+            self._final_content: List[str] = []
             self.styles.display = "none"
 
         def compose(self) -> ComposeResult:
             yield self.agent_label
             yield self.log_view
             yield self.current_line_label
+            with Horizontal(id="final_stream_buttons", classes="hidden"):
+                yield Button("Copy", id="final_copy_button", classes="action-primary")
+                yield Button("Save", id="final_save_button")
+                yield Button("Workspace", id="final_workspace_button")
+            with Container(id="followup_container", classes="hidden"):
+                yield Label("Ask a follow-up:", id="followup_label")
+                yield Input(placeholder="Type follow-up question...", id="followup_input")
 
-        def begin(self, agent_id: str, vote_results: Dict[str, Any]):
-            """Reset panel with agent metadata."""
+        def begin(self, agent_id: str, model_name: str, vote_results: Dict[str, Any]):
+            """Reset panel with agent metadata including model name."""
             self.styles.display = "block"
             self._is_streaming = True
+            self._winner_agent_id = agent_id
+            self._winner_model_name = model_name or ""
+            self._final_content = []
             self.add_class("streaming-active")
-            self._header_base = f"🎤 Final Presentation — {agent_id}"
+
+            # Build header with model name
+            if model_name:
+                self._header_base = f"🎤 Final Presentation — {agent_id} ({model_name})"
+            else:
+                self._header_base = f"🎤 Final Presentation — {agent_id}"
+
             self._vote_summary = self._format_vote_summary(vote_results or {})
             header = self._header_base
             if self._vote_summary:
@@ -5566,31 +5939,118 @@ Type your question and press Enter to ask the agents.
             self._line_buffer = ""
             self.current_line_label.update("")
 
+            # Hide buttons during streaming
+            try:
+                self.query_one("#final_stream_buttons").add_class("hidden")
+                self.query_one("#followup_container").add_class("hidden")
+            except Exception:
+                pass
+
         def append_chunk(self, chunk: str):
             """Append streaming text with buffering."""
             if not chunk:
                 return
 
+            def log_and_store(line: str):
+                self.log_view.write(line)
+                self._final_content.append(line)
+
             self._line_buffer = _process_line_buffer(
                 self._line_buffer,
                 chunk,
-                lambda line: self.log_view.write(line),
+                log_and_store,
             )
             self.current_line_label.update(self._line_buffer)
 
         def end(self):
-            """Mark presentation as complete but keep visible."""
+            """Mark presentation as complete, show buttons and follow-up input."""
             if self._line_buffer.strip():
                 self.log_view.write(self._line_buffer)
+                self._final_content.append(self._line_buffer)
             self._line_buffer = ""
             self.current_line_label.update("")
             self._is_streaming = False
             self.remove_class("streaming-active")
+            self.add_class("winner-complete")
 
             header = self._header_base or str(self.agent_label.renderable)
             if self._vote_summary:
                 header = f"{header} | {self._vote_summary}"
             self.agent_label.update(f"{header} | ✅ Completed")
+
+            # Show action buttons and follow-up input
+            try:
+                self.query_one("#final_stream_buttons").remove_class("hidden")
+                self.query_one("#followup_container").remove_class("hidden")
+            except Exception:
+                pass
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            """Handle action button presses."""
+            if event.button.id == "final_copy_button":
+                self._copy_to_clipboard()
+            elif event.button.id == "final_save_button":
+                self._save_to_file()
+            elif event.button.id == "final_workspace_button":
+                self._open_workspace()
+
+        def _copy_to_clipboard(self) -> None:
+            """Copy final answer to system clipboard."""
+            import platform
+            import subprocess
+
+            full_content = "\n".join(self._final_content)
+            try:
+                system = platform.system()
+                if system == "Darwin":  # macOS
+                    process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+                    process.communicate(full_content.encode("utf-8"))
+                elif system == "Windows":
+                    process = subprocess.Popen(["clip"], stdin=subprocess.PIPE, shell=True)
+                    process.communicate(full_content.encode("utf-8"))
+                else:  # Linux
+                    process = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
+                    process.communicate(full_content.encode("utf-8"))
+                self.app.notify(f"Copied {len(self._final_content)} lines to clipboard", severity="information")
+            except Exception as e:
+                self.app.notify(f"Failed to copy: {e}", severity="error")
+
+        def _save_to_file(self) -> None:
+            """Save final answer to a file in the log directory."""
+            from datetime import datetime
+
+            from massgen.logging.log_directory import get_log_session_dir
+
+            try:
+                output_dir = get_log_session_dir() / "final_answers"
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"final_answer_{self._winner_agent_id}_{timestamp}.txt"
+                output_path = output_dir / filename
+
+                full_content = "\n".join(self._final_content)
+                output_path.write_text(full_content, encoding="utf-8")
+
+                self.app.notify(f"Saved to: {output_path.name}", severity="information")
+            except Exception as e:
+                self.app.notify(f"Failed to save: {e}", severity="error")
+
+        def _open_workspace(self) -> None:
+            """Open workspace browser for the winning agent."""
+            if not self.coordination_display or not self._winner_agent_id:
+                self.app.notify("Cannot open workspace: missing context", severity="warning")
+                return
+
+            # Find the app's method to show workspace browser
+            try:
+                app = self.app
+                if hasattr(app, "_show_workspace_browser_for_agent"):
+                    app._show_workspace_browser_for_agent(self._winner_agent_id)
+                else:
+                    self.app.notify("Workspace browser not available", severity="warning")
+            except Exception as e:
+                self.app.notify(f"Failed to open workspace: {e}", severity="error")
 
         def _format_vote_summary(self, vote_results: Dict[str, Any]) -> str:
             """Condensed vote summary for header."""

@@ -3,6 +3,7 @@
 Screen {
     background: #ffffff;
     color: #333333;
+    layers: base overlay;
 }
 
 .hidden {
@@ -53,7 +54,7 @@ Screen {
 #main_container {
     layout: vertical;
     background: #ffffff;
-    height: 100%;
+    height: 1fr;
     padding: 0 1;
 }
 
@@ -277,26 +278,31 @@ HeaderWidget {
 /* === Path Autocomplete Dropdown === */
 #path_dropdown {
     display: none;
+    layer: overlay;
     width: 100%;
-    max-height: 12;
+    height: auto;
+    max-height: 14;
     background: #ffffff;
     border: solid #0066cc;
     padding: 0;
     margin-bottom: 1;
+    layout: vertical;
 }
 
 #path_dropdown.visible {
     display: block;
 }
 
-#path_dropdown > Vertical {
+#path_dropdown > #suggestions_container {
     height: auto;
-    max-height: 10;
+    max-height: 11;
     overflow-y: auto;
 }
 
-#path_dropdown .hint-bar {
+#path_dropdown > .hint-bar {
+    dock: bottom;
     height: 1;
+    width: 100%;
     background: #f0f0f0;
     color: #666666;
     text-align: center;
@@ -1312,8 +1318,9 @@ CompletionFooter.status-error {
 /* === Status Bar === */
 StatusBar {
     dock: bottom;
-    height: 1;
-    background: #f0f0f0;
+    height: auto;
+    min-height: 1;
+    background: #e8e8e8;
     color: #333333;
     padding: 0 1;
     layout: horizontal;
@@ -1355,6 +1362,16 @@ StatusBar > Static {
 #status_timer {
     width: auto;
     color: #ff9800;
+}
+
+#status_hints {
+    width: auto;
+    color: #888888;
+    margin-left: 1;
+}
+
+#status_hints.hidden {
+    display: none;
 }
 
 /* Phase-specific border colors */
@@ -1690,4 +1707,175 @@ StatusBar.consensus-reached #status_votes {
 #close_browser_button {
     width: 100%;
     margin-top: 1;
+}
+
+/* === Unified State Classes (Task 5.16) === */
+
+/* Success states */
+.state-success {
+    border: solid #4caf50;
+    background: #e8f5e9;
+}
+
+.state-success-text {
+    color: #2e7d32;
+}
+
+/* Warning states */
+.state-warning {
+    border: solid #ff9800;
+    background: #fff3e0;
+}
+
+.state-warning-text {
+    color: #e65100;
+}
+
+/* Error states */
+.state-error {
+    border: solid #f44336;
+    background: #ffebee;
+}
+
+.state-error-text {
+    color: #c62828;
+}
+
+/* Loading states */
+.state-loading {
+    border: dashed #2196f3;
+}
+
+.state-loading-text {
+    color: #666666;
+    text-style: italic;
+}
+
+/* Muted/disabled states */
+.state-muted {
+    color: #999999;
+    text-style: dim;
+}
+
+/* === Pulse Animations (Task 5.16) === */
+
+/* Vote pulse - brief highlight */
+.pulse-vote {
+    background: #4caf50 20%;
+    text-style: bold;
+}
+
+/* Leader change pulse */
+.pulse-leader {
+    background: #ff9800 20%;
+    text-style: bold;
+}
+
+/* Winner celebration pulse */
+.pulse-winner {
+    background: #ffc107 30%;
+    color: #333333;
+    text-style: bold;
+}
+
+/* Completion flash */
+.flash-complete {
+    background: #4caf50;
+    color: #ffffff;
+}
+
+/* === Action Button Types (Task 5.16) === */
+
+Button.action-primary {
+    background: #4caf50;
+    border: solid #4caf50;
+    color: #ffffff;
+}
+
+Button.action-primary:hover {
+    background: #43a047;
+    border: solid #43a047;
+}
+
+Button.action-danger {
+    background: #f44336;
+    border: solid #f44336;
+    color: #ffffff;
+}
+
+Button.action-danger:hover {
+    background: #e53935;
+    border: solid #e53935;
+}
+
+Button.action-secondary {
+    background: #e0e0e0;
+    border: solid #bdbdbd;
+    color: #333333;
+}
+
+Button.action-secondary:hover {
+    background: #bdbdbd;
+    border: solid #9e9e9e;
+}
+
+/* === Progress Indicator (Task 5.15) === */
+
+ProgressIndicator {
+    height: 1;
+    width: auto;
+    padding: 0 1;
+    color: #666666;
+}
+
+ProgressIndicator.hidden {
+    display: none;
+}
+
+/* Loading container with spinner */
+.loading-container ProgressIndicator {
+    width: 100%;
+    text-align: center;
+}
+
+/* === Final Stream Panel Enhancements (Task 5.12) === */
+
+#final_stream_buttons {
+    height: 3;
+    margin-top: 1;
+    layout: horizontal;
+}
+
+#final_stream_buttons Button {
+    margin-right: 1;
+    min-width: 14;
+}
+
+#followup_container {
+    margin-top: 2;
+    padding: 1;
+    border-top: solid #e0e0e0;
+}
+
+#followup_container.hidden {
+    display: none;
+}
+
+#followup_label {
+    color: #0066cc;
+    margin-bottom: 1;
+}
+
+#followup_input {
+    width: 100%;
+}
+
+/* Final stream winner styling */
+#final_stream_container.winner-complete {
+    border: solid #4caf50;
+    background: #e8f5e9;
+}
+
+#final_stream_container.winner-complete #final_stream_label {
+    color: #2e7d32;
 }

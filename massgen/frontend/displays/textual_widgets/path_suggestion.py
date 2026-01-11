@@ -129,28 +129,33 @@ class PathSuggestionDropdown(Widget):
         display: none;
         layer: overlay;
         width: 100%;
-        max-height: 12;
+        height: auto;
+        max-height: 14;
         background: $surface;
         border: solid $primary;
         padding: 0;
+        layout: vertical;
     }
 
     PathSuggestionDropdown.visible {
         display: block;
     }
 
-    PathSuggestionDropdown > Vertical {
+    PathSuggestionDropdown > #suggestions_container {
         height: auto;
-        max-height: 10;
+        max-height: 11;
         overflow-y: auto;
     }
 
-    PathSuggestionDropdown .hint-bar {
+    PathSuggestionDropdown > .hint-bar {
+        dock: bottom;
         height: 1;
+        width: 100%;
         background: $surface-darken-1;
         color: $text-muted;
         text-align: center;
         padding: 0 1;
+        border-top: solid $primary-darken-1;
     }
     """
 
@@ -197,9 +202,8 @@ class PathSuggestionDropdown(Widget):
 
     def compose(self) -> ComposeResult:
         """Compose the dropdown layout."""
-        with Vertical(id="suggestions_container"):
-            pass  # Will be populated dynamically
-        yield Static("↑↓ navigate • Tab select • → toggle :w • Esc dismiss", classes="hint-bar")
+        yield Vertical(id="suggestions_container")
+        yield Static("j/k or ↑↓ navigate • Tab select • → toggle :w • Esc dismiss", classes="hint-bar")
 
     def update_suggestions(self, prefix: str) -> None:
         """Update suggestions based on the path prefix.
@@ -223,14 +227,17 @@ class PathSuggestionDropdown(Widget):
             max_results: Maximum number of suggestions.
 
         Returns:
-            List of PathSuggestion objects.
+            List of PathSuggestion objects with relative paths matching user input style.
         """
-        # Handle empty prefix - show home directory contents
-        if not prefix:
-            prefix = "~/"
+        # Store original prefix to build relative completion paths
+        original_prefix = prefix
 
-        # Expand ~ to home directory
-        if prefix.startswith("~"):
+        # Handle empty prefix - show current directory contents
+        if not prefix:
+            original_prefix = ""
+            expanded = str(self.base_path)
+        elif prefix.startswith("~"):
+            # Expand ~ to home directory
             expanded = os.path.expanduser(prefix)
         elif prefix.startswith("./") or prefix.startswith("../"):
             expanded = str(self.base_path / prefix)
@@ -243,12 +250,19 @@ class PathSuggestionDropdown(Widget):
             prefix_path = Path(expanded)
 
             # Determine parent directory and partial name
-            if prefix.endswith("/") or prefix_path.is_dir():
+            if prefix.endswith("/") or (prefix_path.exists() and prefix_path.is_dir()):
                 parent_dir = prefix_path if prefix_path.is_dir() else prefix_path.parent
                 partial_name = ""
+                # The prefix to build upon includes the trailing slash
+                base_prefix = original_prefix if original_prefix.endswith("/") else (original_prefix + "/" if original_prefix else "")
             else:
                 parent_dir = prefix_path.parent
                 partial_name = prefix_path.name.lower()
+                # The prefix to build upon is up to the last /
+                if "/" in original_prefix:
+                    base_prefix = original_prefix.rsplit("/", 1)[0] + "/"
+                else:
+                    base_prefix = ""
 
             parent_dir = parent_dir.resolve()
 
@@ -256,6 +270,10 @@ class PathSuggestionDropdown(Widget):
                 return []
 
             suggestions = []
+            with open("/tmp/at_debug.log", "a") as f:
+                f.write(f"[DEBUG Dropdown] Searching in: {parent_dir}, exists={parent_dir.exists()}\n")
+                all_entries = list(parent_dir.iterdir())
+                f.write(f"[DEBUG Dropdown] Found {len(all_entries)} entries: {[e.name for e in all_entries[:10]]}\n")
             for entry in sorted(parent_dir.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
                 # Skip hidden files unless explicitly requested
                 if entry.name.startswith(".") and not partial_name.startswith("."):
@@ -265,9 +283,12 @@ class PathSuggestionDropdown(Widget):
                 if partial_name and not entry.name.lower().startswith(partial_name):
                     continue
 
+                # Build relative path that matches the user's input style
+                relative_path = base_prefix + entry.name
+
                 suggestions.append(
                     PathSuggestion(
-                        path=str(entry),
+                        path=relative_path,
                         name=entry.name,
                         is_dir=entry.is_dir(),
                     ),
@@ -304,10 +325,14 @@ class PathSuggestionDropdown(Widget):
 
     def watch_visible(self, visible: bool) -> None:
         """Update visibility class."""
+        with open("/tmp/at_debug.log", "a") as f:
+            f.write(f"[DEBUG Dropdown] watch_visible called, visible={visible}, classes before={self.classes}\n")
         if visible:
             self.add_class("visible")
         else:
             self.remove_class("visible")
+        with open("/tmp/at_debug.log", "a") as f:
+            f.write(f"[DEBUG Dropdown] classes after={self.classes}\n")
 
     def watch_selected_index(self, index: int) -> None:
         """Update selected row highlighting."""
@@ -343,17 +368,19 @@ class PathSuggestionDropdown(Widget):
         Returns:
             True if the event was handled, False otherwise.
         """
+        with open("/tmp/at_debug.log", "a") as f:
+            f.write(f"[DEBUG Dropdown] handle_key called: key={event.key}, visible={self.visible}, suggestions={len(self._suggestions) if self._suggestions else 0}\n")
         if not self.visible or not self._suggestions:
             return False
 
         key = event.key
 
-        if key == "down":
+        if key in ("down", "j"):
             self.selected_index = (self.selected_index + 1) % len(self._suggestions)
             self.show_write_suffix = False
             return True
 
-        elif key == "up":
+        elif key in ("up", "k"):
             self.selected_index = (self.selected_index - 1 + len(self._suggestions)) % len(self._suggestions)
             self.show_write_suffix = False
             return True

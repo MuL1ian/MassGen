@@ -83,6 +83,13 @@ class MultiLineInput(TextArea):
             super().__init__()
             self.input = input
 
+    class TabPressedWithAutocomplete(Message, bubble=True):
+        """Message sent when Tab is pressed while autocomplete is active."""
+
+        def __init__(self, input: "MultiLineInput") -> None:
+            super().__init__()
+            self.input = input
+
     def __init__(
         self,
         placeholder: str = "",
@@ -190,7 +197,15 @@ class MultiLineInput(TextArea):
         self.post_message(self.VimModeChanged(self, False))
 
     def on_key(self, event: events.Key) -> None:
-        """Handle key events for vim mode."""
+        """Handle key events for vim mode and autocomplete."""
+        # When autocomplete is active, intercept Tab to prevent focus change
+        if self._autocomplete_active and event.key == "tab":
+            # Post a message that the app can handle for selection
+            self.post_message(self.TabPressedWithAutocomplete(self))
+            event.prevent_default()
+            event.stop()
+            return
+
         if not self._vim_mode:
             # Vim mode disabled - don't intercept any keys
             return
@@ -680,18 +695,30 @@ class MultiLineInput(TextArea):
 
     def _check_at_trigger(self) -> None:
         """Check if @ autocomplete should be triggered and notify."""
+        # Guard against being called before __init__ completes
+        if not hasattr(self, "_autocomplete_active"):
+            return
+
         result = self._find_at_position()
+        # DEBUG: Log the result
+        with open("/tmp/at_debug.log", "a") as f:
+            f.write(f"[DEBUG MLI] _check_at_trigger: result={result}\n")
 
         if result:
             at_pos, prefix = result
             self._at_position = at_pos
+            with open("/tmp/at_debug.log", "a") as f:
+                f.write(f"[DEBUG MLI] Posting AtPrefixChanged: prefix={repr(prefix)}\n")
             self.post_message(self.AtPrefixChanged(self, prefix, at_pos))
         elif self._autocomplete_active:
             self._at_position = None
             self.post_message(self.AtDismissed(self))
 
-    def on_text_area_changed(self, event) -> None:
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Handle text changes to detect @ triggers."""
+        # DEBUG: Log that this handler was called
+        with open("/tmp/at_debug.log", "a") as f:
+            f.write(f"[DEBUG MLI] on_text_area_changed called, text={repr(self.text[:50] if self.text else '')}\n")
         self._check_at_trigger()
 
     def insert_completion(self, path: str, with_write: bool = False) -> None:

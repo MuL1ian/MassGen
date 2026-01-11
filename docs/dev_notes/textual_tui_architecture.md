@@ -208,6 +208,7 @@ The TUI supports keyboard shortcuts that work during coordination. Press `?` or 
 | `/context` | - | Manage context paths |
 | `/inspect` | `/i` | Agent inspection |
 | `/vote` | `/v` | Vote results |
+| `/vim` | - | Toggle vim editing mode |
 
 ### Adding New Shortcuts
 
@@ -509,13 +510,14 @@ The TUI supports multi-line input using the `MultiLineInput` widget, which exten
 
 - **Submit**: Press Enter to submit your question (matches standard convention)
 - **New line**: Press Shift+Enter or Ctrl+J to insert a new line
-- **Visual hint**: A hint at the bottom shows "Enter to submit • Shift+Enter for new line"
+- **Vim mode**: Type `/vim` to enable vim-style editing
+- **Visual hint**: A hint above the input shows current mode and available commands
 
 ### Implementation
 
 ```python
 class MultiLineInput(TextArea):
-    """Multi-line input with Enter submission."""
+    """Multi-line input with Enter submission and optional vim mode."""
 
     BINDINGS = [
         Binding("enter", "submit", "Submit", priority=True),
@@ -525,26 +527,86 @@ class MultiLineInput(TextArea):
 
     class Submitted(Message, bubble=True):
         """Sent when Enter is pressed."""
-        def __init__(self, input: "MultiLineInput", value: str) -> None:
-            self.value = value
-            self.input = input
 
-    def action_submit(self) -> None:
-        text = self.text.strip()
-        if text:
-            self.post_message(self.Submitted(self, text))
-
-    def action_newline(self) -> None:
-        self.insert("\n")
+    class VimModeChanged(Message, bubble=True):
+        """Sent when vim mode changes between normal/insert."""
 ```
+
+### Vim Mode
+
+The input supports optional vim-style editing, toggled via `/vim` command.
+
+#### Enabling Vim Mode
+
+Type `/vim` in the input and press Enter. The input enters INSERT mode (green indicator), ready for typing.
+
+#### Mode Indicators
+
+- **INSERT** (green): Normal typing, Escape switches to NORMAL
+- **NORMAL** (yellow): Vim commands active, input border turns yellow
+
+#### Vim Commands (Normal Mode)
+
+| Category | Keys | Action |
+|----------|------|--------|
+| **Insert** | `i` | Insert at cursor |
+| | `a` | Insert after cursor |
+| | `A` | Insert at end of line |
+| | `o` | Open line below |
+| | `O` | Open line above |
+| | `s` | Substitute character |
+| | `S` | Substitute line |
+| **Movement** | `h/j/k/l` | Left/down/up/right |
+| | `w/b` | Word forward/backward |
+| | `0/$` | Line start/end |
+| | `gg/G` | Document start/end |
+| **Delete** | `x/X` | Delete char at/before cursor |
+| | `dd` | Delete line |
+| | `dw` | Delete word |
+| | `d$/D` | Delete to end of line |
+| | `d0` | Delete to start of line |
+| **Change** | `cc` | Change line |
+| | `cw` | Change word |
+| | `c$/C` | Change to end of line |
+| | `c0` | Change to start of line |
+| **Char Motion** | `f<char>` | Move to next char |
+| | `t<char>` | Move to before char |
+| | `F<char>` | Move to prev char |
+| | `T<char>` | Move to after prev char |
+| **Combined** | `dt<char>` | Delete to before char |
+| | `df<char>` | Delete through char |
+| | `ct<char>` | Change to before char |
+| | `cf<char>` | Change through char |
+| **Other** | `u` | Undo |
+| | `Escape` | Enter normal mode (from insert) |
+
+#### Disabling Vim Mode
+
+Type `/vim` again to toggle off. The indicator disappears and normal editing resumes.
 
 ### CSS Styling
 
 ```css
 #question_input {
-    height: 5;           /* Default 5 lines */
-    min-height: 3;       /* Minimum 3 lines */
-    max-height: 10;      /* Maximum 10 lines */
+    height: auto;
+    min-height: 1;
+    max-height: 10;
+}
+
+/* Vim normal mode border */
+#question_input.vim-normal {
+    border: solid #d29922;
+}
+
+/* Vim mode indicators */
+#vim_indicator.vim-normal-indicator {
+    background: #d29922;
+    color: #0d1117;
+}
+
+#vim_indicator.vim-insert-indicator {
+    background: #238636;
+    color: #ffffff;
 }
 ```
 

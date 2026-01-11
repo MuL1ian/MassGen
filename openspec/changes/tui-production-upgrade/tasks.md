@@ -324,6 +324,23 @@
 
 ### What Was Implemented
 
+- [x] **5.0.1** Vim Mode for Input (NEW)
+  - `/vim` slash command toggles vim mode
+  - Starts in INSERT mode (green indicator) for immediate typing
+  - Press Escape to enter NORMAL mode (yellow indicator)
+  - Visual indicator above input shows current mode (INSERT/NORMAL)
+  - Hint text updates: "VIM: i/a insert • hjkl move • /vim off"
+  - Full vim keybindings in normal mode:
+    - Movement: h/j/k/l, w/b (word), 0/$ (line), gg/G (document)
+    - Insert: i, a, A, o, O, s, S
+    - Delete: x, X, dd, dw, d$, d0, D
+    - Change: cc, cw, c$, c0, C
+    - Character motions: f/t/F/T + char (e.g., `dt,` deletes to comma)
+    - Combined: df/dt/cf/ct + char (e.g., `cf"` changes to quote)
+    - Undo: u
+  - Vim keys only active when vim mode enabled (no accidental triggers)
+  - Input box border turns yellow in NORMAL mode
+
 - [x] **5.0** Keyboard shortcuts help system (NEW)
   - `?` or `h` key opens shortcuts modal during coordination
   - Rich-formatted display with color-coded sections
@@ -437,35 +454,59 @@
   - `u` key binding and `/browser` slash command
   - Summarized views of all data
 
-### Remaining Tasks - WebUI Parity Features
+### Completed Tasks - WebUI Parity Features (2026-01-11)
 
 #### Medium Priority (Enhanced Features)
 
-- [ ] **5.12** Final Answer View
-  - Prominent display of winning answer
-  - Winner info with model name
-  - Copy to clipboard button
-  - Workspace browser for winner
-  - Follow-up question input
+- [x] **5.12** Final Answer View ✅ COMPLETE
+  - Prominent display of winning answer with model name in header
+  - Copy to clipboard button (platform-aware: pbcopy/clip/xclip)
+  - Save to file button (saves to `final_answers/` directory)
+  - Workspace browser button for winner
+  - Follow-up question input field (appears after completion)
+  - Content buffering for copy/save operations
 
 #### Lower Priority (Nice-to-Haves)
 
-- [ ] **5.14** File Preview Enhancements
-  - Text file inline preview
-  - Markdown rendering
-  - Syntax highlighting for code
-  - External open for binary files
+- [x] **5.14** File Preview Enhancements ✅ COMPLETE
+  - `render_file_preview()` helper function
+  - Syntax highlighting for 32 file extensions (Python, JS, JSON, YAML, etc.)
+  - Markdown rendering with Rich Markdown
+  - Binary file detection (35 extension types)
+  - File size limits and error handling
+  - Updated WorkspaceBrowserModal to use new helper
 
-- [ ] **5.15** Animated Progress Indicators
-  - Initialization progress bar
-  - Agent setup spinner
-  - Turn completion animation
+- [x] **5.15** Animated Progress Indicators ✅ COMPLETE
+  - `ProgressIndicator` widget with animated spinner
+  - Unicode/ASCII/dots spinner styles
+  - Optional progress percentage display
+  - Timer-based animation with cleanup
+  - AgentPanel loading state uses spinner (replaces static text)
 
-- [ ] **5.16** Polish and Refinement
-  - Consistent animations
-  - Smooth transitions
-  - Error state styling
-  - Loading states
+- [x] **5.16** Polish and Refinement ✅ COMPLETE
+  - Unified state classes (`.state-success`, `.state-warning`, `.state-error`, `.state-loading`)
+  - Pulse animation classes (`.pulse-vote`, `.pulse-leader`, `.pulse-winner`)
+  - Action button types (`Button.action-primary`, `Button.action-danger`)
+  - Progress indicator styling
+  - Final stream panel button and follow-up container styles
+
+- [x] **5.17** Enhanced Keyboard Shortcuts ✅ COMPLETE (NEW)
+  - Single-key shortcuts when not in input: q, s, o, v, w, f, c, m, a, t, h/?
+  - `q` key cancels/stops current execution
+  - Escape unfocuses input to enable shortcuts
+  - `i` or `/` refocuses input (vim-like)
+  - Full docstring in `_handle_agent_shortcuts()`
+
+### Future Tasks - Session Management (WebUI Parity)
+
+#### Not Started (For Later)
+
+- [ ] **5.18** Session Management
+  - View previous sessions
+  - End session gracefully
+  - Continue session after end
+  - Session history browser
+  - Session persistence/resume
 
 ### Files Modified
 - `textual_terminal_display.py` - New modals: AnswerBrowserModal, TimelineModal, WorkspaceBrowserModal, MCPStatusModal, BrowserTabsModal; enhanced toasts with `notify_new_answer()` and `notify_vote()`; answer/vote tracking; new key bindings (b, t, w, p, u); VoteResultsModal enhanced with distribution chart; StatusBar progress summary; winner celebration effects via `_celebrate_winner()`
