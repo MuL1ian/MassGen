@@ -1562,11 +1562,22 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         """Convert any object to dictionary with multiple fallback methods."""
         try:
             if hasattr(obj, "model_dump"):
-                return obj.model_dump()
+                result = obj.model_dump()
             elif hasattr(obj, "dict"):
-                return obj.dict()
+                result = obj.dict()
             else:
-                return dict(obj)
+                result = dict(obj)
+
+            # Fix reasoning items: Response API expects 'content' to be an array, not a string. This occurs in gpt-5-mini
+            # When reasoning is encrypted/summarized, content may be empty string ""
+            # which causes "expected an array of unknown values, but got a string" error
+            if isinstance(result, dict) and result.get("type") == "reasoning":
+                if isinstance(result.get("content"), str):
+                    # Convert empty string to empty array, or wrap non-empty string in array
+                    content = result["content"]
+                    result["content"] = [] if content == "" else [{"type": "text", "text": content}]
+
+            return result
         except Exception:
             # Final fallback: extract key attributes manually
             return {key: getattr(obj, key, None) for key in dir(obj) if not key.startswith("_") and not callable(getattr(obj, key, None))}

@@ -26,6 +26,10 @@ OPENROUTER_VALID_WEB_ENGINES = {"exa", "native"}
 # Valid search context size options for OpenRouter web search
 OPENROUTER_VALID_SEARCH_CONTEXT_SIZES = {"low", "medium", "high"}
 
+# Valid reasoning effort levels for OpenRouter
+# See: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+OPENROUTER_VALID_REASONING_EFFORTS = {"xhigh", "high", "medium", "low", "minimal", "none"}
+
 
 def configure_openrouter_extra_body(
     api_params: Dict[str, Any],
@@ -97,6 +101,37 @@ def configure_openrouter_extra_body(
             extra_body["web_search_options"] = {"search_context_size": search_context_size}
 
         logger.info(f"[OpenRouter] Web search plugin enabled: {web_plugin}")
+
+    # Handle reasoning parameter for OpenRouter
+    # OpenRouter normalizes reasoning tokens across providers via extra_body.reasoning
+    # See: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+    reasoning_config = all_params.get("reasoning") or api_params.get("reasoning")
+    if reasoning_config:
+        # Remove from api_params if present (will be moved to extra_body)
+        api_params.pop("reasoning", None)
+
+        if isinstance(reasoning_config, dict):
+            # Validate effort level if provided
+            effort = reasoning_config.get("effort")
+            if effort and effort not in OPENROUTER_VALID_REASONING_EFFORTS:
+                raise ValueError(
+                    f"Invalid OpenRouter reasoning effort: '{effort}'. " f"Must be one of: {OPENROUTER_VALID_REASONING_EFFORTS}",
+                )
+
+            # Validate max_tokens if provided
+            max_tokens = reasoning_config.get("max_tokens")
+            if max_tokens is not None:
+                if not isinstance(max_tokens, int) or max_tokens < 1:
+                    raise ValueError(
+                        f"OpenRouter reasoning max_tokens must be a positive integer, got: {max_tokens}",
+                    )
+
+            extra_body["reasoning"] = reasoning_config
+            logger.info(f"[OpenRouter] Reasoning enabled: {reasoning_config}")
+        elif reasoning_config is True:
+            # Simple boolean enable - use default medium effort
+            extra_body["reasoning"] = {"enabled": True}
+            logger.info("[OpenRouter] Reasoning enabled with defaults")
 
     api_params["extra_body"] = extra_body
     return extra_body

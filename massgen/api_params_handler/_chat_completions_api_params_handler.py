@@ -32,6 +32,7 @@ class ChatCompletionsAPIParamsHandler(APIParamsHandlerBase):
                 "enable_image_generation",  # Internal flag for image generation (used in system messages only)
                 "enable_audio_generation",  # Internal flag for audio generation (used in system messages only)
                 "enable_video_generation",  # Internal flag for video generation (used in system messages only)
+                "reasoning",  # OpenRouter reasoning config - handled via extra_body in configure_openrouter_extra_body()
             },
         )
 

@@ -1642,17 +1642,10 @@ def relocate_filesystem_paths(config: Dict[str, Any]) -> None:
             # Otherwise, relocate under .massgen/workspaces/
             backend_config["cwd"] = str(massgen_dir / "workspaces" / user_cwd)
 
-    # Validate no duplicate workspace paths (critical for parallel execution)
-    workspace_paths = []
-    for agent_data in agent_entries:
-        backend_config = agent_data.get("backend", {})
-        if "cwd" in backend_config:
-            cwd = Path(backend_config["cwd"]).resolve()
-            if cwd in workspace_paths:
-                raise ConfigurationError(
-                    f"Duplicate workspace path detected: {cwd}\n" "Each agent must have a unique workspace directory.\n" "For parallel execution, ensure configs use different workspace names.",
-                )
-            workspace_paths.append(cwd)
+    # NOTE: Duplicate workspace paths are allowed at this stage because unique per-agent
+    # UUID suffixes are added later (see instance_id generation in main()).
+    # This allows configs to use `cwd: "workspace"` for all agents, which prevents
+    # identity leakage from numbered workspace names (see PR Item 12).
 
 
 async def handle_session_persistence(

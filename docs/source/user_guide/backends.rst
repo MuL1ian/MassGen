@@ -478,6 +478,77 @@ LM Studio Backend
 * Zero-cost usage
 * Full privacy (local inference)
 
+OpenRouter Backend
+~~~~~~~~~~~~~~~~~~
+
+OpenRouter provides unified access to multiple AI providers through a single API.
+Use the ``chatcompletion`` backend type with OpenRouter's base URL.
+
+**Basic Configuration:**
+
+.. code-block:: yaml
+
+   agents:
+     - id: "openrouter_agent"
+       backend:
+         type: "chatcompletion"
+         model: "openai/gpt-5-mini"
+         base_url: "https://openrouter.ai/api/v1"
+
+**With Reasoning Tokens:**
+
+OpenRouter normalizes reasoning tokens across providers. Configure reasoning for
+models that support it (OpenAI o-series, GPT-5, Claude 3.7+, Gemini 2.5+, DeepSeek R1, Grok):
+
+.. code-block:: yaml
+
+   agents:
+     - id: "reasoning_agent"
+       backend:
+         type: "chatcompletion"
+         model: "openai/gpt-5-mini"
+         base_url: "https://openrouter.ai/api/v1"
+         reasoning:
+           effort: "medium"       # xhigh, high, medium, low, minimal, none
+           max_tokens: 2000       # Optional: direct token limit (Anthropic-style)
+           exclude: false         # Optional: set true to hide reasoning from response
+
+**With Web Search:**
+
+.. code-block:: yaml
+
+   agents:
+     - id: "search_agent"
+       backend:
+         type: "chatcompletion"
+         model: "openai/gpt-5-mini"
+         base_url: "https://openrouter.ai/api/v1"
+         enable_web_search: true
+         engine: "exa"            # exa (AI-native) or native (traditional)
+         max_results: 10
+         search_context_size: "high"  # low, medium, high
+
+**Reasoning Effort Levels:**
+
+* ``xhigh``: ~95% of max_tokens for reasoning
+* ``high``: ~80% of max_tokens for reasoning
+* ``medium``: ~50% of max_tokens for reasoning (default)
+* ``low``: ~20% of max_tokens for reasoning
+* ``minimal``: ~10% of max_tokens for reasoning
+* ``none``: Disable reasoning entirely
+
+**Environment Variable:**
+
+.. code-block:: bash
+
+   OPENROUTER_API_KEY=your-openrouter-api-key
+
+.. note::
+
+   Reasoning tokens are output tokens and billed accordingly. Models automatically
+   include reasoning in responses when appropriate. Use ``exclude: true`` if you
+   want the model to reason internally without returning the reasoning text.
+
 Local Inference Backends (vLLM & SGLang)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
