@@ -261,6 +261,20 @@ AgentPanel.status-error {
     text-style: italic;
 }
 
+/* Context label - shows which answers an agent has in context */
+.context-label {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: #f0f4f8;
+    color: #0a7d0a;
+    text-style: italic;
+}
+
+.context-label.hidden {
+    display: none;
+}
+
 /* Compact Header - Shows question and turn info */
 HeaderWidget {
     height: 1;
@@ -1990,25 +2004,6 @@ ProgressIndicator.hidden {
     min-width: 14;
 }
 
-#followup_container {
-    margin-top: 2;
-    padding: 1;
-    border-top: solid #e0e0e0;
-}
-
-#followup_container.hidden {
-    display: none;
-}
-
-#followup_label {
-    color: #0066cc;
-    margin-bottom: 1;
-}
-
-#followup_input {
-    width: 100%;
-}
-
 /* Final stream winner styling */
 #final_stream_container.winner-complete {
     border: solid #4caf50;
@@ -2017,4 +2012,37 @@ ProgressIndicator.hidden {
 
 #final_stream_container.winner-complete #final_stream_label {
     color: #2e7d32;
+}
+
+/* Follow-up input container in final stream panel */
+#followup_container {
+    height: auto;
+    margin-top: 1;
+    padding: 1;
+    background: #f5f5f5;
+    border-top: solid #cccccc;
+}
+
+#followup_container.hidden {
+    display: none;
+}
+
+#followup_label {
+    color: #666666;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#followup_input {
+    background: #ffffff;
+    border: solid #cccccc;
+}
+
+#followup_input:focus {
+    border: solid #0066cc;
+}
+
+/* Hidden input area class */
+#input_area.hidden {
+    display: none;
 }

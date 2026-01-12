@@ -229,6 +229,17 @@ class PathSuggestionDropdown(Widget):
         Returns:
             List of PathSuggestion objects with relative paths matching user input style.
         """
+        # Handle special shortcuts for current directory
+        if prefix in (".", "cwd"):
+            cwd = str(self.base_path)
+            return [
+                PathSuggestion(
+                    path=".",
+                    name=f"{cwd} (current directory)",
+                    is_dir=True,
+                ),
+            ]
+
         # Store original prefix to build relative completion paths
         original_prefix = prefix
 
@@ -270,6 +281,17 @@ class PathSuggestionDropdown(Widget):
                 return []
 
             suggestions = []
+
+            # Add CWD shortcut as first option when browsing from root
+            if not original_prefix:
+                suggestions.append(
+                    PathSuggestion(
+                        path=".",
+                        name=". (current directory)",
+                        is_dir=True,
+                    ),
+                )
+
             for entry in sorted(parent_dir.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
                 # Skip hidden files unless explicitly requested
                 if entry.name.startswith(".") and not partial_name.startswith("."):

@@ -4249,6 +4249,12 @@ Your answer:"""
                 conversation,
             )
 
+            # Notify display of context received (for TUI to show context labels)
+            if answers:
+                context_labels = self.coordination_tracker.get_agent_context_labels(agent_id)
+                if context_labels and hasattr(self, "display") and self.display and hasattr(self.display, "notify_context_received"):
+                    self.display.notify_context_received(agent_id, context_labels)
+
             # Store the context in agent state for later use when saving snapshots
             self.agent_states[agent_id].last_context = conversation
 

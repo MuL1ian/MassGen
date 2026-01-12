@@ -1218,6 +1218,40 @@ class TextualTerminalDisplay(TerminalDisplay):
                 workspace_path,
             )
 
+    def record_answer_with_context(
+        self,
+        agent_id: str,
+        answer_label: str,
+        context_sources: List[str],
+        round_num: int,
+    ) -> None:
+        """Record an answer node with its context sources for timeline visualization.
+
+        Args:
+            agent_id: Agent who submitted the answer
+            answer_label: Label like "agent1.1"
+            context_sources: List of answer labels this agent saw (e.g., ["agent2.1"])
+            round_num: Round number for this answer
+        """
+        if self._app:
+            self._call_app_method(
+                "record_answer_context",
+                agent_id,
+                answer_label,
+                context_sources,
+                round_num,
+            )
+
+    def notify_context_received(self, agent_id: str, context_sources: List[str]) -> None:
+        """Notify the TUI when an agent receives context from other agents.
+
+        Args:
+            agent_id: Agent receiving context
+            context_sources: List of answer labels this agent can now see
+        """
+        if self._app:
+            self._call_app_method("update_agent_context", agent_id, context_sources)
+
     def notify_phase(self, phase: str):
         """Notify the TUI of a phase change - updates status bar."""
         if self._app:
@@ -2596,6 +2630,33 @@ if TEXTUAL_AVAILABLE:
             if self.header_widget:
                 self.header_widget.update_question(text)
 
+        def _submit_followup_question(self, question: str) -> None:
+            """Submit a follow-up question from the final answer panel."""
+            if not question:
+                return
+
+            # Dismiss welcome screen if still showing
+            if self._showing_welcome:
+                self._dismiss_welcome()
+
+            # Track the question for history
+            self._current_question = question
+
+            # Update header with new question
+            if self.header_widget:
+                self.header_widget.update_question(question)
+
+            # Show main container
+            try:
+                main_container = self.query_one("#main_container", Container)
+                main_container.remove_class("hidden")
+            except Exception:
+                pass
+
+            # Submit through the input handler
+            if self._input_handler:
+                self._input_handler(question)
+
         def _handle_local_slash_command(self, command: str) -> bool:
             """Handle TUI-local slash commands that should not be passed to the orchestrator.
 
@@ -3523,6 +3584,52 @@ Type your question and press Enter to ask the agents.
                     print(f"[ERROR] Failed to add workspace/new_answer card: {e}", file=sys.stderr)
                     traceback.print_exc()
 
+        def update_agent_context(self, agent_id: str, context_sources: List[str]) -> None:
+            """Update agent panel to show what context this agent has received.
+
+            Called when an agent receives context from other agents' answers.
+
+            Args:
+                agent_id: Agent receiving context
+                context_sources: List of answer labels this agent can see
+            """
+            # Store context for this agent
+            self._context_per_agent[agent_id] = context_sources.copy()
+
+            # Update agent panel header to show context
+            if agent_id in self.agent_widgets:
+                panel = self.agent_widgets[agent_id]
+                panel.update_context_display(context_sources)
+
+        def record_answer_context(
+            self,
+            agent_id: str,
+            answer_label: str,
+            context_sources: List[str],
+            round_num: int,
+        ) -> None:
+            """Record context sources for an answer and update agent panel display.
+
+            Args:
+                agent_id: Agent who submitted the answer
+                answer_label: Label like "agent1.1"
+                context_sources: List of answer labels this agent saw (e.g., ["agent2.1"])
+                round_num: Round number for this answer
+            """
+            # Store context for this agent (already done by update_agent_context, but ensure consistency)
+            self._context_per_agent[agent_id] = context_sources.copy()
+
+            # Update the answer record if it exists
+            for ans in self._answers:
+                if ans.get("answer_label") == answer_label:
+                    ans["context_sources"] = context_sources.copy()
+                    break
+
+            # Update agent panel header to show context
+            if agent_id in self.agent_widgets:
+                panel = self.agent_widgets[agent_id]
+                panel.update_context_display(context_sources)
+
         def _celebrate_winner(self, winner_id: str, answer_preview: str) -> None:
             """Display prominent winner celebration effects.
 
@@ -3692,9 +3799,15 @@ Type your question and press Enter to ask the agents.
                 event.stop()
                 return True
 
-            # h or ? - Help/shortcuts
-            if key_lower == "h" or key == "?":
+            # ? - Help/shortcuts
+            if key == "?":
                 self.action_show_shortcuts()
+                event.stop()
+                return True
+
+            # h - History
+            if key_lower == "h":
+                self._show_history_modal()
                 event.stop()
                 return True
 
@@ -3942,11 +4055,24 @@ Type your question and press Enter to ask the agents.
             self._session_count = 1
             self._presentation_shown = False
 
+            # Context tracking
+            self._context_sources: List[str] = []
+            self._context_label_id = f"context_{self._dom_safe_id}"
+
+            # Timer for updating elapsed time display
+            self._header_timer = None
+
         def compose(self) -> ComposeResult:
             with Vertical():
                 yield Label(
                     self._header_text(),
                     id=self._header_dom_id,
+                )
+                # Context sources label (hidden by default, shown when context is injected)
+                yield Label(
+                    "",
+                    id=self._context_label_id,
+                    classes="context-label hidden",
                 )
                 # Loading indicator - centered, shown when waiting with no content
                 with Container(id=self._loading_id, classes="loading-container"):
@@ -3996,6 +4122,40 @@ Type your question and press Enter to ask the agents.
         def on_mount(self) -> None:
             """Start the loading spinner when the panel is mounted."""
             self._start_loading_spinner("Waiting for agent...")
+
+        def update_context_display(self, context_sources: List[str]) -> None:
+            """Update the context sources display in the panel header.
+
+            Args:
+                context_sources: List of answer labels this agent can see (e.g., ["agent1.1", "agent2.1"])
+            """
+            self._context_sources = context_sources.copy()
+
+            try:
+                context_label = self.query_one(f"#{self._context_label_id}", Label)
+
+                if context_sources:
+                    # Format: "Context: A1.1, A2.1" or "Context: A1.1 +2 more"
+                    # Shorten labels: "agent1.1" -> "A1.1"
+                    short_labels = []
+                    for label in context_sources[:3]:
+                        # Convert "agent1.1" to "A1.1"
+                        if label.startswith("agent"):
+                            short_labels.append("A" + label[5:])
+                        else:
+                            short_labels.append(label)
+
+                    ctx_text = f"📥 Context: {', '.join(short_labels)}"
+                    if len(context_sources) > 3:
+                        ctx_text += f" +{len(context_sources) - 3}"
+
+                    context_label.update(ctx_text)
+                    context_label.remove_class("hidden")
+                else:
+                    context_label.update("")
+                    context_label.add_class("hidden")
+            except Exception:
+                pass
 
         def _make_full_width_bar(self, content: str, style: str) -> Text:
             """Create a full-width bar with background color spanning the entire display.
@@ -4482,10 +4642,17 @@ Type your question and press Enter to ask the agents.
                 self._start_time = datetime.now()
                 # Update loading text when working
                 self._update_loading_text("🔄 Agent thinking...")
+                # Start timer to update elapsed time display
+                self._start_header_timer()
             elif status == "streaming":
                 self._update_loading_text("📝 Agent responding...")
+                # Keep timer running during streaming
+                if self._header_timer is None:
+                    self._start_header_timer()
             elif status in ("completed", "error", "waiting"):
                 self._start_time = None
+                # Stop timer when done
+                self._stop_header_timer()
 
             self.status = status
             self.remove_class("status-waiting", "status-working", "status-streaming", "status-completed", "status-error")
@@ -4493,6 +4660,28 @@ Type your question and press Enter to ask the agents.
 
             header = self.query_one(f"#{self._header_dom_id}")
             header.update(self._header_text())
+
+        def _start_header_timer(self) -> None:
+            """Start the header timer to update elapsed time."""
+            if self._header_timer is None:
+                self._header_timer = self.set_interval(1.0, self._update_header_timer)
+
+        def _stop_header_timer(self) -> None:
+            """Stop the header timer."""
+            if self._header_timer is not None:
+                self._header_timer.stop()
+                self._header_timer = None
+
+        def _update_header_timer(self) -> None:
+            """Update the header with current elapsed time."""
+            if self._start_time is None:
+                self._stop_header_timer()
+                return
+            try:
+                header = self.query_one(f"#{self._header_dom_id}")
+                header.update(self._header_text())
+            except Exception:
+                pass
 
         def jump_to_latest(self):
             """Scroll to latest entry if supported."""
@@ -4599,12 +4788,13 @@ Type your question and press Enter to ask the agents.
                         "  [yellow]v[/]              Vote results\n"
                         "  [yellow]a[/]              Answer browser\n"
                         "  [yellow]t[/]              Timeline\n"
+                        "  [yellow]h[/]              Conversation history\n"
                         "  [yellow]f[/]              File inspection\n"
                         "  [yellow]c[/]              Cost breakdown\n"
                         "  [yellow]m[/]              MCP status / metrics\n"
                         "  [yellow]s[/]              System status\n"
                         "  [yellow]o[/]              Orchestrator events\n"
-                        "  [yellow]h[/] or [yellow]?[/]        This help\n"
+                        "  [yellow]?[/]              This help\n"
                         "  [yellow]1-9[/]            Switch to agent N\n"
                         "\n"
                         "[bold cyan]Focus[/]\n"
@@ -5014,6 +5204,7 @@ Type your question and press Enter to ask the agents.
                         "timestamp": answer.get("timestamp", 0),
                         "is_winner": answer.get("is_winner", False) or answer["agent_id"] == self.winner_agent_id,
                         "is_final": answer.get("is_final", False),
+                        "context_sources": answer.get("context_sources", []),
                     },
                 )
 
@@ -5068,19 +5259,29 @@ Type your question and press Enter to ask the agents.
                     cell = " " * col_width
 
                     if event["type"] == "answer" and event["agent_id"] == agent:
-                        label = event.get("label", "?")[:8]
+                        label = event.get("label", "?")[:6]
+                        # Format context sources if present
+                        ctx = event.get("context_sources", [])
+                        ctx_str = ""
+                        if ctx:
+                            # Show which answers this agent saw (e.g., ←A1.1)
+                            short_ctx = [c.replace("agent", "A")[:4] for c in ctx[:1]]
+                            ctx_str = f"[dim cyan]←{','.join(short_ctx)}[/]"
+
                         if event.get("is_winner"):
-                            cell = f"[bold yellow] ★{label}[/]".center(col_width + 17)  # Account for markup
+                            cell = f" [bold yellow]★{label}[/]{ctx_str}"
                         elif event.get("is_final"):
-                            cell = f"[yellow] ★{label}[/]".center(col_width + 13)
+                            cell = f" [yellow]★{label}[/]{ctx_str}"
                         else:
-                            cell = f"[green] ○{label}[/]".center(col_width + 11)
+                            cell = f" [green]○{label}[/]{ctx_str}"
 
                     elif event["type"] == "vote" and event["agent_id"] == agent:
                         target = event.get("target", "?")[:6]
-                        cell = f"[magenta] ◇→{target}[/]".center(col_width + 13)
+                        cell = f" [magenta]◇→{target}[/]"
 
-                    row += cell[:col_width].ljust(col_width)
+                    # Pad cell to column width (Rich markup doesn't count toward visible width)
+                    # Just add trailing spaces - the markup handling will work
+                    row += cell.ljust(col_width + 20)[: col_width + 20]  # Extra for markup
 
                 # Add timestamp at end
                 lines.append(f"{row} [dim]{time_str}[/]")
@@ -6389,9 +6590,10 @@ Type your question and press Enter to ask the agents.
                 yield Button("Copy", id="final_copy_button", classes="action-primary")
                 yield Button("Save", id="final_save_button")
                 yield Button("Workspace", id="final_workspace_button")
-            with Container(id="followup_container", classes="hidden"):
-                yield Label("Ask a follow-up:", id="followup_label")
-                yield Input(placeholder="Type follow-up question...", id="followup_input")
+            # Follow-up input container (parity with webui)
+            with Vertical(id="followup_container", classes="hidden"):
+                yield Label("Ask a follow-up question:", id="followup_label")
+                yield Input(placeholder="Continue the conversation...", id="followup_input")
 
         def begin(self, agent_id: str, model_name: str, vote_results: Dict[str, Any]):
             """Reset panel with agent metadata including model name."""
@@ -6419,10 +6621,20 @@ Type your question and press Enter to ask the agents.
             self._line_buffer = ""
             self.current_line_label.update("")
 
-            # Hide buttons during streaming
+            # Hide buttons and followup during streaming
             try:
                 self.query_one("#final_stream_buttons").add_class("hidden")
+            except Exception:
+                pass
+            try:
                 self.query_one("#followup_container").add_class("hidden")
+            except Exception:
+                pass
+
+            # Hide the main input area when final answer is displayed (webui parity)
+            try:
+                input_area = self.app.query_one("#input_area")
+                input_area.add_class("hidden")
             except Exception:
                 pass
 
@@ -6458,10 +6670,18 @@ Type your question and press Enter to ask the agents.
                 header = f"{header} | {self._vote_summary}"
             self.agent_label.update(f"{header} | ✅ Completed")
 
-            # Show action buttons and follow-up input
+            # Show action buttons
             try:
                 self.query_one("#final_stream_buttons").remove_class("hidden")
+            except Exception:
+                pass
+
+            # Show follow-up input container
+            try:
                 self.query_one("#followup_container").remove_class("hidden")
+                # Focus the follow-up input
+                followup_input = self.query_one("#followup_input", Input)
+                followup_input.focus()
             except Exception:
                 pass
 
@@ -6473,6 +6693,39 @@ Type your question and press Enter to ask the agents.
                 self._save_to_file()
             elif event.button.id == "final_workspace_button":
                 self._open_workspace()
+
+        @on(Input.Submitted, "#followup_input")
+        def on_followup_submitted(self, event: Input.Submitted) -> None:
+            """Handle follow-up question submission."""
+            question = event.value.strip()
+            if not question:
+                return
+
+            # Clear the input
+            event.input.value = ""
+
+            # Hide the final stream panel and show main input
+            self.styles.display = "none"
+            self.remove_class("winner-complete")
+
+            # Show the main input area again
+            try:
+                input_area = self.app.query_one("#input_area")
+                input_area.remove_class("hidden")
+            except Exception:
+                pass
+
+            # Submit the follow-up question through the app
+            if hasattr(self.app, "_submit_followup_question"):
+                self.app._submit_followup_question(question)
+            elif self.coordination_display:
+                # Fallback: use the question callback if available
+                try:
+                    self.app.call_later(
+                        lambda: self.coordination_display._handle_question_submit(question),
+                    )
+                except Exception as e:
+                    self.app.notify(f"Failed to submit follow-up: {e}", severity="error")
 
         def _copy_to_clipboard(self) -> None:
             """Copy final answer to system clipboard."""

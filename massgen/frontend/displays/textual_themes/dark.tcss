@@ -292,15 +292,29 @@ AgentPanel.status-error {
     text-style: italic;
 }
 
+/* Context label - shows which answers an agent has in context */
+.context-label {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: #1c2128;
+    color: #7ee787;
+    text-style: italic;
+}
+
+.context-label.hidden {
+    display: none;
+}
+
 /* Compact Header - Shows question and turn info */
 HeaderWidget {
     height: 2;
     min-height: 2;
     max-height: 2;
     dock: top;
-    background: #58a6ff;
-    color: #ffffff;
-    padding: 0 1;
+    background: #21262d;
+    color: #58a6ff;
+    padding: 0 2;
     text-style: bold;
     border-bottom: solid #30363d;
     content-align: left middle;
@@ -1439,9 +1453,9 @@ StatusBar {
     height: 2;
     min-height: 2;
     max-height: 2;
-    background: #3fb950;
-    color: #ffffff;
-    padding: 0 1;
+    background: #21262d;
+    color: #8b949e;
+    padding: 0 2;
     layout: horizontal;
     border-top: solid #30363d;
     content-align: left middle;
@@ -2029,25 +2043,6 @@ ProgressIndicator.hidden {
     min-width: 14;
 }
 
-#followup_container {
-    margin-top: 2;
-    padding: 1;
-    border-top: solid #30363d;
-}
-
-#followup_container.hidden {
-    display: none;
-}
-
-#followup_label {
-    color: #9cdcfe;
-    margin-bottom: 1;
-}
-
-#followup_input {
-    width: 100%;
-}
-
 /* Final stream winner styling */
 #final_stream_container.winner-complete {
     border: solid #3fb950;
@@ -2056,4 +2051,37 @@ ProgressIndicator.hidden {
 
 #final_stream_container.winner-complete #final_stream_label {
     color: #3fb950;
+}
+
+/* Follow-up input container in final stream panel */
+#followup_container {
+    height: auto;
+    margin-top: 1;
+    padding: 1;
+    background: #21262d;
+    border-top: solid #30363d;
+}
+
+#followup_container.hidden {
+    display: none;
+}
+
+#followup_label {
+    color: #8b949e;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#followup_input {
+    background: #0d1117;
+    border: solid #30363d;
+}
+
+#followup_input:focus {
+    border: solid #58a6ff;
+}
+
+/* Hidden input area class */
+#input_area.hidden {
+    display: none;
 }
