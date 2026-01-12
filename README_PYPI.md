@@ -171,7 +171,6 @@ pip install --upgrade massgen
 # Run a multi-agent task - execution traces are saved automatically
 uv run massgen --config massgen/configs/basic/multi/three_agents_default.yaml \
   "Explain the benefits of functional programming"
-# Check traces at: .massgen/massgen_logs/[log_dir]/[agent]/snapshots/execution_trace.md
 
 # Test round timeout behavior
 uv run massgen --config massgen/configs/debug/round_timeout_test.yaml \
