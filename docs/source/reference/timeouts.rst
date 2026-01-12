@@ -88,23 +88,25 @@ Controls the maximum time for individual agent rounds. This prevents agents from
    600-720s: Grace period - agent can finish final touches
    720s+:    Hard timeout - non-terminal tools blocked, only vote/new_answer allowed
 
-**Soft Timeout Message**:
+**Soft Timeout Message** (from ``RoundTimeoutPostHook``):
 
 .. code-block:: text
 
    ============================================================
-   ⏰ ROUND TIME LIMIT APPROACHING
+   ⏰ ROUND TIME LIMIT APPROACHING - PLEASE WRAP UP
    ============================================================
 
-   You have been working on this initial answer round for 605s.
-   The soft time limit of 600s has been reached.
+   You have exceeded the soft time limit for this initial answer round (605s / 600s).
 
-   You have approximately 120 seconds before tool calls will be blocked.
-   Please wrap up your work and submit your answer using the `new_answer` tool.
+   Please wrap up your current work and submit soon:
+   1. `new_answer` - Submit your current best answer (can be a work-in-progress)
+   2. `vote` - Vote for an existing answer if one is satisfactory
 
-   You may finish any final touches to make your work presentable, but
-   please submit soon. The next coordination round will allow further
-   iteration if needed.
+   You may finish any final touches to make your work presentable, but please
+   submit within the next 120 seconds. After that, tool calls
+   will be blocked and you'll need to submit immediately.
+
+   The next coordination round will allow further iteration if needed.
    ============================================================
 
 **Why Use Per-Round Timeouts**:
@@ -393,27 +395,6 @@ Example 4: MCP Tool Integration
      orchestrator_timeout_seconds: 2400  # 40 minutes
 
 **Reasoning**: MCP tools may have API latency, planning mode adds coordination time, 40 minutes provides safety margin.
-
-Example 5: Per-Round Timeouts for Image Analysis
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-**Task**: Agents analyzing images with vision models (prone to getting stuck in loops)
-
-.. code-block:: yaml
-
-   agents:
-     - id: "analyst1"
-       backend: {type: "openai", model: "gpt-4o"}
-     - id: "analyst2"
-       backend: {type: "claude", model: "claude-sonnet-4"}
-
-   timeout_settings:
-     orchestrator_timeout_seconds: 2400       # 40 min overall
-     initial_round_timeout_seconds: 600       # 10 min for initial analysis
-     subsequent_round_timeout_seconds: 180    # 3 min for voting
-     round_timeout_grace_seconds: 120         # 2 min grace before hard block
-
-**Reasoning**: Vision model analysis can be inconsistent, causing agents to retry repeatedly. Per-round timeouts force agents to submit their best work and move forward. Initial rounds get more time for thorough analysis, while voting rounds are shorter since context is already established.
 
 Troubleshooting
 ---------------

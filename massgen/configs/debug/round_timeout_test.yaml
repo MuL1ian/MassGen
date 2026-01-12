@@ -1,15 +1,11 @@
 # Debug config for testing per-round timeouts
 # Run with: uv run massgen --config massgen/configs/debug/round_timeout_test.yaml "Create a website about Bob Dylan"
 #
-# This config tests the per-round timeout feature with short timeouts:
-# - Initial round (round 0): 30 second soft timeout, then 10 second grace before hard block
-# - Subsequent rounds (voting): 15 second soft timeout, then 10 second grace before hard block
+# This config tests the per-round timeout feature
+# - Initial round (round 0): 120 second soft timeout, then 10 second grace before hard block
+# - Subsequent rounds (voting): 60 second soft timeout, then 10 second grace before hard block
 #
-# Timeline for initial round:
-#   0-30s: Agent works normally
-#   30s: Soft timeout - warning message injected
-#   30-40s: Grace period - agent should submit answer/vote
-#   40s+: Hard timeout - non-terminal tools blocked (only vote/new_answer allowed)
+
 
 agents:
   - id: "agent_a"

@@ -1014,10 +1014,32 @@ def create_agents_from_config(
             backend_config["filesystem_session_id"] = filesystem_session_id
             backend_config["session_storage_base"] = session_storage_base
 
-        # Substitute variables like ${cwd} in backend config
+        # Substitute variables like ${cwd} in backend config, then apply unique suffix
         if "cwd" in backend_config:
             variables = {"cwd": backend_config["cwd"]}
             backend_config = _substitute_variables(backend_config, variables)
+
+            # Apply unique suffix to workspace paths to prevent filesystem conflicts
+            # and identity leakage between agents. Each agent gets a unique suffix.
+            # This runs for ALL entrypoints (CLI, SDK, Web UI).
+            import uuid
+            from pathlib import PurePath
+
+            original_cwd = backend_config["cwd"]
+            cwd_path = PurePath(original_cwd)
+            leaf = cwd_path.name
+            # Normalize only "workspaceN" pattern to prevent identity leakage
+            if re.fullmatch(r"workspace\d+", leaf):
+                leaf = re.sub(r"\d+$", "", leaf)
+                base_name = str(cwd_path.with_name(leaf))
+            else:
+                base_name = str(cwd_path)
+            # Generate unique suffix per agent
+            agent_workspace_suffix = uuid.uuid4().hex[:8]
+            backend_config["cwd"] = f"{base_name}_{agent_workspace_suffix}"
+            logger.debug(
+                f"Auto-generated unique workspace: {original_cwd} -> {backend_config['cwd']}",
+            )
 
         # Infer backend type from model if not explicitly provided
         backend_type = backend_config.get("type") or (get_backend_type_from_model(backend_config["model"]) if "model" in backend_config else None)
@@ -5550,41 +5572,17 @@ async def main(args):
         relocate_filesystem_paths(config)
 
         # Generate unique instance ID for parallel execution safety
-        # This prevents Docker container naming and workspace conflicts when running multiple instances
+        # This prevents Docker container naming conflicts when running multiple instances
         import uuid
 
         instance_id = uuid.uuid4().hex[:8]
 
-        # Inject instance_id and apply workspace suffixes to all agent backend configs
+        # Inject instance_id to all agent backend configs for Docker container naming
+        # Note: Workspace suffixing is now handled in create_agents_from_config() for all entrypoints
         agent_entries = [config["agent"]] if "agent" in config else config.get("agents", [])
         for agent_data in agent_entries:
             backend_config = agent_data.get("backend", {})
-            # Set instance_id for Docker container naming
             backend_config["instance_id"] = instance_id
-            # Apply unique suffix to workspace paths to prevent filesystem conflicts
-            # Each agent gets a unique suffix to prevent identity inference from workspace names
-            if "cwd" in backend_config:
-                original_cwd = backend_config["cwd"]
-                # Normalize only the final path component, and only for the common "workspaceN" pattern.
-                # This prevents identity leakage from numbered workspace paths while avoiding
-                # mangling arbitrary paths that legitimately end with digits.
-                from pathlib import PurePath
-
-                cwd_path = PurePath(original_cwd)
-                leaf = cwd_path.name
-                if re.fullmatch(r"workspace\d+", leaf):
-                    # Strip trailing numbers: "workspace1" -> "workspace"
-                    leaf = re.sub(r"\d+$", "", leaf)
-                    base_name = str(cwd_path.with_name(leaf))
-                else:
-                    base_name = str(cwd_path)
-                # Generate unique suffix per agent (not shared) to prevent identity leakage
-                # e.g., "workspace" -> "workspace_f7a3b2c1"
-                agent_workspace_suffix = uuid.uuid4().hex[:8]
-                backend_config["cwd"] = f"{base_name}_{agent_workspace_suffix}"
-                logger.debug(
-                    f"Auto-generated unique workspace: {original_cwd} -> {backend_config['cwd']}",
-                )
 
         # Apply command-line overrides
         ui_config = config.get("ui", {})
