@@ -822,6 +822,54 @@ class HighPriorityTaskReminderHook(PatternHook):
         return HookResult.allow()
 
 
+class RoundTimeoutState:
+    """Shared state between soft and hard timeout hooks.
+
+    This ensures the hard timeout only fires after the soft timeout has been
+    delivered, guaranteeing the progression: soft timeout → grace period → hard timeout.
+
+    Also tracks consecutive hard timeout denials to detect infinite loops where
+    the model keeps trying blocked tools instead of voting.
+    """
+
+    # Maximum consecutive denials before forcing termination
+    MAX_CONSECUTIVE_DENIALS = 10
+
+    def __init__(self):
+        self.soft_timeout_fired_at: Optional[float] = None
+        self.consecutive_hard_denials: int = 0
+        self.force_terminate: bool = False
+
+    def mark_soft_fired(self) -> None:
+        """Record the timestamp when soft timeout was injected."""
+        self.soft_timeout_fired_at = time.time()
+
+    def record_hard_denial(self) -> bool:
+        """Record a hard timeout denial and check if we should force terminate.
+
+        Returns:
+            True if we've exceeded the max consecutive denials and should terminate
+        """
+        self.consecutive_hard_denials += 1
+        if self.consecutive_hard_denials >= self.MAX_CONSECUTIVE_DENIALS:
+            self.force_terminate = True
+            logger.warning(
+                f"[RoundTimeoutState] Force terminate triggered after " f"{self.consecutive_hard_denials} consecutive hard timeout denials",
+            )
+            return True
+        return False
+
+    def reset_denial_count(self) -> None:
+        """Reset denial count (called when a valid tool is allowed)."""
+        self.consecutive_hard_denials = 0
+
+    def reset(self) -> None:
+        """Reset state for a new round."""
+        self.soft_timeout_fired_at = None
+        self.consecutive_hard_denials = 0
+        self.force_terminate = False
+
+
 class RoundTimeoutPostHook(PatternHook):
     """PostToolUse hook that injects soft timeout warning when round time limit is exceeded.
 
@@ -843,6 +891,7 @@ class RoundTimeoutPostHook(PatternHook):
         subsequent_timeout_seconds: Optional[int],
         grace_seconds: int,
         agent_id: str,
+        shared_state: Optional["RoundTimeoutState"] = None,
     ):
         """
         Initialize the round timeout post hook.
@@ -855,6 +904,7 @@ class RoundTimeoutPostHook(PatternHook):
             subsequent_timeout_seconds: Soft timeout for rounds 1+ (None = disabled)
             grace_seconds: Time allowed after soft timeout before hard block
             agent_id: Agent identifier for logging
+            shared_state: Optional shared state for coordinating with hard timeout hook
         """
         super().__init__(name, matcher="*", timeout=5)
         self.get_round_start_time = get_round_start_time
@@ -864,6 +914,7 @@ class RoundTimeoutPostHook(PatternHook):
         self.grace_seconds = grace_seconds
         self.agent_id = agent_id
         self._soft_timeout_fired = False
+        self._shared_state = shared_state
 
     def _get_timeout_for_current_round(self) -> Optional[int]:
         """Return timeout based on round number (0 = initial, 1+ = subsequent)."""
@@ -876,6 +927,8 @@ class RoundTimeoutPostHook(PatternHook):
     def reset_for_new_round(self) -> None:
         """Reset the hook state for a new round."""
         self._soft_timeout_fired = False
+        if self._shared_state:
+            self._shared_state.reset()
 
     async def execute(
         self,
@@ -893,10 +946,16 @@ class RoundTimeoutPostHook(PatternHook):
             return HookResult.allow()
 
         elapsed = time.time() - self.get_round_start_time()
+        logger.debug(
+            f"[RoundTimeoutPostHook] Agent {self.agent_id}: " f"elapsed={elapsed:.0f}s, soft_timeout={timeout}s, soft_fired={self._soft_timeout_fired}",
+        )
         if elapsed < timeout:
             return HookResult.allow()
 
         self._soft_timeout_fired = True
+        # Record timestamp for hard timeout coordination
+        if self._shared_state:
+            self._shared_state.mark_soft_fired()
         round_num = self.get_agent_round()
         round_type = "initial answer" if round_num == 0 else "voting"
 
@@ -932,7 +991,10 @@ The next coordination round will allow further iteration if needed.
 class RoundTimeoutPreHook(PatternHook):
     """PreToolUse hook that blocks non-terminal tools after hard timeout.
 
-    This hook enforces a hard timeout after the soft timeout + grace period.
+    This hook enforces a hard timeout after the soft timeout was injected + grace period.
+    The hard timeout only fires AFTER the soft timeout has been delivered, ensuring
+    the progression: soft timeout → grace period → hard timeout.
+
     Once hard timeout is reached, only 'vote' and 'new_answer' tools are allowed.
     All other tool calls are denied with an error message.
 
@@ -948,6 +1010,7 @@ class RoundTimeoutPreHook(PatternHook):
         subsequent_timeout_seconds: Optional[int],
         grace_seconds: int,
         agent_id: str,
+        shared_state: Optional["RoundTimeoutState"] = None,
     ):
         """
         Initialize the round timeout pre hook.
@@ -960,6 +1023,7 @@ class RoundTimeoutPreHook(PatternHook):
             subsequent_timeout_seconds: Soft timeout for rounds 1+ (None = disabled)
             grace_seconds: Grace period after soft timeout before blocking
             agent_id: Agent identifier for logging
+            shared_state: Optional shared state for coordinating with soft timeout hook
         """
         super().__init__(name, matcher="*", timeout=5)
         self.get_round_start_time = get_round_start_time
@@ -968,6 +1032,7 @@ class RoundTimeoutPreHook(PatternHook):
         self.subsequent_timeout_seconds = subsequent_timeout_seconds
         self.grace_seconds = grace_seconds
         self.agent_id = agent_id
+        self._shared_state = shared_state
 
     def _get_timeout_for_current_round(self) -> Optional[int]:
         """Return timeout based on round number (0 = initial, 1+ = subsequent)."""
@@ -984,11 +1049,87 @@ class RoundTimeoutPreHook(PatternHook):
         context: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> HookResult:
-        """Execute the hard timeout check before each tool call."""
+        """Execute the hard timeout check before each tool call.
+
+        Hard timeout is calculated from when the soft timeout was injected,
+        NOT from round start time. This ensures agents always get the soft
+        timeout warning before being blocked.
+
+        Also tracks consecutive denials to detect infinite loops.
+        """
         timeout = self._get_timeout_for_current_round()
         if timeout is None:
             return HookResult.allow()
 
+        # If using shared state, check if soft timeout has fired first
+        if self._shared_state:
+            # Check if force terminate has been triggered by too many denials
+            if self._shared_state.force_terminate:
+                logger.error(
+                    f"[RoundTimeoutPreHook] FORCE TERMINATE active for {self.agent_id} - " f"blocking {function_name} (agent stuck in denial loop)",
+                )
+                return HookResult(
+                    decision="deny",
+                    reason=(
+                        f"⛔ FORCE TERMINATED - Too many blocked tool calls\n"
+                        f"Tool `{function_name}` blocked. You have made {self._shared_state.consecutive_hard_denials} "
+                        f"consecutive blocked tool calls.\n"
+                        f"The system is terminating your turn. Use `vote` or `new_answer` ONLY."
+                    ),
+                )
+
+            soft_fired_at = self._shared_state.soft_timeout_fired_at
+            if soft_fired_at is None:
+                # Soft timeout hasn't fired yet - allow tool call
+                # (Can't have hard timeout without soft first)
+                logger.debug(
+                    f"[RoundTimeoutPreHook] Agent {self.agent_id}: " f"soft timeout not fired yet, allowing {function_name}",
+                )
+                return HookResult.allow()
+
+            # Calculate hard timeout from when soft was injected
+            time_since_soft = time.time() - soft_fired_at
+            logger.debug(
+                f"[RoundTimeoutPreHook] Agent {self.agent_id}: " f"time_since_soft={time_since_soft:.0f}s, grace={self.grace_seconds}s",
+            )
+
+            if time_since_soft < self.grace_seconds:
+                # Within grace period - reset denial count and allow
+                self._shared_state.reset_denial_count()
+                return HookResult.allow()
+
+            # Hard timeout reached - only allow vote/new_answer
+            if function_name in ("vote", "new_answer"):
+                # Valid terminal tool - reset denial count
+                self._shared_state.reset_denial_count()
+                return HookResult.allow()
+
+            # Block this tool and track the denial
+            denial_count = self._shared_state.consecutive_hard_denials + 1
+            force_terminate = self._shared_state.record_hard_denial()
+
+            logger.warning(
+                f"[RoundTimeoutPreHook] DENIED tool `{function_name}` for {self.agent_id} - "
+                f"grace period exceeded ({time_since_soft:.0f}s / {self.grace_seconds}s), "
+                f"denial #{denial_count}" + (" - FORCE TERMINATE TRIGGERED" if force_terminate else ""),
+            )
+
+            return HookResult(
+                decision="deny",
+                reason=(
+                    f"⛔ HARD TIMEOUT - TOOL `{function_name}` BLOCKED (attempt #{denial_count})\n"
+                    f"You received the time limit warning {time_since_soft:.0f}s ago "
+                    f"(grace period: {self.grace_seconds}s).\n"
+                    f"Only `vote` or `new_answer` tools are allowed. Submit immediately. Note any unsolved problems."
+                    + (
+                        f"\n⚠️ WARNING: {denial_count} consecutive blocked calls. " f"Turn will be terminated after {RoundTimeoutState.MAX_CONSECUTIVE_DENIALS} blocked calls."
+                        if denial_count >= 3
+                        else ""
+                    )
+                ),
+            )
+
+        # Fallback to wall-clock based timeout if no shared state (backwards compatibility)
         elapsed = time.time() - self.get_round_start_time()
         hard_timeout = timeout + self.grace_seconds
 
@@ -1001,22 +1142,22 @@ class RoundTimeoutPreHook(PatternHook):
 
         # Block all other tools
         logger.warning(
-            f"[RoundTimeoutPreHook] Blocking {function_name} for {self.agent_id} - " f"hard timeout exceeded ({elapsed:.0f}s / {hard_timeout:.0f}s)",
+            f"[RoundTimeoutPreHook] DENIED tool `{function_name}` for {self.agent_id} - " f"hard timeout exceeded ({elapsed:.0f}s / {hard_timeout:.0f}s)",
         )
         return HookResult(
             decision="deny",
             reason=(
-                f"⛔ HARD TIMEOUT - TOOL CALL BLOCKED\n"
+                f"⛔ HARD TIMEOUT - TOOL `{function_name}` BLOCKED\n"
                 f"You have exceeded the hard time limit ({elapsed:.0f}s / {hard_timeout:.0f}s).\n"
-                f"Only `vote` or `new_answer` tools are allowed. Submit immediately."
+                f"Only `vote` or `new_answer` tools are allowed. Submit immediately. Note any unsolved problems."
             ),
         )
 
     def reset_for_new_round(self) -> None:
         """Reset hook state for a new round.
 
-        Note: RoundTimeoutPreHook is stateless (checks elapsed time dynamically),
-        so this is a no-op. Method exists for interface consistency with RoundTimeoutPostHook.
+        Note: RoundTimeoutPreHook now uses shared state for coordination,
+        but the reset is handled by RoundTimeoutPostHook which owns the state.
         """
 
 

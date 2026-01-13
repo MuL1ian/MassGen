@@ -56,6 +56,7 @@ from .mcp_tools.hooks import (
     MidStreamInjectionHook,
     RoundTimeoutPostHook,
     RoundTimeoutPreHook,
+    RoundTimeoutState,
 )
 from .memory import ConversationMemory, PersistentMemoryBase
 from .message_templates import MessageTemplates
@@ -88,6 +89,7 @@ class AgentState:
         injection_count: Number of update injections this agent has received
         round_start_time: Timestamp when current round started (for per-round timeouts)
         round_timeout_hooks: Tuple of (post_hook, pre_hook) for per-round timeouts, or None
+        round_timeout_state: Shared state for timeout hooks (tracks consecutive denials)
     """
 
     answer: Optional[str] = None
@@ -102,6 +104,7 @@ class AgentState:
     injection_count: int = 0  # Track injections received for mid-stream injection timing
     round_start_time: Optional[float] = None  # For per-round timeouts
     round_timeout_hooks: Optional[tuple] = None  # (post_hook, pre_hook) for resetting on new round
+    round_timeout_state: Optional["RoundTimeoutState"] = None  # Shared timeout state
 
 
 class Orchestrator(ChatAgent):
@@ -3606,6 +3609,10 @@ Your answer:"""
             """Get the current round number from coordination tracker."""
             return self.coordination_tracker.get_agent_round(agent_id)
 
+        # Create shared state for coordinating soft -> hard timeout progression
+        # This ensures hard timeout only fires AFTER soft timeout has been injected
+        timeout_state = RoundTimeoutState()
+
         # Create soft timeout hook (POST_TOOL_USE - injects warning)
         post_hook = RoundTimeoutPostHook(
             name=f"round_timeout_soft_{agent_id}",
@@ -3615,6 +3622,7 @@ Your answer:"""
             subsequent_timeout_seconds=subsequent_timeout,
             grace_seconds=grace_seconds,
             agent_id=agent_id,
+            shared_state=timeout_state,
         )
 
         # Create hard timeout hook (PRE_TOOL_USE - blocks non-terminal tools)
@@ -3626,6 +3634,7 @@ Your answer:"""
             subsequent_timeout_seconds=subsequent_timeout,
             grace_seconds=grace_seconds,
             agent_id=agent_id,
+            shared_state=timeout_state,
         )
 
         # Register hooks
@@ -3634,6 +3643,8 @@ Your answer:"""
 
         # Store hook references so we can reset them on new rounds
         self.agent_states[agent_id].round_timeout_hooks = (post_hook, pre_hook)
+        # Store the shared state so we can check force_terminate in the orchestrator loop
+        self.agent_states[agent_id].round_timeout_state = timeout_state
 
         logger.debug(f"[Orchestrator] Registered round timeout hooks for {agent_id}")
 
@@ -3988,6 +3999,107 @@ Your answer:"""
             return False
         answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
         return answer_count >= self.config.max_new_answers_per_agent
+
+    def _get_buffer_content(self, agent: "ChatAgent") -> tuple[Optional[str], int]:
+        """Get streaming buffer content from agent backend for enforcement tracking.
+
+        Returns:
+            Tuple of (buffer_preview: first 500 chars or None, buffer_chars: total char count)
+        """
+        buffer_content = None
+        buffer_chars = 0
+
+        if hasattr(agent.backend, "_get_streaming_buffer"):
+            buffer_content = agent.backend._get_streaming_buffer()
+            if buffer_content:
+                buffer_chars = len(buffer_content)
+                # Truncate preview to 500 chars
+                buffer_content = buffer_content[:500] if len(buffer_content) > 500 else buffer_content
+
+        return buffer_content, buffer_chars
+
+    def _save_docker_logs_on_mcp_failure(
+        self,
+        agent: "ChatAgent",
+        agent_id: str,
+        mcp_status: str,
+    ) -> None:
+        """Save Docker container logs when MCP failure is detected.
+
+        This helps debug why Docker-based MCP servers disconnect by capturing
+        container state and logs at the time of failure.
+
+        Args:
+            agent: The ChatAgent instance
+            agent_id: Agent identifier
+            mcp_status: The MCP status that triggered this (e.g., 'mcp_tools_failed')
+        """
+        try:
+            # Check if agent uses Docker mode
+            if not hasattr(agent, "backend") or not hasattr(agent.backend, "filesystem_manager"):
+                return
+
+            fm = agent.backend.filesystem_manager
+            if not fm or not hasattr(fm, "docker_manager") or not fm.docker_manager:
+                return
+
+            docker_manager = fm.docker_manager
+
+            # Get container health info
+            health = docker_manager.get_container_health(agent_id)
+            if not health.get("exists"):
+                logger.warning(f"[Docker] Container not found for {agent_id} during MCP failure - may have been cleaned up")
+                return
+
+            # Log container health status
+            logger.info(
+                f"[Docker] Container health for {agent_id} during MCP failure ({mcp_status}): "
+                f"status={health.get('status')}, running={health.get('running')}, "
+                f"exit_code={health.get('exit_code')}, oom_killed={health.get('oom_killed')}, "
+                f"error={health.get('error')}",
+            )
+
+            # Save logs to the session log directory
+            from .logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir()
+            if log_dir:
+                import time
+
+                timestamp = time.strftime("%H%M%S")
+                log_filename = f"docker_logs_{agent_id}_{mcp_status}_{timestamp}.txt"
+                log_path = log_dir / log_filename
+                docker_manager.save_container_logs(agent_id, log_path, tail=500)
+
+        except Exception as e:
+            logger.warning(f"[Docker] Failed to save container logs on MCP failure: {e}")
+
+    def _get_docker_health(
+        self,
+        agent: "ChatAgent",
+        agent_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Get Docker container health info for reliability metrics.
+
+        Args:
+            agent: The ChatAgent instance
+            agent_id: Agent identifier
+
+        Returns:
+            Docker health dict or None if not using Docker
+        """
+        try:
+            if not hasattr(agent, "backend") or not hasattr(agent.backend, "filesystem_manager"):
+                return None
+
+            fm = agent.backend.filesystem_manager
+            if not fm or not hasattr(fm, "docker_manager") or not fm.docker_manager:
+                return None
+
+            return fm.docker_manager.get_container_health(agent_id)
+        except Exception as e:
+            logger.debug(f"[Docker] Failed to get container health: {e}")
+            return None
 
     def _create_tool_error_messages(
         self,
@@ -4665,6 +4777,29 @@ Your answer:"""
                         # Forward MCP status messages with proper formatting
                         mcp_content = f"🔧 MCP: {chunk.content}"
                         yield self._trace_tuple(mcp_content, kind="coordination")
+
+                        # Track MCP failures in reliability metrics
+                        mcp_status = getattr(chunk, "status", None)
+                        if mcp_status in ("mcp_tools_failed", "mcp_unavailable", "mcp_error"):
+                            buffer_preview, buffer_chars = self._get_buffer_content(agent)
+
+                            # Get Docker health info for reliability metrics
+                            docker_health = self._get_docker_health(agent, agent_id)
+
+                            self.coordination_tracker.track_enforcement_event(
+                                agent_id=agent_id,
+                                reason="mcp_disconnected",
+                                attempt=attempt + 1,
+                                max_attempts=max_attempts,
+                                tool_calls=[],
+                                error_message=chunk.content[:500] if chunk.content else None,
+                                buffer_preview=buffer_preview,
+                                buffer_chars=buffer_chars,
+                                docker_health=docker_health,
+                            )
+
+                            # Save Docker container logs on MCP failure for debugging
+                            self._save_docker_logs_on_mcp_failure(agent, agent_id, mcp_status)
                     elif chunk_type == "custom_tool_status":
                         # Forward custom tool status messages with proper formatting
                         custom_tool_content = f"🔧 Custom Tool: {chunk.content}"
@@ -4772,6 +4907,19 @@ Your answer:"""
                         # Stream error information to user interface
                         error_msg = getattr(chunk, "error", str(chunk.content)) if hasattr(chunk, "error") else str(chunk.content)
                         yield ("content", f"❌ Error: {error_msg}\n")
+
+                        # Track API/streaming error in reliability metrics
+                        buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                        self.coordination_tracker.track_enforcement_event(
+                            agent_id=agent_id,
+                            reason="api_error",
+                            attempt=attempt + 1,
+                            max_attempts=max_attempts,
+                            tool_calls=[],
+                            error_message=error_msg[:500] if error_msg else None,
+                            buffer_preview=buffer_preview,
+                            buffer_chars=buffer_chars,
+                        )
                     elif chunk_type == "incomplete_response_recovery":
                         # Handle incomplete response recovery - API stream ended early
                         # Buffer content is preserved in chunk.content
@@ -4782,8 +4930,35 @@ Your answer:"""
                         )
                         # Yield status message for visibility
                         yield ("content", f"⚠️ API stream ended early - recovering with preserved context ({detail})\n")
+
+                        # Track connection recovery in reliability metrics
+                        self.coordination_tracker.track_enforcement_event(
+                            agent_id=agent_id,
+                            reason="connection_recovery",
+                            attempt=attempt + 1,
+                            max_attempts=max_attempts,
+                            tool_calls=[],
+                            error_message=detail,
+                            buffer_preview=chunk.content[:500] if chunk.content else None,
+                            buffer_chars=buffer_size,
+                        )
                         # Note: The orchestrator's while loop will continue and make a new API call
                         # The buffer content has already been yielded as stream content, so it's already in the context
+
+                    # Check if force_terminate was triggered by too many consecutive denied tool calls
+                    timeout_state = self.agent_states[agent_id].round_timeout_state
+                    if timeout_state and timeout_state.force_terminate:
+                        logger.error(
+                            f"[Orchestrator] FORCE TERMINATE for {agent_id} - "
+                            f"{timeout_state.consecutive_hard_denials} consecutive denied tool calls. "
+                            f"Agent stuck in denial loop, terminating turn.",
+                        )
+                        yield (
+                            "error",
+                            f"Agent terminated: {timeout_state.consecutive_hard_denials} consecutive blocked " f"tool calls after hard timeout. Agent failed to submit vote/answer.",
+                        )
+                        yield ("done", None)
+                        return
 
                 # Handle multiple vote calls - take the last vote (agent's final decision)
                 vote_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) == "vote"]
@@ -4807,7 +4982,20 @@ Your answer:"""
                     if attempt < max_attempts - 1:
                         # Note: restart_pending is handled by mid-stream callback on next tool call
                         error_msg = "Cannot use both 'vote' and 'new_answer' in same response. Choose one: vote for existing answer OR provide new answer."
-                        yield ("content", f"❌ {error_msg}")
+                        yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}")
+
+                        # Track enforcement event before retry
+                        buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                        self.coordination_tracker.track_enforcement_event(
+                            agent_id=agent_id,
+                            reason="vote_and_answer",
+                            attempt=attempt + 1,
+                            max_attempts=max_attempts,
+                            tool_calls=["vote", "new_answer"],
+                            error_message=error_msg,
+                            buffer_preview=buffer_preview,
+                            buffer_chars=buffer_chars,
+                        )
 
                         # Send tool error response for all tool calls that caused the violation
                         enforcement_msg = self._create_tool_error_messages(agent, tool_calls, error_msg)
@@ -4842,7 +5030,21 @@ Your answer:"""
                                 if attempt < max_attempts - 1:
                                     # Note: restart_pending is handled by mid-stream callback on next tool call
                                     error_msg = "Cannot vote when no answers exist. Use new_answer tool."
-                                    yield ("content", f"❌ {error_msg}")
+                                    yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}")
+
+                                    # Track enforcement event before retry
+                                    buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                    self.coordination_tracker.track_enforcement_event(
+                                        agent_id=agent_id,
+                                        reason="vote_no_answers",
+                                        attempt=attempt + 1,
+                                        max_attempts=max_attempts,
+                                        tool_calls=["vote"],
+                                        error_message=error_msg,
+                                        buffer_preview=buffer_preview,
+                                        buffer_chars=buffer_chars,
+                                    )
+
                                     # Create proper tool error message for retry
                                     enforcement_msg = self._create_tool_error_messages(agent, [tool_call], error_msg)
                                     attempt += 1  # Error counts as an attempt
@@ -4872,7 +5074,21 @@ Your answer:"""
                                     valid_anon_agents = self.coordination_tracker.get_agents_with_answers_anon(answers)
                                     error_msg = f"Invalid agent_id '{voted_agent_anon}'. Valid agents: {', '.join(valid_anon_agents)}"
                                     # Send tool error result back to agent
-                                    yield ("content", f"❌ {error_msg}")
+                                    yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}")
+
+                                    # Track enforcement event before retry
+                                    buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                    self.coordination_tracker.track_enforcement_event(
+                                        agent_id=agent_id,
+                                        reason="invalid_vote_id",
+                                        attempt=attempt + 1,
+                                        max_attempts=max_attempts,
+                                        tool_calls=["vote"],
+                                        error_message=error_msg,
+                                        buffer_preview=buffer_preview,
+                                        buffer_chars=buffer_chars,
+                                    )
+
                                     # Create proper tool error message for retry
                                     enforcement_msg = self._create_tool_error_messages(agent, [tool_call], error_msg)
                                     attempt += 1  # Error counts as an attempt
@@ -4933,7 +5149,21 @@ Your answer:"""
                             if not can_answer:
                                 if attempt < max_attempts - 1:
                                     # Note: restart_pending is handled by mid-stream callback on next tool call
-                                    yield ("content", f"❌ {count_error}")
+                                    yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {count_error}")
+
+                                    # Track enforcement event before retry
+                                    buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                    self.coordination_tracker.track_enforcement_event(
+                                        agent_id=agent_id,
+                                        reason="answer_limit",
+                                        attempt=attempt + 1,
+                                        max_attempts=max_attempts,
+                                        tool_calls=["new_answer"],
+                                        error_message=count_error,
+                                        buffer_preview=buffer_preview,
+                                        buffer_chars=buffer_chars,
+                                    )
+
                                     # Create proper tool error message for retry
                                     enforcement_msg = self._create_tool_error_messages(agent, [tool_call], count_error)
                                     attempt += 1  # Error counts as an attempt
@@ -4951,7 +5181,21 @@ Your answer:"""
                             if not is_novel:
                                 if attempt < max_attempts - 1:
                                     # Note: restart_pending is handled by mid-stream callback on next tool call
-                                    yield ("content", f"❌ {novelty_error}")
+                                    yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {novelty_error}")
+
+                                    # Track enforcement event before retry
+                                    buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                    self.coordination_tracker.track_enforcement_event(
+                                        agent_id=agent_id,
+                                        reason="answer_novelty",
+                                        attempt=attempt + 1,
+                                        max_attempts=max_attempts,
+                                        tool_calls=["new_answer"],
+                                        error_message=novelty_error,
+                                        buffer_preview=buffer_preview,
+                                        buffer_chars=buffer_chars,
+                                    )
+
                                     # Create proper tool error message for retry
                                     enforcement_msg = self._create_tool_error_messages(agent, [tool_call], novelty_error)
                                     attempt += 1  # Error counts as an attempt
@@ -4974,7 +5218,21 @@ Your answer:"""
                                     if attempt < max_attempts - 1:
                                         # Note: restart_pending is handled by mid-stream callback on next tool call
                                         error_msg = f"Answer already provided by {existing_agent_id}. Provide different answer or vote for existing one."
-                                        yield ("content", f"❌ {error_msg}")
+                                        yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}")
+
+                                        # Track enforcement event before retry
+                                        buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                        self.coordination_tracker.track_enforcement_event(
+                                            agent_id=agent_id,
+                                            reason="answer_duplicate",
+                                            attempt=attempt + 1,
+                                            max_attempts=max_attempts,
+                                            tool_calls=["new_answer"],
+                                            error_message=error_msg,
+                                            buffer_preview=buffer_preview,
+                                            buffer_chars=buffer_chars,
+                                        )
+
                                         # Create proper tool error message for retry
                                         enforcement_msg = self._create_tool_error_messages(agent, [tool_call], error_msg)
                                         attempt += 1  # Error counts as an attempt
@@ -5062,18 +5320,41 @@ Your answer:"""
                 if not workflow_tool_found:
                     # Note: restart_pending is handled by mid-stream callback on next tool call
                     if attempt < max_attempts - 1:
-                        yield self._trace_tuple("🔄 needs to use workflow tools...\n", kind="coordination")
-                        # If there were tool calls, we must provide tool results before continuing
-                        # (Response API requires function_call + function_call_output pairs)
+                        # Determine enforcement reason and message
                         if tool_calls:
                             # Use vote-only enforcement message if agent has hit answer limit
                             if vote_only:
                                 error_msg = "You have reached your answer limit. You MUST use the `vote` tool now to vote for the best existing answer. The `new_answer` tool is no longer available."
                             else:
                                 error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
-                            enforcement_msg = self._create_tool_error_messages(agent, tool_calls, error_msg)
+                            enforcement_reason = "no_workflow_tool"
+                            tool_names_called = [agent.backend.extract_tool_name(tc) for tc in tool_calls]
                         else:
                             # No tool calls, just a plain text response - use default enforcement
+                            error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
+                            enforcement_reason = "no_tool_calls"
+                            tool_names_called = []
+
+                        yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}")
+
+                        # Track enforcement event before retry
+                        buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                        self.coordination_tracker.track_enforcement_event(
+                            agent_id=agent_id,
+                            reason=enforcement_reason,
+                            attempt=attempt + 1,
+                            max_attempts=max_attempts,
+                            tool_calls=tool_names_called,
+                            error_message=error_msg,
+                            buffer_preview=buffer_preview,
+                            buffer_chars=buffer_chars,
+                        )
+
+                        # If there were tool calls, we must provide tool results before continuing
+                        # (Response API requires function_call + function_call_output pairs)
+                        if tool_calls:
+                            enforcement_msg = self._create_tool_error_messages(agent, tool_calls, error_msg)
+                        else:
                             enforcement_msg = self.message_templates.enforcement_message()
                         attempt += 1  # Error counts as an attempt
                         continue  # Retry with updated conversation
@@ -5968,6 +6249,13 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         log_dir = get_log_session_dir()
         log_path = str(log_dir) if log_dir else None
         self.coordination_tracker.initialize_session(list(self.agents.keys()), log_path=log_path)
+
+        # Reset MCP initialization flag to force tool re-setup on next agent.chat()
+        # This ensures agents get full tool set after restart (not limited set from timeout)
+        for agent in self.agents.values():
+            if hasattr(agent.backend, "_mcp_initialized"):
+                agent.backend._mcp_initialized = False
+                logger.info(f"[Orchestrator] Reset MCP initialized flag for agent {agent.agent_id}")
 
         # Reset workflow phase to idle so next coordinate() call starts fresh
         self.workflow_phase = "idle"

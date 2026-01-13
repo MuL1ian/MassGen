@@ -186,6 +186,9 @@ class CoordinationTracker:
         # Logfire tracing - context manager for session span
         self._session_span_context = None
 
+        # Enforcement observability - track workflow enforcement events per agent
+        self.enforcement_events: Dict[str, List[Dict[str, Any]]] = {}
+
     def _make_snapshot_path(self, kind: str, agent_id: str, timestamp: str) -> str:
         """Generate standardized snapshot paths.
 
@@ -226,6 +229,9 @@ class CoordinationTracker:
 
         # Initialize agent context tracking
         self.agent_context_labels = {aid: [] for aid in agent_ids}
+
+        # Initialize enforcement tracking per agent
+        self.enforcement_events = {aid: [] for aid in agent_ids}
 
         self._add_event(
             EventType.SESSION_START,
@@ -1167,6 +1173,9 @@ class CoordinationTracker:
                             "round_start_time": agent_state.round_start_time,
                         }
 
+                # Get reliability metrics (enforcement tracking)
+                reliability = self.get_agent_reliability(agent_id)
+
                 agent_statuses[agent_id] = {
                     "status": status,
                     "answer_count": len(answers),
@@ -1180,6 +1189,7 @@ class CoordinationTracker:
                     "tool_metrics": tool_metrics,
                     "round_history": round_history,
                     "round_timing": round_timing,
+                    "reliability": reliability,
                 }
 
             # Aggregate vote counts by answer label
@@ -1354,7 +1364,39 @@ class CoordinationTracker:
                     )
 
             # Build complete status data structure
+            # Determine finish reason - prioritize showing termination cause at top level
+            finish_reason = None
+            finish_reason_details = None
+            is_complete = False
+
+            if orchestrator:
+                # Check for orchestrator timeout
+                if hasattr(orchestrator, "is_orchestrator_timeout") and orchestrator.is_orchestrator_timeout:
+                    finish_reason = "timeout"
+                    finish_reason_details = orchestrator.timeout_reason if hasattr(orchestrator, "timeout_reason") else "Orchestrator time limit exceeded"
+                    is_complete = True
+                # Check if final presentation completed
+                elif self.is_final_round and self.final_winner:
+                    finish_reason = "completed"
+                    finish_reason_details = f"Winner: {self.final_winner}"
+                    is_complete = True
+                # Check for any agent errors that stopped execution
+                elif any(agent_statuses.get(aid, {}).get("error") is not None for aid in self.agent_ids):
+                    error_agents = [aid for aid in self.agent_ids if agent_statuses.get(aid, {}).get("error") is not None]
+                    finish_reason = "error"
+                    finish_reason_details = f"Agent(s) encountered errors: {', '.join(error_agents)}"
+                    is_complete = True
+                # Still in progress
+                else:
+                    finish_reason = "in_progress"
+                    finish_reason_details = f"Phase: {phase}"
+                    is_complete = False
+
             status_data = {
+                # IMPORTANT: finish_reason is placed first for visibility
+                "finish_reason": finish_reason,
+                "finish_reason_details": finish_reason_details,
+                "is_complete": is_complete,
                 "meta": {
                     "last_updated": time.time(),
                     "session_id": log_dir.name if log_dir else "",
@@ -1487,3 +1529,127 @@ class CoordinationTracker:
         """Get display name for agent (Agent1, Agent2, etc.)."""
         agent_num = self._get_agent_number(agent_id)
         return f"Agent{agent_num}" if agent_num else agent_id
+
+    def track_enforcement_event(
+        self,
+        agent_id: str,
+        reason: str,
+        attempt: int,
+        max_attempts: int,
+        tool_calls: Optional[List[str]] = None,
+        error_message: Optional[str] = None,
+        buffer_preview: Optional[str] = None,
+        buffer_chars: int = 0,
+        docker_health: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Track a workflow enforcement event for an agent.
+
+        This records when the orchestrator triggers enforcement due to missing
+        or invalid workflow tool usage (vote/new_answer).
+
+        Args:
+            agent_id: The agent that triggered enforcement
+            reason: Enforcement reason code (e.g., 'no_workflow_tool', 'invalid_vote_id')
+            attempt: Current attempt number (1-indexed)
+            max_attempts: Maximum allowed attempts
+            tool_calls: List of tool names that were called
+            error_message: Specific error message if applicable
+            buffer_preview: First 500 chars of streaming buffer content
+            buffer_chars: Total characters in buffer before clear
+            docker_health: Docker container health info if applicable (for mcp_disconnected)
+        """
+        # Ensure agent is tracked
+        if agent_id not in self.enforcement_events:
+            self.enforcement_events[agent_id] = []
+
+        # Get current round for this agent
+        current_round = self.get_agent_round(agent_id)
+
+        # Build the enforcement event record
+        event = {
+            "round": current_round,
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "reason": reason,
+            "tool_calls": tool_calls or [],
+            "error_message": error_message,
+            "buffer_preview": buffer_preview[:500] if buffer_preview else None,
+            "buffer_chars": buffer_chars,
+            "timestamp": time.time(),
+        }
+
+        # Add Docker health info for MCP-related failures
+        if docker_health:
+            event["docker_health"] = docker_health
+
+        self.enforcement_events[agent_id].append(event)
+
+        # Log the enforcement event for debugging
+        logger.debug(
+            f"[CoordinationTracker] Enforcement event for {agent_id}: " f"reason={reason}, attempt={attempt}/{max_attempts}, " f"tools={tool_calls}, buffer_chars={buffer_chars}",
+        )
+
+    def get_agent_reliability(self, agent_id: str) -> Dict[str, Any]:
+        """Get reliability metrics for an agent based on enforcement events.
+
+        Returns a summary of enforcement attempts including:
+        - List of enforcement events
+        - Aggregated counts by round
+        - Unknown tools encountered
+        - Workflow errors encountered
+        - Total retry count
+        - Total buffer chars lost
+        - Final outcome
+
+        Args:
+            agent_id: The agent to get reliability for
+
+        Returns:
+            Dictionary with reliability metrics
+        """
+        events = self.enforcement_events.get(agent_id, [])
+
+        if not events:
+            return None  # No enforcement events means perfect reliability
+
+        # Aggregate by round
+        by_round: Dict[str, Dict[str, Any]] = {}
+        unknown_tools: List[str] = []
+        workflow_errors: List[str] = []
+        total_buffer_chars_lost = 0
+
+        for event in events:
+            round_num = str(event.get("round", 0))
+            reason = event.get("reason", "unknown")
+
+            # Initialize round entry if needed
+            if round_num not in by_round:
+                by_round[round_num] = {"count": 0, "reasons": []}
+
+            by_round[round_num]["count"] += 1
+            if reason not in by_round[round_num]["reasons"]:
+                by_round[round_num]["reasons"].append(reason)
+
+            # Track unknown tools
+            if reason == "unknown_tool":
+                for tool in event.get("tool_calls", []):
+                    if tool not in unknown_tools:
+                        unknown_tools.append(tool)
+
+            # Track workflow errors (non-tool issues)
+            if reason in ("vote_no_answers", "vote_and_answer", "invalid_vote_id", "answer_limit", "answer_novelty", "answer_duplicate"):
+                if reason not in workflow_errors:
+                    workflow_errors.append(reason)
+
+            # Sum buffer chars lost
+            total_buffer_chars_lost += event.get("buffer_chars", 0)
+
+        return {
+            "enforcement_attempts": events,
+            "by_round": by_round,
+            "unknown_tools": unknown_tools,
+            "workflow_errors": workflow_errors,
+            "total_enforcement_retries": len(events),
+            "total_buffer_chars_lost": total_buffer_chars_lost,
+            "outcome": "ok",  # Outcome determined by orchestrator - will be updated if agent fails
+        }
