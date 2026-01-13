@@ -913,9 +913,10 @@ class WorkspaceStructureSection(SystemPromptSection):
     Args:
         workspace_path: Path to the agent's workspace directory
         context_paths: List of paths containing important context
+        use_two_tier_workspace: If True, include documentation for scratch/deliverable structure
     """
 
-    def __init__(self, workspace_path: str, context_paths: List[str]):
+    def __init__(self, workspace_path: str, context_paths: List[str], use_two_tier_workspace: bool = False):
         super().__init__(
             title="Workspace Structure",
             priority=Priority.HIGH,
@@ -923,6 +924,7 @@ class WorkspaceStructureSection(SystemPromptSection):
         )
         self.workspace_path = workspace_path
         self.context_paths = context_paths
+        self.use_two_tier_workspace = use_two_tier_workspace
 
     def build_content(self) -> str:
         """Build workspace structure documentation."""
@@ -933,6 +935,18 @@ class WorkspaceStructureSection(SystemPromptSection):
         content_parts.append(
             "\nThis is your primary working directory where you should create " "and manage files for this task.\n",
         )
+
+        # Add two-tier workspace documentation if enabled
+        if self.use_two_tier_workspace:
+            content_parts.append("### Two-Tier Workspace Structure\n")
+            content_parts.append("Your workspace has two directories for organizing your work:\n")
+            content_parts.append("- **`scratch/`** - Use for working files, experiments, intermediate results, evaluation scripts")
+            content_parts.append("- **`deliverable/`** - Use for final outputs you want to showcase to voters\n")
+            content_parts.append("To promote files from scratch to deliverable, use standard file operations:")
+            content_parts.append("- Copy: Use filesystem tools to copy files")
+            content_parts.append("- Move: Use command line `mv` or filesystem move\n")
+            content_parts.append("**Note**: Voters will see BOTH directories, so scratch/ helps them understand your process.\n")
+            content_parts.append("Your workspace is version controlled with git. Changes are automatically committed at key points.\n")
 
         if self.context_paths:
             content_parts.append("**Context paths**:")
@@ -1298,6 +1312,7 @@ class FilesystemSection(SystemPromptSection):
         docker_mode: Whether commands execute in Docker containers
         enable_sudo: Whether sudo is available in Docker containers
         enable_code_based_tools: Whether code-based tools mode is enabled
+        use_two_tier_workspace: Whether two-tier workspace (scratch/deliverable) is enabled
     """
 
     def __init__(
@@ -1314,6 +1329,7 @@ class FilesystemSection(SystemPromptSection):
         docker_mode: bool = False,
         enable_sudo: bool = False,
         enable_code_based_tools: bool = False,
+        use_two_tier_workspace: bool = False,
     ):
         super().__init__(
             title="Filesystem & Workspace",
@@ -1323,7 +1339,7 @@ class FilesystemSection(SystemPromptSection):
 
         # Create subsections with appropriate priorities
         self.subsections = [
-            WorkspaceStructureSection(workspace_path, context_paths),
+            WorkspaceStructureSection(workspace_path, context_paths, use_two_tier_workspace=use_two_tier_workspace),
             FilesystemOperationsSection(
                 main_workspace=main_workspace,
                 temp_workspace=temp_workspace,
@@ -2314,13 +2330,6 @@ When evaluating your own or others' work, use prompts that look for **flaws**:
 - "What flaws, issues, or missing elements do you see? Be critical."
 - "What would a demanding user complain about?"
 - "Does this fully meet the requirements, or are there gaps?"
-
-### Tool usage:
-```
-read_media(file_path="screenshot.png", prompt="What flaws or issues do you see? Be critical.")
-read_media(file_path="diagram.png", prompt="What's missing or poorly done?")
-read_media(file_path="output.mp4", prompt="What problems or gaps exist?")
-```
 
 **Supported formats:**
 - Images: png, jpg, jpeg, gif, webp, bmp

@@ -1118,6 +1118,12 @@ def create_agents_from_config(
         # Inject rate limiting flag from CLI
         backend_config["enable_rate_limit"] = enable_rate_limit
 
+        # Inject two-tier workspace setting from coordination config
+        orchestrator_section = config.get("orchestrator", {})
+        coordination_settings_for_injection = orchestrator_section.get("coordination", {})
+        if coordination_settings_for_injection.get("use_two_tier_workspace", False):
+            backend_config["use_two_tier_workspace"] = True
+
         # Inject session mount parameters for multi-turn Docker support
         # This enables the session directory to be pre-mounted so all turn
         # workspaces are automatically visible without container recreation
@@ -2182,6 +2188,10 @@ async def run_question_with_history(
                     3,
                 ),
                 subagent_orchestrator=subagent_orchestrator_config,
+                use_two_tier_workspace=coordination_settings.get(
+                    "use_two_tier_workspace",
+                    False,
+                ),
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)

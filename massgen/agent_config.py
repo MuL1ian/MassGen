@@ -107,6 +107,12 @@ class CoordinationConfig:
         subagent_orchestrator: Configuration for subagent orchestrator mode. When enabled, subagents
                               use a full Orchestrator with multiple agents. This enables multi-agent coordination within
                               subagent execution.
+        use_two_tier_workspace: If True, agent workspaces are structured with two directories:
+                               - scratch/: Working files, experiments, intermediate results, evaluation scripts
+                               - deliverable/: Final outputs to showcase to voters
+                               When enabled, git versioning is automatically initialized in the workspace
+                               for audit trails and history tracking. Both directories are shared with
+                               other agents during voting/coordination phases.
     """
 
     enable_planning_mode: bool = False
@@ -137,6 +143,7 @@ class CoordinationConfig:
     subagent_max_timeout: int = 600  # Maximum 10 minutes
     subagent_max_concurrent: int = 3
     subagent_orchestrator: Optional["SubagentOrchestratorConfig"] = None
+    use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
 
     def __post_init__(self):
         """Validate configuration after initialization."""

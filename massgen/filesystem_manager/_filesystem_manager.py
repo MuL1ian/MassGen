@@ -73,6 +73,7 @@ class FilesystemManager:
         instance_id: Optional[str] = None,
         filesystem_session_id: Optional[str] = None,
         session_storage_base: Optional[str] = None,
+        use_two_tier_workspace: bool = False,
     ):
         """
         Initialize FilesystemManager.
@@ -121,8 +122,11 @@ class FilesystemManager:
                        enables session directory pre-mounting for Docker containers.
             session_storage_base: Base directory for session storage (e.g., ".massgen/sessions").
                                  Required along with filesystem_session_id for session pre-mounting.
+            use_two_tier_workspace: If True, create scratch/ and deliverable/ subdirectories in workspace
+                                   and initialize git versioning for audit trails.
         """
         self.agent_id = None  # Will be set by orchestrator via setup_orchestration_paths
+        self.use_two_tier_workspace = use_two_tier_workspace
         self.instance_id = instance_id  # Unique instance ID for parallel execution
         self.enable_image_generation = enable_image_generation
         self.enable_mcp_command_line = enable_mcp_command_line
@@ -245,7 +249,8 @@ class FilesystemManager:
             self.clear_temp_workspace()
 
         # Setup main working directory (now that agent_temporary_workspace_parent is set)
-        self.cwd = self._setup_workspace(cwd)
+        # Pass init_two_tier=True for main workspace to create scratch/deliverable if enabled
+        self.cwd = self._setup_workspace(cwd, init_two_tier=True)
 
         # Add workspace to path manager (workspace is typically writable)
         self.path_permission_manager.add_path(self.cwd, Permission.WRITE, "workspace")
@@ -1019,8 +1024,14 @@ class FilesystemManager:
 
         return backend_config
 
-    def _setup_workspace(self, cwd: str) -> Path:
-        """Setup workspace directory, creating if needed and clearing existing files safely."""
+    def _setup_workspace(self, cwd: str, init_two_tier: bool = False) -> Path:
+        """Setup workspace directory, creating if needed and clearing existing files safely.
+
+        Args:
+            cwd: Working directory path
+            init_two_tier: If True, create scratch/ and deliverable/ subdirectories and init git.
+                          Only used for main workspace, not temp workspaces.
+        """
         # Add parent directory prefix if not already present
         Path(cwd)
         workspace = Path(cwd).resolve()
@@ -1045,7 +1056,157 @@ class FilesystemManager:
                 elif item.is_dir():
                     shutil.rmtree(item)
 
+        # Setup two-tier workspace structure if enabled
+        if init_two_tier and self.use_two_tier_workspace:
+            self._setup_two_tier_structure(workspace)
+
         return workspace
+
+    def _setup_two_tier_structure(self, workspace: Path) -> None:
+        """Setup scratch/ and deliverable/ directories and initialize git.
+
+        Args:
+            workspace: The workspace root path
+        """
+        # Create tier directories
+        scratch_dir = workspace / "scratch"
+        deliverable_dir = workspace / "deliverable"
+
+        scratch_dir.mkdir(exist_ok=True)
+        deliverable_dir.mkdir(exist_ok=True)
+
+        logger.info(f"[FilesystemManager] Created two-tier workspace: scratch/ and deliverable/ in {workspace}")
+
+        # Initialize git repository
+        self._init_git_repo(workspace)
+
+    def _init_git_repo(self, workspace: Path) -> None:
+        """Initialize a git repository in the workspace for version tracking.
+
+        Args:
+            workspace: The workspace root path
+        """
+        import subprocess
+
+        from ._constants import PATTERNS_TO_IGNORE_FOR_TRACKING
+
+        try:
+            # Initialize git repo
+            subprocess.run(
+                ["git", "init"],
+                cwd=workspace,
+                capture_output=True,
+                check=True,
+            )
+
+            # After init, set up environment to isolate from parent repos
+            git_dir = workspace / ".git"
+            git_env = {**os.environ, "GIT_DIR": str(git_dir), "GIT_WORK_TREE": str(workspace)}
+
+            # Configure git user identity using agent_id if available
+            agent_name = self.agent_id if self.agent_id else "massgen-agent"
+            subprocess.run(
+                ["git", "config", "user.name", agent_name],
+                cwd=workspace,
+                capture_output=True,
+                check=True,
+                env=git_env,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", f"{agent_name}@massgen.local"],
+                cwd=workspace,
+                capture_output=True,
+                check=True,
+                env=git_env,
+            )
+
+            # Create .gitignore from centralized patterns
+            gitignore_path = workspace / ".gitignore"
+            gitignore_content = "\n".join(PATTERNS_TO_IGNORE_FOR_TRACKING) + "\n"
+            gitignore_path.write_text(gitignore_content)
+
+            # Make initial commit with --no-verify to skip any inherited hooks
+            subprocess.run(
+                ["git", "add", "-A"],
+                cwd=workspace,
+                capture_output=True,
+                check=True,
+                env=git_env,
+            )
+            subprocess.run(
+                ["git", "commit", "--no-verify", "-m", f"[INIT] Workspace initialized for {agent_name}"],
+                cwd=workspace,
+                capture_output=True,
+                check=True,
+                env=git_env,
+            )
+
+            logger.info(f"[FilesystemManager] Initialized git repository in {workspace}")
+
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"[FilesystemManager] Failed to initialize git repo: {e.stderr.decode() if e.stderr else e}")
+        except FileNotFoundError:
+            logger.warning("[FilesystemManager] Git not found - skipping git initialization")
+
+    def _git_commit_if_changed(self, workspace: Path, message: str) -> bool:
+        """Commit any uncommitted changes in the workspace.
+
+        Args:
+            workspace: The workspace root path
+            message: Commit message (should use semantic prefixes like [SNAPSHOT], [ANSWER], etc.)
+
+        Returns:
+            True if a commit was made, False otherwise
+        """
+        import subprocess
+
+        # Check if this is a git repo
+        git_dir = workspace / ".git"
+        if not git_dir.exists():
+            return False
+
+        try:
+            # Explicitly set GIT_DIR to isolate from any parent git repos
+            # This prevents git from walking up directories to find a .git
+            git_env = {**os.environ, "GIT_DIR": str(git_dir), "GIT_WORK_TREE": str(workspace)}
+
+            # Check if there are any changes
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=workspace,
+                capture_output=True,
+                check=True,
+                env=git_env,
+            )
+
+            if not result.stdout.strip():
+                # No changes to commit
+                return False
+
+            # Stage all changes
+            subprocess.run(
+                ["git", "add", "-A"],
+                cwd=workspace,
+                capture_output=True,
+                check=True,
+                env=git_env,
+            )
+
+            # Commit with --no-verify to skip any hooks that might be inherited
+            subprocess.run(
+                ["git", "commit", "--no-verify", "-m", message],
+                cwd=workspace,
+                capture_output=True,
+                check=True,
+                env=git_env,
+            )
+
+            logger.info(f"[FilesystemManager] Git commit: {message}")
+            return True
+
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"[FilesystemManager] Git commit failed: {e.stderr.decode() if e.stderr else e}")
+            return False
 
     def get_mcp_filesystem_config(
         self,
@@ -1481,6 +1642,11 @@ class FilesystemManager:
         """
         logger.info(f"[FilesystemManager.save_snapshot] Called for agent_id={self.agent_id}, is_final={is_final}, snapshot_storage={self.snapshot_storage}")
 
+        # Auto-commit any changes before taking snapshot (if git is enabled)
+        if self.use_two_tier_workspace:
+            commit_prefix = "[FINAL]" if is_final else "[SNAPSHOT]"
+            self._git_commit_if_changed(self.cwd, f"{commit_prefix} Auto-commit before snapshot")
+
         # Use current workspace as source
         source_dir = self.cwd
         source_path = Path(source_dir)
@@ -1608,6 +1774,10 @@ class FilesystemManager:
                 logger.info(f" - {item}")
                 if item.is_symlink():
                     logger.debug(f"[FilesystemManager] Skipping symlink during clear: {item}")
+                    continue
+                # Preserve .git directory to maintain commit history across turns
+                if item.name == ".git":
+                    logger.debug(f"[FilesystemManager] Preserving .git directory during clear: {item}")
                     continue
                 if item.is_file():
                     item.unlink()

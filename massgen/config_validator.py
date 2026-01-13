@@ -761,7 +761,7 @@ class ConfigValidator:
                 )
             else:
                 # Validate boolean fields
-                boolean_fields = ["enable_planning_mode"]
+                boolean_fields = ["enable_planning_mode", "use_two_tier_workspace"]
                 for field_name in boolean_fields:
                     if field_name in coordination:
                         value = coordination[field_name]

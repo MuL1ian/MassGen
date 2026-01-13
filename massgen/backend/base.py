@@ -169,6 +169,8 @@ class LLMBackend(ABC):
                     # Session mount support for multi-turn Docker
                     "filesystem_session_id": kwargs.get("filesystem_session_id"),
                     "session_storage_base": kwargs.get("session_storage_base"),
+                    # Two-tier workspace (scratch/deliverable) + git versioning
+                    "use_two_tier_workspace": kwargs.get("use_two_tier_workspace", False),
                 }
 
                 # Create FilesystemManager
@@ -284,6 +286,7 @@ class LLMBackend(ABC):
             "mcp_servers",
             # Coordination parameters (handled by orchestrator, not passed to API)
             "vote_only",  # Vote-only mode flag for coordination
+            "use_two_tier_workspace",  # Two-tier workspace (scratch/deliverable) + git versioning
             # Multimodal tools configuration (handled by CustomToolAndMCPBackend)
             "enable_multimodal_tools",
             "multimodal_config",
