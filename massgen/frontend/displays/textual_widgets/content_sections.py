@@ -410,12 +410,14 @@ class TimelineSection(Vertical):
 
     DEFAULT_CSS = """
     TimelineSection {
+        width: 100%;
         height: 1fr;
         padding: 0;
         margin: 0;
     }
 
     TimelineSection #timeline_container {
+        width: 100%;
         height: 1fr;
         padding: 0 1;
         overflow-y: auto;

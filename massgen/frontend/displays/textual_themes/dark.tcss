@@ -263,6 +263,14 @@ AgentPanel {
     padding: 0;
     width: 100%;
     height: 100%;
+    scrollbar-size: 1 1;
+}
+
+/* Vertical container inside AgentPanel - full width */
+AgentPanel > Vertical {
+    width: 100%;
+    padding: 0;
+    margin: 0;
 }
 
 /* Agent panel header label - first line with agent name, backend, timer */
@@ -275,49 +283,62 @@ AgentPanel.hidden {
 }
 
 AgentPanel:hover {
-    border: solid #484f58;
+    border-left: solid #484f58;
+    border-top: solid #484f58;
+    border-bottom: solid #484f58;
+    border-right: none;
 }
 
 /* Override Textual's default purple focus outline */
 AgentPanel:focus,
 AgentPanel:focus-within {
-    border: solid #58a6ff;
+    border-left: solid #58a6ff;
+    border-top: solid #58a6ff;
+    border-bottom: solid #58a6ff;
+    border-right: none;
     background: #161b22;
     outline: none;
 }
 
 AgentPanel.status-waiting {
-    border: solid #30363d;
+    border-left: solid #30363d;
+    border-top: solid #30363d;
+    border-bottom: solid #30363d;
+    border-right: none;
 }
 
 AgentPanel.status-working {
     border-left: thick #58a6ff;
+    border-right: none;
     background: #161b22;
 }
 
 AgentPanel.status-streaming {
     border-left: thick #3fb950;
+    border-right: none;
     background: #0d1117;
 }
 
 AgentPanel.status-completed {
     border-left: thick #3fb950;
+    border-right: none;
 }
 
 AgentPanel.status-error {
     border-left: thick #f85149;
+    border-right: none;
     background: #1a0f0f;
 }
 
 /* === Agent Panel Color Palette - Match tab colors === */
-AgentPanel.agent-color-1 { border-left: thick #58a6ff; }
-AgentPanel.agent-color-2 { border-left: thick #3fb950; }
-AgentPanel.agent-color-3 { border-left: thick #a371f7; }
-AgentPanel.agent-color-4 { border-left: thick #f0883e; }
-AgentPanel.agent-color-5 { border-left: thick #39c5cf; }
-AgentPanel.agent-color-6 { border-left: thick #db61a2; }
-AgentPanel.agent-color-7 { border-left: thick #d29922; }
-AgentPanel.agent-color-8 { border-left: thick #f85149; }
+AgentPanel.agent-color-1 { border-left: thick #58a6ff; border-right: none; }
+AgentPanel.agent-color-2 { border-left: thick #3fb950; border-right: none; }
+AgentPanel.agent-color-3 { border-left: thick #a371f7; border-right: none; }
+AgentPanel.agent-color-4 { border-left: thick #f0883e; border-right: none; }
+AgentPanel.agent-color-5 { border-left: thick #39c5cf; border-right: none; }
+AgentPanel.agent-color-6 { border-left: thick #db61a2; border-right: none; }
+AgentPanel.agent-color-7 { border-left: thick #d29922; border-right: none; }
+AgentPanel.agent-color-8 { border-left: thick #f85149; border-right: none; }
 
 /* Loading indicator - centered in panel */
 .loading-container {
@@ -1349,35 +1370,47 @@ ToolCallCard {
     padding: 0 1;
     margin: 0 0 1 0;
     background: #161b22;
-    border: solid #30363d;
     border-left: thick #484f58;
+    border-top: solid #30363d;
+    border-bottom: solid #30363d;
+    border-right: none;
 }
 
 ToolCallCard:hover {
     background: #21262d;
-    border: solid #484f58;
+    border-top: solid #484f58;
+    border-bottom: solid #484f58;
+    border-right: none;
 }
 
 ToolCallCard:focus {
     background: #21262d;
-    border: solid #58a6ff;
+    border-top: solid #58a6ff;
+    border-bottom: solid #58a6ff;
+    border-right: none;
     outline: none;
 }
 
 ToolCallCard.status-running {
-    border: solid #30363d;
+    border-top: solid #30363d;
+    border-bottom: solid #30363d;
+    border-right: none;
     border-left: thick #58a6ff;
     background: #161b22;
 }
 
 ToolCallCard.status-success {
-    border: solid #30363d;
+    border-top: solid #30363d;
+    border-bottom: solid #30363d;
+    border-right: none;
     border-left: thick #3fb950;
     background: #0d1117;
 }
 
 ToolCallCard.status-error {
-    border: solid #30363d;
+    border-top: solid #30363d;
+    border-bottom: solid #30363d;
+    border-right: none;
     border-left: thick #f85149;
     background: #1a0f0f;
 }
@@ -1493,16 +1526,19 @@ ToolSection #tool_container {
 
 /* Timeline Section - chronological view of all content */
 TimelineSection {
+    width: 100%;
     height: 1fr;
     padding: 0;
     margin: 0;
 }
 
 TimelineSection #timeline_container {
+    width: 100%;
     height: 1fr;
     padding: 0;
     background: #0d1117;
     overflow-y: auto;
+    scrollbar-size: 1 1;
 }
 
 /* Hide legacy RichLog in AgentPanel - using TimelineSection now */

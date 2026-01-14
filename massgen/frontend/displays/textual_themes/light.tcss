@@ -225,11 +225,22 @@ StatusBar.consensus-reached {
 /* Agent panels - now full width, one at a time */
 AgentPanel {
     background: #f9f9f9;
-    border: solid #dddddd;
+    border-left: solid #dddddd;
+    border-top: solid #dddddd;
+    border-bottom: solid #dddddd;
+    border-right: none;
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
+    scrollbar-size: 1 1;
+}
+
+/* Vertical container inside AgentPanel - full width */
+AgentPanel > Vertical {
+    width: 100%;
+    padding: 0;
+    margin: 0;
 }
 
 /* Agent panel header label - first line with agent name, backend, timer */
@@ -242,49 +253,70 @@ AgentPanel.hidden {
 }
 
 AgentPanel:hover {
-    border: solid #bbbbbb;
+    border-left: solid #bbbbbb;
+    border-top: solid #bbbbbb;
+    border-bottom: solid #bbbbbb;
+    border-right: none;
 }
 
 /* Override Textual's default purple focus outline */
 AgentPanel:focus,
 AgentPanel:focus-within {
-    border: solid #2196f3;
+    border-left: solid #2196f3;
+    border-top: solid #2196f3;
+    border-bottom: solid #2196f3;
+    border-right: none;
     background: #f5f9ff;
     outline: none;
 }
 
 AgentPanel.status-waiting {
-    border: solid #dddddd;
+    border-left: solid #dddddd;
+    border-top: solid #dddddd;
+    border-bottom: solid #dddddd;
+    border-right: none;
 }
 
 AgentPanel.status-working {
-    border: solid #2196f3;
+    border-left: solid #2196f3;
+    border-top: solid #2196f3;
+    border-bottom: solid #2196f3;
+    border-right: none;
     background: #f5f9ff;
 }
 
 AgentPanel.status-streaming {
-    border: solid #4caf50;
+    border-left: solid #4caf50;
+    border-top: solid #4caf50;
+    border-bottom: solid #4caf50;
+    border-right: none;
     background: #f5fff5;
 }
 
 AgentPanel.status-completed {
-    border: solid #4caf50;
+    border-left: solid #4caf50;
+    border-top: solid #4caf50;
+    border-bottom: solid #4caf50;
+    border-right: none;
 }
 
 AgentPanel.status-error {
-    border: solid #f44336;
+    border-left: solid #f44336;
+    border-top: solid #f44336;
+    border-bottom: solid #f44336;
+    border-right: none;
     background: #fff5f5;
 }
 
 /* === Agent Panel Color Palette - Match tab colors === */
-AgentPanel.agent-color-1 { border-left: thick #2196f3; }
-AgentPanel.agent-color-2 { border-left: thick #4caf50; }
-AgentPanel.agent-color-3 { border-left: thick #9c27b0; }
-AgentPanel.agent-color-4 { border-left: thick #ff9800; }
-AgentPanel.agent-color-5 { border-left: thick #00bcd4; }
-AgentPanel.agent-color-6 { border-left: thick #e91e63; }
-AgentPanel.agent-color-7 { border-left: thick #ffc107; }
-AgentPanel.agent-color-8 { border-left: thick #f44336; }
+AgentPanel.agent-color-1 { border-left: thick #2196f3; border-right: none; }
+AgentPanel.agent-color-2 { border-left: thick #4caf50; border-right: none; }
+AgentPanel.agent-color-3 { border-left: thick #9c27b0; border-right: none; }
+AgentPanel.agent-color-4 { border-left: thick #ff9800; border-right: none; }
+AgentPanel.agent-color-5 { border-left: thick #00bcd4; border-right: none; }
+AgentPanel.agent-color-6 { border-left: thick #e91e63; border-right: none; }
+AgentPanel.agent-color-7 { border-left: thick #ffc107; border-right: none; }
+AgentPanel.agent-color-8 { border-left: thick #f44336; border-right: none; }
 
 /* Loading indicator - centered in panel */
 .loading-container {
@@ -1300,32 +1332,45 @@ ToolCallCard {
     padding: 0 1;
     margin: 0 0 1 0;
     background: #f8f9fa;
-    border: solid #dee2e6;
+    border-left: solid #dee2e6;
+    border-top: solid #dee2e6;
+    border-bottom: solid #dee2e6;
+    border-right: none;
 }
 
 ToolCallCard:hover {
     background: #e9ecef;
-    border: solid #adb5bd;
+    border-top: solid #adb5bd;
+    border-bottom: solid #adb5bd;
+    border-right: none;
 }
 
 ToolCallCard:focus {
     background: #dee2e6;
-    border: solid #2196f3;
+    border-top: solid #2196f3;
+    border-bottom: solid #2196f3;
+    border-right: none;
     outline: none;
 }
 
 ToolCallCard.status-running {
-    border: solid #2196f3;
+    border-top: solid #2196f3;
+    border-bottom: solid #2196f3;
+    border-right: none;
     background: #e3f2fd;
 }
 
 ToolCallCard.status-success {
-    border: solid #4caf50;
+    border-top: solid #4caf50;
+    border-bottom: solid #4caf50;
+    border-right: none;
     background: #e8f5e9;
 }
 
 ToolCallCard.status-error {
-    border: solid #f44336;
+    border-top: solid #f44336;
+    border-bottom: solid #f44336;
+    border-right: none;
     background: #ffebee;
 }
 
@@ -1440,16 +1485,19 @@ ToolSection #tool_container {
 
 /* Timeline Section - chronological view of all content */
 TimelineSection {
+    width: 100%;
     height: 1fr;
     padding: 0;
     margin: 0;
 }
 
 TimelineSection #timeline_container {
+    width: 100%;
     height: 1fr;
     padding: 0;
     background: #ffffff;
     overflow-y: auto;
+    scrollbar-size: 1 1;
 }
 
 /* Hide legacy RichLog in AgentPanel - using TimelineSection now */

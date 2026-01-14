@@ -354,9 +354,9 @@ class ToolCallCard(Static):
         else:
             text.append(self._display_name, style="bold")
 
-        # Padding to align status on right
+        # Padding to align status on right (use wider terminal width)
         name_len = len(self._display_name) + 4
-        padding = max(1, 55 - name_len)
+        padding = max(1, 90 - name_len)
         text.append(" " * padding)
 
         if self._status == "success":
@@ -377,22 +377,22 @@ class ToolCallCard(Static):
         if self._params:
             text.append("\n    ")
             args_display = self._params
-            if len(args_display) > 70:
-                args_display = args_display[:67] + "..."
+            if len(args_display) > 120:
+                args_display = args_display[:117] + "..."
             text.append(args_display, style="dim")
 
         # Line 3: Result or error preview (if completed)
         if self._result:
             text.append("\n    → ")
             result_preview = self._result.replace("\n", " ")
-            if len(result_preview) > 60:
-                result_preview = result_preview[:57] + "..."
+            if len(result_preview) > 110:
+                result_preview = result_preview[:107] + "..."
             text.append(result_preview, style="dim green")
         elif self._error:
             text.append("\n    ✗ ")
             error_preview = self._error.replace("\n", " ")
-            if len(error_preview) > 60:
-                error_preview = error_preview[:57] + "..."
+            if len(error_preview) > 110:
+                error_preview = error_preview[:107] + "..."
             text.append(error_preview, style="dim red")
 
         # Post-hooks (shown below result)
@@ -442,9 +442,9 @@ class ToolCallCard(Static):
         else:
             text.append(self._display_name, style="bold")
 
-        # Padding for status alignment
+        # Padding for status alignment (use wider terminal width)
         name_len = len(self._display_name) + 4
-        padding = max(1, 55 - name_len)
+        padding = max(1, 90 - name_len)
         text.append(" " * padding)
 
         if self._status == "success":

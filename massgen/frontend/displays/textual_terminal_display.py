@@ -2590,6 +2590,38 @@ if TEXTUAL_AVAILABLE:
             self.log("DEBUG: Widget info written to /tmp/textual_debug.json")
             tui_log("TUI mounted - debug info written to /tmp/textual_debug.json")
 
+        def _dump_widget_sizes(self) -> None:
+            """Dump full widget tree with sizes for debugging layout issues."""
+            import json
+
+            def get_widget_info(widget, depth=0):
+                """Recursively get widget info."""
+                info = {
+                    "type": type(widget).__name__,
+                    "id": widget.id,
+                    "classes": list(widget.classes) if hasattr(widget, "classes") else [],
+                    "size": {"width": widget.size.width, "height": widget.size.height} if hasattr(widget, "size") else None,
+                    "region": {"x": widget.region.x, "y": widget.region.y, "width": widget.region.width, "height": widget.region.height} if hasattr(widget, "region") else None,
+                    "content_size": {"width": widget.content_size.width, "height": widget.content_size.height} if hasattr(widget, "content_size") else None,
+                    "styles": {
+                        "width": str(widget.styles.width) if hasattr(widget.styles, "width") else None,
+                        "height": str(widget.styles.height) if hasattr(widget.styles, "height") else None,
+                        "padding": str(widget.styles.padding) if hasattr(widget.styles, "padding") else None,
+                        "margin": str(widget.styles.margin) if hasattr(widget.styles, "margin") else None,
+                        "border": str(widget.styles.border) if hasattr(widget.styles, "border") else None,
+                    },
+                    "children": [],
+                }
+                if depth < 6:  # Limit depth
+                    for child in widget.children:
+                        info["children"].append(get_widget_info(child, depth + 1))
+                return info
+
+            tree = get_widget_info(self)
+            with open("/tmp/widget_sizes.json", "w") as f:
+                json.dump(tree, f, indent=2, default=str)
+            tui_log("Widget sizes dumped to /tmp/widget_sizes.json")
+
         def _update_safe_indicator(self):
             """Show/hide safe keyboard status in footer area."""
             if not self.safe_indicator:
@@ -4030,6 +4062,13 @@ Type your question and press Enter to ask the agents.
             # ? - Help/shortcuts
             if key == "?":
                 self.action_show_shortcuts()
+                event.stop()
+                return True
+
+            # D - Dump widget sizes for debugging
+            if key == "D":
+                self._dump_widget_sizes()
+                self.notify("Widget sizes dumped to /tmp/widget_sizes.json", severity="information")
                 event.stop()
                 return True
 
