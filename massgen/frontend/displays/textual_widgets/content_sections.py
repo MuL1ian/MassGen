@@ -16,6 +16,7 @@ from typing import Dict, Optional
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import ScrollableContainer, Vertical
+from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import RichLog, Static
 
@@ -78,7 +79,11 @@ class ToolSection(Vertical):
         self.add_class("hidden")  # Start hidden until first tool
 
     def compose(self) -> ComposeResult:
-        yield Static(self._build_header(), id="tool_section_header", classes="section-header")
+        yield Static(
+            self._build_header(),
+            id="tool_section_header",
+            classes="section-header",
+        )
         yield ScrollableContainer(id="tool_container")
 
     def _build_header(self) -> Text:
@@ -95,7 +100,10 @@ class ToolSection(Vertical):
         # Count badge
         if self.tool_count > 0:
             text.append(" ─" + "─" * 40 + "─ ", style="dim")
-            text.append(f"{self.tool_count} call{'s' if self.tool_count != 1 else ''}", style="cyan")
+            text.append(
+                f"{self.tool_count} call{'s' if self.tool_count != 1 else ''}",
+                style="cyan",
+            )
 
         return text
 
@@ -197,6 +205,10 @@ class ToolSection(Vertical):
     def get_tool(self, tool_id: str) -> Optional[ToolCallCard]:
         """Get a tool card by ID."""
         return self._tools.get(tool_id)
+
+    def get_running_tools_count(self) -> int:
+        """Count tools that are currently running."""
+        return sum(1 for card in self._tools.values() if card.status == "running")
 
     def clear(self) -> None:
         """Clear all tool cards."""
@@ -307,7 +319,10 @@ class ReasoningSection(Vertical):
         # Count badge
         if self.item_count > 0:
             text.append(" ─" + "─" * 30 + "─ ", style="dim")
-            text.append(f"({self.item_count} item{'s' if self.item_count != 1 else ''})", style="dim cyan")
+            text.append(
+                f"({self.item_count} item{'s' if self.item_count != 1 else ''})",
+                style="dim cyan",
+            )
 
         return text
 
@@ -381,6 +396,61 @@ class ReasoningSection(Vertical):
         self.add_class("hidden")
 
 
+class TimelineScrollContainer(ScrollableContainer):
+    """ScrollableContainer that detects scroll mode via scroll position changes.
+
+    This container monitors the scroll_y reactive property to detect when the user
+    scrolls away from the bottom (entering scroll mode) or returns to the bottom
+    (exiting scroll mode). It posts messages that parent widgets can handle.
+
+    The _auto_scrolling flag is used to distinguish programmatic scrolls (from
+    auto-scroll) from user-initiated scrolls.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._user_scrolled_up = False
+        self._auto_scrolling = False
+
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        """Detect when user scrolls away from bottom."""
+        if self._auto_scrolling:
+            return  # Ignore programmatic scrolls
+
+        # Don't trigger scroll mode if there's no scrollable content yet
+        if self.max_scroll_y <= 0:
+            return
+
+        # Check if at bottom (with tolerance for float precision)
+        at_bottom = new_value >= self.max_scroll_y - 2
+
+        if new_value < old_value and not at_bottom:
+            # User scrolled up - enter scroll mode
+            if not self._user_scrolled_up:
+                self._user_scrolled_up = True
+                self.post_message(self.ScrollModeEntered())
+        elif at_bottom and self._user_scrolled_up:
+            # User scrolled to bottom - exit scroll mode
+            self._user_scrolled_up = False
+            self.post_message(self.ScrollModeExited())
+
+    def scroll_end(self, animate: bool = False) -> None:
+        """Auto-scroll to end, marking it as programmatic."""
+        self._auto_scrolling = True
+        super().scroll_end(animate=animate)
+        self._auto_scrolling = False
+
+    def reset_scroll_mode(self) -> None:
+        """Reset scroll mode tracking state."""
+        self._user_scrolled_up = False
+
+    class ScrollModeEntered(Message):
+        """Posted when user enters scroll mode by scrolling up."""
+
+    class ScrollModeExited(Message):
+        """Posted when user exits scroll mode by scrolling to bottom."""
+
+
 class TimelineSection(Vertical):
     """Chronological timeline showing tools and text interleaved.
 
@@ -452,17 +522,149 @@ class TimelineSection(Vertical):
         padding-left: 1;
         margin: 0 0 1 0;
     }
+
+    TimelineSection .scroll-indicator {
+        width: 100%;
+        height: auto;
+        background: #2d333b;
+        color: #f0883e;
+        text-align: center;
+        padding: 0 1;
+        text-style: bold;
+        border-bottom: solid #f0883e;
+    }
+
+    TimelineSection .scroll-indicator.hidden {
+        display: none;
+    }
     """
+
+    # Maximum number of items to keep in timeline (prevents memory/performance issues)
+    MAX_TIMELINE_ITEMS = 200
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
         self._tools: Dict[str, ToolCallCard] = {}
         self._item_count = 0
         self._reasoning_section_id = f"reasoning_{id}" if id else "reasoning_section"
+        # Scroll mode: when True, auto-scroll is paused (user is reading history)
+        self._scroll_mode = False
+        self._new_content_count = 0  # Count of new items since entering scroll mode
+        self._truncation_shown = False  # Track if we've shown truncation message
 
     def compose(self) -> ComposeResult:
-        # Main timeline content (reasoning is now inline)
-        yield ScrollableContainer(id="timeline_container")
+        # Scroll mode indicator (hidden by default)
+        yield Static("", id="scroll_mode_indicator", classes="scroll-indicator hidden")
+        # Main timeline content with scroll detection
+        yield TimelineScrollContainer(id="timeline_container")
+
+    def on_timeline_scroll_container_scroll_mode_entered(
+        self,
+        event: TimelineScrollContainer.ScrollModeEntered,
+    ) -> None:
+        """Handle entering scroll mode when user scrolls up."""
+        if not self._scroll_mode:
+            self._scroll_mode = True
+            self._new_content_count = 0
+            self._update_scroll_indicator()
+
+    def on_timeline_scroll_container_scroll_mode_exited(
+        self,
+        event: TimelineScrollContainer.ScrollModeExited,
+    ) -> None:
+        """Handle exiting scroll mode when user scrolls to bottom."""
+        if self._scroll_mode:
+            self._scroll_mode = False
+            self._new_content_count = 0
+            self._update_scroll_indicator()
+
+    def _update_scroll_indicator(self) -> None:
+        """Update the scroll mode indicator in the UI."""
+        try:
+            indicator = self.query_one("#scroll_mode_indicator", Static)
+            if self._scroll_mode:
+                msg = "📜 SCROLL MODE — Press 'g' or Esc to resume auto-scroll"
+                if self._new_content_count > 0:
+                    msg += f" ({self._new_content_count} new)"
+                indicator.update(msg)
+                indicator.remove_class("hidden")
+            else:
+                indicator.add_class("hidden")
+        except Exception:
+            pass
+
+    def _auto_scroll(self) -> None:
+        """Scroll to end only if not in scroll mode."""
+        if self._scroll_mode:
+            self._new_content_count += 1
+            self._update_scroll_indicator()  # Update to show new content count
+            return
+        try:
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
+            container.scroll_end(animate=False)
+        except Exception:
+            pass
+
+    def exit_scroll_mode(self) -> None:
+        """Exit scroll mode and scroll to bottom."""
+        self._scroll_mode = False
+        self._new_content_count = 0
+        try:
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
+            container.reset_scroll_mode()  # Reset container state
+            container.scroll_end(animate=False)
+        except Exception:
+            pass
+        self._update_scroll_indicator()
+
+    @property
+    def in_scroll_mode(self) -> bool:
+        """Whether scroll mode is active."""
+        return self._scroll_mode
+
+    @property
+    def new_content_count(self) -> int:
+        """Number of new items since entering scroll mode."""
+        return self._new_content_count
+
+    def _trim_old_items(self) -> None:
+        """Remove oldest items if we exceed MAX_TIMELINE_ITEMS."""
+        if self._item_count <= self.MAX_TIMELINE_ITEMS:
+            return
+
+        try:
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
+            children = list(container.children)
+
+            # Skip the scroll indicator if present
+            content_children = [c for c in children if "scroll-indicator" not in c.classes]
+
+            # Calculate how many to remove
+            items_to_remove = len(content_children) - self.MAX_TIMELINE_ITEMS
+
+            if items_to_remove <= 0:
+                return
+
+            # Show truncation message once
+            if not self._truncation_shown:
+                self._truncation_shown = True
+                # TODO: Add truncation notice at the top when needed
+
+            # Remove the oldest items (first N content children)
+            for i, child in enumerate(content_children[:items_to_remove]):
+                # Don't remove tool cards that might still be running
+                if hasattr(child, "tool_id") and child.tool_id in self._tools:
+                    tool_card = self._tools.get(child.tool_id)
+                    if tool_card and hasattr(tool_card, "_status") and tool_card._status == "running":
+                        continue
+                    # Remove from tools dict
+                    if hasattr(child, "tool_id"):
+                        self._tools.pop(child.tool_id, None)
+                child.remove()
+                self._item_count -= 1
+
+        except Exception:
+            pass
 
     def add_tool(self, tool_data: ToolDisplayData) -> ToolCallCard:
         """Add a tool card to the timeline.
@@ -487,9 +689,10 @@ class TimelineSection(Vertical):
         self._item_count += 1
 
         try:
-            container = self.query_one("#timeline_container", ScrollableContainer)
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
             container.mount(card)
-            container.scroll_end(animate=False)
+            self._auto_scroll()
+            self._trim_old_items()  # Keep timeline size bounded
         except Exception:
             pass
 
@@ -512,15 +715,15 @@ class TimelineSection(Vertical):
         elif tool_data.status == "error":
             card.set_error(tool_data.error or "Unknown error")
 
-        try:
-            container = self.query_one("#timeline_container", ScrollableContainer)
-            container.scroll_end(animate=False)
-        except Exception:
-            pass
+        self._auto_scroll()
 
     def get_tool(self, tool_id: str) -> Optional[ToolCallCard]:
         """Get a tool card by ID."""
         return self._tools.get(tool_id)
+
+    def get_running_tools_count(self) -> int:
+        """Count tools that are currently running."""
+        return sum(1 for card in self._tools.values() if card.status == "running")
 
     def add_hook_to_tool(self, tool_call_id: Optional[str], hook_info: dict) -> None:
         """Add hook execution info to a tool card.
@@ -579,19 +782,24 @@ class TimelineSection(Vertical):
         widget_id = f"tl_text_{self._item_count}"
 
         try:
-            container = self.query_one("#timeline_container", ScrollableContainer)
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
 
             classes = "timeline-text"
             if text_class:
                 classes += f" {text_class}"
 
             if style:
-                widget = Static(Text(content, style=style), id=widget_id, classes=classes)
+                widget = Static(
+                    Text(content, style=style),
+                    id=widget_id,
+                    classes=classes,
+                )
             else:
                 widget = Static(content, id=widget_id, classes=classes)
 
             container.mount(widget)
-            container.scroll_end(animate=False)
+            self._auto_scroll()
+            self._trim_old_items()  # Keep timeline size bounded
         except Exception:
             pass
 
@@ -605,7 +813,7 @@ class TimelineSection(Vertical):
         widget_id = f"tl_sep_{self._item_count}"
 
         try:
-            container = self.query_one("#timeline_container", ScrollableContainer)
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
 
             # Check if this is a restart separator
             is_restart = "RESTART" in label.upper() if label else False
@@ -623,7 +831,8 @@ class TimelineSection(Vertical):
                     sep_text.append("─" * 10, style="dim")
                 container.mount(Static(sep_text, id=widget_id))
 
-            container.scroll_end(animate=False)
+            self._auto_scroll()
+            self._trim_old_items()  # Keep timeline size bounded
         except Exception as e:
             # Log the error but don't crash
             import sys
@@ -643,7 +852,7 @@ class TimelineSection(Vertical):
         widget_id = f"tl_reasoning_{self._item_count}"
 
         try:
-            container = self.query_one("#timeline_container", ScrollableContainer)
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
 
             # Style reasoning content with a subtle left border and muted color
             widget = Static(
@@ -652,14 +861,14 @@ class TimelineSection(Vertical):
                 classes="timeline-text reasoning-inline",
             )
             container.mount(widget)
-            container.scroll_end(animate=False)
+            self._auto_scroll()
         except Exception:
             pass
 
     def clear(self) -> None:
         """Clear all timeline content."""
         try:
-            container = self.query_one("#timeline_container", ScrollableContainer)
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
             container.remove_children()
         except Exception:
             pass
@@ -908,7 +1117,11 @@ class StatusBadge(Static):
         "waiting": ("○", "Waiting"),
     }
 
-    def __init__(self, initial_status: str = "waiting", id: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        initial_status: str = "waiting",
+        id: Optional[str] = None,
+    ) -> None:
         super().__init__(id=id)
         self.status = initial_status
         self.add_class(f"status-{initial_status}")

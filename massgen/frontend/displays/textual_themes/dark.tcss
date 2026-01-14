@@ -444,10 +444,11 @@ HeaderWidget.hidden {
 #execution_status {
     height: 1;
     width: auto;
-    padding: 0 1;
-    color: #6e7681;
-    text-style: dim;
+    padding: 0 2;
+    color: #8b949e;
     content-align: left middle;
+    background: #21262d;
+    margin-left: 1;
 }
 
 #execution_spacer {
@@ -456,23 +457,22 @@ HeaderWidget.hidden {
 
 #cancel_button {
     width: auto;
-    min-width: 12;
+    min-width: 10;
     height: 1;
-    background: #5a2020;
-    color: #f85149;
+    background: #b62324;
+    color: #ffffff;
     border: none;
-    padding: 0 1;
+    padding: 0 2;
     text-style: bold;
-    margin-right: 1;
 }
 
 #cancel_button:hover {
-    background: #7a2020;
-    color: #ff6b6b;
+    background: #da3633;
+    color: #ffffff;
 }
 
 #cancel_button:focus {
-    background: #7a2020;
+    background: #da3633;
     border: none;
 }
 
@@ -748,7 +748,7 @@ ToolDetailModal {
 
 ToolDetailModal > Container {
     width: 80%;
-    max-width: 100;
+    max-width: 120;
     height: auto;
     max-height: 80%;
     background: #161b22;
@@ -771,8 +771,11 @@ ToolDetailModal .modal-title {
 
 ToolDetailModal .modal-close {
     dock: right;
-    width: auto;
+    width: 5;
     min-width: 5;
+    height: 3;
+    content-align: center middle;
+    text-align: center;
     background: #21262d;
     border: solid #30363d;
 }
@@ -829,7 +832,9 @@ ToolDetailModal .modal-footer {
 
 ToolDetailModal .close-button {
     width: auto;
-    min-width: 16;
+    min-width: 18;
+    content-align: center middle;
+    text-align: center;
 }
 
 #presentation_container {
@@ -1199,8 +1204,8 @@ ToolDetailModal .close-button {
 
 /* === Agent Output Modal === */
 #agent_output_container {
-    width: 90%;
-    height: 85%;
+    width: 95%;
+    height: 92%;
     background: #252526;
     border: solid #4ec9b0;
     padding: 1 2;
@@ -1225,6 +1230,21 @@ ToolDetailModal .close-button {
     padding: 1;
 }
 
+#agent_toggle_buttons {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#agent_toggle_buttons .agent-toggle-btn {
+    margin-right: 1;
+    min-width: 12;
+}
+
+#agent_toggle_buttons .agent-toggle-btn.selected {
+    background: #4ec9b0;
+    color: #1e1e1e;
+}
+
 #agent_output_buttons {
     margin-top: 1;
 }
@@ -1235,7 +1255,9 @@ ToolDetailModal .close-button {
 
 /* === Keyboard Shortcuts Modal === */
 #shortcuts_modal_container {
-    width: 55;
+    width: auto;
+    min-width: 80;
+    max-width: 150;
     height: auto;
     background: #252526;
     border: solid #569cd6;
@@ -1251,6 +1273,25 @@ ToolDetailModal .close-button {
 #shortcuts_hint {
     color: #858585;
     margin-bottom: 1;
+}
+
+#shortcuts_columns {
+    layout: horizontal;
+    height: auto;
+    width: 100%;
+}
+
+.shortcuts-column {
+    width: 1fr;
+    height: auto;
+    background: #1e1e1e;
+    padding: 1;
+    margin: 0 1 0 0;
+    border: solid #3d4550;
+}
+
+#shortcuts_col_right {
+    margin-right: 0;
 }
 
 #shortcuts_content {
@@ -1532,7 +1573,8 @@ TimelineSection {
     margin: 0;
 }
 
-TimelineSection #timeline_container {
+TimelineSection #timeline_container,
+TimelineSection TimelineScrollContainer {
     width: 100%;
     height: 1fr;
     padding: 0;
@@ -1557,23 +1599,78 @@ TimelineSection .timeline-text {
 
 TimelineSection .timeline-text.status {
     color: #58a6ff;
+    border-left: solid #58a6ff;
+    padding-left: 1;
+    margin-left: 1;
 }
 
 TimelineSection .timeline-text.thinking {
     color: #8b949e;
+    border-left: solid #484f58;
+    padding-left: 1;
+    margin-left: 1;
 }
 
 TimelineSection .timeline-text.response {
     color: #3fb950;
+    border-left: solid #3fb950;
+    padding-left: 1;
+    margin-left: 1;
+    background: #0d1f14;
 }
 
-/* Restart Banner - subtle, professional separator */
+TimelineSection .timeline-text.answer {
+    color: #d29922;
+    border-left: thick #d29922;
+    padding-left: 1;
+    margin-left: 1;
+    background: #1f1a0d;
+}
+
+TimelineSection .timeline-text.vote {
+    color: #a371f7;
+    border-left: solid #a371f7;
+    padding-left: 1;
+    margin-left: 1;
+}
+
+TimelineSection .timeline-text.truncation-notice {
+    color: #8b949e;
+    text-style: italic;
+    text-align: center;
+    background: #21262d;
+    border: dashed #484f58;
+    margin: 1 0;
+    padding: 0 1;
+}
+
+TimelineSection .scroll-indicator {
+    width: 100%;
+    height: auto;
+    background: #2d333b;
+    color: #f0883e;
+    text-align: center;
+    padding: 0 1;
+    margin-top: 1;
+    text-style: bold;
+    border-bottom: solid #f0883e;
+}
+
+TimelineSection .scroll-indicator.hidden {
+    display: none;
+}
+
+/* Restart Banner - prominent separator with color */
 RestartBanner {
     width: 100%;
     height: auto;
     margin: 2 0;
-    padding: 0;
+    padding: 1 0;
     text-align: center;
+    background: #1a1526;
+    border-top: solid #a371f7;
+    border-bottom: solid #a371f7;
+    color: #a371f7;
 }
 
 /* Thinking Section - auto height, shrinks to content */
@@ -1900,7 +1997,24 @@ StatusBar.consensus-reached #status_votes {
 .answer-item {
     margin: 0 0 1 0;
     padding: 0 1;
-    border-left: solid #569cd6;
+    border-left: thick #569cd6;
+}
+
+/* Agent-specific colors for answer items */
+.answer-item.agent-color-0 {
+    border-left: thick #4ec9b0;  /* Cyan/teal - Agent A */
+}
+
+.answer-item.agent-color-1 {
+    border-left: thick #c586c0;  /* Magenta/purple - Agent B */
+}
+
+.answer-item.agent-color-2 {
+    border-left: thick #dcdcaa;  /* Yellow - Agent C */
+}
+
+.answer-item.agent-color-3 {
+    border-left: thick #ce9178;  /* Orange - Agent D */
 }
 
 .answer-item:hover {
@@ -1913,7 +2027,22 @@ StatusBar.consensus-reached #status_votes {
 
 .answer-item-selected {
     background: #264f78;
-    border-left: solid #58a6ff;
+}
+
+.answer-item-selected.agent-color-0 {
+    border-left: thick #6fe8d0;  /* Brighter cyan when selected */
+}
+
+.answer-item-selected.agent-color-1 {
+    border-left: thick #e5a6e0;  /* Brighter magenta when selected */
+}
+
+.answer-item-selected.agent-color-2 {
+    border-left: thick #ffffaa;  /* Brighter yellow when selected */
+}
+
+.answer-item-selected.agent-color-3 {
+    border-left: thick #eeb198;  /* Brighter orange when selected */
 }
 
 #answer_detail_panel {
@@ -2077,32 +2206,36 @@ StatusBar.consensus-reached #status_votes {
 /* === Unified Browser Modal (Tabs) === */
 #browser_tabs_container {
     width: 90%;
-    max-width: 100;
-    height: 80%;
-    background: #252526;
+    max-width: 140;
+    height: 85%;
+    background: #161b22;
     border: solid #58a6ff;
     padding: 1 2;
 }
 
 #browser_tab_bar {
-    height: 1;
-    background: #1e1e1e;
-    padding: 0 1;
+    height: 3;
+    background: #21262d;
+    padding: 1 2;
     margin-bottom: 1;
     text-align: center;
-    color: #9cdcfe;
+    color: #c9d1d9;
+    border: solid #30363d;
 }
 
 #browser_content {
     height: 1fr;
-    background: #1e1e1e;
-    padding: 1;
+    background: #0d1117;
+    padding: 1 2;
     overflow-y: auto;
+    border: solid #30363d;
 }
 
 #close_browser_button {
-    width: 100%;
+    width: auto;
+    min-width: 18;
     margin-top: 1;
+    content-align: center middle;
 }
 
 /* === Unified State Classes (Task 5.16) === */

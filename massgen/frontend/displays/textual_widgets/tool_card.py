@@ -355,8 +355,9 @@ class ToolCallCard(Static):
             text.append(self._display_name, style="bold")
 
         # Padding to align status on right (use wider terminal width)
+        # Increased from 90 to 120 to push time further right on wide terminals
         name_len = len(self._display_name) + 4
-        padding = max(1, 90 - name_len)
+        padding = max(1, 120 - name_len)
         text.append(" " * padding)
 
         if self._status == "success":

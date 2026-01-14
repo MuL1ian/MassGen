@@ -15,6 +15,8 @@ from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
+from massgen.frontend.displays.content_normalizer import ContentNormalizer
+
 
 class ToolDetailModal(ModalScreen[None]):
     """Modal screen showing full tool call details.
@@ -169,7 +171,8 @@ class ToolDetailModal(ModalScreen[None]):
         self.status = status
         self.elapsed = elapsed
         self.args = args
-        self.result = result
+        # Clean result text by stripping injection markers and other noise
+        self.result = ContentNormalizer.strip_injection_markers(result) if result else None
         self.error = error
 
         # Check if content is long enough to warrant expand button

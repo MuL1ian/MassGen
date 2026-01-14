@@ -52,8 +52,14 @@ GLOBAL_STRIP_PATTERNS = [
     (r"\\?\s*\[INJECTION\]\s*", " "),
     # [REMINDER] marker anywhere
     (r"\\?\s*\[REMINDER\]\s*", " "),
+    # [MCP Tool] and [Custom Tool] labels from backend tool execution (with optional preceding emoji)
+    (r"\\?\s*[🔧✅]?\s*\[(MCP|Custom) Tool\]\s*", " "),
     # MCP: prefix anywhere (with optional preceding backslash)
     (r"\\?\s*MCP:\s*🐢?\s*", " "),
+    # "Results for Calling mcp__tool_name:" prefix - strip verbose MCP result prefix
+    (r"Results for Calling \S+:\s*", ""),
+    # "mcp__tool_name completed" suffix - strip verbose MCP completion suffix
+    (r"\s*✅?\s*mcp__\S+\s+completed\s*", ""),
 ]
 
 COMPILED_GLOBAL_STRIP_PATTERNS = [(re.compile(p), r) for p, r in GLOBAL_STRIP_PATTERNS]

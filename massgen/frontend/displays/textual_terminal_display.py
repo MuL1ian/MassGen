@@ -1134,6 +1134,11 @@ class TextualTerminalDisplay(TerminalDisplay):
         self.final_presentation_file = None
         self.final_presentation_latest = None
 
+        # Suppress console logging to prevent interference with Textual display
+        from massgen.logger_config import suppress_console_logging
+
+        suppress_console_logging()
+
         if TEXTUAL_AVAILABLE:
             self._app = TextualApp(
                 self,
@@ -1442,6 +1447,11 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._final_answer_cache = None
         self._final_answer_metadata = {}
         self._final_presentation_agent = None
+
+        # Restore console logging after Textual display is done
+        from massgen.logger_config import restore_console_logging
+
+        restore_console_logging()
 
     def reset_quit_request(self) -> None:
         """Reset the quit request flag at the start of each turn."""
@@ -1921,14 +1931,15 @@ if TEXTUAL_AVAILABLE:
                 self._vote_counts[agent_id] = 0
 
         def compose(self) -> ComposeResult:
-            """Create the status bar layout with phase, activity, progress, votes, events, MCP, CWD, cancel hint, and timer.
+            """Create the status bar layout with phase, activity, progress, tools, votes, events, MCP, CWD, cancel hint, and timer.
 
-            Layout: [phase] [activity] [progress] [votes] --- spacer --- [mcp] [cwd] [events] [hints] [timer] [cancel]
+            Layout: [phase] [activity] [progress] [tools] [votes] --- spacer --- [mcp] [cwd] [events] [hints] [timer] [cancel]
             """
             # Left-aligned items
             yield Static("⏳ Idle", id="status_phase")
             yield Static("", id="status_activity", classes="activity-indicator hidden")  # Pulsing activity indicator
             yield Static("", id="status_progress")  # Progress summary: "3 agents | 2 answers | 4/6 votes"
+            yield Static("", id="status_tools", classes="hidden")  # Running tools counter: "🔧 3 running"
             yield Static("", id="status_votes")
             # Spacer to push right-side elements to the edge
             yield Static("", id="status_spacer")
@@ -2007,6 +2018,19 @@ if TEXTUAL_AVAILABLE:
                     mcp_widget.update(f"🔌 {server_count}s/{tool_count}t")
                 else:
                     mcp_widget.update("")
+            except Exception:
+                pass  # Widget not mounted yet
+
+        def update_running_tools(self, count: int) -> None:
+            """Update running tools counter in status bar."""
+            try:
+                tools_widget = self.query_one("#status_tools", Static)
+                if count > 0:
+                    tools_widget.update(f"🔧 {count} running")
+                    tools_widget.remove_class("hidden")
+                else:
+                    tools_widget.update("")
+                    tools_widget.add_class("hidden")
             except Exception:
                 pass  # Widget not mounted yet
 
@@ -3354,8 +3378,14 @@ Type your question and press Enter to ask the agents.
                 # Show new panel - only if agent exists
                 if agent_id in self.agent_widgets:
                     tui_log(f"  Showing panel: {agent_id}")
-                    self.agent_widgets[agent_id].remove_class("hidden")
-                    # Don't focus - can cause issues if widget is not focusable
+                    new_panel = self.agent_widgets[agent_id]
+                    new_panel.remove_class("hidden")
+                    # Auto-scroll to bottom so user sees latest content
+                    try:
+                        timeline = new_panel.query_one("#timeline_container", ScrollableContainer)
+                        timeline.scroll_end(animate=False)
+                    except Exception:
+                        pass  # Timeline may not exist yet
                 else:
                     tui_log(f"  Panel not found for: {agent_id}", level="warning")
                     # Agent panel doesn't exist yet, just update state
@@ -3535,13 +3565,28 @@ Type your question and press Enter to ask the agents.
         @keyboard_action
         def action_open_workspace_browser(self):
             """Open workspace browser modal to view answer snapshots."""
-            if not self._answers:
+            # Get current workspace path from first agent's filesystem manager
+            current_workspace_path = None
+            orchestrator = getattr(self.coordination_display, "orchestrator", None)
+            if orchestrator:
+                # Try to get workspace from any agent with a filesystem manager
+                for agent in getattr(orchestrator, "agents", {}).values():
+                    fm = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
+                    if fm:
+                        workspace = getattr(fm, "get_current_workspace", lambda: None)()
+                        if workspace:
+                            current_workspace_path = str(workspace)
+                            break
+
+            # Allow opening even without answers if we have current workspace
+            if not self._answers and not current_workspace_path:
                 self.notify("No answers yet - workspaces available after agents submit", severity="warning", timeout=3)
                 return
             self._show_modal_async(
                 WorkspaceBrowserModal(
                     answers=self._answers,
                     agent_ids=self.coordination_display.agent_ids,
+                    current_workspace_path=current_workspace_path,
                 ),
             )
 
@@ -3949,7 +3994,19 @@ Type your question and press Enter to ask the agents.
             try:
                 if hasattr(self, "_execution_status"):
                     # Build status text
-                    parts = ["[q] Cancel"]
+                    parts = []
+
+                    # Add elapsed time if status bar has start time
+                    if hasattr(self, "_status_bar") and self._status_bar and hasattr(self._status_bar, "_start_time"):
+                        start_time = self._status_bar._start_time
+                        if start_time:
+                            elapsed = time.time() - start_time
+                            mins = int(elapsed // 60)
+                            secs = int(elapsed % 60)
+                            if mins > 0:
+                                parts.append(f"⏱ {mins}m {secs}s")
+                            else:
+                                parts.append(f"⏱ {secs}s")
 
                     # Add vote counts if available
                     if vote_counts:
@@ -3957,8 +4014,8 @@ Type your question and press Enter to ask the agents.
                         if vote_str:
                             parts.append(f"Votes: {vote_str}")
 
-                    # Add working indicator
-                    parts.append("Working...")
+                    # Add working indicator and cancel hint
+                    parts.append("Working... [q] to cancel")
 
                     self._execution_status.update(" • ".join(parts))
             except Exception:
@@ -4011,9 +4068,9 @@ Type your question and press Enter to ask the agents.
                 event.stop()
                 return True
 
-            # o - Orchestrator events
+            # o - Full agent output (repurposed from orchestrator events)
             if key_lower == "o":
-                self.action_open_orchestrator()
+                self.action_open_agent_output()
                 event.stop()
                 return True
 
@@ -4029,11 +4086,7 @@ Type your question and press Enter to ask the agents.
                 event.stop()
                 return True
 
-            # f - Final presentation / file inspection
-            if key_lower == "f":
-                self._show_file_inspection_modal()
-                event.stop()
-                return True
+            # f - Removed (merged into 'w' workspace browser)
 
             # c - Cost breakdown
             if key_lower == "c":
@@ -4053,9 +4106,9 @@ Type your question and press Enter to ask the agents.
                 event.stop()
                 return True
 
-            # t - Timeline
+            # t - Timeline/Browser (unified tabbed view)
             if key_lower == "t":
-                self.action_open_timeline()
+                self.action_open_unified_browser()
                 event.stop()
                 return True
 
@@ -4085,13 +4138,47 @@ Type your question and press Enter to ask the agents.
                     event.stop()
                     return True
 
-            # Escape when not in input - show hint
+            # g or G - Exit scroll mode and go to bottom (like tmux)
+            if key_lower == "g":
+                self._exit_scroll_mode()
+                event.stop()
+                return True
+
+            # Escape when not in input - show hint or exit scroll mode
             if event.key == "escape":
+                # If in scroll mode, exit it
+                if self._in_scroll_mode():
+                    self._exit_scroll_mode()
+                    event.stop()
+                    return True
                 self.notify("Already in command mode. Press i or / to type.", severity="information", timeout=2)
                 event.stop()
                 return True
 
             return False
+
+        def _in_scroll_mode(self) -> bool:
+            """Check if any timeline is in scroll mode."""
+            try:
+                for timeline in self.query(TimelineSection):
+                    if timeline.in_scroll_mode:
+                        return True
+            except Exception:
+                pass
+            return False
+
+        def _exit_scroll_mode(self) -> None:
+            """Exit scroll mode on all timelines and scroll to bottom."""
+            exited = False
+            try:
+                for timeline in self.query(TimelineSection):
+                    if timeline.in_scroll_mode:
+                        timeline.exit_scroll_mode()
+                        exited = True
+            except Exception:
+                pass
+            if exited:
+                self.notify("Resumed auto-scroll", severity="information", timeout=1)
 
         def _show_coordination_table_modal(self):
             """Display coordination table in a modal."""
@@ -4172,8 +4259,26 @@ Type your question and press Enter to ask the agents.
                 agents = getattr(orchestrator, "agents", {})
                 if agent_id in agents:
                     agent = agents[agent_id]
-                    model_name = getattr(agent, "model", None) or getattr(agent, "model_name", None)
-            self._show_modal_async(AgentOutputModal(agent_id, agent_outputs, model_name))
+                    # Model is stored on backend.model, not directly on agent
+                    backend = getattr(agent, "backend", None)
+                    if backend:
+                        model_name = getattr(backend, "model", None)
+                    # Fallback to agent-level attributes
+                    if not model_name:
+                        model_name = getattr(agent, "model", None) or getattr(agent, "model_name", None)
+            # Get all agents for toggle functionality
+            all_agents = {}
+            if orchestrator:
+                for aid, agent in getattr(orchestrator, "agents", {}).items():
+                    agent_model = None
+                    backend = getattr(agent, "backend", None)
+                    if backend:
+                        agent_model = getattr(backend, "model", None)
+                    all_agents[aid] = {
+                        "outputs": self.coordination_display.get_agent_content(aid),
+                        "model": agent_model,
+                    }
+            self._show_modal_async(AgentOutputModal(agent_id, agent_outputs, model_name, all_agents))
 
         def on_resize(self, event: events.Resize) -> None:
             """Refresh widgets when the terminal window is resized with debounce."""
@@ -4736,6 +4841,9 @@ Type your question and press Enter to ask the agents.
                 else:
                     # Tool completed/failed - update existing card
                     timeline.update_tool(tool_data.tool_id, tool_data)
+
+                # Update running tools count in status bar
+                self._update_running_tools_count()
             except Exception:
                 # Fallback to legacy RichLog
                 self._handle_tool_content(raw_content)
@@ -4764,6 +4872,16 @@ Type your question and press Enter to ask the agents.
 
             self._line_buffer = ""
             self.current_line_label.update(Text(""))
+
+        def _update_running_tools_count(self) -> None:
+            """Update running tools counter in status bar."""
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                count = timeline.get_running_tools_count()
+                if self._status_bar:
+                    self._status_bar.update_running_tools(count)
+            except Exception:
+                pass  # Silently fail if timeline not found
 
         def _add_presentation_content(self, normalized):
             """Route presentation content to TimelineSection."""
@@ -5125,46 +5243,53 @@ Type your question and press Enter to ask the agents.
             with Container(id="shortcuts_modal_container"):
                 yield Label("📖  Commands & Shortcuts", id="shortcuts_modal_header")
                 yield Label("Press Esc to unfocus input, then use single keys", id="shortcuts_hint")
-                with Container(id="shortcuts_content"):
-                    yield Static(
-                        "[bold cyan]Quick Keys[/] [dim](when not typing)[/]\n"
-                        "  [yellow]q[/]              Cancel/stop execution\n"
-                        "  [yellow]w[/]              Workspace browser\n"
-                        "  [yellow]v[/]              Vote results\n"
-                        "  [yellow]a[/]              Answer browser\n"
-                        "  [yellow]t[/]              Timeline\n"
-                        "  [yellow]h[/]              Conversation history\n"
-                        "  [yellow]f[/]              File inspection\n"
-                        "  [yellow]c[/]              Cost breakdown\n"
-                        "  [yellow]m[/]              MCP status / metrics\n"
-                        "  [yellow]s[/]              System status\n"
-                        "  [yellow]o[/]              Orchestrator events\n"
-                        "  [yellow]?[/]              This help\n"
-                        "  [yellow]1-9[/]            Switch to agent N\n"
-                        "\n"
-                        "[bold cyan]Focus[/]\n"
-                        "  [yellow]Esc[/]            Unfocus input (enable quick keys)\n"
-                        "  [yellow]i[/] or [yellow]/[/]        Focus input (start typing)\n"
-                        "\n"
-                        "[bold cyan]Input[/]\n"
-                        "  [yellow]Enter[/]          Submit question\n"
-                        "  [yellow]Shift+Enter[/]    New line\n"
-                        "  [yellow]Tab[/]            Next agent\n"
-                        "  [yellow]Shift+Tab[/]      Previous agent\n"
-                        "\n"
-                        "[bold cyan]Quit[/]\n"
-                        "  [yellow]Ctrl+C[/]         Exit MassGen\n"
-                        "  [yellow]q[/]              Cancel current turn\n"
-                        "\n"
-                        "[bold cyan]Slash Commands[/]\n"
-                        "  [yellow]/history[/]       Conversation history\n"
-                        "  [yellow]/context[/]       Manage context paths\n"
-                        "  [yellow]/vim[/]           Toggle vim mode\n"
-                        "\n"
-                        "[dim]Type /help for more commands[/]",
-                        id="shortcuts_text",
-                        markup=True,
-                    )
+                # Two-column layout for wide terminals
+                with Horizontal(id="shortcuts_columns"):
+                    # Left column - Quick keys and navigation
+                    with Container(id="shortcuts_col_left", classes="shortcuts-column"):
+                        yield Static(
+                            "[bold cyan]Quick Keys[/] [dim](when not typing)[/]\n"
+                            "  [yellow]q[/]        Cancel/stop execution\n"
+                            "  [yellow]w[/]        Workspace browser\n"
+                            "  [yellow]v[/]        Vote results\n"
+                            "  [yellow]a[/]        Answer browser\n"
+                            "  [yellow]t[/]        Timeline\n"
+                            "  [yellow]h[/]        Conversation history\n"
+                            "  [yellow]c[/]        Cost breakdown\n"
+                            "  [yellow]m[/]        MCP status / metrics\n"
+                            "  [yellow]s[/]        System status\n"
+                            "  [yellow]o[/]        Agent output (full)\n"
+                            "  [yellow]?[/]        This help\n"
+                            "  [yellow]1-9[/]      Switch to agent N\n"
+                            "\n"
+                            "[bold cyan]Focus[/]\n"
+                            "  [yellow]Esc[/]      Unfocus input\n"
+                            "  [yellow]i[/] or [yellow]/[/]  Focus input",
+                            markup=True,
+                        )
+                    # Right column - Input and commands
+                    with Container(id="shortcuts_col_right", classes="shortcuts-column"):
+                        yield Static(
+                            "[bold cyan]Input[/]\n"
+                            "  [yellow]Enter[/]       Submit question\n"
+                            "  [yellow]Shift+Enter[/] New line\n"
+                            "  [yellow]Tab[/]         Next agent\n"
+                            "  [yellow]Shift+Tab[/]   Previous agent\n"
+                            "\n"
+                            "[bold cyan]Quit[/]\n"
+                            "  [yellow]Ctrl+C[/]      Exit MassGen\n"
+                            "  [yellow]q[/]           Cancel current turn\n"
+                            "\n"
+                            "[bold cyan]Slash Commands[/]\n"
+                            "  [yellow]/history[/]    Conversation history\n"
+                            "  [yellow]/context[/]    Manage context paths\n"
+                            "  [yellow]/vim[/]        Toggle vim mode\n"
+                            "\n"
+                            "[bold cyan]Tips[/]\n"
+                            "  [dim]Click tool cards for details[/]\n"
+                            "  [dim]Type /help for more commands[/]",
+                            markup=True,
+                        )
                 yield Button("Close (ESC)", id="close_shortcuts_button")
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -5239,7 +5364,7 @@ Type your question and press Enter to ask the agents.
             self.agent_ids = agent_ids
             self.winner_agent_id = winner_agent_id
             self._current_filter: Optional[str] = None  # None = all agents
-            self._selected_answer_idx: int = len(answers) - 1 if answers else 0
+            self._selected_answer_idx: int = 0  # Start with first (most recent after sorting)
             self._filtered_answers: List[Dict[str, Any]] = []
             self._selected_content: str = ""  # Store selected answer content for copy
             self._render_count: int = 0  # Counter for unique widget IDs to avoid DuplicateIds
@@ -5273,7 +5398,7 @@ Type your question and press Enter to ask the agents.
                         yield ScrollableContainer(id="answer_detail_scroll")
                         with Horizontal(id="answer_detail_buttons"):
                             yield Button("📋 Copy", id="copy_answer_button", classes="action-primary")
-                            yield Button("💾 Save", id="save_answer_button")
+                            yield Button("💾 Save to File", id="save_answer_button")
 
                 # Close button
                 with Horizontal(id="answer_browser_buttons"):
@@ -5282,9 +5407,9 @@ Type your question and press Enter to ask the agents.
         def on_mount(self) -> None:
             """Called when modal is mounted - populate the answer list."""
             self._render_answers()
-            # Auto-select most recent answer if available
+            # Auto-select most recent answer (now first in sorted list)
             if self._filtered_answers:
-                self._show_answer_detail(len(self._filtered_answers) - 1)
+                self._show_answer_detail(0)
 
         def _render_answers(self) -> None:
             """Render the answer list based on current filter."""
@@ -5296,9 +5421,12 @@ Type your question and press Enter to ask the agents.
             answer_list = self.query_one("#answer_list", VerticalScroll)
             answer_list.remove_children()
 
-            self._filtered_answers = self.answers
+            self._filtered_answers = self.answers.copy()
             if self._current_filter:
                 self._filtered_answers = [a for a in self.answers if a["agent_id"] == self._current_filter]
+
+            # Sort by timestamp descending (most recent first)
+            self._filtered_answers.sort(key=lambda a: a.get("timestamp", 0), reverse=True)
 
             if not self._filtered_answers:
                 answer_list.mount(Static("[dim]No answers yet[/]", markup=True))
@@ -5337,10 +5465,14 @@ Type your question and press Enter to ask the agents.
                 is_selected = idx == self._selected_answer_idx
                 selected_class = "answer-item-selected" if is_selected else ""
 
+                # Assign color class based on agent index
+                agent_idx = self.agent_ids.index(agent_id) if agent_id in self.agent_ids else 0
+                agent_color_class = f"agent-color-{agent_idx % 4}"  # Cycle through 4 colors
+
                 # Use render_count in ID to ensure uniqueness across re-renders
                 item = Static(
                     f"[bold]{answer_label}[/] - {agent_display}{badge}\n" f"   [dim]{time_str} • {vote_count} votes[/]\n" f"   {content_preview}",
-                    classes=f"answer-item clickable {selected_class}",
+                    classes=f"answer-item clickable {selected_class} {agent_color_class}",
                     markup=True,
                     id=f"answer_item_{self._render_count}_{idx}",
                 )
@@ -5400,7 +5532,10 @@ Type your question and press Enter to ask the agents.
 
         def on_click(self, event) -> None:
             """Handle click on answer items."""
-            target = event.target
+            # Use event.widget (Textual) not event.target
+            target = getattr(event, "widget", None)
+            if target is None:
+                return
             # Walk up to find answer-item
             while target and not (hasattr(target, "classes") and "answer-item" in target.classes):
                 target = target.parent
@@ -5571,8 +5706,8 @@ Type your question and press Enter to ask the agents.
                     },
                 )
 
-            # Sort by timestamp
-            events.sort(key=lambda e: e.get("timestamp", 0))
+            # Sort by timestamp (most recent first for display)
+            events.sort(key=lambda e: e.get("timestamp", 0), reverse=True)
 
             if not events:
                 return "[dim]No activity yet[/]"
@@ -5771,10 +5906,10 @@ Type your question and press Enter to ask the agents.
         def _render_workspace_tab(self) -> str:
             """Render workspace info summary."""
             if not self.answers:
-                return "[dim]No workspaces available yet[/]"
+                return "[dim]No workspaces available yet[/]\n\n[dim]Tip: Press 'w' to browse current workspace[/]"
 
             lines = ["[bold cyan]📁 Workspaces[/]", "─" * 50]
-            lines.append("[dim]Tip: Press 'w' for full workspace browser[/]\n")
+            lines.append("[dim]Press 'w' for full workspace browser with file preview[/]\n")
 
             for i, answer in enumerate(self.answers, 1):
                 agent = answer.get("agent_id", "?")[:12]
@@ -5799,7 +5934,7 @@ Type your question and press Enter to ask the agents.
         def _render_timeline_tab(self) -> str:
             """Render timeline summary."""
             lines = ["[bold cyan]📅 Timeline[/]", "─" * 50]
-            lines.append("[dim]Tip: Press 't' for detailed timeline[/]\n")
+            lines.append("")  # Empty line for spacing
 
             # Build events from answers and votes
             events = []
@@ -5823,10 +5958,10 @@ Type your question and press Enter to ask the agents.
                     },
                 )
 
-            # Sort by timestamp
-            events.sort(key=lambda x: x.get("timestamp", 0))
+            # Sort by timestamp (most recent first)
+            events.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
 
-            for event in events[-10:]:  # Last 10 events
+            for event in events[:10]:  # Show 10 most recent events
                 import datetime as dt_module
 
                 ts = event.get("timestamp", 0)
@@ -5888,16 +6023,24 @@ Type your question and press Enter to ask the agents.
     class WorkspaceBrowserModal(BaseModal):
         """Modal for browsing workspace files from answer snapshots."""
 
+        # Special index for current workspace
+        CURRENT_WORKSPACE_IDX = -100
+
         def __init__(
             self,
             answers: List[Dict[str, Any]],
             agent_ids: List[str],
+            current_workspace_path: Optional[str] = None,
         ):
             super().__init__()
             self.answers = answers
             self.agent_ids = agent_ids
-            # Default to most recent answer (last in list)
-            self._selected_answer_idx: int = len(answers) - 1 if answers else 0
+            self.current_workspace_path = current_workspace_path
+            # Default to current workspace if available, else most recent answer
+            if current_workspace_path:
+                self._selected_answer_idx: int = self.CURRENT_WORKSPACE_IDX
+            else:
+                self._selected_answer_idx: int = len(answers) - 1 if answers else 0
             self._current_files: List[Dict[str, Any]] = []
             self._selected_file_idx: int = 0
             self._load_counter: int = 0  # Counter to ensure unique widget IDs
@@ -5909,13 +6052,26 @@ Type your question and press Enter to ask the agents.
                 # Answer selector
                 with Horizontal(id="workspace_answer_row"):
                     yield Label("Answer: ", id="workspace_answer_label")
-                    # Build answer options - most recent answer selected by default
+                    # Build answer options - current workspace first if available
+                    options = []
+                    default_idx = -1
+
+                    # Add "Current Workspace" option first if available
+                    if self.current_workspace_path:
+                        options.append(("📂 Current Workspace", self.CURRENT_WORKSPACE_IDX))
+                        default_idx = self.CURRENT_WORKSPACE_IDX
+
+                    # Add answer options
                     if self.answers:
-                        options = [(f"{a.get('answer_label', f'Answer {i+1}')} - {a['agent_id']}", i) for i, a in enumerate(self.answers)]
-                        default_idx = len(self.answers) - 1  # Most recent
-                    else:
-                        options = [("No answers yet", -1)]
+                        for i, a in enumerate(self.answers):
+                            options.append((f"{a.get('answer_label', f'Answer {i+1}')} - {a['agent_id']}", i))
+                        if default_idx == -1:
+                            default_idx = len(self.answers) - 1  # Most recent answer
+
+                    if not options:
+                        options = [("No workspace available", -1)]
                         default_idx = -1
+
                     yield Select(options, id="answer_selector", value=default_idx)
 
                 # Split view: file list on left, preview on right
@@ -5933,13 +6089,14 @@ Type your question and press Enter to ask the agents.
                 yield Button("Close (ESC)", id="close_workspace_browser_button")
 
         def on_mount(self) -> None:
-            """Load files for the most recent answer."""
-            if self.answers:
-                # Load most recent answer (last in list)
+            """Load files for the default selection (current workspace or most recent answer)."""
+            if self.current_workspace_path:
+                self._load_workspace_files(self.CURRENT_WORKSPACE_IDX)
+            elif self.answers:
                 self._load_workspace_files(len(self.answers) - 1)
 
         def _load_workspace_files(self, answer_idx: int) -> None:
-            """Load files from the workspace path of the selected answer."""
+            """Load files from the workspace path of the selected answer or current workspace."""
             import os
 
             from textual.widgets import Static
@@ -5949,12 +6106,15 @@ Type your question and press Enter to ask the agents.
             self._current_files = []
             self._load_counter += 1  # Increment to ensure unique IDs
 
-            if answer_idx < 0 or answer_idx >= len(self.answers):
-                file_list.mount(Static("[dim]No answer selected[/]", markup=True))
+            # Handle current workspace selection
+            if answer_idx == self.CURRENT_WORKSPACE_IDX:
+                workspace_path = self.current_workspace_path
+            elif answer_idx < 0 or answer_idx >= len(self.answers):
+                file_list.mount(Static("[dim]No workspace selected[/]", markup=True))
                 return
-
-            answer = self.answers[answer_idx]
-            workspace_path = answer.get("workspace_path")
+            else:
+                answer = self.answers[answer_idx]
+                workspace_path = answer.get("workspace_path")
 
             if not workspace_path or not os.path.isdir(workspace_path):
                 file_list.mount(Static(f"[dim]No workspace available[/]\n[dim]{workspace_path or 'N/A'}[/]", markup=True))
@@ -6810,18 +6970,39 @@ Type your question and press Enter to ask the agents.
     class AgentOutputModal(BaseModal):
         """Modal for viewing full agent output with syntax highlighting."""
 
-        def __init__(self, agent_id: str, agent_outputs: List[str], model_name: Optional[str] = None):
+        def __init__(
+            self,
+            agent_id: str,
+            agent_outputs: List[str],
+            model_name: Optional[str] = None,
+            all_agents: Optional[Dict[str, Dict]] = None,
+        ):
             super().__init__()
-            self.agent_id = agent_id
+            self.current_agent_id = agent_id
             self.agent_outputs = agent_outputs
             self.model_name = model_name or "Unknown"
+            self.all_agents = all_agents or {}
 
         def compose(self) -> ComposeResult:
             with Container(id="agent_output_container"):
                 yield Label(
-                    f"📄 Full Output: {self.agent_id} ({self.model_name})",
+                    f"📄 Full Output: {self.current_agent_id} ({self.model_name})",
                     id="agent_output_header",
                 )
+                # Agent toggle buttons if multiple agents
+                if len(self.all_agents) > 1:
+                    with Horizontal(id="agent_toggle_buttons"):
+                        for aid in sorted(self.all_agents.keys()):
+                            agent_model = self.all_agents[aid].get("model", "")
+                            # Shorten model name for button label
+                            short_model = agent_model.split("/")[-1] if agent_model else ""
+                            if short_model and len(short_model) > 20:
+                                short_model = short_model[:17] + "..."
+                            label = f"{aid}" + (f" ({short_model})" if short_model else "")
+                            btn = Button(label, id=f"agent_btn_{aid}", classes="agent-toggle-btn")
+                            if aid == self.current_agent_id:
+                                btn.add_class("selected")
+                            yield btn
                 yield Label(
                     f"Total lines: {len(self.agent_outputs)}",
                     id="agent_output_stats",
@@ -6834,6 +7015,15 @@ Type your question and press Enter to ask the agents.
                     yield Button("Save to File", id="save_output_button")
                     yield Button("Close (ESC)", id="close_output_button")
 
+        def on_mount(self) -> None:
+            """Scroll to bottom when modal opens."""
+            try:
+                text_area = self.query_one("#agent_output_text", TextArea)
+                # Move cursor to end of document
+                text_area.move_cursor_relative(rows=999999, columns=0)
+            except Exception:
+                pass
+
         def on_button_pressed(self, event: Button.Pressed) -> None:
             """Handle button presses."""
             if event.button.id == "close_output_button":
@@ -6842,6 +7032,53 @@ Type your question and press Enter to ask the agents.
                 self._copy_to_clipboard()
             elif event.button.id == "save_output_button":
                 self._save_to_file()
+            elif event.button.id and event.button.id.startswith("agent_btn_"):
+                # Switch to different agent
+                new_agent_id = event.button.id.replace("agent_btn_", "")
+                self._switch_agent(new_agent_id)
+
+        def _switch_agent(self, agent_id: str) -> None:
+            """Switch to viewing a different agent's output."""
+            if agent_id not in self.all_agents:
+                return
+            self.current_agent_id = agent_id
+            agent_data = self.all_agents[agent_id]
+            self.agent_outputs = agent_data.get("outputs", [])
+            self.model_name = agent_data.get("model") or "Unknown"
+
+            # Update header
+            try:
+                header = self.query_one("#agent_output_header", Label)
+                header.update(f"📄 Full Output: {self.current_agent_id} ({self.model_name})")
+            except Exception:
+                pass
+
+            # Update stats
+            try:
+                stats = self.query_one("#agent_output_stats", Label)
+                stats.update(f"Total lines: {len(self.agent_outputs)}")
+            except Exception:
+                pass
+
+            # Update content
+            try:
+                text_area = self.query_one("#agent_output_text", TextArea)
+                full_content = "\n".join(self.agent_outputs) if self.agent_outputs else "(No output recorded)"
+                text_area.load_text(full_content)
+                # Scroll to bottom
+                text_area.move_cursor_relative(rows=999999, columns=0)
+            except Exception:
+                pass
+
+            # Update button selection states
+            try:
+                for btn in self.query(".agent-toggle-btn"):
+                    if btn.id == f"agent_btn_{agent_id}":
+                        btn.add_class("selected")
+                    else:
+                        btn.remove_class("selected")
+            except Exception:
+                pass
 
         def _copy_to_clipboard(self) -> None:
             """Copy output to system clipboard."""
