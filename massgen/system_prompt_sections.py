@@ -1055,8 +1055,6 @@ class ProjectInstructionsSection(SystemPromptSection):
         # Collect discovered instruction files (deduplicate by path)
         discovered_files = {}  # path -> file_path mapping
 
-        logger.info(f"[ProjectInstructionsSection] Searching for instruction files in {len(self.context_paths)} context paths")
-
         for ctx_path in self.context_paths:
             path_str = ctx_path.get("path", "")
             if not path_str:
@@ -1064,26 +1062,22 @@ class ProjectInstructionsSection(SystemPromptSection):
 
             try:
                 path = Path(path_str).resolve()
-                logger.info(f"[ProjectInstructionsSection] Checking context path: {path}")
 
                 # Check if path IS an instruction file directly
                 if path.name in ["CLAUDE.md", "AGENTS.md"]:
                     if path.exists() and path.is_file():
                         discovered_files[str(path)] = path
-                        logger.info(f"Discovered project instruction file (explicit reference): {path}")
                         continue
 
                 # Otherwise, discover from directory hierarchy
                 instruction_file = self.discover_instruction_file(path)
                 if instruction_file:
                     discovered_files[str(instruction_file)] = instruction_file
-                    logger.info(f"Discovered project instruction file: {instruction_file}")
 
             except Exception as e:
                 logger.warning(f"Error checking context path {path_str} for instruction files: {e}")
 
         if not discovered_files:
-            logger.info("[ProjectInstructionsSection] No instruction files discovered")
             return ""  # No instruction files found
 
         # Read and format contents
@@ -1095,7 +1089,7 @@ class ProjectInstructionsSection(SystemPromptSection):
                 # Dedent/clean up any leading/trailing whitespace
                 contents = contents.strip()
 
-                logger.info(f"Successfully read project instruction file: {file_path} ({len(contents)} chars)")
+                logger.info(f"[ProjectInstructionsSection] Loaded {file_path.name} ({len(contents)} chars)")
                 content_parts.append(f"**From {file_path.name}** (`{file_path}`):")
                 content_parts.append(contents)
 

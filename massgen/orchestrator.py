@@ -2541,10 +2541,14 @@ Your answer:"""
                     # Apply rate limiting before starting agent
                     await self._apply_agent_startup_rate_limit(agent_id)
 
+                    # Create a copy for this agent to avoid cross-agent coupling
+                    # Each agent needs its own baseline to detect new answers independently
+                    per_agent_answers = dict(current_answers)
+
                     active_streams[agent_id] = self._stream_agent_execution(
                         agent_id,
                         self.current_task,
-                        current_answers,
+                        per_agent_answers,
                         conversation_context,
                         self._agent_paraphrases.get(agent_id),
                     )
