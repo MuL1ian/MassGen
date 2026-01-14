@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.38, adding Task Planning, Two-Tier Workspaces & Project Instructions!
+We're excited to release MassGen v0.1.38, adding Task Planning, Two-Tier Workspaces & Project Instructions!🚀
 
 Agents can now plan before they execute with the new `--plan` flag. Two-tier git-backed workspaces separate work-in-progress from complete deliverables with automatic snapshot commits. CLAUDE.md and AGENTS.md files are auto-discovered following the agents.md standard. Plus: batch media analysis, timeout reliability fixes, and Docker health monitoring.
 
@@ -31,7 +31,7 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.38, adding Task Planning, Two-Tier Workspaces & Project Instructions!
+We're excited to release MassGen v0.1.38, adding Task Planning, Two-Tier Workspaces & Project Instructions!🚀
 
 Agents can now plan before they execute with the new `--plan` flag. Two-tier git-backed workspaces separate work-in-progress from complete deliverables with automatic snapshot commits. CLAUDE.md and AGENTS.md files are auto-discovered following the agents.md standard. Plus: batch media analysis, timeout reliability fixes, and Docker health monitoring.
 
