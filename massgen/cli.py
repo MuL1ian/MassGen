@@ -6010,13 +6010,22 @@ If no agent is fully complete with quality work, continue your own implementatio
         memory_session_id=f"plan_exec_{plan_session.plan_id}",
     )
 
-    # Read the frozen plan tasks
+    # Read the frozen plan tasks - fail fast if missing or unreadable
     frozen_plan_file = plan_session.frozen_dir / "plan.json"
-    plan_tasks = []
-    if frozen_plan_file.exists():
+    if not frozen_plan_file.exists():
+        console.print(f"[bold red]Error: Frozen plan not found at {frozen_plan_file}[/bold red]")
+        console.print("[red]Cannot execute plan without a valid frozen plan.json[/red]")
+        raise SystemExit(1)
+
+    try:
         plan_data = json.loads(frozen_plan_file.read_text())
-        plan_tasks = plan_data.get("tasks", [])
-        console.print(f"[dim]Loaded {len(plan_tasks)} tasks from frozen plan[/dim]")
+    except json.JSONDecodeError as e:
+        console.print(f"[bold red]Error: Failed to parse frozen plan: {e}[/bold red]")
+        console.print(f"[red]File: {frozen_plan_file}[/red]")
+        raise SystemExit(1)
+
+    plan_tasks = plan_data.get("tasks", [])
+    console.print(f"[dim]Loaded {len(plan_tasks)} tasks from frozen plan[/dim]")
 
     # Copy plan and supporting docs to each agent's workspace
     for agent_id, agent in agents.items():
@@ -6031,11 +6040,12 @@ If no agent is fully complete with quality work, continue your own implementatio
                 logger.info(f"[ExecutePlan] Copied {doc.name} to {agent_id}'s planning_docs/")
 
             # Copy plan.json directly to tasks/plan.json so agents can read it immediately
+            # Write full plan_data to preserve top-level metadata (agent_id, timestamps, subagents)
             if plan_tasks:
                 tasks_dir = agent_workspace / "tasks"
                 tasks_dir.mkdir(exist_ok=True)
                 plan_file = tasks_dir / "plan.json"
-                plan_file.write_text(json.dumps({"tasks": plan_tasks}, indent=2))
+                plan_file.write_text(json.dumps(plan_data, indent=2))
                 logger.info(f"[ExecutePlan] Copied plan.json to {agent_id}'s tasks/plan.json ({len(plan_tasks)} tasks)")
                 console.print(f"[dim]Copied plan to {agent_id}'s workspace[/dim]")
 
@@ -6144,12 +6154,22 @@ async def run_execute_plan(
     console.print(f"Created: {metadata.created_at}")
     console.print(f"Status: {metadata.status}")
 
-    # Read frozen plan to get task count
+    # Read frozen plan to get task count - fail fast if missing or unreadable
     frozen_plan_file = plan_session.frozen_dir / "plan.json"
-    if frozen_plan_file.exists():
+    if not frozen_plan_file.exists():
+        console.print(f"[bold red]Error: Frozen plan not found at {frozen_plan_file}[/bold red]")
+        console.print("[red]Cannot execute plan without a valid frozen plan.json[/red]")
+        raise SystemExit(1)
+
+    try:
         plan_data = json.loads(frozen_plan_file.read_text())
-        task_count = len(plan_data.get("tasks", []))
-        console.print(f"Tasks: {task_count}")
+    except json.JSONDecodeError as e:
+        console.print(f"[bold red]Error: Failed to parse frozen plan: {e}[/bold red]")
+        console.print(f"[red]File: {frozen_plan_file}[/red]")
+        raise SystemExit(1)
+
+    task_count = len(plan_data.get("tasks", []))
+    console.print(f"Tasks: {task_count}")
 
     # Build question if not provided
     if question is None:
@@ -6334,9 +6354,27 @@ async def run_plan_and_execute(
 
         # Copy only workspace artifacts to plan storage
         storage.finalize_planning_phase(plan_session, workspace_source)
+
+        # Verify a valid plan was created - if not, clean up and fail
+        frozen_plan = plan_session.frozen_dir / "plan.json"
+        if not frozen_plan.exists():
+            console.print("[bold red]Error: Planning phase did not produce a valid plan.json[/bold red]")
+            console.print("[red]The planning agent may have ended early or failed to create a task plan.[/red]")
+            # Clean up the empty plan session directory
+            if plan_session.plan_dir.exists():
+                shutil.rmtree(plan_session.plan_dir)
+                logger.info(f"[PlanAndExecute] Cleaned up empty plan session: {plan_session.plan_dir}")
+            raise SystemExit(1)
+
         console.print(f"[green]Plan created and frozen: {plan_session.plan_dir}[/green]")
     else:
-        console.print("[yellow]Warning: No final/ directory found in planning logs[/yellow]")
+        console.print("[bold red]Error: No final/ directory found in planning logs[/bold red]")
+        console.print("[red]Planning phase did not complete successfully.[/red]")
+        # Clean up the empty plan session directory
+        if plan_session.plan_dir.exists():
+            shutil.rmtree(plan_session.plan_dir)
+            logger.info(f"[PlanAndExecute] Cleaned up empty plan session: {plan_session.plan_dir}")
+        raise SystemExit(1)
 
     # ========== PHASE 2: Execution ==========
     console.print("\n[bold blue]═══ PHASE 2: EXECUTION ═══[/bold blue]")

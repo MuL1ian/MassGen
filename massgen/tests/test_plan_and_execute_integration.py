@@ -2,7 +2,6 @@
 """Integration tests for plan-and-execute workflow."""
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,6 +22,8 @@ class TestWorkspaceCopying:
 
     def test_copies_only_workspace_not_agent_metadata(self, temp_plans_dir, tmp_path):
         """Test that only workspace content is copied, not answer.txt, context.txt, etc."""
+        assert temp_plans_dir.exists()
+
         # Create a fake final/ directory with full agent structure
         final_dir = tmp_path / "final"
         agent_dir = final_dir / "agent_a"
@@ -57,6 +58,8 @@ class TestWorkspaceCopying:
 
     def test_copies_only_deliverable_when_two_tier_enabled(self, temp_plans_dir, tmp_path):
         """Test that only deliverable/ content is copied when two-tier workspace is used."""
+        assert temp_plans_dir.exists()
+
         # Create a fake workspace with two-tier structure
         workspace_dir = tmp_path / "workspace"
         scratch_dir = workspace_dir / "scratch"
@@ -89,6 +92,8 @@ class TestWorkspaceCopying:
 
     def test_handles_missing_deliverable_dir_gracefully(self, temp_plans_dir, tmp_path):
         """Test that workspace without deliverable/ still works (non-two-tier)."""
+        assert temp_plans_dir.exists()
+
         # Create a simple workspace without two-tier structure - project_plan.json in root
         workspace_dir = tmp_path / "workspace"
         workspace_dir.mkdir(parents=True)
@@ -129,12 +134,14 @@ class TestPlanAndExecuteWorkflow:
             },
         }
 
-    def test_plan_session_lifecycle(self, temp_plans_dir):
+    def test_plan_session_lifecycle(self, temp_plans_dir, tmp_path):
         """Test complete plan session lifecycle."""
+        assert temp_plans_dir.exists()
+
         storage = PlanStorage()
 
         # Create a plan session
-        session = storage.create_plan("test_session_id", "/tmp/test_logs")
+        session = storage.create_plan("test_session_id", str(tmp_path / "test_logs"))
 
         # Verify session created correctly
         assert session.plan_dir.exists()
@@ -198,24 +205,28 @@ class TestPlanAndExecuteWorkflow:
         assert "Tasks Added (1)" in report
         assert "Tasks Modified (1)" in report
 
-    def test_get_latest_plan(self, temp_plans_dir):
+    def test_get_latest_plan(self, temp_plans_dir, tmp_path):
         """Test getting the latest plan session."""
+        assert temp_plans_dir.exists()
+
         storage = PlanStorage()
 
         # Create multiple plans
-        storage.create_plan("sess_1", "/tmp/logs1")
-        storage.create_plan("sess_2", "/tmp/logs2")
-        session3 = storage.create_plan("sess_3", "/tmp/logs3")
+        storage.create_plan("sess_1", str(tmp_path / "logs1"))
+        storage.create_plan("sess_2", str(tmp_path / "logs2"))
+        session3 = storage.create_plan("sess_3", str(tmp_path / "logs3"))
 
         # Get latest should return most recent
         latest = storage.get_latest_plan()
         assert latest is not None
         assert latest.plan_id == session3.plan_id
 
-    def test_plan_diff_no_changes(self, temp_plans_dir):
+    def test_plan_diff_no_changes(self, temp_plans_dir, tmp_path):
         """Test diff computation with no changes."""
+        assert temp_plans_dir.exists()
+
         storage = PlanStorage()
-        session = storage.create_plan("test_sess", "/tmp/logs")
+        session = storage.create_plan("test_sess", str(tmp_path / "logs"))
 
         # Create identical plans in workspace and frozen (plan.json after rename)
         plan_data = {"tasks": [{"id": "T001", "description": "Test", "status": "pending"}]}
@@ -230,10 +241,12 @@ class TestPlanAndExecuteWorkflow:
         assert len(diff["tasks_modified"]) == 0
         assert diff["divergence_score"] == 0.0
 
-    def test_event_logging(self, temp_plans_dir):
+    def test_event_logging(self, temp_plans_dir, tmp_path):
         """Test event logging functionality."""
+        assert temp_plans_dir.exists()
+
         storage = PlanStorage()
-        session = storage.create_plan("test_sess", "/tmp/logs")
+        session = storage.create_plan("test_sess", str(tmp_path))
 
         # Log some events
         session.log_event("planning_started", {"user": "test"})
@@ -254,14 +267,24 @@ class TestPlanAndExecuteWorkflow:
             assert "event_type" in event
             assert "data" in event
 
-    def test_execution_prompt_generation(self):
-        """Test that execution prompt is generated correctly."""
+    def test_execution_prompt_generation(self, tmp_path):
+        """Test that execution prompt is generated correctly.
+
+        Verifies key sections are present in the generated prompt including
+        plan execution mode markers, task references, and planning doc paths.
+        """
         from massgen.cli import _build_execution_prompt
+
+        # Create temp directories for mock session
+        frozen_dir = tmp_path / "frozen"
+        workspace_dir = tmp_path / "workspace"
+        frozen_dir.mkdir(parents=True)
+        workspace_dir.mkdir(parents=True)
 
         # Create a mock plan session
         mock_session = MagicMock()
-        mock_session.frozen_dir = Path("/tmp/test/frozen")
-        mock_session.workspace_dir = Path("/tmp/test/workspace")
+        mock_session.frozen_dir = frozen_dir
+        mock_session.workspace_dir = workspace_dir
 
         prompt = _build_execution_prompt("Build a REST API", mock_session)
 

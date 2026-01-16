@@ -182,6 +182,12 @@ def _load_plan_from_filesystem(agent_id: str) -> Optional[TaskPlan]:
             plan = TaskPlan(agent_id=agent_id)
             tasks_data = plan_data.get("tasks", [])
 
+            # Two-pass loading for extended tasks:
+            # Pass 1: Create all tasks and validate ID uniqueness
+            # Pass 2: Validate dependencies exist (handles forward references)
+            # Note: Circular dependency checking is skipped, as the file is assumed valid since it was refined
+            extended_tasks = []
+
             for task_spec in tasks_data:
                 # Handle both string tasks and dict tasks
                 if isinstance(task_spec, str):
@@ -190,8 +196,15 @@ def _load_plan_from_filesystem(agent_id: str) -> Optional[TaskPlan]:
                     # Task has extended fields (status, metadata, verification_group, etc.)
                     # Create Task directly to preserve all fields
                     task = _create_task_from_dict(task_spec)
+
+                    # Validate ID uniqueness
+                    if task.id in plan._task_index:
+                        raise ValueError(f"Duplicate task ID in plan: {task.id}")
+
+                    # Add to plan (dependencies validated in pass 2)
                     plan.tasks.append(task)
                     plan._task_index[task.id] = task
+                    extended_tasks.append(task)
                 else:
                     # Basic dict task - use add_task for validation
                     plan.add_task(
@@ -200,6 +213,12 @@ def _load_plan_from_filesystem(agent_id: str) -> Optional[TaskPlan]:
                         depends_on=task_spec.get("depends_on", []),
                         priority=task_spec.get("priority", "medium"),
                     )
+
+            # Pass 2: Validate dependencies for extended tasks
+            for task in extended_tasks:
+                for dep_id in task.dependencies:
+                    if dep_id not in plan._task_index:
+                        raise ValueError(f"Task {task.id} has missing dependency: {dep_id}")
 
             logger.info(f"[PlanningMCP] Loaded plan from filesystem (simplified format) with {len(plan.tasks)} tasks")
 
