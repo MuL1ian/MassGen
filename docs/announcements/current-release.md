@@ -1,4 +1,4 @@
-# MassGen v0.1.38 Release Announcement
+# MassGen v0.1.39 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,19 +7,19 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.38, adding Task Planning, Two-Tier Workspaces & Project Instructions! 🚀
+We're excited to release MassGen v0.1.39, adding Plan and Execute Workflow! 🚀
 
-MassGen can now create structured plans for future workflows with the new `--plan` flag (plan-only, no auto-execution). Two-tier git-backed workspaces separate work-in-progress from complete deliverables with automatic snapshot commits. CLAUDE.md and AGENTS.md files are auto-discovered following the agents.md standard. Plus: batch media analysis, timeout reliability fixes, and Docker health monitoring.
+MassGen now supports a complete plan-then-execute workflow that separates "what to build" from "how to build it". Use `--plan-and-execute` to create a plan then immediately execute it, or `--execute-plan` to run existing plans. Task verification workflow distinguishes completed from verified work with batch verification groups. Plans are stored in `.massgen/plans/` with frozen snapshots and execution tracking.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.38
+pip install massgen==0.1.39
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.38
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.39
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -31,40 +31,32 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.38, adding Task Planning, Two-Tier Workspaces & Project Instructions! 🚀
+We're excited to release MassGen v0.1.39, adding Plan and Execute Workflow! 🚀
 
-MassGen can now create structured plans for future workflows with the new `--plan` flag (plan-only, no auto-execution). Two-tier git-backed workspaces separate work-in-progress from complete deliverables with automatic snapshot commits. CLAUDE.md and AGENTS.md files are auto-discovered following the agents.md standard. Plus: batch media analysis, timeout reliability fixes, and Docker health monitoring.
+MassGen now supports a complete plan-then-execute workflow that separates "what to build" from "how to build it". Use `--plan-and-execute` to create a plan then immediately execute it, or `--execute-plan` to run existing plans. Task verification workflow distinguishes completed from verified work with batch verification groups. Plans are stored in `.massgen/plans/` with frozen snapshots and execution tracking.
 
 **Key Features:**
 
-**Task Planning Mode** - Create plans for future workflows with `--plan`:
-- `--plan` flag creates structured plans (no auto-execution)
-- `--plan-depth` controls planning granularity (shallow/medium/deep)
-- Outputs `feature_list.json` with task dependencies and priorities
+**Plan and Execute Workflow** - Flexible planning and execution modes:
+- `--plan-and-execute`: Create plan then immediately execute it
+- `--execute-plan <id|path|latest>`: Execute existing plans without re-planning
+- `--broadcast <human|agents|false>`: Control planning collaboration
 
-**Two-Tier Workspaces** - Git-backed scratch/deliverable separation:
-- `scratch/` for work-in-progress, `deliverable/` for complete outputs
-- Automatic `[INIT]`, `[SNAPSHOT]`, `[TASK]` git commits
-- Task completion triggers commits with completion notes
-- Agents can review history with `git log`
+**Task Verification Workflow** - Distinguish implementation from validation:
+- Status flow: `pending` → `in_progress` → `completed` → `verified`
+- Verification groups (e.g., "foundation", "frontend_ui") for batch validation
+- Agents verify entire groups at logical checkpoints
 
-**Project Instructions Auto-Discovery** - Following agents.md standard:
-- CLAUDE.md and AGENTS.md auto-discovered from context paths (use `@./` to include current directory)
-- Hierarchical "closest wins" for monorepo support
-- Instructions prepended to agent system messages
+**Plan Storage System** - Persistent plan management in `.massgen/plans/`:
+- Plan structure with metadata, execution logs, and diffs
+- `frozen/` directory for immutable planning-phase snapshots
+- `workspace/` directory for modified plan after execution
 
-**Batch Image Analysis** - Multi-image support:
-- `understand_image` accepts dict for named multi-image comparison
-- `read_media` accepts list for batch image processing
-- Dict keys become reference names in prompts
+**Bug Fixes:**
+- Response API function call message sanitization for OpenAI compatibility
+- Plan execution edge cases (single-agent configs, subprocess deadlocks)
 
-**Timeout & Reliability Fixes:**
-- Circuit breaker prevents infinite tool denial loops
-- Soft->hard timeout race condition fixed
-- MCP tools properly restored after restart
-- Docker health monitoring with log capture on failures
-
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.38
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.39
 
 Feature highlights:
 

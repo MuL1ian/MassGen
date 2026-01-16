@@ -227,7 +227,29 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.38 - Latest
+### v0.1.39 - Latest
+**New Features:** Plan and Execute Workflow, Task Verification System, Plan Storage, Response API Fix
+
+**Key Features:**
+- **Plan and Execute Workflow**: `--plan-and-execute` creates a plan then immediately executes it, `--execute-plan` runs existing plans
+- **Task Verification System**: New `verified` status with verification groups for batch validation at checkpoints
+- **Plan Storage**: Persistent plans in `.massgen/plans/` with frozen snapshots and execution tracking
+- **Response API Fix**: Function call message sanitization for OpenAI compatibility
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Plan and execute in one command - creates a plan then runs it
+uv run massgen --plan-and-execute --plan-depth medium \
+  "Build a REST API for a todo application"
+
+# Execute an existing plan (prompt auto-fills from plan)
+uv run massgen --execute-plan latest
+```
+
+### v0.1.38
 **New Features:** Task Planning Mode, Two-Tier Workspace, Project Instructions Auto-Discovery, Batch Image Analysis, Reliability Improvements
 
 **Key Features:**
@@ -239,9 +261,6 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Task planning mode - creates a plan (no auto-execution)
 uv run massgen --plan --plan-depth medium \
   "Build a REST API for a todo application"

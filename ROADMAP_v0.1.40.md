@@ -1,19 +1,19 @@
-# MassGen v0.1.39 Roadmap
+# MassGen v0.1.40 Roadmap
 
 ## Overview
 
-Version 0.1.39 focuses on OpenAI Responses API improvements and computer use model support.
+Version 0.1.40 focuses on OpenAI Responses API improvements and TUI production upgrade.
 
 - **OpenAI Responses /compact Endpoint** (Required): Use OpenAI's native `/compact` endpoint instead of custom summarization
-- **Add Fara-7B for Computer Use** (Required): Support for Fara-7B model for computer use tasks
+- **TUI Production Upgrade** (Required): Migrate to Textual as primary terminal interface
 
 ## Key Technical Priorities
 
 1. **OpenAI Responses /compact Endpoint**: Leverage API-level context compression for better efficiency
    **Use Case**: Reduce token usage and improve response quality with native compression
 
-2. **Add Fara-7B for Computer Use**: Support for Fara-7B model for GUI automation
-   **Use Case**: Alternative model option for computer use workflows
+2. **TUI Production Upgrade**: Migrate to Textual as primary terminal interface
+   **Use Case**: Professional-grade terminal interface for daily use
 
 ## Key Milestones
 
@@ -51,36 +51,43 @@ Version 0.1.39 focuses on OpenAI Responses API improvements and computer use mod
 
 ---
 
-### Milestone 2: Add Fara-7B for Computer Use (REQUIRED)
+### Milestone 2: TUI Production Upgrade (REQUIRED)
 
-**Goal**: Support for Fara-7B model for computer use tasks
+**Goal**: Migrate to Textual as primary terminal interface
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#646](https://github.com/massgen/MassGen/issues/646)
+**Issue**: [#778](https://github.com/massgen/MassGen/issues/778)
 
-#### 2.1 Model Integration
-- [ ] Research Fara-7B model capabilities and API
-- [ ] Add Fara-7B to capabilities registry
-- [ ] Configure model parameters and pricing
-- [ ] Implement backend support
+#### 2.1 Textual Migration
+- [ ] Set Textual TUI as default display type
+- [ ] Replace rich_terminal with Textual implementation
+- [ ] Ensure feature parity with existing terminal display
+- [ ] Handle graceful fallback for unsupported terminals
 
-#### 2.2 Computer Use Integration
-- [ ] Integrate with existing computer use infrastructure
-- [ ] Test with Docker automation workflows
-- [ ] Validate GUI interaction capabilities
-- [ ] Add example configurations
+#### 2.2 Layout & UX Improvements
+- [ ] Optimize panel layouts for different screen sizes
+- [ ] Improve agent status visibility
+- [ ] Enhance streaming output display
+- [ ] Add keyboard shortcuts documentation
 
-#### 2.3 Documentation
-- [ ] Document Fara-7B configuration options
-- [ ] Add computer use examples
-- [ ] Update model selection guide
+#### 2.3 Stability & Performance
+- [ ] Fix known Textual rendering issues
+- [ ] Optimize refresh rates for streaming
+- [ ] Handle terminal resize events
+- [ ] Reduce memory usage for long sessions
+
+#### 2.4 Testing & Documentation
+- [ ] Unit tests for TUI components
+- [ ] Integration tests across terminal types
+- [ ] Update documentation with TUI usage
+- [ ] Add troubleshooting guide
 
 **Success Criteria**:
-- Fara-7B available in model selection
-- Computer use workflows function correctly
-- Documentation updated with examples
-- Performance comparable to existing models
+- Textual TUI is default terminal interface
+- No regression in functionality from rich_terminal
+- Improved stability and user experience
+- Works across common terminal emulators
 
 ---
 
@@ -94,16 +101,16 @@ Version 0.1.39 focuses on OpenAI Responses API improvements and computer use mod
 - [ ] Fallback for non-OpenAI backends works
 - [ ] No regression in response quality
 
-**Fara-7B for Computer Use:**
-- [ ] Model added to capabilities
-- [ ] Computer use integration working
-- [ ] Example configs provided
+**TUI Production Upgrade:**
+- [ ] Textual TUI is default display type
+- [ ] Feature parity with rich_terminal
+- [ ] Stable across terminal emulators
 - [ ] Documentation complete
 
 ### Performance Requirements
 - [ ] Token usage reduced with compact endpoint
-- [ ] Fara-7B performs adequately for GUI automation
 - [ ] No performance degradation in existing workflows
+- [ ] TUI responsive during heavy streaming
 
 ### Quality Requirements
 - [ ] All tests passing
@@ -117,23 +124,24 @@ Version 0.1.39 focuses on OpenAI Responses API improvements and computer use mod
 
 ### Dependencies
 - **OpenAI Compact Endpoint**: OpenAI API access, Responses API support
-- **Fara-7B**: Model availability, HuggingFace/inference endpoint access
+- **TUI Production Upgrade**: Textual library, terminal compatibility
 
 ### Risks & Mitigations
 1. **API Changes**: *Mitigation*: Monitor OpenAI API updates, implement version checks
-2. **Model Availability**: *Mitigation*: Fallback to alternative models if Fara-7B unavailable
+2. **Terminal Compatibility**: *Mitigation*: Test across common terminals, provide fallback
 3. **Backend Compatibility**: *Mitigation*: Implement proper fallback for non-OpenAI backends
 
 ---
 
-## Future Enhancements (Post-v0.1.39)
+## Future Enhancements (Post-v0.1.40)
 
-### v0.1.40 Plans
+### v0.1.41 Plans
 - **Integrate Smart Semantic Search** (@ncrispino): Advanced semantic search capabilities ([#639](https://github.com/massgen/MassGen/issues/639))
 - **Add Model Selector for Log Analysis** (@ncrispino): Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766))
 
-### v0.1.41 Plans
+### v0.1.42 Plans
 - **Improve Log Sharing and Analysis** (@ncrispino): Enhanced log sharing workflows ([#722](https://github.com/massgen/MassGen/issues/722))
+- **Add Fara-7B for Computer Use** (@ncrispino): Support for Fara-7B model for computer use tasks ([#646](https://github.com/massgen/MassGen/issues/646))
 
 ### Long-term Vision
 - **Advanced Agent Communication**: Sophisticated inter-agent protocols and negotiation
@@ -148,9 +156,9 @@ Version 0.1.39 focuses on OpenAI Responses API improvements and computer use mod
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
 | Phase 1 | OpenAI Compact Endpoint | API integration, token savings | @ncrispino | **REQUIRED** |
-| Phase 2 | Fara-7B Computer Use | Model integration, GUI automation | @ncrispino | **REQUIRED** |
+| Phase 2 | TUI Production Upgrade | Textual migration, stability | @ncrispino | **REQUIRED** |
 
-**Target Release**: January 17, 2026 (Friday @ 9am PT)
+**Target Release**: January 19, 2026 (Sunday @ 9am PT)
 
 ---
 
@@ -165,26 +173,26 @@ Version 0.1.39 focuses on OpenAI Responses API improvements and computer use mod
 4. Test with various conversation lengths
 5. Benchmark token savings
 
-**Fara-7B for Computer Use:**
-1. Research Fara-7B model capabilities
-2. Add to capabilities registry
-3. Integrate with computer use infrastructure
-4. Create example configurations
+**TUI Production Upgrade:**
+1. Review existing Textual TUI implementation
+2. Set Textual as default display type
+3. Test across terminal emulators
+4. Fix stability issues
 5. Update documentation
 
 ### For Users
 
-- v0.1.39 brings API improvements and new model support:
+- v0.1.40 brings API improvements and TUI upgrade:
 
   **OpenAI Responses /compact Endpoint:**
   - Native context compression via OpenAI API
   - Reduced token usage
   - Better response quality
 
-  **Fara-7B for Computer Use:**
-  - Alternative model for GUI automation
-  - Integration with existing computer use workflows
-  - Optimized for browser and desktop tasks
+  **TUI Production Upgrade:**
+  - Professional Textual-based terminal interface
+  - Improved stability and layout
+  - Better streaming display
 
 ---
 
@@ -198,11 +206,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 **Contact Track Owner:**
 - OpenAI Compact Endpoint: @ncrispino on Discord (nickcrispino)
-- Fara-7B Computer Use: @ncrispino on Discord (nickcrispino)
+- TUI Production Upgrade: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.39 priorities focusing on OpenAI compact endpoint and Fara-7B model support.*
+*This roadmap reflects v0.1.40 priorities focusing on OpenAI compact endpoint and TUI production upgrade.*
 
-**Last Updated:** January 15, 2026
+**Last Updated:** January 17, 2026
 **Maintained By:** MassGen Team

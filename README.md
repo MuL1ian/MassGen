@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.38 Features](#-latest-features-v0138)
+- [v0.1.39 Features](#-latest-features-v0139)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.38)](#recent-achievements-v0138)
-- [Previous Achievements (v0.0.3 - v0.1.37)](#previous-achievements-v003---v0137)
+- [Recent Achievements (v0.1.39)](#recent-achievements-v0139)
+- [Previous Achievements (v0.0.3 - v0.1.38)](#previous-achievements-v003---v0138)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.39 Roadmap](#v0139-roadmap)
+- [v0.1.40 Roadmap](#v0140-roadmap)
 </details>
 
 <details open>
@@ -155,29 +155,27 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.38)
+## 🆕 Latest Features (v0.1.39)
 
-**🎉 Released: January 15, 2026** | **Next Update: January 17, 2026**
+**🎉 Released: January 16, 2026** | **Next Update: January 19, 2026**
 
-**What's New in v0.1.38:**
-- **📋 Task Planning Mode** - Create structured plans with `--plan` flag for future workflows (plan-only, no auto-execution)
-- **📁 Two-Tier Workspace** - Git-backed scratch/deliverable separation keeping exploratory work separate from final outputs
-- **📖 Project Instructions Auto-Discovery** - Automatic loading of `CLAUDE.md` and `AGENTS.md` for project context
-- **🖼️ Batch Image Analysis** - Process multiple images simultaneously with `read_media` tool
-- **🔧 Timeout & Reliability Fixes** - Circuit breaker prevents infinite loops, fixed soft-to-hard timeout race conditions
+**What's New in v0.1.39:**
+- **🔄 Plan and Execute Workflow** - Complete plan-then-execute with `--plan-and-execute` for autonomous planning and execution
+- **✅ Task Verification System** - New `verified` status with verification groups for batch validation at checkpoints
+- **📂 Plan Storage** - Persistent plans in `.massgen/plans/` with frozen snapshots and execution tracking
+- **🔧 Response API Fix** - Function call message sanitization for OpenAI compatibility
 
-**Try v0.1.38 Features:**
+**Try v0.1.39 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Task planning mode - creates a plan (no auto-execution)
-uv run massgen --plan --plan-depth medium \
+# Plan and execute in one command - creates a plan then runs it
+uv run massgen --plan-and-execute --plan-depth medium \
   "Build a REST API for a todo application"
 
-# Will read from CLAUDE.md/AGENTS.md in cwd, if it exists
-uv run massgen --config massgen/configs/basic/multi/three_agents_default.yaml \
-  "Explain the current functionality of this repo @./"
+# Execute an existing plan (prompt auto-fills from plan)
+uv run massgen --execute-plan latest
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1212,34 +1210,30 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.38)
+### Recent Achievements (v0.1.39)
 
-**🎉 Released: January 15, 2026**
+**🎉 Released: January 16, 2026**
 
-#### Task Planning Mode
-- **Plan-Only Mode**: New `--plan` flag creates structured plans for future workflows (no auto-execution) with `--plan-depth` options (shallow/medium/deep)
-- **Codebase Exploration**: Auto-adds current directory to context paths for planning agents to explore existing code
-- **User Q&A**: Interactive clarifying questions via `ask_others` tool during planning process
+#### Plan and Execute Workflow
+- **Autonomous Execution**: `--plan-and-execute` creates a structured plan then immediately executes it
+- **Execute Existing Plans**: `--execute-plan <id|path|latest>` runs saved plans without re-planning
 
-#### Two-Tier Workspace System
-- **Git-Backed Separation**: Scratch workspace for exploration vs deliverable workspace for final outputs
-- **Automatic Tracking**: Changes tracked via git for easy rollback and history
+#### Task Verification System
+- **Verified Status**: New `verified` status distinguishing implementation from validation
+- **Verification Groups**: Batch validation with labels like "foundation", "frontend_ui"
+- **Checkpoint Verification**: Agents verify entire groups at logical milestones
 
-#### Project Instructions Auto-Discovery
-- **CLAUDE.md/AGENTS.md Support**: Automatically loads project-specific instructions from standard locations
-- **Context Injection**: Project instructions prepended to agent system messages
+#### Plan Storage System
+- **Persistent Plans**: Plans saved to `.massgen/plans/` with metadata and execution logs
+- **Frozen Snapshots**: Immutable planning-phase snapshots in `frozen/` directory
+- **Execution Tracking**: Plan diffs and execution logs for audit trails
 
-#### Batch Image Analysis
-- **Multi-Image Support**: Process multiple images in single `read_media` call for comparison and batch analysis
+#### Response API Compatibility
+- **Function Call Sanitization**: Fixed OpenAI Response API compatibility issues with function_call messages
 
-#### Reliability Improvements
-- **Circuit Breaker**: Prevents infinite tool denial loops with configurable retry limits
-- **Timeout Race Fix**: Guaranteed progression from soft to hard timeout
-- **MCP Tool Restoration**: Tools properly restored after hard timeout restarts
-- **Vote Tracking Fix**: Ignored votes no longer leak into final results
-- **Docker Health Monitoring**: Container diagnostics on MCP failures
+### Previous Achievements (v0.0.3 - v0.1.38)
 
-### Previous Achievements (v0.0.3 - v0.1.37)
+✅ **Task Planning & Two-Tier Workspaces (v0.1.38)**: Task planning mode with `--plan` flag for structured work breakdown (plan-only, no auto-execution), git-backed two-tier workspaces separating scratch exploration from final deliverables, automatic CLAUDE.md/AGENTS.md discovery for project context, batch image analysis with multi-image comparison, circuit breaker for timeout denial loops, Docker health monitoring
 
 ✅ **Execution Traces & Thinking Mode (v0.1.37)**: Full execution history preserved as `execution_trace.md` for compression recovery and cross-agent coordination, Claude Code and Gemini reasoning content streaming buffer integration, standardized agent labeling across all backends
 
@@ -1459,19 +1453,19 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.39 Roadmap
+### v0.1.40 Roadmap
 
-Version 0.1.39 focuses on OpenAI Responses API improvements and computer use model support:
+Version 0.1.40 focuses on OpenAI Responses API improvements and TUI production upgrade:
 
 #### Planned Features
 - **OpenAI Responses /compact Endpoint** (@ncrispino): Use OpenAI's native `/compact` endpoint for context compression instead of custom summarization
-- **Fara-7B for Computer Use** (@ncrispino): Support for Fara-7B model for GUI automation and computer use tasks
+- **TUI Production Upgrade** (@ncrispino): Migrate to Textual as primary terminal interface for improved stability and UX
 
 Key technical approach:
 - **Native Context Compression**: Leverage OpenAI's API-level compression for better token efficiency
-- **Alternative Computer Use Model**: Fara-7B integration with existing computer use infrastructure
+- **Textual TUI**: Professional-grade terminal interface with improved layout and streaming display
 
-For detailed milestones and technical specifications, see the [full v0.1.39 roadmap](ROADMAP_v0.1.39.md).
+For detailed milestones and technical specifications, see the [full v0.1.40 roadmap](ROADMAP_v0.1.40.md).
 
 ---
 
