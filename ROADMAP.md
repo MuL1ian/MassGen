@@ -723,6 +723,12 @@ These features are being actively developed on **separate parallel tracks** and 
 - Assignment of agents to specific tasks and increasing of diversity
 - Improvement in voting as tasks continue
 
+**Self-Learning & Adaptation**
+- Agents learn from past executions to improve future performance
+- Automatic skill acquisition from successful task completions
+- Feedback loops for continuous improvement
+- Memory systems for retaining learned patterns across sessions
+
 **Visual Workflow Designer**
 - No-code multi-agent workflow creation
 - Drag-and-drop agent configuration
