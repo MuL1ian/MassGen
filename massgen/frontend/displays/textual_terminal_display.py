@@ -1460,8 +1460,9 @@ class TextualTerminalDisplay(TerminalDisplay):
     def request_cancellation(self) -> None:
         """Request cancellation of the current turn."""
         self._user_quit_requested = True
-        if self._app and hasattr(self._app, "notify"):
-            self._call_app_method("notify", "Cancelling turn...", severity="warning")
+        # Update execution status to show cancelled state
+        if self._app and hasattr(self._app, "_show_cancelled_status"):
+            self._call_app_method("_show_cancelled_status")
 
     # =========================================================================
     # Multi-turn Lifecycle Methods
@@ -1927,11 +1928,25 @@ if TEXTUAL_AVAILABLE:
             self._working_agents: Set[str] = set()
             self._spinner_frame = 0
             self._spinner_interval = None
+            # Agent activity tracking for phase icons display
+            self._agent_activities: Dict[str, str] = {}  # agent_id -> activity type
+            self._agent_letters: Dict[str, str] = {}  # agent_id -> letter (A, B, C...)
+            self._agent_order: List[str] = []  # ordered list of agent IDs
+            # Per-agent answer and vote tracking
+            self._agent_answer_counts: Dict[str, int] = {}  # agent_id -> number of answers
+            self._agent_votes_received: Dict[str, int] = {}  # agent_id -> votes received for their answers
             # CWD context mode: "off", "read", or "write"
             self._cwd_context_mode = "off"
-            # Initialize vote counts to 0 for all agents
-            for agent_id in self._agent_ids:
+            # Initialize vote counts to 0 for all agents and register agents
+            for idx, agent_id in enumerate(self._agent_ids):
                 self._vote_counts[agent_id] = 0
+                # Auto-register agents with letters A, B, C, etc.
+                letter = chr(ord("A") + idx) if idx < 26 else str(idx + 1)
+                self._agent_letters[agent_id] = letter
+                self._agent_order.append(agent_id)
+                self._agent_activities[agent_id] = "idle"
+                self._agent_answer_counts[agent_id] = 0
+                self._agent_votes_received[agent_id] = 0
 
         def compose(self) -> ComposeResult:
             """Create the status bar layout with phase, activity, progress, tools, votes, events, MCP, CWD, cancel hint, and timer.
@@ -2105,6 +2120,9 @@ if TEXTUAL_AVAILABLE:
                 self._vote_counts[voted_for] = 0
             self._vote_counts[voted_for] += 1
             self._vote_history.append((voter, voted_for, time.time()))
+            # Also update per-agent votes received tracking
+            if voted_for in self._agent_votes_received:
+                self._agent_votes_received[voted_for] = self._vote_counts[voted_for]
             self._update_votes_display(animate=True)
 
         def update_votes(self, vote_counts: Dict[str, int]) -> None:
@@ -2286,6 +2304,38 @@ if TEXTUAL_AVAILABLE:
             else:
                 self._stop_activity_spinner()
 
+        def set_agent_activity(self, agent_id: str, activity: str) -> None:
+            """Update agent activity type and refresh the activity display.
+
+            Args:
+                agent_id: The agent identifier
+                activity: One of "idle", "thinking", "tool", "streaming", "voting", "waiting", "error"
+            """
+            if agent_id not in self._agent_letters:
+                return  # Unknown agent
+
+            self._agent_activities[agent_id] = activity
+
+            # Start/stop spinner based on any active agents
+            any_active = any(a != "idle" for a in self._agent_activities.values())
+            if any_active and not self._spinner_interval:
+                self._start_activity_spinner()
+            elif not any_active and self._spinner_interval:
+                self._stop_activity_spinner()
+            else:
+                # Just refresh the display without changing spinner state
+                self._update_activity_display()
+
+        def increment_agent_answer(self, agent_id: str) -> None:
+            """Increment answer count for an agent."""
+            if agent_id in self._agent_answer_counts:
+                self._agent_answer_counts[agent_id] += 1
+
+        def update_agent_votes_received(self, agent_id: str, votes: int) -> None:
+            """Update the number of votes an agent has received."""
+            if agent_id in self._agent_votes_received:
+                self._agent_votes_received[agent_id] = votes
+
         def _start_activity_spinner(self) -> None:
             """Start the activity spinner animation."""
             if self._spinner_interval is not None:
@@ -2324,22 +2374,49 @@ if TEXTUAL_AVAILABLE:
             self._update_activity_display()
 
         def _update_activity_display(self) -> None:
-            """Update the activity indicator display."""
-            if not self._working_agents:
-                return
+            """Update the activity indicator display with phase icons per agent.
 
+            Format: [A⠙💭] [B⠙🔧] [C ○]
+            - Active agents show spinner + phase icon
+            - Idle agents show hollow circle
+            """
+            # Activity icons mapping
+            ACTIVITY_ICONS = {
+                "idle": "○",
+                "thinking": "💭",
+                "tool": "🔧",
+                "streaming": "✍️",
+                "voting": "🗳️",
+                "waiting": "⏳",
+                "error": "⚠️",
+            }
+
+            parts = []
             spinner = self.SPINNER_FRAMES[self._spinner_frame]
-            # Show which agents are working
-            working_count = len(self._working_agents)
-            if working_count == 1:
-                agent_name = list(self._working_agents)[0][:8]  # Truncate name
-                display = f"[bold cyan]{spinner}[/] {agent_name}"
-            else:
-                display = f"[bold cyan]{spinner}[/] {working_count} agents"
+
+            for agent_id in self._agent_order:
+                letter = self._agent_letters.get(agent_id, "?")
+                activity = self._agent_activities.get(agent_id, "idle")
+                icon = ACTIVITY_ICONS.get(activity, "○")
+
+                if activity == "idle":
+                    parts.append(f"[{letter} {icon}]")
+                else:
+                    parts.append(f"[{letter}{spinner}{icon}]")
+
+            display = " ".join(parts)
+
+            # Check if any agent is active
+            any_active = any(a != "idle" for a in self._agent_activities.values())
 
             try:
                 activity_widget = self.query_one("#status_activity", Static)
                 activity_widget.update(display)
+                # Show/hide based on any activity
+                if any_active:
+                    activity_widget.remove_class("hidden")
+                else:
+                    activity_widget.add_class("hidden")
             except Exception:
                 pass
 
@@ -2431,6 +2508,9 @@ if TEXTUAL_AVAILABLE:
             # CWD context mode: "off", "read", or "write"
             self._cwd_context_mode: str = "off"
 
+            # Timer for updating execution status bar with spinner animation
+            self._execution_status_timer = None
+
             if not self._keyboard_interactive_mode:
                 self.BINDINGS = []
 
@@ -2481,15 +2561,16 @@ if TEXTUAL_AVAILABLE:
                     yield self._vim_indicator
 
                 # Execution bar - shown ONLY during coordination, replaces input
-                # Contains cancel button (left) and status text (right)
+                # Contains status text (left) and cancel button (right)
                 with Horizontal(id="execution_bar"):
-                    # Cancel button - on left to avoid toast overlap
-                    self._cancel_button = Button("Cancel [q]", id="cancel_button", variant="error")
-                    yield self._cancel_button
-                    # Spacer to push status text to right
-                    yield Static("", id="execution_spacer")
+                    # Status text on left - shows agent activity icons
                     self._execution_status = Static("Working...", id="execution_status")
                     yield self._execution_status
+                    # Spacer to push cancel button to right
+                    yield Static("", id="execution_spacer")
+                    # Cancel button - on right
+                    self._cancel_button = Button("Cancel [q]", id="cancel_button", variant="error")
+                    yield self._cancel_button
 
                 # Multi-line input: Enter to submit, Shift+Enter for new line
                 # Type @ to trigger path autocomplete
@@ -3176,10 +3257,46 @@ Type your question and press Enter to ask the agents.
             # Also update the tab bar status badge
             if self._tab_bar:
                 self._tab_bar.update_agent_status(agent_id, status)
-            # Update StatusBar activity indicator
+            # Update StatusBar activity indicator with granular phase icons
             if self._status_bar:
-                is_working = status in ("working", "streaming", "thinking")
+                # Map status strings to activity types for phase icons
+                STATUS_TO_ACTIVITY = {
+                    # Thinking states
+                    "working": "thinking",
+                    "thinking": "thinking",
+                    "processing": "thinking",
+                    # Streaming states
+                    "streaming": "streaming",
+                    # Tool execution states
+                    "tool_call": "tool",
+                    "mcp_tool_called": "tool",
+                    "custom_tool_called": "tool",
+                    "mcp_tool_response": "thinking",  # After tool, back to thinking
+                    "custom_tool_response": "thinking",
+                    "mcp_tool_error": "error",
+                    "custom_tool_error": "error",
+                    # Voting states
+                    "voting": "voting",
+                    "voted": "waiting",  # After voting, waiting for others
+                    # Waiting states
+                    "waiting": "waiting",
+                    # Completion states - "completed" means agent finished one task,
+                    # but may still be active in coordination (voting, restart, etc.)
+                    # Only truly idle when coordination is done
+                    "error": "error",
+                    "complete": "waiting",  # Completed one task, waiting for coordination
+                    "completed": "waiting",  # Same - waiting, not truly idle
+                    "idle": "idle",
+                    "done": "idle",
+                    "finished": "idle",  # Only explicit "idle"/"done"/"finished" = truly idle
+                }
+                activity = STATUS_TO_ACTIVITY.get(status, "thinking")  # Default to thinking if unknown
+                self._status_bar.set_agent_activity(agent_id, activity)
+                # Also maintain backwards compatibility with set_agent_working
+                is_working = activity not in ("idle",)
                 self._status_bar.set_agent_working(agent_id, is_working)
+            # Update execution status bar with new agent icons
+            self._update_execution_status()
 
         def update_agent_timeout(self, agent_id: str, timeout_state: Dict[str, Any]):
             """Update agent timeout display.
@@ -3362,6 +3479,9 @@ Type your question and press Enter to ask the agents.
             # Update StatusBar to show restart count
             if self._status_bar:
                 self._update_status_bar_restart_info()
+                # Reset all agents to "thinking" state since they'll be working again
+                for agent_id in self._status_bar._agent_order:
+                    self._status_bar.set_agent_activity(agent_id, "thinking")
 
             # Also show prominent restart separator in ALL agent panels
             for agent_id, panel in self.agent_widgets.items():
@@ -3491,8 +3611,9 @@ Type your question and press Enter to ask the agents.
         def on_button_pressed(self, event: Button.Pressed) -> None:
             """Handle button clicks in main app."""
             if event.button.id == "cancel_button":
-                # Trigger cancellation (same as 'q' key)
+                # Trigger cancellation (same as Ctrl+C)
                 self.coordination_display.request_cancellation()
+                self.notify("Cancelling turn...", severity="warning", timeout=2)
                 event.stop()
 
         def _handle_cancel(self) -> None:
@@ -3906,6 +4027,8 @@ Type your question and press Enter to ask the agents.
                 answer_count = len(self._answers)
                 vote_count = len(self._votes)
                 self._status_bar.update_progress(agent_count, answer_count, vote_count)
+                # Increment per-agent answer count
+                self._status_bar.increment_agent_answer(agent_id)
 
             # Enhanced toast with model info
             agent_display = f"{agent_id}" + (f" ({model_name})" if model_name else "")
@@ -4086,10 +4209,17 @@ Type your question and press Enter to ask the agents.
                     # Not executing - show normal input
                     tui_log(f"  Phase '{phase}' -> removing execution-mode class")
                     input_area.remove_class("execution-mode")
+                    # Stop execution status update timer
+                    if hasattr(self, "_execution_status_timer") and self._execution_status_timer:
+                        self._execution_status_timer.stop()
+                        self._execution_status_timer = None
                 else:
                     # Executing (initial_answer, enforcement, coordinating) - show status
                     tui_log(f"  Phase '{phase}' -> adding execution-mode class")
                     input_area.add_class("execution-mode")
+                    # Start timer to periodically update execution status (for spinner animation)
+                    if not hasattr(self, "_execution_status_timer") or not self._execution_status_timer:
+                        self._execution_status_timer = self.set_interval(0.1, self._update_execution_status)
                 tui_log(f"  input_area classes after: {input_area.classes}")
             except Exception as e:
                 tui_log(f"  Exception toggling execution-mode: {e}")
@@ -4116,13 +4246,65 @@ Type your question and press Enter to ask the agents.
             self._update_execution_status(vote_counts=vote_counts)
 
         def _update_execution_status(self, vote_counts: Dict[str, int] | None = None) -> None:
-            """Update the execution status line with current progress."""
+            """Update the execution status line with per-agent progress and activity.
+
+            Format: A: 2 ans, 3 votes 💭  |  B: 1 ans, 2 votes 🔧  |  ⏱ 16s
+            """
             try:
                 if hasattr(self, "_execution_status"):
                     # Build status text
                     parts = []
 
-                    # Add elapsed time if status bar has start time
+                    # Add per-agent stats from status bar
+                    if hasattr(self, "_status_bar") and self._status_bar:
+                        ACTIVITY_ICONS = {
+                            "idle": "○",
+                            "thinking": "💭",
+                            "tool": "🔧",
+                            "streaming": "✍️",
+                            "voting": "🗳️",
+                            "waiting": "⏳",
+                            "error": "⚠️",
+                        }
+                        SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+                        spinner = SPINNER_FRAMES[self._status_bar._spinner_frame]
+
+                        agent_parts = []
+                        for agent_id in self._status_bar._agent_order:
+                            letter = self._status_bar._agent_letters.get(agent_id, "?")
+                            activity = self._status_bar._agent_activities.get(agent_id, "idle")
+                            icon = ACTIVITY_ICONS.get(activity, "○")
+                            answers = self._status_bar._agent_answer_counts.get(agent_id, 0)
+                            votes = self._status_bar._agent_votes_received.get(agent_id, 0)
+
+                            # Build agent status string with spaces
+                            stats_parts = []
+                            if answers > 0:
+                                stats_parts.append(f"{answers} ans")
+                            if votes > 0:
+                                stats_parts.append(f"{votes} votes")
+                            stats = ", ".join(stats_parts) if stats_parts else ""
+
+                            # Format: "A: 2 ans, 3 votes 💭" or "A: 💭" if no stats yet
+                            if activity == "idle":
+                                if stats:
+                                    agent_parts.append(f"{letter}: {stats}  {icon}")
+                                else:
+                                    agent_parts.append(f"{letter}: {icon}")
+                            else:
+                                if stats:
+                                    agent_parts.append(f"{letter}: {stats}  {spinner} {icon}")
+                                else:
+                                    agent_parts.append(f"{letter}: {spinner} {icon}")
+
+                        if agent_parts:
+                            parts.append("  |  ".join(agent_parts))
+                        else:
+                            parts.append("Working...")
+                    else:
+                        parts.append("Working...")
+
+                    # Add elapsed time
                     if hasattr(self, "_status_bar") and self._status_bar and hasattr(self._status_bar, "_start_time"):
                         start_time = self._status_bar._start_time
                         if start_time:
@@ -4134,16 +4316,39 @@ Type your question and press Enter to ask the agents.
                             else:
                                 parts.append(f"⏱ {secs}s")
 
-                    # Add vote counts if available
-                    if vote_counts:
-                        vote_str = " ".join(f"{k}:{v}" for k, v in sorted(vote_counts.items()) if v > 0)
-                        if vote_str:
-                            parts.append(f"Votes: {vote_str}")
+                    self._execution_status.update("  |  ".join(parts))
+            except Exception:
+                pass
 
-                    # Add working indicator and cancel hint
-                    parts.append("Working... [q] to cancel")
+        def _show_cancelled_status(self) -> None:
+            """Stop execution status updates and show cancelled state."""
+            try:
+                # Stop the execution status timer
+                if hasattr(self, "_execution_status_timer") and self._execution_status_timer:
+                    self._execution_status_timer.stop()
+                    self._execution_status_timer = None
 
-                    self._execution_status.update(" • ".join(parts))
+                # Set all agents to idle
+                if hasattr(self, "_status_bar") and self._status_bar:
+                    for agent_id in self._status_bar._agent_order:
+                        self._status_bar.set_agent_activity(agent_id, "idle")
+
+                # Update execution status to show cancelled
+                if hasattr(self, "_execution_status"):
+                    # Get elapsed time for final display
+                    elapsed_text = ""
+                    if hasattr(self, "_status_bar") and self._status_bar and hasattr(self._status_bar, "_start_time"):
+                        start_time = self._status_bar._start_time
+                        if start_time:
+                            elapsed = time.time() - start_time
+                            mins = int(elapsed // 60)
+                            secs = int(elapsed % 60)
+                            if mins > 0:
+                                elapsed_text = f"  |  ⏱ {mins}m {secs}s"
+                            else:
+                                elapsed_text = f"  |  ⏱ {secs}s"
+
+                    self._execution_status.update(f"❌ Cancelled{elapsed_text}")
             except Exception:
                 pass
 
