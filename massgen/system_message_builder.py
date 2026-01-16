@@ -334,7 +334,21 @@ class SystemMessageBuilder:
         if hasattr(agent, "backend") and hasattr(agent.backend, "config"):
             auto_discover_enabled = agent.backend.config.get("auto_discover_custom_tools", False)
         if auto_discover_enabled:
-            builder.add_section(EvolvingSkillsSection())
+            # Check for plan.json to provide plan-aware guidance
+            plan_context = None
+            if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
+                workspace_path = Path(agent.backend.filesystem_manager.get_current_workspace())
+                plan_file = workspace_path / "tasks" / "plan.json"
+                if plan_file.exists():
+                    try:
+                        import json
+
+                        plan_context = json.loads(plan_file.read_text())
+                        logger.info(f"[SystemMessageBuilder] Found plan.json with {len(plan_context.get('tasks', []))} tasks for evolving skills")
+                    except Exception as e:
+                        logger.warning(f"[SystemMessageBuilder] Failed to read plan.json: {e}")
+
+            builder.add_section(EvolvingSkillsSection(plan_context=plan_context))
             logger.info(f"[SystemMessageBuilder] Added evolving skills section for {agent_id}")
 
         # PRIORITY 10 (MEDIUM): Broadcast Communication (conditional)

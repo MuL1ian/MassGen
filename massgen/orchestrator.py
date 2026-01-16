@@ -3899,6 +3899,50 @@ Your answer:"""
         )
         return timestamp
 
+    def _compute_plan_progress_stats(self, workspace_path: str) -> Optional[Dict[str, Any]]:
+        """Compute task progress stats for an agent's workspace (plan execution mode only).
+
+        This reads the agent's tasks/plan.json and computes how many tasks are completed
+        vs total. Only works in plan-and-execute mode where tasks/plan.json exists.
+
+        Args:
+            workspace_path: Path to the agent's workspace (temp workspace copy)
+
+        Returns:
+            Dict with progress stats, or None if not in plan execution mode or files missing
+        """
+        try:
+            workspace = Path(workspace_path)
+            tasks_plan = workspace / "tasks" / "plan.json"
+
+            # Check if this is plan execution mode (has tasks/plan.json)
+            if not tasks_plan.exists():
+                return None
+
+            # Read task plan
+            tasks_data = json.loads(tasks_plan.read_text())
+            tasks = tasks_data.get("tasks", [])
+            total_tasks = len(tasks)
+
+            if total_tasks == 0:
+                return None
+
+            # Count by status (verified tasks count as completed for progress)
+            completed = sum(1 for t in tasks if t.get("status") in ("completed", "verified"))
+            in_progress = sum(1 for t in tasks if t.get("status") == "in_progress")
+            pending = sum(1 for t in tasks if t.get("status") == "pending")
+
+            return {
+                "total": total_tasks,
+                "completed": completed,
+                "in_progress": in_progress,
+                "pending": pending,
+                "percent_complete": round(100 * completed / total_tasks, 1) if total_tasks > 0 else 0,
+            }
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Could not compute plan progress: {e}")
+            return None
+
     def _build_tool_result_injection(
         self,
         agent_id: str,
@@ -3958,6 +4002,16 @@ Your answer:"""
             # Include workspace path for file access
             workspace_path = os.path.join(temp_workspace_base, anon_id) if temp_workspace_base else f"temp_workspaces/{anon_id}"
             lines.append(f"  [{anon_id}] (workspace: {workspace_path}):")
+
+            # Compute and include progress stats if in plan execution mode
+            progress = self._compute_plan_progress_stats(workspace_path)
+            if progress:
+                lines.append(
+                    f"    📊 Progress: {progress['completed']}/{progress['total']} tasks completed "
+                    f"({progress['percent_complete']}%) | {progress['in_progress']} in progress | {progress['pending']} pending",
+                )
+                lines.append("    ⚠️  Note: Progress stats are INFORMATIONAL - evaluate the DELIVERABLE quality, not task count")
+
             lines.append(f"    {truncated}")
             lines.append("")
 

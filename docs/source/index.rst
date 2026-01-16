@@ -217,6 +217,7 @@ Documentation
    :caption: User Guide
 
    user_guide/concepts
+   user_guide/task_planning
    user_guide/backends
    user_guide/webui
    user_guide/tools/index

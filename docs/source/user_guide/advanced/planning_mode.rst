@@ -16,7 +16,7 @@ Quick Start
 
 .. code-block:: bash
 
-   massgen \
+   uv run massgen \
      --config @examples/tools/planning/five_agents_filesystem_mcp_planning_mode.yaml \
      "Create a comprehensive project structure with documentation"
 
@@ -24,7 +24,7 @@ Quick Start
 
 .. code-block:: bash
 
-   massgen \
+   uv run massgen \
      --config @examples/tools/mcp/five_agents_weather_mcp_test.yaml \
      "Compare weather forecasts for New York, London, and Tokyo"
 
@@ -92,7 +92,7 @@ MCP External Tools
 .. code-block:: bash
 
    # Weather API example with planning mode
-   massgen \
+   uv run massgen \
      --config @examples/tools/mcp/five_agents_weather_mcp_test.yaml \
      "Get weather data for multiple cities"
 
@@ -309,7 +309,7 @@ Example 1: Project Structure Creation
 
 .. code-block:: bash
 
-   massgen \
+   uv run massgen \
      --config @examples/tools/planning/five_agents_filesystem_mcp_planning_mode.yaml \
      "Create a Python microservice project with src/, tests/, docker/, and docs/ directories. Add starter files."
 
@@ -322,7 +322,7 @@ Example 2: Weather Data Collection
 
 .. code-block:: bash
 
-   massgen \
+   uv run massgen \
      --config @examples/tools/mcp/five_agents_weather_mcp_test.yaml \
      "Fetch weather data for San Francisco, New York, and London. Compare temperatures."
 
@@ -335,7 +335,7 @@ Example 3: Social Media Integration
 
 .. code-block:: bash
 
-   massgen \
+   uv run massgen \
      --config @examples/tools/planning/five_agents_twitter_mcp_planning_mode.yaml \
      "Analyze recent tweets about AI and post a summary"
 

@@ -33,7 +33,20 @@ import threading
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+)
+
+if TYPE_CHECKING:
+    from .plan_storage import PlanSession
 
 import questionary
 import yaml
@@ -472,37 +485,72 @@ Only after scope confirmation and sufficient research:
 
 ## Output Requirements
 
-1. **Primary artifact**: `feature_list.json` - structured feature list
-2. **Supporting docs**: Create additional markdown docs as needed:
+1. **Primary artifact**: `project_plan.json` - Write this file using file write tools:
+   - If `deliverable/` folder exists in your workspace, put it there: `deliverable/project_plan.json`
+   - Otherwise, put it in your workspace root: `project_plan.json`
+2. **Supporting docs**: Create additional markdown docs as needed (same location as project_plan.json):
    - User stories or requirements docs
    - Technical approach / design decisions
    - Separate spec files if request contains multiple distinct features
 
-## Feature List Format
+**IMPORTANT**: Write `project_plan.json` directly as a file. Do NOT use MCP planning tools
+(create_task_plan, update_task_status, etc.) to create this deliverable - those tools are for
+tracking your own internal work progress, not for creating the project plan deliverable.
+
+## Planning Principles
+
+**Focus on outcomes, not implementation details.** Describe WHAT the final product needs, not HOW to build it. Implementation choices happen during execution.
+
+**Think about final product quality:**
+- If it's visual, it should LOOK good - include quality visuals, not just code
+- If it produces output, that output should be polished and professional
+- Consider what a user/viewer would actually experience
+
+**Verification should test the PRODUCT FIRST, then source code:**
+1. Does the final product work? (run it, use it, see it)
+2. Does it look/feel right? (visual quality, UX)
+3. Only then: is the code correct? (builds, tests pass)
+
+**Tasks should be achievable with the available tools.** Executing agents will have access to the configured tools and will figure out how to use them.
+
+## Task List Format
+Write `project_plan.json` with this structure:
 ```json
 {{
-  "features": [
+  "tasks": [
     {{
       "id": "F001",
-      "name": "Feature Name",
-      "description": "What this feature does",
+      "description": "Feature Name - What this feature accomplishes and the expected outcome",
       "status": "pending",
-      "dependencies": ["F000"],
-      "priority": "high|medium|low"
+      "depends_on": ["F000"],
+      "priority": "high|medium|low",
+      "metadata": {{
+        "verification": "How to verify this task is complete",
+        "verification_method": "Automated verification approach",
+        "verification_group": "optional_group_name"
+      }}
     }}
   ]
 }}
 ```
+
+### Metadata Fields (Optional but Recommended)
+- **verification**: What to check - testable completion criteria (e.g., "Homepage displays correctly", "API returns 200")
+- **verification_method**: Automated verification approach (no manual human steps). Can check both correctness (builds, tests, API responses) and quality (visual analysis, output review).
+- **verification_group**: Group related tasks for batch verification (e.g., "foundation", "frontend_ui", "api_endpoints").
+  During execution, tasks are marked `completed` then later `verified` in groups.
 
 ## Depth: {plan_depth.upper()}
 - Target: {cfg["target"]} features/tasks
 - Detail level: {cfg["detail"]}
 
 ## Quality Criteria
-- Each feature should be independently verifiable
-- Dependencies should form a valid DAG (no cycles)
+- Each task should be independently verifiable
+- Dependencies (depends_on) should form a valid DAG (no cycles)
 - Descriptions should be specific enough to implement
 - Scope should be confirmed with user before detailed planning
+- Verification criteria should be testable and specific
+- Use verification_group to batch related tasks (e.g., verify all pages after building them)
 
 ---
 
@@ -5712,6 +5760,636 @@ async def run_interactive_mode(
         print()  # Clean line after ^C
 
 
+def _build_execution_prompt(question: str, plan_session) -> str:
+    """Build the execution prompt that guides agents through plan-based work.
+
+    Args:
+        question: The original user question/task
+        plan_session: PlanSession object with plan directories
+
+    Returns:
+        Formatted execution prompt with plan context
+    """
+    return f"""# PLAN EXECUTION MODE
+
+Your task plan has been AUTO-LOADED into `tasks/plan.json`. Start executing!
+
+## Your Task
+{question}
+
+## Getting Started
+
+1. **Check ready tasks**: Use `get_ready_tasks()` to see what to work on first
+2. **Track progress**: Use `update_task_status(task_id, status, completion_notes)` as you work
+3. **Execute all tasks**: Implement everything in the plan
+4. **Evaluate others**: See system prompt for how to assess CURRENT_ANSWERS
+
+## Reference Materials
+- `planning_docs/` - supporting docs from planning phase (user stories, design, etc.)
+- Frozen plan available via context path for validation
+
+Begin execution now."""
+
+
+def resolve_plan_path(plan_path: str) -> "PlanSession":
+    """Resolve a plan path/ID to a PlanSession object.
+
+    Args:
+        plan_path: Can be:
+            - "latest" - most recent plan
+            - Plan ID like "20260115_173113_836955"
+            - Full path like ".massgen/plans/plan_20260115_173113_836955"
+
+    Returns:
+        PlanSession object
+
+    Raises:
+        FileNotFoundError: If plan not found
+    """
+    from .plan_storage import PLANS_DIR, PlanSession, PlanStorage
+
+    storage = PlanStorage()
+
+    if plan_path == "latest":
+        session = storage.get_latest_plan()
+        if not session:
+            raise FileNotFoundError("No plans found in .massgen/plans/")
+        return session
+
+    # Check if it's a full path
+    plan_path_obj = Path(plan_path)
+    if plan_path_obj.exists() and plan_path_obj.is_dir():
+        # Extract plan_id from directory name
+        plan_id = plan_path_obj.name.replace("plan_", "")
+        session = PlanSession(plan_id)
+        if not session.plan_dir.exists():
+            raise FileNotFoundError(f"Plan directory not valid: {plan_path}")
+        return session
+
+    # Assume it's a plan ID
+    session = PlanSession(plan_path)
+    if not session.plan_dir.exists():
+        # Try with plan_ prefix stripped if present
+        if plan_path.startswith("plan_"):
+            plan_id = plan_path[5:]  # Remove "plan_" prefix
+            session = PlanSession(plan_id)
+
+    if not session.plan_dir.exists():
+        available_plans = list(PLANS_DIR.glob("plan_*")) if PLANS_DIR.exists() else []
+        msg = f"Plan not found: {plan_path}"
+        if available_plans:
+            msg += "\n\nAvailable plans:"
+            for plan_dir in sorted(available_plans, reverse=True)[:10]:
+                msg += f"\n  - {plan_dir.name.replace('plan_', '')}"
+        raise FileNotFoundError(msg)
+
+    return session
+
+
+async def _execute_plan_phase(
+    config: Dict[str, Any],
+    plan_session: "PlanSession",
+    question: str,
+    automation: bool = False,
+) -> Tuple[str, Dict[str, Any]]:
+    """
+    Internal: Execute a plan (Phase 2) and collect results (Phase 3).
+
+    This is the shared implementation used by both run_plan_and_execute
+    and run_execute_plan.
+
+    Args:
+        config: Full config dict
+        plan_session: PlanSession with frozen plan
+        question: Task description
+        automation: Whether in automation mode
+
+    Returns:
+        Tuple of (final_answer, diff_dict)
+    """
+    import copy
+
+    from rich.console import Console
+
+    from .logger_config import get_log_session_root
+
+    console = Console()
+
+    console.print("\n[bold blue]═══ EXECUTION ═══[/bold blue]")
+    console.print("Executing plan with agents...")
+
+    # Update metadata
+    metadata = plan_session.load_metadata()
+    metadata.status = "executing"
+    plan_session.save_metadata(metadata)
+    plan_session.log_event("execution_started", {"question": question})
+
+    # Build execution prompt
+    execution_prompt = _build_execution_prompt(question, plan_session)
+
+    # Modify config to add plan context paths and enable planning tools for execution
+    exec_config = copy.deepcopy(config)
+    orchestrator_cfg = exec_config.setdefault("orchestrator", {})
+    context_paths = orchestrator_cfg.setdefault("context_paths", [])
+
+    # Add frozen plan as read-only context (for reference)
+    context_paths.append(
+        {
+            "path": str(plan_session.frozen_dir),
+            "permission": "read",
+        },
+    )
+
+    # Enable planning MCP tools for task tracking
+    coordination_cfg = orchestrator_cfg.setdefault("coordination", {})
+    coordination_cfg["enable_agent_task_planning"] = True
+    coordination_cfg["task_planning_filesystem_mode"] = True
+
+    # Inject plan execution guidance into each agent's system message
+    plan_execution_guidance = """
+## Plan Execution Mode
+
+You are executing a pre-approved task plan. The plan has been AUTO-LOADED into `tasks/plan.json`.
+
+### Getting Started - Plan is Ready
+
+Your task plan is already loaded. Use MCP planning tools to track progress:
+
+1. **See all tasks**: `get_task_plan()` - view full plan with current status
+2. **See ready tasks**: `get_ready_tasks()` - tasks with dependencies satisfied
+3. **Start a task**: `update_task_status("T001", "in_progress")`
+4. **Complete a task**: `update_task_status("T001", "completed", "How you completed it")`
+
+Supporting docs from planning phase are in `planning_docs/` for reference.
+
+### CRITICAL: Verification Workflow
+
+**Do NOT just write code and mark tasks complete. You MUST verify your work actually runs.**
+
+#### Task Status Flow
+- `pending` → `in_progress` → `completed` → `verified`
+- **completed**: Implementation is done (code written)
+- **verified**: Task has been tested and confirmed working
+
+#### How to Use Verification
+1. Mark task `completed` when implementation is done
+2. At logical checkpoints, verify groups of completed tasks together
+3. Mark tasks `verified` after verification passes
+
+#### Verification Checkpoints (when to verify)
+Tasks have `verification_group` labels (e.g., "foundation", "frontend_ui", "api"). Verify when:
+
+1. **After completing all tasks in a verification_group** - e.g., after all "foundation" tasks, run `npm run dev`
+2. **After major milestones** - e.g., project setup, feature completion
+3. **Before declaring work complete** - Run full build (`npm run build`)
+
+Use `get_task_plan()` to see tasks grouped by `verification_group` under `verification_groups`.
+
+#### Verification Commands
+Tasks have `verification_method` in metadata - USE IT:
+```
+update_task_status("F001", "completed", "Created Next.js project")
+# ... complete more foundation tasks ...
+# Verify the group:
+# npm run dev → works!
+update_task_status("F001", "verified", "Dev server runs on localhost:3000")
+```
+
+**A task should NOT be marked `verified` if:**
+- The code doesn't compile/build
+- The dev server crashes on startup
+- The feature doesn't render or function as described
+
+Fix issues before marking as verified.
+
+### Evaluating CURRENT_ANSWERS
+
+When you see other agents' work, you'll receive **progress stats** showing task completion.
+These are INFORMATIONAL only - they help you understand where others are, but task count alone
+doesn't determine quality.
+
+**Focus on Deliverable Quality** (the end product matters most):
+- Does the deliverable work? (website loads, app runs, API responds)
+- Does it meet the original requirements from the planning docs?
+- Is the user-facing quality good? (UI looks right, features work as expected)
+
+**Progress stats are context, not judgment**:
+- An agent with fewer tasks completed might have better quality work
+- An agent with all tasks done might have rushed and produced poor quality
+- Use progress info to understand scope, but evaluate the actual deliverable
+
+**Only vote when work is TRULY COMPLETE and HIGH QUALITY**:
+- All planned tasks should be done (or have documented reasons for deviation)
+- The deliverable must be functional and meet quality expectations
+- Don't vote for partial implementations, even if task count looks good
+
+### Adopting Another Agent's Work
+
+If you see a CURRENT_ANSWER that's excellent and you want to build on it:
+1. Their plan progress is in their `tasks/plan.json`
+2. To adopt: copy their plan.json content into YOUR `tasks/plan.json` via `create_task_plan(tasks=[...])`
+3. Then continue from where they left off
+
+If no agent is fully complete with quality work, continue your own implementation rather than voting for incomplete work.
+"""
+
+    # Append guidance to each agent's system message (handle both single and multi-agent configs)
+    if "agents" in exec_config:
+        for agent_cfg in exec_config["agents"]:
+            existing_msg = agent_cfg.get("system_message", "")
+            agent_cfg["system_message"] = existing_msg + plan_execution_guidance
+    elif "agent" in exec_config:
+        agent_cfg = exec_config["agent"]
+        existing_msg = agent_cfg.get("system_message", "")
+        agent_cfg["system_message"] = existing_msg + plan_execution_guidance
+
+    # Create agents with plan context
+    agents = create_agents_from_config(
+        exec_config,
+        orchestrator_cfg,
+        memory_session_id=f"plan_exec_{plan_session.plan_id}",
+    )
+
+    # Read the frozen plan tasks - fail fast if missing or unreadable
+    frozen_plan_file = plan_session.frozen_dir / "plan.json"
+    if not frozen_plan_file.exists():
+        console.print(f"[bold red]Error: Frozen plan not found at {frozen_plan_file}[/bold red]")
+        console.print("[red]Cannot execute plan without a valid frozen plan.json[/red]")
+        raise SystemExit(1)
+
+    try:
+        plan_data = json.loads(frozen_plan_file.read_text())
+    except json.JSONDecodeError as e:
+        console.print(f"[bold red]Error: Failed to parse frozen plan: {e}[/bold red]")
+        console.print(f"[red]File: {frozen_plan_file}[/red]")
+        raise SystemExit(1)
+
+    plan_tasks = plan_data.get("tasks", [])
+    console.print(f"[dim]Loaded {len(plan_tasks)} tasks from frozen plan[/dim]")
+
+    # Copy plan and supporting docs to each agent's workspace
+    for agent_id, agent in agents.items():
+        if hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
+            agent_workspace = Path(agent.backend.filesystem_manager.cwd)
+
+            # Copy supporting docs (*.md files) to planning_docs/ for reference
+            planning_docs_dest = agent_workspace / "planning_docs"
+            planning_docs_dest.mkdir(exist_ok=True)
+            for doc in plan_session.frozen_dir.glob("*.md"):
+                shutil.copy2(doc, planning_docs_dest / doc.name)
+                logger.info(f"[ExecutePlan] Copied {doc.name} to {agent_id}'s planning_docs/")
+
+            # Copy plan.json directly to tasks/plan.json so agents can read it immediately
+            # Write full plan_data to preserve top-level metadata (agent_id, timestamps, subagents)
+            if plan_tasks:
+                tasks_dir = agent_workspace / "tasks"
+                tasks_dir.mkdir(exist_ok=True)
+                plan_file = tasks_dir / "plan.json"
+                plan_file.write_text(json.dumps(plan_data, indent=2))
+                logger.info(f"[ExecutePlan] Copied plan.json to {agent_id}'s tasks/plan.json ({len(plan_tasks)} tasks)")
+                console.print(f"[dim]Copied plan to {agent_id}'s workspace[/dim]")
+
+    # Build UI config
+    ui_config = {
+        "display_type": "silent" if automation else "rich_terminal",
+        "logging_enabled": True,
+        "automation_mode": automation,
+    }
+
+    # Run execution
+    result = await run_single_question(
+        execution_prompt,
+        agents,
+        ui_config,
+        return_metadata=True,
+        orchestrator=orchestrator_cfg,
+    )
+
+    final_answer = result["answer"]
+    coordination_result = result.get("coordination_result", {})
+
+    # ========== Collection & Reporting ==========
+    console.print("\n[bold blue]═══ COLLECTION ═══[/bold blue]")
+
+    # Get winning agent's workspace and collect their modified plan
+    if coordination_result:
+        winning_agent_id = coordination_result.get("selected_agent")
+        if winning_agent_id and winning_agent_id in agents:
+            winning_agent = agents[winning_agent_id]
+            if hasattr(winning_agent.backend, "filesystem_manager") and winning_agent.backend.filesystem_manager:
+                winner_workspace = Path(winning_agent.backend.filesystem_manager.cwd)
+
+                # Look for plan.json: agents work with tasks/plan.json during execution
+                winner_plan_file = winner_workspace / "tasks" / "plan.json"
+                if not winner_plan_file.exists():
+                    # Fallback to workspace root
+                    winner_plan_file = winner_workspace / "plan.json"
+
+                if winner_plan_file.exists():
+                    # Copy winning agent's modified plan.json to workspace_dir/plan.json
+                    # This is needed for compute_plan_diff() which compares workspace/plan.json vs frozen/plan.json
+                    plan_session.workspace_dir.mkdir(parents=True, exist_ok=True)
+                    dest_plan_file = plan_session.workspace_dir / "plan.json"
+                    shutil.copy2(winner_plan_file, dest_plan_file)
+                    logger.info(f"[ExecutePlan] Collected modified plan from {winning_agent_id}")
+
+    # Compute plan diff
+    diff = plan_session.compute_plan_diff()
+    plan_session.diff_file.write_text(json.dumps(diff, indent=2))
+    plan_session.log_event("diff_computed", diff)
+
+    # Update metadata
+    metadata = plan_session.load_metadata()
+    metadata.status = "completed"
+    metadata.execution_session_id = coordination_result.get("session_id") if coordination_result else None
+    try:
+        metadata.execution_log_dir = str(get_log_session_root())
+    except Exception:
+        metadata.execution_log_dir = None
+    plan_session.save_metadata(metadata)
+
+    # Print adherence summary
+    adherence = 100 - diff.get("divergence_score", 0) * 100
+    console.print(f"\n[green]Plan Adherence: {adherence:.1f}%[/green]")
+    console.print(f"Plan stored at: {plan_session.plan_dir}")
+
+    if diff.get("tasks_added"):
+        console.print(f"[yellow]Tasks added: {len(diff['tasks_added'])}[/yellow]")
+    if diff.get("tasks_removed"):
+        console.print(f"[yellow]Tasks removed: {len(diff['tasks_removed'])}[/yellow]")
+    if diff.get("tasks_modified"):
+        console.print(f"[yellow]Tasks modified: {len(diff['tasks_modified'])}[/yellow]")
+
+    return final_answer, diff
+
+
+async def run_execute_plan(
+    config: Dict[str, Any],
+    plan_path: str,
+    question: Optional[str] = None,
+    automation: bool = False,
+) -> Tuple[str, Any]:
+    """
+    Execute an existing plan (skips planning phase).
+
+    Args:
+        config: Full config dict
+        plan_path: Path to plan directory, plan ID, or "latest"
+        question: Optional task description override
+        automation: Whether in automation mode
+
+    Returns:
+        Tuple of (final_answer, plan_session)
+    """
+    from rich.console import Console
+
+    console = Console()
+
+    # Resolve plan path to session
+    plan_session = resolve_plan_path(plan_path)
+
+    # Load plan metadata
+    metadata = plan_session.load_metadata()
+    console.print(f"\n[bold cyan]Executing plan: {plan_session.plan_id}[/bold cyan]")
+    console.print(f"Created: {metadata.created_at}")
+    console.print(f"Status: {metadata.status}")
+
+    # Read frozen plan to get task count - fail fast if missing or unreadable
+    frozen_plan_file = plan_session.frozen_dir / "plan.json"
+    if not frozen_plan_file.exists():
+        console.print(f"[bold red]Error: Frozen plan not found at {frozen_plan_file}[/bold red]")
+        console.print("[red]Cannot execute plan without a valid frozen plan.json[/red]")
+        raise SystemExit(1)
+
+    try:
+        plan_data = json.loads(frozen_plan_file.read_text())
+    except json.JSONDecodeError as e:
+        console.print(f"[bold red]Error: Failed to parse frozen plan: {e}[/bold red]")
+        console.print(f"[red]File: {frozen_plan_file}[/red]")
+        raise SystemExit(1)
+
+    task_count = len(plan_data.get("tasks", []))
+    console.print(f"Tasks: {task_count}")
+
+    # Build question if not provided
+    if question is None:
+        question = "Execute the plan in tasks/plan.json."
+
+    # Run execution phase
+    final_answer, _ = await _execute_plan_phase(
+        config=config,
+        plan_session=plan_session,
+        question=question,
+        automation=automation,
+    )
+
+    return final_answer, plan_session
+
+
+async def run_plan_and_execute(
+    config: Dict[str, Any],
+    question: str,
+    plan_depth: str = "medium",
+    broadcast_mode: str = "human",
+    automation: bool = False,
+    debug: bool = False,
+    config_path: Optional[str] = None,
+) -> Tuple[str, Any]:
+    """
+    Run full plan-and-execute workflow:
+    1. Phase 1: Run planning subprocess to create task plan
+    2. Phase 2: Execute the plan with plan context injected
+
+    Args:
+        config: Full config dict
+        question: User's task/question
+        plan_depth: shallow/medium/deep
+        broadcast_mode: human/agents/false
+        automation: Whether in automation mode
+        debug: Debug mode flag
+        config_path: Path to config file (for subprocess)
+
+    Returns:
+        Tuple of (final_answer, plan_session)
+    """
+    import subprocess
+    import tempfile
+
+    import yaml
+    from rich.console import Console
+
+    from .plan_storage import PlanStorage
+
+    console = Console()
+
+    # ========== PHASE 1: Planning ==========
+    console.print("\n[bold blue]═══ PHASE 1: PLANNING ═══[/bold blue]")
+    console.print(f"Running agents to create task plan (depth: {plan_depth})...")
+
+    # Create plan storage
+    storage = PlanStorage()
+
+    # Handle broadcast mode for automation
+    # In automation mode, "human" broadcast doesn't work (no human to respond)
+    # Auto-switch to "false" for fully autonomous planning
+    effective_broadcast_mode = broadcast_mode
+    if automation and broadcast_mode == "human":
+        console.print(
+            "[yellow]Note: Switching broadcast mode from 'human' to 'false' for automation mode[/yellow]",
+        )
+        effective_broadcast_mode = "false"
+
+    # Build planning subprocess command
+    # Write config to temp file if not provided
+    temp_config_path = None
+    if not config_path:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config, f)
+            temp_config_path = f.name
+            config_path = temp_config_path
+
+    cmd = [
+        "uv",
+        "run",
+        "massgen",
+        "--automation",
+        "--plan",
+        "--plan-depth",
+        plan_depth,
+        "--broadcast",
+        effective_broadcast_mode,
+        "--config",
+        config_path,
+    ]
+
+    if debug:
+        cmd.append("--debug")
+
+    # Add end-of-options marker and question last, so question starting with '-' is treated as data
+    cmd.extend(["--", question])
+
+    # Run planning subprocess
+    logger.info(f"[PlanAndExecute] Starting planning subprocess: {' '.join(cmd)}")
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout to avoid deadlock
+            text=True,
+            bufsize=1,  # Line buffered
+        )
+
+        # Parse LOG_DIR, STATUS, and FINAL_DIR from stdout
+        log_dir = None
+        final_dir = None
+
+        stdout_lines = []
+        for line in process.stdout:
+            stdout_lines.append(line)
+            if line.startswith("LOG_DIR:"):
+                log_dir = line.split(":", 1)[1].strip()
+            elif line.startswith("FINAL_DIR:"):
+                final_dir = Path(line.split(":", 1)[1].strip())
+            # Print output in non-automation mode for visibility
+            if not automation:
+                print(line, end="")
+
+        # Wait for process to complete
+        process.wait()
+
+        if process.returncode != 0:
+            # stderr is merged into stdout, so show captured output
+            output = "".join(stdout_lines)
+            raise RuntimeError(f"Planning subprocess failed:\n{output}")
+
+        if not log_dir:
+            raise RuntimeError("Planning subprocess did not provide LOG_DIR")
+
+        logger.info(f"[PlanAndExecute] Planning complete. Log dir: {log_dir}")
+
+    except Exception as e:
+        console.print(f"[red]Planning failed: {e}[/red]")
+        raise
+    finally:
+        # Clean up temp config file
+        if temp_config_path:
+            try:
+                Path(temp_config_path).unlink()
+            except Exception:
+                pass
+
+    # Create plan session and copy workspace
+    planning_session_id = Path(log_dir).name
+    plan_session = storage.create_plan(planning_session_id, log_dir)
+
+    # Use FINAL_DIR from subprocess output, or fall back to log_dir/final/
+    if not final_dir:
+        final_dir = Path(log_dir) / "final"
+
+    if final_dir.exists():
+        # Find the actual workspace directory within final/
+        # Structure is: final/agent_*/workspace/ (we want only workspace content)
+        workspace_source = None
+
+        # Look for agent workspace directories
+        agent_dirs = list(final_dir.glob("agent_*/workspace"))
+        if agent_dirs:
+            # Use first agent's workspace (in planning mode, typically one agent or winner)
+            workspace_source = agent_dirs[0]
+
+            # Check if two-tier workspace is enabled (deliverable/ exists)
+            # If so, only copy the deliverable part
+            deliverable_dir = workspace_source / "deliverable"
+            if deliverable_dir.exists():
+                console.print("[dim]Two-tier workspace detected, copying deliverable/ only[/dim]")
+                workspace_source = deliverable_dir
+
+            logger.info(f"[PlanAndExecute] Using workspace source: {workspace_source}")
+        else:
+            # Fallback to final_dir if no agent workspace structure found
+            # This handles legacy or non-standard setups
+            workspace_source = final_dir
+            logger.warning(f"[PlanAndExecute] No agent workspace found in {final_dir}, using full directory")
+
+        # Copy only workspace artifacts to plan storage
+        storage.finalize_planning_phase(plan_session, workspace_source)
+
+        # Verify a valid plan was created - if not, clean up and fail
+        frozen_plan = plan_session.frozen_dir / "plan.json"
+        if not frozen_plan.exists():
+            console.print("[bold red]Error: Planning phase did not produce a valid plan.json[/bold red]")
+            console.print("[red]The planning agent may have ended early or failed to create a task plan.[/red]")
+            # Clean up the empty plan session directory
+            if plan_session.plan_dir.exists():
+                shutil.rmtree(plan_session.plan_dir)
+                logger.info(f"[PlanAndExecute] Cleaned up empty plan session: {plan_session.plan_dir}")
+            raise SystemExit(1)
+
+        console.print(f"[green]Plan created and frozen: {plan_session.plan_dir}[/green]")
+    else:
+        console.print("[bold red]Error: No final/ directory found in planning logs[/bold red]")
+        console.print("[red]Planning phase did not complete successfully.[/red]")
+        # Clean up the empty plan session directory
+        if plan_session.plan_dir.exists():
+            shutil.rmtree(plan_session.plan_dir)
+            logger.info(f"[PlanAndExecute] Cleaned up empty plan session: {plan_session.plan_dir}")
+        raise SystemExit(1)
+
+    # ========== PHASE 2: Execution ==========
+    console.print("\n[bold blue]═══ PHASE 2: EXECUTION ═══[/bold blue]")
+
+    # Use shared execution phase implementation
+    final_answer, _ = await _execute_plan_phase(
+        config=config,
+        plan_session=plan_session,
+        question=question,
+        automation=automation,
+    )
+
+    return final_answer, plan_session
+
+
 async def main(args):
     """Main CLI entry point (async operations only)."""
     # Setup logging (only for actual agent runs, not special commands)
@@ -5977,10 +6655,11 @@ async def main(args):
             cwd_str = str(Path.cwd())
             existing_paths = {p.get("path") if isinstance(p, dict) else p for p in orchestrator_cfg_plan["context_paths"]}
             if cwd_str not in existing_paths:
+                # Use read-only permission - agents write to their workspace, not directly to cwd
                 orchestrator_cfg_plan["context_paths"].append(
-                    {"path": cwd_str, "permission": "write"},
+                    {"path": cwd_str, "permission": "read"},
                 )
-                logger.info(f"[Plan Mode] Auto-added cwd to context_paths: {cwd_str}")
+                logger.info(f"[Plan Mode] Auto-added cwd to context_paths (read-only): {cwd_str}")
 
             logger.info(
                 "[Plan Mode] Enabled with depth=%s, broadcast=%s",
@@ -6201,6 +6880,80 @@ async def main(args):
                 cli_args=vars(args),
             )
 
+        # Handle plan-and-execute mode
+        if getattr(args, "plan_and_execute", False):
+            if not args.question:
+                print("❌ --plan-and-execute requires a question/task to plan and execute")
+                sys.exit(1)
+
+            from rich.console import Console
+            from rich.panel import Panel
+
+            final_answer, plan_session = await run_plan_and_execute(
+                config=config,
+                question=args.question,
+                plan_depth=getattr(args, "plan_depth", "medium") or "medium",
+                broadcast_mode=getattr(args, "broadcast", "human") or "human",
+                automation=args.automation,
+                debug=args.debug,
+                config_path=str(resolved_path) if resolved_path else None,
+            )
+
+            # Print results
+            if not args.automation:
+                console = Console()
+                console.print(Panel(final_answer, title="Final Answer", border_style="green"))
+
+            # Write output file if specified
+            if args.output_file:
+                output_path = Path(args.output_file)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(final_answer)
+                print(f"OUTPUT_FILE: {output_path.resolve()}")
+
+            # Print plan location for automation mode
+            if args.automation:
+                print(f"PLAN_DIR: {plan_session.plan_dir}")
+                print(f"PLAN_ID: {plan_session.plan_id}")
+
+            sys.exit(0)
+
+        # Handle --execute-plan mode (execute existing plan without planning phase)
+        if getattr(args, "execute_plan", None):
+            from rich.console import Console
+            from rich.panel import Panel
+
+            try:
+                final_answer, plan_session = await run_execute_plan(
+                    config=config,
+                    plan_path=args.execute_plan,
+                    question=args.question,  # Optional override
+                    automation=args.automation,
+                )
+
+                # Print results
+                if not args.automation:
+                    console = Console()
+                    console.print(Panel(final_answer, title="Final Answer", border_style="green"))
+
+                # Write output file if specified
+                if args.output_file:
+                    output_path = Path(args.output_file)
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_path.write_text(final_answer)
+                    print(f"OUTPUT_FILE: {output_path.resolve()}")
+
+                # Print plan location for automation mode
+                if args.automation:
+                    print(f"PLAN_DIR: {plan_session.plan_dir}")
+                    print(f"PLAN_ID: {plan_session.plan_id}")
+
+                sys.exit(0)
+
+            except FileNotFoundError as e:
+                print(f"❌ {e}")
+                sys.exit(1)
+
         # Run mode based on whether question was provided
         try:
             if args.question:
@@ -6212,6 +6965,17 @@ async def main(args):
                     restore_session_if_exists=restore_existing_session,
                     **kwargs,
                 )
+
+                # Print FINAL_DIR for automation mode (allows plan-and-execute to capture workspace)
+                if args.automation:
+                    try:
+                        from massgen.logger_config import get_log_session_dir
+
+                        final_dir = get_log_session_dir() / "final"
+                        if final_dir.exists():
+                            print(f"FINAL_DIR: {final_dir}")
+                    except Exception:
+                        pass  # Log paths not available
             else:
                 # Pass the config path and session_id to interactive mode
                 config_file_path = str(resolved_path) if args.config and resolved_path else None
@@ -6834,6 +7598,20 @@ Environment Variables:
         default=None,
         help="Broadcast mode for --plan mode: 'human' (agents ask critical questions), 'agents' (agents debate), 'false' (fully autonomous). "
         "If not specified, uses config file value or defaults to 'human'.",
+    )
+    parser.add_argument(
+        "--plan-and-execute",
+        action="store_true",
+        help="Run full plan-and-execute workflow: agents create plan (Phase 1), then automatically execute it (Phase 2). "
+        "Combines --plan with automatic execution. Plan stored in .massgen/plans/ for validation and adherence tracking.",
+    )
+    parser.add_argument(
+        "--execute-plan",
+        type=str,
+        metavar="PLAN_PATH",
+        help="Execute an existing plan. Provide the plan directory path (e.g., .massgen/plans/plan_20260115_173113_836955) "
+        "or plan ID (e.g., 20260115_173113_836955) or 'latest' for most recent plan. "
+        "Skips planning phase and runs execution directly from the frozen plan.",
     )
     parser.add_argument(
         "--no-session-registry",

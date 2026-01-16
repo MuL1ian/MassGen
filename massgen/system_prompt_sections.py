@@ -2242,17 +2242,21 @@ class EvolvingSkillsSection(SystemPromptSection):
 
     Includes the full evolving-skill-creator content directly in the system prompt
     so agents don't need to read it separately.
+
+    When plan_context is provided (from tasks/plan.json), adds guidance to
+    reference the plan and capture task-specific learnings.
     """
 
-    def __init__(self):
+    def __init__(self, plan_context: dict | None = None):
         super().__init__(
             title="Evolving Skills",
             priority=6,  # After core_behaviors(4), task_planning(5)
             xml_tag="evolving_skills",
         )
+        self.plan_context = plan_context
 
     def build_content(self) -> str:
-        return """## Evolving Skills
+        base_content = """## Evolving Skills
 
 **REQUIRED**: Before starting work on any task, you MUST create an evolving skill - a detailed workflow plan.
 
@@ -2373,6 +2377,24 @@ After execution, the actual scripts live in `scripts/` and can be reused.
 3. **Test like a user** - Verify artifacts through interaction, not just observation (click buttons, play games, navigate pages, run with edge cases, etc)
 4. **Update with learnings** - The skill improves through use
 5. **Keep scripts reusable** - Design tools to work in similar future tasks"""
+
+        # Append plan-specific guidance if plan context is available
+        if self.plan_context:
+            task_count = len(self.plan_context.get("tasks", []))
+            base_content += f"""
+
+### Plan Integration
+
+You have an active task plan with **{task_count} tasks** in `tasks/plan.json`.
+
+When creating your evolving skill:
+1. **Reference the plan**: Add `Task plan: tasks/plan.json ({task_count} tasks)` in your Overview section
+2. **Focus on learnings**: The plan has task structure - your skill should capture HOW to execute and what you LEARNED
+3. **Map insights to tasks**: In your Learnings section, note which task IDs your insights apply to (e.g., "T003: Found that X works better than Y")
+4. **Keep minimal**: Don't duplicate the entire plan in your skill - focus on execution details and improvements
+"""
+
+        return base_content
 
 
 class OutputFirstVerificationSection(SystemPromptSection):

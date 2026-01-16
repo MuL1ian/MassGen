@@ -26,10 +26,63 @@ from typing import Any, Dict, List, Optional, Union
 
 import fastmcp
 
-from massgen.mcp_tools.planning.planning_dataclasses import TaskPlan
+from massgen.mcp_tools.planning.planning_dataclasses import Task, TaskPlan
 
 # Setup logging for debugging
 logger = logging.getLogger(__name__)
+
+
+def _has_extended_task_fields(task_spec: Dict[str, Any]) -> bool:
+    """Check if task dict has extended fields beyond basic add_task parameters."""
+    extended_fields = {"status", "metadata", "verification_group", "completed_at", "verified_at", "created_at"}
+    return bool(extended_fields & set(task_spec.keys()))
+
+
+def _create_task_from_dict(task_spec: Dict[str, Any]) -> Task:
+    """Create a Task object from a dict, preserving all fields including extended ones."""
+    from datetime import datetime
+
+    task_id = task_spec.get("id") or str(uuid.uuid4())
+
+    # Parse timestamps if present
+    created_at = datetime.now()
+    if task_spec.get("created_at"):
+        try:
+            created_at = datetime.fromisoformat(task_spec["created_at"])
+        except (ValueError, TypeError):
+            pass
+
+    completed_at = None
+    if task_spec.get("completed_at"):
+        try:
+            completed_at = datetime.fromisoformat(task_spec["completed_at"])
+        except (ValueError, TypeError):
+            pass
+
+    verified_at = None
+    if task_spec.get("verified_at"):
+        try:
+            verified_at = datetime.fromisoformat(task_spec["verified_at"])
+        except (ValueError, TypeError):
+            pass
+
+    # Build metadata, including verification_group if present
+    metadata = task_spec.get("metadata", {}).copy()
+    if "verification_group" in task_spec and "verification_group" not in metadata:
+        metadata["verification_group"] = task_spec["verification_group"]
+
+    return Task(
+        id=task_id,
+        description=task_spec.get("description", ""),
+        status=task_spec.get("status", "pending"),
+        priority=task_spec.get("priority", "medium"),
+        created_at=created_at,
+        completed_at=completed_at,
+        verified_at=verified_at,
+        dependencies=task_spec.get("dependencies", task_spec.get("depends_on", [])),
+        metadata=metadata,
+    )
+
 
 # Global storage for task plans (keyed by agent_id)
 _task_plans: Dict[str, TaskPlan] = {}
@@ -98,6 +151,10 @@ def _load_plan_from_filesystem(agent_id: str) -> Optional[TaskPlan]:
     """
     Load task plan from filesystem if it exists.
 
+    Handles two formats:
+    1. Full serialized format: {agent_id, tasks, created_at, updated_at, subagents}
+    2. Simplified format: {tasks: [...]} - used by plan_and_execute frozen plans
+
     Args:
         agent_id: Agent identifier
 
@@ -113,8 +170,58 @@ def _load_plan_from_filesystem(agent_id: str) -> Optional[TaskPlan]:
 
     try:
         plan_data = json.loads(plan_file.read_text())
-        plan = TaskPlan.from_dict(plan_data)
-        logger.debug(f"[PlanningMCP] Loaded plan from filesystem with {len(plan.tasks)} tasks")
+
+        # Check if this is the full serialized format or simplified format
+        if "agent_id" in plan_data and "created_at" in plan_data:
+            # Full format - use from_dict
+            plan = TaskPlan.from_dict(plan_data)
+            logger.info(f"[PlanningMCP] Loaded plan from filesystem (full format) with {len(plan.tasks)} tasks")
+        else:
+            # Simplified format - just has {"tasks": [...]}
+            # Create a new TaskPlan and add tasks manually
+            plan = TaskPlan(agent_id=agent_id)
+            tasks_data = plan_data.get("tasks", [])
+
+            # Two-pass loading for extended tasks:
+            # Pass 1: Create all tasks and validate ID uniqueness
+            # Pass 2: Validate dependencies exist (handles forward references)
+            # Note: Circular dependency checking is skipped, as the file is assumed valid since it was refined
+            extended_tasks = []
+
+            for task_spec in tasks_data:
+                # Handle both string tasks and dict tasks
+                if isinstance(task_spec, str):
+                    plan.add_task(description=task_spec)
+                elif _has_extended_task_fields(task_spec):
+                    # Task has extended fields (status, metadata, verification_group, etc.)
+                    # Create Task directly to preserve all fields
+                    task = _create_task_from_dict(task_spec)
+
+                    # Validate ID uniqueness
+                    if task.id in plan._task_index:
+                        raise ValueError(f"Duplicate task ID in plan: {task.id}")
+
+                    # Add to plan (dependencies validated in pass 2)
+                    plan.tasks.append(task)
+                    plan._task_index[task.id] = task
+                    extended_tasks.append(task)
+                else:
+                    # Basic dict task - use add_task for validation
+                    plan.add_task(
+                        description=task_spec.get("description", ""),
+                        task_id=task_spec.get("id"),
+                        depends_on=task_spec.get("depends_on", []),
+                        priority=task_spec.get("priority", "medium"),
+                    )
+
+            # Pass 2: Validate dependencies for extended tasks
+            for task in extended_tasks:
+                for dep_id in task.dependencies:
+                    if dep_id not in plan._task_index:
+                        raise ValueError(f"Task {task.id} has missing dependency: {dep_id}")
+
+            logger.info(f"[PlanningMCP] Loaded plan from filesystem (simplified format) with {len(plan.tasks)} tasks")
+
         return plan
     except Exception as e:
         logger.warning(f"[PlanningMCP] Failed to load plan from filesystem: {e}")
@@ -528,20 +635,28 @@ async def create_server() -> fastmcp.FastMCP:
         """
         Update the status of a task.
 
+        Status flow: pending -> in_progress -> completed -> verified
+        - 'completed': Implementation is done, but may need verification
+        - 'verified': Task has been tested and confirmed working
+
         Args:
             task_id: ID of task to update
-            status: New status (pending/in_progress/completed/blocked)
-            completion_notes: Optional notes documenting how the task was completed (recommended for completed status)
+            status: New status (pending/in_progress/completed/verified/blocked)
+            completion_notes: Optional notes (for 'completed': how it was done; for 'verified': what was tested)
 
         Returns:
             Dictionary with updated task details and newly ready tasks
 
         Example:
-            update_task_status("research_oauth", "completed", "Reviewed OAuth 2.0 spec and compared providers")
+            # Mark task as completed
+            update_task_status("setup_project", "completed", "Created Next.js app with Tailwind")
+
+            # Later, after verification passes
+            update_task_status("setup_project", "verified", "npm run build passes, dev server runs")
         """
         try:
             # Validate status
-            valid_statuses = ["pending", "in_progress", "completed", "blocked"]
+            valid_statuses = ["pending", "in_progress", "completed", "verified", "blocked"]
             if status not in valid_statuses:
                 raise ValueError(
                     f"Invalid status '{status}'. Must be one of: {valid_statuses}",
@@ -628,12 +743,14 @@ async def create_server() -> fastmcp.FastMCP:
             plan = get_task_plan()
             print(f"Total tasks: {plan['summary']['total_tasks']}")
             print(f"Ready tasks: {plan['summary']['ready_tasks']}")
+            print(f"Awaiting verification: {plan['summary']['awaiting_verification']}")
         """
         try:
             plan = _get_or_create_plan(mcp.agent_id, mcp.orchestrator_id)
 
             ready_tasks = plan.get_ready_tasks()
             blocked_tasks = plan.get_blocked_tasks()
+            awaiting_verification = plan.get_tasks_awaiting_verification()
 
             return {
                 "success": True,
@@ -642,10 +759,13 @@ async def create_server() -> fastmcp.FastMCP:
                 "summary": {
                     "total_tasks": len(plan.tasks),
                     "completed_tasks": sum(1 for t in plan.tasks if t.status == "completed"),
+                    "verified_tasks": sum(1 for t in plan.tasks if t.status == "verified"),
                     "in_progress_tasks": sum(1 for t in plan.tasks if t.status == "in_progress"),
                     "ready_tasks": len(ready_tasks),
                     "blocked_tasks": len(blocked_tasks),
+                    "awaiting_verification": sum(len(tasks) for tasks in awaiting_verification.values()),
                 },
+                "verification_groups": {group: [t.to_dict() for t in tasks] for group, tasks in awaiting_verification.items()},
             }
 
         except Exception as e:
