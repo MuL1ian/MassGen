@@ -5760,12 +5760,11 @@ async def run_interactive_mode(
         print()  # Clean line after ^C
 
 
-def _build_execution_prompt(question: str, plan_session) -> str:
+def _build_execution_prompt(question: str) -> str:
     """Build the execution prompt that guides agents through plan-based work.
 
     Args:
         question: The original user question/task
-        plan_session: PlanSession object with plan directories
 
     Returns:
         Formatted execution prompt with plan context
@@ -5885,7 +5884,7 @@ async def _execute_plan_phase(
     plan_session.log_event("execution_started", {"question": question})
 
     # Build execution prompt
-    execution_prompt = _build_execution_prompt(question, plan_session)
+    execution_prompt = _build_execution_prompt(question)
 
     # Modify config to add plan context paths and enable planning tools for execution
     exec_config = copy.deepcopy(config)

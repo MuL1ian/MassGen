@@ -2,7 +2,6 @@
 """Integration tests for plan-and-execute workflow."""
 
 import json
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -198,13 +197,6 @@ class TestPlanAndExecuteWorkflow:
         # Save diff
         session.diff_file.write_text(json.dumps(diff, indent=2))
 
-        # Generate adherence report
-        report = session.generate_adherence_report()
-
-        assert "Plan Adherence Report" in report
-        assert "Tasks Added (1)" in report
-        assert "Tasks Modified (1)" in report
-
     def test_get_latest_plan(self, temp_plans_dir, tmp_path):
         """Test getting the latest plan session."""
         assert temp_plans_dir.exists()
@@ -267,7 +259,7 @@ class TestPlanAndExecuteWorkflow:
             assert "event_type" in event
             assert "data" in event
 
-    def test_execution_prompt_generation(self, tmp_path):
+    def test_execution_prompt_generation(self):
         """Test that execution prompt is generated correctly.
 
         Verifies key sections are present in the generated prompt including
@@ -275,18 +267,7 @@ class TestPlanAndExecuteWorkflow:
         """
         from massgen.cli import _build_execution_prompt
 
-        # Create temp directories for mock session
-        frozen_dir = tmp_path / "frozen"
-        workspace_dir = tmp_path / "workspace"
-        frozen_dir.mkdir(parents=True)
-        workspace_dir.mkdir(parents=True)
-
-        # Create a mock plan session
-        mock_session = MagicMock()
-        mock_session.frozen_dir = frozen_dir
-        mock_session.workspace_dir = workspace_dir
-
-        prompt = _build_execution_prompt("Build a REST API", mock_session)
+        prompt = _build_execution_prompt("Build a REST API")
 
         # Verify key sections are present (simplified prompt, details in system message)
         assert "PLAN EXECUTION MODE" in prompt

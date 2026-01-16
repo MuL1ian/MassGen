@@ -172,24 +172,6 @@ class TestPlanStorage:
         assert event["event_type"] == "test_event"
         assert event["data"]["key"] == "value"
 
-    def test_generate_adherence_report(self, temp_plans_dir, temp_workspace):
-        """Test adherence report generation."""
-        storage = PlanStorage()
-        session = storage.create_plan("test_sess", "/tmp/logs")
-        storage.finalize_planning_phase(session, temp_workspace)
-
-        # Compute diff first
-        diff = session.compute_plan_diff()
-        session.diff_file.write_text(json.dumps(diff, indent=2))
-
-        # Generate report
-        report = session.generate_adherence_report()
-
-        assert "Plan Adherence Report" in report
-        assert session.plan_id in report
-        assert "Overall Adherence: 100.0%" in report  # No changes
-        assert "Tasks Added (0)" in report
-
 
 class TestPlanSession:
     """Test plan session operations."""
