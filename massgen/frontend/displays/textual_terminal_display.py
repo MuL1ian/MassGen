@@ -7756,7 +7756,7 @@ Type your question and press Enter to ask the agents.
 
         def compose(self) -> ComposeResult:
             with Container(id="broadcast_container"):
-                yield Label("⏸ ALL AGENTS PAUSED - HUMAN INPUT NEEDED ⏸", id="broadcast_banner")
+                yield Label("⏸ ALL AGENTS PAUSED — HUMAN INPUT NEEDED ⏸", id="broadcast_banner")
                 yield Label(f"From: {self.sender_agent_id}", id="broadcast_sender")
                 yield Label("Question:", id="broadcast_question_label")
                 yield TextArea(self.question, id="broadcast_question", read_only=True)
@@ -7766,6 +7766,14 @@ Type your question and press Enter to ask the agents.
                 with Horizontal(id="broadcast_buttons"):
                     yield Button("Submit", id="submit_broadcast_button", variant="primary")
                     yield Button("Skip", id="skip_broadcast_button")
+
+        def on_mount(self) -> None:
+            """Focus the input when mounted."""
+            try:
+                input_widget = self.query_one("#broadcast_input", Input)
+                input_widget.focus()
+            except Exception:
+                pass
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             """Handle button presses."""

@@ -763,6 +763,7 @@ class ToolCallCard(Static):
         """Get a formatted version of the result, parsing JSON if applicable.
 
         For subagent tools, this extracts meaningful information from the JSON result.
+        For broadcast/ask_others tools, this formats responses nicely.
         """
         if not self._result:
             return None
@@ -772,10 +773,53 @@ class ToolCallCard(Static):
         try:
             data = json.loads(self._result)
             if isinstance(data, dict):
-                # Format subagent-specific results nicely
                 lines = []
 
-                # Common subagent result fields
+                # Check for broadcast/ask_others responses first
+                if "responses" in data and isinstance(data.get("responses"), list):
+                    # Format broadcast responses nicely
+                    status = data.get("status", "unknown")
+                    lines.append(f"Status: {status}")
+
+                    responses = data["responses"]
+                    if responses:
+                        lines.append("")
+                        for resp in responses:
+                            responder = resp.get("responder_id", "unknown")
+                            content = resp.get("content", "")
+                            is_human = resp.get("is_human", False)
+
+                            if is_human:
+                                lines.append("👤 Human response:")
+                            else:
+                                lines.append(f"🤖 {responder}:")
+
+                            # Show response content with some formatting
+                            content_lines = content.strip().split("\n")
+                            for cl in content_lines[:10]:  # Limit lines
+                                if len(cl) > 80:
+                                    cl = cl[:77] + "..."
+                                lines.append(f"   {cl}")
+                            if len(content_lines) > 10:
+                                lines.append(f"   ... ({len(content_lines) - 10} more lines)")
+                            lines.append("")
+                    else:
+                        lines.append("No responses received.")
+
+                    # Show Q&A history if present
+                    qa_history = data.get("human_qa_history", [])
+                    if qa_history:
+                        lines.append("─" * 40)
+                        lines.append("Previous Q&A this session:")
+                        for qa in qa_history[-3:]:  # Last 3
+                            q = qa.get("question", "")[:50]
+                            a = qa.get("answer", "")[:50]
+                            lines.append(f"  Q: {q}...")
+                            lines.append(f"  A: {a}...")
+
+                    return "\n".join(lines)
+
+                # Format subagent-specific results nicely
                 if "subagent_id" in data:
                     lines.append(f"Subagent: {data['subagent_id']}")
                 if "status" in data:
