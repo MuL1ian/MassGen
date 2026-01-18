@@ -26,7 +26,7 @@ class ToolDisplayData:
     category: str
     icon: str
     color: str
-    status: str  # running, success, error
+    status: str  # running, success, error, background
     start_time: datetime
     end_time: Optional[datetime] = None
     args_summary: Optional[str] = None  # Truncated for card display
@@ -35,6 +35,7 @@ class ToolDisplayData:
     result_full: Optional[str] = None  # Full result for modal
     error: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    async_id: Optional[str] = None  # ID for background operations (e.g., shell_id)
 
 
 @dataclass
@@ -353,6 +354,52 @@ class ToolContentHandler(BaseContentHandler):
             return parts[-1].lower()
         return name.lower()
 
+    def _detect_background_operation(
+        self,
+        tool_name: str,
+        result_content: str,
+    ) -> tuple[bool, Optional[str]]:
+        """Detect if a tool result indicates a background/async operation.
+
+        Background operations are tools that start a long-running process and
+        return immediately with an ID to track the operation.
+
+        Args:
+            tool_name: Name of the tool.
+            result_content: The result content from the tool.
+
+        Returns:
+            Tuple of (is_background, async_id).
+            async_id is the identifier (e.g., shell_id) if found.
+        """
+        normalized_name = self._normalize_tool_name(tool_name)
+
+        # Known background operation tools
+        background_tools = {
+            "start_background_shell",
+            "start_shell",  # May also be async
+        }
+
+        if normalized_name not in background_tools:
+            return False, None
+
+        # Try to extract shell_id from result
+        # Look for patterns like: shell_id: shell_abc123 or "shell_id": "shell_abc123"
+        shell_id_match = re.search(
+            r'["\']?shell_id["\']?\s*[:=]\s*["\']?(shell_[a-zA-Z0-9]+)["\']?',
+            result_content,
+        )
+        if shell_id_match:
+            return True, shell_id_match.group(1)
+
+        # Also check for JSON-style response
+        if '"shell_id"' in result_content or "'shell_id'" in result_content:
+            return True, None
+
+        # Tool name matches but no shell_id found - still mark as background
+        # since the tool is designed for async operations
+        return True, None
+
     def _handle_start(self, meta, tool_call_id: Optional[str] = None) -> Optional[ToolDisplayData]:
         """Handle tool start event."""
         normalized_name = self._normalize_tool_name(meta.tool_name)
@@ -511,6 +558,13 @@ class ToolContentHandler(BaseContentHandler):
         if args_full:
             args_summary = args_full[:77] + "..." if len(args_full) > 80 else args_full
 
+        # Detect background/async operations
+        # These are tools that start a long-running process and return immediately
+        is_background, async_id = self._detect_background_operation(
+            state.tool_name,
+            cleaned_content,
+        )
+
         return ToolDisplayData(
             tool_id=state.tool_id,
             tool_name=state.tool_name,
@@ -519,14 +573,15 @@ class ToolContentHandler(BaseContentHandler):
             category=state.category,
             icon=state.icon,
             color=state.color,
-            status="success",
+            status="background" if is_background else "success",
             start_time=state.start_time,
-            end_time=end_time,
-            elapsed_seconds=elapsed,
+            end_time=None if is_background else end_time,  # No end time for background ops
+            elapsed_seconds=None if is_background else elapsed,
             args_full=args_full,
             args_summary=args_summary,
             result_summary=summarize_result(cleaned_content),
             result_full=cleaned_content,  # Store cleaned result for modal
+            async_id=async_id,
         )
 
     def _handle_failed(self, meta, content: str) -> Optional[ToolDisplayData]:

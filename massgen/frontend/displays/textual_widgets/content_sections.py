@@ -199,6 +199,12 @@ class ToolSection(Vertical):
             card.set_result(tool_data.result_summary or "", tool_data.result_full)
         elif tool_data.status == "error":
             card.set_error(tool_data.error or "Unknown error")
+        elif tool_data.status == "background":
+            card.set_background_result(
+                tool_data.result_summary or "",
+                tool_data.result_full,
+                tool_data.async_id,
+            )
 
         # Auto-scroll after update
         try:
@@ -840,6 +846,12 @@ class TimelineSection(Vertical):
             card.set_result(tool_data.result_summary or "", tool_data.result_full)
         elif tool_data.status == "error":
             card.set_error(tool_data.error or "Unknown error")
+        elif tool_data.status == "background":
+            card.set_background_result(
+                tool_data.result_summary or "",
+                tool_data.result_full,
+                tool_data.async_id,
+            )
 
         self._auto_scroll()
 
@@ -848,8 +860,37 @@ class TimelineSection(Vertical):
         return self._tools.get(tool_id)
 
     def get_running_tools_count(self) -> int:
-        """Count tools that are currently running."""
-        return sum(1 for card in self._tools.values() if card.status == "running")
+        """Count tools that are currently running or running in background."""
+        return sum(1 for card in self._tools.values() if card.status in ("running", "background"))
+
+    def get_background_tools_count(self) -> int:
+        """Count tools that are running in background (async operations).
+
+        Note: We don't check if shells are still alive because background shells
+        run in separate MCP subprocess(es), not in the main TUI process.
+        The shell manager singleton is per-process, so we can't check cross-process.
+        """
+        return sum(1 for card in self._tools.values() if card.status == "background")
+
+    def get_background_tools(self) -> list:
+        """Get list of background tool data for modal display.
+
+        Note: We don't filter by shell alive status because shells run in MCP
+        subprocesses with their own BackgroundShellManager singleton.
+        """
+        bg_tools = []
+        for card in self._tools.values():
+            if card.status == "background":
+                bg_tools.append(
+                    {
+                        "tool_name": card.tool_name,
+                        "display_name": card._display_name,
+                        "async_id": card._async_id,
+                        "start_time": card._start_time,
+                        "result": card._result,
+                    },
+                )
+        return bg_tools
 
     def add_hook_to_tool(self, tool_call_id: Optional[str], hook_info: dict) -> None:
         """Add hook execution info to a tool card.
@@ -1040,6 +1081,14 @@ class TimelineSection(Vertical):
             pass
         self._tools.clear()
         self._item_count = 0
+
+    def clear_tools_tracking(self) -> None:
+        """Clear just the tools tracking dict without removing UI elements.
+
+        Used when a round completes to reset background tool counts while
+        keeping the visual timeline history intact.
+        """
+        self._tools.clear()
 
 
 class ThinkingSection(Vertical):

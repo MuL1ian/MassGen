@@ -346,6 +346,47 @@ AgentPanel.agent-color-8 { border-left: thick #f44336; border-right: none; }
     color: #7c3aed;
 }
 
+/* Header badges - clickable indicators for bg tasks and task plan */
+.agent-header-badge {
+    width: auto;
+    height: auto;
+    padding: 0 1;
+    margin-left: 1;
+    border: solid #d0d7de;
+    background: #f6f8fa;
+}
+
+.agent-header-badge:hover {
+    background: #eaeef2;
+    border: solid #8b949e;
+}
+
+.agent-header-badge.hidden {
+    display: none;
+}
+
+/* Background tasks badge - amber/orange theme */
+.header-badge-bg {
+    color: #9a6700;
+    border: solid #d4a72c 50%;
+}
+
+.header-badge-bg:hover {
+    border: solid #d4a72c;
+    background: #fff8e1;
+}
+
+/* Task plan badge - purple theme */
+.header-badge-tasks {
+    color: #7c3aed;
+    border: solid #7c3aed 50%;
+}
+
+.header-badge-tasks:hover {
+    border: solid #7c3aed;
+    background: #ede9fe;
+}
+
 /* Loading indicator - centered in panel */
 .loading-container {
     width: 100%;
@@ -1718,6 +1759,13 @@ ToolCallCard.status-error {
     background: #ffebee;
 }
 
+ToolCallCard.status-background {
+    border-top: solid #ff9800;
+    border-bottom: solid #ff9800;
+    border-right: none;
+    background: #fff8e1;
+}
+
 /* Tool type category colors */
 ToolCallCard.type-filesystem {
     border-left: tall #4caf50;
@@ -1778,6 +1826,11 @@ ToolCallCard.type-subagent.status-success {
 ToolCallCard.type-subagent.status-error {
     border-left: tall #f44336;
     background: #ffebee;
+}
+
+ToolCallCard.type-subagent.status-background {
+    border-left: tall #ff9800;
+    background: #fff8e1;
 }
 
 ToolCallCard.type-subagent.expanded {

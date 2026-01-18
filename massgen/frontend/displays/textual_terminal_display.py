@@ -50,6 +50,7 @@ try:
     from .textual_widgets import (
         AgentTabBar,
         AgentTabChanged,
+        BackgroundTasksModal,
         CompletionFooter,
         MultiLineInput,
         PathSuggestionDropdown,
@@ -1622,13 +1623,19 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         # Extract details from broadcast request
         sender_agent_id = getattr(broadcast_request, "sender_agent_id", "Unknown Agent")
-        timeout = getattr(broadcast_request, "timeout", 60)
+        base_timeout = getattr(broadcast_request, "timeout", 60)
 
         # Check if this is a structured question
         is_structured = getattr(broadcast_request, "is_structured", False)
 
+        # For structured questions, use longer timeout (5 min) to give user time to answer all
+        timeout = 300 if is_structured else base_timeout
+
         # Create a future to wait for the modal result
         response_future: asyncio.Future = asyncio.Future()
+
+        # Track the modal we push so we only pop our own modal on timeout
+        modal_ref = {"modal": None}
 
         def show_modal():
             """Show the appropriate broadcast modal and handle response."""
@@ -1650,6 +1657,9 @@ class TextualTerminalDisplay(TerminalDisplay):
                     question_text = getattr(broadcast_request, "question_text", "No question provided")
                 modal = BroadcastPromptModal(sender_agent_id, question_text, timeout, self._app)
 
+            # Store reference to this specific modal
+            modal_ref["modal"] = modal
+
             async def handle_dismiss(result):
                 if not response_future.done():
                     response_future.set_result(result)
@@ -1664,8 +1674,14 @@ class TextualTerminalDisplay(TerminalDisplay):
             result = await asyncio.wait_for(response_future, timeout=timeout)
             return result
         except asyncio.TimeoutError:
-            # Dismiss modal if still showing
-            self._app.call_from_thread(lambda: self._app.pop_screen() if self._app.screen_stack else None)
+            # Only dismiss if the current top screen is OUR modal (not a different one)
+            def safe_pop():
+                if self._app.screen_stack and modal_ref["modal"]:
+                    current_screen = self._app.screen_stack[-1]
+                    if current_screen is modal_ref["modal"]:
+                        self._app.pop_screen()
+
+            self._app.call_from_thread(safe_pop)
             return None
 
     def stream_final_answer_chunk(self, chunk: str, selected_agent: Optional[str], vote_results: Optional[Dict[str, Any]] = None):
@@ -4210,6 +4226,10 @@ Type your question and press Enter to ask the agents.
                     # new_answer terminates a round, so separator marks end of this attempt
                     sep_label = f"⚡ RESTART — ROUND {answer_count} COMPLETE"
                     timeline.add_separator(sep_label)
+
+                    # Reset per-round state (badges) now that round is complete
+                    # The background shells will be killed by orchestrator when new round starts
+                    panel._reset_round_state()
                 except Exception as e:
                     import sys
                     import traceback
@@ -4900,17 +4920,24 @@ Type your question and press Enter to ask the agents.
 
         def compose(self) -> ComposeResult:
             with Vertical():
-                # Header row with main info on left, tasks on right
+                # Header row with main info on left, clickable badges on right
                 with Horizontal(id=self._header_dom_id, classes="agent-header-row"):
                     yield Label(
                         self._header_text_left(),
                         id=f"{self._header_dom_id}_left",
                         classes="agent-header-left",
                     )
+                    # Background tasks badge (clickable, hidden when no bg tasks)
                     yield Label(
-                        self._header_text_right(),
-                        id=f"{self._header_dom_id}_right",
-                        classes="agent-header-right",
+                        self._format_bg_badge(),
+                        id=f"{self._header_dom_id}_bg",
+                        classes="agent-header-badge header-badge-bg hidden",
+                    )
+                    # Task plan badge (clickable, hidden when no task plan)
+                    yield Label(
+                        self._format_tasks_badge(),
+                        id=f"{self._header_dom_id}_tasks",
+                        classes="agent-header-badge header-badge-tasks hidden",
                     )
                 # Context sources label (hidden by default, shown when context is injected)
                 yield Label(
@@ -4934,20 +4961,21 @@ Type your question and press Enter to ask the agents.
                 yield self.current_line_label
 
         def on_click(self, event: events.Click) -> None:
-            """Handle click on the header to open task plan modal."""
-            # Textual uses event.widget, not event.target
+            """Handle click on header badges to open respective modals."""
             widget = getattr(event, "widget", None)
             if widget and hasattr(widget, "id"):
-                # Check if clicked on header row or the right label (Tasks indicator)
-                header_ids = [
-                    self._header_dom_id,
-                    f"{self._header_dom_id}_left",
-                    f"{self._header_dom_id}_right",
-                ]
-                if widget.id in header_ids:
-                    # Clicked on header - open task plan modal if we have tasks
+                bg_badge_id = f"{self._header_dom_id}_bg"
+                tasks_badge_id = f"{self._header_dom_id}_tasks"
+
+                if widget.id == bg_badge_id:
+                    # Clicked on background tasks badge
+                    bg_tasks = self._get_background_tools()
+                    if bg_tasks:
+                        self.app.push_screen(BackgroundTasksModal(bg_tasks, self.agent_id))
+                        event.stop()
+                elif widget.id == tasks_badge_id:
+                    # Clicked on task plan badge
                     if self._active_task_plan_tasks:
-                        # Re-use TaskPlanCard's message type for consistency
                         self.post_message(TaskPlanCard.OpenModal(self._active_task_plan_tasks))
                         event.stop()
 
@@ -5028,28 +5056,48 @@ Type your question and press Enter to ask the agents.
                 operation: Type of operation (create, update, etc.)
             """
             self._active_task_plan_id = plan_id
-            self._active_task_plan_tasks = tasks.copy() if tasks else None
+            # Deep copy each task dict to avoid reference issues
+            self._active_task_plan_tasks = [t.copy() for t in tasks] if tasks else None
 
             # Debug: log task statuses
             if tasks:
                 completed = sum(1 for t in tasks if t.get("status") == "completed")
+                verified = sum(1 for t in tasks if t.get("status") == "verified")
                 in_progress = sum(1 for t in tasks if t.get("status") == "in_progress")
-                tui_log(f"update_task_plan: {completed}/{len(tasks)} completed, {in_progress} in_progress")
+                tui_log(f"update_task_plan: {completed} completed, {verified} verified, {in_progress} in_progress (of {len(tasks)} total)")
 
             # Refresh the header to show task plan info
             self._refresh_header()
 
         def _refresh_header(self) -> None:
-            """Refresh the header display (used when task plan changes)."""
+            """Refresh the header display (used when task plan or bg tasks change)."""
             try:
-                # Update both left and right labels
                 left_label = self.query_one(f"#{self._header_dom_id}_left", Label)
                 left_label.update(self._header_text_left())
             except Exception:
                 pass
+
+            # Update background tasks badge
             try:
-                right_label = self.query_one(f"#{self._header_dom_id}_right", Label)
-                right_label.update(self._header_text_right())
+                bg_label = self.query_one(f"#{self._header_dom_id}_bg", Label)
+                bg_text = self._format_bg_badge()
+                bg_label.update(bg_text)
+                if bg_text:
+                    bg_label.remove_class("hidden")
+                else:
+                    bg_label.add_class("hidden")
+            except Exception:
+                pass
+
+            # Update task plan badge
+            try:
+                tasks_label = self.query_one(f"#{self._header_dom_id}_tasks", Label)
+                tasks_text = self._format_tasks_badge()
+                tasks_label.update(tasks_text)
+                if tasks_text:
+                    tasks_label.remove_class("hidden")
+                else:
+                    tasks_label.add_class("hidden")
             except Exception:
                 pass
 
@@ -5417,6 +5465,10 @@ Type your question and press Enter to ask the agents.
                     if tool_data.status == "success":
                         self._check_and_display_task_plan(tool_data, timeline)
 
+                    # Refresh header if this is a background operation (to show bg badge)
+                    if tool_data.status == "background":
+                        self._refresh_header()
+
                 # Update running tools count in status bar
                 self._update_running_tools_count()
             except Exception as e:
@@ -5700,15 +5752,22 @@ Type your question and press Enter to ask the agents.
             if operation in ("update", "edit") and "task" in result_data:
                 updated_task = result_data["task"]
                 focused_task_id = updated_task.get("id")
+                updated_status = updated_task.get("status")
+                tui_log(f"_check_and_display_task_plan: update/edit - task_id={focused_task_id}, new_status={updated_status}")
 
                 # If we have a cached task plan, update it with the new task status
                 if self._active_task_plan_tasks and not tasks:
-                    tasks = self._active_task_plan_tasks.copy()
+                    tasks = [t.copy() for t in self._active_task_plan_tasks]  # Deep copy task dicts
                     # Update the task in our cached list
+                    task_found = False
                     for i, task in enumerate(tasks):
                         if task.get("id") == focused_task_id:
-                            tasks[i] = updated_task
+                            tui_log(f"_check_and_display_task_plan: found task at index {i}, old_status={task.get('status')}")
+                            tasks[i] = updated_task.copy()  # Copy the updated task too
+                            task_found = True
                             break
+                    if not task_found:
+                        tui_log(f"_check_and_display_task_plan: task {focused_task_id} NOT found in cached tasks")
 
             if not tasks:
                 tui_log("_check_and_display_task_plan: no tasks found in result")
@@ -5730,12 +5789,31 @@ Type your question and press Enter to ask the agents.
             self.update_task_plan(tasks, plan_id=tool_data.tool_id, operation=operation)
 
         def _clear_timeline(self):
-            """Clear the timeline for a new session."""
+            """Clear the timeline for a new session/round."""
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
                 timeline.clear()
             except Exception:
                 pass
+
+            # Reset per-round state
+            self._reset_round_state()
+
+        def _reset_round_state(self):
+            """Reset per-round state (task plan, background tools indicator, etc.)."""
+            # Clear task plan
+            self._active_task_plan_id = None
+            self._active_task_plan_tasks = None
+
+            # Clear tools tracking (resets bg count) but keep visual timeline
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.clear_tools_tracking()
+            except Exception:
+                pass
+
+            # Refresh header to hide badges (bg shells will be killed by orchestrator)
+            self._refresh_header()
 
         def _clear_tool_section(self):
             """Clear the tool section for a new session (legacy, calls _clear_timeline)."""
@@ -5789,17 +5867,8 @@ Type your question and press Enter to ask the agents.
             self.remove_class("status-waiting", "status-working", "status-streaming", "status-completed", "status-error")
             self.add_class(f"status-{status}")
 
-            # Update both left and right header labels (header is a Horizontal container)
-            try:
-                left_label = self.query_one(f"#{self._header_dom_id}_left", Label)
-                left_label.update(self._header_text_left())
-            except Exception:
-                pass
-            try:
-                right_label = self.query_one(f"#{self._header_dom_id}_right", Label)
-                right_label.update(self._header_text_right())
-            except Exception:
-                pass
+            # Update header labels
+            self._refresh_header()
 
         def _start_header_timer(self) -> None:
             """Start the header timer to update elapsed time."""
@@ -5817,17 +5886,8 @@ Type your question and press Enter to ask the agents.
             if self._start_time is None:
                 self._stop_header_timer()
                 return
-            # Update both left and right header labels (header is a Horizontal container)
-            try:
-                left_label = self.query_one(f"#{self._header_dom_id}_left", Label)
-                left_label.update(self._header_text_left())
-            except Exception:
-                pass
-            try:
-                right_label = self.query_one(f"#{self._header_dom_id}_right", Label)
-                right_label.update(self._header_text_right())
-            except Exception:
-                pass
+            # Update header labels
+            self._refresh_header()
 
         def update_timeout(self, timeout_state: Dict[str, Any]) -> None:
             """Update timeout display state.
@@ -5896,10 +5956,43 @@ Type your question and press Enter to ask the agents.
 
             return " ".join(parts)
 
+        def _format_bg_badge(self) -> str:
+            """Format background tasks badge text."""
+            bg_count = self._get_background_tools_count()
+            if bg_count > 0:
+                return f"⚙️ {bg_count} bg"
+            return ""
+
+        def _format_tasks_badge(self) -> str:
+            """Format task plan badge text."""
+            return self._format_task_plan_header() or ""
+
         def _header_text_right(self) -> str:
-            """Compose right side of header: task plan summary."""
-            task_plan_text = self._format_task_plan_header()
-            return task_plan_text if task_plan_text else ""
+            """Compose right side of header (for compatibility)."""
+            parts = []
+            bg_badge = self._format_bg_badge()
+            if bg_badge:
+                parts.append(bg_badge)
+            tasks_badge = self._format_tasks_badge()
+            if tasks_badge:
+                parts.append(tasks_badge)
+            return "  ".join(parts)
+
+        def _get_background_tools_count(self) -> int:
+            """Get count of background/async operations for this agent."""
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                return timeline.get_background_tools_count()
+            except Exception:
+                return 0
+
+        def _get_background_tools(self) -> list:
+            """Get list of background/async operations for this agent."""
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                return timeline.get_background_tools()
+            except Exception:
+                return []
 
         def _header_text(self) -> str:
             """Compose full header text (for compatibility)."""
@@ -5919,7 +6012,8 @@ Type your question and press Enter to ask the agents.
                 return None
 
             total = len(self._active_task_plan_tasks)
-            completed = sum(1 for t in self._active_task_plan_tasks if t.get("status") == "completed")
+            # Count both "completed" and "verified" as done
+            completed = sum(1 for t in self._active_task_plan_tasks if t.get("status") in ("completed", "verified"))
             in_progress = sum(1 for t in self._active_task_plan_tasks if t.get("status") == "in_progress")
 
             # Format: "Tasks: 3/9" or "Tasks: 3/9 ●2" if tasks in progress

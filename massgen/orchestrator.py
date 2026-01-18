@@ -4626,6 +4626,56 @@ Your answer:"""
             for agent_id in list(self._active_streams.keys()):
                 await self._close_agent_stream(agent_id, self._active_streams)
 
+    async def _cleanup_background_shells_for_agent(self, agent_id: str) -> None:
+        """Clean up background shells started by this agent at round end.
+
+        Uses MCP tools to list and kill shells, since background shells run in
+        the MCP subprocess (not the main orchestrator process).
+
+        Args:
+            agent_id: The agent identifier
+        """
+        agent = self.agents.get(agent_id)
+        if not agent or not hasattr(agent.backend, "_mcp_client") or not agent.backend._mcp_client:
+            return
+
+        mcp_client = agent.backend._mcp_client
+
+        try:
+            # List all background shells via MCP tool
+            list_result = await mcp_client.call_tool(
+                "mcp__command_line__list_background_shells",
+                {},
+            )
+
+            if not list_result or not isinstance(list_result, dict):
+                return
+
+            shells = list_result.get("shells", [])
+            if not shells:
+                return
+
+            # Kill each running shell
+            for shell_info in shells:
+                shell_id = shell_info.get("shell_id")
+                status = shell_info.get("status")
+
+                if shell_id and status == "running":
+                    try:
+                        await mcp_client.call_tool(
+                            "mcp__command_line__kill_background_shell",
+                            {"shell_id": shell_id},
+                        )
+                        logger.info(
+                            f"[Orchestrator] Killed background shell {shell_id} at round end for {agent_id}",
+                        )
+                    except Exception as e:
+                        logger.warning(f"[Orchestrator] Failed to kill shell {shell_id}: {e}")
+
+        except Exception as e:
+            # MCP tool not available or other error - not critical
+            logger.debug(f"[Orchestrator] Could not clean up background shells for {agent_id}: {e}")
+
     # TODO (v0.0.14 Context Sharing Enhancement - See docs/dev_notes/v0.0.14-context.md):
     # Add the following permission validation methods:
     # async def validate_agent_access(self, agent_id: str, resource_path: str, access_type: str) -> bool:
@@ -5157,6 +5207,9 @@ Your answer:"""
             post_hook.reset_for_new_round()
             pre_hook.reset_for_new_round()
             logger.debug(f"[Orchestrator] Reset round timeout hooks for {agent_id}")
+
+        # Clean up any background shells from the previous round
+        await self._cleanup_background_shells_for_agent(agent_id)
 
         # Note: Do NOT clear restart_pending here - let the injection logic inside the iteration
         # loop handle it (see line ~1969). This ensures agents receive updates via injection

@@ -5,6 +5,7 @@ Textual widgets for the MassGen TUI.
 This module provides reusable Textual widgets for the production TUI interface.
 """
 
+from .background_tasks_modal import BackgroundTasksModal
 from .content_sections import (
     CompletionFooter,
     ReasoningSection,
@@ -37,6 +38,8 @@ __all__ = [
     # Task plan card and modal
     "TaskPlanCard",
     "TaskPlanModal",
+    # Background tasks modal
+    "BackgroundTasksModal",
     # Injection sub-card
     "InjectionSubCard",
     # Content sections

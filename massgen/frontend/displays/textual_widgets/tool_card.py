@@ -244,6 +244,7 @@ class ToolCallCard(Static):
         "running": "⏳",
         "success": "✓",
         "error": "✗",
+        "background": "⚙️",  # For async/background operations (e.g., background shells)
     }
 
     def __init__(
@@ -299,6 +300,10 @@ class ToolCallCard(Static):
         # Timer for updating elapsed time while running
         self._elapsed_timer = None
 
+        # Background/async operation tracking
+        self._async_id: Optional[str] = None  # e.g., shell_id for background shells
+        self._is_background = False  # True if this is an async operation
+
     def on_mount(self) -> None:
         """Start the elapsed time timer when mounted."""
         if self._status == "running":
@@ -353,11 +358,27 @@ class ToolCallCard(Static):
         """
         text = Text()
 
-        # Pre-hooks (shown above tool line)
+        # Low-value hooks to hide (these just add noise without useful info)
+        # Use prefix matching for patterns like round_timeout_hard_agent_a
+        hidden_hook_prefixes = {
+            "timeout_allowed",
+            "round_allowed",
+            "per_round_allowed",
+            "timeout_hard",
+            "timeout_soft",
+            "round_timeout_hard",
+            "round_timeout_soft",
+        }
+
+        # Pre-hooks (shown above tool line) - only show interesting ones
         for hook in self._pre_hooks:
             hook_name = hook.get("hook_name", "unknown")
             decision = hook.get("decision", "allow")
             reason = hook.get("reason", "")
+
+            # Skip low-value hooks that just show "allowed" (use prefix matching)
+            if decision != "deny" and any(hook_name.startswith(prefix) for prefix in hidden_hook_prefixes):
+                continue
 
             if decision == "deny":
                 text.append("  🚫 ", style="bold red")
@@ -688,6 +709,34 @@ class ToolCallCard(Static):
         self._stop_elapsed_timer()  # Stop the timer now that tool is complete
         self.remove_class("status-running")
         self.add_class("status-error")
+        self.refresh()
+
+    def set_background_result(
+        self,
+        result: str,
+        result_full: Optional[str] = None,
+        async_id: Optional[str] = None,
+    ) -> None:
+        """Set result for a background/async operation.
+
+        Unlike set_result(), this keeps the timer running since the operation
+        continues in the background. Use this for operations like background shells
+        that return immediately but continue executing.
+
+        Args:
+            result: Truncated result for card display (e.g., "Started: shell_abc123").
+            result_full: Full result for modal.
+            async_id: Optional identifier for the async operation (e.g., shell_id).
+        """
+        self._status = "background"
+        self._result = result
+        self._result_full = result_full if result_full else result
+        self._async_id = async_id
+        self._is_background = True
+        # NOTE: We do NOT stop the timer - background operations are still running
+        # NOTE: We do NOT set _end_time - operation is ongoing
+        self.remove_class("status-running")
+        self.add_class("status-background")
         self.refresh()
 
     def add_pre_hook(
