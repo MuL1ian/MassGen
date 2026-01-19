@@ -93,7 +93,13 @@ class SilentDisplay(BaseDisplay):
         with open(str(self.system_status_file), "w", encoding="utf-8") as f:
             f.write("=== SYSTEM STATUS LOG ===\n\n")
 
-    def update_agent_content(self, agent_id: str, content: str, content_type: str = "thinking"):
+    def update_agent_content(
+        self,
+        agent_id: str,
+        content: str,
+        content_type: str = "thinking",
+        tool_call_id: Optional[str] = None,
+    ):
         """Update content for a specific agent (silent - no output).
 
         Content is still stored internally and written to files but not printed to stdout.
@@ -103,6 +109,7 @@ class SilentDisplay(BaseDisplay):
             agent_id: The agent whose content to update
             content: The content to store
             content_type: Type of content (ignored in silent mode)
+            tool_call_id: Optional unique ID for tool calls (unused in silent mode)
         """
         if agent_id not in self.agent_ids:
             return

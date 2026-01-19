@@ -9,16 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
+Interactive terminal UI with `--display textual` for interactive MassGen sessions. Real-time agent output streaming, context path injection, human feedback integration, keyboard-driven navigation, workspace file browser, answer browser with side-by-side comparisons, and comprehensive modals for metrics/costs/votes/timeline. Enhanced plan execution with mode selection UI and improved final answer presentation.
+
 **v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
 Complete plan-then-execute workflow with `--plan-and-execute` for autonomous planning and execution, `--execute-plan` to run existing plans. Task verification workflow with `verified` status and verification groups for batch validation. Plan storage system in `.massgen/plans/` with frozen snapshots and execution tracking. Response API function call message sanitization fixes.
 
 **v0.1.38 (January 15, 2026)** - Task Planning, Two-Tier Workspaces & Project Instructions
 Task planning mode with `--plan` flag creates structured plans for future workflows (plan-only, no auto-execution). Two-tier git-backed workspaces with scratch/deliverable separation and automatic snapshot commits. Project instruction auto-discovery (CLAUDE.md/AGENTS.md) following the agents.md standard. Batch image analysis with multi-image comparison support. Circuit breaker for timeout denial loops, soft→hard timeout race condition fix, and Docker health monitoring with log capture on MCP failures.
 
-**v0.1.37 (January 12, 2026)** - Execution Traces & Thinking Mode Improvements
-Execution trace files preserve full agent history for compression recovery and cross-agent coordination. Claude Code thinking mode support with streaming buffer integration. Gemini thinking mode fixes and standardized agent labeling across backends. OpenRouter documentation and workspace anonymization improvements.
-
 ---
+
+## [0.1.40] - 2026-01-19
+
+### Added
+- **Textual TUI Interactive Mode**: Interactive terminal UI with `--display textual` for interactive MassGen sessions
+  - Real-time agent output streaming with syntax highlighting
+  - Agent tab bar for switching between agents and post-evaluation views
+  - Keyboard-driven navigation with extensive keyboard shortcuts
+  - Keyboard navigation with `j/k` scrolling and `:q` to quit
+  - Comprehensive modals:
+    - `?` or `h`: Keyboard shortcuts help
+    - `f`: Full agent output
+    - `c`: Cost breakdown (token usage and costs)
+    - `m`: Tool metrics
+    - `v`: Vote results
+    - `o`: Orchestrator events
+    - `s`: System status
+    - `p`: MCP server status
+    - `b`: Answer browser with side-by-side comparisons
+    - `t`: Coordination timeline
+    - `w`: Workspace file browser with tree navigation and file preview
+  - Context path injection UI with `@` syntax support
+  - Human feedback integration with prompt modal
+  - Enhanced final answer presentation with formatting
+  - Plan execution mode selection UI
+  - Scrolling improvements with visual indicators
+  - Tool input/output display with color-coded formatting
+
+### Changed
+- **Final Answer View**: Improved presentation and formatting in Textual TUI
+- **Subagent Display**: Fixed subagent rendering and progress bar updates
+- **Context Path Handling**: Enhanced context path validation and display
+- **Broadcasting**: Improved broadcasting behavior for questions similar to context injection
+
+### Fixed
+- **Tool Inputs Not Showing**: Fixed issue where tool inputs were not displayed in later answers
+- **Empty Space Issue**: Resolved empty space rendering problem in agent answers
+- **Scrolling**: Fixed scrolling behavior and visual indicators
+- **Cancellation**: Improved Ctrl+C handling and graceful shutdown
+- **Menu Display**: Fixed issue with too many items being displayed in menus
+- **Click Handling**: Resolved click event issues in TUI
+- **Path Permissions**: Fixed workspace path permission handling
+- **Task Plan Display**: Fixed task plan rendering in TUI
+
+### Documentation, Configurations and Resources
+- **Textual TUI Architecture**: New `docs/dev_notes/textual_tui_architecture.md` for TUI implementation details
+- **Textual UI Developer Skill**: New `massgen/skills/textual-ui-developer/SKILL.md` for TUI development workflows
+- **OpenSpec Proposals**: Multiple design documents in `openspec/changes/`:
+  - `add-tui-modes/` - TUI modes design and specs
+  - `tui-production-upgrade/` - Enhanced TUI widgets
+  - `update-textual-tui-polish/` - TUI polish and refinements
+- **Updated CLAUDE.md**: Enhanced project instructions with TUI development guidance
+- **Updated Config**: Modified `massgen/configs/basic/multi/three_agents_default.yaml` for TUI testing
+
+### Technical Details
+- **Major Focus**: Textual TUI interactive mode, keyboard navigation, workspace browser, performance optimization
+- **Contributors**: @ncrispino, @praneeth999, @HenryQi and the MassGen team
 
 ## [0.1.39] - 2026-01-16
 

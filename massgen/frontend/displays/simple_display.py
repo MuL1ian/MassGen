@@ -27,7 +27,13 @@ class SimpleDisplay(BaseDisplay):
         print(f"👥 Agents: {', '.join(self.agent_ids)}")
         print("=" * 50)
 
-    def update_agent_content(self, agent_id: str, content: str, content_type: str = "thinking"):
+    def update_agent_content(
+        self,
+        agent_id: str,
+        content: str,
+        content_type: str = "thinking",
+        tool_call_id: Optional[str] = None,
+    ):
         """Update content for a specific agent."""
         if agent_id not in self.agent_ids:
             return

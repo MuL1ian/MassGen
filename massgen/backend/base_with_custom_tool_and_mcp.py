@@ -506,6 +506,17 @@ class CustomToolAndMCPBackend(LLMBackend):
         """Set the GeneralHookManager (used by orchestrator for global hooks)."""
         self._general_hook_manager = manager
 
+    def set_subagent_spawn_callback(self, callback: Callable[[str, Dict[str, Any], str], None]) -> None:
+        """Set callback for subagent spawn notifications.
+
+        This callback is invoked (in a background thread) when spawn_subagents is called,
+        BEFORE the blocking execution begins. This allows the TUI to show progress immediately.
+
+        Args:
+            callback: Function(tool_name, args_dict, call_id) to invoke on spawn
+        """
+        self._subagent_spawn_callback = callback
+
     def _build_multimodal_config_from_params(self) -> Dict[str, Any]:
         """Build multimodal_config from individual generation config variables.
 
@@ -1496,6 +1507,15 @@ class CustomToolAndMCPBackend(LLMBackend):
                     hook_context,
                 )
 
+                # Emit hook execution events for display (pre-hooks)
+                for hook_exec in pre_result.executed_hooks:
+                    yield StreamChunk(
+                        type="hook_execution",
+                        source=self.agent_id,
+                        hook_info=hook_exec,
+                        tool_call_id=call_id,
+                    )
+
                 # Handle deny decision
                 if not pre_result.allowed or pre_result.decision == "deny":
                     error_msg = f"Hook denied tool execution: {pre_result.reason or 'No reason provided'}"
@@ -1505,6 +1525,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         status=config.status_error,
                         content=f"{config.error_emoji} {error_msg}",
                         source=f"{config.source_prefix}{tool_name}",
+                        tool_call_id=call_id,
                     )
                     # Still need to add error result to messages
                     self._append_tool_error_message(
@@ -1536,6 +1557,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 status=config.status_called,
                 content=f"{config.emoji_prefix} Calling {tool_name}...",
                 source=f"{config.source_prefix}{tool_name}",
+                tool_call_id=call_id,
             )
 
             # Yield arguments chunk (arguments_str already extracted above)
@@ -1544,7 +1566,25 @@ class CustomToolAndMCPBackend(LLMBackend):
                 status="function_call",
                 content=f"Arguments for Calling {tool_name}: {arguments_str}",
                 source=f"{config.source_prefix}{tool_name}",
+                tool_call_id=call_id,
             )
+
+            # Special handling for subagent spawn - notify TUI immediately via callback
+            # This runs in a thread to bypass async generator buffering
+            if "spawn_subagent" in tool_name.lower() and hasattr(self, "_subagent_spawn_callback"):
+                import threading
+
+                try:
+                    args_for_callback = json.loads(arguments_str) if arguments_str else {}
+                    # Run callback in thread to avoid blocking
+                    thread = threading.Thread(
+                        target=self._subagent_spawn_callback,
+                        args=(tool_name, args_for_callback, call_id),
+                        daemon=True,
+                    )
+                    thread.start()
+                except Exception as e:
+                    logger.debug(f"Subagent spawn callback failed: {e}")
 
             # Record tool call to execution trace (if available via mixin)
             if hasattr(self, "_execution_trace") and self._execution_trace:
@@ -1593,6 +1633,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                                     status="custom_tool_output",
                                     content=chunk.data,
                                     source=f"{config.source_prefix}{tool_name}",
+                                    tool_call_id=call_id,
                                 )
                             elif hasattr(chunk, "completed") and chunk.completed:
                                 # Extract final accumulated result and metadata
@@ -1642,6 +1683,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                     status=config.status_error,
                     content=f"{config.error_emoji} {error_msg}",
                     source=f"{config.source_prefix}{tool_name}",
+                    tool_call_id=call_id,
                 )
                 # Record MCP failure metrics (use pre-captured execution end time)
                 metric.end_time = execution_end_time
@@ -1698,6 +1740,19 @@ class CustomToolAndMCPBackend(LLMBackend):
                     hook_context,
                     tool_output=result_text_for_eviction,
                 )
+
+                # Emit hook execution events for display (post-hooks)
+                logger.info(
+                    f"[PostToolUse] Hook results - executed_hooks count: {len(post_result.executed_hooks)}, " f"has_inject: {post_result.inject is not None}",
+                )
+                for hook_exec in post_result.executed_hooks:
+                    logger.info(f"[PostToolUse] Emitting hook_execution chunk for {hook_exec.get('hook_name', 'unknown')}")
+                    yield StreamChunk(
+                        type="hook_execution",
+                        source=self.agent_id,
+                        hook_info=hook_exec,
+                        tool_call_id=call_id,
+                    )
 
                 # Handle injection content from PostToolUse hooks
                 if post_result.inject:
@@ -1817,6 +1872,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 status="function_call_output",
                 content=f"Results for Calling {tool_name}: {display_result}",
                 source=f"{config.source_prefix}{tool_name}",
+                tool_call_id=call_id,
             )
 
             # Yield injection chunk if there was mid-stream injection
@@ -1828,6 +1884,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                     status="injection",
                     content=f"📥 [INJECTION] {display_injection}",
                     source="mid_stream_injection",
+                    tool_call_id=call_id,
                 )
 
             # Yield reminder chunk if there was a user_message hook injection
@@ -1840,6 +1897,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                     status="reminder",
                     content=f"💡 [REMINDER] {display_reminder}",
                     source="high_priority_task_reminder",
+                    tool_call_id=call_id,
                 )
 
             # Yield completion status
@@ -1848,6 +1906,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 status=config.status_response,
                 content=f"{config.success_emoji} {tool_name} completed",
                 source=f"{config.source_prefix}{tool_name}",
+                tool_call_id=call_id,
             )
 
             processed_call_ids.add(call.get("call_id", ""))
@@ -1901,6 +1960,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 status="function_call",
                 content=f"Arguments for Calling {tool_name}: {arguments_str}",
                 source=f"{config.source_prefix}{tool_name}",
+                tool_call_id=call_id,
             )
 
             # Yield error status chunk
@@ -1909,6 +1969,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 status=config.status_error,
                 content=f"{config.error_emoji} {error_msg}",
                 source=f"{config.source_prefix}{tool_name}",
+                tool_call_id=call_id,
             )
 
             # Append error to messages
@@ -2137,6 +2198,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             status=config.status_called,
             content=f"{config.emoji_prefix} Calling {tool_name}...",
             source=f"{config.source_prefix}{tool_name}",
+            tool_call_id=call_id,
         )
 
         yield StreamChunk(
@@ -2144,6 +2206,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             status="function_call",
             content=f"Arguments for Calling {tool_name}: {arguments_str}",
             source=f"{config.source_prefix}{tool_name}",
+            tool_call_id=call_id,
         )
 
         request = self._build_nlip_request(call)
@@ -2158,6 +2221,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             status="nlip_transfer",
             content=transfer_message,
             source=f"{config.source_prefix}{tool_name}",
+            tool_call_id=call_id,
         )
 
         # Properly handle the async generator to avoid GeneratorExit issues
@@ -2197,6 +2261,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                             status=config.status_error,
                             content=f"{config.error_emoji} {tool_name}: {error_msg}",
                             source=f"{config.source_prefix}{tool_name}",
+                            tool_call_id=call_id,
                         )
                         result_found = True
                         break
@@ -2218,6 +2283,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         status="function_call_output",
                         content=f"Results for Calling {tool_name}: {result_text}",
                         source=f"{config.source_prefix}{tool_name}",
+                        tool_call_id=call_id,
                     )
 
                     yield StreamChunk(
@@ -2225,6 +2291,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         status=config.status_response,
                         content=f"{config.success_emoji} {tool_name} completed",
                         source=f"{config.source_prefix}{tool_name}",
+                        tool_call_id=call_id,
                     )
                     result_found = True
                     break

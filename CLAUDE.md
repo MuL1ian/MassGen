@@ -304,6 +304,9 @@ Once symlinked, Claude Code will automatically discover and use these skills whe
 
 When you notice a repeatable workflow emerging (e.g., same sequence of steps done multiple times), suggest creating a new skill for it. Use the `skill-creator` skill to help structure and create new skills in `massgen/skills/`.
 
+### Improving Existing Skills
+After you finish a workflow using a skill, it is a good idea to improve it, especially if a human has guided you through new workflows or you found other errors or inefficiencies. You should edit the file in `massgen/skills/` to improve it and have the human approve it.
+
 ## Linear Integration
 
 This project uses Linear for issue tracking.

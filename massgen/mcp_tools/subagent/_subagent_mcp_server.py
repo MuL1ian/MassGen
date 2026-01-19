@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import signal
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -45,6 +46,8 @@ _max_concurrent: int = 3
 _default_timeout: int = SUBAGENT_DEFAULT_TIMEOUT
 _min_timeout: int = 60
 _max_timeout: int = 600
+_parent_context_paths: List[Dict[str, str]] = []
+_parent_coordination_config: Dict[str, Any] = {}
 
 
 def _get_manager() -> SubagentManager:
@@ -64,6 +67,8 @@ def _get_manager() -> SubagentManager:
             default_timeout=_default_timeout,
             min_timeout=_min_timeout,
             max_timeout=_max_timeout,
+            parent_context_paths=_parent_context_paths,
+            parent_coordination_config=_parent_coordination_config,
         )
     return _manager
 
@@ -94,8 +99,9 @@ def _save_subagents_to_filesystem() -> None:
 async def create_server() -> fastmcp.FastMCP:
     """Factory function to create and configure the subagent MCP server."""
     global _workspace_path, _parent_agent_id, _orchestrator_id, _parent_agent_configs
-    global _subagent_orchestrator_config, _log_directory
+    global _subagent_orchestrator_config, _log_directory, _parent_context_paths
     global _max_concurrent, _default_timeout, _min_timeout, _max_timeout
+    global _parent_coordination_config
 
     parser = argparse.ArgumentParser(description="Subagent MCP Server")
     parser.add_argument(
@@ -161,6 +167,20 @@ async def create_server() -> fastmcp.FastMCP:
         default="",
         help="Path to log directory for subagent logs",
     )
+    parser.add_argument(
+        "--context-paths-file",
+        type=str,
+        required=False,
+        default="",
+        help="Path to JSON file containing parent context paths",
+    )
+    parser.add_argument(
+        "--coordination-config-file",
+        type=str,
+        required=False,
+        default="",
+        help="Path to JSON file containing parent coordination config",
+    )
     args = parser.parse_args()
 
     # Set global configuration
@@ -195,6 +215,42 @@ async def create_server() -> fastmcp.FastMCP:
 
     # Set log directory
     _log_directory = args.log_directory if args.log_directory else None
+
+    # Parse context paths from file (similar to agent configs, avoids length limits)
+    _parent_context_paths = []
+    if args.context_paths_file:
+        try:
+            with open(args.context_paths_file) as f:
+                _parent_context_paths = json.load(f)
+            if not isinstance(_parent_context_paths, list):
+                _parent_context_paths = []
+            # Clean up the temp file after reading
+            try:
+                os.unlink(args.context_paths_file)
+            except OSError:
+                pass  # Ignore if file already deleted
+            logger.info(f"[SubagentMCP] Loaded {len(_parent_context_paths)} parent context paths")
+        except (json.JSONDecodeError, FileNotFoundError, OSError) as e:
+            logger.warning(f"Failed to load context paths from {args.context_paths_file}: {e}")
+            _parent_context_paths = []
+
+    # Parse coordination config from file (similar to context paths)
+    _parent_coordination_config = {}
+    if args.coordination_config_file:
+        try:
+            with open(args.coordination_config_file) as f:
+                _parent_coordination_config = json.load(f)
+            if not isinstance(_parent_coordination_config, dict):
+                _parent_coordination_config = {}
+            # Clean up the temp file after reading
+            try:
+                os.unlink(args.coordination_config_file)
+            except OSError:
+                pass  # Ignore if file already deleted
+            logger.info("[SubagentMCP] Loaded parent coordination config")
+        except (json.JSONDecodeError, FileNotFoundError, OSError) as e:
+            logger.warning(f"Failed to load coordination config from {args.coordination_config_file}: {e}")
+            _parent_coordination_config = {}
 
     # Set concurrency and timeout limits
     _max_concurrent = args.max_concurrent
@@ -324,16 +380,64 @@ async def create_server() -> fastmcp.FastMCP:
                         "error": f"Task at index {i} missing required 'task' field",
                     }
 
-            # Run the async spawn safely (handles both sync and nested async contexts)
+            # Normalize task IDs
+            normalized_tasks = []
+            for i, t in enumerate(tasks):
+                task_id = t.get("subagent_id", f"subagent_{i}")
+                normalized_tasks.append(
+                    {
+                        **t,
+                        "subagent_id": task_id,
+                    },
+                )
+
+            task_ids = [t["subagent_id"] for t in normalized_tasks]
+            logger.info(f"[SubagentMCP] Spawning {len(normalized_tasks)} subagents: {task_ids}")
+
+            # Write spawning status to file for TUI polling (BEFORE starting)
+            if _workspace_path is not None:
+                subagents_dir = _workspace_path / "subagents"
+                subagents_dir.mkdir(exist_ok=True)
+                status_file = subagents_dir / "_spawn_status.json"
+                spawn_status = {
+                    "status": "spawning",
+                    "started_at": datetime.now().isoformat(),
+                    "subagents": [
+                        {
+                            "subagent_id": t["subagent_id"],
+                            "task": t.get("task", ""),
+                            "status": "running",
+                            "progress_percent": 0,
+                            "workspace": "",
+                            "log_path": "",
+                        }
+                        for t in normalized_tasks
+                    ],
+                }
+                status_file.write_text(json.dumps(spawn_status, indent=2))
+                logger.info(f"[SubagentMCP] Wrote spawn status to {status_file}")
+
+            # Run the async spawn (this blocks but status file is already written)
             from massgen.utils import run_async_safely
 
             results = run_async_safely(
                 manager.spawn_parallel(
-                    tasks=tasks,
+                    tasks=normalized_tasks,
                     context=context,
-                    timeout_seconds=_default_timeout,  # Use configured default, not model-specified
+                    timeout_seconds=_default_timeout,
                 ),
             )
+
+            # Update status file with completion
+            if _workspace_path is not None:
+                status_file = _workspace_path / "subagents" / "_spawn_status.json"
+                completed_status = {
+                    "status": "completed",
+                    "started_at": spawn_status.get("started_at", ""),
+                    "completed_at": datetime.now().isoformat(),
+                    "subagents": [r.to_dict() for r in results],
+                }
+                status_file.write_text(json.dumps(completed_status, indent=2))
 
             # Save registry to filesystem
             _save_subagents_to_filesystem()

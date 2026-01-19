@@ -637,7 +637,10 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                 "mcp_status": ChunkType.MCP_STATUS,
             }
 
-            def chunk_adapter(chunk: StreamChunk) -> TextStreamChunk:
+            def chunk_adapter(chunk: StreamChunk) -> StreamChunk:
+                # Pass through hook_execution chunks unchanged to preserve hook_info
+                if getattr(chunk, "type", None) == "hook_execution":
+                    return chunk
                 return TextStreamChunk(
                     type=chunk_type_map.get(chunk.type, chunk.type),
                     status=getattr(chunk, "status", None),

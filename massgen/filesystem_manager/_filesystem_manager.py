@@ -416,6 +416,102 @@ class FilesystemManager:
         if self.enable_mcp_command_line and self.command_line_execution_mode == "local" and (skills_directory or massgen_skills):
             self.setup_local_skills(skills_directory, massgen_skills)
 
+    def recreate_container_for_write_access(
+        self,
+        skills_directory: Optional[str] = None,
+        massgen_skills: Optional[List[str]] = None,
+        load_previous_session_skills: bool = False,
+    ) -> None:
+        """
+        Recreate the Docker container with write access enabled for context paths.
+
+        This is called before final presentation to allow the winning agent's Docker
+        container to have write access to context paths. The original container was
+        created with read-only mounts for context paths (to prevent race conditions
+        during coordination), so we need to recreate it with write-enabled mounts.
+
+        Args:
+            skills_directory: Path to skills directory to mount in Docker
+            massgen_skills: List of MassGen built-in skills to enable
+            load_previous_session_skills: If True, include evolving skills from previous sessions
+
+        Note:
+            This method preserves the agent's workspace and other state - only the
+            Docker container is recreated. The PathPermissionManager must also have
+            its context_write_access_enabled set to True separately.
+        """
+        if not self.docker_manager or not self.agent_id:
+            logger.debug(
+                "[FilesystemManager] No Docker manager or agent_id - skipping container recreation",
+            )
+            return
+
+        logger.info(
+            f"[FilesystemManager] Recreating Docker container for {self.agent_id} with write access to context paths",
+        )
+
+        # Get context paths - these will now be mounted with write access
+        # because we'll mark write paths as writable in the config we pass
+        context_paths = self.path_permission_manager.get_context_paths()
+
+        # Update context paths to have write permission for those marked will_be_writable
+        # This ensures the Docker mount is created with 'rw' mode
+        write_enabled_context_paths = []
+        for ctx_path in context_paths:
+            ctx_path_copy = ctx_path.copy()
+            # Check if this path should be writable (will_be_writable flag from ManagedPath)
+            for mp in self.path_permission_manager.managed_paths:
+                if mp.path_type == "context" and str(mp.path) == ctx_path.get("path"):
+                    if mp.will_be_writable:
+                        ctx_path_copy["permission"] = "write"
+                        logger.info(
+                            f"[FilesystemManager] Enabling write access in Docker for: {ctx_path.get('path')}",
+                        )
+                    break
+            write_enabled_context_paths.append(ctx_path_copy)
+
+        # Remove the existing container
+        try:
+            self.docker_manager.remove_container(self.agent_id, force=True)
+            logger.info(f"[FilesystemManager] Removed old container for {self.agent_id}")
+        except ValueError:
+            # Container doesn't exist - that's fine
+            logger.debug(f"[FilesystemManager] No existing container to remove for {self.agent_id}")
+        except Exception as e:
+            logger.warning(f"[FilesystemManager] Error removing container for {self.agent_id}: {e}")
+
+        # Get session mount config if session manager is initialized
+        session_mount = None
+        if self.session_mount_manager:
+            session_mount = self.session_mount_manager.get_mount_config()
+
+        # Recreate the container with write-enabled context paths
+        docker_skills_dir = self.docker_manager.create_container(
+            agent_id=self.agent_id,
+            workspace_path=self.cwd,
+            temp_workspace_path=self.agent_temporary_workspace_parent if self.agent_temporary_workspace_parent else None,
+            context_paths=write_enabled_context_paths,
+            session_mount=session_mount,
+            skills_directory=skills_directory,
+            massgen_skills=massgen_skills,
+            shared_tools_directory=self.shared_tools_base,
+            load_previous_session_skills=load_previous_session_skills,
+        )
+
+        logger.info(
+            f"[FilesystemManager] Docker container recreated for {self.agent_id} with write access to context paths",
+        )
+
+        # Update Docker skills directory path if it was created
+        if docker_skills_dir:
+            from ._base import Permission
+
+            # Check if already added (avoid duplicates)
+            existing_paths = [str(mp.path) for mp in self.path_permission_manager.managed_paths]
+            if str(docker_skills_dir) not in existing_paths:
+                self.path_permission_manager.add_path(docker_skills_dir, Permission.READ, "docker_skills")
+                logger.info(f"[Docker] Added skills directory to allowed paths: {docker_skills_dir}")
+
     def setup_local_skills(self, skills_directory: Optional[str] = None, massgen_skills: Optional[List[str]] = None) -> None:
         """
         Setup merged skills directory for local command line execution mode.

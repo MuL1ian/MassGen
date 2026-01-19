@@ -6,7 +6,7 @@ Defines the interface that all display implementations must follow.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class BaseDisplay(ABC):
@@ -25,13 +25,20 @@ class BaseDisplay(ABC):
         """Initialize the display with question and optional log file."""
 
     @abstractmethod
-    def update_agent_content(self, agent_id: str, content: str, content_type: str = "thinking"):
+    def update_agent_content(
+        self,
+        agent_id: str,
+        content: str,
+        content_type: str = "thinking",
+        tool_call_id: Optional[str] = None,
+    ):
         """Update content for a specific agent.
 
         Args:
             agent_id: The agent whose content to update
             content: The content to add/update
             content_type: Type of content ("thinking", "tool", "status")
+            tool_call_id: Optional unique ID for tool calls (enables tracking across events)
         """
 
     @abstractmethod
@@ -42,6 +49,49 @@ class BaseDisplay(ABC):
             agent_id: The agent whose status to update
             status: New status ("waiting", "working", "completed")
         """
+
+    def update_timeout_status(self, agent_id: str, timeout_state: Dict[str, Any]) -> None:
+        """Update timeout display for an agent.
+
+        Called periodically during coordination to update timeout countdown.
+
+        Args:
+            agent_id: The agent whose timeout status to update
+            timeout_state: Dictionary containing timeout state from orchestrator.get_agent_timeout_state():
+                - round_number: Current coordination round
+                - round_start_time: When current round started
+                - active_timeout: Soft timeout for current round type
+                - grace_seconds: Grace period before hard block
+                - elapsed: Seconds elapsed since round start
+                - remaining_soft: Seconds until soft timeout
+                - remaining_hard: Seconds until hard block
+                - soft_timeout_fired: Whether soft timeout warning was injected
+                - is_hard_blocked: Whether hard timeout is active
+        """
+        pass  # Override in subclasses
+
+    def update_hook_execution(
+        self,
+        agent_id: str,
+        tool_call_id: Optional[str],
+        hook_info: Dict[str, Any],
+    ) -> None:
+        """Update display with hook execution information.
+
+        Called after hooks execute to show pre/post hook activity on tool cards.
+
+        Args:
+            agent_id: The agent whose tool call has hooks
+            tool_call_id: Optional ID of the tool call this hook is attached to
+            hook_info: Dictionary containing hook execution info:
+                - hook_name: Name of the hook
+                - hook_type: "pre" or "post"
+                - decision: "allow", "deny", "error", etc.
+                - reason: Reason for the decision (if any)
+                - execution_time_ms: How long the hook took
+                - injection_preview: Preview of injected content (if any)
+        """
+        pass  # Override in subclasses
 
     @abstractmethod
     def add_orchestrator_event(self, event: str):

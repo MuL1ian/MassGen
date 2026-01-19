@@ -26,6 +26,7 @@ from massgen.subagent.models import (
     SUBAGENT_MAX_TIMEOUT,
     SUBAGENT_MIN_TIMEOUT,
     SubagentConfig,
+    SubagentDisplayData,
     SubagentOrchestratorConfig,
     SubagentPointer,
     SubagentResult,
@@ -61,6 +62,8 @@ class SubagentManager:
         max_timeout: int = SUBAGENT_MAX_TIMEOUT,
         subagent_orchestrator_config: Optional[SubagentOrchestratorConfig] = None,
         log_directory: Optional[str] = None,
+        parent_context_paths: Optional[List[Dict[str, str]]] = None,
+        parent_coordination_config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize SubagentManager.
@@ -80,6 +83,11 @@ class SubagentManager:
                 instead of a single ConfigurableAgent.
             log_directory: Path to main run's log directory for subagent logs.
                 Subagent logs will be written to {log_directory}/subagents/{subagent_id}/
+            parent_context_paths: List of context paths from the parent orchestrator.
+                These are passed to subagents as read-only context paths so they can
+                access the same codebase/files as the parent agent.
+            parent_coordination_config: Coordination config from the parent orchestrator.
+                Used to inherit settings like enable_agent_task_planning for subagents.
         """
         self.parent_workspace = Path(parent_workspace)
         self.parent_agent_id = parent_agent_id
@@ -90,6 +98,8 @@ class SubagentManager:
         self.min_timeout = min_timeout
         self.max_timeout = max_timeout
         self._subagent_orchestrator_config = subagent_orchestrator_config
+        self._parent_context_paths = parent_context_paths or []
+        self._parent_coordination_config = parent_coordination_config or {}
 
         # Log directory for subagent logs (in main run's log dir)
         self._log_directory = Path(log_directory) if log_directory else None
@@ -173,6 +183,44 @@ class SubagentManager:
         log_dir = self._subagent_logs_base / subagent_id
         log_dir.mkdir(parents=True, exist_ok=True)
         return log_dir
+
+    def _create_live_logs_symlink(self, subagent_id: str, workspace: Path) -> None:
+        """Create a symlink to the subprocess's live log directory.
+
+        This enables the TUI to stream logs in real-time during subagent execution.
+        The symlink points to workspace/.massgen/massgen_logs/ where the subprocess
+        writes its logs. After completion, full_logs/ contains the copied logs.
+
+        Args:
+            subagent_id: Subagent identifier
+            workspace: Subagent workspace path
+        """
+        if not self._subagent_logs_base:
+            return
+
+        log_dir = self._subagent_logs_base / subagent_id
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        live_logs_link = log_dir / "live_logs"
+        target = workspace / ".massgen" / "massgen_logs"
+
+        # Create the target directory so the symlink is valid immediately
+        # The subprocess will populate it when it starts
+        target.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # Remove existing symlink if present
+            if live_logs_link.is_symlink():
+                live_logs_link.unlink()
+            elif live_logs_link.exists():
+                # Not a symlink but exists - skip to avoid data loss
+                logger.warning(f"[SubagentManager] live_logs exists but is not a symlink: {live_logs_link}")
+                return
+
+            live_logs_link.symlink_to(target)
+            logger.debug(f"[SubagentManager] Created live_logs symlink: {live_logs_link} -> {target}")
+        except Exception as e:
+            logger.warning(f"[SubagentManager] Failed to create live_logs symlink: {e}")
 
     # NOTE: _write_status() was removed as part of status.json consolidation.
     # The subagent's Orchestrator writes full_logs/status.json which is the single
@@ -487,6 +535,11 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             # Track the process for potential cancellation
             self._active_processes[config.id] = process
 
+            # Create symlink to live logs for TUI streaming
+            # The subprocess writes to workspace/.massgen/massgen_logs/
+            # We symlink this to _subagent_logs_base/{id}/live_logs for easy access
+            self._create_live_logs_symlink(config.id, workspace)
+
             # Wait with timeout (clamped to configured min/max)
             timeout = self._clamp_timeout(config.timeout_seconds)
             try:
@@ -724,6 +777,19 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         coord_settings = orch_config.coordination.copy() if orch_config and orch_config.coordination else {}
         coord_settings["enable_subagents"] = False  # CRITICAL: prevent nesting
 
+        # Inherit planning settings from parent if not explicitly set in subagent config
+        # This allows subagents to use planning tools when the parent has them enabled
+        planning_settings_to_inherit = [
+            "enable_agent_task_planning",
+            "task_planning_filesystem_mode",
+        ]
+        for setting in planning_settings_to_inherit:
+            if setting not in coord_settings and setting in self._parent_coordination_config:
+                coord_settings[setting] = self._parent_coordination_config[setting]
+                logger.info(
+                    f"[SubagentManager] Inherited {setting}={self._parent_coordination_config[setting]} from parent",
+                )
+
         orchestrator_config = {
             "snapshot_storage": str(workspace / "snapshots"),
             "agent_temporary_workspace": str(workspace / "temp"),
@@ -735,9 +801,34 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         if orch_config and orch_config.max_new_answers:
             orchestrator_config["max_new_answers_per_agent"] = orch_config.max_new_answers
 
-        # Add context paths if provided
+        # Merge context paths: parent context paths + task-specific context paths
+        # Parent context paths are always read-only (subagents can read the codebase)
+        # Task-specific context paths from context_files are also read-only
+        merged_context_paths: List[Dict[str, str]] = []
+
+        # Add parent context paths first (always read-only for subagents)
+        if self._parent_context_paths:
+            for parent_path in self._parent_context_paths:
+                # Force read-only for subagents to prevent uncontrolled writes
+                merged_context_paths.append(
+                    {
+                        "path": parent_path.get("path", ""),
+                        "permission": "read",  # Always read for subagents
+                    },
+                )
+            logger.info(
+                f"[SubagentManager] Inherited {len(self._parent_context_paths)} context paths from parent",
+            )
+
+        # Add task-specific context paths (from context_files parameter)
         if context_paths:
-            orchestrator_config["context_paths"] = context_paths
+            existing_paths = {p.get("path") for p in merged_context_paths}
+            for ctx_path in context_paths:
+                if ctx_path.get("path") not in existing_paths:
+                    merged_context_paths.append(ctx_path)
+
+        if merged_context_paths:
+            orchestrator_config["context_paths"] = merged_context_paths
 
         yaml_config = {
             "agents": agents,
@@ -1251,6 +1342,94 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             "workspace": state.workspace_path,
             "started_at": state.started_at.isoformat() if state.started_at else None,
         }
+
+    def get_subagent_display_data(self, subagent_id: str) -> Optional[SubagentDisplayData]:
+        """
+        Get display data for a subagent (for TUI rendering).
+
+        Returns a SubagentDisplayData object with progress, file count, and
+        last log line - optimized for the SubagentCard widget.
+
+        Args:
+            subagent_id: Subagent identifier
+
+        Returns:
+            SubagentDisplayData if found, None otherwise
+        """
+
+        state = self._subagents.get(subagent_id)
+        if not state:
+            return None
+
+        # Calculate elapsed time and progress
+        elapsed = 0.0
+        if state.started_at:
+            elapsed = (datetime.now() - state.started_at).total_seconds()
+
+        timeout = state.config.timeout_seconds
+        progress = min(100, int(elapsed / timeout * 100)) if timeout > 0 else 0
+
+        # Determine status
+        status = state.status
+        if status == "completed_but_timeout":
+            status = "timeout"
+        elif status == "partial":
+            status = "error"
+
+        # Count workspace files
+        workspace_file_count = 0
+        workspace_path = Path(state.workspace_path) if state.workspace_path else None
+        if workspace_path and workspace_path.exists():
+            try:
+                workspace_file_count = sum(1 for p in workspace_path.rglob("*") if p.is_file())
+            except (OSError, IOError):
+                pass
+
+        # Get last log line
+        last_log_line = ""
+        if self._subagent_logs_base and workspace_path:
+            log_path = self._subagent_logs_base / subagent_id / "full_logs" / "massgen.log"
+            if log_path.exists():
+                try:
+                    # Tail last line efficiently
+                    with open(log_path, "rb") as f:
+                        f.seek(0, 2)  # End of file
+                        size = f.tell()
+                        if size > 0:
+                            # Read last ~500 bytes
+                            f.seek(max(0, size - 500))
+                            content = f.read().decode("utf-8", errors="replace")
+                            lines = content.strip().split("\n")
+                            if lines:
+                                last_log_line = lines[-1][:100]  # Truncate
+                except (OSError, IOError):
+                    pass
+
+        # Get error message if failed
+        error = None
+        if state.result and state.result.error:
+            error = state.result.error
+
+        # Get answer preview if completed
+        answer_preview = None
+        if state.result and state.result.answer:
+            answer_preview = state.result.answer[:200]
+            if len(state.result.answer) > 200:
+                answer_preview += "..."
+
+        return SubagentDisplayData(
+            id=subagent_id,
+            task=state.config.task,
+            status=status,
+            progress_percent=progress,
+            elapsed_seconds=elapsed,
+            timeout_seconds=float(timeout),
+            workspace_path=state.workspace_path or "",
+            workspace_file_count=workspace_file_count,
+            last_log_line=last_log_line,
+            error=error,
+            answer_preview=answer_preview,
+        )
 
     def _transform_orchestrator_status(
         self,

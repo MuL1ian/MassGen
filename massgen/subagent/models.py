@@ -504,3 +504,56 @@ class SubagentState:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "result": self.result.to_dict() if self.result else None,
         }
+
+
+@dataclass
+class SubagentDisplayData:
+    """
+    Display data for rendering a subagent in the TUI.
+
+    Used by SubagentCard to show live progress, activity, and status.
+    Provides a snapshot of subagent state optimized for display purposes.
+
+    Attributes:
+        id: Subagent identifier
+        task: The task description
+        status: Current execution status
+        progress_percent: Progress estimate (0-100), based on elapsed/timeout
+        elapsed_seconds: Time elapsed since start
+        timeout_seconds: Maximum allowed execution time
+        workspace_path: Path to subagent workspace directory
+        workspace_file_count: Number of files in workspace
+        last_log_line: Most recent log line for activity display
+        error: Error message if status is error/failed
+        answer_preview: First ~100 chars of answer if completed
+    """
+
+    id: str
+    task: str
+    status: Literal["pending", "running", "completed", "error", "timeout", "failed"]
+    progress_percent: int  # 0-100, based on elapsed/timeout
+    elapsed_seconds: float
+    timeout_seconds: float
+    workspace_path: str
+    workspace_file_count: int
+    last_log_line: str
+    error: Optional[str] = None
+    answer_preview: Optional[str] = None
+    log_path: Optional[str] = None  # Path to log directory for log streaming
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "id": self.id,
+            "task": self.task,
+            "status": self.status,
+            "progress_percent": self.progress_percent,
+            "elapsed_seconds": self.elapsed_seconds,
+            "timeout_seconds": self.timeout_seconds,
+            "workspace_path": self.workspace_path,
+            "workspace_file_count": self.workspace_file_count,
+            "last_log_line": self.last_log_line,
+            "error": self.error,
+            "answer_preview": self.answer_preview,
+            "log_path": self.log_path,
+        }

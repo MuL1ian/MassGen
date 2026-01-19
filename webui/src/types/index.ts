@@ -29,7 +29,9 @@ export type WSEventType =
   | 'coordination_started'
   | 'coordination_complete'
   | 'preparation_status'
-  | 'keepalive';
+  | 'keepalive'
+  | 'timeout_status'
+  | 'hook_execution';
 
 // Base WebSocket message
 export interface WSMessage {
@@ -165,6 +167,42 @@ export interface PreparationStatusEvent extends WSMessage {
   detail?: string;
 }
 
+// Timeout status for per-agent timeout display
+export interface TimeoutState {
+  round_number: number;
+  round_start_time: number | null;
+  active_timeout: number | null;
+  grace_seconds: number;
+  elapsed: number | null;
+  remaining_soft: number | null;
+  remaining_hard: number | null;
+  soft_timeout_fired: boolean;
+  is_hard_blocked: boolean;
+}
+
+export interface TimeoutStatusEvent extends WSMessage {
+  type: 'timeout_status';
+  agent_id: string;
+  timeout_state: TimeoutState;
+}
+
+// Hook execution information for display
+export interface HookExecutionInfo {
+  hook_name: string;
+  hook_type: 'pre' | 'post';
+  decision: 'allow' | 'deny' | 'error';
+  reason?: string;
+  execution_time_ms?: number;
+  injection_preview?: string;
+}
+
+export interface HookExecutionEvent extends WSMessage {
+  type: 'hook_execution';
+  agent_id: string;
+  tool_call_id?: string;
+  hook_info: HookExecutionInfo;
+}
+
 // Vote results structure
 export interface VoteResults {
   vote_counts?: Record<string, number>;
@@ -205,6 +243,7 @@ export interface AgentState {
   files: FileInfo[];
   toolCalls: ToolCallInfo[];
   workspacePath?: string;  // Current workspace path for this agent (from status.json)
+  timeoutState?: TimeoutState;  // Per-agent timeout countdown state
 }
 
 export interface FileInfo {
@@ -221,6 +260,8 @@ export interface ToolCallInfo {
   result?: string;
   success?: boolean;
   timestamp: number;
+  preHooks?: HookExecutionInfo[];   // Hooks that ran before tool
+  postHooks?: HookExecutionInfo[];  // Hooks that ran after tool
 }
 
 // Answer from an agent
@@ -327,6 +368,8 @@ export type WSEvent =
   | RestartEvent
   | ErrorEvent
   | PreparationStatusEvent
+  | TimeoutStatusEvent
+  | HookExecutionEvent
   | WSMessage;
 
 // Config file info from API

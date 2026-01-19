@@ -1,0 +1,115 @@
+/* =============================================================================
+ * MassGen TUI - Semantic CSS Variables
+ * =============================================================================
+ * This file defines the semantic variable system used across all themes.
+ * Theme files (dark.tcss, light.tcss) should override these values.
+ *
+ * Naming Convention:
+ * - $bg-*       : Background colors (base, surface, elevated)
+ * - $fg-*       : Foreground/text colors (primary, muted, subtle)
+ * - $border-*   : Border colors (default, highlight, muted)
+ * - $accent-*   : Semantic accent colors (primary, success, warning, error, info)
+ * - $agent-*    : Agent-specific accent colors
+ *
+ * To create a new theme:
+ * 1. Copy this file to your new theme file
+ * 2. Override the variable values
+ * 3. Import any component-specific styles
+ * =============================================================================
+ */
+
+/* === Dark Theme Variables (GitHub Dark+ inspired) ===
+ * This is the default/fallback palette.
+ * Override these in theme-specific files.
+ */
+
+$bg-base: #0d1117;           /* Main app background */
+$bg-surface: #161b22;        /* Elevated surfaces (headers, panels) */
+$bg-surface-2: #21262d;      /* Cards, modals, popups */
+$bg-surface-3: #30363d;      /* Hover states, selections */
+
+$fg-primary: #e6edf3;        /* Primary text - high contrast */
+$fg-muted: #8b949e;          /* Secondary text - medium contrast */
+$fg-subtle: #6e7681;         /* Tertiary text - low contrast */
+$fg-on-accent: #ffffff;      /* Text on accent backgrounds */
+
+$border-default: #30363d;    /* Standard borders */
+$border-highlight: #484f58;  /* Highlighted/focused borders */
+$border-muted: #21262d;      /* Subtle/background borders */
+
+/* Semantic Accent Colors */
+$accent-primary: #58a6ff;    /* Primary actions, links, focus */
+$accent-success: #3fb950;    /* Success, completion, positive */
+$accent-warning: #d29922;    /* Warning, pending, attention */
+$accent-error: #f85149;      /* Error, danger, destructive */
+$accent-info: #39c5cf;       /* Information, neutral accent */
+$accent-special: #a371f7;    /* Special highlights, premium */
+
+/* Agent Color Palette - for distinguishing multiple agents */
+$agent-1: #58a6ff;           /* Blue - Agent A */
+$agent-1-bg: #0d1a26;
+$agent-2: #3fb950;           /* Green - Agent B */
+$agent-2-bg: #0d1f14;
+$agent-3: #a371f7;           /* Purple - Agent C */
+$agent-3-bg: #1a0d26;
+$agent-4: #f0883e;           /* Orange - Agent D */
+$agent-4-bg: #261a0d;
+$agent-5: #39c5cf;           /* Cyan - Agent E */
+$agent-5-bg: #0d1f1f;
+$agent-6: #db61a2;           /* Pink - Agent F */
+$agent-6-bg: #260d1a;
+$agent-7: #d29922;           /* Yellow - Agent G */
+$agent-7-bg: #262010;
+$agent-8: #f85149;           /* Red - Agent H */
+$agent-8-bg: #26100d;
+
+/* Component-Specific Variables */
+$modal-backdrop: rgba(0, 0, 0, 0.7);
+$scrollbar-track: $bg-surface;
+$scrollbar-thumb: $border-default;
+$scrollbar-thumb-hover: $border-highlight;
+
+/* Focus Ring */
+$focus-ring-color: $accent-primary;
+$focus-ring-width: 2;
+
+/* Button Variants */
+$btn-primary-bg: $accent-primary;
+$btn-primary-fg: $bg-base;
+$btn-success-bg: $accent-success;
+$btn-success-fg: $bg-base;
+$btn-warning-bg: $accent-warning;
+$btn-warning-fg: $bg-base;
+$btn-error-bg: $accent-error;
+$btn-error-fg: $bg-base;
+
+/* Status Badge Colors */
+$status-running-bg: rgba(88, 166, 255, 0.2);
+$status-running-fg: $accent-primary;
+$status-success-bg: rgba(63, 185, 80, 0.2);
+$status-success-fg: $accent-success;
+$status-warning-bg: rgba(210, 153, 34, 0.2);
+$status-warning-fg: $accent-warning;
+$status-error-bg: rgba(248, 81, 73, 0.2);
+$status-error-fg: $accent-error;
+
+/* Tool Categories */
+$tool-read: #58a6ff;         /* Read operations */
+$tool-write: #d29922;        /* Write operations */
+$tool-execute: #3fb950;      /* Execution/run */
+$tool-search: #a371f7;       /* Search operations */
+$tool-web: #39c5cf;          /* Web/network */
+$tool-default: #8b949e;      /* Default/other */
+
+/* Spacing (for reference - Textual uses character units) */
+$spacing-xs: 1;
+$spacing-sm: 2;
+$spacing-md: 3;
+$spacing-lg: 4;
+$spacing-xl: 6;
+
+/* Border Radius */
+$radius-sm: 0.3;
+$radius-md: 0.5;
+$radius-lg: 1;
+$radius-pill: 9999;

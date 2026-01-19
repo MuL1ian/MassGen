@@ -19,6 +19,7 @@ TODOs:
 """
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import shutil
@@ -341,60 +342,79 @@ class Orchestrator(ChatAgent):
                     False,
                 )
 
-        for agent_id, agent in self.agents.items():
-            if agent.backend.filesystem_manager:
-                agent.backend.filesystem_manager.setup_orchestration_paths(
-                    agent_id=agent_id,
-                    snapshot_storage=self._snapshot_storage,
-                    agent_temporary_workspace=self._agent_temporary_workspace,
-                    skills_directory=skills_directory,
-                    massgen_skills=massgen_skills,
-                    load_previous_session_skills=load_previous_session_skills,
-                )
-                # Setup workspace directories for massgen skills
-                if hasattr(self.config, "coordination_config") and hasattr(
-                    self.config.coordination_config,
-                    "massgen_skills",
-                ):
-                    if self.config.coordination_config.massgen_skills:
-                        agent.backend.filesystem_manager.setup_massgen_skill_directories(
-                            massgen_skills=self.config.coordination_config.massgen_skills,
-                        )
-                # Setup memory directories if memory filesystem mode is enabled
-                if hasattr(self.config, "coordination_config") and hasattr(
-                    self.config.coordination_config,
-                    "enable_memory_filesystem_mode",
-                ):
-                    if self.config.coordination_config.enable_memory_filesystem_mode:
-                        agent.backend.filesystem_manager.setup_memory_directories()
+        def _setup_agent_orchestration(agent_id: str, agent) -> None:
+            """Setup orchestration paths for a single agent (can run in parallel)."""
+            if not agent.backend.filesystem_manager:
+                return
 
-                        # Restore memories from previous turn if available
-                        if self._previous_turns:
-                            previous_turn = self._previous_turns[-1]  # Get most recent turn
-                            if "log_dir" in previous_turn:
-                                from pathlib import Path as PathlibPath
+            agent.backend.filesystem_manager.setup_orchestration_paths(
+                agent_id=agent_id,
+                snapshot_storage=self._snapshot_storage,
+                agent_temporary_workspace=self._agent_temporary_workspace,
+                skills_directory=skills_directory,
+                massgen_skills=massgen_skills,
+                load_previous_session_skills=load_previous_session_skills,
+            )
+            # Setup workspace directories for massgen skills
+            if hasattr(self.config, "coordination_config") and hasattr(
+                self.config.coordination_config,
+                "massgen_skills",
+            ):
+                if self.config.coordination_config.massgen_skills:
+                    agent.backend.filesystem_manager.setup_massgen_skill_directories(
+                        massgen_skills=self.config.coordination_config.massgen_skills,
+                    )
+            # Setup memory directories if memory filesystem mode is enabled
+            if hasattr(self.config, "coordination_config") and hasattr(
+                self.config.coordination_config,
+                "enable_memory_filesystem_mode",
+            ):
+                if self.config.coordination_config.enable_memory_filesystem_mode:
+                    agent.backend.filesystem_manager.setup_memory_directories()
 
-                                prev_log_dir = PathlibPath(previous_turn["log_dir"])
-                                # Look for final workspace from previous turn
-                                prev_final_workspace = prev_log_dir / "final"
-                                if prev_final_workspace.exists():
-                                    # Find the winning agent's workspace from previous turn
-                                    for agent_dir in prev_final_workspace.iterdir():
-                                        if agent_dir.is_dir():
-                                            prev_workspace = agent_dir / "workspace"
-                                            if prev_workspace.exists():
-                                                logger.info(
-                                                    f"[Orchestrator] Restoring memories from previous turn: {prev_workspace}",
-                                                )
-                                                agent.backend.filesystem_manager.restore_memories_from_previous_turn(
-                                                    prev_workspace,
-                                                )
-                                                break  # Only restore from one agent (the winner)
+                    # Restore memories from previous turn if available
+                    if self._previous_turns:
+                        previous_turn = self._previous_turns[-1]  # Get most recent turn
+                        if "log_dir" in previous_turn:
+                            from pathlib import Path as PathlibPath
 
-                # Update MCP config with agent_id for Docker mode (must be after setup_orchestration_paths)
-                agent.backend.filesystem_manager.update_backend_mcp_config(
-                    agent.backend.config,
-                )
+                            prev_log_dir = PathlibPath(previous_turn["log_dir"])
+                            # Look for final workspace from previous turn
+                            prev_final_workspace = prev_log_dir / "final"
+                            if prev_final_workspace.exists():
+                                # Find the winning agent's workspace from previous turn
+                                for agent_dir in prev_final_workspace.iterdir():
+                                    if agent_dir.is_dir():
+                                        prev_workspace = agent_dir / "workspace"
+                                        if prev_workspace.exists():
+                                            logger.info(
+                                                f"[Orchestrator] Restoring memories from previous turn: {prev_workspace}",
+                                            )
+                                            agent.backend.filesystem_manager.restore_memories_from_previous_turn(
+                                                prev_workspace,
+                                            )
+                                            break  # Only restore from one agent (the winner)
+
+            # Update MCP config with agent_id for Docker mode (must be after setup_orchestration_paths)
+            agent.backend.filesystem_manager.update_backend_mcp_config(
+                agent.backend.config,
+            )
+
+        # Setup orchestration paths for all agents in parallel (Docker container creation is I/O bound)
+        if len(self.agents) > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.agents)) as executor:
+                futures = {executor.submit(_setup_agent_orchestration, agent_id, agent): agent_id for agent_id, agent in self.agents.items()}
+                for future in concurrent.futures.as_completed(futures):
+                    agent_id = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"[Orchestrator] Failed to setup orchestration for {agent_id}: {e}")
+                        raise
+        else:
+            # Single agent - no need for threading overhead
+            for agent_id, agent in self.agents.items():
+                _setup_agent_orchestration(agent_id, agent)
 
         # Initialize broadcast channel for agent-to-agent communication
         self.broadcast_channel = BroadcastChannel(self)
@@ -1042,6 +1062,64 @@ class Orchestrator(ChatAgent):
             f"[Orchestrator] Updated MCP servers for {agent_id}, now has {len(mcp_servers) if isinstance(mcp_servers, (list, dict)) else 0} servers",
         )
 
+        # Note: Subagent spawn callbacks are set up later when coordination_ui is available
+        # See setup_subagent_spawn_callbacks() method
+
+    def setup_subagent_spawn_callbacks(self) -> None:
+        """Set up subagent spawn callbacks for all agents.
+
+        This should be called AFTER coordination_ui is set on the orchestrator,
+        as the callbacks need access to the display for TUI notifications.
+
+        Called from CoordinationUI.set_orchestrator() after coordination_ui is assigned.
+        """
+        if not hasattr(self, "coordination_ui") or not self.coordination_ui:
+            logger.debug("[Orchestrator] No coordination_ui, skipping subagent spawn callback setup")
+            return
+
+        for agent_id, agent in self.agents.items():
+            if hasattr(agent, "backend") and hasattr(agent.backend, "set_subagent_spawn_callback"):
+                self._setup_subagent_spawn_callback(agent_id, agent)
+
+    def _setup_subagent_spawn_callback(self, agent_id: str, agent: Any) -> None:
+        """Set up callback to notify TUI when subagent spawning starts.
+
+        This creates a wrapper callback that captures the agent_id and forwards
+        spawn notifications to the TUI display for immediate visual feedback.
+
+        Args:
+            agent_id: ID of the agent
+            agent: Agent instance
+        """
+        # Get display if available (coordination_ui.display)
+        display = None
+        if hasattr(self, "coordination_ui") and self.coordination_ui:
+            display = getattr(self.coordination_ui, "display", None)
+
+        if not display:
+            logger.debug(f"[Orchestrator] No display available for subagent spawn callback on {agent_id}")
+            return
+
+        if not hasattr(display, "notify_subagent_spawn_started"):
+            logger.debug(f"[Orchestrator] Display doesn't support notify_subagent_spawn_started for {agent_id}")
+            return
+
+        # Create wrapper callback that captures agent_id
+        def spawn_callback(tool_name: str, args: Dict[str, Any], call_id: str) -> None:
+            """Forward spawn notification to TUI display."""
+            try:
+                display.notify_subagent_spawn_started(agent_id, tool_name, args, call_id)
+                logger.debug(f"[Orchestrator] Notified TUI of subagent spawn for {agent_id}")
+            except Exception as e:
+                logger.debug(f"[Orchestrator] Failed to notify TUI of subagent spawn: {e}")
+
+        # Set callback on backend
+        if hasattr(agent.backend, "set_subagent_spawn_callback"):
+            agent.backend.set_subagent_spawn_callback(spawn_callback)
+            logger.info(f"[Orchestrator] Set subagent spawn callback for {agent_id}")
+        else:
+            logger.debug(f"[Orchestrator] Backend for {agent_id} doesn't support subagent spawn callback")
+
     def _create_subagent_mcp_config(self, agent_id: str, agent: Any) -> Dict[str, Any]:
         """
         Create MCP server configuration for subagent tools.
@@ -1085,6 +1163,54 @@ class Orchestrator(ChatAgent):
         json.dump(agent_configs, agent_configs_file)
         agent_configs_file.close()
         agent_configs_path = agent_configs_file.name
+
+        # Extract context_paths from orchestrator config to pass to subagents
+        # This allows subagents to read the same codebase/files as the parent
+        context_paths_path = ""
+        parent_context_paths = []
+        if hasattr(self, "config") and isinstance(getattr(self.config, "__dict__", {}), dict):
+            # Try to get context_paths from the raw config dict stored on agents
+            if hasattr(agent.backend, "config") and "context_paths" in agent.backend.config:
+                parent_context_paths = agent.backend.config.get("context_paths", [])
+
+        if parent_context_paths:
+            context_paths_file = tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".json",
+                prefix="massgen_subagent_context_paths_",
+                delete=False,
+            )
+            json.dump(parent_context_paths, context_paths_file)
+            context_paths_file.close()
+            context_paths_path = context_paths_file.name
+            logger.info(
+                f"[Orchestrator] Passing {len(parent_context_paths)} context paths to subagent MCP",
+            )
+
+        # Extract coordination config to pass to subagents for planning tools inheritance
+        coordination_config_path = ""
+        if hasattr(self.config, "coordination_config") and self.config.coordination_config:
+            coord_cfg = self.config.coordination_config
+            # Extract relevant coordination settings that subagents should inherit
+            parent_coordination_config = {}
+            if hasattr(coord_cfg, "enable_agent_task_planning"):
+                parent_coordination_config["enable_agent_task_planning"] = coord_cfg.enable_agent_task_planning
+            if hasattr(coord_cfg, "task_planning_filesystem_mode"):
+                parent_coordination_config["task_planning_filesystem_mode"] = coord_cfg.task_planning_filesystem_mode
+
+            if parent_coordination_config:
+                coordination_config_file = tempfile.NamedTemporaryFile(
+                    mode="w",
+                    suffix=".json",
+                    prefix="massgen_subagent_coordination_config_",
+                    delete=False,
+                )
+                json.dump(parent_coordination_config, coordination_config_file)
+                coordination_config_file.close()
+                coordination_config_path = coordination_config_file.name
+                logger.info(
+                    f"[Orchestrator] Passing coordination config to subagent MCP: {list(parent_coordination_config.keys())}",
+                )
 
         # Get subagent configuration from coordination config
         max_concurrent = 3
@@ -1140,6 +1266,10 @@ class Orchestrator(ChatAgent):
             subagent_orchestrator_config_json,
             "--log-directory",
             log_directory,
+            "--context-paths-file",
+            context_paths_path,
+            "--coordination-config-file",
+            coordination_config_path,
         ]
 
         config = {
@@ -1386,11 +1516,20 @@ class Orchestrator(ChatAgent):
 
         return str(chunk_type)
 
-    def _trace_tuple(self, text: str, *, kind: str = "agent_status") -> tuple:
-        """Map coordination/status text to a non-content type when strict tracing is enabled."""
+    def _trace_tuple(
+        self,
+        text: str,
+        *,
+        kind: str = "agent_status",
+        tool_call_id: str | None = None,
+    ) -> tuple:
+        """Map coordination/status text to a non-content type when strict tracing is enabled.
+
+        Returns a 3-tuple (type, content, tool_call_id) to preserve tool tracking info.
+        """
         if self.trace_classification == "strict":
-            return (kind, text)
-        return ("content", text)
+            return (kind, text, tool_call_id)
+        return ("content", text, tool_call_id)
 
     @staticmethod
     def _is_tool_related_content(content: str) -> bool:
@@ -1506,6 +1645,9 @@ class Orchestrator(ChatAgent):
 
             # Reset restart_pending flag at start of coordination (will be set again if restart needed)
             self.restart_pending = False
+
+            # Clear context path write tracking at start of each turn
+            self._clear_context_path_write_tracking()
 
             # Clear agent workspaces for new turn (if this is a multi-turn conversation with history)
             if conversation_context and conversation_context.get(
@@ -2607,6 +2749,20 @@ Your answer:"""
                         )
                     except Exception as e:
                         logger.debug(f"Failed to update status file in background: {e}")
+
+                # Update timeout status for each agent in the display
+                try:
+                    display = None
+                    if hasattr(self, "coordination_ui") and self.coordination_ui:
+                        display = getattr(self.coordination_ui, "display", None)
+
+                    if display and hasattr(display, "update_timeout_status"):
+                        for agent_id in self.agents.keys():
+                            timeout_state = self.get_agent_timeout_state(agent_id)
+                            if timeout_state and timeout_state.get("active_timeout"):
+                                display.update_timeout_status(agent_id, timeout_state)
+                except Exception as e:
+                    logger.warning(f"Failed to update timeout status in display: {e}")
         except asyncio.CancelledError:
             # Task was cancelled, this is expected behavior
             pass
@@ -2909,8 +3065,29 @@ Your answer:"""
         self._active_streams = active_streams
         self._active_tasks = active_tasks
 
-        # Stream agent outputs in real-time until all have voted
-        while not all(state.has_voted for state in self.agent_states.values()):
+        # Helper to check if coordination should end
+        def _coordination_complete() -> bool:
+            """Check if coordination is complete.
+
+            Returns True when:
+            - All agents have voted (normal case), OR
+            - skip_voting=True and all agents have submitted at least one answer
+            """
+            all_voted = all(state.has_voted for state in self.agent_states.values())
+            if all_voted:
+                return True
+
+            # Check skip_voting mode: complete when all agents have answered
+            if self.config.skip_voting:
+                all_answered = all(state.answer is not None for state in self.agent_states.values())
+                if all_answered:
+                    logger.info("[skip_voting] All agents have answered - skipping voting, proceeding to presentation")
+                    return True
+
+            return False
+
+        # Stream agent outputs in real-time until coordination is complete
+        while not _coordination_complete():
             # Start new coordination iteration
             self.coordination_tracker.start_new_iteration()
 
@@ -2927,6 +3104,10 @@ Your answer:"""
             # Start any agents that aren't running and haven't voted yet
             current_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
             for agent_id in self.agents.keys():
+                # Skip agents that are waiting for all answers before voting
+                if self._is_waiting_for_all_answers(agent_id):
+                    continue
+
                 if agent_id not in active_streams and not self.agent_states[agent_id].has_voted and not self.agent_states[agent_id].is_killed:
                     # Apply rate limiting before starting agent
                     await self._apply_agent_startup_rate_limit(agent_id)
@@ -2982,7 +3163,11 @@ Your answer:"""
                 del active_tasks[agent_id]
 
                 try:
-                    chunk_type, chunk_data = await task
+                    # Unpack chunk tuple - may be 2-tuple (type, data) or 3-tuple (type, data, tool_call_id)
+                    chunk_tuple = await task
+                    chunk_type = chunk_tuple[0]
+                    chunk_data = chunk_tuple[1]
+                    chunk_tool_call_id = chunk_tuple[2] if len(chunk_tuple) > 2 else None
 
                     if chunk_type == "content":
                         # Stream agent content in real-time with source info
@@ -3303,6 +3488,13 @@ Your answer:"""
                                             available_answers=available_answers,
                                             voting_round=self.coordination_tracker.current_iteration,
                                         )
+                                    # Notify TUI to display vote tool card (TextualTerminalDisplay)
+                                    if display and hasattr(display, "notify_vote"):
+                                        display.notify_vote(
+                                            voter=agent_id,
+                                            voted_for=result_data.get("agent_id", ""),
+                                            reason=result_data.get("reason", ""),
+                                        )
                                 # Update status file for real-time monitoring
                                 # Run in executor to avoid blocking event loop
                                 log_session_dir = get_log_session_dir()
@@ -3316,17 +3508,17 @@ Your answer:"""
                                         self,
                                     )
 
-                                # Track new vote event
-                                voted_for = result_data.get("agent_id", "<unknown>")
-                                reason = result_data.get("reason", "No reason provided")
+                                # Track vote event for logging only
+                                # Note: The TUI displays votes via notify_vote tool card,
+                                # so we use agent_status type to avoid duplicate display
                                 log_stream_chunk(
                                     "orchestrator",
-                                    "content",
+                                    "agent_status",
                                     f"✅ Vote recorded for [{result_data['agent_id']}]",
                                     agent_id,
                                 )
                                 yield StreamChunk(
-                                    type="agent_status" if self.trace_classification == "strict" else "content",
+                                    type="agent_status",  # Always agent_status - TUI shows vote via tool card
                                     content=f"✅ Vote recorded for [{result_data['agent_id']}]",
                                     source=agent_id,
                                 )
@@ -3376,20 +3568,32 @@ Your answer:"""
                         )
 
                     elif chunk_type == "mcp_status":
-                        # MCP status messages - forward with proper formatting
+                        # MCP status messages - keep mcp_status type to preserve tool tracking
                         mcp_message = f"🔧 MCP: {chunk_data}"
-                        log_stream_chunk(
-                            "orchestrator",
-                            "mcp_status",
-                            chunk_data,
-                            agent_id,
-                        )
-                        mcp_type = "coordination" if self.trace_classification == "strict" else "content"
+                        log_stream_chunk("orchestrator", "mcp_status", chunk_data, agent_id)
                         yield StreamChunk(
-                            type=mcp_type,
+                            type="mcp_status",
                             content=mcp_message,
                             source=agent_id,
+                            tool_call_id=chunk_tool_call_id,
                         )
+
+                    elif chunk_type == "custom_tool_status":
+                        # Custom tool status messages - keep custom_tool_status type for tool tracking
+                        custom_message = f"🔧 Custom Tool: {chunk_data}"
+                        log_stream_chunk("orchestrator", "custom_tool_status", chunk_data, agent_id)
+                        yield StreamChunk(
+                            type="custom_tool_status",
+                            content=custom_message,
+                            source=agent_id,
+                            tool_call_id=chunk_tool_call_id,
+                        )
+
+                    elif chunk_type == "hook_execution":
+                        # Hook execution chunks - pass through for TUI display
+                        # chunk_data is already a StreamChunk with hook_info and tool_call_id
+                        log_stream_chunk("orchestrator", "hook_execution", str(chunk_data.hook_info), agent_id)
+                        yield chunk_data
 
                     elif chunk_type == "done":
                         # Stream completed - this is just an end-of-stream marker
@@ -3442,16 +3646,23 @@ Your answer:"""
                     state.votes = {}  # Clear stale vote data
                 votes.clear()
 
-                for agent_id in self.agent_states.keys():
-                    self.agent_states[agent_id].restart_pending = True
+                # Skip restart signaling when injection is disabled (multi-agent refinement OFF)
+                # Agents work independently and don't need to see each other's answers
+                if not self.config.disable_injection:
+                    for agent_id in self.agent_states.keys():
+                        self.agent_states[agent_id].restart_pending = True
 
-                # Track restart signals
-                self.coordination_tracker.track_restart_signal(
-                    restart_triggered_id,
-                    list(self.agent_states.keys()),
-                )
-                # Note that the agent that sent the restart signal had its stream end so we should mark as completed. NOTE the below breaks it.
-                self.coordination_tracker.complete_agent_restart(restart_triggered_id)
+                    # Track restart signals
+                    self.coordination_tracker.track_restart_signal(
+                        restart_triggered_id,
+                        list(self.agent_states.keys()),
+                    )
+                    # Note that the agent that sent the restart signal had its stream end so we should mark as completed. NOTE the below breaks it.
+                    self.coordination_tracker.complete_agent_restart(restart_triggered_id)
+                else:
+                    logger.info(
+                        "[disable_injection] Skipping restart signaling - agents work independently",
+                    )
             # Set has_voted = True for agents that voted (only if no reset signal)
             else:
                 for agent_id, vote_data in voted_agents.items():
@@ -4094,6 +4305,11 @@ Your answer:"""
         # This is async to allow copying snapshots before injection
         async def get_injection_content() -> Optional[str]:
             """Check if mid-stream injection is needed and return content."""
+            # Skip injection if disabled (multi-agent refinement OFF mode)
+            # Agents work independently without seeing each other's work
+            if self.config.disable_injection:
+                return None
+
             if not self._check_restart_pending(agent_id):
                 return None
 
@@ -4587,6 +4803,56 @@ Your answer:"""
             for agent_id in list(self._active_streams.keys()):
                 await self._close_agent_stream(agent_id, self._active_streams)
 
+    async def _cleanup_background_shells_for_agent(self, agent_id: str) -> None:
+        """Clean up background shells started by this agent at round end.
+
+        Uses MCP tools to list and kill shells, since background shells run in
+        the MCP subprocess (not the main orchestrator process).
+
+        Args:
+            agent_id: The agent identifier
+        """
+        agent = self.agents.get(agent_id)
+        if not agent or not hasattr(agent.backend, "_mcp_client") or not agent.backend._mcp_client:
+            return
+
+        mcp_client = agent.backend._mcp_client
+
+        try:
+            # List all background shells via MCP tool
+            list_result = await mcp_client.call_tool(
+                "mcp__command_line__list_background_shells",
+                {},
+            )
+
+            if not list_result or not isinstance(list_result, dict):
+                return
+
+            shells = list_result.get("shells", [])
+            if not shells:
+                return
+
+            # Kill each running shell
+            for shell_info in shells:
+                shell_id = shell_info.get("shell_id")
+                status = shell_info.get("status")
+
+                if shell_id and status == "running":
+                    try:
+                        await mcp_client.call_tool(
+                            "mcp__command_line__kill_background_shell",
+                            {"shell_id": shell_id},
+                        )
+                        logger.info(
+                            f"[Orchestrator] Killed background shell {shell_id} at round end for {agent_id}",
+                        )
+                    except Exception as e:
+                        logger.warning(f"[Orchestrator] Failed to kill shell {shell_id}: {e}")
+
+        except Exception as e:
+            # MCP tool not available or other error - not critical
+            logger.debug(f"[Orchestrator] Could not clean up background shells for {agent_id}: {e}")
+
     # TODO (v0.0.14 Context Sharing Enhancement - See docs/dev_notes/v0.0.14-context.md):
     # Add the following permission validation methods:
     # async def validate_agent_access(self, agent_id: str, resource_path: str, access_type: str) -> bool:
@@ -4702,16 +4968,66 @@ Your answer:"""
         When an agent reaches max_new_answers_per_agent, they should only
         have the vote tool available (no new_answer or broadcast tools).
 
+        When defer_voting_until_all_answered=True, also requires ALL agents
+        to have answered before voting is allowed.
+
         Args:
             agent_id: The agent to check
 
         Returns:
-            True if agent must vote (has hit answer limit), False otherwise.
+            True if agent must vote (has hit answer limit AND can vote now), False otherwise.
         """
         if self.config.max_new_answers_per_agent is None:
             return False
         answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
-        return answer_count >= self.config.max_new_answers_per_agent
+        hit_answer_limit = answer_count >= self.config.max_new_answers_per_agent
+
+        if not hit_answer_limit:
+            return False
+
+        # If defer_voting_until_all_answered is enabled, also check that all agents have answered
+        if self.config.defer_voting_until_all_answered:
+            all_answered = all(state.answer is not None for state in self.agent_states.values())
+            if not all_answered:
+                # Agent hit their limit but others haven't answered yet
+                # Return False - agent is in "waiting" state, handled by _is_waiting_for_all_answers
+                return False
+
+        return True
+
+    def _is_waiting_for_all_answers(self, agent_id: str) -> bool:
+        """Check if agent is waiting for all agents to answer before voting.
+
+        This happens when defer_voting_until_all_answered=True and this agent
+        has hit their answer limit but other agents haven't answered yet.
+
+        Args:
+            agent_id: The agent to check
+
+        Returns:
+            True if agent should wait (not run), False otherwise.
+        """
+        if not self.config.defer_voting_until_all_answered:
+            return False
+
+        if self.config.max_new_answers_per_agent is None:
+            return False
+
+        answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
+        hit_answer_limit = answer_count >= self.config.max_new_answers_per_agent
+
+        if not hit_answer_limit:
+            return False
+
+        # Check if all agents have answered
+        all_answered = all(state.answer is not None for state in self.agent_states.values())
+        if all_answered:
+            return False  # Can proceed to voting
+
+        logger.debug(
+            f"[defer_voting] {agent_id} waiting for all agents to answer before voting",
+        )
+        return True
 
     def _get_buffer_content(self, agent: "ChatAgent") -> tuple[Optional[str], int]:
         """Get streaming buffer content from agent backend for enforcement tracking.
@@ -5119,6 +5435,9 @@ Your answer:"""
             pre_hook.reset_for_new_round()
             logger.debug(f"[Orchestrator] Reset round timeout hooks for {agent_id}")
 
+        # Clean up any background shells from the previous round
+        await self._cleanup_background_shells_for_agent(agent_id)
+
         # Note: Do NOT clear restart_pending here - let the injection logic inside the iteration
         # loop handle it (see line ~1969). This ensures agents receive updates via injection
         # instead of restarting from scratch, even if they haven't started streaming yet.
@@ -5134,6 +5453,16 @@ Your answer:"""
         if agent.backend.filesystem_manager:
             # agent.backend.filesystem_manager.clear_workspace()  # Don't clear for now.
             agent.backend.filesystem_manager.log_current_state("before execution")
+
+            # For single-agent mode with skip_voting (refinement OFF), enable context write access
+            # from the START of coordination so the agent can write directly to context paths
+            if self.config.skip_voting and self._has_write_context_paths(agent):
+                logger.info(
+                    f"[Orchestrator] Single-agent mode: enabling context write access from start for {agent_id}",
+                )
+                # Snapshot BEFORE enabling writes (to track what gets written)
+                agent.backend.filesystem_manager.path_permission_manager.snapshot_writable_context_paths()
+                agent.backend.filesystem_manager.path_permission_manager.set_context_write_access_enabled(True)
 
         # Create agent execution span for hierarchical tracing in Logfire
         # This groups all tool calls, LLM calls, and events under this agent's execution
@@ -5301,6 +5630,12 @@ Your answer:"""
                 conversation.get("conversation_history", []),
                 conversation,
             )
+
+            # Notify display of context received (for TUI to show context labels)
+            if answers:
+                context_labels = self.coordination_tracker.get_agent_context_labels(agent_id)
+                if context_labels and hasattr(self, "display") and self.display and hasattr(self.display, "notify_context_received"):
+                    self.display.notify_context_received(agent_id, context_labels)
 
             # Store the context in agent state for later use when saving snapshots
             self.agent_states[agent_id].last_context = conversation
@@ -5579,9 +5914,12 @@ Your answer:"""
                     elif chunk_type == "backend_status":
                         pass
                     elif chunk_type == "mcp_status":
-                        # Forward MCP status messages with proper formatting
-                        mcp_content = f"🔧 MCP: {chunk.content}"
-                        yield self._trace_tuple(mcp_content, kind="coordination")
+                        # Forward MCP status messages preserving type for tool tracking
+                        yield (
+                            "mcp_status",
+                            chunk.content,
+                            getattr(chunk, "tool_call_id", None),
+                        )
 
                         # Track MCP failures in reliability metrics
                         mcp_status = getattr(chunk, "status", None)
@@ -5623,12 +5961,23 @@ Your answer:"""
                                 ),
                             )
                     elif chunk_type == "custom_tool_status":
-                        # Forward custom tool status messages with proper formatting
-                        custom_tool_content = f"🔧 Custom Tool: {chunk.content}"
-                        yield self._trace_tuple(
-                            custom_tool_content,
-                            kind="coordination",
+                        # Forward custom tool status messages preserving type for tool tracking
+                        yield (
+                            "custom_tool_status",
+                            chunk.content,
+                            getattr(chunk, "tool_call_id", None),
                         )
+                    elif chunk_type == "hook_execution":
+                        # Forward hook execution chunks for TUI display
+                        # Include hook_info and tool_call_id for injection subcard display
+                        hook_chunk = StreamChunk(
+                            type="hook_execution",
+                            content=chunk.content,
+                            source=agent_id,
+                            hook_info=getattr(chunk, "hook_info", None),
+                            tool_call_id=getattr(chunk, "tool_call_id", None),
+                        )
+                        yield ("hook_execution", hook_chunk)
                     elif chunk_type == "debug":
                         # Forward debug chunks
                         yield ("debug", chunk.content)
@@ -6445,6 +6794,97 @@ Your answer:"""
         except Exception as e:
             return ("error", str(e))
 
+    def _has_write_context_paths(self, agent: "ChatAgent") -> bool:
+        """
+        Check if agent has any context paths with write permission configured.
+
+        Args:
+            agent: The agent to check
+
+        Returns:
+            True if agent has write context paths, False otherwise
+        """
+        if not hasattr(agent, "backend") or not agent.backend:
+            return False
+        filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
+        if not filesystem_manager:
+            return False
+        ppm = getattr(filesystem_manager, "path_permission_manager", None)
+        if not ppm:
+            return False
+        return any(mp.will_be_writable for mp in ppm.managed_paths if mp.path_type == "context")
+
+    def _enable_context_write_access(self, agent: "ChatAgent") -> None:
+        """
+        Enable write access for context paths on the given agent.
+
+        Args:
+            agent: The agent to enable write access for
+        """
+        if not hasattr(agent, "backend") or not agent.backend:
+            return
+        filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
+        if not filesystem_manager:
+            return
+        ppm = getattr(filesystem_manager, "path_permission_manager", None)
+        if not ppm:
+            return
+        ppm.set_context_write_access_enabled(True)
+        logger.info(f"[Orchestrator] Enabled context write access for agent: {agent.agent_id}")
+
+    def get_context_path_writes(self) -> list[str]:
+        """
+        Get list of files written to context paths by the final agent.
+
+        Returns:
+            List of file paths written to context paths
+        """
+        if not self._selected_agent:
+            return []
+        agent = self.agents.get(self._selected_agent)
+        if not agent or not hasattr(agent, "backend") or not agent.backend:
+            return []
+        filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
+        if not filesystem_manager:
+            return []
+        ppm = getattr(filesystem_manager, "path_permission_manager", None)
+        if not ppm:
+            return []
+        return ppm.get_context_path_writes()
+
+    def get_context_path_writes_categorized(self) -> dict[str, list[str]]:
+        """
+        Get categorized lists of new and modified files in context paths.
+
+        Returns:
+            Dict with 'new' and 'modified' keys, each containing a list of file paths
+        """
+        if not self._selected_agent:
+            return {"new": [], "modified": []}
+        agent = self.agents.get(self._selected_agent)
+        if not agent or not hasattr(agent, "backend") or not agent.backend:
+            return {"new": [], "modified": []}
+        filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
+        if not filesystem_manager:
+            return {"new": [], "modified": []}
+        ppm = getattr(filesystem_manager, "path_permission_manager", None)
+        if not ppm:
+            return {"new": [], "modified": []}
+        return ppm.get_context_path_writes_categorized()
+
+    def _clear_context_path_write_tracking(self) -> None:
+        """Clear context path write tracking for all agents at the start of each turn."""
+        for agent_id, agent in self.agents.items():
+            if not hasattr(agent, "backend") or not agent.backend:
+                continue
+            filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
+            if not filesystem_manager:
+                continue
+            ppm = getattr(filesystem_manager, "path_permission_manager", None)
+            if ppm and hasattr(ppm, "clear_context_path_writes"):
+                ppm.clear_context_path_writes()
+                logger.debug(f"[Orchestrator] Cleared context path write tracking for {agent_id}")
+
     async def _present_final_answer(self) -> AsyncGenerator[StreamChunk, None]:
         """Present the final coordinated answer with optional post-evaluation and restart loop."""
 
@@ -6481,6 +6921,102 @@ Your answer:"""
             type="coordination" if self.trace_classification == "strict" else "content",
             content=f"🏆 Selected Agent: {self._selected_agent}\n",
         )
+
+        # Check if we should skip final presentation (quick mode - refinement OFF)
+        if self.config.skip_final_presentation:
+            # Check if we have write context paths - this affects whether we can skip
+            agent = self.agents.get(self._selected_agent)
+            has_write_context_paths = self._has_write_context_paths(agent) if agent else False
+            is_single_agent_mode = self.config.skip_voting  # skip_voting implies single-agent mode
+
+            # Decision matrix:
+            # - Single agent + write paths: Enable writes directly (no LLM call), skip presentation
+            # - Multi-agent + write paths: Need final presentation to copy files, fall through
+            # - Multi-agent + no write paths: Safe to skip, no files need copying
+
+            if is_single_agent_mode and has_write_context_paths:
+                # Single agent mode with write context paths:
+                # Write access was already enabled at start of coordination (in _stream_agent_execution)
+                # and snapshot was taken then, so we just skip to the presentation logic
+                logger.info(
+                    "[skip_final_presentation] Single agent mode with write context paths - writes already enabled at coordination start",
+                )
+                # Fall through to skip logic below
+
+            elif not is_single_agent_mode and has_write_context_paths:
+                # Multi-agent mode with write context paths:
+                # Need final presentation to copy winning agent's files to context paths
+                logger.info(
+                    "[skip_final_presentation] Multi-agent mode with write context paths - falling through to final presentation",
+                )
+                # Fall through to normal presentation (don't skip)
+                pass  # Continue to normal presentation logic below
+
+            # For all other cases (single agent without write paths, or multi-agent without write paths),
+            # we can skip the final presentation
+            if not (not is_single_agent_mode and has_write_context_paths):
+                # Use existing answer directly without an additional LLM call
+                existing_answer = self.agent_states[self._selected_agent].answer
+                if existing_answer:
+                    # Notify TUI to highlight winner (TextualTerminalDisplay)
+                    if hasattr(self, "coordination_ui") and self.coordination_ui:
+                        display = getattr(self.coordination_ui, "display", None)
+                        if display and hasattr(display, "highlight_winner_quick"):
+                            display.highlight_winner_quick(
+                                winner_id=self._selected_agent,
+                                vote_results=vote_results,
+                            )
+
+                    log_stream_chunk(
+                        "orchestrator",
+                        "content",
+                        f"\n{existing_answer}\n",
+                        self._selected_agent,
+                    )
+                    yield StreamChunk(
+                        type="content",
+                        content=f"\n{existing_answer}\n",
+                        source=self._selected_agent,
+                    )
+                    self._final_presentation_content = existing_answer
+
+                    # Save the final snapshot (creates final/ directory with answer.txt)
+                    # This copies the agent's workspace to the final directory
+                    final_context = self.get_last_context(self._selected_agent)
+                    await self._save_agent_snapshot(
+                        self._selected_agent,
+                        answer_content=existing_answer,
+                        is_final=True,
+                        context_data=final_context,
+                    )
+
+                    # Track the final answer in coordination tracker
+                    self.coordination_tracker.set_final_answer(
+                        self._selected_agent,
+                        existing_answer,
+                        snapshot_timestamp="final",
+                    )
+
+                    # Compute context path writes (compare current state to snapshot taken at start)
+                    if agent.backend.filesystem_manager:
+                        agent.backend.filesystem_manager.path_permission_manager.compute_context_path_writes()
+
+                    # Add to conversation history
+                    self.add_to_history("assistant", existing_answer)
+
+                    # Save coordination logs
+                    self.save_coordination_logs()
+
+                    # Update workflow phase
+                    self.workflow_phase = "presenting"
+                    log_stream_chunk("orchestrator", "done", None, self._selected_agent)
+                    yield StreamChunk(type="done", source=self._selected_agent)
+                    return  # Skip post-evaluation and all remaining logic
+                else:
+                    # No existing answer - fall through to normal presentation
+                    logger.warning(
+                        f"[skip_final_presentation] No existing answer for {self._selected_agent}, falling back to normal presentation",
+                    )
 
         # Stream the final presentation (with full tool support)
         presentation_content = ""
@@ -6742,6 +7278,33 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
         # Enable write access for final agent on context paths. This ensures that those paths marked `write` by the user are now writable (as all previous agents were read-only).
         if agent.backend.filesystem_manager:
+            # Snapshot context paths BEFORE enabling write access (for tracking what gets written)
+            agent.backend.filesystem_manager.path_permission_manager.snapshot_writable_context_paths()
+
+            # Recreate Docker container with write access to context paths
+            # The original container was created with read-only mounts for context paths
+            # (to prevent race conditions during coordination). For final presentation,
+            # we need write access so the agent can write to context paths via shell commands.
+            if agent.backend.filesystem_manager.docker_manager:
+                skills_directory = None
+                massgen_skills = []
+                load_previous_session_skills = False
+                if self.config.coordination_config:
+                    if self.config.coordination_config.use_skills:
+                        skills_directory = self.config.coordination_config.skills_directory
+                        massgen_skills = self.config.coordination_config.massgen_skills or []
+                        load_previous_session_skills = getattr(
+                            self.config.coordination_config,
+                            "load_previous_session_skills",
+                            False,
+                        )
+                agent.backend.filesystem_manager.recreate_container_for_write_access(
+                    skills_directory=skills_directory,
+                    massgen_skills=massgen_skills,
+                    load_previous_session_skills=load_previous_session_skills,
+                )
+
+            # Enable write access in PathPermissionManager (for MCP filesystem tools)
             agent.backend.filesystem_manager.path_permission_manager.set_context_write_access_enabled(
                 True,
             )
@@ -7261,6 +7824,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 AgentStatus.COMPLETED,
             )
 
+            # Compute context path writes (compare current state to snapshot taken before presentation)
+            if agent.backend.filesystem_manager:
+                agent.backend.filesystem_manager.path_permission_manager.compute_context_path_writes()
+
             # Add token usage and cost to presentation span before closing
             if hasattr(agent.backend, "token_usage") and agent.backend.token_usage:
                 token_usage = agent.backend.token_usage
@@ -7401,6 +7968,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         # Stream evaluation with tools (with timeout protection)
         evaluation_complete = False
         tool_call_detected = False
+        accumulated_content = ""  # Buffer to detect inline JSON across chunks
 
         try:
             timeout_seconds = self.config.timeout_config.orchestrator_timeout_seconds
@@ -7427,6 +7995,61 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                             content=chunk.content,
                             source=selected_agent_id,
                         )
+
+                        # Accumulate content for JSON parsing across chunks
+                        accumulated_content += chunk.content
+
+                        # Fallback: parse inline JSON tool calls from accumulated content
+                        # Some backends output submit/restart as JSON text instead of tool_calls
+                        if not evaluation_complete and not tool_call_detected:
+                            # Try to extract and parse JSON from accumulated content
+                            import json
+                            import re
+
+                            # Find JSON objects in the content (handle nested braces)
+                            # Look for { ... "action_type" ... } allowing nested braces
+                            json_matches = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*"action_type"[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', accumulated_content, re.DOTALL)
+                            for json_str in json_matches:
+                                try:
+                                    data = json.loads(json_str)
+                                    action_type = data.get("action_type")
+
+                                    if action_type == "submit":
+                                        tool_call_detected = True
+                                        log_stream_chunk(
+                                            "orchestrator",
+                                            "status",
+                                            "✅ Evaluation complete - answer approved\n",
+                                        )
+                                        yield StreamChunk(
+                                            type="status",
+                                            content="✅ Evaluation complete - answer approved\n",
+                                            source="orchestrator",
+                                        )
+                                        evaluation_complete = True
+                                        break
+                                    elif action_type == "restart_orchestration":
+                                        tool_call_detected = True
+                                        restart_data = data.get("restart_data", {})
+                                        self.restart_reason = restart_data.get("reason", data.get("reason", "Answer needs improvement"))
+                                        self.restart_instructions = restart_data.get("instructions", data.get("instructions", ""))
+                                        self.restart_pending = True
+
+                                        log_stream_chunk(
+                                            "orchestrator",
+                                            "status",
+                                            "🔄 Restart requested\n",
+                                        )
+                                        yield StreamChunk(
+                                            type="status",
+                                            content="🔄 Restart requested\n",
+                                            source="orchestrator",
+                                        )
+                                        evaluation_complete = True
+                                        break
+                                except json.JSONDecodeError:
+                                    # Not valid JSON yet, keep accumulating
+                                    pass
                     elif chunk_type in [
                         "reasoning",
                         "reasoning_done",
@@ -7461,8 +8084,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                         )
                         yield reasoning_chunk
                     elif chunk_type == "tool_calls":
-                        # Post-evaluation tool call detected
-                        tool_call_detected = True
+                        # Post-evaluation tool call detected - only set flag if valid tool found
                         if hasattr(chunk, "tool_calls") and chunk.tool_calls:
                             for tool_call in chunk.tool_calls:
                                 # Use backend's tool extraction (same as regular coordination)
@@ -7470,6 +8092,10 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                                 tool_args = agent.backend.extract_tool_arguments(
                                     tool_call,
                                 )
+
+                                # Only set tool_call_detected if we got a valid tool name
+                                if tool_name:
+                                    tool_call_detected = True
 
                                 if tool_name == "submit":
                                     log_stream_chunk(
@@ -7575,16 +8201,19 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             # Note: end_round_tracking for post_evaluation is called from _present_final_answer
             # after the async for loop completes, to ensure reliable timing before save_coordination_logs
 
-            # If no tool was called and evaluation didn't complete, auto-submit
-            if not evaluation_complete and not tool_call_detected:
+            # If evaluation didn't complete (no submit/restart called), auto-submit
+            # This handles cases where:
+            # 1. No tool was called at all
+            # 2. Tools were called but not submit/restart (e.g., read_file for verification)
+            if not evaluation_complete:
                 log_stream_chunk(
                     "orchestrator",
                     "status",
-                    "✅ Auto-submitting answer (no tool call detected)\n",
+                    "✅ Evaluation complete - answer approved\n",
                 )
                 yield StreamChunk(
                     type="status",
-                    content="✅ Auto-submitting answer (no tool call detected)\n",
+                    content="✅ Evaluation complete - answer approved\n",
                     source="orchestrator",
                 )
 
@@ -8060,6 +8689,71 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             "conversation_length": len(self.conversation_history),
         }
 
+    def get_agent_timeout_state(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Get timeout state for display purposes.
+
+        Returns timeout countdown and status information for a specific agent,
+        used by TUI and WebUI to show per-agent timeout progress.
+
+        Args:
+            agent_id: The agent identifier
+
+        Returns:
+            Dictionary with timeout state, or None if agent not found.
+            Contains:
+                - round_number: Current coordination round
+                - round_start_time: When current round started
+                - active_timeout: Soft timeout for current round type (initial/subsequent)
+                - grace_seconds: Grace period before hard block
+                - elapsed: Seconds elapsed since round start
+                - remaining_soft: Seconds until soft timeout
+                - remaining_hard: Seconds until hard block
+                - soft_timeout_fired: Whether soft timeout warning was injected
+                - is_hard_blocked: Whether hard timeout is active (tools blocked)
+        """
+        state = self.agent_states.get(agent_id)
+        if not state:
+            return None
+
+        timeout_config = self.config.timeout_config
+        round_num = self.coordination_tracker.get_agent_round(agent_id)
+
+        # Determine active timeout based on round
+        if round_num == 0:
+            active_timeout = timeout_config.initial_round_timeout_seconds
+        else:
+            active_timeout = timeout_config.subsequent_round_timeout_seconds
+
+        # Calculate elapsed and remaining
+        elapsed: Optional[float] = None
+        remaining_soft: Optional[float] = None
+        remaining_hard: Optional[float] = None
+
+        if state.round_start_time and active_timeout:
+            elapsed = time.time() - state.round_start_time
+            remaining_soft = max(0, active_timeout - elapsed)
+            grace = timeout_config.round_timeout_grace_seconds or 0
+            remaining_hard = max(0, active_timeout + grace - elapsed)
+
+        # Get soft timeout fired status from hook
+        soft_timeout_fired = False
+        if state.round_timeout_hooks:
+            post_hook, _ = state.round_timeout_hooks
+            # Access the private attribute that tracks if soft timeout fired
+            soft_timeout_fired = getattr(post_hook, "_soft_timeout_fired", False)
+
+        return {
+            "round_number": round_num,
+            "round_start_time": state.round_start_time,
+            "active_timeout": active_timeout,
+            "grace_seconds": timeout_config.round_timeout_grace_seconds or 0,
+            "elapsed": elapsed,
+            "remaining_soft": remaining_soft,
+            "remaining_hard": remaining_hard,
+            "soft_timeout_fired": soft_timeout_fired,
+            "is_hard_blocked": remaining_hard == 0 if remaining_hard is not None else False,
+        }
+
     def get_configurable_system_message(self) -> Optional[str]:
         """
         Get the configurable system message for the orchestrator.
@@ -8129,7 +8823,10 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
 
                     # Clear workspace contents but keep the directory
                     for item in Path(workspace_path).iterdir():
-                        if item.is_file():
+                        if item.is_symlink():
+                            # Remove symlinks directly (don't follow them)
+                            item.unlink()
+                        elif item.is_file():
                             item.unlink()
                         elif item.is_dir():
                             shutil.rmtree(item)

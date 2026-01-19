@@ -1,5 +1,5 @@
 # MassGen Three Agent Configuration
-# Gemini-3-Pro, GPT-5-nano, and Grok-4-fast with builtin tools enabled
+# Gemini-3-Pro, GPT-5-nano, and Grok-4-1-fast-reasoning with builtin tools enabled
 # uv run python -m massgen.cli --config massgen/configs/basic/multi/three_agents_default.yaml "What is 2+2?"
 agents:
   - id: "agent_a"
@@ -8,7 +8,6 @@ agents:
       model: "gemini-3-flash-preview"
       enable_web_search: true
       cwd: "workspace"
-      # enable_code_execution: true
 
   - id: "agent_b"
     backend:
@@ -19,9 +18,8 @@ agents:
       reasoning:
         effort: "low"
         summary: "auto"
-      enable_web_search: true
       cwd: "workspace"
-      # enable_code_interpreter: true
+      enable_web_search: true
 
   - id: "agent_c"
     backend:

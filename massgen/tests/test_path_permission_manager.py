@@ -252,9 +252,12 @@ def test_validate_write_tool():
     helper.setup()
 
     try:
+        # Note: This test uses NEW file paths (not existing files) to test PERMISSION validation.
+        # Overwrite protection for existing files is tested in test_write_file_overwrite_protection.
         print("  Testing workspace write access...")
         manager = helper.create_permission_manager(context_write_enabled=False)
-        tool_args = {"file_path": str(helper.workspace_dir / "workspace_file.txt")}
+        # Use a new file path, not the existing workspace_file.txt
+        tool_args = {"file_path": str(helper.workspace_dir / "new_workspace_file.txt")}
         allowed, reason = manager._validate_write_tool("Write", tool_args)
 
         if not allowed:
@@ -262,7 +265,8 @@ def test_validate_write_tool():
             return False
         print("  Testing context path with write enabled...")
         manager = helper.create_permission_manager(context_write_enabled=True)
-        tool_args = {"file_path": str(helper.context_dir / "context_file.txt")}
+        # Use a new file path, not the existing context_file.txt
+        tool_args = {"file_path": str(helper.context_dir / "new_context_file.txt")}
         allowed, reason = manager._validate_write_tool("Write", tool_args)
 
         if not allowed:
@@ -270,7 +274,8 @@ def test_validate_write_tool():
             return False
         print("  Testing context path with write disabled...")
         manager = helper.create_permission_manager(context_write_enabled=False)
-        tool_args = {"file_path": str(helper.context_dir / "context_file.txt")}
+        # Use a new file path to test directory-level write permissions
+        tool_args = {"file_path": str(helper.context_dir / "new_context_file2.txt")}
         allowed, reason = manager._validate_write_tool("Write", tool_args)
 
         if allowed:
@@ -282,7 +287,8 @@ def test_validate_write_tool():
         print("  Testing readonly path...")
         for context_write_enabled in [True, False]:
             manager = helper.create_permission_manager(context_write_enabled=context_write_enabled)
-            tool_args = {"file_path": str(helper.readonly_dir / "readonly_file.txt")}
+            # Use a new file path to test directory-level read-only permissions
+            tool_args = {"file_path": str(helper.readonly_dir / "new_readonly_file.txt")}
             allowed, reason = manager._validate_write_tool("Write", tool_args)
 
             if allowed:
@@ -292,7 +298,7 @@ def test_validate_write_tool():
         manager = helper.create_permission_manager()
         unknown_file = helper.temp_dir / "unknown" / "file.txt"
         unknown_file.parent.mkdir(exist_ok=True)
-        unknown_file.write_text("content")
+        # Don't create the file - just test the path permission
 
         tool_args = {"file_path": str(unknown_file)}
         allowed, reason = manager._validate_write_tool("Write", tool_args)
@@ -302,7 +308,8 @@ def test_validate_write_tool():
             return False
         print("  Testing different path argument names...")
         manager = helper.create_permission_manager(context_write_enabled=False)
-        readonly_file = str(helper.readonly_dir / "readonly_file.txt")
+        # Use a new file path in the readonly dir to test path argument extraction
+        readonly_file = str(helper.readonly_dir / "new_readonly_test.txt")
 
         path_arg_names = ["file_path", "path", "filename", "notebook_path", "target"]
         for arg_name in path_arg_names:
@@ -314,6 +321,142 @@ def test_validate_write_tool():
                 return False
 
         print("✅ _validate_write_tool works correctly")
+        return True
+
+    finally:
+        helper.teardown()
+
+
+def test_write_file_overwrite_protection():
+    """Test that write_file blocks non-empty files but allows empty files."""
+    print("\n📝 Testing write_file overwrite protection...")
+
+    helper = TestHelper()
+    helper.setup()
+
+    try:
+        manager = helper.create_permission_manager(context_write_enabled=True)
+
+        # Create a non-empty file in workspace
+        non_empty_file = helper.workspace_dir / "non_empty.txt"
+        non_empty_file.write_text("some content")
+
+        # Create an empty file in workspace (simulating `touch`)
+        empty_file = helper.workspace_dir / "empty.txt"
+        empty_file.touch()
+
+        # Test 1: Non-empty file should be blocked by write_file
+        print("  Testing non-empty file blocking...")
+        tool_args = {"path": str(non_empty_file)}
+        allowed, reason = manager._validate_write_tool("mcp__filesystem__write_file", tool_args)
+
+        if allowed:
+            print("❌ Failed: write_file should block non-empty existing files")
+            return False
+        if "Cannot overwrite existing file" not in reason:
+            print(f"❌ Failed: Expected 'Cannot overwrite' in reason, got: {reason}")
+            return False
+        print("    ✓ Non-empty file correctly blocked")
+
+        # Test 2: Empty file should be allowed by write_file
+        print("  Testing empty file allowance...")
+        tool_args = {"path": str(empty_file)}
+        allowed, reason = manager._validate_write_tool("mcp__filesystem__write_file", tool_args)
+
+        if not allowed:
+            print(f"❌ Failed: write_file should allow empty files. Reason: {reason}")
+            return False
+        print("    ✓ Empty file correctly allowed")
+
+        # Test 3: New file (doesn't exist) should be allowed
+        print("  Testing new file creation...")
+        new_file = helper.workspace_dir / "new_file.txt"
+        tool_args = {"path": str(new_file)}
+        allowed, reason = manager._validate_write_tool("mcp__filesystem__write_file", tool_args)
+
+        if not allowed:
+            print(f"❌ Failed: write_file should allow new files. Reason: {reason}")
+            return False
+        print("    ✓ New file correctly allowed")
+
+        print("✅ write_file overwrite protection works correctly")
+        return True
+
+    finally:
+        helper.teardown()
+
+
+async def test_auto_create_parent_directories():
+    """Test that write_file automatically creates parent directories."""
+    print("\n📁 Testing auto-create parent directories...")
+
+    helper = TestHelper()
+    helper.setup()
+
+    try:
+        manager = helper.create_permission_manager(context_write_enabled=True)
+
+        # Test 1: Writing to nested path in workspace should create parent dirs
+        print("  Testing nested directory creation in workspace...")
+        nested_path = helper.workspace_dir / "level1" / "level2" / "file.txt"
+        tool_args = {"path": str(nested_path)}
+
+        # Parent shouldn't exist yet
+        if nested_path.parent.exists():
+            print("❌ Failed: Parent directory should not exist before write")
+            return False
+
+        # Call pre_tool_use_hook which should create the parent dirs
+        allowed, reason = await manager.pre_tool_use_hook("mcp__filesystem__write_file", tool_args)
+
+        if not allowed:
+            print(f"❌ Failed: write_file should be allowed. Reason: {reason}")
+            return False
+
+        # Parent should now exist
+        if not nested_path.parent.exists():
+            print("❌ Failed: Parent directory should have been created")
+            return False
+        print("    ✓ Nested directories created in workspace")
+
+        # Test 2: Context paths should NOT have parent dirs auto-created
+        print("  Testing context path (should NOT create dirs)...")
+        context_nested = helper.context_dir / "new_subdir" / "file.txt"
+        tool_args = {"path": str(context_nested)}
+
+        # This should be allowed (context_write_enabled=True) but NOT create dirs
+        # because auto-creation is only for workspace
+        allowed, reason = await manager.pre_tool_use_hook("mcp__filesystem__write_file", tool_args)
+
+        # Should be allowed due to context_write_enabled
+        if not allowed:
+            print(f"❌ Failed: Context path write should be allowed. Reason: {reason}")
+            return False
+
+        # Parent should NOT be auto-created for context paths
+        if context_nested.parent.exists():
+            print("❌ Failed: Context path parent should NOT be auto-created")
+            return False
+        print("    ✓ Context path parent NOT auto-created (correct)")
+
+        # Test 3: Test with relative path (simulating MCP with cwd)
+        print("  Testing relative path handling...")
+        # The relative path will be resolved against workspace (first managed path)
+        tool_args = {"path": "tasks/evolving_skill/SKILL.md"}
+
+        allowed, reason = await manager.pre_tool_use_hook("mcp__filesystem__write_file", tool_args)
+
+        if not allowed:
+            print(f"❌ Failed: Relative path write should be allowed. Reason: {reason}")
+            return False
+
+        expected_parent = helper.workspace_dir / "tasks" / "evolving_skill"
+        if not expected_parent.exists():
+            print(f"❌ Failed: Parent directory '{expected_parent}' should have been created")
+            return False
+        print("    ✓ Relative path parent directories created")
+
+        print("✅ Auto-create parent directories works correctly")
         return True
 
     finally:
@@ -535,7 +678,8 @@ async def test_pre_tool_use_hook():
     try:
         print("  Testing write tool on readonly path...")
         manager = helper.create_permission_manager(context_write_enabled=False)
-        tool_args = {"file_path": str(helper.readonly_dir / "readonly_file.txt")}
+        # Use a new file path to test readonly permission (not existing file overwrite)
+        tool_args = {"file_path": str(helper.readonly_dir / "new_readonly_file.txt")}
         allowed, reason = await manager.pre_tool_use_hook("Write", tool_args)
 
         if allowed:
@@ -2026,6 +2170,7 @@ async def main():
     sync_tests = [
         test_is_write_tool,
         test_validate_write_tool,
+        test_write_file_overwrite_protection,
         test_validate_command_tool,
         test_validate_execute_command_tool,
         test_context_write_access_toggle,
@@ -2041,6 +2186,7 @@ async def main():
 
     async_tests = [
         test_pre_tool_use_hook,
+        test_auto_create_parent_directories,
         test_mcp_relative_paths,
         test_delete_file_real_workspace_scenario,
         test_compare_tools,

@@ -59,6 +59,10 @@ class StreamChunk:
     content_index: Optional[int] = None  # Reasoning content index
     summary_index: Optional[int] = None  # Reasoning summary index
 
+    # Hook execution info (for "hook_execution" type chunks)
+    hook_info: Optional[Dict[str, Any]] = None  # Hook execution details for display
+    tool_call_id: Optional[str] = None  # ID of tool call this hook is attached to
+
 
 class LLMBackend(ABC):
     """Abstract base class for LLM providers."""

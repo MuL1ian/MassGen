@@ -187,11 +187,32 @@ Make your decision about which agent to vote for and include the vote JSON at th
             ask_others_section = """
 
 If you want to ASK OTHER AGENTS a question (for collaborative problem-solving):
+PREFERRED - Use structured questions with options (limit to 5-7 questions max, 2-5 options each):
 {
   "action_type": "ask_others",
   "ask_others_data": {
     "action": "ask_others",
-    "question": "Your specific question with ALL relevant context included (other agents cannot see your workspace)",
+    "questions": [
+      {
+        "text": "Which framework should we use?",
+        "options": [
+          {"id": "react", "label": "React", "description": "Component-based UI"},
+          {"id": "vue", "label": "Vue", "description": "Progressive framework"}
+        ],
+        "multiSelect": false,
+        "allowOther": true
+      }
+    ],
+    "wait": true
+  }
+}
+
+FALLBACK - Simple text question (only when options don't make sense):
+{
+  "action_type": "ask_others",
+  "ask_others_data": {
+    "action": "ask_others",
+    "question": "Your open-ended question with ALL relevant context",
     "wait": true
   }
 }"""
@@ -366,16 +387,17 @@ Make your decision and include the JSON at the very end of your response."""
 
         elif action_type == "ask_others":
             ask_others_data = structured_response.get("ask_others_data", {})
+            # Build arguments - prefer 'questions' (structured) over 'question' (simple)
+            args = {"wait": ask_others_data.get("wait", True)}
+            if "questions" in ask_others_data and ask_others_data["questions"]:
+                args["questions"] = ask_others_data["questions"]
+            else:
+                args["question"] = ask_others_data.get("question", "")
             return [
                 {
                     "call_id": f"ask_others_{abs(hash(str(ask_others_data))) % 10000 + 1}",
                     "name": "ask_others",
-                    "arguments": json.dumps(
-                        {
-                            "question": ask_others_data.get("question", ""),
-                            "wait": ask_others_data.get("wait", True),
-                        },
-                    ),
+                    "arguments": json.dumps(args),
                 },
             ]
 

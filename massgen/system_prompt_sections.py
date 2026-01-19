@@ -1700,7 +1700,7 @@ You have provided your maximum number of new answers. Now you MUST vote for the 
 
 Analyze the existing answers carefully, then call the `vote` tool to select the best one.
 
-IMPORTANT: The only workflow action available to you is `vote`. You cannot submit new answers.
+Note: All your other tools are still available to help you evaluate answers. The only restriction is that `vote` is your only workflow tool - you cannot submit new answers.
 
 *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
 
@@ -2164,16 +2164,16 @@ class BroadcastCommunicationSection(SystemPromptSection):
             if self.broadcast_mode == "human":
                 lines.extend(
                     [
-                        "- Call `ask_others(question)` with your question",
+                        "- Call `ask_others(questions=[...])` with structured questions (PREFERRED)",
                         "- The tool blocks and waits for the human's response",
-                        "- Returns the human's response when ready",
+                        "- Returns the human's selections/responses when ready",
                         "- You can then continue with your task",
                     ],
                 )
             else:
                 lines.extend(
                     [
-                        "- Call `ask_others(question)` with your question",
+                        "- Call `ask_others(questions=[...])` with structured questions (PREFERRED)",
                         "- The tool blocks and waits for responses from other agents",
                         "- Returns all responses immediately when ready",
                         "- You can then continue with your task",
@@ -2182,7 +2182,7 @@ class BroadcastCommunicationSection(SystemPromptSection):
         else:
             lines.extend(
                 [
-                    "- Call `ask_others(question, wait=False)` to send question without waiting",
+                    "- Call `ask_others(questions=[...], wait=False)` to send without waiting",
                     "- Continue working on other tasks",
                     "- Later, check status with `check_broadcast_status(request_id)`",
                     "- Get responses with `get_broadcast_responses(request_id)` when ready",
@@ -2197,13 +2197,53 @@ class BroadcastCommunicationSection(SystemPromptSection):
                 "- Use when you genuinely need coordination or input",
                 "- Actually CALL THE TOOL (don't just mention it in your answer text)",
                 "- Respond helpfully when others ask you questions",
+                "- **Limit to 5-7 questions max per call** - too many questions overwhelms the responder",
+                "- For each question, **provide 2-5 predefined options** when possible",
                 "",
-                "**Examples of good questions (include ALL relevant context - other agents cannot see your workspace):**",
-                '- "I\'m building an e-commerce site with Next.js. The client wants product pages to be SEO-friendly. Should I use SSR, SSG, or ISR for the product catalog?"',
-                "- \"I need to add a 'last_login' field to track user sessions. The User model currently has id, email, password_hash, created_at. Any concerns with adding this timestamp field?\"",
-                '- "Setting up OAuth for a Node.js/Express API. The project uses Passport.js. Should I add Google OAuth with passport-google-oauth20, or is there a better approach?"',
-                '- "I\'m refactoring authentication in a Django app that currently uses session-based auth. Considering switching to JWT for mobile API support. What are the tradeoffs?"',
-                '- "Building a real-time dashboard that needs to handle 1000+ concurrent users. Using React frontend with WebSocket. Should I use Socket.io or native WebSocket API?"',
+                "**PREFERRED: Use structured questions with the `questions` parameter:**",
+                "Structured questions provide a better UX with clear options. Use them for most questions.",
+                "",
+                "Example - single structured question:",
+                "```json",
+                "ask_others(questions=[{",
+                '  "text": "Which rendering approach should I use for product pages?",',
+                '  "options": [',
+                '    {"id": "ssr", "label": "SSR", "description": "Server-side rendering"},',
+                '    {"id": "ssg", "label": "SSG", "description": "Static site generation"},',
+                '    {"id": "isr", "label": "ISR", "description": "Incremental static regeneration"}',
+                "  ],",
+                '  "multiSelect": false,',
+                '  "allowOther": true',
+                "}])",
+                "```",
+                "",
+                "Example - multiple questions in one call:",
+                "```json",
+                "ask_others(questions=[",
+                "  {",
+                '    "text": "Which frontend framework?",',
+                '    "options": [',
+                '      {"id": "react", "label": "React"},',
+                '      {"id": "vue", "label": "Vue"},',
+                '      {"id": "svelte", "label": "Svelte"}',
+                "    ]",
+                "  },",
+                "  {",
+                '    "text": "Which databases do you use?",',
+                '    "options": [',
+                '      {"id": "postgres", "label": "PostgreSQL"},',
+                '      {"id": "mysql", "label": "MySQL"},',
+                '      {"id": "mongodb", "label": "MongoDB"}',
+                "    ],",
+                '    "multiSelect": true',
+                "  }",
+                "])",
+                "```",
+                "",
+                "**FALLBACK: Use simple text for truly open-ended questions:**",
+                'Only use `ask_others(question="...")` when predefined options don\'t make sense:',
+                '- "What specific challenges have you encountered with this codebase?"',
+                '- "Describe your ideal workflow for this feature."',
             ],
         )
 

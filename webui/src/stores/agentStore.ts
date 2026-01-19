@@ -1087,6 +1087,79 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         }
         break;
 
+      case 'timeout_status':
+        // Update per-agent timeout state
+        if ('agent_id' in event && 'timeout_state' in event) {
+          set((state) => {
+            const agent = state.agents[event.agent_id];
+            if (!agent) return state;
+            return {
+              agents: {
+                ...state.agents,
+                [event.agent_id]: {
+                  ...agent,
+                  timeoutState: event.timeout_state,
+                },
+              },
+            };
+          });
+        }
+        break;
+
+      case 'hook_execution':
+        // Attach hook execution info to tool calls
+        if ('agent_id' in event && 'hook_info' in event) {
+          const hookEvent = event as {
+            agent_id: string;
+            tool_call_id?: string;
+            hook_info: {
+              hook_name: string;
+              hook_type: 'pre' | 'post';
+              decision: 'allow' | 'deny' | 'error';
+              reason?: string;
+              execution_time_ms?: number;
+              injection_preview?: string;
+            };
+          };
+          set((state) => {
+            const agent = state.agents[hookEvent.agent_id];
+            if (!agent || !agent.toolCalls.length) return state;
+
+            // Find the tool call to attach the hook to
+            const toolCalls = [...agent.toolCalls];
+            let targetIndex = -1;
+
+            if (hookEvent.tool_call_id) {
+              targetIndex = toolCalls.findIndex(tc => tc.id === hookEvent.tool_call_id);
+            }
+            // If no specific tool_id, attach to the most recent tool
+            if (targetIndex === -1) {
+              targetIndex = toolCalls.length - 1;
+            }
+
+            if (targetIndex >= 0) {
+              const toolCall = { ...toolCalls[targetIndex] };
+              if (hookEvent.hook_info.hook_type === 'pre') {
+                toolCall.preHooks = [...(toolCall.preHooks || []), hookEvent.hook_info];
+              } else {
+                toolCall.postHooks = [...(toolCall.postHooks || []), hookEvent.hook_info];
+              }
+              toolCalls[targetIndex] = toolCall;
+            }
+
+            return {
+              agents: {
+                ...state.agents,
+                [hookEvent.agent_id]: {
+                  ...agent,
+                  toolCalls,
+                },
+              },
+            };
+          });
+        }
+        break;
+
       case 'error':
         if ('message' in event) {
           store.setError(event.message);

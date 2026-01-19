@@ -118,6 +118,15 @@ class HookResult:
     # Error tracking for fail-open scenarios
     hook_errors: List[str] = field(default_factory=list)
 
+    # Hook execution tracking (for display in TUI/WebUI)
+    hook_name: Optional[str] = None
+    hook_type: Optional[str] = None  # "pre" or "post"
+    execution_time_ms: Optional[float] = None
+
+    # Aggregated hook executions (populated by GeneralHookManager.execute_hooks)
+    # Each entry: {"hook_name": str, "hook_type": str, "decision": str, "reason": str, "execution_time_ms": float, "injection_preview": str}
+    executed_hooks: List[Dict[str, Any]] = field(default_factory=list)
+
     def __post_init__(self):
         """Sync legacy and new fields for compatibility."""
         # Sync decision with allowed
@@ -134,6 +143,29 @@ class HookResult:
         """Check if any errors occurred during hook execution."""
         return len(self.hook_errors) > 0
 
+    def add_executed_hook(
+        self,
+        hook_name: str,
+        hook_type: str,
+        decision: str,
+        reason: Optional[str] = None,
+        execution_time_ms: Optional[float] = None,
+        injection_preview: Optional[str] = None,
+        injection_content: Optional[str] = None,
+    ) -> None:
+        """Track an executed hook for display purposes."""
+        self.executed_hooks.append(
+            {
+                "hook_name": hook_name,
+                "hook_type": hook_type,
+                "decision": decision,
+                "reason": reason,
+                "execution_time_ms": execution_time_ms,
+                "injection_preview": injection_preview,
+                "injection_content": injection_content,
+            },
+        )
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HookResult":
         """Create HookResult from dictionary (e.g., from JSON)."""
@@ -146,6 +178,10 @@ class HookResult:
             updated_input=data.get("updated_input"),
             inject=data.get("inject"),
             hook_errors=data.get("hook_errors", []),
+            hook_name=data.get("hook_name"),
+            hook_type=data.get("hook_type"),
+            execution_time_ms=data.get("execution_time_ms"),
+            executed_hooks=data.get("executed_hooks", []),
         )
 
     @classmethod
@@ -518,10 +554,12 @@ class GeneralHookManager:
             context["tool_output"] = tool_output
 
         if not hooks:
+            logger.info(f"[GeneralHookManager] No hooks registered for agent_id={agent_id}, hook_type={hook_type}")
             return HookResult.allow()
 
         # Filter to matching hooks
         matching_hooks = [h for h in hooks if h.matches(function_name)]
+        logger.info(f"[GeneralHookManager] {len(matching_hooks)} matching hooks for {function_name} (out of {len(hooks)} registered)")
 
         if not matching_hooks:
             return HookResult.allow()
@@ -529,18 +567,53 @@ class GeneralHookManager:
         final_result = HookResult.allow()
         modified_args = arguments
         all_injections: List[Dict[str, Any]] = []
+        hook_type_str = "pre" if hook_type == HookType.PRE_TOOL_USE else "post"
 
         for hook in matching_hooks:
+            start_time = time.time()
             try:
                 # Update context with current args
                 ctx = dict(context)
                 result = await hook.execute(function_name, modified_args, ctx)
 
+                # Calculate execution time
+                execution_time_ms = (time.time() - start_time) * 1000
+
                 # Handle deny - short circuit
                 if not result.allowed or result.decision == "deny":
-                    return HookResult.deny(
+                    deny_result = HookResult.deny(
                         reason=result.reason or result.metadata.get("reason", f"Denied by hook {hook.name}"),
                     )
+                    # Track the denying hook
+                    deny_result.add_executed_hook(
+                        hook_name=hook.name,
+                        hook_type=hook_type_str,
+                        decision="deny",
+                        reason=deny_result.reason,
+                        execution_time_ms=execution_time_ms,
+                    )
+                    return deny_result
+
+                # Track successful hook execution
+                injection_preview = None
+                injection_content = None
+                if result.inject and result.inject.get("content"):
+                    content = result.inject["content"]
+                    injection_preview = content[:100] + "..." if len(content) > 100 else content
+                    injection_content = content
+
+                final_result.add_executed_hook(
+                    hook_name=hook.name,
+                    hook_type=hook_type_str,
+                    decision=result.decision,
+                    reason=result.reason,
+                    execution_time_ms=execution_time_ms,
+                    injection_preview=injection_preview,
+                    injection_content=injection_content,
+                )
+                logger.info(
+                    f"[GeneralHookManager] Tracked hook execution: {hook.name} ({hook_type_str}) - " f"decision={result.decision}, has_inject={result.inject is not None}",
+                )
 
                 # Handle ask decision
                 if result.decision == "ask":
@@ -563,11 +636,21 @@ class GeneralHookManager:
                         final_result.add_error(err)
 
             except Exception as e:
+                execution_time_ms = (time.time() - start_time) * 1000
                 error_msg = f"Hook '{hook.name}' failed unexpectedly: {e}"
                 logger.error(f"[GeneralHookManager] {error_msg}", exc_info=True)
                 # Track the error but fail open (allow tool execution to proceed)
                 # This ensures users can see which hooks failed even in fail-open mode
                 final_result.add_error(error_msg)
+
+                # Track failed hook execution
+                final_result.add_executed_hook(
+                    hook_name=hook.name,
+                    hook_type=hook_type_str,
+                    decision="error",
+                    reason=error_msg,
+                    execution_time_ms=execution_time_ms,
+                )
 
                 # Check if hook requires fail-closed behavior
                 if hasattr(hook, "fail_closed") and hook.fail_closed:

@@ -87,7 +87,7 @@ except Exception:  # pragma: no cover - environment-specific import side effects
 from .message_templates import MessageTemplates, get_templates
 from .orchestrator import Orchestrator, create_orchestrator
 
-__version__ = "0.1.39"
+__version__ = "0.1.40"
 __author__ = "MassGen Contributors"
 
 

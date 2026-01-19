@@ -6,12 +6,15 @@ Main interface for coordinating agents with visual display.
 """
 
 import asyncio
+import logging
 import queue
+import re
 import threading
 from typing import Any, Dict, List, Optional
 
 from ..cancellation import CancellationRequested
 from .displays.base_display import BaseDisplay
+from .displays.content_normalizer import ContentNormalizer
 from .displays.none_display import NoneDisplay
 from .displays.rich_terminal_display import RichTerminalDisplay, is_rich_available
 from .displays.silent_display import SilentDisplay
@@ -39,6 +42,9 @@ except ImportError:
         return False
 
 
+logger = logging.getLogger(__name__)
+
+
 class CoordinationUI:
     """Main coordination interface with display capabilities."""
 
@@ -48,6 +54,8 @@ class CoordinationUI:
         logger: Optional[Any] = None,
         display_type: str = "terminal",
         enable_final_presentation: bool = False,
+        preserve_display: bool = False,
+        interactive_mode: bool = False,
         **kwargs,
     ):
         """Initialize coordination UI.
@@ -57,6 +65,8 @@ class CoordinationUI:
             logger: Custom logger instance
             display_type: Type of display ("terminal", "simple", "rich_terminal", "textual_terminal", "web")
             enable_final_presentation: Whether to ask winning agent to present final answer
+            preserve_display: If True, don't cleanup/recreate display between turns (for multi-turn TUI)
+            interactive_mode: If True, external driver owns the TUI loop (don't call display.run_async())
             **kwargs: Additional configuration passed to display/logger
         """
         self.enable_final_presentation = enable_final_presentation
@@ -64,6 +74,10 @@ class CoordinationUI:
         self.logger = logger
         self.display_type = display_type
         self.config = kwargs
+
+        # Multi-turn display preservation mode
+        self.preserve_display = preserve_display
+        self.interactive_mode = interactive_mode
 
         # Will be set during coordination
         self.agent_ids = []
@@ -76,6 +90,14 @@ class CoordinationUI:
         self._answer_buffer = ""
         self._answer_timeout_task = None
         self._final_answer_shown = False
+
+        # Status bar tracking
+        self._last_phase = "idle"
+
+        # Per-agent content buffer for filtering workspace tool JSON
+        # Streaming sends small chunks that individually don't match patterns,
+        # so we buffer until we see a complete line or JSON block
+        self._agent_content_buffers: Dict[str, str] = {}
 
     def _process_reasoning_summary(self, chunk_type: str, summary_delta: str, source: str) -> str:
         """Process reasoning summary content using display's shared logic."""
@@ -124,6 +146,14 @@ class CoordinationUI:
 
     async def _run_orchestration(self, orchestrator, question: str) -> str:
         """Run the actual orchestration logic (can be in any thread)."""
+        # Debug log entry
+        try:
+            from massgen.frontend.displays.textual_terminal_display import tui_log
+
+            tui_log(f"_run_orchestration STARTING for question: {question[:50]}...")
+        except Exception:
+            pass
+
         # Initialize variables
         selected_agent = None
         vote_results = {}
@@ -151,6 +181,25 @@ class CoordinationUI:
                 content = getattr(chunk, "content", "") or ""
                 source = getattr(chunk, "source", None)
                 chunk_type = getattr(chunk, "type", "")
+
+                # Check for phase changes and notify status bar
+                if hasattr(orchestrator, "workflow_phase"):
+                    current_phase = orchestrator.workflow_phase
+                    if current_phase != self._last_phase:
+                        old_phase = self._last_phase
+                        self._last_phase = current_phase
+                        # Debug log for phase changes
+                        try:
+                            from massgen.frontend.displays.textual_terminal_display import (
+                                tui_log,
+                            )
+
+                            tui_log(f"CoordinationUI: phase changed '{old_phase}' -> '{current_phase}'")
+                        except Exception:
+                            pass
+                        if hasattr(self.display, "notify_phase"):
+                            tui_log(f"  Calling display.notify_phase('{current_phase}')")
+                            self.display.notify_phase(current_phase)
 
                 # Handle agent status updates
                 if chunk_type == "agent_status":
@@ -180,21 +229,56 @@ class CoordinationUI:
                     partial_saved = orchestrator.cancellation_manager._partial_saved if hasattr(orchestrator, "cancellation_manager") and orchestrator.cancellation_manager else False
                     raise CancellationRequested(partial_saved=partial_saved)
 
-                # Filter out mcp_status chunks - display via agent panel instead of console
-                elif chunk_type == "mcp_status":
-                    # Let the display handle MCP status via agent panel
-                    if self.display and source and source in self.agent_ids:
-                        self.display.update_agent_content(source, content, "tool")
+                # Filter out tool status chunks - display via agent panel instead of console
+                elif chunk_type in ("mcp_status", "custom_tool_status"):
+                    # Let the display handle tool status via agent panel
+                    # source may be agent_id or tool name (e.g., "mcp_mcp__filesystem__write_file")
+                    target_agent = source if source in self.agent_ids else None
+                    if not target_agent and self.agent_ids:
+                        # Fallback: route to first agent if source is a tool name
+                        target_agent = self.agent_ids[0]
+                    if self.display and target_agent:
+                        self.display.update_agent_content(
+                            target_agent,
+                            content,
+                            "tool",
+                            tool_call_id=chunk.tool_call_id,
+                        )
                     if self.logger:
                         self.logger.log_chunk(source, content, chunk_type)
                     continue
 
                 # Display compression status - show in agent panel
                 elif chunk_type == "compression_status":
-                    if self.display and source and source in self.agent_ids:
-                        self.display.update_agent_content(source, content, "tool")
+                    target_agent = source if source in self.agent_ids else None
+                    if not target_agent and self.agent_ids:
+                        target_agent = self.agent_ids[0]
+                    if self.display and target_agent:
+                        self.display.update_agent_content(target_agent, content, "tool")
                     if self.logger:
                         self.logger.log_chunk(source, content, chunk_type)
+                    continue
+
+                # Handle hook execution events - route to display
+                elif chunk_type == "hook_execution":
+                    hook_info = getattr(chunk, "hook_info", None)
+                    tool_call_id = getattr(chunk, "tool_call_id", None)
+                    from massgen.logger_config import logger as hook_logger
+
+                    hook_logger.info(
+                        f"[CoordinationUI] hook_execution chunk received: source={source}, "
+                        f"tool_call_id={tool_call_id}, has_hook_info={hook_info is not None}, "
+                        f"has_display={self.display is not None}, "
+                        f"display_has_method={hasattr(self.display, 'update_hook_execution') if self.display else False}",
+                    )
+                    if self.display and source and hook_info:
+                        if hasattr(self.display, "update_hook_execution"):
+                            hook_logger.info("[CoordinationUI] Calling display.update_hook_execution")
+                            self.display.update_hook_execution(source, tool_call_id, hook_info)
+                        else:
+                            hook_logger.warning("[CoordinationUI] display missing update_hook_execution method")
+                    if self.logger:
+                        self.logger.log_chunk(source, str(hook_info), chunk_type)
                     continue
 
                 # Handle reasoning streams
@@ -280,15 +364,39 @@ class CoordinationUI:
                             delattr(self, attr_name)
 
                 # Handle post-evaluation content streaming
+                # Bug 2 fix: Removed local _routed_to_post_eval variable - display-level flag handles this now
                 if source and content and chunk_type == "content":
                     # Check if we're in post-evaluation
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
 
+                # Track selected agent for post-evaluation
+                if content and "🏆 Selected Agent:" in content:
+                    import re
+
+                    match = re.search(r"🏆 Selected Agent: (\S+)", content)
+                    if match:
+                        self._post_eval_winner = match.group(1)
+
                 # Detect post-evaluation start
                 if chunk_type == "status" and "Post-evaluation" in content:
                     self._in_post_evaluation = True
+                    # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
+                    if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
+                        self.display._routing_to_post_eval_card = True
+
+                # Detect post-evaluation completion and show footer
+                if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
+                    if "Evaluation complete" in content or "Restart requested" in content:
+                        self._in_post_evaluation = False
+                        # Bug 2 fix: Clear display flag when post-eval ends
+                        if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
+                            self.display._routing_to_post_eval_card = False
+                        if self.display and hasattr(self.display, "end_post_evaluation_content"):
+                            # Use tracked winner, fall back to source
+                            winner = getattr(self, "_post_eval_winner", None) or source
+                            self.display.end_post_evaluation_content(winner)
 
                 if content:
                     full_response += content
@@ -298,7 +406,16 @@ class CoordinationUI:
                         self.logger.log_chunk(source, content, chunk_type)
 
                     # Process content by source
+                    # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
                     await self._process_content(source, content)
+
+            # Flush agent content buffers BEFORE processing final answer
+            # This ensures any streamed content reaches the display before we complete
+            try:
+                if hasattr(self, "_agent_content_buffers") and self._agent_content_buffers:
+                    await self._flush_agent_content_buffers()
+            except asyncio.CancelledError:
+                pass
 
             # Get final presentation content from orchestrator state
             status = orchestrator.get_status()
@@ -393,6 +510,13 @@ class CoordinationUI:
             except asyncio.CancelledError:
                 pass
 
+            # Flush any remaining agent content buffers
+            try:
+                if hasattr(self, "_agent_content_buffers") and self._agent_content_buffers:
+                    await self._flush_agent_content_buffers()
+            except asyncio.CancelledError:
+                pass
+
             # Small delay to ensure display updates are processed
             try:
                 await asyncio.sleep(0.1)
@@ -402,9 +526,9 @@ class CoordinationUI:
             # Determine if coordination completed successfully
             is_finished = hasattr(orchestrator, "workflow_phase") and orchestrator.workflow_phase == "presenting"
 
-            # ALWAYS cleanup display resources (stop live, restore terminal) regardless of completion status
-            # This is critical for proper terminal restoration after cancellation
-            if self.display:
+            # Cleanup display resources (stop live, restore terminal) unless in preserve_display mode
+            # In preserve_display mode (multi-turn TUI), the external driver owns the display lifecycle
+            if self.display and not self.preserve_display:
                 try:
                     self.display.cleanup()
                 except Exception:
@@ -450,6 +574,10 @@ class CoordinationUI:
         if hasattr(self, "_final_answer_shown"):
             self._final_answer_shown = False
 
+        # Reset content buffers
+        if hasattr(self, "_agent_content_buffers"):
+            self._agent_content_buffers = {}
+
     async def coordinate(self, orchestrator, question: str, agent_ids: Optional[List[str]] = None) -> str:
         """Coordinate agents with visual display.
 
@@ -461,6 +589,10 @@ class CoordinationUI:
         Returns:
             Final coordinated response
         """
+        from massgen.logger_config import logger as coord_logger
+
+        coord_logger.info(f"[CoordinationUI] coordinate() method CALLED - question: {question[:50]}...")
+
         # Initialize variables that may be referenced in finally block
         selected_agent = ""
         vote_results = {}
@@ -469,13 +601,19 @@ class CoordinationUI:
 
         # Reset display to ensure clean state for each coordination
         # But preserve web displays - they have their own lifecycle managed by the web server
-        if self.display is not None and self.display_type != "web":
+        # Also preserve display in preserve_display mode (for multi-turn TUI)
+        if self.display is not None and self.display_type != "web" and not self.preserve_display:
             self.display.cleanup()
             self.display = None
 
         self.orchestrator = orchestrator
         # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
         orchestrator.coordination_ui = self
+
+        # Set up subagent spawn callbacks now that coordination_ui is available
+        # This allows the TUI to show SubagentCard immediately when spawn_subagents is called
+        if hasattr(orchestrator, "setup_subagent_spawn_callbacks"):
+            orchestrator.setup_subagent_spawn_callbacks()
 
         # Auto-detect agent IDs if not provided
         # Sort for consistent anonymous mapping with coordination_tracker
@@ -507,7 +645,15 @@ class CoordinationUI:
                     print("   Install with: pip install textual")
                     self.display = TerminalDisplay(self.agent_ids, **self.config)
                 else:
-                    self.display = TextualTerminalDisplay(self.agent_ids, **self.config)
+                    # Build agent_models dict for welcome screen
+                    agent_models = {}
+                    for agent_id, agent in orchestrator.agents.items():
+                        if hasattr(agent, "backend") and hasattr(agent.backend, "model"):
+                            agent_models[agent_id] = agent.backend.model
+                        elif hasattr(agent, "config") and hasattr(agent.config, "backend_params"):
+                            agent_models[agent_id] = agent.config.backend_params.get("model", "")
+                    config_with_models = {**self.config, "agent_models": agent_models}
+                    self.display = TextualTerminalDisplay(self.agent_ids, **config_with_models)
             elif self.display_type == "web":
                 # WebDisplay must be passed in from the web server with broadcast configured
                 if self.display is None:
@@ -551,7 +697,8 @@ class CoordinationUI:
         user_quit = False  # Track if user quit
 
         # For Textual: Run in main thread, orchestration in background thread
-        if self.display_type == "textual_terminal" and is_textual_available():
+        # Unless interactive_mode is True - then external driver owns the TUI loop
+        if self.display_type == "textual_terminal" and is_textual_available() and not self.interactive_mode:
             # Use queue for exception propagation
             result_queue = queue.Queue()
 
@@ -636,6 +783,30 @@ class CoordinationUI:
                 source = getattr(chunk, "source", None)
                 chunk_type = getattr(chunk, "type", "")
 
+                # Debug: Log all chunk types to trace hook_execution flow
+                if chunk_type == "hook_execution":
+                    from massgen.logger_config import logger as debug_logger
+
+                    debug_logger.info(f"[CoordinationUI-DEBUG] Got hook_execution chunk! source={source}")
+
+                # Check for phase changes and notify status bar (for interactive mode)
+                if hasattr(orchestrator, "workflow_phase"):
+                    current_phase = orchestrator.workflow_phase
+                    if current_phase != self._last_phase:
+                        old_phase = self._last_phase
+                        self._last_phase = current_phase
+                        # Debug log for phase changes
+                        try:
+                            from massgen.frontend.displays.textual_terminal_display import (
+                                tui_log,
+                            )
+
+                            tui_log(f"CoordinationUI (interactive): phase changed '{old_phase}' -> '{current_phase}'")
+                        except Exception:
+                            pass
+                        if hasattr(self.display, "notify_phase"):
+                            self.display.notify_phase(current_phase)
+
                 # Handle agent status updates
                 if chunk_type == "agent_status":
                     status = getattr(chunk, "status", None)
@@ -673,23 +844,56 @@ class CoordinationUI:
                     partial_saved = orchestrator.cancellation_manager._partial_saved if hasattr(orchestrator, "cancellation_manager") and orchestrator.cancellation_manager else False
                     raise CancellationRequested(partial_saved=partial_saved)
 
-                # Filter out mcp_status chunks - display via agent panel instead of console
-                elif chunk_type == "mcp_status":
-                    # Let the display handle MCP status via agent panel
-                    if source and source in self.agent_ids:
-                        self.display.update_agent_content(source, content, "tool")
+                # Filter out tool status chunks - display via agent panel instead of console
+                elif chunk_type in ("mcp_status", "custom_tool_status"):
+                    # Let the display handle tool status via agent panel
+                    # source may be agent_id or tool name (e.g., "mcp_mcp__filesystem__write_file")
+                    target_agent = source if source in self.agent_ids else None
+                    if not target_agent and self.agent_ids:
+                        target_agent = self.agent_ids[0]
+                    if target_agent:
+                        self.display.update_agent_content(
+                            target_agent,
+                            content,
+                            "tool",
+                            tool_call_id=chunk.tool_call_id,
+                        )
                     if self.logger:
                         self.logger.log_chunk(source, content, chunk_type)
                     continue
 
                 # Display compression status - show in agent panel
                 elif chunk_type == "compression_status":
-                    if source and source in self.agent_ids:
-                        self.display.update_agent_content(source, content, "tool")
+                    target_agent = source if source in self.agent_ids else None
+                    if not target_agent and self.agent_ids:
+                        target_agent = self.agent_ids[0]
+                    if target_agent:
+                        self.display.update_agent_content(target_agent, content, "tool")
                     if self.logger:
                         self.logger.log_chunk(source, content, chunk_type)
                     continue
 
+                # Handle hook execution events - route to display (interactive mode)
+                elif chunk_type == "hook_execution":
+                    hook_info = getattr(chunk, "hook_info", None)
+                    tool_call_id = getattr(chunk, "tool_call_id", None)
+                    from massgen.logger_config import logger as hook_logger
+
+                    hook_logger.info(
+                        f"[CoordinationUI-interactive] hook_execution chunk received: source={source}, "
+                        f"tool_call_id={tool_call_id}, has_hook_info={hook_info is not None}, "
+                        f"has_display={self.display is not None}, "
+                        f"display_has_method={hasattr(self.display, 'update_hook_execution') if self.display else False}",
+                    )
+                    if self.display and source and hook_info:
+                        if hasattr(self.display, "update_hook_execution"):
+                            hook_logger.info("[CoordinationUI-interactive] Calling display.update_hook_execution")
+                            self.display.update_hook_execution(source, tool_call_id, hook_info)
+                        else:
+                            hook_logger.warning("[CoordinationUI-interactive] display missing update_hook_execution method")
+                    if self.logger:
+                        self.logger.log_chunk(source, str(hook_info), chunk_type)
+                    continue
                 # builtin_tool_results handling removed - now handled as simple content
 
                 # Handle reasoning streams
@@ -774,15 +978,39 @@ class CoordinationUI:
                             delattr(self, attr_name)
 
                 # Handle post-evaluation content streaming
+                # Bug 2 fix: Removed local _routed_to_post_eval variable - display-level flag handles this now
                 if source and content and chunk_type == "content":
                     # Check if we're in post-evaluation
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
 
+                # Track selected agent for post-evaluation
+                if content and "🏆 Selected Agent:" in content:
+                    import re
+
+                    match = re.search(r"🏆 Selected Agent: (\S+)", content)
+                    if match:
+                        self._post_eval_winner = match.group(1)
+
                 # Detect post-evaluation start
                 if chunk_type == "status" and "Post-evaluation" in content:
                     self._in_post_evaluation = True
+                    # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
+                    if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
+                        self.display._routing_to_post_eval_card = True
+
+                # Detect post-evaluation completion and show footer
+                if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
+                    if "Evaluation complete" in content or "Restart requested" in content:
+                        self._in_post_evaluation = False
+                        # Bug 2 fix: Clear display flag when post-eval ends
+                        if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
+                            self.display._routing_to_post_eval_card = False
+                        if self.display and hasattr(self.display, "end_post_evaluation_content"):
+                            # Use tracked winner, fall back to source
+                            winner = getattr(self, "_post_eval_winner", None) or source
+                            self.display.end_post_evaluation_content(winner)
 
                 if content:
                     full_response += content
@@ -792,7 +1020,16 @@ class CoordinationUI:
                         self.logger.log_chunk(source, content, chunk_type)
 
                     # Process content by source
+                    # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
                     await self._process_content(source, content)
+
+            # Flush agent content buffers BEFORE processing final answer
+            # This ensures any streamed content reaches the display before we complete
+            try:
+                if hasattr(self, "_agent_content_buffers") and self._agent_content_buffers:
+                    await self._flush_agent_content_buffers()
+            except asyncio.CancelledError:
+                pass
 
             # Get final presentation content from orchestrator state
             # Note: With restart feature, get_final_presentation is called INSIDE the orchestrator
@@ -888,6 +1125,13 @@ class CoordinationUI:
             except asyncio.CancelledError:
                 pass  # Silently handle cancellation
 
+            # Flush any remaining agent content buffers
+            try:
+                if hasattr(self, "_agent_content_buffers") and self._agent_content_buffers:
+                    await self._flush_agent_content_buffers()
+            except asyncio.CancelledError:
+                pass  # Silently handle cancellation
+
             # Small delay to ensure display updates are processed
             try:
                 await asyncio.sleep(0.1)
@@ -898,9 +1142,9 @@ class CoordinationUI:
             # Check workflow_phase to see if we're in "presenting" state (finished) vs still coordinating (restarting)
             is_finished = hasattr(orchestrator, "workflow_phase") and orchestrator.workflow_phase == "presenting"
 
-            # ALWAYS cleanup display resources (stop live, restore terminal) regardless of completion status
-            # This is critical for proper terminal restoration after cancellation
-            if self.display:
+            # Cleanup display resources (stop live, restore terminal) unless in preserve_display mode
+            # In preserve_display mode (multi-turn TUI), the external driver owns the display lifecycle
+            if self.display and not self.preserve_display:
                 try:
                     self.display.cleanup()
                 except Exception:
@@ -949,6 +1193,10 @@ class CoordinationUI:
         Returns:
             Final coordinated response
         """
+        from massgen.logger_config import logger as coord_logger
+
+        coord_logger.info(f"[CoordinationUI] coordinate_with_context() method CALLED - question: {question[:50]}..., messages={len(messages)}")
+
         # Initialize variables that may be referenced in finally block
         selected_agent = ""
         vote_results = {}
@@ -957,13 +1205,19 @@ class CoordinationUI:
 
         # Reset display to ensure clean state for each coordination
         # But preserve web displays - they have their own lifecycle managed by the web server
-        if self.display is not None and self.display_type != "web":
+        # Also preserve display in preserve_display mode (for multi-turn TUI)
+        if self.display is not None and self.display_type != "web" and not self.preserve_display:
             self.display.cleanup()
             self.display = None
 
         self.orchestrator = orchestrator
         # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
         orchestrator.coordination_ui = self
+
+        # Set up subagent spawn callbacks now that coordination_ui is available
+        # This allows the TUI to show SubagentCard immediately when spawn_subagents is called
+        if hasattr(orchestrator, "setup_subagent_spawn_callbacks"):
+            orchestrator.setup_subagent_spawn_callbacks()
 
         # Auto-detect agent IDs if not provided
         # Sort for consistent anonymous mapping with coordination_tracker
@@ -995,7 +1249,15 @@ class CoordinationUI:
                     print("   Install with: pip install textual")
                     self.display = TerminalDisplay(self.agent_ids, **self.config)
                 else:
-                    self.display = TextualTerminalDisplay(self.agent_ids, **self.config)
+                    # Build agent_models dict for welcome screen
+                    agent_models = {}
+                    for agent_id, agent in orchestrator.agents.items():
+                        if hasattr(agent, "backend") and hasattr(agent.backend, "model"):
+                            agent_models[agent_id] = agent.backend.model
+                        elif hasattr(agent, "config") and hasattr(agent.config, "backend_params"):
+                            agent_models[agent_id] = agent.config.backend_params.get("model", "")
+                    config_with_models = {**self.config, "agent_models": agent_models}
+                    self.display = TextualTerminalDisplay(self.agent_ids, **config_with_models)
             elif self.display_type == "web":
                 # WebDisplay must be passed in from the web server with broadcast configured
                 if self.display is None:
@@ -1095,19 +1357,31 @@ class CoordinationUI:
                     partial_saved = orchestrator.cancellation_manager._partial_saved if hasattr(orchestrator, "cancellation_manager") and orchestrator.cancellation_manager else False
                     raise CancellationRequested(partial_saved=partial_saved)
 
-                # Filter out mcp_status chunks - display via agent panel instead of console
-                elif chunk_type == "mcp_status":
-                    # Let the display handle MCP status via agent panel
-                    if source and source in self.agent_ids:
-                        self.display.update_agent_content(source, content, "tool")
+                # Filter out tool status chunks - display via agent panel instead of console
+                elif chunk_type in ("mcp_status", "custom_tool_status"):
+                    # Let the display handle tool status via agent panel
+                    # source may be agent_id or tool name (e.g., "mcp_mcp__filesystem__write_file")
+                    target_agent = source if source in self.agent_ids else None
+                    if not target_agent and self.agent_ids:
+                        target_agent = self.agent_ids[0]
+                    if target_agent:
+                        self.display.update_agent_content(
+                            target_agent,
+                            content,
+                            "tool",
+                            tool_call_id=chunk.tool_call_id,
+                        )
                     if self.logger:
                         self.logger.log_chunk(source, content, chunk_type)
                     continue
 
                 # Display compression status - show in agent panel
                 elif chunk_type == "compression_status":
-                    if source and source in self.agent_ids:
-                        self.display.update_agent_content(source, content, "tool")
+                    target_agent = source if source in self.agent_ids else None
+                    if not target_agent and self.agent_ids:
+                        target_agent = self.agent_ids[0]
+                    if target_agent:
+                        self.display.update_agent_content(target_agent, content, "tool")
                     if self.logger:
                         self.logger.log_chunk(source, content, chunk_type)
                     continue
@@ -1195,15 +1469,40 @@ class CoordinationUI:
                             delattr(self, attr_name)
 
                 # Handle post-evaluation content streaming
+                _routed_to_post_eval = False
                 if source and content and chunk_type == "content":
                     # Check if we're in post-evaluation by looking for the status message
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
+                            _routed_to_post_eval = True
+
+                # Track selected agent for post-evaluation
+                if content and "🏆 Selected Agent:" in content:
+                    import re
+
+                    match = re.search(r"🏆 Selected Agent: (\S+)", content)
+                    if match:
+                        self._post_eval_winner = match.group(1)
 
                 # Detect post-evaluation start
                 if chunk_type == "status" and "Post-evaluation" in content:
                     self._in_post_evaluation = True
+                    # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
+                    if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
+                        self.display._routing_to_post_eval_card = True
+
+                # Detect post-evaluation completion and show footer
+                if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
+                    if "Evaluation complete" in content or "Restart requested" in content:
+                        self._in_post_evaluation = False
+                        # Bug 2 fix: Clear display flag when post-eval ends
+                        if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
+                            self.display._routing_to_post_eval_card = False
+                        if self.display and hasattr(self.display, "end_post_evaluation_content"):
+                            # Use tracked winner, fall back to source
+                            winner = getattr(self, "_post_eval_winner", None) or source
+                            self.display.end_post_evaluation_content(winner)
 
                 if content:
                     full_response += content
@@ -1213,7 +1512,16 @@ class CoordinationUI:
                         self.logger.log_chunk(source, content, chunk_type)
 
                     # Process content by source
+                    # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
                     await self._process_content(source, content)
+
+            # Flush agent content buffers BEFORE processing final answer
+            # This ensures any streamed content reaches the display before we complete
+            try:
+                if hasattr(self, "_agent_content_buffers") and self._agent_content_buffers:
+                    await self._flush_agent_content_buffers()
+            except asyncio.CancelledError:
+                pass
 
             # Display vote results and get final presentation
             status = orchestrator.get_status()
@@ -1321,6 +1629,13 @@ class CoordinationUI:
             except asyncio.CancelledError:
                 pass  # Silently handle cancellation
 
+            # Flush any remaining agent content buffers
+            try:
+                if hasattr(self, "_agent_content_buffers") and self._agent_content_buffers:
+                    await self._flush_agent_content_buffers()
+            except asyncio.CancelledError:
+                pass  # Silently handle cancellation
+
             # Small delay to ensure display updates are processed
             try:
                 await asyncio.sleep(0.1)
@@ -1330,9 +1645,9 @@ class CoordinationUI:
             # Determine if coordination completed successfully
             is_finished = hasattr(orchestrator, "workflow_phase") and orchestrator.workflow_phase == "presenting"
 
-            # ALWAYS cleanup display resources (stop live, restore terminal) regardless of completion status
-            # This is critical for proper terminal restoration after cancellation
-            if self.display:
+            # Cleanup display resources (stop live, restore terminal) unless in preserve_display mode
+            # In preserve_display mode (multi-turn TUI), the external driver owns the display lifecycle
+            if self.display and not self.preserve_display:
                 try:
                     self.display.cleanup()
                 except Exception:
@@ -1421,17 +1736,119 @@ class CoordinationUI:
                     self.logger.log_orchestrator_event(event)
 
     async def _process_agent_content(self, agent_id: str, content: str):
-        """Process content from a specific agent."""
+        """Process content from a specific agent.
+
+        Uses buffered filtering to handle streaming: small chunks are accumulated
+        until we see a newline or have enough content to check for workspace JSON.
+        """
         # Update agent status - if agent is streaming content, they're working
         # But don't override "completed" status
         current_status = self.display.get_agent_status(agent_id)
         if current_status not in ["working", "completed"]:
             self.display.update_agent_status(agent_id, "working")
 
+        # Initialize buffer for this agent if needed
+        if agent_id not in self._agent_content_buffers:
+            self._agent_content_buffers[agent_id] = ""
+
+        # Add content to buffer
+        self._agent_content_buffers[agent_id] += content
+
+        # Check if we should process the buffer:
+        # The goal is to accumulate enough content to reliably detect workspace JSON
+        # while not delaying display too much for normal content.
+        buffer = self._agent_content_buffers[agent_id]
+        buffer_len = len(buffer)
+
+        # First, check if this looks like a JSON block in progress
+        # If so, wait until we see the closing brace/bracket
+        looks_like_json = buffer.lstrip().startswith("{") or buffer.lstrip().startswith("[")
+        if looks_like_json:
+            # Count braces to detect if JSON is complete
+            open_braces = buffer.count("{") - buffer.count("}")
+            open_brackets = buffer.count("[") - buffer.count("]")
+            json_complete = open_braces == 0 and open_brackets == 0 and buffer_len > 5
+
+            if not json_complete and buffer_len < 500:
+                # JSON still incomplete, keep buffering (up to 500 chars max)
+                return
+
+        # Flush conditions for non-JSON or complete JSON:
+        # 1. Buffer is large enough to reliably match patterns (100+ chars)
+        # 2. Buffer contains newline AND is at least 30 chars
+        # 3. Sentence-ending punctuation with substantial content (30+ chars)
+        # 4. Closing braces/brackets with substantial content (suggests JSON block end)
+        ends_with_sentence = buffer.rstrip().endswith((".", "!", "?"))
+        ends_with_json_close = buffer.rstrip().endswith(("}", "]"))
+        has_newline = "\n" in buffer
+
+        should_flush = buffer_len >= 100 or (has_newline and buffer_len >= 30) or (ends_with_sentence and buffer_len >= 30) or (ends_with_json_close and buffer_len >= 30)
+
+        if not should_flush:
+            # Keep buffering
+            return
+
+        # Process the buffered content
+        self._agent_content_buffers[agent_id] = ""
+
+        # Check if this is workspace tool JSON (action_type, answer_data, etc.)
+        # If so, convert it to a tool card instead of filtering
+        if ContentNormalizer.is_workspace_tool_json(buffer):
+            workspace_action = self._parse_workspace_action(buffer)
+            if workspace_action:
+                action_type, params = workspace_action
+                # Create a tool message that will be displayed as a tool card
+                tool_msg = f"🔧 Calling workspace/{action_type}"
+                if params:
+                    tool_msg += f" {params}"
+                self.display.update_agent_content(agent_id, tool_msg, "tool")
+                if self.logger:
+                    self.logger.log_agent_content(agent_id, tool_msg, "tool")
+            else:
+                # Couldn't parse, just log and skip
+                if self.logger:
+                    self.logger.log_agent_content(agent_id, buffer, "filtered_workflow_json")
+            return
+
+        # Check if buffer contains embedded workspace JSON (mixed content)
+        # If so, try to extract and create tool card, then emit the non-JSON part
+        workspace_action = self._parse_workspace_action(buffer)
+        if workspace_action:
+            action_type, params = workspace_action
+            # Create tool card for the workspace action
+            tool_msg = f"🔧 Calling workspace/{action_type}"
+            if params:
+                tool_msg += f" {params}"
+            self.display.update_agent_content(agent_id, tool_msg, "tool")
+            if self.logger:
+                self.logger.log_agent_content(agent_id, tool_msg, "tool")
+
+            # Extract the non-JSON part (reasoning) to display
+            json_start = buffer.find("{")
+            if json_start > 0:
+                reasoning_part = buffer[:json_start].strip()
+                if reasoning_part and not ContentNormalizer.is_workspace_state_content(reasoning_part):
+                    await self._emit_agent_content(agent_id, reasoning_part)
+            return
+
+        # Filter workspace state content (CWD, File created, etc.)
+        # This is internal coordination info that shouldn't be shown to users
+        if ContentNormalizer.is_workspace_state_content(buffer):
+            if self.logger:
+                self.logger.log_agent_content(agent_id, buffer, "filtered_workspace_state")
+            return
+
+        # Emit the buffered content
+        await self._emit_agent_content(agent_id, buffer)
+
+    async def _emit_agent_content(self, agent_id: str, content: str):
+        """Emit agent content to the display after filtering."""
         # Determine content type and process
-        if "🔧" in content or "🔄 Vote invalid" in content:
+        # Check for tool-related content markers
+        is_tool_content = "🔧" in content or "Arguments for Calling" in content or "Results for Calling" in content
+        if is_tool_content or "🔄 Vote invalid" in content:
             # Tool usage or status messages
-            content_type = "tool" if "🔧" in content else "status"
+            content_type = "tool" if is_tool_content else "status"
             self.display.update_agent_content(agent_id, content, content_type)
 
             # Note: Status updates to "completed" are handled by the authoritative
@@ -1459,6 +1876,119 @@ class CoordinationUI:
             self.display.update_agent_content(agent_id, content, "thinking")
             if self.logger:
                 self.logger.log_agent_content(agent_id, content, "thinking")
+
+    def _parse_workspace_action(self, content: str) -> Optional[tuple]:
+        """Parse workspace action from JSON content.
+
+        Returns:
+            Tuple of (action_type, params_summary) or None if parsing fails.
+        """
+        import json
+
+        # Try to extract JSON from content
+        # Content may have extra text before/after JSON
+        json_start = content.find("{")
+        json_end = content.rfind("}") + 1
+
+        if json_start == -1 or json_end <= json_start:
+            return None
+
+        json_str = content[json_start:json_end]
+
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            # Try to fix common issues like escaped newlines
+            try:
+                # Replace literal \n with actual newlines for parsing
+                fixed = json_str.replace("\\n", "\n")
+                data = json.loads(fixed)
+            except json.JSONDecodeError:
+                return None
+
+        # Extract action type
+        action_type = data.get("action_type") or data.get("action")
+        if not action_type:
+            # Check for nested structure
+            if "answer_data" in data:
+                action_type = data["answer_data"].get("action")
+            elif "vote_data" in data:
+                action_type = data["vote_data"].get("action")
+
+        if not action_type:
+            return None
+
+        # Build params summary based on action type
+        params = ""
+        if action_type == "new_answer":
+            # Extract answer content preview (may be nested in answer_data)
+            answer_data = data.get("answer_data", data)
+            content_preview = answer_data.get("content", "")
+            if content_preview:
+                # Truncate to first 50 chars
+                preview = content_preview[:50].replace("\n", " ")
+                if len(content_preview) > 50:
+                    preview += "..."
+                params = f'content="{preview}"'
+        elif action_type == "vote":
+            # Extract vote target (may be nested in vote_data)
+            vote_data = data.get("vote_data", data)
+            target = vote_data.get("agent_id", "") or data.get("target_agent_id", "")
+            reason = vote_data.get("reason", "") or data.get("reason", "")
+            if target:
+                params = f"target={target}"
+                if reason:
+                    reason_preview = reason[:30].replace("\n", " ")
+                    if len(reason) > 30:
+                        reason_preview += "..."
+                    params += f' reason="{reason_preview}"'
+
+        return (action_type, params)
+
+    async def _flush_agent_content_buffers(self):
+        """Flush any remaining content in agent buffers.
+
+        Called at the end of a coordination turn to ensure no content is lost.
+        """
+        for agent_id, buffer in list(self._agent_content_buffers.items()):
+            if buffer.strip():
+                # Check if it's pure workspace JSON - if so, convert to tool card
+                if ContentNormalizer.is_workspace_tool_json(buffer):
+                    workspace_action = self._parse_workspace_action(buffer)
+                    if workspace_action:
+                        action_type, params = workspace_action
+                        tool_msg = f"🔧 Calling workspace/{action_type}"
+                        if params:
+                            tool_msg += f" {params}"
+                        self.display.update_agent_content(agent_id, tool_msg, "tool")
+                        if self.logger:
+                            self.logger.log_agent_content(agent_id, tool_msg, "tool")
+                    elif self.logger:
+                        self.logger.log_agent_content(agent_id, buffer, "filtered_workflow_json")
+                # Check if buffer contains embedded workspace JSON (mixed content)
+                elif self._parse_workspace_action(buffer):
+                    workspace_action = self._parse_workspace_action(buffer)
+                    action_type, params = workspace_action
+                    # Create tool card
+                    tool_msg = f"🔧 Calling workspace/{action_type}"
+                    if params:
+                        tool_msg += f" {params}"
+                    self.display.update_agent_content(agent_id, tool_msg, "tool")
+                    if self.logger:
+                        self.logger.log_agent_content(agent_id, tool_msg, "tool")
+                    # Emit reasoning part if any
+                    json_start = buffer.find("{")
+                    if json_start > 0:
+                        reasoning_part = buffer[:json_start].strip()
+                        if reasoning_part and not ContentNormalizer.is_workspace_state_content(reasoning_part):
+                            await self._emit_agent_content(agent_id, reasoning_part)
+                # Filter workspace state content (CWD, File created, etc.)
+                elif ContentNormalizer.is_workspace_state_content(buffer):
+                    if self.logger:
+                        self.logger.log_agent_content(agent_id, buffer, "filtered_workspace_state")
+                else:
+                    await self._emit_agent_content(agent_id, buffer)
+        self._agent_content_buffers = {}
 
     async def _flush_final_answer(self):
         """Flush the buffered final answer after a timeout to prevent duplicate calls."""
@@ -1522,6 +2052,23 @@ class CoordinationUI:
                 self.display.add_orchestrator_event(event)
                 if self.logger:
                     self.logger.log_orchestrator_event(event)
+
+                # Parse vote events for status bar notification
+                # Format: "🗳️ Voting for [agent_id] (options: ...) : reason"
+                if "🗳️" in content and "Voting for" in content:
+                    vote_match = re.search(r"Voting for \[([^\]]+)\].*?:\s*(.*)$", content)
+                    if vote_match and hasattr(self.display, "notify_vote"):
+                        voted_for = vote_match.group(1)
+                        reason = vote_match.group(2).strip() if vote_match.group(2) else ""
+                        # Get voter from orchestrator status if available
+                        voter = "Agent"  # Default fallback
+                        if self.orchestrator:
+                            # Try to get the agent that just voted from status
+                            status = self.orchestrator.get_status()
+                            # Use current agent context if available
+                            if hasattr(self.orchestrator, "_current_streaming_agent"):
+                                voter = self.orchestrator._current_streaming_agent
+                        self.display.notify_vote(voter, voted_for, reason)
 
         # Handle final answer content - buffer it to prevent duplicate calls
         elif "Final Coordinated Answer" not in content and not any(
@@ -1615,20 +2162,22 @@ class CoordinationUI:
             # On any error, fallback to immediate display
             print(content, end="", flush=True)
 
-    async def prompt_for_broadcast_response(self, broadcast_request: Any) -> Optional[str]:
+    async def prompt_for_broadcast_response(self, broadcast_request: Any) -> Optional[Any]:
         """Prompt human for response to a broadcast question.
 
         Args:
             broadcast_request: BroadcastRequest object with question details
 
         Returns:
-            Human's response string, or None if skipped/timeout
+            Human's response string (for simple questions) or List[StructuredResponse] (for structured questions),
+            or None if skipped/timeout
         """
 
         # Skip human input in automation mode
         if self.config.get("automation_mode", False):
+            question_preview = broadcast_request.question_text[:100] if broadcast_request.question_text else "structured questions"
             print(f"\n📢 [Automation Mode] Skipping human input for broadcast from {broadcast_request.sender_agent_id}")
-            print(f"   Question: {broadcast_request.question[:100]}{'...' if len(broadcast_request.question) > 100 else ''}\n")
+            print(f"   Question: {question_preview}{'...' if len(question_preview) >= 100 else ''}\n")
             return None
 
         # Delegate to display if it supports broadcast prompts
@@ -1639,6 +2188,22 @@ class CoordinationUI:
         print("\n" + "=" * 70)
         print(f"📢 BROADCAST FROM {broadcast_request.sender_agent_id.upper()}")
         print("=" * 70)
+
+        # Check if structured question
+        if broadcast_request.is_structured:
+            return await self._prompt_structured_fallback(broadcast_request)
+        else:
+            return await self._prompt_simple_fallback(broadcast_request)
+
+    async def _prompt_simple_fallback(self, broadcast_request: Any) -> Optional[str]:
+        """Fallback terminal prompt for simple free-form questions.
+
+        Args:
+            broadcast_request: BroadcastRequest with simple question
+
+        Returns:
+            User's text response or None if skipped/timeout
+        """
         print(f"\n{broadcast_request.question}\n")
         print("─" * 70)
         print("Options:")
@@ -1672,6 +2237,112 @@ class CoordinationUI:
         except Exception as e:
             print(f"\n❌ Error getting response: {e}\n")
             return None
+
+    async def _prompt_structured_fallback(self, broadcast_request: Any) -> Optional[List]:
+        """Fallback terminal prompt for structured questions with options.
+
+        Args:
+            broadcast_request: BroadcastRequest with structured questions
+
+        Returns:
+            List of StructuredResponse objects or None if skipped/timeout
+        """
+        from massgen.broadcast.broadcast_dataclasses import StructuredResponse
+
+        questions = broadcast_request.structured_questions
+        responses = []
+
+        for q_idx, question in enumerate(questions):
+            # Show progress for multi-question
+            if len(questions) > 1:
+                print(f"\n[Question {q_idx + 1} of {len(questions)}]")
+
+            print(f"\n{question.text}\n")
+            print("─" * 70)
+
+            # Display numbered options
+            print("Options:")
+            for i, option in enumerate(question.options, 1):
+                desc = f" - {option.description}" if option.description else ""
+                print(f"  {i}. {option.label}{desc}")
+
+            print("\n─" * 70)
+            print("How to respond:")
+            if question.multi_select:
+                print("  • Enter numbers separated by commas (e.g., 1,3)")
+            else:
+                print("  • Enter a number to select an option")
+            if question.allow_other:
+                print("  • Type 'other: your text' for a custom answer")
+            if not question.required:
+                print("  • Press Enter alone to skip")
+            print(f"  • Timeout: {broadcast_request.timeout} seconds")
+            print("=" * 70)
+
+            try:
+                prompt_text = "Your selection: " if question.multi_select else "Your choice: "
+                raw_input = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        None,
+                        input,
+                        prompt_text,
+                    ),
+                    timeout=float(broadcast_request.timeout),
+                )
+
+                raw_input = raw_input.strip()
+
+                # Parse response
+                selected_options = []
+                other_text = None
+
+                if not raw_input:
+                    if question.required:
+                        print("⚠️  Required question - selecting first option")
+                        selected_options = [question.options[0].id] if question.options else []
+                    else:
+                        print("⏭️  Skipped")
+                elif raw_input.lower().startswith("other:"):
+                    other_text = raw_input[6:].strip()
+                    print(f"✓ Custom answer: {other_text[:50]}...")
+                else:
+                    # Parse number selections
+                    try:
+                        nums = [int(n.strip()) for n in raw_input.split(",") if n.strip()]
+                        for num in nums:
+                            if 1 <= num <= len(question.options):
+                                selected_options.append(question.options[num - 1].id)
+                            else:
+                                print(f"⚠️ Option {num} out of range, ignoring")
+
+                        if not question.multi_select and len(selected_options) > 1:
+                            print("⚠️ Single-select - using first selection only")
+                            selected_options = selected_options[:1]
+
+                        if selected_options:
+                            labels = [opt.label for opt in question.options if opt.id in selected_options]
+                            print(f"✓ Selected: {', '.join(labels)}")
+                    except ValueError:
+                        # Treat as "other" if not parseable
+                        other_text = raw_input
+                        print(f"✓ Custom answer: {other_text[:50]}...")
+
+                response = StructuredResponse(
+                    question_index=q_idx,
+                    selected_options=selected_options,
+                    other_text=other_text,
+                )
+                responses.append(response)
+
+            except asyncio.TimeoutError:
+                print("\n⏱️  Timeout - skipping remaining questions\n")
+                return responses if responses else None
+            except Exception as e:
+                print(f"\n❌ Error: {e}\n")
+                return responses if responses else None
+
+        print(f"\n✓ All {len(questions)} questions answered!\n")
+        return responses
 
 
 # Convenience functions for common use cases

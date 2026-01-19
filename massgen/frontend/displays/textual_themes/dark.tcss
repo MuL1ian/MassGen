@@ -1,217 +1,983 @@
-/* Dark theme for Textual Terminal Display */
+/* Dark theme for Textual Terminal Display
+ * Professional, modern color palette with subtle accents
+ * Inspired by VSCode Dark+ with refined touches
+ *
+ * Uses semantic CSS variables for easy theme customization.
+ * See _variables.tcss for the complete variable reference.
+ */
+
+/* =============================================================================
+ * CSS Variables - GitHub Dark+ Inspired Palette
+ * =============================================================================
+ * To switch themes, change these variable values.
+ * For Catppuccin Mocha, see _catppuccin_mocha.tcss for reference values.
+ */
+
+/* Background Colors */
+$bg-base: #0d1117;
+$bg-surface: #161b22;
+$bg-surface-2: #21262d;
+$bg-surface-3: #30363d;
+
+/* Foreground/Text Colors */
+$fg-primary: #e6edf3;
+$fg-muted: #8b949e;
+$fg-subtle: #6e7681;
+$fg-on-accent: #ffffff;
+
+/* Border Colors */
+$border-default: #30363d;
+$border-highlight: #484f58;
+$border-muted: #21262d;
+
+/* Semantic Accent Colors */
+$accent-primary: #58a6ff;
+$accent-success: #3fb950;
+$accent-warning: #d29922;
+$accent-error: #f85149;
+$accent-info: #39c5cf;
+$accent-special: #a371f7;
+
+/* Agent Colors - for distinguishing agents */
+$agent-1: #58a6ff;
+$agent-1-bg: #0d1a26;
+$agent-2: #3fb950;
+$agent-2-bg: #0d1f14;
+$agent-3: #a371f7;
+$agent-3-bg: #1a0d26;
+$agent-4: #f0883e;
+$agent-4-bg: #261a0d;
+$agent-5: #39c5cf;
+$agent-5-bg: #0d1f1f;
+$agent-6: #db61a2;
+$agent-6-bg: #260d1a;
+$agent-7: #d29922;
+$agent-7-bg: #262010;
+$agent-8: #f85149;
+$agent-8-bg: #26100d;
+
+/* =============================================================================
+ * Base Styles
+ * =============================================================================
+ */
 
 Screen {
-    background: #1e1e1e;
-    color: #d4d4d4;
+    background: $bg-base;
+    color: $fg-primary;
+    layers: base overlay;
 }
 
-/* Adaptive layout classes */
+.hidden {
+    display: none;
+}
+
+/* === Welcome Screen === */
+#welcome_screen {
+    width: 100%;
+    height: 1fr;
+    align: center middle;
+    background: $bg-base;
+}
+
+#welcome_screen Label, #welcome_screen Static {
+    width: auto;
+    text-align: center;
+}
+
+#welcome_logo {
+    color: $accent-primary;
+    text-style: bold;
+}
+
+#welcome_tagline {
+    color: $accent-success;
+    text-style: bold;
+    margin-top: 2;
+}
+
+#welcome_workflow {
+    color: $fg-muted;
+    margin-top: 1;
+}
+
+#welcome_agents {
+    color: $fg-muted;
+    margin-top: 1;
+}
+
+#welcome_hint {
+    color: $accent-primary;
+    text-style: italic;
+    margin-top: 2;
+}
+
+#welcome_shortcuts_hint {
+    color: $fg-muted;
+    text-style: italic;
+    margin-top: 1;
+}
+
+#cwd_hint {
+    color: $fg-muted;
+    text-style: italic;
+    margin-top: 1;
+}
+
 #main_container {
-    layout: horizontal;
-    background: #1e1e1e;
-    height: 100%;
-    padding: 0 1;
+    layout: vertical;
+    background: $bg-base;
+    height: 1fr;
+    padding: 0;
 }
 
 #agents_container {
-    layout: horizontal;
-    width: 100%;
-    height: 100%;
-}
-
-#main_container.single-agent #agents_container {
     layout: vertical;
-}
-
-.single-agent AgentPanel {
     width: 100%;
     height: 100%;
 }
 
-.two-agents AgentPanel {
+/* === Swimlane Mode === */
+/* When .swimlane is added to #agents_container, show agents side-by-side */
+#agents_container.swimlane {
+    layout: horizontal;
+    overflow-x: auto;
+}
+
+#agents_container.swimlane AgentPanel {
     width: 1fr;
+    min-width: 40;
+    max-width: 100;
+    height: 100%;
+    border-right: solid $border-default;
+    display: block;
 }
 
-.three-agents AgentPanel {
-    width: 1fr;
+#agents_container.swimlane AgentPanel:last-of-type {
+    border-right: none;
 }
 
-#main_container.many-agents #agents_container {
-    layout: grid;
-    grid-size: 2;
-    grid-gutter: 1;
+/* In swimlane mode, show all agents (remove hidden) */
+#agents_container.swimlane AgentPanel.hidden {
+    display: block;
 }
 
-.many-agents AgentPanel {
+/* Swimlane agent header - more compact */
+#agents_container.swimlane AgentPanel > Vertical > Label:first-of-type {
+    height: 2;
+    padding: 0 1;
+    background: $bg-surface;
+    border-bottom: solid $border-default;
+}
+
+/* === Agent Tab Bar === */
+/* NOTE: No dock: top - flows naturally below HeaderWidget */
+AgentTabBar {
+    height: 3;
     width: 100%;
-    height: 1fr;
+    layout: horizontal;
+    background: $bg-surface;
+    border-bottom: solid $border-default;
+    padding: 0 1;
+}
+
+AgentTab {
+    width: auto;
+    height: 3;
+    padding: 0 2;
+    margin: 0 1;
+    content-align: center middle;
+    border: solid $border-default;
+    background: transparent;
+}
+
+AgentTab:hover {
+    background: $bg-surface-2;
+    border: solid $border-highlight;
+}
+
+AgentTab.active {
+    background: $bg-surface-2;
+    color: $fg-primary;
+    border: solid $accent-primary;
+    border-bottom: tall $accent-primary;
+}
+
+AgentTab.inactive {
+    background: transparent;
+    border: dashed $border-default;
+    color: $fg-muted;
+}
+
+AgentTab.inactive:hover {
+    border: dashed $border-highlight;
+    color: $fg-primary;
+}
+
+/* === Agent Color Palette - Each agent gets a unique accent color === */
+/* Color 1: Blue (default) */
+AgentTab.agent-color-1 { border-left: thick $agent-1; }
+AgentTab.agent-color-1.active { border-left: thick $agent-1; background: $agent-1-bg; }
+
+/* Color 2: Green */
+AgentTab.agent-color-2 { border-left: thick $agent-2; }
+AgentTab.agent-color-2.active { border-left: thick $agent-2; background: $agent-2-bg; }
+
+/* Color 3: Purple */
+AgentTab.agent-color-3 { border-left: thick $agent-3; }
+AgentTab.agent-color-3.active { border-left: thick $agent-3; background: $agent-3-bg; }
+
+/* Color 4: Orange */
+AgentTab.agent-color-4 { border-left: thick $agent-4; }
+AgentTab.agent-color-4.active { border-left: thick $agent-4; background: $agent-4-bg; }
+
+/* Color 5: Cyan */
+AgentTab.agent-color-5 { border-left: thick $agent-5; }
+AgentTab.agent-color-5.active { border-left: thick $agent-5; background: $agent-5-bg; }
+
+/* Color 6: Pink */
+AgentTab.agent-color-6 { border-left: thick $agent-6; }
+AgentTab.agent-color-6.active { border-left: thick $agent-6; background: $agent-6-bg; }
+
+/* Color 7: Yellow */
+AgentTab.agent-color-7 { border-left: thick $agent-7; }
+AgentTab.agent-color-7.active { border-left: thick $agent-7; background: $agent-7-bg; }
+
+/* Color 8: Red */
+AgentTab.agent-color-8 { border-left: thick $agent-8; }
+AgentTab.agent-color-8.active { border-left: thick $agent-8; background: $agent-8-bg; }
+
+/* Tab status colors */
+AgentTab.status-waiting {
+    border-bottom: solid $fg-muted;
+}
+
+AgentTab.status-working {
+    border-bottom: solid $accent-primary;
+}
+
+AgentTab.status-streaming {
+    border-bottom: solid $accent-success;
+}
+
+AgentTab.status-completed {
+    border-bottom: solid $accent-success;
+}
+
+AgentTab.status-error {
+    border-bottom: solid $accent-error;
+}
+
+/* Active tab with status - subtle background tint */
+AgentTab.active.status-working {
+    background: $bg-surface;
+    border: solid $accent-primary;
+}
+
+AgentTab.active.status-streaming {
+    background: $agent-2-bg;
+    border: solid $accent-success;
+}
+
+AgentTab.active.status-completed {
+    background: $agent-2-bg;
+    border: solid $accent-success;
+}
+
+AgentTab.active.status-error {
+    background: $agent-8-bg;
+    border: solid $accent-error;
+}
+
+/* Winner tab styling */
+AgentTab.status-winner {
+    background: #3d3510;
+    border: solid #dcdcaa;
+    color: #dcdcaa;
+    text-style: bold;
+    border-bottom: tall #dcdcaa;
+}
+
+AgentTab.status-winner.active {
+    background: #4d4520;
+    border: solid #dcdcaa;
+    border-bottom: tall #dcdcaa;
+}
+
+/* Dimmed tabs (non-winner during final presentation) */
+AgentTab.dimmed {
+    opacity: 0.6;
+}
+
+/* Disabled tabs (single-agent mode - unselected agents) */
+AgentTab.disabled {
+    background: $bg-base;
+    border: dashed $bg-surface-2;
+    color: $border-highlight;
+    text-style: italic;
+    opacity: 0.7;
+}
+
+AgentTab.disabled:hover {
+    background: $bg-surface;
+    border: dashed $border-default;
+    color: $fg-muted;
+    /* Clicking disabled tab selects it as new single agent */
+}
+
+/* === Mode Bar (above input) === */
+#mode_bar {
+    height: 2;
+    width: 100%;
+    layout: horizontal;
+    background: $bg-surface;
+    border-bottom: solid $border-default;
+    padding: 0 1;
+    align: left middle;
+}
+
+#mode_bar.hidden {
+    display: none;
+}
+
+/* Mode Toggle buttons */
+ModeToggle {
+    width: auto;
+    height: auto;
+    margin: 0 1;
+    padding: 0 1;
+    background: $bg-surface-2;
+    color: $fg-muted;
+    border: none;
+}
+
+ModeToggle:hover {
+    background: $border-default;
+    color: $fg-primary;
+}
+
+ModeToggle.disabled {
+    background: $bg-surface;
+    color: $border-highlight;
+    text-style: italic;
+}
+
+/* Plan mode states */
+ModeToggle.state-plan {
+    background: #0d3a0d;
+    color: $accent-success;
+}
+
+ModeToggle.state-execute {
+    background: #0d3a0d;
+    color: $accent-success;
+    text-style: bold;
+}
+
+/* Agent mode states */
+ModeToggle.state-single {
+    background: #3d2a0d;
+    color: $accent-warning;
+}
+
+/* Refinement mode states */
+ModeToggle.state-off {
+    background: #3d0d0d;
+    color: $accent-error;
+}
+
+/* Override button in mode bar */
+#override_btn {
+    background: #3d2a0d;
+    color: $accent-warning;
+    margin-left: 1;
+}
+
+#override_btn:hover {
+    background: #4d3a1d;
+}
+
+#override_btn.hidden {
+    display: none;
+}
+
+/* Plan info display */
+#plan_info {
+    color: $accent-success;
+    margin-left: 1;
+}
+
+/* Mode spacer (pushes override button right) */
+#mode_spacer {
+    width: 1fr;
+}
+
+/* Consensus reached animation on StatusBar */
+StatusBar.consensus-reached {
+    background: #3d3510;
+    border-top: solid #dcdcaa;
 }
 
 /* Orchestrator events modal */
 #orchestrator_modal_container {
-    background: #252526;
-    border: thick #007ACC;
+    background: $bg-surface;
+    border: solid $border-default;
     padding: 2;
     width: 80%;
     height: 80%;
 }
 
 #orchestrator_modal_header {
-    color: #ffffff;
+    color: $fg-primary;
     text-style: bold;
     margin-bottom: 1;
 }
 
 #orchestrator_hint {
-    color: #858585;
+    color: $fg-muted;
     text-style: italic;
     margin-bottom: 1;
 }
 
 #orchestrator_events_content {
-    background: #1e1e1e;
-    color: #d4d4d4;
+    background: $bg-base;
+    color: $fg-primary;
 }
 
-/* Agent panels */
-
+/* Agent panels - now full width, one at a time */
 AgentPanel {
-    background: #252526;
-    border: solid #5a5a5a;
-    margin: 1;
-    padding: 1;
-    width: 1fr;
+    background: $bg-surface;
+    border-left: solid $border-default;
+    border-top: solid $border-default;
+    border-bottom: solid $border-default;
+    border-right: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;  /* Disable scrolling on AgentPanel - scrolling happens in TimelineScrollContainer */
+}
+
+/* Vertical container inside AgentPanel - full width, full height */
+AgentPanel > Vertical {
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;  /* Scrolling happens in TimelineScrollContainer, not here */
+}
+
+/* Agent panel header label - first line with agent name, backend, timer */
+AgentPanel > Vertical > Label:first-of-type {
+    padding-left: 2;
+}
+
+AgentPanel.hidden {
+    display: none;
 }
 
 AgentPanel:hover {
-    border: solid #686868;
+    border-left: solid $border-highlight;
+    border-top: solid $border-highlight;
+    border-bottom: solid $border-highlight;
+    border-right: none;
 }
 
 /* Override Textual's default purple focus outline */
 AgentPanel:focus,
 AgentPanel:focus-within {
-    border: solid #007acc;
-    background: #2a2d2e;
+    border-left: solid $accent-primary;
+    border-top: solid $accent-primary;
+    border-bottom: solid $accent-primary;
+    border-right: none;
+    background: $bg-surface;
     outline: none;
 }
 
 AgentPanel.status-waiting {
-    border: solid #5a5a5a;
+    border-left: solid $border-default;
+    border-top: solid $border-default;
+    border-bottom: solid $border-default;
+    border-right: none;
 }
 
 AgentPanel.status-working {
-    border: solid #569cd6;
-    background: #252535;
+    border-left: thick $accent-primary;
+    border-right: none;
+    background: $bg-surface;
 }
 
 AgentPanel.status-streaming {
-    border: solid #4ec9b0;
-    background: #252530;
+    border-left: thick $accent-success;
+    border-right: none;
+    background: $bg-base;
 }
 
 AgentPanel.status-completed {
-    border: solid #4ec9b0;
+    border-left: thick $accent-success;
+    border-right: none;
 }
 
 AgentPanel.status-error {
-    border: solid #f44747;
-    background: #2d2525;
+    border-left: thick $accent-error;
+    border-right: none;
+    background: #1a0f0f;
 }
 
-/* Headers */
-
-HeaderWidget {
-    background: #007ACC;
-    color: #ffffff;
-    padding: 1;
-    height: 3;
-    dock: top;
+/* Dimmed panel (non-winner during final presentation) */
+AgentPanel.dimmed-panel {
+    opacity: 0.6;
 }
 
-#question_label {
-    color: #ffffff;
+/* === Agent Panel Color Palette - Match tab colors === */
+AgentPanel.agent-color-1 { border-left: thick $accent-primary; border-right: none; }
+AgentPanel.agent-color-2 { border-left: thick $accent-success; border-right: none; }
+AgentPanel.agent-color-3 { border-left: thick $accent-special; border-right: none; }
+AgentPanel.agent-color-4 { border-left: thick $agent-4; border-right: none; }
+AgentPanel.agent-color-5 { border-left: thick $accent-info; border-right: none; }
+AgentPanel.agent-color-6 { border-left: thick $agent-6; border-right: none; }
+AgentPanel.agent-color-7 { border-left: thick $accent-warning; border-right: none; }
+AgentPanel.agent-color-8 { border-left: thick $accent-error; border-right: none; }
+
+/* Agent header row - horizontal layout for left/right content */
+.agent-header-row {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+.agent-header-left {
+    width: 1fr;
+    height: auto;
+}
+
+.agent-header-right {
+    width: auto;
+    height: auto;
+    text-align: right;
+    color: $accent-special;
+}
+
+/* Header badges - clickable indicators for bg tasks and task plan */
+.agent-header-badge {
+    width: auto;
+    height: auto;
+    padding: 0 1;
+    margin-left: 1;
+    border: solid $border-default;
+    background: $bg-surface;
+}
+
+.agent-header-badge:hover {
+    background: $bg-surface-2;
+    border: solid $fg-muted;
+}
+
+.agent-header-badge.hidden {
+    display: none;
+}
+
+/* Background tasks badge - amber/orange theme */
+.header-badge-bg {
+    color: $accent-warning;
+    border: solid $accent-warning 30%;
+}
+
+.header-badge-bg:hover {
+    border: solid $accent-warning;
+    background: #2d2510;
+}
+
+/* Task plan badge - purple theme */
+.header-badge-tasks {
+    color: $accent-special;
+    border: solid $accent-special 30%;
+}
+
+.header-badge-tasks:hover {
+    border: solid $accent-special;
+    background: #1a1528;
+}
+
+/* Loading indicator - centered in panel */
+.loading-container {
+    width: 100%;
+    height: 100%;
+    min-height: 5;
+    align: center middle;
+    content-align: center middle;
+    background: $bg-base;
+}
+
+.loading-container.hidden {
+    display: none;
+}
+
+.loading-container ProgressIndicator {
+    text-align: center;
+    color: $accent-primary;
+    text-style: bold;
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+}
+
+.loading-text {
+    text-align: center;
+    color: $fg-muted;
+    text-style: italic;
+}
+
+/* "Not in use" overlay for single-agent mode */
+.not-in-use-overlay {
+    width: 100%;
+    height: 100%;
+    min-height: 5;
+    align: center middle;
+    content-align: center middle;
+    background: #0d111780;
+    layer: overlay;
+}
+
+.not-in-use-overlay.hidden {
+    display: none;
+}
+
+.not-in-use-label {
+    text-align: center;
+    color: $fg-muted;
+    text-style: bold;
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+}
+
+.not-in-use-sublabel {
+    text-align: center;
+    color: $border-highlight;
+    text-style: italic;
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+}
+
+/* Context label - shows which answers an agent has in context */
+.context-label {
+    height: 1;
+    width: 100%;
+    padding: 0 1 0 3;
+    background: #1c2128;
+    color: #7ee787;
+    text-style: italic;
+}
+
+.context-label.hidden {
+    display: none;
+}
+
+/* Task Plan Toggle - Shows task plan status in agent header */
+.task-plan-toggle {
+    height: 1;
+    width: 100%;
+    padding: 0 1 0 3;
+    background: #1a1f2e;
+    color: $accent-special;
     text-style: bold;
 }
 
+.task-plan-toggle:hover {
+    background: #242b3d;
+    color: #c9b2fa;
+}
+
+.task-plan-toggle.hidden {
+    display: none;
+}
+
+/* Compact Header - Shows question and turn info */
+HeaderWidget {
+    dock: top;
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    background: $bg-base;
+    color: $fg-muted;
+    border-bottom: solid $border-default;
+}
+
+HeaderWidget.hidden {
+    display: none;
+}
+
+/* Input area container - docks to bottom */
+#input_area {
+    dock: bottom;
+    height: auto;
+    min-height: 4;
+    width: 100%;
+    padding: 0 1;
+    background: $bg-base;
+}
+
+/* Execution bar - hidden (keeping input area consistent in all states) */
+#execution_bar {
+    display: none;
+}
+
+#execution_status {
+    height: 1;
+    width: auto;
+    padding: 0 2;
+    color: $fg-muted;
+    content-align: left middle;
+    background: $bg-surface-2;
+    margin-left: 1;
+}
+
+#execution_spacer {
+    width: 1fr;
+}
+
+#cancel_button {
+    width: auto;
+    min-width: 10;
+    height: 1;
+    background: #b62324;
+    color: #ffffff;
+    border: none;
+    padding: 0 2;
+    text-style: bold;
+}
+
+#cancel_button:hover {
+    background: #da3633;
+    color: #ffffff;
+}
+
+#cancel_button:focus {
+    background: #da3633;
+    border: none;
+}
+
+/* === Path Autocomplete Dropdown === */
+#path_dropdown {
+    display: none;
+    layer: overlay;
+    dock: bottom;
+    width: 100%;
+    height: auto;
+    max-height: 12;
+    background: $bg-surface-2;
+    border: solid $accent-primary;
+    padding: 0;
+    margin-bottom: 7;
+    layout: vertical;
+}
+
+#path_dropdown.visible {
+    display: block;
+}
+
+#path_dropdown > #suggestions_container {
+    height: auto;
+    max-height: 8;
+    overflow-y: auto;
+}
+
+#path_dropdown > .hint-bar {
+    dock: bottom;
+    height: 2;
+    width: 100%;
+    background: $border-default;
+    color: $fg-primary;
+    text-align: center;
+    padding: 0 1;
+    border-top: solid $accent-primary;
+}
+
+/* Path suggestion rows */
+SuggestionRow {
+    height: 1;
+    padding: 0 1;
+    background: transparent;
+}
+
+SuggestionRow:hover {
+    background: $border-default;
+}
+
+SuggestionRow.selected {
+    background: $accent-primary;
+    color: $bg-base;
+}
+
+/* Question input - multi-line TextArea */
+#question_input {
+    background: $bg-surface;
+    border: solid $border-default;
+    height: auto;
+    min-height: 1;
+    max-height: 10;
+    margin-left: 1;
+}
+
+#question_input:focus {
+    border: solid $accent-primary;
+}
+
+/* Hide line numbers in the question input */
+#question_input .text-area--line-number-gutter {
+    display: none;
+}
+
+/* Input header - contains hint, vim indicator, and cancel button */
+#input_header {
+    layout: horizontal;
+    height: 1;
+    width: 100%;
+    margin-bottom: 0;
+}
+
+/* Input hint text */
+#input_hint {
+    height: 1;
+    width: 1fr;
+    color: $fg-subtle;
+    text-style: italic;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+/* Vim mode indicator - hidden by default */
+#vim_indicator {
+    display: none;
+    height: 1;
+    width: auto;
+    min-width: 10;
+}
+
+/* Vim mode indicator - shown when active (use !important to override display: none) */
+#input_header #vim_indicator.vim-normal-indicator {
+    display: block !important;
+    height: 1;
+    width: 10;
+    padding: 0 1;
+    text-style: bold;
+    content-align: center middle;
+    background: $accent-warning;
+    color: $bg-base;
+}
+
+#input_header #vim_indicator.vim-insert-indicator {
+    display: block !important;
+    height: 1;
+    width: 10;
+    padding: 0 1;
+    text-style: bold;
+    content-align: center middle;
+    background: #238636;
+    color: #ffffff;
+}
+
+/* Vim normal mode - input border */
+#question_input.vim-normal {
+    border: solid $accent-warning;
+}
+
+#question_input.vim-normal:focus {
+    border: solid $accent-warning;
+}
+
 #restart_banner {
-    background: #ce9178;
-    color: #1e1e1e;
+    background: $bg-surface-2;
+    color: $accent-warning;
     padding: 1;
     margin-top: 1;
+    border: solid $border-highlight;
 }
 
 #restart_context {
-    background: #569cd6;
-    color: #ffffff;
+    background: $bg-surface;
+    color: $fg-primary;
     padding: 1;
+    border: solid $border-default;
 }
 
-/* Agent headers */
 Label {
-    height: 1;
+    height: auto;
     width: 100%;
 }
 
 RichLog {
-    background: #1e1e1e;
-    color: #d4d4d4;
+    background: $bg-base;
+    color: $fg-primary;
     scrollbar-size: 2 2;
 }
 
 /* Status colors */
-
 .waiting {
-    color: #858585;
+    color: $fg-muted;
 }
 
 .working {
-    color: #569cd6;
+    color: $accent-primary;
 }
 
 .streaming {
-    color: #4ec9b0;
+    color: $accent-success;
 }
 
 .completed {
-    color: #4ec9b0;
+    color: $accent-success;
 }
 
 .error {
-    color: #f44747;
+    color: $accent-error;
 }
 
 /* Content type colors */
-
 .tool {
-    color: #9cdcfe;
+    color: #79c0ff;
 }
 
 .status {
-    color: #ce9178;
+    color: $accent-warning;
 }
 
 .thinking {
-    color: #d4d4d4;
+    color: $fg-primary;
+}
+
+.injection {
+    color: #d2a8ff;
+    background: #2d2d4a;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+.reminder {
+    color: #f9c74f;
+    background: #4a3d2d;
+    padding: 0 1;
+    margin: 1 0;
 }
 
 .presentation {
-    color: #c586c0;
+    color: $accent-special;
 }
 
 /* Streaming label */
-
 .streaming_label {
-    color: #4ec9b0;
+    color: $accent-success;
     text-style: italic bold;
     height: 1;
     width: 100%;
-    background: #1e2d2d;
-    border-left: tall #4ec9b0;
+    background: $agent-2-bg;
+    border-left: tall $accent-success;
     padding-left: 1;
 }
 
 /* Post-evaluation panel */
-
 #post_eval_container {
     background: #252526;
     border: solid #5a5a5a;
@@ -225,29 +991,45 @@ RichLog {
     margin-bottom: 1;
 }
 
-/* Final stream panel */
-
+/* Final stream panel - layout: fixed header, scrollable content, fixed footer */
 #final_stream_container {
     background: #2d2d25;
     border: solid #dcdcaa;
     margin: 0 1 1 1;
-    padding: 1;
+    padding: 0;
     width: 100%;
+    height: 100%;
+    layout: vertical;
 }
 
 #final_stream_container.streaming-active {
     border: double #dcdcaa;
 }
 
+/* Fixed header section */
+#final_stream_header {
+    height: auto;
+    padding: 1;
+    background: #2d2d25;
+    border-bottom: solid #dcdcaa 50%;
+}
+
 #final_stream_label {
     color: #dcdcaa;
     text-style: bold;
-    margin-bottom: 1;
+}
+
+/* Scrollable content area - takes remaining space */
+#final_stream_content {
+    height: 1fr;
+    padding: 1;
+    background: #1e1e1e;
 }
 
 #final_stream_log {
     background: #1e1e1e;
     color: #d4d4d4;
+    height: auto;
 }
 
 #final_stream_log,
@@ -255,10 +1037,200 @@ RichLog {
     scrollbar-size: 2 2;
 }
 
-/* Modals */
+/* Fixed footer section */
+#final_stream_footer {
+    height: auto;
+    padding: 1;
+    background: $bg-surface-2;
+    border-top: solid $border-default;
+}
 
+#final_stream_footer.hidden {
+    display: none;
+}
+
+#final_stream_buttons {
+    height: auto;
+    margin-bottom: 1;
+}
+
+/* Modals */
 ModalScreen {
     align: center middle;
+}
+
+/* === Tool Detail Modal === */
+ToolDetailModal {
+    align: center middle;
+}
+
+ToolDetailModal > Container {
+    width: 80%;
+    max-width: 120;
+    height: auto;
+    max-height: 80%;
+    background: $bg-surface;
+    border: solid $border-default;
+    padding: 1 2;
+}
+
+ToolDetailModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    layout: horizontal;
+    align: left middle;
+}
+
+ToolDetailModal .modal-title {
+    width: 1fr;
+    height: auto;
+    text-style: bold;
+    color: $fg-primary;
+}
+
+ToolDetailModal .modal-close {
+    width: 3;
+    height: 1;
+    content-align: center middle;
+    text-align: center;
+    background: $bg-surface-2;
+    border: solid $border-default;
+}
+
+ToolDetailModal .modal-close:hover {
+    background: $accent-error;
+    border: solid $accent-error;
+}
+
+ToolDetailModal .modal-divider {
+    height: 1;
+    width: 100%;
+    color: $border-default;
+}
+
+ToolDetailModal .modal-section-title {
+    height: 1;
+    margin-top: 1;
+    text-style: bold;
+    color: #79c0ff;
+}
+
+ToolDetailModal .modal-body {
+    height: 1fr;
+    max-height: 40;
+    overflow-y: auto;
+    padding: 0;
+}
+
+ToolDetailModal .modal-content {
+    height: auto;
+    padding: 0 1;
+    margin-top: 1;
+    background: $bg-base;
+    border: solid $border-default;
+}
+
+ToolDetailModal .args-content {
+    color: $fg-muted;
+    padding: 1;
+}
+
+ToolDetailModal .result-content {
+    color: $fg-primary;
+    padding: 1;
+}
+
+ToolDetailModal .error-content {
+    color: $accent-error;
+    padding: 1;
+}
+
+ToolDetailModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+}
+
+ToolDetailModal .close-button {
+    width: auto;
+    min-width: 18;
+    content-align: center middle;
+    text-align: center;
+}
+
+/* TaskPlanModal - Full task list modal */
+TaskPlanModal {
+    align: center middle;
+}
+
+TaskPlanModal > Container {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    background: #1e1e1e;
+    border: thick $accent-special;
+    padding: 1 2;
+}
+
+TaskPlanModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    layout: horizontal;
+}
+
+TaskPlanModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $accent-special;
+}
+
+TaskPlanModal .modal-stats {
+    width: auto;
+    color: $fg-muted;
+    padding-right: 2;
+}
+
+TaskPlanModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $fg-muted;
+}
+
+TaskPlanModal .modal-close:hover {
+    color: $accent-error;
+}
+
+TaskPlanModal .modal-divider {
+    height: 1;
+    width: 100%;
+    color: $accent-special;
+}
+
+TaskPlanModal .modal-body {
+    height: 1fr;
+    max-height: 50;
+    overflow-y: auto;
+    padding: 1 0;
+}
+
+TaskPlanModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+}
+
+TaskPlanModal .close-button {
+    width: auto;
+    min-width: 18;
+    content-align: center middle;
+    text-align: center;
 }
 
 #presentation_container {
@@ -300,9 +1272,13 @@ ModalScreen {
 }
 
 #vote_results,
+#vote_results_content,
 #table_content {
     background: #1e1e1e;
     color: #d4d4d4;
+    padding: 1;
+    height: 1fr;
+    overflow-y: auto;
 }
 
 #system_status_container {
@@ -334,34 +1310,703 @@ ModalScreen {
     color: #d4d4d4;
 }
 
+/* Cost Breakdown Modal */
+#cost_breakdown_container {
+    background: #252526;
+    border: thick #4ec9b0;
+    padding: 2;
+    width: 90%;
+    height: 70%;
+}
+
+#cost_header {
+    color: #4ec9b0;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#cost_content {
+    background: #1e1e1e;
+    color: #d4d4d4;
+}
+
+/* Workspace Files Modal */
+#workspace_container {
+    background: #252526;
+    border: thick #569cd6;
+    padding: 2;
+    width: 80%;
+    height: 70%;
+}
+
+#workspace_header {
+    color: #569cd6;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#workspace_content {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    height: 1fr;
+}
+
+#workspace_buttons {
+    margin-top: 1;
+}
+
+#workspace_buttons Button {
+    margin-right: 1;
+}
+
+/* Context Modal */
+#context_container {
+    background: #252526;
+    border: thick #ce9178;
+    padding: 2;
+    width: 80%;
+    height: auto;
+    max-height: 80%;
+}
+
+#context_header {
+    color: #ce9178;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#context_hint {
+    color: #9cdcfe;
+    margin-bottom: 1;
+}
+
+#context_current_paths {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    height: auto;
+    max-height: 10;
+    margin-bottom: 1;
+}
+
+#add_path_label {
+    color: #ffffff;
+    margin-top: 1;
+}
+
+#new_path_input {
+    margin-bottom: 1;
+}
+
+#context_buttons {
+    margin-top: 1;
+}
+
+#context_buttons Button {
+    margin-right: 1;
+}
+
+/* Conversation History Modal */
+#history_container {
+    background: #252526;
+    border: thick #9cdcfe;
+    padding: 2;
+    width: 85%;
+    height: 80%;
+}
+
+#history_header {
+    color: #9cdcfe;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#current_prompt {
+    color: #4ec9b0;
+    background: #1e1e1e;
+    padding: 1;
+    margin-bottom: 1;
+    border: solid #4ec9b0;
+}
+
+#history_scroll {
+    height: 1fr;
+    background: #1e1e1e;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+.history-turn {
+    padding: 1;
+    margin-bottom: 1;
+    background: #2d2d2d;
+    border-left: thick $accent-primary;
+}
+
+/* Clickable turn entry styling */
+.turn-entry {
+    padding: 1;
+    margin-bottom: 1;
+    background: #2d2d2d;
+}
+
+.turn-entry:hover {
+    background: #3d3d3d;
+}
+
+/* Turn entry agent color borders */
+.turn-entry.agent-color-1 { border-left: thick $accent-primary; }
+.turn-entry.agent-color-2 { border-left: thick $accent-success; }
+.turn-entry.agent-color-3 { border-left: thick $accent-special; }
+.turn-entry.agent-color-4 { border-left: thick $agent-4; }
+.turn-entry.agent-color-5 { border-left: thick $accent-info; }
+.turn-entry.agent-color-6 { border-left: thick $agent-6; }
+.turn-entry.agent-color-7 { border-left: thick $accent-warning; }
+.turn-entry.agent-color-8 { border-left: thick $accent-error; }
+
+#no_history {
+    color: $fg-muted;
+    text-align: center;
+    margin-top: 2;
+}
+
+#close_history_button {
+    margin-top: 1;
+}
+
+/* Turn Detail Modal */
+#turn_detail_container {
+    background: #252526;
+    border: thick #9cdcfe;
+    padding: 2;
+    width: 85%;
+    height: 80%;
+}
+
+/* Turn detail with agent color borders */
+#turn_detail_container.agent-color-1 { border-left: thick $accent-primary; }
+#turn_detail_container.agent-color-2 { border-left: thick $accent-success; }
+#turn_detail_container.agent-color-3 { border-left: thick $accent-special; }
+#turn_detail_container.agent-color-4 { border-left: thick $agent-4; }
+#turn_detail_container.agent-color-5 { border-left: thick $accent-info; }
+#turn_detail_container.agent-color-6 { border-left: thick $agent-6; }
+#turn_detail_container.agent-color-7 { border-left: thick $accent-warning; }
+#turn_detail_container.agent-color-8 { border-left: thick $accent-error; }
+
+#turn_detail_header {
+    color: #9cdcfe;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#turn_detail_agent {
+    color: $fg-muted;
+    margin-bottom: 1;
+}
+
+#turn_detail_question {
+    background: #1e1e1e;
+    padding: 1;
+    margin-bottom: 1;
+    border: solid #3c3c3c;
+}
+
+#turn_detail_answer_scroll {
+    height: 1fr;
+    background: #1e1e1e;
+    padding: 1;
+    margin-bottom: 1;
+    border: solid #3c3c3c;
+}
+
+#turn_detail_answer {
+    color: #d4d4d4;
+}
+
+#turn_detail_footer {
+    height: auto;
+    margin-top: 1;
+}
+
+#turn_detail_footer Button {
+    margin-right: 1;
+}
+
+/* Workspace Browser Footer */
+#workspace_browser_footer {
+    height: auto;
+    margin-top: 1;
+}
+
+#workspace_browser_footer Button {
+    margin-right: 1;
+}
+
+/* Metrics Modal */
+#metrics_container {
+    background: #252526;
+    border: thick #c586c0;
+    padding: 2;
+    width: 90%;
+    height: 70%;
+}
+
+#metrics_header {
+    color: #c586c0;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#metrics_content {
+    background: #1e1e1e;
+    color: #d4d4d4;
+}
+
+/* Broadcast Prompt Modal */
+#broadcast_container {
+    background: #252526;
+    border: thick #f44747;
+    padding: 2 3;
+    width: 90%;
+    max-width: 120;
+    height: auto;
+    max-height: 85%;
+}
+
+#broadcast_banner {
+    color: #ffffff;
+    background: #f44747;
+    text-style: bold;
+    text-align: center;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+#broadcast_sender {
+    color: #9cdcfe;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#broadcast_question_label {
+    color: #ffffff;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+#broadcast_question {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    height: auto;
+    min-height: 5;
+    max-height: 15;
+    margin-bottom: 1;
+    padding: 1;
+    border: solid #3c3c3c;
+}
+
+#broadcast_timeout {
+    color: #ce9178;
+    margin-bottom: 1;
+}
+
+#response_label {
+    color: #ffffff;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+#broadcast_input {
+    height: 3;
+    margin-bottom: 1;
+    background: #1e1e1e;
+    border: solid $accent-primary;
+}
+
+#broadcast_buttons {
+    margin-top: 1;
+    height: 3;
+    min-height: 3;
+}
+
+#broadcast_buttons Button {
+    margin-right: 2;
+    min-width: 10;
+}
+
+#submit_broadcast_button {
+    background: #4ec9b0;
+}
+
+#skip_broadcast_button {
+    background: #5a5a5a;
+}
+
+/* Structured Broadcast Prompt Modal */
+#structured_broadcast_container {
+    background: #252526;
+    border: thick #f44747;
+    padding: 2 3;
+    width: 90%;
+    max-width: 120;
+    height: auto;
+    max-height: 85%;
+}
+
+#structured_broadcast_container #broadcast_banner {
+    color: #ffffff;
+    background: #f44747;
+    text-style: bold;
+    text-align: center;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+#structured_broadcast_container #broadcast_sender {
+    color: #9cdcfe;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#structured_broadcast_container #broadcast_timeout {
+    color: #ce9178;
+    margin-bottom: 1;
+}
+
+#question_progress {
+    color: $accent-primary;
+    text-style: bold;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#question_container {
+    background: #1e1e1e;
+    border: solid #3c3c3c;
+    padding: 2;
+    margin-bottom: 1;
+    min-height: 10;
+    max-height: 50;
+}
+
+.question_text {
+    color: #ffffff;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.options_hint {
+    color: $fg-muted;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+#options_scroll {
+    max-height: 20;
+    margin-bottom: 1;
+}
+
+/* Checkbox styling - make checked state more prominent */
+#structured_broadcast_container Checkbox {
+    margin-bottom: 1;
+    padding: 0 1;
+    height: auto;
+}
+
+#structured_broadcast_container Checkbox:focus {
+    background: $bg-surface-2;
+}
+
+/* Checked checkbox - bright green background, bold text */
+#structured_broadcast_container Checkbox.-on {
+    background: #238636;
+    color: #ffffff;
+    text-style: bold;
+    border: solid $accent-success;
+}
+
+#structured_broadcast_container Checkbox.-on:focus {
+    background: #2ea043;
+    border: solid #56d364;
+}
+
+/* Unchecked checkbox - subtle styling */
+#structured_broadcast_container Checkbox.-off {
+    background: $bg-surface-2;
+    color: $fg-muted;
+    border: solid $border-default;
+}
+
+#structured_broadcast_container Checkbox.-off:hover {
+    background: $border-default;
+    color: $fg-primary;
+    border: solid $border-highlight;
+}
+
+#structured_broadcast_container RadioSet {
+    margin-bottom: 1;
+}
+
+#structured_broadcast_container RadioButton {
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+/* Selected radio button - bright green background */
+#structured_broadcast_container RadioButton.-on {
+    background: #238636;
+    color: #ffffff;
+    text-style: bold;
+    border: solid $accent-success;
+}
+
+#structured_broadcast_container RadioButton.-off {
+    background: $bg-surface-2;
+    color: $fg-muted;
+    border: solid $border-default;
+}
+
+#structured_broadcast_container RadioButton.-off:hover {
+    background: $border-default;
+    color: $fg-primary;
+}
+
+.other_label {
+    color: $fg-muted;
+    text-style: italic;
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
+#structured_broadcast_container Input {
+    height: 3;
+    margin-bottom: 1;
+    background: #252526;
+    border: solid $accent-primary;
+}
+
+#prev_question_button {
+    background: #5a5a5a;
+}
+
+#next_question_button {
+    background: #4ec9b0;
+}
+
+/* File Inspection Modal */
+#file_inspection_container {
+    background: #252526;
+    border: thick #007ACC;
+    padding: 2;
+    width: 90%;
+    height: 80%;
+}
+
+#file_inspection_header {
+    color: #007ACC;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#file_inspection_content {
+    height: 1fr;
+}
+
+#file_tree_panel {
+    width: 35%;
+    border-right: solid #3d4550;
+    padding-right: 1;
+}
+
+#tree_label {
+    color: #9cdcfe;
+    margin-bottom: 1;
+}
+
+#workspace_tree {
+    height: 1fr;
+    background: #1e1e1e;
+}
+
+#file_preview_panel {
+    width: 65%;
+    padding-left: 1;
+}
+
+#preview_label {
+    color: #9cdcfe;
+    margin-bottom: 1;
+}
+
+#file_preview {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    height: 1fr;
+}
+
+#file_inspection_buttons {
+    margin-top: 1;
+}
+
+#file_inspection_buttons Button {
+    margin-right: 1;
+}
+
+/* === Agent Output Modal === */
+#agent_output_container {
+    width: 95%;
+    height: 90%;
+    background: $bg-surface;
+    border: solid #4ec9b0;
+    padding: 1 2;
+    layout: vertical;
+}
+
+#agent_output_header {
+    color: #4ec9b0;
+    text-style: bold;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#agent_output_prompt {
+    color: #79c0ff;
+    height: auto;
+    margin-bottom: 1;
+    padding: 0 1;
+    background: $bg-base;
+    border: solid $border-default;
+}
+
+#agent_output_stats {
+    color: #858585;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#agent_output_text {
+    height: 1fr;
+    min-height: 10;
+    background: $bg-base;
+    color: #d4d4d4;
+    border: solid $border-default;
+    padding: 1;
+}
+
+#agent_toggle_buttons {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#agent_toggle_buttons .agent-toggle-btn {
+    margin-right: 1;
+    min-width: 12;
+}
+
+#agent_toggle_buttons .agent-toggle-btn.selected {
+    background: #4ec9b0;
+    color: #1e1e1e;
+}
+
+#agent_output_buttons {
+    height: auto;
+    margin-top: 1;
+    align: left middle;
+}
+
+#agent_output_buttons Button {
+    margin-right: 1;
+}
+
+/* === Keyboard Shortcuts Modal === */
+#shortcuts_modal_container {
+    width: auto;
+    min-width: 80;
+    max-width: 150;
+    height: auto;
+    background: #252526;
+    border: solid #569cd6;
+    padding: 1 2;
+}
+
+#shortcuts_modal_header {
+    color: #569cd6;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#shortcuts_hint {
+    color: #858585;
+    margin-bottom: 1;
+}
+
+#shortcuts_columns {
+    layout: horizontal;
+    height: auto;
+    width: 100%;
+}
+
+.shortcuts-column {
+    width: 1fr;
+    height: auto;
+    background: #1e1e1e;
+    padding: 1;
+    margin: 0 1 0 0;
+    border: solid #3d4550;
+}
+
+#shortcuts_col_right {
+    margin-right: 0;
+}
+
+#shortcuts_content {
+    height: auto;
+    background: #1e1e1e;
+    padding: 1;
+    border: solid #3d4550;
+}
+
+#shortcuts_text {
+    color: #d4d4d4;
+}
+
 #table_hint {
     color: #9cdcfe;
     margin-bottom: 1;
 }
 
 /* Buttons */
-
 Button {
-    background: #007ACC;
-    color: #ffffff;
+    background: $bg-surface-2;
+    color: $fg-primary;
     margin-top: 1;
+    border: solid $border-default;
 }
 
 Button:hover {
-    background: #1e7fd1;
+    background: $border-default;
+    border: solid $border-highlight;
 }
 
 Button:focus {
     text-style: bold;
-    border: solid #1e7fd1;
+    border: solid $accent-primary;
     outline: none;
 }
 
-/* Lists */
+Button.-primary {
+    background: #238636;
+    border: solid #238636;
+}
 
+Button.-primary:hover {
+    background: #2ea043;
+    border: solid #2ea043;
+}
+
+/* Lists */
 ListView {
-    background: #1e1e1e;
-    color: #d4d4d4;
+    background: $bg-base;
+    color: $fg-primary;
     height: auto;
     max-height: 20;
     scrollbar-size: 2 2;
@@ -373,45 +2018,40 @@ ListItem {
 }
 
 ListItem:hover {
-    background: #2a2d2e;
+    background: $bg-surface-2;
 }
 
 ListItem:focus {
-    background: #2a2d2e;
-    border: solid #007acc;
+    background: $bg-surface-2;
+    border: solid $accent-primary;
 }
 
 /* TextArea */
-
 TextArea {
-    background: #1e1e1e;
-    color: #d4d4d4;
+    background: $bg-base;
+    color: $fg-primary;
 }
 
 TextArea:focus {
-    border: solid #007acc;
+    border: solid $accent-primary;
 }
 
 /* Scrollbars */
-
 Scrollbar {
-    background: #3c3c3c;
+    background: $bg-surface-2;
 }
 
 ScrollbarThumb {
-    background: #686868;
+    background: $border-highlight;
 }
 
 ScrollbarThumb:hover {
-    background: #9e9e9e;
+    background: $fg-subtle;
 }
 
-/* Footer */
-
+/* Footer - hidden (using custom input area instead) */
 Footer {
-    background: #007ACC;
-    color: #ffffff;
-    dock: bottom;
+    display: none;
 }
 
 /* Safe mode indicator */
@@ -421,4 +2061,1961 @@ Footer {
     background: #2d2d30;
     color: #dcdcaa;
     padding: 0 1;
+}
+
+/* === Tool Call Cards === */
+ToolCallCard {
+    width: 100%;
+    height: auto;
+    min-height: 2;
+    max-height: 6;
+    padding: 0 1;
+    margin: 0 0 1 1;
+    background: $bg-surface;
+    border-left: thick $border-highlight;
+    border-top: solid $border-default;
+    border-bottom: solid $border-default;
+    border-right: none;
+}
+
+/* ToolCallCard with injection content needs more height */
+ToolCallCard.has-injection {
+    max-height: 20;
+}
+
+ToolCallCard:hover {
+    background: $bg-surface-2;
+    border-top: solid $border-highlight;
+    border-bottom: solid $border-highlight;
+    border-right: none;
+}
+
+ToolCallCard:focus {
+    background: $bg-surface-2;
+    border-top: solid $accent-primary;
+    border-bottom: solid $accent-primary;
+    border-right: none;
+    outline: none;
+}
+
+ToolCallCard.status-running {
+    border-top: solid $border-default;
+    border-bottom: solid $border-default;
+    border-right: none;
+    border-left: thick $accent-primary;
+    background: $bg-surface;
+}
+
+ToolCallCard.status-success {
+    border-top: solid $border-default;
+    border-bottom: solid $border-default;
+    border-right: none;
+    border-left: thick $accent-success;
+    background: $bg-base;
+}
+
+ToolCallCard.status-error {
+    border-top: solid $border-default;
+    border-bottom: solid $border-default;
+    border-right: none;
+    border-left: thick $accent-error;
+    background: #1a0f0f;
+}
+
+ToolCallCard.status-background {
+    border-top: solid $border-default;
+    border-bottom: solid $border-default;
+    border-right: none;
+    border-left: thick $accent-warning;
+    background: #1a1610;
+}
+
+/* Tool type category colors - refined palette */
+ToolCallCard.type-filesystem {
+    border-left: thick $accent-success;
+}
+
+ToolCallCard.type-web {
+    border-left: thick $accent-primary;
+}
+
+ToolCallCard.type-code {
+    border-left: thick $accent-warning;
+}
+
+ToolCallCard.type-database {
+    border-left: thick $accent-special;
+}
+
+ToolCallCard.type-git {
+    border-left: thick $agent-4;
+}
+
+ToolCallCard.type-api {
+    border-left: thick #db6d28;
+}
+
+ToolCallCard.type-ai {
+    border-left: thick #79c0ff;
+}
+
+ToolCallCard.type-memory {
+    border-left: thick #7ee787;
+}
+
+ToolCallCard.type-workspace {
+    border-left: thick #39d353;
+}
+
+/* === Subagent Tool Cards - Special styling for spawn_subagents === */
+ToolCallCard.type-subagent {
+    border-left: thick $accent-special;
+    background: #1a1526;
+    max-height: 15;
+    padding: 0 1;
+}
+
+ToolCallCard.type-subagent.status-running {
+    border-left: thick $accent-special;
+    background: #1f1830;
+    border: solid $accent-special;
+    border-left: thick $accent-special;
+}
+
+ToolCallCard.type-subagent.status-success {
+    border-left: thick $accent-success;
+    background: $agent-2-bg;
+}
+
+ToolCallCard.type-subagent.status-error {
+    border-left: thick $accent-error;
+    background: #1f0d0f;
+}
+
+ToolCallCard.type-subagent.status-background {
+    border-left: thick $accent-warning;
+    background: #1f1a10;
+}
+
+ToolCallCard.type-subagent.expanded {
+    max-height: 100%;
+    height: auto;
+    min-height: 8;
+}
+
+/* === Content Sections === */
+
+/* Tool Section - fixed size collapsible box for tool cards */
+ToolSection {
+    height: auto;
+    max-height: 40%;
+    margin: 0 0 1 0;
+    padding: 0;
+    border: solid $border-default;
+    background: $bg-surface;
+}
+
+ToolSection.collapsed {
+    height: 3;
+    overflow: hidden;
+}
+
+ToolSection.hidden {
+    display: none;
+}
+
+ToolSection #tool_section_header {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: $bg-surface-2;
+    color: #79c0ff;
+}
+
+ToolSection #tool_section_header:hover {
+    background: $border-default;
+}
+
+ToolSection #tool_container {
+    height: auto;
+    max-height: 100%;
+    padding: 0;
+    background: $bg-base;
+    overflow-y: auto;
+}
+
+/* Timeline Section - chronological view of all content */
+TimelineSection {
+    width: 100%;
+    height: 1fr;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;  /* Scrolling happens in TimelineScrollContainer, not here */
+}
+
+TimelineSection #timeline_container,
+TimelineSection TimelineScrollContainer {
+    width: 100%;
+    height: 1fr;
+    padding: 0;
+    background: $bg-base;
+    overflow-y: auto;
+    scrollbar-size: 2 2;
+    scrollbar-gutter: stable;
+    scrollbar-background: $bg-surface-2;
+    scrollbar-color: $border-highlight;
+    scrollbar-color-hover: $fg-subtle;
+    scrollbar-color-active: $fg-muted;
+}
+
+/* Hide legacy RichLog in AgentPanel - using TimelineSection now */
+AgentPanel RichLog {
+    display: none;
+}
+
+AgentPanel .streaming_label {
+    display: none;
+}
+
+TimelineSection .timeline-text {
+    width: 100%;
+    padding: 0 0 0 1;
+    margin-left: 1;
+}
+
+TimelineSection .timeline-text.status {
+    color: $accent-primary;
+    border-left: solid $accent-primary;
+    padding-left: 1;
+    margin-left: 1;
+}
+
+TimelineSection .timeline-text.thinking {
+    color: $fg-muted;
+    border-left: solid $border-highlight;
+    padding-left: 1;
+    margin-left: 1;
+}
+
+TimelineSection .timeline-text.injection {
+    color: #d2a8ff;
+    background: #2d2d4a;
+    border-left: thick $accent-special;
+    padding-left: 1;
+    margin: 1 0;
+}
+
+TimelineSection .timeline-text.reminder {
+    color: #f9c74f;
+    background: #4a3d2d;
+    border-left: thick $accent-warning;
+    padding-left: 1;
+    margin: 1 0;
+}
+
+TimelineSection .timeline-text.response {
+    color: $accent-success;
+    border-left: solid $accent-success;
+    padding-left: 1;
+    margin-left: 1;
+    background: $agent-2-bg;
+}
+
+TimelineSection .timeline-text.answer {
+    color: $accent-warning;
+    border-left: thick $accent-warning;
+    padding-left: 1;
+    margin-left: 1;
+    background: #1f1a0d;
+}
+
+/* Final presentation content - clean, no background */
+TimelineSection .timeline-text.final-answer {
+    color: #e6e6e6;
+    padding-left: 1;
+    margin-left: 1;
+}
+
+/* Post-evaluation content - subtle blue tint */
+TimelineSection .timeline-text.post-eval {
+    color: #a8c7fa;
+    border-left: solid $accent-primary;
+    padding-left: 1;
+    margin-left: 1;
+}
+
+/* Task Plan Card - Visual todo list from Planning MCP */
+TaskPlanCard {
+    width: 100%;
+    height: auto;
+    min-height: 3;
+    padding: 0 1;
+    margin: 0 0 1 1;
+    background: #1a1f2e;
+    border-left: thick $accent-special;
+}
+
+TaskPlanCard .task-header {
+    text-style: bold;
+    color: $accent-special;
+    margin-bottom: 1;
+}
+
+TaskPlanCard .task-completed {
+    color: $fg-subtle;
+}
+
+TaskPlanCard .task-in-progress {
+    color: $accent-primary;
+    text-style: bold;
+}
+
+TaskPlanCard .task-pending {
+    color: $fg-muted;
+}
+
+TaskPlanCard .task-blocked {
+    color: $fg-subtle;
+    text-style: italic;
+}
+
+TaskPlanCard .task-focused {
+    background: $bg-surface-2;
+}
+
+TaskPlanCard .task-count {
+    color: $fg-subtle;
+    text-style: italic;
+}
+
+TimelineSection .timeline-text.vote {
+    color: $accent-special;
+    border-left: solid $accent-special;
+    padding-left: 1;
+    margin-left: 1;
+}
+
+TimelineSection .timeline-text.truncation-notice,
+TimelineSection .truncation-notice {
+    color: $fg-muted;
+    text-style: italic;
+    text-align: center;
+    background: $bg-surface-2;
+    border: dashed $border-highlight;
+    margin: 1 0;
+    padding: 0 1;
+}
+
+/* Scroll mode indicator - centered, minimal bar */
+TimelineSection .scroll-indicator {
+    dock: top;
+    width: 100%;
+    height: auto;
+    background: $bg-surface-2;
+    color: #7d8590;
+    text-align: center;
+    padding: 0;
+}
+
+TimelineSection .scroll-indicator.hidden {
+    display: none;
+}
+
+/* Restart Banner - prominent separator with color */
+RestartBanner {
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+    padding: 1 0;
+    text-align: center;
+    background: #1a1526;
+    border-top: solid $accent-special;
+    border-bottom: solid $accent-special;
+    color: $accent-special;
+}
+
+/* FinalPresentationCard is styled via DEFAULT_CSS in content_sections.py */
+
+/* Thinking Section - auto height, shrinks to content */
+ThinkingSection {
+    height: auto;
+    max-height: 50%;
+    padding: 0;
+}
+
+ThinkingSection #thinking_log {
+    height: auto;
+    max-height: 100%;
+    padding: 0 1;
+    background: $bg-base;
+    color: $fg-muted;
+}
+
+/* Status Badge - compact inline indicator */
+StatusBadge {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    text-align: right;
+}
+
+StatusBadge.status-connected {
+    color: $accent-success;
+}
+
+StatusBadge.status-working {
+    color: $accent-warning;
+}
+
+StatusBadge.status-streaming {
+    color: $accent-primary;
+}
+
+StatusBadge.status-completed {
+    color: $accent-success;
+}
+
+StatusBadge.status-error {
+    color: $accent-error;
+}
+
+StatusBadge.status-waiting {
+    color: $fg-muted;
+}
+
+/* Completion Footer - subtle completion line */
+CompletionFooter {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    text-align: center;
+    dock: bottom;
+}
+
+CompletionFooter.hidden {
+    display: none;
+}
+
+CompletionFooter.status-completed {
+    color: $accent-success;
+}
+
+CompletionFooter.status-error {
+    color: $accent-error;
+}
+
+/* === Status Bar === */
+/* Hidden by default - minimal status shown inline in input area */
+StatusBar {
+    display: none;
+}
+
+StatusBar.hidden {
+    display: none;
+    height: 0;
+    min-height: 0;
+}
+
+StatusBar > Static {
+    height: 1;
+}
+
+#status_phase {
+    width: auto;
+    color: $accent-primary;
+    margin-right: 2;
+}
+
+#status_phase.restart-active {
+    color: $agent-4;
+    text-style: bold;
+    background: $border-default;
+}
+
+/* Activity indicator - shows when agents are working */
+#status_activity {
+    width: auto;
+    color: $accent-primary;
+    text-style: bold;
+    margin-right: 2;
+}
+
+#status_activity.hidden {
+    display: none;
+}
+
+.activity-indicator {
+    color: $accent-primary;
+}
+
+#status_progress {
+    width: auto;
+    color: #9cdcfe;
+    margin-right: 2;
+}
+
+#status_votes {
+    width: auto;
+    color: $accent-success;
+    margin-right: 2;
+}
+
+/* Spacer to push right-side elements to the edge */
+#status_spacer {
+    width: 1fr;
+}
+
+#status_events {
+    width: auto;
+    color: $accent-warning;
+    margin-right: 2;
+}
+
+#status_events.clickable:hover {
+    color: $fg-primary;
+    text-style: underline;
+}
+
+#status_timer {
+    width: auto;
+    color: $accent-warning;
+}
+
+#status_hints {
+    width: auto;
+    color: $fg-subtle;
+    margin-left: 1;
+}
+
+#status_hints.hidden {
+    display: none;
+}
+
+/* Phase-specific border colors */
+StatusBar.phase-idle {
+    border-top: solid $border-highlight;
+}
+
+StatusBar.phase-initial {
+    border-top: solid $accent-primary;
+}
+
+StatusBar.phase-enforcement {
+    border-top: solid $accent-success;
+}
+
+StatusBar.phase-presentation {
+    border-top: solid $accent-warning;
+}
+
+/* === Vote Visualization Animations === */
+
+/* Vote counter pulse animation when vote is cast */
+#status_votes.vote-updated {
+    text-style: bold;
+    background: $accent-success 30%;
+}
+
+/* Highlight when vote leader changes */
+#status_votes.leader-changed {
+    background: $accent-warning 30%;
+    text-style: bold;
+}
+
+/* StatusBar celebration when consensus is reached */
+StatusBar.consensus-reached {
+    background: $agent-2-bg;
+    border-top: double $accent-success;
+}
+
+StatusBar.consensus-reached #status_votes {
+    color: $accent-success;
+    text-style: bold;
+}
+
+/* === MCP Status Modal === */
+#mcp_status_container {
+    width: 70;
+    height: auto;
+    max-height: 80%;
+    background: $bg-surface;
+    border: solid #79c0ff;
+    padding: 1 2;
+}
+
+#mcp_status_header {
+    color: #79c0ff;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#mcp_status_summary {
+    color: $fg-muted;
+    margin-bottom: 1;
+}
+
+#mcp_servers_list {
+    height: auto;
+    max-height: 20;
+    background: #1e1e1e;
+    padding: 1;
+    border: solid #3d4550;
+}
+
+.mcp-server-item {
+    margin: 1 0;
+    padding: 0 1;
+    border-left: solid #4ec9b0;
+}
+
+.mcp-server-item.disconnected {
+    border-left: solid #f44747;
+}
+
+/* StatusBar MCP indicator */
+#status_mcp {
+    width: auto;
+    color: #9cdcfe;
+    margin-left: 2;
+}
+
+/* StatusBar CWD display */
+#status_cwd {
+    width: auto;
+    color: $fg-muted;
+    margin-left: 2;
+}
+
+#status_cwd:hover {
+    color: $accent-primary;
+    text-style: underline;
+}
+
+/* StatusBar Cancel button */
+#status_cancel {
+    width: auto;
+    color: $accent-error;
+    margin-left: 2;
+    text-style: bold;
+}
+
+#status_cancel:hover {
+    background: $bg-surface-2;
+    color: #ff7b72;
+}
+
+#status_cancel.hidden {
+    display: none;
+}
+
+/* === Answer Browser Modal === */
+#answer_browser_container {
+    width: 95%;
+    height: 90%;
+    background: #252526;
+    border: solid #4ec9b0;
+    padding: 1 2;
+}
+
+#answer_browser_header {
+    color: #4ec9b0;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#answer_browser_summary {
+    color: #858585;
+    margin-bottom: 1;
+}
+
+#answer_filter_row {
+    height: 3;
+    margin-bottom: 1;
+}
+
+#filter_label {
+    width: auto;
+    margin-right: 1;
+}
+
+#agent_filter {
+    width: 30;
+}
+
+/* Split view layout */
+#answer_browser_content {
+    height: 1fr;
+    width: 100%;
+}
+
+#answer_list {
+    width: 35%;
+    height: 100%;
+    background: #1e1e1e;
+    border: solid #3d4550;
+    padding: 1;
+    overflow-y: auto;
+}
+
+.answer-item {
+    margin: 0 0 1 0;
+    padding: 1;
+    background: $bg-surface;
+    border: solid $border-default;
+    border-left: thick #569cd6;
+}
+
+/* Agent-specific colors for answer items - matches AgentPanel/AgentTab palette */
+.answer-item.agent-color-1 { border-left: thick $accent-primary; }  /* Blue */
+.answer-item.agent-color-2 { border-left: thick $accent-success; }  /* Green */
+.answer-item.agent-color-3 { border-left: thick $accent-special; }  /* Purple */
+.answer-item.agent-color-4 { border-left: thick $agent-4; }  /* Orange */
+.answer-item.agent-color-5 { border-left: thick $accent-info; }  /* Cyan */
+.answer-item.agent-color-6 { border-left: thick $agent-6; }  /* Pink */
+.answer-item.agent-color-7 { border-left: thick $accent-warning; }  /* Yellow */
+.answer-item.agent-color-8 { border-left: thick $accent-error; }  /* Red */
+
+.answer-item:hover {
+    background: #2a2d2e;
+}
+
+.answer-item.clickable {
+    /* Clickable indicator - hover effect only */
+}
+
+.answer-item-selected {
+    background: #264f78;
+}
+
+/* Brighter colors when selected */
+.answer-item-selected.agent-color-1 { border-left: thick #79b8ff; }
+.answer-item-selected.agent-color-2 { border-left: thick #56d364; }
+.answer-item-selected.agent-color-3 { border-left: thick #bc8cff; }
+.answer-item-selected.agent-color-4 { border-left: thick #ffa657; }
+.answer-item-selected.agent-color-5 { border-left: thick #56d4dd; }
+.answer-item-selected.agent-color-6 { border-left: thick #f778ba; }
+.answer-item-selected.agent-color-7 { border-left: thick #e3b341; }
+.answer-item-selected.agent-color-8 { border-left: thick #ff7b72; }
+
+#answer_detail_panel {
+    width: 65%;
+    height: 100%;
+    background: #1e1e1e;
+    border: solid #3d4550;
+    padding: 1;
+    margin-left: 1;
+    layout: vertical;
+}
+
+#answer_detail_header {
+    color: #4ec9b0;
+    text-style: bold;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#answer_detail_scroll {
+    height: 1fr;
+    background: $bg-base;
+    padding: 1;
+    overflow-y: auto;
+}
+
+#answer_full_content {
+    width: 100%;
+}
+
+#answer_detail_buttons {
+    height: 3;
+    margin-top: 1;
+    align: center middle;
+}
+
+#answer_detail_buttons Button {
+    margin: 0 1;
+}
+
+#answer_browser_buttons {
+    margin-top: 1;
+    height: 3;
+}
+
+/* === Timeline Modal (Swimlane View) === */
+#timeline_modal_container {
+    width: 95%;
+    height: 90%;
+    background: $bg-surface;
+    border: solid $accent-special;
+    padding: 1 2;
+    layout: vertical;
+}
+
+#timeline_header {
+    color: $accent-special;
+    text-style: bold;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#timeline_legend {
+    color: $fg-muted;
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: $bg-base;
+    border: solid $border-default;
+}
+
+#timeline_content {
+    height: 1fr;
+    background: $bg-base;
+    border: solid $border-default;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+#timeline_diagram {
+    color: $fg-primary;
+}
+
+#close_timeline_button {
+    margin-top: 1;
+    width: auto;
+    align: center middle;
+}
+
+/* === Workspace Browser Modal === */
+#workspace_browser_container {
+    width: 90%;
+    max-width: 120;
+    height: 85%;
+    background: #252526;
+    border: solid #4ec9b0;
+    padding: 1 2;
+}
+
+#workspace_browser_header {
+    color: #4ec9b0;
+    text-style: bold;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#workspace_selector_row {
+    height: 3;
+    margin-bottom: 1;
+    width: 100%;
+}
+
+#workspace_agent_filter_container {
+    width: 45%;
+    height: 100%;
+}
+
+#workspace_answer_container {
+    width: 55%;
+    height: 100%;
+}
+
+#workspace_agent_label, #workspace_answer_label {
+    width: auto;
+    padding-right: 1;
+}
+
+#agent_filter_selector {
+    width: 1fr;
+}
+
+#answer_selector {
+    width: 1fr;
+}
+
+#workspace_split {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#workspace_file_list_container {
+    width: 35%;
+    height: 100%;
+    border: solid #3d4550;
+    padding: 1;
+}
+
+#file_list_header {
+    color: #9cdcfe;
+    margin-bottom: 1;
+}
+
+#workspace_file_list {
+    height: 1fr;
+    background: #1e1e1e;
+}
+
+.workspace-file-item {
+    padding: 0 1;
+    margin: 0;
+}
+
+.workspace-file-item:hover {
+    background: #2d2d30;
+}
+
+#workspace_preview_container {
+    width: 65%;
+    height: 100%;
+    border: solid #3d4550;
+    padding: 1;
+    margin-left: 1;
+}
+
+#preview_header {
+    color: #9cdcfe;
+    margin-bottom: 1;
+}
+
+#workspace_preview {
+    height: 1fr;
+    background: #1e1e1e;
+}
+
+#close_workspace_browser_button {
+    width: 100%;
+}
+
+/* === Unified Browser Modal (Tabs) === */
+#browser_tabs_container {
+    layout: vertical;
+    width: 90%;
+    max-width: 140;
+    height: 85%;
+    background: $bg-surface;
+    border: solid $accent-primary;
+    padding: 1 2;
+}
+
+#browser_tab_bar {
+    height: auto;
+    min-height: 3;
+    background: $bg-surface-2;
+    padding: 1 2;
+    margin-bottom: 1;
+    text-align: center;
+    color: #c9d1d9;
+    border: solid $border-default;
+}
+
+#browser_content {
+    height: 1fr;
+    background: $bg-base;
+    padding: 1 2;
+    overflow-y: auto;
+    border: solid $border-default;
+}
+
+#close_browser_button {
+    width: auto;
+    min-width: 18;
+    margin-top: 1;
+    content-align: center middle;
+}
+
+/* === Unified State Classes (Task 5.16) === */
+
+/* Success states */
+.state-success {
+    border: solid $accent-success;
+    background: $agent-2-bg;
+}
+
+.state-success-text {
+    color: $accent-success;
+}
+
+/* Warning states */
+.state-warning {
+    border: solid $accent-warning;
+    background: #2d2510;
+}
+
+.state-warning-text {
+    color: $accent-warning;
+}
+
+/* Error states */
+.state-error {
+    border: solid $accent-error;
+    background: #1a0f0f;
+}
+
+.state-error-text {
+    color: $accent-error;
+}
+
+/* Loading states */
+.state-loading {
+    border: dashed $accent-primary;
+}
+
+.state-loading-text {
+    color: $fg-muted;
+    text-style: italic;
+}
+
+/* Muted/disabled states */
+.state-muted {
+    color: $fg-subtle;
+    text-style: dim;
+}
+
+/* === Pulse Animations (Task 5.16) === */
+
+/* Vote pulse - brief highlight */
+.pulse-vote {
+    background: $accent-success 20%;
+    text-style: bold;
+}
+
+/* Leader change pulse */
+.pulse-leader {
+    background: $accent-warning 20%;
+    text-style: bold;
+}
+
+/* Winner celebration pulse */
+.pulse-winner {
+    background: #dcdcaa 30%;
+    color: $bg-base;
+    text-style: bold;
+}
+
+/* Completion flash */
+.flash-complete {
+    background: #238636;
+    color: #ffffff;
+}
+
+/* === Action Button Types (Task 5.16) === */
+
+Button.action-primary {
+    background: #238636;
+    border: solid #238636;
+}
+
+Button.action-primary:hover {
+    background: #2ea043;
+    border: solid #2ea043;
+}
+
+Button.action-danger {
+    background: #da3633;
+    border: solid #da3633;
+}
+
+Button.action-danger:hover {
+    background: $accent-error;
+    border: solid $accent-error;
+}
+
+Button.action-secondary {
+    background: $bg-surface-2;
+    border: solid $border-default;
+}
+
+Button.action-secondary:hover {
+    background: $border-default;
+    border: solid $border-highlight;
+}
+
+/* === Progress Indicator (Task 5.15) === */
+
+ProgressIndicator {
+    height: 1;
+    width: auto;
+    padding: 0 1;
+    color: $fg-muted;
+}
+
+ProgressIndicator.hidden {
+    display: none;
+}
+
+/* === Final Stream Panel Enhancements === */
+
+#final_stream_buttons {
+    height: 3;
+    layout: horizontal;
+}
+
+#final_stream_buttons Button {
+    margin-right: 1;
+    min-width: 14;
+}
+
+/* Final stream winner styling */
+#final_stream_container.winner-complete {
+    border: solid $accent-success;
+}
+
+#final_stream_container.winner-complete #final_stream_header {
+    background: $agent-2-bg;
+}
+
+#final_stream_container.winner-complete #final_stream_label {
+    color: $accent-success;
+}
+
+/* Follow-up input styling in footer */
+#followup_label {
+    color: $fg-muted;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#followup_input {
+    background: $bg-base;
+    border: solid $border-default;
+}
+
+#followup_input:focus {
+    border: solid $accent-primary;
+}
+
+/* Hidden input area class */
+#input_area.hidden {
+    display: none;
+}
+
+/* ============================================
+   Injection Sub-Card Styling
+   ============================================ */
+
+/* Base injection sub-card within tool cards */
+InjectionSubCard {
+    height: auto;
+    margin: 1 0 0 2;
+    padding: 0 1;
+    color: #d2a8ff;
+}
+
+/* Collapsed state - single line */
+InjectionSubCard.collapsed {
+    height: 1;
+    background: transparent;
+}
+
+/* Expanded state - full content with border */
+InjectionSubCard.expanded {
+    height: auto;
+    min-height: 5;
+    background: #2d2d4a;
+    border: solid $accent-special;
+    border-left: thick $accent-special;
+    padding: 1;
+}
+
+/* Hover feedback for clickability */
+InjectionSubCard:hover {
+    background: #363650;
+}
+
+/* Injection sub-card within tool cards - nested styling */
+ToolCallCard InjectionSubCard {
+    margin-left: 2;
+}
+
+ToolCallCard InjectionSubCard.collapsed {
+    margin-top: 1;
+}
+
+ToolCallCard InjectionSubCard.expanded {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+/* Injection toggle widget within tool cards */
+ToolCallCard #tool-card-content {
+    height: auto;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+ToolCallCard #tool-main-content {
+    height: auto;
+    width: 100%;
+}
+
+ToolCallCard InjectionToggle {
+    height: auto;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+ToolCallCard InjectionToggle:hover {
+    background: $bg-surface-2;
+}
+
+ToolCallCard InjectionToggle.expanded {
+    min-height: 3;
+}
+
+/* ============================================
+   Wizard Framework Styling - CLI Aesthetics
+   ============================================ */
+
+/* Wizard Modal - full screen centered */
+WizardModal {
+    align: center middle;
+}
+
+#wizard_container {
+    width: 90%;
+    max-width: 80;
+    height: 85%;
+    background: $bg-base;
+    border: solid #00CED1;
+    padding: 1 2;
+    layout: vertical;
+}
+
+/* Wizard header section - CLI style */
+#wizard_header {
+    height: auto;
+    width: 100%;
+    padding: 0;
+    border-bottom: none;
+}
+
+#wizard_progress_bar {
+    height: 1;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#wizard_progress_bar Bar {
+    color: #00CED1;
+}
+
+#wizard_step_counter {
+    text-align: right;
+    color: $fg-subtle;
+    width: 100%;
+}
+
+#wizard_title {
+    text-style: bold;
+    color: #00CED1;
+    text-align: center;
+    width: 100%;
+    margin-top: 0;
+}
+
+#wizard_description {
+    color: $fg-muted;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+/* Wizard content area - clean, no border */
+#wizard_content {
+    height: 1fr;
+    width: 100%;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0 1;
+    background: $bg-base;
+}
+
+/* Wizard error message */
+#wizard_error {
+    color: $accent-error;
+    text-align: center;
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: #3d1515;
+    border: solid $accent-error;
+    margin-bottom: 1;
+}
+
+#wizard_error.hidden {
+    display: none;
+}
+
+/* Wizard navigation buttons */
+#wizard_nav {
+    height: 3;
+    width: 100%;
+    align: center middle;
+    padding-top: 1;
+    layout: horizontal;
+    border-top: solid $border-default;
+}
+
+#wizard_nav Button {
+    margin: 0 1;
+    min-width: 12;
+    height: 3;
+    text-align: center;
+    content-align: center middle;
+    color: #ffffff;
+}
+
+#wizard_back {
+    background: $bg-surface-2;
+    border: solid $border-default;
+    color: #c9d1d9;
+}
+
+#wizard_back:hover {
+    background: $border-default;
+    border: solid $border-highlight;
+}
+
+#wizard_back.disabled {
+    background: $bg-surface;
+    color: $border-highlight;
+    border: solid $bg-surface-2;
+}
+
+#wizard_next {
+    background: #238636;
+    border: solid #238636;
+    color: #ffffff;
+}
+
+#wizard_next:hover {
+    background: #2ea043;
+    border: solid #2ea043;
+}
+
+#wizard_cancel {
+    background: #b62324;
+    border: solid #b62324;
+    color: #ffffff;
+}
+
+#wizard_cancel:hover {
+    background: #da3633;
+    border: solid #da3633;
+}
+
+/* === Step Components Base === */
+StepComponent {
+    width: 100%;
+    height: auto;
+    padding: 0;
+}
+
+/* Welcome step styling - CLI style */
+.wizard-welcome {
+    width: 100%;
+    height: auto;
+    padding: 1 0;
+}
+
+.wizard-welcome-title {
+    color: #00CED1;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.wizard-welcome-subtitle {
+    color: $fg-muted;
+    margin-bottom: 1;
+}
+
+/* CLI-style status indicators */
+.wizard-status-ok {
+    color: #32CD32;
+    width: 100%;
+}
+
+.wizard-status-error {
+    color: $accent-error;
+    width: 100%;
+}
+
+.wizard-status-warning {
+    color: $accent-warning;
+    width: 100%;
+}
+
+.wizard-status-muted {
+    color: $fg-muted;
+    width: 100%;
+}
+
+/* Section titles - cyan, bold (CLI style) */
+.wizard-section-title {
+    color: #00CED1;
+    text-style: bold;
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
+/* Status items - 2 space indent */
+.wizard-status-item {
+    width: 100%;
+    padding-left: 2;
+}
+
+/* Description text - 6 space indent, muted */
+.wizard-description {
+    padding-left: 6;
+    color: $fg-muted;
+    width: 100%;
+}
+
+/* Provider checkbox list - clean, minimal */
+.provider-list {
+    height: auto;
+    max-height: 20;
+    overflow-y: auto;
+    padding: 0;
+    background: transparent;
+}
+
+.provider-item {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: transparent;
+    border: none;
+}
+
+.provider-item:hover {
+    background: $bg-surface-2;
+}
+
+.provider-item.configured {
+    border-left: thick #32CD32;
+}
+
+.provider-item.unconfigured {
+    border-left: thick $fg-muted;
+}
+
+.provider-item.selected {
+    background: #0d3a0d;
+    border-left: thick #32CD32;
+}
+
+/* Single select option list - CLI style */
+.option-list {
+    height: auto;
+    max-height: 15;
+    padding: 0;
+    background: transparent;
+}
+
+.option-item {
+    height: auto;
+    min-height: 2;
+    padding: 1;
+    margin-bottom: 1;
+    background: $bg-surface;
+    border: solid $border-default;
+}
+
+.option-item:hover {
+    background: $bg-surface-2;
+    border: solid $border-highlight;
+}
+
+.option-item:focus {
+    border: solid #00CED1;
+}
+
+.option-item.selected {
+    background: #0d3a0d;
+    border: solid #32CD32;
+    border-left: thick #32CD32;
+}
+
+.option-label {
+    color: $fg-primary;
+    text-style: bold;
+    width: 100%;
+}
+
+.option-description {
+    color: $fg-muted;
+    margin-top: 0;
+    width: 100%;
+}
+
+/* Toggle step styling */
+.toggle-container {
+    align: center middle;
+    padding: 2;
+}
+
+.toggle-label {
+    color: $fg-primary;
+    margin-bottom: 1;
+}
+
+.toggle-description {
+    color: $fg-muted;
+    margin-top: 1;
+}
+
+/* Password input styling */
+.password-container {
+    padding: 1 2;
+}
+
+.password-label {
+    color: $accent-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.password-input {
+    height: 3;
+    background: $bg-base;
+    border: solid $border-default;
+}
+
+.password-input:focus {
+    border: solid $accent-primary;
+}
+
+.password-hint {
+    color: $fg-muted;
+    text-style: italic;
+    margin-top: 1;
+}
+
+/* Text input styling */
+.text-input-container {
+    padding: 1 2;
+}
+
+.text-input-label {
+    color: $fg-primary;
+    margin-bottom: 1;
+}
+
+.text-input {
+    height: 3;
+    background: $bg-base;
+    border: solid $border-default;
+}
+
+.text-input:focus {
+    border: solid $accent-primary;
+}
+
+/* Multi-line text area */
+.text-area-input {
+    height: 10;
+    background: $bg-base;
+    border: solid $border-default;
+}
+
+.text-area-input:focus {
+    border: solid $accent-primary;
+}
+
+/* Model select styling */
+.model-select-container {
+    padding: 1 2;
+}
+
+.model-select-label {
+    color: $fg-primary;
+    margin-bottom: 1;
+}
+
+.model-search {
+    height: 3;
+    background: $bg-base;
+    border: solid $border-default;
+    margin-bottom: 1;
+}
+
+.model-search:focus {
+    border: solid $accent-primary;
+}
+
+.model-list {
+    height: auto;
+    max-height: 15;
+    background: $bg-surface;
+    border: solid $border-default;
+    padding: 0;
+}
+
+.model-item {
+    height: 2;
+    padding: 0 1;
+    background: transparent;
+}
+
+.model-item:hover {
+    background: $bg-surface-2;
+}
+
+.model-item.selected {
+    background: #0d3a0d;
+    color: $accent-success;
+}
+
+/* Preview step styling */
+.preview-container {
+    height: 1fr;
+    padding: 1;
+}
+
+.preview-header {
+    color: $accent-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.preview-content {
+    height: 1fr;
+    background: $bg-base;
+    border: solid $border-default;
+    padding: 1;
+    color: $fg-primary;
+}
+
+/* Complete step styling - CLI success style */
+.complete-container {
+    width: 100%;
+    height: auto;
+    padding: 1 0;
+}
+
+.complete-icon {
+    color: #32CD32;
+    text-style: bold;
+    width: 100%;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+.complete-title {
+    color: #32CD32;
+    text-style: bold;
+    width: 100%;
+    text-align: center;
+    margin-bottom: 2;
+}
+
+.complete-message {
+    color: #32CD32;
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.complete-next-steps {
+    color: $fg-muted;
+    width: 100%;
+    margin-top: 0;
+}
+
+/* ============================================================================
+ * Modern Wizard Framework Styling (Dark Theme)
+ * Card-based wizard with ASCII banner, breadcrumb stepper, and status indicators
+ * ============================================================================ */
+
+/* --- ASCII Banner --- */
+ASCIIBanner {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    text-align: center;
+    padding: 0 0 1 0;
+}
+
+ASCIIBanner .banner-text {
+    color: $accent-primary;
+    text-style: bold;
+}
+
+ASCIIBanner .banner-subtitle {
+    color: $fg-muted;
+    text-align: center;
+    margin-top: 0;
+}
+
+/* --- Breadcrumb Stepper --- */
+BreadcrumbStepper {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    padding: 1 2;
+}
+
+BreadcrumbStepper .stepper-track {
+    width: auto;
+    height: 1;
+    content-align: center middle;
+}
+
+BreadcrumbStepper .stepper-labels {
+    width: auto;
+    height: 1;
+    content-align: center middle;
+}
+
+BreadcrumbStepper .step-indicator {
+    width: auto;
+    height: 1;
+}
+
+BreadcrumbStepper .step-indicator.completed {
+    color: $accent-success;
+}
+
+BreadcrumbStepper .step-indicator.current {
+    color: $accent-primary;
+    text-style: bold;
+}
+
+BreadcrumbStepper .step-indicator.pending {
+    color: $border-highlight;
+}
+
+BreadcrumbStepper .step-connector {
+    color: $border-highlight;
+    width: auto;
+}
+
+BreadcrumbStepper .step-connector.completed {
+    color: $accent-success;
+}
+
+BreadcrumbStepper .step-label {
+    width: auto;
+    text-align: center;
+    padding: 0 1;
+}
+
+BreadcrumbStepper .step-label.current {
+    color: $accent-primary;
+    text-style: bold;
+}
+
+BreadcrumbStepper .step-label.completed {
+    color: $accent-success;
+}
+
+BreadcrumbStepper .step-label.pending {
+    color: $border-highlight;
+}
+
+/* --- Status Indicator --- */
+StatusIndicator {
+    width: auto;
+    height: 1;
+}
+
+StatusIndicator.pending {
+    color: $border-highlight;
+}
+
+StatusIndicator.loading {
+    color: $accent-primary;
+}
+
+StatusIndicator.success {
+    color: $accent-success;
+}
+
+StatusIndicator.error {
+    color: $accent-error;
+}
+
+StatusIndicator.warning {
+    color: $accent-warning;
+}
+
+/* --- Status Row --- */
+StatusRow {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+}
+
+StatusRow .status-label {
+    width: 1fr;
+}
+
+StatusRow .status-detail {
+    width: auto;
+    color: $fg-muted;
+}
+
+/* --- Wizard Modal Container --- */
+WizardModal {
+    align: center middle;
+    background: $bg-base 80%;
+}
+
+WizardModal #wizard_outer {
+    width: 90%;
+    max-width: 80;
+    height: 90%;
+    background: $bg-surface;
+    border: double $accent-primary;
+    padding: 1 2;
+}
+
+WizardModal #wizard_banner {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    padding: 0;
+}
+
+WizardModal #wizard_banner .banner-text {
+    color: $accent-primary;
+    text-align: center;
+}
+
+WizardModal #wizard_stepper {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    padding: 1 0;
+}
+
+WizardModal #wizard_card {
+    width: 100%;
+    height: 1fr;
+    min-height: 12;
+    margin: 0 1;
+}
+
+WizardModal #wizard_card .card-border-top,
+WizardModal #wizard_card .card-border-bottom {
+    color: $border-default;
+    text-align: center;
+}
+
+WizardModal #wizard_card .card-content {
+    padding: 2 3;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+WizardModal #wizard_title {
+    text-style: bold;
+    color: $fg-primary;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+WizardModal #wizard_description {
+    color: $fg-muted;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 2;
+}
+
+WizardModal #wizard_step_content {
+    width: 100%;
+    height: auto;
+    min-height: 6;
+}
+
+WizardModal #wizard_error {
+    color: $accent-error;
+    background: $accent-error 20%;
+    text-align: center;
+    width: 100%;
+    height: auto;
+    padding: 1;
+    margin: 1 0;
+    border: solid $accent-error;
+}
+
+WizardModal #wizard_error.hidden {
+    display: none;
+}
+
+WizardModal #wizard_nav {
+    height: 3;
+    width: 100%;
+    align: center middle;
+    padding: 1 0;
+}
+
+WizardModal #wizard_nav Button {
+    margin: 0 2;
+    min-width: 14;
+}
+
+WizardModal #wizard_back {
+    background: $bg-surface-2;
+    color: $fg-primary;
+}
+
+WizardModal #wizard_back:hover {
+    background: $border-default;
+}
+
+WizardModal #wizard_back.disabled {
+    background: $bg-surface;
+    color: $border-highlight;
+}
+
+WizardModal #wizard_next {
+    background: #238636;
+    color: $fg-primary;
+    text-style: bold;
+}
+
+WizardModal #wizard_next:hover {
+    background: #2ea043;
+}
+
+WizardModal #wizard_cancel {
+    background: $bg-surface-2;
+    color: $fg-muted;
+}
+
+WizardModal #wizard_cancel:hover {
+    background: $accent-error;
+    color: $fg-primary;
+}
+
+WizardModal #wizard_hints {
+    width: 100%;
+    height: 1;
+    color: $border-highlight;
+    text-align: center;
+    padding: 0 2;
+}
+
+/* --- Section Titles (used in step components) --- */
+.section-title {
+    color: $accent-primary;
+    text-style: bold;
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+/* --- Success/Error Messages --- */
+.success-message {
+    color: $accent-success;
+    text-align: center;
+    padding: 1;
+}
+
+.error-message {
+    color: $accent-error;
+    padding: 1;
 }
