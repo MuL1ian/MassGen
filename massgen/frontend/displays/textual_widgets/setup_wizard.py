@@ -15,8 +15,26 @@ from textual.containers import Container, ScrollableContainer, Vertical
 from textual.widgets import Checkbox, Input, Label, Static
 
 from .wizard_base import StepComponent, WizardModal, WizardState, WizardStep
-from .wizard_components import StatusIndicator
 from .wizard_steps import SaveLocationStep, WelcomeStep
+
+
+class StatusIndicator(Static):
+    """Simple status indicator widget showing icon + text.
+
+    Temporary replacement until wizard_components is properly implemented.
+    """
+
+    STATUS_ICONS = {
+        "success": "✓",
+        "error": "✗",
+        "warning": "⚠",
+        "pending": "○",
+        "loading": "◌",
+    }
+
+    def __init__(self, text: str, status: str = "pending", **kwargs):
+        icon = self.STATUS_ICONS.get(status, "○")
+        super().__init__(f"{icon} {text}", **kwargs)
 
 
 def _setup_log(msg: str) -> None:

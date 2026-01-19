@@ -265,9 +265,9 @@ class TestPlanAndExecuteWorkflow:
         Verifies key sections are present in the generated prompt including
         plan execution mode markers, task references, and planning doc paths.
         """
-        from massgen.cli import _build_execution_prompt
+        from massgen.plan_execution import build_execution_prompt
 
-        prompt = _build_execution_prompt("Build a REST API")
+        prompt = build_execution_prompt("Build a REST API")
 
         # Verify key sections are present (simplified prompt, details in system message)
         assert "PLAN EXECUTION MODE" in prompt

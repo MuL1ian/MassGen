@@ -13,7 +13,12 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Deque, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Set, Tuple
+
+if TYPE_CHECKING:
+    from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
+        PlanApprovalResult,
+    )
 
 from massgen.logger_config import get_log_session_dir, logger
 
@@ -2114,6 +2119,107 @@ class TextualTerminalDisplay(TerminalDisplay):
             return self._app._mode_state
         return None
 
+    def show_plan_approval_modal(
+        self,
+        tasks: List[Dict[str, Any]],
+        plan_path: Path,
+        plan_data: Dict[str, Any],
+        mode_state: "TuiModeState",
+    ) -> None:
+        """Show the plan approval modal and handle the result.
+
+        Called from TextualInteractiveAdapter when planning completes.
+
+        Args:
+            tasks: List of tasks from the plan
+            plan_path: Path to the plan file
+            plan_data: Full plan data dictionary
+            mode_state: TuiModeState instance to update
+        """
+        if not self._app:
+            return
+
+        from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
+            PlanApprovalModal,
+            PlanApprovalResult,
+        )
+
+        def show_modal():
+            modal = PlanApprovalModal(tasks, plan_path, plan_data)
+
+            def handle_result(result: PlanApprovalResult) -> None:
+                if result and result.approved:
+                    self._execute_approved_plan(result, mode_state)
+                else:
+                    # Cancelled - reset to normal mode
+                    mode_state.reset_plan_state()
+                    self._app.notify("Plan cancelled", severity="information")
+                    if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
+                        self._app._mode_bar.set_plan_mode("normal")
+
+            self._app.push_screen(modal, handle_result)
+
+        self._app.call_from_thread(show_modal)
+
+    def _execute_approved_plan(
+        self,
+        approval: "PlanApprovalResult",
+        mode_state: "TuiModeState",
+    ) -> None:
+        """Execute an approved plan by setting up execution mode and submitting prompt.
+
+        Args:
+            approval: PlanApprovalResult with plan data and path
+            mode_state: TuiModeState instance to update
+        """
+        from massgen.logger_config import get_log_session_root
+        from massgen.plan_storage import PlanStorage
+
+        try:
+            # Get log directory for plan session
+            log_dir = get_log_session_root()
+
+            # Create and finalize plan session
+            storage = PlanStorage()
+            session = storage.create_plan(log_dir.name, str(log_dir))
+
+            # Copy workspace to frozen - use the parent of plan_path as workspace source
+            workspace_source = approval.plan_path.parent
+            storage.finalize_planning_phase(session, workspace_source)
+
+            # Update mode state for execution
+            mode_state.plan_mode = "execute"
+            mode_state.plan_session = session
+
+            # Update mode bar
+            if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
+                self._app._mode_bar.set_plan_mode("execute")
+
+            # Build execution prompt from original question
+            original_question = mode_state.last_planning_question or "Execute the plan"
+
+            from massgen.plan_execution import build_execution_prompt
+
+            execution_prompt = build_execution_prompt(original_question)
+
+            self._app.notify("Executing plan...", severity="information", timeout=3)
+
+            # Submit execution prompt to input
+            if hasattr(self._app, "_question_input") and self._app._question_input:
+                self._app._question_input.value = execution_prompt
+                # Use call_later to ensure UI is updated before submission
+                self._app.call_later(self._app._question_input.action_submit)
+            else:
+                logger.error("[PlanExecution] No question input found to submit execution prompt")
+                mode_state.reset_plan_state()
+
+        except Exception as e:
+            logger.exception(f"[PlanExecution] Failed to execute approved plan: {e}")
+            self._app.notify(f"Failed to execute plan: {e}", severity="error")
+            mode_state.reset_plan_state()
+            if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
+                self._app._mode_bar.set_plan_mode("normal")
+
     def set_override_available(self, available: bool) -> None:
         """Set whether human override is available.
 
@@ -3266,6 +3372,12 @@ if TEXTUAL_AVAILABLE:
             tui_log(f"  _input_handler is: {self._input_handler}")
             if self._input_handler:
                 tui_log("  Calling _input_handler...")
+
+                # Store question for plan execution if in plan mode
+                if not text.startswith("/") and self._mode_state.plan_mode == "plan":
+                    self._mode_state.last_planning_question = text
+                    tui_log(f"  Stored planning question: {text[:50]}...")
+
                 self._input_handler(text)
                 if not text.startswith("/"):
                     # Track the current question for history

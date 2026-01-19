@@ -25,6 +25,7 @@ from .injection_card import InjectionSubCard
 from .mode_bar import ModeBar, ModeChanged, ModeToggle, OverrideRequested
 from .multi_line_input import MultiLineInput
 from .path_suggestion import PathSuggestion, PathSuggestionDropdown
+from .plan_approval_modal import PlanApprovalModal, PlanApprovalResult
 from .quickstart_wizard import QuickstartWizard
 from .setup_wizard import SetupWizard
 from .subagent_card import SubagentCard
@@ -40,14 +41,6 @@ from .wizard_base import (
     WizardModal,
     WizardState,
     WizardStep,
-)
-from .wizard_components import (
-    ASCIIBanner,
-    BreadcrumbStepper,
-    CardContainer,
-    KeyboardHints,
-    StatusIndicator,
-    StatusRow,
 )
 
 __all__ = [
@@ -68,6 +61,9 @@ __all__ = [
     # Task plan card and modal
     "TaskPlanCard",
     "TaskPlanModal",
+    # Plan approval modal
+    "PlanApprovalModal",
+    "PlanApprovalResult",
     # Subagent card and modal
     "SubagentCard",
     "SubagentModal",
@@ -102,11 +98,4 @@ __all__ = [
     "StepComponent",
     "SetupWizard",
     "QuickstartWizard",
-    # Wizard components
-    "ASCIIBanner",
-    "BreadcrumbStepper",
-    "CardContainer",
-    "KeyboardHints",
-    "StatusIndicator",
-    "StatusRow",
 ]

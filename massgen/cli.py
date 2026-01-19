@@ -5128,6 +5128,23 @@ async def run_textual_interactive_mode(
                 except PromptParserError as e:
                     logger.warning(f"[Textual] Path parsing error: {e}")
 
+                # Get orchestrator config for agent creation
+                orch_cfg = modified_config.get("orchestrator", {})
+
+                # Apply execute mode config modifications BEFORE agent creation
+                # This injects plan execution guidance into agent system messages
+                mode_state = display.get_mode_state()
+                if mode_state and mode_state.plan_mode == "execute" and mode_state.plan_session:
+                    from .plan_execution import prepare_plan_execution_config
+
+                    logger.info("[Textual] Execute mode - applying plan execution config")
+                    modified_config = prepare_plan_execution_config(
+                        modified_config,
+                        mode_state.plan_session,
+                    )
+                    # Update orchestrator_cfg reference for later use
+                    orch_cfg = modified_config.get("orchestrator", {})
+
                 # Progress callback for agent creation status
                 def progress_callback(status: str, detail: str) -> None:
                     adapter.update_loading_status(status)
@@ -5135,7 +5152,7 @@ async def run_textual_interactive_mode(
                 enable_rate_limit = kwargs.get("enable_rate_limit", False)
                 new_agents = create_agents_from_config(
                     modified_config,
-                    orchestrator_cfg,
+                    orch_cfg,
                     enable_rate_limit=enable_rate_limit,
                     config_path=config_path,
                     memory_session_id=sess_id,
@@ -5154,6 +5171,20 @@ async def run_textual_interactive_mode(
                 agents = new_agents
                 logger.info(f"[Textual] Created {len(agents)} agent(s)")
                 adapter.update_loading_status("✅ Agents created")
+
+                # Setup agent workspaces for execute mode (copy plan files)
+                mode_state = display.get_mode_state()
+                if mode_state and mode_state.plan_mode == "execute" and mode_state.plan_session:
+                    from .plan_execution import setup_agent_workspaces_for_execution
+
+                    task_count = setup_agent_workspaces_for_execution(
+                        agents,
+                        mode_state.plan_session,
+                    )
+                    if task_count > 0:
+                        logger.info(
+                            f"[Textual] Execute mode - copied plan with {task_count} tasks to agent workspaces",
+                        )
 
             # Inject previous turn workspace as read-only context (same as Rich mode)
             if current_turn_num > 0 and original_config and orchestrator_cfg:
@@ -6533,36 +6564,6 @@ async def run_interactive_mode(
         print()  # Clean line after ^C
 
 
-def _build_execution_prompt(question: str) -> str:
-    """Build the execution prompt that guides agents through plan-based work.
-
-    Args:
-        question: The original user question/task
-
-    Returns:
-        Formatted execution prompt with plan context
-    """
-    return f"""# PLAN EXECUTION MODE
-
-Your task plan has been AUTO-LOADED into `tasks/plan.json`. Start executing!
-
-## Your Task
-{question}
-
-## Getting Started
-
-1. **Check ready tasks**: Use `get_ready_tasks()` to see what to work on first
-2. **Track progress**: Use `update_task_status(task_id, status, completion_notes)` as you work
-3. **Execute all tasks**: Implement everything in the plan
-4. **Evaluate others**: See system prompt for how to assess CURRENT_ANSWERS
-
-## Reference Materials
-- `planning_docs/` - supporting docs from planning phase (user stories, design, etc.)
-- Frozen plan available via context path for validation
-
-Begin execution now."""
-
-
 def resolve_plan_path(plan_path: str) -> "PlanSession":
     """Resolve a plan path/ID to a PlanSession object.
 
@@ -6639,11 +6640,14 @@ async def _execute_plan_phase(
     Returns:
         Tuple of (final_answer, diff_dict)
     """
-    import copy
-
     from rich.console import Console
 
     from .logger_config import get_log_session_root
+    from .plan_execution import (
+        build_execution_prompt,
+        prepare_plan_execution_config,
+        setup_agent_workspaces_for_execution,
+    )
 
     console = Console()
 
@@ -6657,123 +6661,11 @@ async def _execute_plan_phase(
     plan_session.log_event("execution_started", {"question": question})
 
     # Build execution prompt
-    execution_prompt = _build_execution_prompt(question)
+    execution_prompt = build_execution_prompt(question)
 
-    # Modify config to add plan context paths and enable planning tools for execution
-    exec_config = copy.deepcopy(config)
-    orchestrator_cfg = exec_config.setdefault("orchestrator", {})
-    context_paths = orchestrator_cfg.setdefault("context_paths", [])
-
-    # Add frozen plan as read-only context (for reference)
-    context_paths.append(
-        {
-            "path": str(plan_session.frozen_dir),
-            "permission": "read",
-        },
-    )
-
-    # Enable planning MCP tools for task tracking
-    coordination_cfg = orchestrator_cfg.setdefault("coordination", {})
-    coordination_cfg["enable_agent_task_planning"] = True
-    coordination_cfg["task_planning_filesystem_mode"] = True
-
-    # Inject plan execution guidance into each agent's system message
-    plan_execution_guidance = """
-## Plan Execution Mode
-
-You are executing a pre-approved task plan. The plan has been AUTO-LOADED into `tasks/plan.json`.
-
-### Getting Started - Plan is Ready
-
-Your task plan is already loaded. Use MCP planning tools to track progress:
-
-1. **See all tasks**: `get_task_plan()` - view full plan with current status
-2. **See ready tasks**: `get_ready_tasks()` - tasks with dependencies satisfied
-3. **Start a task**: `update_task_status("T001", "in_progress")`
-4. **Complete a task**: `update_task_status("T001", "completed", "How you completed it")`
-
-Supporting docs from planning phase are in `planning_docs/` for reference.
-
-### CRITICAL: Verification Workflow
-
-**Do NOT just write code and mark tasks complete. You MUST verify your work actually runs.**
-
-#### Task Status Flow
-- `pending` → `in_progress` → `completed` → `verified`
-- **completed**: Implementation is done (code written)
-- **verified**: Task has been tested and confirmed working
-
-#### How to Use Verification
-1. Mark task `completed` when implementation is done
-2. At logical checkpoints, verify groups of completed tasks together
-3. Mark tasks `verified` after verification passes
-
-#### Verification Checkpoints (when to verify)
-Tasks have `verification_group` labels (e.g., "foundation", "frontend_ui", "api"). Verify when:
-
-1. **After completing all tasks in a verification_group** - e.g., after all "foundation" tasks, run `npm run dev`
-2. **After major milestones** - e.g., project setup, feature completion
-3. **Before declaring work complete** - Run full build (`npm run build`)
-
-Use `get_task_plan()` to see tasks grouped by `verification_group` under `verification_groups`.
-
-#### Verification Commands
-Tasks have `verification_method` in metadata - USE IT:
-```
-update_task_status("F001", "completed", "Created Next.js project")
-# ... complete more foundation tasks ...
-# Verify the group:
-# npm run dev → works!
-update_task_status("F001", "verified", "Dev server runs on localhost:3000")
-```
-
-**A task should NOT be marked `verified` if:**
-- The code doesn't compile/build
-- The dev server crashes on startup
-- The feature doesn't render or function as described
-
-Fix issues before marking as verified.
-
-### Evaluating CURRENT_ANSWERS
-
-When you see other agents' work, you'll receive **progress stats** showing task completion.
-These are INFORMATIONAL only - they help you understand where others are, but task count alone
-doesn't determine quality.
-
-**Focus on Deliverable Quality** (the end product matters most):
-- Does the deliverable work? (website loads, app runs, API responds)
-- Does it meet the original requirements from the planning docs?
-- Is the user-facing quality good? (UI looks right, features work as expected)
-
-**Progress stats are context, not judgment**:
-- An agent with fewer tasks completed might have better quality work
-- An agent with all tasks done might have rushed and produced poor quality
-- Use progress info to understand scope, but evaluate the actual deliverable
-
-**Only vote when work is TRULY COMPLETE and HIGH QUALITY**:
-- All planned tasks should be done (or have documented reasons for deviation)
-- The deliverable must be functional and meet quality expectations
-- Don't vote for partial implementations, even if task count looks good
-
-### Adopting Another Agent's Work
-
-If you see a CURRENT_ANSWER that's excellent and you want to build on it:
-1. Their plan progress is in their `tasks/plan.json`
-2. To adopt: copy their plan.json content into YOUR `tasks/plan.json` via `create_task_plan(tasks=[...])`
-3. Then continue from where they left off
-
-If no agent is fully complete with quality work, continue your own implementation rather than voting for incomplete work.
-"""
-
-    # Append guidance to each agent's system message (handle both single and multi-agent configs)
-    if "agents" in exec_config:
-        for agent_cfg in exec_config["agents"]:
-            existing_msg = agent_cfg.get("system_message", "")
-            agent_cfg["system_message"] = existing_msg + plan_execution_guidance
-    elif "agent" in exec_config:
-        agent_cfg = exec_config["agent"]
-        existing_msg = agent_cfg.get("system_message", "")
-        agent_cfg["system_message"] = existing_msg + plan_execution_guidance
+    # Use shared helper to prepare config (adds context paths, enables planning tools, injects guidance)
+    exec_config = prepare_plan_execution_config(config, plan_session)
+    orchestrator_cfg = exec_config.get("orchestrator", {})
 
     # Create agents with plan context
     agents = create_agents_from_config(
@@ -6782,44 +6674,16 @@ If no agent is fully complete with quality work, continue your own implementatio
         memory_session_id=f"plan_exec_{plan_session.plan_id}",
     )
 
-    # Read the frozen plan tasks - fail fast if missing or unreadable
-    frozen_plan_file = plan_session.frozen_dir / "plan.json"
-    if not frozen_plan_file.exists():
+    # Use shared helper to copy plan and docs to agent workspaces
+    task_count = setup_agent_workspaces_for_execution(agents, plan_session)
+
+    if task_count == 0:
+        frozen_plan_file = plan_session.frozen_dir / "plan.json"
         console.print(f"[bold red]Error: Frozen plan not found at {frozen_plan_file}[/bold red]")
         console.print("[red]Cannot execute plan without a valid frozen plan.json[/red]")
         raise SystemExit(1)
 
-    try:
-        plan_data = json.loads(frozen_plan_file.read_text())
-    except json.JSONDecodeError as e:
-        console.print(f"[bold red]Error: Failed to parse frozen plan: {e}[/bold red]")
-        console.print(f"[red]File: {frozen_plan_file}[/red]")
-        raise SystemExit(1)
-
-    plan_tasks = plan_data.get("tasks", [])
-    console.print(f"[dim]Loaded {len(plan_tasks)} tasks from frozen plan[/dim]")
-
-    # Copy plan and supporting docs to each agent's workspace
-    for agent_id, agent in agents.items():
-        if hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
-            agent_workspace = Path(agent.backend.filesystem_manager.cwd)
-
-            # Copy supporting docs (*.md files) to planning_docs/ for reference
-            planning_docs_dest = agent_workspace / "planning_docs"
-            planning_docs_dest.mkdir(exist_ok=True)
-            for doc in plan_session.frozen_dir.glob("*.md"):
-                shutil.copy2(doc, planning_docs_dest / doc.name)
-                logger.info(f"[ExecutePlan] Copied {doc.name} to {agent_id}'s planning_docs/")
-
-            # Copy plan.json directly to tasks/plan.json so agents can read it immediately
-            # Write full plan_data to preserve top-level metadata (agent_id, timestamps, subagents)
-            if plan_tasks:
-                tasks_dir = agent_workspace / "tasks"
-                tasks_dir.mkdir(exist_ok=True)
-                plan_file = tasks_dir / "plan.json"
-                plan_file.write_text(json.dumps(plan_data, indent=2))
-                logger.info(f"[ExecutePlan] Copied plan.json to {agent_id}'s tasks/plan.json ({len(plan_tasks)} tasks)")
-                console.print(f"[dim]Copied plan to {agent_id}'s workspace[/dim]")
+    console.print(f"[dim]Loaded {task_count} tasks from frozen plan[/dim]")
 
     # Build UI config
     ui_config = {

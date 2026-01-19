@@ -493,10 +493,89 @@ class TextualInteractiveAdapter(UIAdapter):
     def on_turn_end(self, turn: int, result: TurnResult) -> None:
         """Called when a turn ends."""
         self.set_processing(False)
+
+        # Check if this was a planning turn completion
+        if self._display and hasattr(self._display, "_mode_state"):
+            mode_state = self._display._mode_state
+            if mode_state.plan_mode == "plan" and result.answer_text and not result.was_cancelled and not result.error:
+                # Planning completed - trigger approval flow
+                self._trigger_plan_approval(result, mode_state)
+                return
+
         if result.was_cancelled:
             self.notify("Turn cancelled", "warning")
         elif result.error:
             self.notify(f"Error: {result.error}", "error")
+
+    def _trigger_plan_approval(self, result: TurnResult, mode_state: Any) -> None:
+        """Show plan approval modal after planning completes.
+
+        Args:
+            result: The turn result from planning
+            mode_state: TuiModeState instance
+        """
+        plan_result = self._find_plan_from_workspace()
+
+        if not plan_result:
+            self.notify("Planning completed but no plan found", "warning")
+            mode_state.reset_plan_state()
+            if self._display and self._display._mode_bar:
+                self._display._call_app_method("_update_mode_bar_plan_mode", "normal")
+            return
+
+        plan_path, plan_data = plan_result
+        tasks = plan_data.get("tasks", [])
+
+        if not tasks:
+            self.notify("Plan has no tasks", "warning")
+            mode_state.reset_plan_state()
+            if self._display and self._display._mode_bar:
+                self._display._call_app_method("_update_mode_bar_plan_mode", "normal")
+            return
+
+        # Show modal via display
+        if self._display:
+            self._display.show_plan_approval_modal(tasks, plan_path, plan_data, mode_state)
+
+    def _find_plan_from_workspace(self) -> Optional[tuple]:
+        """Find and parse plan.json from agent workspace.
+
+        Returns:
+            Tuple of (plan_path, plan_data) if found, None otherwise
+        """
+        import json
+
+        try:
+            from massgen.logger_config import get_log_session_root
+
+            log_dir = get_log_session_root()
+            final_dir = log_dir / "final"
+
+            if not final_dir.exists():
+                logger.debug(f"[PlanApproval] Final dir not found: {final_dir}")
+                return None
+
+            # Check agent workspaces for plan
+            for agent_dir in final_dir.glob("agent_*/workspace"):
+                for plan_location in [
+                    agent_dir / "deliverable" / "project_plan.json",
+                    agent_dir / "project_plan.json",
+                    agent_dir / "tasks" / "plan.json",
+                ]:
+                    if plan_location.exists():
+                        try:
+                            plan_data = json.loads(plan_location.read_text())
+                            if "tasks" in plan_data:
+                                logger.info(f"[PlanApproval] Found plan at {plan_location}")
+                                return plan_location, plan_data
+                        except json.JSONDecodeError:
+                            continue
+
+            logger.debug("[PlanApproval] No valid plan found in any agent workspace")
+            return None
+        except Exception as e:
+            logger.error(f"[PlanApproval] Error finding plan: {e}")
+            return None
 
     def reset_turn_view(self) -> None:
         """Reset agent panels."""

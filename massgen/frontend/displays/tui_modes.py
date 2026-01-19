@@ -66,6 +66,9 @@ class TuiModeState:
     pending_plan_approval: bool = False
     plan_config: PlanConfig = field(default_factory=PlanConfig)
 
+    # Track the original question for plan execution prompt
+    last_planning_question: Optional[str] = None
+
     # Agent mode: "multi" | "single"
     agent_mode: str = "multi"
     selected_single_agent: Optional[str] = None
@@ -189,6 +192,7 @@ class TuiModeState:
         self.plan_mode = "normal"
         self.plan_session = None
         self.pending_plan_approval = False
+        self.last_planning_question = None
 
     def reset_override_state(self) -> None:
         """Reset override-related state after override completion or cancellation."""
