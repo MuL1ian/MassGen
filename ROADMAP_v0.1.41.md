@@ -1,19 +1,19 @@
-# MassGen v0.1.40 Roadmap
+# MassGen v0.1.41 Roadmap
 
 ## Overview
 
-Version 0.1.40 focuses on OpenAI Responses API improvements and TUI production upgrade.
+Version 0.1.41 focuses on OpenAI Responses API improvements and log analysis model selection.
 
 - **OpenAI Responses /compact Endpoint** (Required): Use OpenAI's native `/compact` endpoint instead of custom summarization
-- **TUI Production Upgrade** (Required): Migrate to Textual as primary terminal interface
+- **Add Model Selector for Log Analysis** (Required): Choose model for `massgen logs analyze` self-analysis mode
 
 ## Key Technical Priorities
 
 1. **OpenAI Responses /compact Endpoint**: Leverage API-level context compression for better efficiency
    **Use Case**: Reduce token usage and improve response quality with native compression
 
-2. **TUI Production Upgrade**: Migrate to Textual as primary terminal interface
-   **Use Case**: Professional-grade terminal interface for daily use
+2. **Add Model Selector for Log Analysis**: Allow users to choose which model to use for log analysis
+   **Use Case**: Flexibility in choosing analysis model based on cost/quality tradeoffs
 
 ## Key Milestones
 
@@ -51,43 +51,36 @@ Version 0.1.40 focuses on OpenAI Responses API improvements and TUI production u
 
 ---
 
-### Milestone 2: TUI Production Upgrade (REQUIRED)
+### Milestone 2: Add Model Selector for Log Analysis (REQUIRED)
 
-**Goal**: Migrate to Textual as primary terminal interface
+**Goal**: Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#778](https://github.com/massgen/MassGen/issues/778)
+**Issue**: [#766](https://github.com/massgen/MassGen/issues/766)
 
-#### 2.1 Textual Migration
-- [ ] Set Textual TUI as default display type
-- [ ] Replace rich_terminal with Textual implementation
-- [ ] Ensure feature parity with existing terminal display
-- [ ] Handle graceful fallback for unsupported terminals
+#### 2.1 Model Selection UI
+- [ ] Add `--model` flag to `massgen logs analyze` command
+- [ ] Implement model selection logic
+- [ ] Support all available backend models
+- [ ] Provide sensible defaults (e.g., GPT-4o-mini, Claude Haiku)
 
-#### 2.2 Layout & UX Improvements
-- [ ] Optimize panel layouts for different screen sizes
-- [ ] Improve agent status visibility
-- [ ] Enhance streaming output display
-- [ ] Add keyboard shortcuts documentation
+#### 2.2 Configuration Support
+- [ ] Allow model selection via config file
+- [ ] Document available model options
+- [ ] Add model validation and error handling
 
-#### 2.3 Stability & Performance
-- [ ] Fix known Textual rendering issues
-- [ ] Optimize refresh rates for streaming
-- [ ] Handle terminal resize events
-- [ ] Reduce memory usage for long sessions
-
-#### 2.4 Testing & Documentation
-- [ ] Unit tests for TUI components
-- [ ] Integration tests across terminal types
-- [ ] Update documentation with TUI usage
-- [ ] Add troubleshooting guide
+#### 2.3 Testing & Documentation
+- [ ] Test with different models (GPT, Claude, Gemini)
+- [ ] Measure analysis quality across models
+- [ ] Update documentation with usage examples
+- [ ] Document cost/quality tradeoffs
 
 **Success Criteria**:
-- Textual TUI is default terminal interface
-- No regression in functionality from rich_terminal
-- Improved stability and user experience
-- Works across common terminal emulators
+- Model selector integrated successfully
+- Works with all major backends (OpenAI, Claude, Gemini)
+- Clear documentation on model selection
+- Sensible default model chosen
 
 ---
 
@@ -101,16 +94,16 @@ Version 0.1.40 focuses on OpenAI Responses API improvements and TUI production u
 - [ ] Fallback for non-OpenAI backends works
 - [ ] No regression in response quality
 
-**TUI Production Upgrade:**
-- [ ] Textual TUI is default display type
-- [ ] Feature parity with rich_terminal
-- [ ] Stable across terminal emulators
-- [ ] Documentation complete
+**Add Model Selector for Log Analysis:**
+- [ ] Model selector integrated in `massgen logs analyze`
+- [ ] Works with all major backends
+- [ ] Documentation complete with usage examples
+- [ ] Default model selection is sensible
 
 ### Performance Requirements
 - [ ] Token usage reduced with compact endpoint
 - [ ] No performance degradation in existing workflows
-- [ ] TUI responsive during heavy streaming
+- [ ] Model selector has minimal overhead
 
 ### Quality Requirements
 - [ ] All tests passing
@@ -124,24 +117,20 @@ Version 0.1.40 focuses on OpenAI Responses API improvements and TUI production u
 
 ### Dependencies
 - **OpenAI Compact Endpoint**: OpenAI API access, Responses API support
-- **TUI Production Upgrade**: Textual library, terminal compatibility
+- **Model Selector**: Existing `massgen logs analyze` command, backend model registry
 
 ### Risks & Mitigations
 1. **API Changes**: *Mitigation*: Monitor OpenAI API updates, implement version checks
-2. **Terminal Compatibility**: *Mitigation*: Test across common terminals, provide fallback
-3. **Backend Compatibility**: *Mitigation*: Implement proper fallback for non-OpenAI backends
+2. **Backend Compatibility**: *Mitigation*: Implement proper fallback for non-OpenAI backends
+3. **Model Selection Confusion**: *Mitigation*: Provide clear documentation and sensible defaults
 
 ---
 
-## Future Enhancements (Post-v0.1.40)
-
-### v0.1.41 Plans
-- **Integrate Smart Semantic Search** (@ncrispino): Advanced semantic search capabilities ([#639](https://github.com/massgen/MassGen/issues/639))
-- **Add Model Selector for Log Analysis** (@ncrispino): Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766))
+## Future Enhancements (Post-v0.1.41)
 
 ### v0.1.42 Plans
-- **Improve Log Sharing and Analysis** (@ncrispino): Enhanced log sharing workflows ([#722](https://github.com/massgen/MassGen/issues/722))
-- **Add Fara-7B for Computer Use** (@ncrispino): Support for Fara-7B model for computer use tasks ([#646](https://github.com/massgen/MassGen/issues/646))
+- **Improve Log Sharing and Analysis**: Enhanced log sharing workflows ([#722](https://github.com/massgen/MassGen/issues/722))
+- **Claude Code Plugin for MassGen Agents**: Plugin for spawning MassGen agents from Claude Code interface ([#773](https://github.com/massgen/MassGen/issues/773))
 
 ### Long-term Vision
 - **Advanced Agent Communication**: Sophisticated inter-agent protocols and negotiation
@@ -156,9 +145,9 @@ Version 0.1.40 focuses on OpenAI Responses API improvements and TUI production u
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
 | Phase 1 | OpenAI Compact Endpoint | API integration, token savings | @ncrispino | **REQUIRED** |
-| Phase 2 | TUI Production Upgrade | Textual migration, stability | @ncrispino | **REQUIRED** |
+| Phase 2 | Model Selector for Log Analysis | CLI flag, model selection logic | @ncrispino | **REQUIRED** |
 
-**Target Release**: January 19, 2026 (Sunday @ 9am PT)
+**Target Release**: January 21, 2026
 
 ---
 
@@ -173,26 +162,26 @@ Version 0.1.40 focuses on OpenAI Responses API improvements and TUI production u
 4. Test with various conversation lengths
 5. Benchmark token savings
 
-**TUI Production Upgrade:**
-1. Review existing Textual TUI implementation
-2. Set Textual as default display type
-3. Test across terminal emulators
-4. Fix stability issues
-5. Update documentation
+**Add Model Selector for Log Analysis:**
+1. Review existing `massgen logs analyze` command
+2. Implement `--model` flag with argparse
+3. Add model validation logic
+4. Test with different backend models
+5. Document usage and cost/quality tradeoffs
 
 ### For Users
 
-- v0.1.40 brings API improvements and TUI upgrade:
+- v0.1.41 brings API improvements and enhanced log analysis:
 
   **OpenAI Responses /compact Endpoint:**
   - Native context compression via OpenAI API
   - Reduced token usage
   - Better response quality
 
-  **TUI Production Upgrade:**
-  - Professional Textual-based terminal interface
-  - Improved stability and layout
-  - Better streaming display
+  **Model Selector for Log Analysis:**
+  - Choose which model to use for log analysis
+  - Balance cost vs quality based on your needs
+  - Use `massgen logs analyze --model <model-name>` to specify model
 
 ---
 
@@ -206,11 +195,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 **Contact Track Owner:**
 - OpenAI Compact Endpoint: @ncrispino on Discord (nickcrispino)
-- TUI Production Upgrade: @ncrispino on Discord (nickcrispino)
+- Model Selector for Log Analysis: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.40 priorities focusing on OpenAI compact endpoint and TUI production upgrade.*
+*This roadmap reflects v0.1.41 priorities focusing on OpenAI compact endpoint integration and log analysis model selection.*
 
-**Last Updated:** January 17, 2026
+**Last Updated:** January 20, 2026
 **Maintained By:** MassGen Team

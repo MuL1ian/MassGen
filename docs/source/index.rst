@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode
+
+Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, keyboard-driven navigation with Vim mode support (``j/k`` scrolling, ``:q`` to quit), comprehensive modals for metrics/costs/votes/workspace browsing (``?``, ``c``, ``v``, ``w``, etc.), answer browser with side-by-side comparisons, and context path ``@`` syntax UI. Context path autocomplete, plan execution mode selection, and performance optimizations for large outputs.
+
 **v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
 
 Complete plan-then-execute workflow with ``--plan-and-execute`` for autonomous planning and execution, ``--execute-plan`` to run existing plans. Task verification workflow with ``verified`` status and verification groups for batch validation. Plan storage system in ``.massgen/plans/`` with frozen snapshots and execution tracking. Response API function call message sanitization fixes.
@@ -164,10 +168,6 @@ Complete plan-then-execute workflow with ``--plan-and-execute`` for autonomous p
 **v0.1.38 (January 15, 2026)** - Task Planning Mode & Two-Tier Workspace
 
 Create structured plans with ``--plan`` flag and ``--plan-depth`` (shallow/medium/deep) for future workflows (plan-only, no auto-execution). Git-backed two-tier workspace separates scratch exploration from final deliverables. Automatic ``CLAUDE.md`` and ``AGENTS.md`` discovery for project context. Batch image analysis with ``read_media`` tool. Reliability fixes: circuit breaker for infinite loops, timeout race conditions, MCP tool restoration.
-
-**v0.1.37 (January 12, 2026)** - Execution Traces & Thinking Mode Improvements
-
-Full execution history preserved as searchable ``execution_trace.md`` files alongside agent snapshots. Agents can read trace files to recover detailed history after context compression. Claude Code and Gemini thinking mode streaming buffer integration. Standardized agent labeling across all backends.
 
 :doc:`Full changelog → <changelog>`
 

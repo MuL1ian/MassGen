@@ -8,20 +8,22 @@ Target: ~2000 chars to leave room for per-release intro (~1000 chars) within Lin
 
 ## Feature Highlights
 
-🧠 **Supports diverse backends** — Access a wide range of open-source and proprietary models (local, Gemini 3, GPT-5.2, GPT-5.1-Codex, Claude, GLM, and other enterprise backends) and agents (AG2, AgentScope, Claude Code, LangGraph, and smolagents). 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/backends.html
+🧠Supports diverse backends — Access a wide range of open-source and proprietary models (local, Gemini 3, GPT-5.2, GPT-5.1-Codex, Claude, GLM, and other enterprise backends) and agents (AG2, AgentScope, Claude Code, LangGraph, and smolagents). 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/backends.html
 
-🤖 **Build collaborative multi-agent teams (in parallel)** — Agents with unique personas share workspaces, answer each other's questions, generate and refine solutions, vote on the best solution, and can spawn subagents for multi-level coordination. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/concepts.html#multi-agent-coordination
+🤖Build collaborative multi-agent teams (in parallel) — Agents with unique personas share workspaces, answer each other's questions, generate and refine solutions, vote on the best solution, and can spawn subagents for multi-level coordination. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/concepts.html#multi-agent-coordination
 
-🛠️ **Work with files, apps, and projects** — With MCP tools and agent skills, agents can read/write files, browse websites, connect to apps, use computers, and edit existing project files with a robust permission system. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/index.html
+📋Task planning & execution— Agents create structured plans separating "what to build" from "how to build it", execute saved plans, and verify work at logical checkpoints with persistent storage and execution tracking. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/task_planning.html
 
-💾 **Session continuity** — Multi-turn conversations with context compression, session resumption, and evolving skills that persist and improve across sessions. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/skills.html#evolving-skills-code-mode
+🛠️Work with files, apps, and projects — With MCP tools and agent skills, agents can read/write files, browse websites, connect to apps, use computers, and edit existing project files with a robust permission system. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/index.html
 
-🖼️ **Multi-modal support** — Agents can understand and generate files, videos, images, and audio collaboratively. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/advanced/multimodal.html
+💾Session continuity — Multi-turn conversations with context compression, session resumption, and evolving skills that persist and improve across sessions. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/skills.html#evolving-skills-code-mode
 
-🐳 **Code execution** — Each agent can run commands (with Docker support, if installed) and use code mode for efficient filesystem-discoverable tools with large token reduction. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/code_execution.html
+🖼️Multi-modal support — Agents can understand and generate files, videos, images, and audio collaboratively. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/advanced/multimodal.html
 
-🖥️ **Real-Time Web UI & Terminal Dashboards** — Watch agents collaborate live through a browser-based React UI or interactive terminal dashboards, complete with coordination event visualizations. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/webui.html
+🐳Code execution — Each agent can run commands (with Docker support, if installed) and use code mode for efficient filesystem-discoverable tools with large token reduction. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/code_execution.html
 
-🪪 **Trace workflows** — Orchestration logs, workspace history, cost tracking, and optional Logfire integration make agent behavior easy to understand and debug. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#logging-directory-structure
+🖥️Real-Time Web UI & Terminal Dashboards — Watch agents collaborate live through a browser-based React UI or interactive terminal dashboards, complete with coordination event visualizations. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/webui.html
 
-📤 **Session sharing** — Export multi-turn sessions to GitHub Gist and view them in the MassGen Viewer web app with artifact previews. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#sharing-sessions
+🪪Trace workflows — Orchestration logs, workspace history, cost tracking, and optional Logfire integration make agent behavior easy to understand and debug. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#logging-directory-structure
+
+📤Session sharing — Export multi-turn sessions to GitHub Gist and view them in the MassGen Viewer web app with artifact previews. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#sharing-sessions
