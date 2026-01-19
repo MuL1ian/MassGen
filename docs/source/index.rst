@@ -159,7 +159,7 @@ Recent Releases
 
 **v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
 
-Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, keyboard-driven navigation (``j/k`` scrolling, ``:q`` to quit), comprehensive modals for metrics/costs/votes/workspace browsing (``?``, ``c``, ``v``, ``w``, etc.), answer browser with side-by-side comparisons, and context path ``@`` syntax UI. Context path autocomplete and plan execution mode selection.
+Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, comprehensive modals for metrics/costs/votes/workspace browsing (``?``, ``c``, ``v``, ``w``, etc.), answer browser with side-by-side comparisons, and context path ``@`` syntax UI. Context path autocomplete and plan execution mode selection.
 
 **v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
 
