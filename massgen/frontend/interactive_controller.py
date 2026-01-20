@@ -492,13 +492,17 @@ class TextualInteractiveAdapter(UIAdapter):
 
     def on_turn_end(self, turn: int, result: TurnResult) -> None:
         """Called when a turn ends."""
+        logger.info(f"[TextualAdapter] on_turn_end called: turn={turn}, cancelled={result.was_cancelled}, error={result.error}")
         self.set_processing(False)
 
         # Check if this was a planning turn completion
-        if self._display and hasattr(self._display, "_mode_state"):
-            mode_state = self._display._mode_state
+        # _mode_state is on the Textual App (AgentPanel), accessed via _display._app
+        if self._display and self._display._app and hasattr(self._display._app, "_mode_state"):
+            mode_state = self._display._app._mode_state
+            logger.info(f"[TextualAdapter] plan_mode={mode_state.plan_mode}, has_answer={bool(result.answer_text)}")
             if mode_state.plan_mode == "plan" and result.answer_text and not result.was_cancelled and not result.error:
                 # Planning completed - trigger approval flow
+                logger.info("[TextualAdapter] Triggering plan approval flow")
                 self._trigger_plan_approval(result, mode_state)
                 return
 
@@ -514,27 +518,31 @@ class TextualInteractiveAdapter(UIAdapter):
             result: The turn result from planning
             mode_state: TuiModeState instance
         """
+        logger.info("[TextualAdapter] _trigger_plan_approval called")
         plan_result = self._find_plan_from_workspace()
 
         if not plan_result:
+            logger.warning("[TextualAdapter] No plan found in workspace")
             self.notify("Planning completed but no plan found", "warning")
             mode_state.reset_plan_state()
-            if self._display and self._display._mode_bar:
+            if self._display and self._display._app and hasattr(self._display._app, "_mode_bar"):
                 self._display._call_app_method("_update_mode_bar_plan_mode", "normal")
             return
 
         plan_path, plan_data = plan_result
         tasks = plan_data.get("tasks", [])
+        logger.info(f"[TextualAdapter] Found plan with {len(tasks)} tasks at {plan_path}")
 
         if not tasks:
             self.notify("Plan has no tasks", "warning")
             mode_state.reset_plan_state()
-            if self._display and self._display._mode_bar:
+            if self._display and self._display._app and hasattr(self._display._app, "_mode_bar"):
                 self._display._call_app_method("_update_mode_bar_plan_mode", "normal")
             return
 
         # Show modal via display
         if self._display:
+            logger.info("[TextualAdapter] Calling show_plan_approval_modal")
             self._display.show_plan_approval_modal(tasks, plan_path, plan_data, mode_state)
 
     def _find_plan_from_workspace(self) -> Optional[tuple]:

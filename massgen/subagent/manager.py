@@ -222,11 +222,6 @@ class SubagentManager:
         except Exception as e:
             logger.warning(f"[SubagentManager] Failed to create live_logs symlink: {e}")
 
-    # NOTE: _write_status() was removed as part of status.json consolidation.
-    # The subagent's Orchestrator writes full_logs/status.json which is the single
-    # source of truth. See openspec/changes/fix-subagent-cancellation-recovery/
-    # specs/subagent-status-consolidation/spec.md for details.
-
     def _append_conversation(
         self,
         subagent_id: str,

@@ -2212,13 +2212,15 @@ class TextualTerminalDisplay(TerminalDisplay):
 
             self._app.notify("Executing plan...", severity="information", timeout=3)
 
-            # Submit execution prompt to input
-            if hasattr(self._app, "_question_input") and self._app._question_input:
-                self._app._question_input.value = execution_prompt
-                # Use call_later to ensure UI is updated before submission
-                self._app.call_later(self._app._question_input.action_submit)
+            # Submit execution prompt directly using _submit_question
+            if hasattr(self._app, "_submit_question"):
+                # Set the input value first
+                if hasattr(self._app, "question_input") and self._app.question_input:
+                    self._app.question_input.value = execution_prompt
+                # Submit as a new turn
+                self._app.call_later(lambda: self._app._submit_question(execution_prompt))
             else:
-                logger.error("[PlanExecution] No question input found to submit execution prompt")
+                logger.error("[PlanExecution] No _submit_question method found to execute plan")
                 mode_state.reset_plan_state()
 
         except Exception as e:

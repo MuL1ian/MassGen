@@ -165,6 +165,7 @@ class Orchestrator(ChatAgent):
         enable_rate_limit: bool = False,
         trace_classification: str = "legacy",
         generated_personas: Optional[Dict[str, Any]] = None,
+        plan_session_id: Optional[str] = None,
     ):
         """
         Initialize MassGen orchestrator.
@@ -190,6 +191,7 @@ class Orchestrator(ChatAgent):
                                   coordination/status as non-content for server mode.
             generated_personas: Pre-generated personas from previous turn (for multi-turn persistence)
                                Format: {agent_id: GeneratedPersona, ...}
+            plan_session_id: Optional plan session ID for plan execution mode (prevents workspace contamination)
         """
         super().__init__(
             session_id,
@@ -201,6 +203,7 @@ class Orchestrator(ChatAgent):
         self.agent_states = {aid: AgentState() for aid in agents.keys()}
         self.config = config or AgentConfig.create_openai_config()
         self.dspy_paraphraser = dspy_paraphraser
+        self._plan_session_id = plan_session_id
 
         # Debug: Log timeout config values
         logger.info(
@@ -6980,6 +6983,15 @@ Your answer:"""
                     )
                     self._final_presentation_content = existing_answer
 
+                    # Force a workspace snapshot before final answer saving in single-agent skip mode
+                    if is_single_agent_mode and agent and hasattr(agent, "backend") and agent.backend:
+                        filesystem_manager = getattr(agent.backend, "filesystem_manager", None)
+                        if filesystem_manager:
+                            await filesystem_manager.save_snapshot(
+                                timestamp=None,  # Use None for final snapshots
+                                is_final=True,
+                            )
+
                     # Save the final snapshot (creates final/ directory with answer.txt)
                     # This copies the agent's workspace to the final directory
                     final_context = self.get_last_context(self._selected_agent)
@@ -8454,12 +8466,17 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         if not self._selected_agent or not self._final_presentation_content:
             return None
 
-        winning_agent = self.agents.get(self._selected_agent)
+        # Use the final log directory workspace which we just saved
+        # This is guaranteed to have the correct content (from either workspace or snapshot_storage)
+        from massgen.logger_config import get_log_session_dir
+
         workspace_path = None
-        if winning_agent and winning_agent.backend.filesystem_manager:
-            workspace_path = str(
-                winning_agent.backend.filesystem_manager.get_current_workspace(),
-            )
+        log_session_dir = get_log_session_dir()
+        if log_session_dir:
+            final_workspace = log_session_dir / "final" / self._selected_agent / "workspace"
+            if final_workspace.exists():
+                workspace_path = str(final_workspace)
+                logger.info(f"[Orchestrator] Using final log workspace for session persistence: {workspace_path}")
 
         return {
             "final_answer": self._final_presentation_content,
@@ -8834,8 +8851,17 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                         f"[Orchestrator] Cleared workspace for {agent_id}: {workspace_path}",
                     )
 
+                    # Check if this is a plan→execute transition
+                    # For plan execution, we want a clean workspace (planning artifacts in context only)
+                    skip_workspace_copy = False
+                    if self._plan_session_id:
+                        skip_workspace_copy = True
+                        logger.info(
+                            f"[Orchestrator] Skipping workspace pre-population for plan execution (plan_session: {self._plan_session_id})",
+                        )
+
                     # Pre-populate with previous turn's results if available (creates writable copy)
-                    if previous_turn_workspace and previous_turn_workspace.exists():
+                    if not skip_workspace_copy and previous_turn_workspace and previous_turn_workspace.exists():
                         logger.info(
                             f"[Orchestrator] Pre-populating {agent_id} workspace with writable copy of turn n-1 from {previous_turn_workspace}",
                         )

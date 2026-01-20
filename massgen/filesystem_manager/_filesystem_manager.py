@@ -1769,37 +1769,47 @@ class FilesystemManager:
             commit_prefix = "[FINAL]" if is_final else "[SNAPSHOT]"
             self._git_commit_if_changed(self.cwd, f"{commit_prefix} Auto-commit before snapshot")
 
+        def has_meaningful_content(path: Optional[Path]) -> bool:
+            """Check if a directory contains meaningful deliverable content.
+
+            Excludes:
+            - .git directory (version control metadata)
+            - memory directory (workspace metadata, not deliverables)
+            - symlinks (reference to other locations)
+
+            Returns True only if there are actual deliverable files/directories.
+            """
+            if not path or not path.exists() or not path.is_dir():
+                return False
+            return any(not item.is_symlink() and item.name not in (".git", "memory") for item in path.iterdir())
+
         # Use current workspace as source
-        source_dir = self.cwd
-        source_path = Path(source_dir)
+        source_path = Path(self.cwd)
 
         if not source_path.exists() or not source_path.is_dir():
             logger.warning(f"[FilesystemManager] Source path invalid - exists: {source_path.exists()}, " f"is_dir: {source_path.is_dir() if source_path.exists() else False}")
             return
 
-        # Count non-symlink items in source path
-        has_real_content = any(not item.is_symlink() for item in source_path.iterdir()) if source_path.exists() else False
+        workspace_has_content = has_meaningful_content(source_path)
 
         # Check if snapshot_storage already has content (used for preservation logic)
-        snapshot_storage_has_content = False
-        if self.snapshot_storage and self.snapshot_storage.exists():
-            snapshot_storage_has_content = any(not item.is_symlink() for item in self.snapshot_storage.iterdir()) if self.snapshot_storage.is_dir() else False
+        snapshot_storage_has_content = has_meaningful_content(self.snapshot_storage)
 
-        # If workspace is empty but snapshot_storage has content, use snapshot_storage as source for log directories
-        # This ensures we preserve the files in logs even when workspace has been cleared
-        if not has_real_content and snapshot_storage_has_content:
-            logger.info(f"[FilesystemManager.save_snapshot] Workspace is empty but snapshot_storage has content, using snapshot_storage as source for logs: {self.snapshot_storage}")
-            source_path = self.snapshot_storage
+        use_snapshot_storage_for_logs = not workspace_has_content and snapshot_storage_has_content
+        source_for_logs = self.snapshot_storage if use_snapshot_storage_for_logs else source_path
 
-        if not any(source_path.iterdir()):
-            logger.warning(f"[FilesystemManager.save_snapshot] Source path {source_path} is empty, skipping snapshot")
+        if not workspace_has_content and not snapshot_storage_has_content:
+            logger.warning(f"[FilesystemManager.save_snapshot] Source path {source_for_logs} is empty, skipping snapshot")
             return
+
+        if use_snapshot_storage_for_logs:
+            logger.info(f"[FilesystemManager.save_snapshot] Workspace is empty but snapshot_storage has content, using snapshot_storage as source for logs: {self.snapshot_storage}")
 
         try:
             # --- 1. Save to snapshot_storage ---
             if self.snapshot_storage:
                 # Don't overwrite a non-empty snapshot with an empty workspace
-                if not has_real_content and snapshot_storage_has_content:
+                if not workspace_has_content and snapshot_storage_has_content:
                     logger.info(f"[FilesystemManager] Skipping snapshot_storage update - workspace is empty but snapshot_storage has content ({self.snapshot_storage})")
                 else:
                     # Normal case: overwrite with current workspace
@@ -1844,7 +1854,7 @@ class FilesystemManager:
                     logger.info(f"[FilesystemManager.save_snapshot] Regular log snapshot dest_dir: {dest_dir}")
 
                 items_copied = 0
-                for item in source_path.iterdir():
+                for item in source_for_logs.iterdir():
                     if item.is_symlink():
                         logger.debug(f"[FilesystemManager.save_snapshot] Skipping symlink: {item}")
                         continue

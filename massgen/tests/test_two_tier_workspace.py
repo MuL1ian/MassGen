@@ -5,6 +5,7 @@ import subprocess
 
 import pytest
 
+from massgen import logger_config
 from massgen.filesystem_manager._filesystem_manager import FilesystemManager
 
 
@@ -507,3 +508,51 @@ class TestLegacyFallback:
 
         assert test_file.exists(), "Files should work in workspace root"
         assert manager.use_two_tier_workspace is False, "Flag should be False"
+
+
+class TestFinalSnapshotSelection:
+    """Tests for choosing the correct source when saving final snapshots."""
+
+    @pytest.mark.asyncio
+    async def test_final_snapshot_uses_snapshot_storage_when_workspace_cleared(self, tmp_path, monkeypatch):
+        """Final snapshot should copy from snapshot_storage if workspace was cleared."""
+
+        # Isolate log output to the test directory
+        monkeypatch.setattr(logger_config, "_LOG_BASE_SESSION_DIR", None)
+        monkeypatch.setattr(logger_config, "_LOG_SESSION_DIR", None)
+        monkeypatch.setattr(logger_config, "_CURRENT_TURN", None)
+        monkeypatch.setattr(logger_config, "_CURRENT_ATTEMPT", None)
+        logger_config.set_log_base_session_dir_absolute(tmp_path / "logs")
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        snapshot_storage = tmp_path / "snapshots"
+        snapshot_storage.mkdir()
+        temp_parent = tmp_path / "temp_workspaces"
+        temp_parent.mkdir()
+
+        manager = FilesystemManager(
+            cwd=str(workspace),
+            agent_temporary_workspace_parent=str(temp_parent),
+            use_two_tier_workspace=True,
+        )
+
+        manager.setup_orchestration_paths(
+            agent_id="agent_a",
+            snapshot_storage=str(snapshot_storage),
+        )
+
+        artifact = workspace / "scratch" / "artifact.txt"
+        artifact.write_text("answer file")
+
+        # Populate snapshot_storage with the workspace contents
+        await manager.save_snapshot()
+        manager.clear_workspace()  # Clears workspace but preserves .git
+
+        # Final snapshot should use snapshot_storage fallback
+        await manager.save_snapshot(is_final=True)
+
+        final_workspace = logger_config.get_log_session_dir() / "final" / "agent_a" / "workspace"
+        final_artifact = final_workspace / "scratch" / "artifact.txt"
+        assert final_artifact.exists(), "Final workspace should include artifacts from snapshot storage"
+        assert final_artifact.read_text() == "answer file"
