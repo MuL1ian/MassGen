@@ -372,6 +372,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 - Focus only on the task you were given
 - Create any necessary files in your workspace
 - You cannot spawn additional subagents
+- Do not ask the human or request human input; subagents cannot broadcast to humans
 
 **Output Requirements:**
 - In your final answer, clearly list all files you want the parent agent to see along with their FULL ABSOLUTE PATHS. You can also list directories if needed.
@@ -771,6 +772,9 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         # Build coordination config - disable subagents to prevent nesting
         coord_settings = orch_config.coordination.copy() if orch_config and orch_config.coordination else {}
         coord_settings["enable_subagents"] = False  # CRITICAL: prevent nesting
+        # Subagents should not broadcast to humans (e.g., ask_others with broadcast=human)
+        if coord_settings.get("broadcast") == "human":
+            coord_settings["broadcast"] = False
 
         # Inherit planning settings from parent if not explicitly set in subagent config
         # This allows subagents to use planning tools when the parent has them enabled

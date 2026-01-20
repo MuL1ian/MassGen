@@ -1923,6 +1923,7 @@ Subagents are useful helpers but have limitations:
 2. **Fresh Context**: Subagents start with a clean slate (just the task you provide)
 3. **Context Files**: Pass `context_files` to give the subagent READ-ONLY access to files
 4. **No Nesting**: Subagents cannot spawn their own subagents
+5. **No Human Broadcast**: Subagents cannot ask the human or request human input
 
 ## Waiting for Subagents (CRITICAL)
 
