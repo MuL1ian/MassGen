@@ -2,97 +2,98 @@
 
 ## Overview
 
-Version 0.1.42 focuses on improving log sharing workflows and Claude Code integration.
+Version 0.1.42 focuses on improving context compression and log analysis workflows.
 
-- **Improve Log Sharing and Analysis** (Required): Enhanced log sharing workflows and analysis tools
-- **Claude Code Plugin for MassGen Agents** (Required): Plugin for spawning MassGen agents from Claude Code interface
+- **OpenAI Responses /compact Endpoint** (Required): Use OpenAI's native context compression instead of custom summarization
+- **Add Model Selector for Log Analysis** (Required): Allow users to choose which model to use for log analysis
 
 ## Key Technical Priorities
 
-1. **Improve Log Sharing and Analysis**: Enhanced log sharing workflows and analysis tools
-   **Use Case**: Better collaboration and debugging workflows
+1. **OpenAI Responses /compact Endpoint**: Native API-level context compression
+   **Use Case**: Reduce token usage and improve response quality with native compression
 
-2. **Claude Code Plugin for MassGen Agents**: Seamless MassGen integration with Claude Code
-   **Use Case**: Spawn multi-agent MassGen sessions from within Claude Code for complex tasks
+2. **Add Model Selector for Log Analysis**: Configurable model selection for analysis
+   **Use Case**: Flexibility in choosing analysis model based on cost/quality tradeoffs
 
 ## Key Milestones
 
-### Milestone 1: Improve Log Sharing and Analysis (REQUIRED)
+### Milestone 1: OpenAI Responses /compact Endpoint (REQUIRED)
 
-**Goal**: Enhance log sharing workflows and analysis tools
+**Goal**: Use OpenAI's native `/compact` endpoint instead of custom summarization
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#722](https://github.com/massgen/MassGen/issues/722)
+**Issue**: [#739](https://github.com/massgen/MassGen/issues/739)
 
-#### 1.1 Log Sharing Improvements
-- [ ] Enhance `massgen export` with better formatting
-- [ ] Add support for sharing to multiple platforms
-- [ ] Improve session preview and metadata
-- [ ] Optimize file size for large sessions
+#### 1.1 Research & Design
+- [ ] Study OpenAI's `/compact` endpoint API
+- [ ] Evaluate compression quality vs custom summarization
+- [ ] Design integration approach with existing compression system
+- [ ] Plan fallback strategy for non-OpenAI backends
 
-#### 1.2 Analysis Tools Enhancement
-- [ ] Add more detailed analysis metrics
-- [ ] Improve visualization of agent coordination
-- [ ] Add cost breakdown by phase
-- [ ] Enhance tool usage analysis
+#### 1.2 Implementation
+- [ ] Add `/compact` endpoint support to OpenAI backend
+- [ ] Integrate with existing context compression triggers
+- [ ] Handle edge cases (rate limits, API errors)
+- [ ] Add configuration options for compression behavior
 
-#### 1.3 Collaboration Features
-- [ ] Add comments/annotations to shared sessions
-- [ ] Enable collaborative session review
-- [ ] Add comparison tools for multiple sessions
+#### 1.3 Testing & Optimization
+- [ ] Benchmark compression quality
+- [ ] Compare token usage vs custom summarization
+- [ ] Test with various context sizes
+- [ ] Optimize for cost efficiency
 
-#### 1.4 Testing & Documentation
-- [ ] Test sharing workflows across platforms
-- [ ] Measure analysis tool performance
-- [ ] Update documentation with new features
-- [ ] Create usage examples and case studies
+#### 1.4 Documentation
+- [ ] Document new compression behavior
+- [ ] Update configuration reference
+- [ ] Add usage examples
+- [ ] Note limitations and fallback behavior
 
 **Success Criteria**:
-- Log sharing workflow is streamlined
-- Analysis tools provide actionable insights
-- Documentation is comprehensive
-- User feedback is positive
+- OpenAI `/compact` endpoint integration working
+- Token usage reduced compared to custom summarization
+- Fallback to custom summarization for non-OpenAI backends
+- Documentation complete
 
 ---
 
-### Milestone 2: Claude Code Plugin for MassGen Agents (REQUIRED)
+### Milestone 2: Add Model Selector for Log Analysis (REQUIRED)
 
-**Goal**: Create a plugin/extension for spawning MassGen agents directly from Claude Code interface
+**Goal**: Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 
 **Owner**: @ncrispino (nickcrispino on Discord)
 
-**Issue**: [#773](https://github.com/massgen/MassGen/issues/773)
+**Issue**: [#766](https://github.com/massgen/MassGen/issues/766)
 
-#### 2.1 Plugin Architecture
-- [ ] Research Claude Code plugin/extension API
-- [ ] Design plugin architecture and interface
-- [ ] Implement MassGen integration layer
-- [ ] Handle authentication and configuration
+#### 2.1 CLI Enhancement
+- [ ] Add `--model` flag to `massgen logs analyze` command
+- [ ] Support model selection via environment variable
+- [ ] Add model list/discovery option
+- [ ] Validate model availability before analysis
 
-#### 2.2 Core Features
-- [ ] Add "Spawn MassGen Agents" command
-- [ ] Quick config selection from UI
-- [ ] Pass current context to MassGen
-- [ ] Stream agent outputs back to Claude Code
+#### 2.2 Configuration Support
+- [ ] Add default analysis model to config
+- [ ] Support per-provider model defaults
+- [ ] Add cost estimation for selected model
+- [ ] Handle model fallbacks gracefully
 
 #### 2.3 User Experience
-- [ ] Design intuitive UI/UX
-- [ ] Add configuration wizard
-- [ ] Display agent coordination visually
-- [ ] Handle errors gracefully
+- [ ] Add interactive model selection (optional)
+- [ ] Display cost estimate before analysis
+- [ ] Show model capabilities relevant to analysis
+- [ ] Provide recommendations based on log size
 
-#### 2.4 Testing & Distribution
-- [ ] Test plugin with various workflows
-- [ ] Package for distribution
-- [ ] Publish to plugin marketplace (if available)
-- [ ] Create installation and usage documentation
+#### 2.4 Testing & Documentation
+- [ ] Test with various models across providers
+- [ ] Benchmark analysis quality vs cost
+- [ ] Document model selection options
+- [ ] Add usage examples
 
 **Success Criteria**:
-- Plugin integrates seamlessly with Claude Code
-- Users can spawn MassGen agents from Claude Code
-- Context passing works correctly
-- Documentation is clear and comprehensive
+- Model selector working for log analysis command
+- Users can choose from available models
+- Cost estimates displayed
+- Documentation complete
 
 ---
 
@@ -100,22 +101,22 @@ Version 0.1.42 focuses on improving log sharing workflows and Claude Code integr
 
 ### Functional Requirements
 
-**Improve Log Sharing and Analysis:**
-- [ ] Log sharing workflow enhanced
-- [ ] Analysis tools provide detailed insights
-- [ ] Collaboration features functional
+**OpenAI Responses /compact Endpoint:**
+- [ ] `/compact` endpoint integrated for OpenAI backend
+- [ ] Compression triggers seamlessly
+- [ ] Token usage reduced
+- [ ] Fallback working for other backends
+
+**Model Selector for Log Analysis:**
+- [ ] `--model` flag functional
+- [ ] Multiple providers supported
+- [ ] Cost estimates accurate
 - [ ] Documentation complete
 
-**Claude Code Plugin:**
-- [ ] Plugin installed and activated in Claude Code
-- [ ] MassGen agents spawn successfully
-- [ ] Context passing works correctly
-- [ ] UI is intuitive and responsive
-
 ### Performance Requirements
-- [ ] Log sharing is fast even for large sessions
-- [ ] Plugin has minimal performance overhead
+- [ ] Compression maintains response quality
 - [ ] No degradation in existing workflows
+- [ ] Cost reduction measurable
 
 ### Quality Requirements
 - [ ] All tests passing
@@ -128,25 +129,25 @@ Version 0.1.42 focuses on improving log sharing workflows and Claude Code integr
 ## Dependencies & Risks
 
 ### Dependencies
-- **Log Sharing**: Existing `massgen export` command, session storage format
-- **Claude Code Plugin**: Claude Code plugin/extension API, MassGen CLI
+- **OpenAI /compact**: OpenAI API availability, existing compression system
+- **Model Selector**: Model registry, token manager pricing data
 
 ### Risks & Mitigations
-1. **Platform Limitations**: *Mitigation*: Research platform capabilities thoroughly, implement fallbacks
-2. **Plugin API Changes**: *Mitigation*: Monitor Claude Code updates, maintain version compatibility
-3. **Context Passing Complexity**: *Mitigation*: Start with simple context, iterate based on feedback
+1. **API Changes**: *Mitigation*: Monitor OpenAI API updates, implement version checking
+2. **Compression Quality**: *Mitigation*: Benchmark against custom summarization, allow user choice
+3. **Model Availability**: *Mitigation*: Graceful fallbacks, clear error messages
 
 ---
 
 ## Future Enhancements (Post-v0.1.42)
 
 ### v0.1.43 Plans
-- TBD based on community feedback and priorities
+- **Improve Log Sharing and Analysis**: Enhanced log sharing workflows and analysis tools
+- **Claude Code Plugin for MassGen Agents**: Plugin for spawning MassGen agents from Claude Code
 
 ### Long-term Vision
-- **Advanced Agent Communication**: Sophisticated inter-agent protocols and negotiation
 - **Adaptive Context Management**: Dynamic context windows based on task requirements
-- **Tool Marketplace**: User-contributed tools and integrations
+- **Advanced Compression Strategies**: Multi-provider compression with quality optimization
 - **Cost Analytics**: Detailed cost tracking and budget management
 
 ---
@@ -155,10 +156,10 @@ Version 0.1.42 focuses on improving log sharing workflows and Claude Code integr
 
 | Phase | Focus | Key Deliverables | Owner | Priority |
 |-------|-------|------------------|-------|----------|
-| Phase 1 | Log Sharing and Analysis | Enhanced workflows, analysis tools | @ncrispino | **REQUIRED** |
-| Phase 2 | Claude Code Plugin | Plugin integration, context passing | @ncrispino | **REQUIRED** |
+| Phase 1 | OpenAI /compact Endpoint | API integration, compression | @ncrispino | **REQUIRED** |
+| Phase 2 | Model Selector | CLI enhancement, config support | @ncrispino | **REQUIRED** |
 
-**Target Release**: January 23, 2026
+**Target Release**: January 24, 2026
 
 ---
 
@@ -166,32 +167,31 @@ Version 0.1.42 focuses on improving log sharing workflows and Claude Code integr
 
 ### For Contributors
 
-**Improve Log Sharing and Analysis:**
-1. Review existing `massgen export` and log analysis features
-2. Identify pain points in current workflows
-3. Implement enhancements iteratively
-4. Gather user feedback and iterate
+**OpenAI Responses /compact Endpoint:**
+1. Review existing context compression in `massgen/backend/`
+2. Study OpenAI `/compact` endpoint documentation
+3. Implement integration with compression triggers
+4. Test with various context sizes
 
-**Claude Code Plugin:**
-1. Study Claude Code plugin/extension API
-2. Design plugin architecture
-3. Implement core features (spawn agents, context passing)
-4. Test thoroughly with various workflows
-5. Document installation and usage
+**Model Selector for Log Analysis:**
+1. Review `massgen logs analyze` command implementation
+2. Add `--model` flag support
+3. Integrate with model registry for validation
+4. Add cost estimation display
 
 ### For Users
 
-- v0.1.42 brings collaboration and integration improvements:
+- v0.1.42 brings compression and analysis improvements:
 
-  **Log Sharing and Analysis:**
-  - Easier session sharing workflows
-  - Better analysis tools and visualizations
-  - Enhanced collaboration features
+  **OpenAI /compact Endpoint:**
+  - Automatic use of OpenAI's native compression
+  - Reduced token usage for long conversations
+  - Maintained response quality
 
-  **Claude Code Plugin:**
-  - Spawn MassGen agents directly from Claude Code
-  - Pass context seamlessly between Claude Code and MassGen
-  - Visualize agent coordination within Claude Code interface
+  **Model Selector for Log Analysis:**
+  - Choose any model for log analysis
+  - See cost estimates before analysis
+  - Flexibility based on cost/quality needs
 
 ---
 
@@ -204,12 +204,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 - Documentation guidelines
 
 **Contact Track Owner:**
-- Log Sharing and Analysis: @ncrispino on Discord (nickcrispino)
-- Claude Code Plugin: @ncrispino on Discord (nickcrispino)
+- OpenAI /compact Endpoint: @ncrispino on Discord (nickcrispino)
+- Model Selector: @ncrispino on Discord (nickcrispino)
 
 ---
 
-*This roadmap reflects v0.1.42 priorities focusing on log sharing improvements and Claude Code integration.*
+*This roadmap reflects v0.1.42 priorities focusing on OpenAI context compression and log analysis model selection.*
 
-**Last Updated:** January 20, 2026
+**Last Updated:** January 21, 2026
 **Maintained By:** MassGen Team

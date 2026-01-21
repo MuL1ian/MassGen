@@ -227,10 +227,33 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.40 - Latest
-**New Features:** Textual TUI Interactive Mode, Context Path @ Syntax, Performance & Stability Improvements
+### v0.1.41 - Latest
+**New Features:** Async Subagent Execution, Subagent Round Timeouts, Extended Subagent Configuration
 
 ⚠️ **Note**: These features are experimental and under active development.
+
+**Key Features:**
+- **Async Subagent Execution**: Spawn subagents with `async_=True` for non-blocking parallel work while parent continues
+- **Automatic Result Injection**: Subagent results delivered via `SubagentCompleteHook` at next tool boundary
+- **Subagent Round Timeouts**: Per-round timeout control with `subagent_round_timeouts` config section
+- **Extended Subagent Config**: `subagent_default_timeout`, `subagent_min_timeout`, `subagent_max_timeout`, `subagent_max_concurrent`
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Async subagent execution - parent continues while subagent works
+uv run massgen --config massgen/configs/features/async_subagent_example.yaml \
+  "Research OAuth best practices and then implement authentication"
+
+# Subagent spawning with non-blocking execution
+# Parent agent calls spawn_subagents(async_=True) and continues working
+# Results injected automatically when subagent completes
+```
+
+### v0.1.40
+**New Features:** Textual TUI Interactive Mode, Context Path @ Syntax, Performance & Stability Improvements
 
 **Key Features:**
 - **Textual TUI Interactive Mode**: Launch with `--display textual` for interactive terminal UI with real-time agent streaming and keyboard shortcuts
