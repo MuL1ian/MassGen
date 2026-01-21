@@ -4,7 +4,7 @@
 import asyncio
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from loguru import logger
 
@@ -12,6 +12,8 @@ from massgen.broadcast.broadcast_dataclasses import (
     BroadcastRequest,
     BroadcastResponse,
     BroadcastStatus,
+    StructuredQuestion,
+    StructuredResponse,
 )
 
 if TYPE_CHECKING:
@@ -66,14 +68,16 @@ class BroadcastChannel:
     async def create_broadcast(
         self,
         sender_agent_id: str,
-        question: str,
+        question: Union[str, List[StructuredQuestion]],
         timeout: Optional[int] = None,
     ) -> str:
         """Create a new broadcast request.
 
         Args:
             sender_agent_id: ID of the agent sending the broadcast
-            question: The question to broadcast
+            question: The question to broadcast. Can be:
+                - A simple string for open-ended questions
+                - A list of StructuredQuestion objects for structured questions with options
             timeout: Maximum time to wait for responses (uses config default if None)
 
         Returns:
@@ -262,7 +266,7 @@ class BroadcastChannel:
         self,
         request_id: str,
         responder_id: str,
-        content: str,
+        content: Union[str, List[StructuredResponse]],
         is_human: bool = False,
     ) -> None:
         """Collect a response from an agent or human.
@@ -270,7 +274,9 @@ class BroadcastChannel:
         Args:
             request_id: ID of the broadcast request
             responder_id: ID of the responder (agent ID or "human")
-            content: The response content
+            content: The response content. Can be:
+                - A simple string for text responses
+                - A list of StructuredResponse objects for structured question responses
             is_human: Whether this is a human response
 
         Raises:
@@ -373,7 +379,8 @@ class BroadcastChannel:
 
         # Acquire lock to serialize human prompts - only one modal at a time
         async with self._human_input_lock:
-            logger.info(f"📢 [Human] Prompting human for broadcast from {broadcast.sender_agent_id}: {broadcast.question[:50]}...")
+            question_preview = broadcast.question_text[:50] if broadcast.question_text else "structured questions"
+            logger.info(f"📢 [Human] Prompting human for broadcast from {broadcast.sender_agent_id}: {question_preview}...")
 
             # Use coordination UI to prompt human
             if hasattr(self.orchestrator, "coordination_ui") and self.orchestrator.coordination_ui:
@@ -384,18 +391,43 @@ class BroadcastChannel:
                     )
 
                     if human_response:
-                        logger.info(f"📢 [Human] Received response: {human_response[:50]}...")
+                        # Handle response based on type
+                        if isinstance(human_response, list):
+                            # Structured response - convert dicts to StructuredResponse objects if needed
+                            structured_responses = []
+                            for resp in human_response:
+                                if isinstance(resp, StructuredResponse):
+                                    structured_responses.append(resp)
+                                elif isinstance(resp, dict):
+                                    structured_responses.append(StructuredResponse.from_dict(resp))
+                            response_content = structured_responses
+                            response_preview = f"structured ({len(structured_responses)} answers)"
+                        else:
+                            # Simple string response
+                            response_content = human_response
+                            response_preview = human_response[:50] if isinstance(human_response, str) else str(human_response)[:50]
+
+                        logger.info(f"📢 [Human] Received response: {response_preview}...")
                         await self.collect_response(
                             request_id=request_id,
                             responder_id="human",
-                            content=human_response,
+                            content=response_content,
                             is_human=True,
                         )
+
                         # Store Q&A for context injection
+                        # For structured questions, store serialized form
+                        if broadcast.is_structured:
+                            question_data = [q.to_dict() for q in broadcast.structured_questions]
+                            answer_data = [r.to_dict() if isinstance(r, StructuredResponse) else r for r in (response_content if isinstance(response_content, list) else [response_content])]
+                        else:
+                            question_data = broadcast.question
+                            answer_data = response_content
+
                         self._human_qa_history.append(
                             {
-                                "question": broadcast.question,
-                                "answer": human_response,
+                                "question": question_data,
+                                "answer": answer_data,
                             },
                         )
                         logger.info(f"📢 [Human] Stored Q&A (total: {len(self._human_qa_history)})")

@@ -1,4 +1,4 @@
-# MassGen v0.1.36 Release Announcement
+# MassGen v0.1.40 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,19 +7,21 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.36, adding @path Context Handling & Hook Framework!
+We're excited to release MassGen v0.1.40, adding Textual TUI Interactive Mode! 🚀
 
-Reference files inline with `@path` syntax - just type `@` to trigger an autocomplete file picker (like Claude Code). Extend agent behavior with PreToolUse/PostToolUse hooks for permission validation, content injection, and custom processing. Plus: Claude Code native hooks integration and improved Docker resource management.
+⚠️ **Note**: These features are experimental and under active development.
+
+MassGen now features an interactive terminal UI with `--display textual` for interactive sessions. Experience real-time agent output streaming, keyboard-driven navigation, workspace file browser, answer browser with side-by-side comparisons, and comprehensive modals for metrics, costs, votes, and timeline visualization. Enhanced plan execution with mode selection UI and improved final answer presentation.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.36
+pip install massgen==0.1.40
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.36
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.40
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -31,26 +33,11 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.36, adding @path Context Handling & Hook Framework!🚀 Reference files inline with `@path` syntax - just type `@` to trigger an autocomplete file picker (like Claude Code). Extend agent behavior with PreToolUse/PostToolUse hooks for permission validation, content injection, and custom processing. Plus: Claude Code native hooks integration and improved Docker resource management.
+We're excited to release MassGen v0.1.40, adding Textual TUI Interactive Mode! 🚀
 
-**Key Features:**
+Run `massgen --display textual` for an interactive terminal UI with real-time agent streaming, keyboard navigation (`j/k`, `:q`), workspace browser, answer comparisons, and modals for costs/votes/timeline.
 
-**@path Context Handling** - Inline context path references:
-- Type `@` in CLI for autocomplete file picker popup
-- `@path` (read), `@path:w` (write), `@dir/` (directory)
-- Context accumulation across turns
-- Deferred agent creation - Docker launches once with all paths
-
-**Hook Framework** - General hook framework for agent lifecycle events:
-- PreToolUse hooks for permission validation and argument modification
-- PostToolUse hooks for content injection (tool_result or user_message strategies)
-- Built-in MidStreamInjectionHook for cross-agent updates without losing work
-- Custom Python callable hooks with glob-style pattern matching
-- Configurable fail-open/fail-closed error handling
-
-**Claude Code Integration** - Native hooks support for Claude Code workflows
-
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.36
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.40
 
 Feature highlights:
 

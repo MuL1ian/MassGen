@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.36
+**Current Version:** v0.1.40
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** January 9, 2026
+**Last Updated:** January 20, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,47 +42,46 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.37** | 01/12/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization |
-| | | Add Fara-7B for Computer Use | @ncrispino | Support for Fara-7B model for computer use tasks |
-| **v0.1.38** | 01/14/26 | Integrate Smart Semantic Search | @ncrispino | Advanced semantic search capabilities for improved retrieval |
+| **v0.1.41** | 01/21/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization |
 | | | Add Model Selector for Log Analysis | @ncrispino | Choose model for `massgen logs analyze` self-analysis mode |
-| **v0.1.39** | 01/16/26 | Improve Log Sharing and Analysis | @ncrispino | Enhanced log sharing workflows and analysis tools |
+| **v0.1.42** | 01/23/26 | Improve Log Sharing and Analysis | @ncrispino | Enhanced log sharing workflows and analysis tools |
+| | | Claude Code Plugin for MassGen Agents | @ncrispino | Spawn MassGen agents from Claude Code interface |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.36 - Hook Framework & Unified @path Context Handling (COMPLETED)
+## ✅ v0.1.40 - Textual TUI Interactive Mode (COMPLETED)
 
-**Released: January 9, 2026**
+**Released: January 20, 2026**
 
 ### Features
 
-- **Hook Framework**: General hook framework for agent lifecycle events ([MAS-215](https://linear.app/massgen-ai/issue/MAS-215), [PR #769](https://github.com/massgen/MassGen/pull/769))
-  - PreToolUse/PostToolUse hooks for permission validation and content injection
-  - Injection strategies: `tool_result` and `user_message`
-  - Built-in MidStreamInjectionHook and HighPriorityTaskReminderHook
-  - Custom Python callable hooks with glob-style pattern matching
-  - Configurable fail-open/fail-closed error handling
-
-- **Unified `@path` Context Handling**: Inline context path references ([PR #771](https://github.com/massgen/MassGen/pull/771))
-  - Inline file picker with `@` trigger for autocomplete
-  - Syntax: `@path` (read), `@path:w` (write), `@dir/` (directory)
-  - Context accumulation across turns
-  - Deferred agent creation for Docker efficiency
-
-- **Claude Code Native Hooks**: Integration with Claude Code's hook system
+- **Textual TUI Interactive Mode**: Interactive terminal UI with `--display textual` for interactive MassGen sessions
+  - Real-time agent output streaming with syntax highlighting
+  - Agent tab bar for switching between agents and post-evaluation views
+  - Keyboard-driven navigation with extensive keyboard shortcuts
+  - Keyboard navigation with `j/k` scrolling and `:q` to quit
+  - Comprehensive modals for metrics, costs, votes, timeline, workspace browser, and answer comparisons
+  - Context path injection UI with `@` syntax support
+  - Human feedback integration with prompt modal
+  - Enhanced final answer presentation with formatting
+  - Plan execution mode selection UI
 
 ### Fixed
-
-- Docker resource cleanup when recreating agents for new `@path` references
-- Path handling consistency across CLI and Web UI
+- Tool inputs not showing in later answers
+- Empty space rendering issues
+- Scrolling behavior and visual indicators
+- Ctrl+C handling and graceful shutdown
+- Menu display and click event issues
+- Path permission handling
+- Task plan rendering
 
 *See [Ongoing Work](#-ongoing-work--continuous-releases) section for detailed track information.*
 
 ---
 
-## 📋 v0.1.37 - OpenAI Compact Endpoint & Model Support
+## 📋 v0.1.41 - OpenAI Compact Endpoint & Log Analysis Model Selector
 
 ### Features
 
@@ -92,52 +91,37 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Leverage API-level context compression for better efficiency
 - **Use Case**: Reduce token usage and improve response quality with native compression
 
-**2. Add Fara-7B for Computer Use** (@ncrispino)
-- Issue: [#646](https://github.com/massgen/MassGen/issues/646)
-- Support for Fara-7B model for computer use tasks
-- Integration with existing computer use infrastructure
-- **Use Case**: Alternative model option for GUI automation workflows
-
-### Success Criteria
-- ✅ OpenAI compact endpoint integration working
-- ✅ Fara-7B working with computer use features
-
----
-
-## 📋 v0.1.38 - Smart Semantic Search & Log Analysis Model Selector
-
-### Features
-
-**1. Integrate Smart Semantic Search** (@ncrispino)
-- Issue: [#639](https://github.com/massgen/MassGen/issues/639)
-- Advanced semantic search capabilities for improved retrieval
-- Integration with existing search infrastructure
-- **Use Case**: Better context retrieval and information discovery
-
-**2. Add Model Selector for Log Analysis** (@ncrispino)
+**2. Add Model Selector for Log Analysis**
 - Issue: [#766](https://github.com/massgen/MassGen/issues/766)
 - Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - Configurable model selection for different analysis requirements
 - **Use Case**: Flexibility in choosing analysis model based on cost/quality tradeoffs
 
 ### Success Criteria
-- ✅ Semantic search integrated and functional
+- ✅ OpenAI compact endpoint integration working
 - ✅ Model selector working for log analysis command
 
 ---
 
-## 📋 v0.1.39 - Log Sharing & Analysis
+## 📋 v0.1.42 - Log Sharing and Claude Code Integration
 
 ### Features
 
-**1. Improve Log Sharing and Analysis** (@ncrispino)
+**1. Improve Log Sharing and Analysis**
 - Issue: [#722](https://github.com/massgen/MassGen/issues/722)
 - Enhanced log sharing workflows
 - Improved analysis tools and visualizations
 - **Use Case**: Better collaboration and debugging workflows
 
+**2. Claude Code Plugin for MassGen Agents**
+- Issue: [#773](https://github.com/massgen/MassGen/issues/773)
+- Plugin/extension for spawning MassGen agents directly from Claude Code interface
+- Seamless integration with Claude Code workflows
+- **Use Case**: Spawn multi-agent MassGen sessions from within Claude Code for complex tasks
+
 ### Success Criteria
 - ✅ Log sharing improvements deployed
+- ✅ Claude Code plugin functional and published
 
 ---
 
@@ -639,7 +623,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#739](https://github.com/massgen/MassGen/issues/739)
 - Use OpenAI's native `/compact` endpoint instead of custom summarization
 - Leverage API-level context compression for better efficiency
-- **Target:** v0.1.37
+- **Target:** v0.1.41
 
 ### Track: Improve Logging (@ncrispino, nickcrispino)
 - Issue: [#683](https://github.com/massgen/MassGen/issues/683)
@@ -648,23 +632,11 @@ These features are being actively developed on **separate parallel tracks** and 
 - New `massgen logs analyze` CLI command with self-analysis mode
 - **Status:** ✅ Completed in v0.1.35
 
-### Track: Add Fara-7B for Computer Use (@ncrispino, nickcrispino)
-- Issue: [#646](https://github.com/massgen/MassGen/issues/646)
-- Support for Fara-7B model for computer use tasks
-- Integration with existing computer use infrastructure
-- **Target:** v0.1.37
-
-### Track: Integrate Smart Semantic Search (@ncrispino, nickcrispino)
-- Issue: [#639](https://github.com/massgen/MassGen/issues/639)
-- Advanced semantic search capabilities for improved retrieval
-- Integration with existing search infrastructure
-- **Target:** v0.1.38
-
 ### Track: Add Model Selector for Log Analysis (@ncrispino, nickcrispino)
 - Issue: [#766](https://github.com/massgen/MassGen/issues/766)
 - Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - Configurable model selection for different analysis requirements
-- **Target:** v0.1.38
+- **Target:** v0.1.41
 
 ### Track: General Hook Framework (@ncrispino, nickcrispino)
 - Issue: [#745](https://github.com/massgen/MassGen/issues/745)
@@ -673,11 +645,19 @@ These features are being actively developed on **separate parallel tracks** and 
 - Enable custom actions at key orchestration points
 - **Status:** ✅ Completed in v0.1.36
 
+### Track: Plan and Execute Workflow (@ncrispino, nickcrispino)
+- PR: [#794](https://github.com/massgen/MassGen/pull/794)
+- Complete plan-then-execute workflow separating "what to build" from "how to build it"
+- `--plan-and-execute` and `--execute-plan` CLI options
+- Task verification workflow with `verified` status and verification groups
+- Plan storage system in `.massgen/plans/` with frozen snapshots
+- **Status:** ✅ Completed in v0.1.39
+
 ### Track: Improve Log Sharing and Analysis (@ncrispino, nickcrispino)
 - Issue: [#722](https://github.com/massgen/MassGen/issues/722)
 - Enhanced log sharing workflows
 - Improved analysis tools and visualizations
-- **Target:** v0.1.39
+- **Target:** v0.1.42
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -692,6 +672,12 @@ These features are being actively developed on **separate parallel tracks** and 
 - Task/subtask decomposition and parallel coordination
 - Assignment of agents to specific tasks and increasing of diversity
 - Improvement in voting as tasks continue
+
+**Self-Learning & Adaptation**
+- Agents learn from past executions to improve future performance
+- Automatic skill acquisition from successful task completions
+- Feedback loops for continuous improvement
+- Memory systems for retaining learned patterns across sessions
 
 **Visual Workflow Designer**
 - No-code multi-agent workflow creation
@@ -754,5 +740,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** January 9, 2026
+**Last Updated:** January 20, 2026
 **Maintained By:** MassGen Team

@@ -13,7 +13,10 @@ Design Document: docs/dev_notes/system_prompt_architecture_redesign.md
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from loguru import logger
 
 
 class Priority(IntEnum):
@@ -473,9 +476,7 @@ class CodeBasedToolsSection(SystemPromptSection):
                     mcp_items = [f"- **{name}**: {desc}" for name, desc in mcp_descriptions.items()]
                     mcp_servers_list = "\n\n**Available MCP Servers:**\n" + "\n".join(mcp_items)
             except Exception as e:
-                import logging
-
-                logging.getLogger(__name__).warning(f"Failed to fetch MCP descriptions: {e}")
+                logger.warning(f"Failed to fetch MCP descriptions: {e}")
                 # Fall back to just showing server names
                 server_names = [s.get("name", "unknown") for s in self.mcp_servers]
                 if server_names:
@@ -913,9 +914,10 @@ class WorkspaceStructureSection(SystemPromptSection):
     Args:
         workspace_path: Path to the agent's workspace directory
         context_paths: List of paths containing important context
+        use_two_tier_workspace: If True, include documentation for scratch/deliverable structure
     """
 
-    def __init__(self, workspace_path: str, context_paths: List[str]):
+    def __init__(self, workspace_path: str, context_paths: List[str], use_two_tier_workspace: bool = False):
         super().__init__(
             title="Workspace Structure",
             priority=Priority.HIGH,
@@ -923,6 +925,7 @@ class WorkspaceStructureSection(SystemPromptSection):
         )
         self.workspace_path = workspace_path
         self.context_paths = context_paths
+        self.use_two_tier_workspace = use_two_tier_workspace
 
     def build_content(self) -> str:
         """Build workspace structure documentation."""
@@ -934,6 +937,32 @@ class WorkspaceStructureSection(SystemPromptSection):
             "\nThis is your primary working directory where you should create " "and manage files for this task.\n",
         )
 
+        # Add two-tier workspace documentation if enabled
+        if self.use_two_tier_workspace:
+            content_parts.append("### Two-Tier Workspace Structure\n")
+            content_parts.append("Your workspace has two directories for organizing your work:\n")
+            content_parts.append("- **`scratch/`** - Use for working files, experiments, intermediate results, evaluation scripts")
+            content_parts.append("- **`deliverable/`** - Use for final outputs you want to showcase to voters\n")
+            content_parts.append("**IMPORTANT: Deliverables must be self-contained and complete.**")
+            content_parts.append("The `deliverable/` directory should contain everything needed to use your output:")
+            content_parts.append("- All required files (not just one component)")
+            content_parts.append("- Any dependencies, assets, or supporting files")
+            content_parts.append("- A README explaining how to run/use it")
+            content_parts.append("Think of `deliverable/` as a standalone package that voters can immediately use without needing files from `scratch/` or anywhere else.\n")
+            content_parts.append("To promote files from scratch to deliverable, use standard file operations:")
+            content_parts.append("- Copy: Use filesystem tools to copy files")
+            content_parts.append("- Move: Use command line `mv` or filesystem move\n")
+            content_parts.append("**Note**: Voters will see BOTH directories, so scratch/ helps them understand your process.\n")
+            content_parts.append("### Git Version Control\n")
+            content_parts.append("Your workspace is version controlled with git. Changes are automatically committed:")
+            content_parts.append("- `[INIT]` - When workspace is created")
+            content_parts.append("- `[SNAPSHOT]` - Before coordination checkpoints")
+            content_parts.append("- `[TASK]` - When you complete a task with completion notes\n")
+            content_parts.append("**Tip**: Use `git log --oneline` to see your work history. This can help you:")
+            content_parts.append("- Review what you've accomplished")
+            content_parts.append("- Find when specific changes were made")
+            content_parts.append("- Recover previous versions if needed\n")
+
         if self.context_paths:
             content_parts.append("**Context paths**:")
             for path in self.context_paths:
@@ -943,6 +972,146 @@ class WorkspaceStructureSection(SystemPromptSection):
             )
 
         return "\n".join(content_parts)
+
+
+class ProjectInstructionsSection(SystemPromptSection):
+    """
+    Project-specific instructions from CLAUDE.md or AGENTS.md files.
+
+    Automatically discovers and includes project instruction files when they exist
+    in context paths. Follows the agents.md standard (https://agents.md/) with
+    hierarchical discovery - the closest CLAUDE.md or AGENTS.md to the context
+    path wins.
+
+    Priority order:
+    1. CLAUDE.md (Claude Code specific)
+    2. AGENTS.md (universal standard - 60k+ projects)
+
+    Discovery algorithm:
+    - Starts at context path directory
+    - Walks UP the directory tree searching for instruction files
+    - Returns first CLAUDE.md or AGENTS.md found (closest wins)
+    - CLAUDE.md takes precedence over AGENTS.md at same level
+    - Stops at filesystem root or after 10 levels (safety limit)
+
+    Args:
+        context_paths: List of context path dictionaries (with "path" key)
+        workspace_root: Agent workspace root (kept for backwards compatibility, not used for search boundary)
+    """
+
+    def __init__(self, context_paths: List[Dict[str, str]], workspace_root: str):
+        super().__init__(
+            title="Project Instructions",
+            priority=Priority.HIGH,  # Important context, but not operational instructions
+            xml_tag="project_instructions",
+        )
+        self.context_paths = context_paths
+        self.workspace_root = Path(workspace_root) if workspace_root else Path.cwd()
+
+    def discover_instruction_file(self, context_path: Path) -> Optional[Path]:
+        """
+        Walk up from context_path searching for CLAUDE.md or AGENTS.md.
+        Returns the closest instruction file found.
+        CLAUDE.md takes precedence over AGENTS.md at the same level.
+
+        Stops searching when:
+        1. An instruction file is found (success)
+        2. We reach the filesystem root (no more parents)
+        3. We've searched up to a reasonable depth (safety limit)
+        """
+        current = context_path if context_path.is_dir() else context_path.parent
+
+        # Safety limit: search up to 10 levels max (prevents infinite loops)
+        max_depth = 10
+        depth = 0
+
+        # Walk up directory hierarchy
+        while current and depth < max_depth:
+            # Priority 1: CLAUDE.md (Claude-specific)
+            claude_md = current / "CLAUDE.md"
+            if claude_md.exists() and claude_md.is_file():
+                return claude_md
+
+            # Priority 2: AGENTS.md (universal standard)
+            agents_md = current / "AGENTS.md"
+            if agents_md.exists() and agents_md.is_file():
+                return agents_md
+
+            # Stop at filesystem root
+            parent = current.parent
+            if parent == current:
+                break
+
+            current = parent
+            depth += 1
+
+        return None
+
+    def build_content(self) -> str:
+        """
+        Discover and inject CLAUDE.md/AGENTS.md contents from context paths.
+        Uses "closest wins" semantics - only one instruction file per context path.
+        """
+        # Collect discovered instruction files (deduplicate by path)
+        discovered_files = {}  # path -> file_path mapping
+
+        for ctx_path in self.context_paths:
+            path_str = ctx_path.get("path", "")
+            if not path_str:
+                continue
+
+            try:
+                path = Path(path_str).resolve()
+
+                # Check if path IS an instruction file directly
+                if path.name in ["CLAUDE.md", "AGENTS.md"]:
+                    if path.exists() and path.is_file():
+                        discovered_files[str(path)] = path
+                        continue
+
+                # Otherwise, discover from directory hierarchy
+                instruction_file = self.discover_instruction_file(path)
+                if instruction_file:
+                    discovered_files[str(instruction_file)] = instruction_file
+
+            except Exception as e:
+                logger.warning(f"Error checking context path {path_str} for instruction files: {e}")
+
+        if not discovered_files:
+            return ""  # No instruction files found
+
+        # Read and format contents
+        content_parts = []
+
+        for file_path in discovered_files.values():
+            try:
+                contents = file_path.read_text(encoding="utf-8")
+                # Dedent/clean up any leading/trailing whitespace
+                contents = contents.strip()
+
+                logger.info(f"[ProjectInstructionsSection] Loaded {file_path.name} ({len(contents)} chars)")
+                content_parts.append(f"**From {file_path.name}** (`{file_path}`):")
+                content_parts.append(contents)
+
+            except Exception as e:
+                logger.warning(f"Could not read instruction file {file_path}: {e}")
+
+        if not content_parts:
+            return ""  # Failed to read any files
+
+        # Format with appropriate framing
+        # NOTE: We follow Claude in using a softer framing than strict "Follow these instructions"
+        # because this context may or may not be relevant to the current task
+        header = [
+            "The following project instructions were found in your context paths.",
+            "",
+            "**IMPORTANT**: This context may or may not be relevant to your current task.",
+            "Use these instructions as helpful reference material when applicable,",
+            "but do not feel obligated to follow guidance that doesn't apply to what you're doing.",
+            "",
+        ]
+
+        return "\n".join(header + content_parts)
 
 
 class CommandExecutionSection(SystemPromptSection):
@@ -1040,6 +1209,7 @@ class FilesystemOperationsSection(SystemPromptSection):
         workspace_prepopulated: bool = False,
         agent_answers: Optional[Dict[str, str]] = None,
         enable_command_execution: bool = False,
+        agent_mapping: Optional[Dict[str, str]] = None,
     ):
         super().__init__(
             title="Filesystem Operations",
@@ -1053,6 +1223,7 @@ class FilesystemOperationsSection(SystemPromptSection):
         self.workspace_prepopulated = workspace_prepopulated
         self.agent_answers = agent_answers
         self.enable_command_execution = enable_command_execution
+        self.agent_mapping = agent_mapping  # Optional: from coordination_tracker.get_reverse_agent_mapping()
 
     def build_content(self) -> str:
         parts = ["## Filesystem Access"]
@@ -1082,12 +1253,18 @@ class FilesystemOperationsSection(SystemPromptSection):
 
             # Add agent subdirectories in tree format
             if self.agent_answers:
-                agent_mapping = {}
-                for i, agent_id in enumerate(sorted(self.agent_answers.keys()), 1):
-                    agent_mapping[agent_id] = f"agent{i}"
+                # Use provided mapping or create from agent_answers keys (legacy behavior)
+                if self.agent_mapping:
+                    # Filter to only agents with answers, maintain global numbering
+                    agent_mapping = {aid: self.agent_mapping[aid] for aid in self.agent_answers.keys() if aid in self.agent_mapping}
+                else:
+                    agent_mapping = {}
+                    for i, agent_id in enumerate(sorted(self.agent_answers.keys()), 1):
+                        agent_mapping[agent_id] = f"agent{i}"
 
                 workspace_tree += "   Available agent workspaces:\n"
-                agent_items = list(agent_mapping.items())
+                # Sort by anon ID to ensure consistent display order
+                agent_items = sorted(agent_mapping.items(), key=lambda x: x[1])
                 for idx, (agent_id, anon_id) in enumerate(agent_items):
                     is_last = idx == len(agent_items) - 1
                     prefix = "   └── " if is_last else "   ├── "
@@ -1290,6 +1467,7 @@ class FilesystemSection(SystemPromptSection):
         docker_mode: Whether commands execute in Docker containers
         enable_sudo: Whether sudo is available in Docker containers
         enable_code_based_tools: Whether code-based tools mode is enabled
+        use_two_tier_workspace: Whether two-tier workspace (scratch/deliverable) is enabled
     """
 
     def __init__(
@@ -1306,6 +1484,7 @@ class FilesystemSection(SystemPromptSection):
         docker_mode: bool = False,
         enable_sudo: bool = False,
         enable_code_based_tools: bool = False,
+        use_two_tier_workspace: bool = False,
     ):
         super().__init__(
             title="Filesystem & Workspace",
@@ -1315,7 +1494,7 @@ class FilesystemSection(SystemPromptSection):
 
         # Create subsections with appropriate priorities
         self.subsections = [
-            WorkspaceStructureSection(workspace_path, context_paths),
+            WorkspaceStructureSection(workspace_path, context_paths, use_two_tier_workspace=use_two_tier_workspace),
             FilesystemOperationsSection(
                 main_workspace=main_workspace,
                 temp_workspace=temp_workspace,
@@ -1521,7 +1700,7 @@ You have provided your maximum number of new answers. Now you MUST vote for the 
 
 Analyze the existing answers carefully, then call the `vote` tool to select the best one.
 
-IMPORTANT: The only workflow action available to you is `vote`. You cannot submit new answers.
+Note: All your other tools are still available to help you evaluate answers. The only restriction is that `vote` is your only workflow tool - you cannot submit new answers.
 
 *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
 
@@ -1985,16 +2164,16 @@ class BroadcastCommunicationSection(SystemPromptSection):
             if self.broadcast_mode == "human":
                 lines.extend(
                     [
-                        "- Call `ask_others(question)` with your question",
+                        "- Call `ask_others(questions=[...])` with structured questions (PREFERRED)",
                         "- The tool blocks and waits for the human's response",
-                        "- Returns the human's response when ready",
+                        "- Returns the human's selections/responses when ready",
                         "- You can then continue with your task",
                     ],
                 )
             else:
                 lines.extend(
                     [
-                        "- Call `ask_others(question)` with your question",
+                        "- Call `ask_others(questions=[...])` with structured questions (PREFERRED)",
                         "- The tool blocks and waits for responses from other agents",
                         "- Returns all responses immediately when ready",
                         "- You can then continue with your task",
@@ -2003,7 +2182,7 @@ class BroadcastCommunicationSection(SystemPromptSection):
         else:
             lines.extend(
                 [
-                    "- Call `ask_others(question, wait=False)` to send question without waiting",
+                    "- Call `ask_others(questions=[...], wait=False)` to send without waiting",
                     "- Continue working on other tasks",
                     "- Later, check status with `check_broadcast_status(request_id)`",
                     "- Get responses with `get_broadcast_responses(request_id)` when ready",
@@ -2018,13 +2197,53 @@ class BroadcastCommunicationSection(SystemPromptSection):
                 "- Use when you genuinely need coordination or input",
                 "- Actually CALL THE TOOL (don't just mention it in your answer text)",
                 "- Respond helpfully when others ask you questions",
+                "- **Limit to 5-7 questions max per call** - too many questions overwhelms the responder",
+                "- For each question, **provide 2-5 predefined options** when possible",
                 "",
-                "**Examples of good questions (include ALL relevant context - other agents cannot see your workspace):**",
-                '- "I\'m building an e-commerce site with Next.js. The client wants product pages to be SEO-friendly. Should I use SSR, SSG, or ISR for the product catalog?"',
-                "- \"I need to add a 'last_login' field to track user sessions. The User model currently has id, email, password_hash, created_at. Any concerns with adding this timestamp field?\"",
-                '- "Setting up OAuth for a Node.js/Express API. The project uses Passport.js. Should I add Google OAuth with passport-google-oauth20, or is there a better approach?"',
-                '- "I\'m refactoring authentication in a Django app that currently uses session-based auth. Considering switching to JWT for mobile API support. What are the tradeoffs?"',
-                '- "Building a real-time dashboard that needs to handle 1000+ concurrent users. Using React frontend with WebSocket. Should I use Socket.io or native WebSocket API?"',
+                "**PREFERRED: Use structured questions with the `questions` parameter:**",
+                "Structured questions provide a better UX with clear options. Use them for most questions.",
+                "",
+                "Example - single structured question:",
+                "```json",
+                "ask_others(questions=[{",
+                '  "text": "Which rendering approach should I use for product pages?",',
+                '  "options": [',
+                '    {"id": "ssr", "label": "SSR", "description": "Server-side rendering"},',
+                '    {"id": "ssg", "label": "SSG", "description": "Static site generation"},',
+                '    {"id": "isr", "label": "ISR", "description": "Incremental static regeneration"}',
+                "  ],",
+                '  "multiSelect": false,',
+                '  "allowOther": true',
+                "}])",
+                "```",
+                "",
+                "Example - multiple questions in one call:",
+                "```json",
+                "ask_others(questions=[",
+                "  {",
+                '    "text": "Which frontend framework?",',
+                '    "options": [',
+                '      {"id": "react", "label": "React"},',
+                '      {"id": "vue", "label": "Vue"},',
+                '      {"id": "svelte", "label": "Svelte"}',
+                "    ]",
+                "  },",
+                "  {",
+                '    "text": "Which databases do you use?",',
+                '    "options": [',
+                '      {"id": "postgres", "label": "PostgreSQL"},',
+                '      {"id": "mysql", "label": "MySQL"},',
+                '      {"id": "mongodb", "label": "MongoDB"}',
+                "    ],",
+                '    "multiSelect": true',
+                "  }",
+                "])",
+                "```",
+                "",
+                "**FALLBACK: Use simple text for truly open-ended questions:**",
+                'Only use `ask_others(question="...")` when predefined options don\'t make sense:',
+                '- "What specific challenges have you encountered with this codebase?"',
+                '- "Describe your ideal workflow for this feature."',
             ],
         )
 
@@ -2063,17 +2282,21 @@ class EvolvingSkillsSection(SystemPromptSection):
 
     Includes the full evolving-skill-creator content directly in the system prompt
     so agents don't need to read it separately.
+
+    When plan_context is provided (from tasks/plan.json), adds guidance to
+    reference the plan and capture task-specific learnings.
     """
 
-    def __init__(self):
+    def __init__(self, plan_context: dict | None = None):
         super().__init__(
             title="Evolving Skills",
             priority=6,  # After core_behaviors(4), task_planning(5)
             xml_tag="evolving_skills",
         )
+        self.plan_context = plan_context
 
     def build_content(self) -> str:
-        return """## Evolving Skills
+        base_content = """## Evolving Skills
 
 **REQUIRED**: Before starting work on any task, you MUST create an evolving skill - a detailed workflow plan.
 
@@ -2195,6 +2418,24 @@ After execution, the actual scripts live in `scripts/` and can be reused.
 4. **Update with learnings** - The skill improves through use
 5. **Keep scripts reusable** - Design tools to work in similar future tasks"""
 
+        # Append plan-specific guidance if plan context is available
+        if self.plan_context:
+            task_count = len(self.plan_context.get("tasks", []))
+            base_content += f"""
+
+### Plan Integration
+
+You have an active task plan with **{task_count} tasks** in `tasks/plan.json`.
+
+When creating your evolving skill:
+1. **Reference the plan**: Add `Task plan: tasks/plan.json ({task_count} tasks)` in your Overview section
+2. **Focus on learnings**: The plan has task structure - your skill should capture HOW to execute and what you LEARNED
+3. **Map insights to tasks**: In your Learnings section, note which task IDs your insights apply to (e.g., "T003: Found that X works better than Y")
+4. **Keep minimal**: Don't duplicate the entire plan in your skill - focus on execution details and improvements
+"""
+
+        return base_content
+
 
 class OutputFirstVerificationSection(SystemPromptSection):
     """
@@ -2306,13 +2547,6 @@ When evaluating your own or others' work, use prompts that look for **flaws**:
 - "What flaws, issues, or missing elements do you see? Be critical."
 - "What would a demanding user complain about?"
 - "Does this fully meet the requirements, or are there gaps?"
-
-### Tool usage:
-```
-read_media(file_path="screenshot.png", prompt="What flaws or issues do you see? Be critical.")
-read_media(file_path="diagram.png", prompt="What's missing or poorly done?")
-read_media(file_path="output.mp4", prompt="What problems or gaps exist?")
-```
 
 **Supported formats:**
 - Images: png, jpg, jpeg, gif, webp, bmp

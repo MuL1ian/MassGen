@@ -11,16 +11,26 @@ from .base import BaseToolkit, ToolType
 class VoteToolkit(BaseToolkit):
     """Vote toolkit for agent coordination workflows."""
 
-    def __init__(self, valid_agent_ids: Optional[List[str]] = None, template_overrides: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        valid_agent_ids: Optional[List[str]] = None,
+        template_overrides: Optional[Dict[str, Any]] = None,
+        anon_agent_ids: Optional[List[str]] = None,
+    ):
         """
         Initialize the Vote toolkit.
 
         Args:
-            valid_agent_ids: List of valid agent IDs for voting
+            valid_agent_ids: List of valid agent IDs for voting (real IDs, legacy)
             template_overrides: Optional template overrides for customization
+            anon_agent_ids: Pre-computed anonymous agent IDs (e.g., ["agent1", "agent3"]).
+                           If provided, these are used directly for the vote enum.
+                           Pass from coordination_tracker.get_agents_with_answers_anon() for
+                           global consistency with injections and vote validation.
         """
         self.valid_agent_ids = valid_agent_ids
         self._template_overrides = template_overrides or {}
+        self.anon_agent_ids = anon_agent_ids
 
     @property
     def toolkit_id(self) -> str:
@@ -59,7 +69,7 @@ class VoteToolkit(BaseToolkit):
         Get vote tool definition based on API format.
 
         Args:
-            config: Configuration including api_format and potentially valid_agent_ids.
+            config: Configuration including api_format and potentially valid_agent_ids or anon_agent_ids.
 
         Returns:
             List containing the vote tool definition.
@@ -71,8 +81,14 @@ class VoteToolkit(BaseToolkit):
                 return [override(self.valid_agent_ids)]
             return [override]
 
-        # Get valid agent IDs from config if not set
-        valid_ids = config.get("valid_agent_ids", self.valid_agent_ids)
+        # Get anonymous agent IDs for the vote enum
+        # Priority: 1) config anon_agent_ids, 2) instance anon_agent_ids, 3) generate from valid_ids
+        anon_ids = config.get("anon_agent_ids", self.anon_agent_ids)
+        if anon_ids is None:
+            # Fallback: generate from valid_agent_ids count (legacy behavior)
+            valid_ids = config.get("valid_agent_ids", self.valid_agent_ids)
+            if valid_ids:
+                anon_ids = [f"agent{i}" for i in range(1, len(valid_ids) + 1)]
 
         api_format = config.get("api_format", "chat_completions")
 
@@ -98,9 +114,8 @@ class VoteToolkit(BaseToolkit):
             }
 
             # Add enum constraint for valid agent IDs
-            if valid_ids:
-                anon_agent_ids = [f"agent{i}" for i in range(1, len(valid_ids) + 1)]
-                tool_def["input_schema"]["properties"]["agent_id"]["enum"] = anon_agent_ids
+            if anon_ids:
+                tool_def["input_schema"]["properties"]["agent_id"]["enum"] = anon_ids
 
             return [tool_def]
 
@@ -129,9 +144,8 @@ class VoteToolkit(BaseToolkit):
             }
 
             # Add enum constraint for valid agent IDs
-            if valid_ids:
-                anon_agent_ids = [f"agent{i}" for i in range(1, len(valid_ids) + 1)]
-                tool_def["function"]["parameters"]["properties"]["agent_id"]["enum"] = anon_agent_ids
+            if anon_ids:
+                tool_def["function"]["parameters"]["properties"]["agent_id"]["enum"] = anon_ids
 
             return [tool_def]
 
@@ -160,8 +174,7 @@ class VoteToolkit(BaseToolkit):
             }
 
             # Add enum constraint for valid agent IDs
-            if valid_ids:
-                anon_agent_ids = [f"agent{i}" for i in range(1, len(valid_ids) + 1)]
-                tool_def["function"]["parameters"]["properties"]["agent_id"]["enum"] = anon_agent_ids
+            if anon_ids:
+                tool_def["function"]["parameters"]["properties"]["agent_id"]["enum"] = anon_ids
 
             return [tool_def]

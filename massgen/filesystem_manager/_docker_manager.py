@@ -1029,6 +1029,157 @@ class DockerManager:
         except Exception as e:
             logger.warning(f"⚠️ [Docker] Could not log container info: {e}")
 
+    def get_container_health(self, agent_id: str) -> Dict[str, Any]:
+        """
+        Get health/status information for a container.
+
+        Args:
+            agent_id: Agent identifier
+
+        Returns:
+            Dictionary with container health info:
+            - exists: bool
+            - status: str (running, exited, paused, etc.)
+            - running: bool
+            - exit_code: int or None
+            - error: str or None
+            - started_at: str or None
+            - finished_at: str or None
+            - oom_killed: bool indicating whether the container was OOM-killed
+            - pid: int or None for the container's main process ID
+        """
+        container = self.containers.get(agent_id)
+        if not container:
+            return {
+                "exists": False,
+                "status": "not_found",
+                "running": False,
+                "exit_code": None,
+                "error": f"No container found for agent {agent_id}",
+                "started_at": None,
+                "finished_at": None,
+            }
+
+        try:
+            container.reload()  # Refresh state from Docker daemon
+            state = container.attrs.get("State", {})
+
+            return {
+                "exists": True,
+                "status": container.status,
+                "running": state.get("Running", False),
+                "exit_code": state.get("ExitCode"),
+                "error": state.get("Error") or None,
+                "started_at": state.get("StartedAt"),
+                "finished_at": state.get("FinishedAt"),
+                "oom_killed": state.get("OOMKilled", False),
+                "pid": state.get("Pid"),
+            }
+        except Exception as e:
+            return {
+                "exists": True,
+                "status": "unknown",
+                "running": False,
+                "exit_code": None,
+                "error": f"Failed to get container state: {e}",
+                "started_at": None,
+                "finished_at": None,
+            }
+
+    def get_container_logs(
+        self,
+        agent_id: str,
+        tail: int = 100,
+        timestamps: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Get logs from a container.
+
+        Args:
+            agent_id: Agent identifier
+            tail: Number of lines to retrieve from the end (default 100)
+            timestamps: Include timestamps in logs
+
+        Returns:
+            Dictionary with:
+            - success: bool
+            - logs: str (the log content)
+            - error: str or None
+        """
+        container = self.containers.get(agent_id)
+        if not container:
+            return {
+                "success": False,
+                "logs": "",
+                "error": f"No container found for agent {agent_id}",
+            }
+
+        try:
+            logs = container.logs(
+                stdout=True,
+                stderr=True,
+                tail=tail,
+                timestamps=timestamps,
+            )
+            log_str = logs.decode("utf-8") if isinstance(logs, bytes) else logs
+
+            return {
+                "success": True,
+                "logs": log_str,
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "logs": "",
+                "error": f"Failed to get container logs: {e}",
+            }
+
+    def save_container_logs(
+        self,
+        agent_id: str,
+        log_path: Path,
+        tail: int = 500,
+    ) -> bool:
+        """
+        Save container logs to a file.
+
+        Args:
+            agent_id: Agent identifier
+            log_path: Path to save logs to
+            tail: Number of lines to retrieve (default 500)
+
+        Returns:
+            True if logs were saved successfully, False otherwise
+        """
+        result = self.get_container_logs(agent_id, tail=tail, timestamps=True)
+
+        if not result["success"]:
+            logger.warning(f"⚠️ [Docker] Could not get logs for agent {agent_id}: {result['error']}")
+            return False
+
+        try:
+            # Add container health info as header
+            health = self.get_container_health(agent_id)
+
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write(f"# Docker Container Logs for agent: {agent_id}\n")
+                f.write(f"# Container Status: {health.get('status', 'unknown')}\n")
+                f.write(f"# Running: {health.get('running', 'unknown')}\n")
+                f.write(f"# Exit Code: {health.get('exit_code', 'N/A')}\n")
+                f.write(f"# OOM Killed: {health.get('oom_killed', 'N/A')}\n")
+                f.write(f"# Error: {health.get('error', 'None')}\n")
+                f.write(f"# Started At: {health.get('started_at', 'N/A')}\n")
+                f.write(f"# Finished At: {health.get('finished_at', 'N/A')}\n")
+                f.write("#" + "=" * 79 + "\n\n")
+                f.write(result["logs"])
+
+            logger.info(f"✅ [Docker] Saved container logs to {log_path}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ [Docker] Failed to save container logs: {e}")
+            return False
+
     def __del__(self):
         """Cleanup all containers on deletion."""
         try:

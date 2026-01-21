@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from massgen.tool._result import ExecutionResult, TextContent
 
@@ -117,8 +117,8 @@ async def image_to_image_generation(
                 output_blocks=[TextContent(data=json.dumps(result, indent=2))],
             )
 
-        # Initialize OpenAI client
-        client = OpenAI(api_key=openai_api_key)
+        # Initialize async OpenAI client
+        client = AsyncOpenAI(api_key=openai_api_key)
 
         # Prepare content list with prompt and images
         content = [{"type": "input_text", "text": prompt}]
@@ -201,7 +201,7 @@ async def image_to_image_generation(
 
         try:
             # Generate variations using gpt-4.1 API with all images at once
-            response = client.responses.create(
+            response = await client.responses.create(
                 model=model,
                 input=[
                     {

@@ -26,13 +26,27 @@ import asyncio
 import copy
 import json
 import os
+import re
 import shutil
 import sys
 import threading
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+)
+
+if TYPE_CHECKING:
+    from .plan_storage import PlanSession
 
 import questionary
 import yaml
@@ -213,6 +227,337 @@ def _restore_terminal_for_input() -> None:
         pass  # Best effort
 
 
+def get_task_planning_prompt_prefix(
+    plan_depth: str = "medium",
+    enable_subagents: bool = False,
+    broadcast_mode: Union[Literal["human", "agents"], bool] = "human",
+) -> str:
+    """Generate the user prompt prefix for task planning mode.
+
+    This prefix is prepended to the user's question when --plan mode is active.
+    It instructs agents to interactively create structured feature lists.
+
+    Args:
+        plan_depth: One of "shallow", "medium", or "deep" controlling task granularity.
+        enable_subagents: Whether subagents are enabled for research tasks.
+        broadcast_mode: One of "human", "agents", or False. Controls whether ask_others() is available.
+
+    Returns:
+        The prompt prefix string to prepend to the user's question.
+    """
+    depth_config = {
+        "shallow": {"target": "5-10", "detail": "high-level phases only"},
+        "medium": {"target": "20-50", "detail": "sections with tasks"},
+        "deep": {"target": "100-200+", "detail": "granular step-by-step"},
+    }
+    cfg = depth_config.get(plan_depth, depth_config["medium"])
+
+    # Subagent research section (only if enabled)
+    subagent_section = ""
+    if enable_subagents:
+        subagent_section = """
+## Research with Subagents
+
+You have subagents available for research. Use them to:
+- Investigate specific areas of the codebase in parallel
+- Research technical options or dependencies
+- Explore integration points with existing code
+- Gather information to inform scope decisions
+
+Spawn subagents for research tasks before finalizing your plan.
+"""
+
+    # Conditional scope confirmation section based on broadcast mode
+    if broadcast_mode == "human":
+        scope_section = """### 1. Scope Confirmation (REQUIRED FIRST)
+
+Before any deep research, analyze the request and verify scope with the user.
+
+**Step 1: Categorize requirements and assumptions**
+
+Parse the user's request into three categories:
+
+1. **Explicitly Stated** - Things the user directly mentioned
+   - Example: "Build a REST API" → User said "REST API"
+
+2. **Critical Assumptions** - High-level decisions that affect scope/direction (NEED HUMAN VERIFICATION)
+   - User intent or business logic
+   - Major architectural choices (monolith vs microservices, SQL vs NoSQL)
+   - Security/compliance requirements
+   - Feature scope boundaries
+   - Example: "Build a REST API" → Is this for internal use or public? What data sensitivity?
+
+3. **Technical/Implementation Assumptions** - Lower-level choices (AGENT CONSENSUS via voting)
+   - Specific technologies/frameworks
+   - Code organization patterns
+   - Standard practices (error handling, logging, validation)
+   - Example: "Build a REST API" → Express vs FastAPI, JWT details, specific DB choice
+
+**Step 2: Verify ONLY THE MOST CRITICAL assumptions with human**
+
+Be selective - only ask about assumptions where you truly cannot make a good decision without human input.
+
+**When to ask the human**:
+- User intent is ambiguous (internal tool vs public product?)
+- Business/domain knowledge required (compliance, data sensitivity)
+- Major scope decisions (which features are in/out?)
+- Trade-offs that depend on user priorities (speed vs security vs cost)
+
+**When NOT to ask the human** (let consensus decide):
+- Technical implementation details (framework, database, auth method)
+- Standard practices (error handling, logging, testing approach)
+- Scope refinements that you can revisit after initial consensus
+- Decisions where you can make a reasonable recommendation
+
+**IMPORTANT**: When you DO ask, offer recommendations with reasoning:
+
+GOOD (selective + recommendations):
+```
+I need to clarify scope before planning this REST API:
+
+1. **Usage context**: Is this for internal use or public-facing?
+   - Recommendation: I'll assume internal unless you specify, which means simpler auth and fewer rate limits
+
+2. **Data sensitivity**: What type of data will this handle?
+   - Recommendation: I'll plan for standard business data (not public, not highly sensitive) unless you need HIPAA/PCI compliance
+
+3. **Integration needs**: Do you have existing systems this must integrate with?
+   - If yes, please specify - this affects the approach significantly
+
+Let me know if my assumptions are wrong or if there are other critical requirements.
+```
+
+BAD (asking everything):
+```
+Should I use Express or FastAPI?
+Should I use JWT or OAuth?
+Should I use PostgreSQL or MongoDB?
+Which testing framework?
+How should I structure the code?
+```
+
+**Step 3: Document technical assumptions and recommendations for consensus**
+
+For technical/implementation assumptions, present your recommendations with reasoning in your answer.
+
+**Be opinionated**: Make specific technical recommendations based on:
+- The user's explicit requirements
+- Industry best practices
+- Your analysis of the codebase (if extending existing project)
+- Trade-offs you've considered
+
+Other agents will:
+- Propose alternative approaches if they disagree
+- Challenge your technical choices with their reasoning
+- Refine scope to keep tasks focused and useful
+- Vote when they're happy with the combination of choices
+
+**Benefits of consensus**:
+- Explores wider design space through agent debate
+- Ensures all tasks are critical and actively useful
+- Prevents scope divergence through multi-agent validation
+- Catches assumptions one agent might miss
+
+**Note**: You can always ask the human for clarification in later rounds after seeing consensus. Start with your best recommendations, refine through voting, then verify critical decisions if needed.
+
+**Step 4: Feature scope (with recommendations)**
+
+If the request contains **multiple distinct features**, recommend which to prioritize:
+
+GOOD (scoped recommendation):
+```
+I see this request involves three main features:
+1. User authentication (CORE - needed for everything else)
+2. Todo CRUD operations (CORE - primary functionality)
+3. Email notifications (NICE-TO-HAVE - can add later)
+
+Recommendation: Let's scope this planning session to features 1-2, then add notifications in a follow-up. Does that work?
+```
+
+BAD (asking without recommendation):
+```
+This has multiple features. Which ones do you want?
+```
+
+**After critical verification (minimal ask_others calls), proceed to research. Technical assumptions and scope refinements will be refined through voting.**"""
+    else:
+        # No human interaction - agents make all decisions through consensus
+        scope_section = """### 1. Scope Analysis (REQUIRED FIRST)
+
+Before any deep research, analyze the request and make decisions through agent consensus.
+
+**Step 1: Categorize requirements and assumptions**
+
+Parse the user's request into three categories:
+
+1. **Explicitly Stated** - Things the user directly mentioned
+   - Example: "Build a REST API" → User said "REST API"
+
+2. **Critical Assumptions** - High-level decisions that affect scope/direction
+   - User intent or business logic
+   - Major architectural choices (monolith vs microservices, SQL vs NoSQL)
+   - Security/compliance requirements
+   - Feature scope boundaries
+   - Example: "Build a REST API" → Assume internal use or public-facing?
+
+3. **Technical/Implementation Assumptions** - Lower-level choices
+   - Specific technologies/frameworks
+   - Code organization patterns
+   - Standard practices (error handling, logging, validation)
+   - Example: "Build a REST API" → Express vs FastAPI, JWT details, specific DB choice
+
+**Step 2: Make opinionated recommendations for ALL assumptions**
+
+Since you don't have human interaction, you MUST make decisions autonomously.
+
+**Be opinionated**: Make specific recommendations for ALL assumptions based on:
+- The user's explicit requirements
+- Industry best practices
+- Your analysis of the codebase (if extending existing project)
+- Trade-offs you've considered
+- Reasonable defaults when ambiguous
+
+**Document your reasoning**: For each assumption, explain WHY you chose that approach.
+
+Example:
+```
+I'm making these decisions for this REST API:
+
+1. **Usage context**: Internal use (simpler auth, no rate limiting needed)
+   - Reasoning: No mention of public users, so assuming internal tooling
+
+2. **Data sensitivity**: Standard business data (moderate security)
+   - Reasoning: No compliance requirements mentioned, so standard practices
+
+3. **Tech stack**: FastAPI + PostgreSQL + JWT
+   - Reasoning: FastAPI for async support, PostgreSQL for reliability, JWT for stateless auth
+
+4. **Scope**: Core features only (auth + CRUD), no notifications yet
+   - Reasoning: Start with MVP, can add features later
+```
+
+**Step 3: Refine through consensus**
+
+Other agents will:
+- Propose alternative approaches if they disagree
+- Challenge your assumptions with their reasoning
+- Suggest different scope boundaries
+- Vote when they're happy with the combination of choices
+
+**Benefits of consensus**:
+- Explores wider design space through agent debate
+- Ensures all tasks are critical and actively useful
+- Prevents scope divergence through multi-agent validation
+- Catches assumptions one agent might miss
+
+**Critical**: ALL decisions must be made through consensus. No human will verify them, so agents must carefully debate and validate each choice.
+
+**After consensus is reached, proceed to research. All assumptions and scope will be refined through voting.**"""
+
+    return f"""# TASK PLANNING MODE
+
+You are in task planning mode. Your goal is to **interactively** create a comprehensive task plan.
+
+## Planning Process
+
+Follow this process in order:
+
+{scope_section}
+
+### 2. Research & Exploration
+Once scope is confirmed:
+- Explore the codebase to understand existing structure
+- Investigate integration points
+- Identify potential technical challenges{subagent_section}
+
+### 3. Clarifying Questions
+As you research, ask follow-up questions about:
+- Edge cases and error handling expectations
+- Performance or security requirements
+- User experience preferences
+- Anything ambiguous you discovered
+
+### 4. Plan Creation
+Only after scope confirmation and sufficient research:
+- Create the feature list at the specified depth
+- Organize features by logical grouping
+- If multiple distinct features exist, consider separate spec files
+
+## Output Requirements
+
+1. **Primary artifact**: `project_plan.json` - Write this file using file write tools:
+   - If `deliverable/` folder exists in your workspace, put it there: `deliverable/project_plan.json`
+   - Otherwise, put it in your workspace root: `project_plan.json`
+2. **Supporting docs**: Create additional markdown docs as needed (same location as project_plan.json):
+   - User stories or requirements docs
+   - Technical approach / design decisions
+   - Separate spec files if request contains multiple distinct features
+
+**IMPORTANT**: Write `project_plan.json` directly as a file. Do NOT use MCP planning tools
+(create_task_plan, update_task_status, etc.) to create this deliverable - those tools are for
+tracking your own internal work progress, not for creating the project plan deliverable.
+
+## Planning Principles
+
+**Focus on outcomes, not implementation details.** Describe WHAT the final product needs, not HOW to build it. Implementation choices happen during execution.
+
+**Think about final product quality:**
+- If it's visual, it should LOOK good - include quality visuals, not just code
+- If it produces output, that output should be polished and professional
+- Consider what a user/viewer would actually experience
+
+**Verification should test the PRODUCT FIRST, then source code:**
+1. Does the final product work? (run it, use it, see it)
+2. Does it look/feel right? (visual quality, UX)
+3. Only then: is the code correct? (builds, tests pass)
+
+**Tasks should be achievable with the available tools.** Executing agents will have access to the configured tools and will figure out how to use them.
+
+## Task List Format
+Write `project_plan.json` with this structure:
+```json
+{{
+  "tasks": [
+    {{
+      "id": "F001",
+      "description": "Feature Name - What this feature accomplishes and the expected outcome",
+      "status": "pending",
+      "depends_on": ["F000"],
+      "priority": "high|medium|low",
+      "metadata": {{
+        "verification": "How to verify this task is complete",
+        "verification_method": "Automated verification approach",
+        "verification_group": "optional_group_name"
+      }}
+    }}
+  ]
+}}
+```
+
+### Metadata Fields (Optional but Recommended)
+- **verification**: What to check - testable completion criteria (e.g., "Homepage displays correctly", "API returns 200")
+- **verification_method**: Automated verification approach (no manual human steps). Can check both correctness (builds, tests, API responses) and quality (visual analysis, output review).
+- **verification_group**: Group related tasks for batch verification (e.g., "foundation", "frontend_ui", "api_endpoints").
+  During execution, tasks are marked `completed` then later `verified` in groups.
+
+## Depth: {plan_depth.upper()}
+- Target: {cfg["target"]} features/tasks
+- Detail level: {cfg["detail"]}
+
+## Quality Criteria
+- Each task should be independently verifiable
+- Dependencies (depends_on) should form a valid DAG (no cycles)
+- Descriptions should be specific enough to implement
+- Scope should be confirmed with user before detailed planning
+- Verification criteria should be testable and specific
+- Use verification_group to batch related tasks (e.g., verify all pages after building them)
+
+---
+
+USER'S REQUEST:
+"""
+
+
 # Global PromptSession instance (reused across prompts for better terminal handling)
 _prompt_session: Optional[PromptSession] = None
 
@@ -261,7 +606,10 @@ async def read_multiline_input_async(
         loop = asyncio.get_running_loop()
         # Strip ANSI codes for fallback
         plain_prompt = prompt if not use_ansi_prompt else "User: "
-        first_line = await loop.run_in_executor(None, lambda: input(plain_prompt).strip())
+        first_line = await loop.run_in_executor(
+            None,
+            lambda: input(plain_prompt).strip(),
+        )
 
     # Check for multi-line delimiters
     if first_line.startswith('"""'):
@@ -932,6 +1280,8 @@ def create_agents_from_config(
 ) -> Dict[str, ConfigurableAgent]:
     """Create agents from configuration.
 
+    TIMING: This function is instrumented for performance analysis.
+
     Args:
         config: Configuration dictionary
         orchestrator_config: Optional orchestrator configuration
@@ -1006,6 +1356,15 @@ def create_agents_from_config(
         # Inject rate limiting flag from CLI
         backend_config["enable_rate_limit"] = enable_rate_limit
 
+        # Inject two-tier workspace setting from coordination config
+        orchestrator_section = orchestrator_config or {}
+        coordination_settings_for_injection = orchestrator_section.get(
+            "coordination",
+            {},
+        )
+        if coordination_settings_for_injection.get("use_two_tier_workspace", False):
+            backend_config["use_two_tier_workspace"] = True
+
         # Inject session mount parameters for multi-turn Docker support
         # This enables the session directory to be pre-mounted so all turn
         # workspaces are automatically visible without container recreation
@@ -1013,10 +1372,32 @@ def create_agents_from_config(
             backend_config["filesystem_session_id"] = filesystem_session_id
             backend_config["session_storage_base"] = session_storage_base
 
-        # Substitute variables like ${cwd} in backend config
+        # Substitute variables like ${cwd} in backend config, then apply unique suffix
         if "cwd" in backend_config:
             variables = {"cwd": backend_config["cwd"]}
             backend_config = _substitute_variables(backend_config, variables)
+
+            # Apply unique suffix to workspace paths to prevent filesystem conflicts
+            # and identity leakage between agents. Each agent gets a unique suffix.
+            # This runs for ALL entrypoints (CLI, SDK, Web UI).
+            import uuid
+            from pathlib import PurePath
+
+            original_cwd = backend_config["cwd"]
+            cwd_path = PurePath(original_cwd)
+            leaf = cwd_path.name
+            # Normalize only "workspaceN" pattern to prevent identity leakage
+            if re.fullmatch(r"workspace\d+", leaf):
+                leaf = re.sub(r"\d+$", "", leaf)
+                base_name = str(cwd_path.with_name(leaf))
+            else:
+                base_name = str(cwd_path)
+            # Generate unique suffix per agent
+            agent_workspace_suffix = uuid.uuid4().hex[:8]
+            backend_config["cwd"] = f"{base_name}_{agent_workspace_suffix}"
+            logger.debug(
+                f"Auto-generated unique workspace: {original_cwd} -> {backend_config['cwd']}",
+            )
 
         # Infer backend type from model if not explicitly provided
         backend_type = backend_config.get("type") or (get_backend_type_from_model(backend_config["model"]) if "model" in backend_config else None)
@@ -1080,7 +1461,7 @@ def create_agents_from_config(
         total = len(agent_entries)
         if progress_callback:
             progress_callback(
-                f"Creating agent {i}/{total}: {agent_id}...",
+                f"🤖 Initializing {agent_id} ({i}/{total})...",
                 f"Backend: {backend_type}",
             )
 
@@ -1183,7 +1564,7 @@ def create_agents_from_config(
                 enabled=True,
             )
             logger.info(
-                f"📊 Context monitor created for {agent_config.agent_id}: " f"{context_monitor.context_window:,} tokens, " f"trigger={trigger_threshold*100:.0f}%, target={target_ratio*100:.0f}%",
+                f"📊 Context monitor created for {agent_config.agent_id}: " f"{context_monitor.context_window:,} tokens, " f"trigger={trigger_threshold * 100:.0f}%, target={target_ratio * 100:.0f}%",
             )
 
         # Enable NLIP per-agent if configured in YAML
@@ -1479,7 +1860,7 @@ def create_simple_config(
 
     # Add required workspace configuration for Claude Code backend
     if backend_type == "claude_code":
-        backend_config["cwd"] = "workspace1"
+        backend_config["cwd"] = "workspace"
 
     # Use provided UI config or default to rich_terminal for CLI usage
     if ui_config is None:
@@ -1641,18 +2022,6 @@ def relocate_filesystem_paths(config: Dict[str, Any]) -> None:
             # Otherwise, relocate under .massgen/workspaces/
             backend_config["cwd"] = str(massgen_dir / "workspaces" / user_cwd)
 
-    # Validate no duplicate workspace paths (critical for parallel execution)
-    workspace_paths = []
-    for agent_data in agent_entries:
-        backend_config = agent_data.get("backend", {})
-        if "cwd" in backend_config:
-            cwd = Path(backend_config["cwd"]).resolve()
-            if cwd in workspace_paths:
-                raise ConfigurationError(
-                    f"Duplicate workspace path detected: {cwd}\n" "Each agent must have a unique workspace directory.\n" "For parallel execution, ensure configs use different workspace names.",
-                )
-            workspace_paths.append(cwd)
-
 
 async def handle_session_persistence(
     orchestrator,
@@ -1661,6 +2030,7 @@ async def handle_session_persistence(
     config_path: Optional[str] = None,
     model: Optional[str] = None,
     log_directory: Optional[str] = None,
+    models_dict: Optional[Dict[str, str]] = None,
 ) -> tuple[Optional[str], int, Optional[str]]:
     """
     Handle session persistence after orchestrator completes.
@@ -1719,6 +2089,15 @@ async def handle_session_persistence(
         "task": question,
         "session_id": session_id,
     }
+
+    # Add model information if available
+    if models_dict:
+        metadata["models"] = models_dict
+        # Also add winning agent's model for quick reference
+        winning_agent_id = final_result["winning_agent_id"]
+        if winning_agent_id in models_dict:
+            metadata["winning_model"] = models_dict[winning_agent_id]
+
     metadata_file = turn_dir / "metadata.json"
     metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
@@ -1911,6 +2290,7 @@ async def run_question_with_history(
             subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
             subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
             subagent_orchestrator=subagent_orchestrator_config,
+            use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
         )
 
     # Get session_id from session_info (will be generated in save_final_state if not exists)
@@ -2060,12 +2440,16 @@ async def run_question_with_history(
                     3,
                 ),
                 subagent_orchestrator=subagent_orchestrator_config,
+                use_two_tier_workspace=coordination_settings.get(
+                    "use_two_tier_workspace",
+                    False,
+                ),
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
     print(f"Agents: {', '.join(agents.keys())}", flush=True)
     if history:
-        print(f"History: {len(history)//2} previous exchanges", flush=True)
+        print(f"History: {len(history) // 2} previous exchanges", flush=True)
     print(f"Question: {question}", flush=True)
     print("\n" + "=" * 60, flush=True)
 
@@ -2128,11 +2512,11 @@ async def run_question_with_history(
             # Check if restart is needed
             if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
                 # Restart needed - create fresh UI for next attempt
-                print(f"\n{'='*80}")
+                print(f"\n{'=' * 80}")
                 print(
                     f"🔄 Restarting coordination - Attempt {orchestrator.current_attempt + 1}/{orchestrator.max_attempts}",
                 )
-                print(f"{'='*80}\n")
+                print(f"{'=' * 80}\n")
 
                 # Reset all agent backends to ensure clean state for next attempt
                 for agent_id, agent in orchestrator.agents.items():
@@ -2207,9 +2591,9 @@ async def run_question_with_history(
             agent_state = orchestrator.agent_states.get(selected_agent_id)
             if agent_state and agent_state.answer:
                 print(f"\n{BRIGHT_CYAN}📋 Selected winner: {selected_agent_id}{RESET}")
-                print(f"{BRIGHT_WHITE}{'-'*60}{RESET}")
+                print(f"{BRIGHT_WHITE}{'-' * 60}{RESET}")
                 print(agent_state.answer)
-                print(f"{BRIGHT_WHITE}{'-'*60}{RESET}")
+                print(f"{BRIGHT_WHITE}{'-' * 60}{RESET}")
 
         logger.info("Turn cancelled by user in multi-turn mode")
     finally:
@@ -2258,7 +2642,11 @@ async def run_question_with_history(
     log_dir = get_log_session_root()
     log_dir_name = log_dir.name  # Get log_YYYYMMDD_HHMMSS from path
 
-    session_id_to_use, updated_turn, normalized_response = await handle_session_persistence(
+    (
+        session_id_to_use,
+        updated_turn,
+        normalized_response,
+    ) = await handle_session_persistence(
         orchestrator,
         question,
         session_info,
@@ -2643,11 +3031,11 @@ async def run_single_question(
             if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
                 # Restart needed - create fresh UI for next attempt
                 if display_type not in ("none", "silent"):
-                    print(f"\n{'='*80}")
+                    print(f"\n{'=' * 80}")
                     print(
                         f"🔄 Restarting coordination - Attempt {orchestrator.current_attempt + 1}/{orchestrator.max_attempts}",
                     )
-                    print(f"{'='*80}\n")
+                    print(f"{'=' * 80}\n")
 
                 # Set log attempt BEFORE creating new UI so display gets correct path
                 # orchestrator.current_attempt was already incremented by _reset_for_restart()
@@ -4533,6 +4921,781 @@ def print_help_messages():
     rich_console.print(help_panel)
 
 
+async def run_textual_interactive_mode(
+    agents: Dict[str, SingleAgent],
+    ui_config: Dict[str, Any],
+    original_config: Dict[str, Any] = None,
+    orchestrator_cfg: Dict[str, Any] = None,
+    config_path: Optional[str] = None,
+    memory_session_id: Optional[str] = None,
+    initial_question: Optional[str] = None,
+    restore_session_if_exists: bool = False,
+    debug: bool = False,
+    **kwargs,
+):
+    """Run MassGen in Textual TUI interactive mode.
+
+    This launches the Textual TUI immediately, displaying the ASCII art,
+    session configuration, and input box within the TUI itself.
+    All interaction happens inside the TUI without Rich terminal output.
+
+    Uses the unified InteractiveSessionController for multi-turn orchestration.
+    """
+    import asyncio
+    import threading
+
+    from massgen.agent_config import AgentConfig
+    from massgen.cancellation import CancellationRequested
+    from massgen.frontend.coordination_ui import CoordinationUI
+    from massgen.frontend.displays.textual_terminal_display import (
+        TEXTUAL_AVAILABLE,
+        TextualTerminalDisplay,
+    )
+    from massgen.frontend.interactive_controller import (
+        InteractiveSessionController,
+        SessionContext,
+        TextualInteractiveAdapter,
+        TextualThreadQueueQuestionSource,
+        TurnResult,
+    )
+    from massgen.orchestrator import Orchestrator
+
+    if not TEXTUAL_AVAILABLE:
+        print("⚠️ Textual library not available. Install with: pip install textual")
+        print("   Falling back to Rich terminal mode...")
+        ui_config["display_type"] = "rich_terminal"
+        return await run_interactive_mode(
+            agents=agents,
+            ui_config=ui_config,
+            original_config=original_config,
+            orchestrator_cfg=orchestrator_cfg,
+            config_path=config_path,
+            memory_session_id=memory_session_id,
+            initial_question=initial_question,
+            restore_session_if_exists=restore_session_if_exists,
+            debug=debug,
+            **kwargs,
+        )
+
+    # Build agent info for display (handle deferred agent creation)
+    agent_models = {}
+    if agents is not None:
+        agent_ids = list(agents.keys())
+        # Extract model names from agent backends
+        for agent_id, agent in agents.items():
+            if hasattr(agent, "backend") and hasattr(agent.backend, "model"):
+                agent_models[agent_id] = agent.backend.model
+            elif hasattr(agent, "config") and hasattr(agent.config, "backend_params"):
+                agent_models[agent_id] = agent.config.backend_params.get("model", "")
+    else:
+        # Deferred agent creation - derive agent IDs and models from config
+        if original_config:
+            agent_configs = original_config.get("agents", [])
+            if not agent_configs and "agent" in original_config:
+                agent_configs = [original_config["agent"]]
+        else:
+            agent_configs = []
+        agent_ids = [ac.get("id", f"agent_{i}") for i, ac in enumerate(agent_configs)]
+        # Extract model names from config (model is nested in backend)
+        for i, ac in enumerate(agent_configs):
+            agent_id = ac.get("id", f"agent_{i}")
+            # Model can be at top level or nested in backend
+            model = ac.get("model") or ac.get("backend", {}).get("model", "")
+            if model:
+                agent_models[agent_id] = model
+
+    # Session state
+    session_id = memory_session_id or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    # Restore session state if requested (same as Rich mode)
+    current_turn = 0
+    conversation_history = []
+    previous_turns = []
+    winning_agents_history = []
+    incomplete_turn_workspaces = {}
+    restore_notification = None  # Message to show in TUI after startup
+
+    if memory_session_id and restore_session_if_exists:
+        from massgen.logger_config import set_log_turn
+        from massgen.session import restore_session
+
+        try:
+            session_state = restore_session(memory_session_id, SESSION_STORAGE)
+            conversation_history = session_state.conversation_history
+            current_turn = session_state.current_turn
+            previous_turns = session_state.previous_turns
+            winning_agents_history = session_state.winning_agents_history
+
+            # Set turn number for logger (next turn after last completed)
+            next_turn = current_turn + 1
+            set_log_turn(next_turn)
+
+            restore_notification = f"Restored session with {current_turn} previous turn(s) " f"({len(conversation_history)} messages). Starting turn {next_turn}"
+
+            # Check for incomplete turn
+            if session_state.incomplete_turn:
+                incomplete = session_state.incomplete_turn
+                restore_notification += f"\n⚠️ Previous turn was incomplete (cancelled during {incomplete.get('phase', 'unknown')} phase)"
+                if incomplete.get("agents_with_answers"):
+                    restore_notification += f"\nPartial answers from: {', '.join(incomplete['agents_with_answers'])}"
+
+            # Store incomplete turn workspaces for context path injection
+            incomplete_turn_workspaces = session_state.incomplete_turn_workspaces
+        except ValueError as e:
+            # restore_session failed - no turns found
+            logger.error(f"Session restore error: {e}")
+            restore_notification = f"Session error: {e}. Starting fresh session."
+            # Reset to fresh session instead of exiting (TUI is more forgiving)
+            current_turn = 0
+            conversation_history = []
+
+    # Create the Textual display with agent model info for welcome screen
+    display_kwargs = ui_config.get("display_kwargs", {})
+    display_kwargs["agent_models"] = agent_models
+    display = TextualTerminalDisplay(agent_ids, **display_kwargs)
+
+    # Start background MCP registry cache warmup (non-blocking)
+    # This pre-fetches MCP server descriptions while user types their first question
+    if original_config:
+        from massgen.mcp_tools.registry_client import warmup_mcp_registry_cache
+
+        warmup_thread = threading.Thread(
+            target=warmup_mcp_registry_cache,
+            args=(original_config,),
+            daemon=True,
+            name="mcp-cache-warmup",
+        )
+        warmup_thread.start()
+        logger.info("[Textual] Started background MCP registry cache warmup")
+
+    # Create question source (thread-safe queue)
+    question_source = TextualThreadQueueQuestionSource()
+
+    # Create session context with restored values
+    context = SessionContext(
+        session_id=session_id,
+        current_turn=current_turn,
+        conversation_history=conversation_history,
+        previous_turns=previous_turns,
+        winning_agents_history=winning_agents_history,
+        agents=agents,
+        config_path=config_path,
+        original_config=original_config,
+        orchestrator_cfg=orchestrator_cfg,
+    )
+
+    # Store incomplete workspaces in context for workspace injection
+    context.incomplete_turn_workspaces = incomplete_turn_workspaces
+
+    # Create adapter for Textual UI updates
+    adapter = TextualInteractiveAdapter(display)
+
+    # Define turn runner that uses CoordinationUI
+    async def run_turn(
+        question: str,
+        agents: Dict[str, Any],
+        ui_config: Dict[str, Any],
+        conversation_history: list,
+        session_info: dict,
+        **turn_kwargs,
+    ) -> TurnResult:
+        """Run a single turn through the orchestration engine."""
+        nonlocal context  # Allow updating context.agents if we recreate them
+
+        try:
+            current_turn_num = session_info.get("current_turn", 0)
+            sess_id = session_info.get("session_id")
+
+            # Handle deferred agent creation (agents may be None on first turn)
+            if agents is None:
+                logger.info("[Textual] Creating agents on first prompt...")
+                adapter.update_loading_status("🚀 Creating agents...")
+
+                # Parse @references from question and inject into config
+                from .path_handling import PromptParserError, parse_prompt_for_context
+
+                modified_config = original_config.copy()
+                try:
+                    parsed = parse_prompt_for_context(question)
+                    if parsed.context_paths:
+                        # Inject context paths into orchestrator config
+                        orch_cfg = modified_config.get("orchestrator", {})
+                        existing_paths = orch_cfg.get("context_paths", [])
+                        orch_cfg["context_paths"] = existing_paths + parsed.context_paths
+                        modified_config["orchestrator"] = orch_cfg
+                        # Update the question to remove @references
+                        question = parsed.cleaned_prompt
+                except PromptParserError as e:
+                    logger.warning(f"[Textual] Path parsing error: {e}")
+
+                # Get orchestrator config for agent creation
+                orch_cfg = modified_config.get("orchestrator", {})
+
+                # Apply execute mode config modifications BEFORE agent creation
+                # This injects plan execution guidance into agent system messages
+                mode_state = display.get_mode_state()
+                if mode_state and mode_state.plan_mode == "execute" and mode_state.plan_session:
+                    from .plan_execution import prepare_plan_execution_config
+
+                    logger.info("[Textual] Execute mode - applying plan execution config")
+                    modified_config = prepare_plan_execution_config(
+                        modified_config,
+                        mode_state.plan_session,
+                    )
+                    # Update orchestrator_cfg reference for later use
+                    orch_cfg = modified_config.get("orchestrator", {})
+
+                # Progress callback for agent creation status
+                def progress_callback(status: str, detail: str) -> None:
+                    adapter.update_loading_status(status)
+
+                enable_rate_limit = kwargs.get("enable_rate_limit", False)
+                new_agents = create_agents_from_config(
+                    modified_config,
+                    orch_cfg,
+                    enable_rate_limit=enable_rate_limit,
+                    config_path=config_path,
+                    memory_session_id=sess_id,
+                    debug=debug,
+                    filesystem_session_id=sess_id,
+                    session_storage_base=SESSION_STORAGE,
+                    progress_callback=progress_callback,
+                )
+                if not new_agents:
+                    return TurnResult(
+                        error=Exception("Failed to create agents"),
+                        was_cancelled=False,
+                    )
+                # Update context and use new agents
+                context.agents = new_agents
+                agents = new_agents
+                logger.info(f"[Textual] Created {len(agents)} agent(s)")
+                adapter.update_loading_status("✅ Agents created")
+
+                # Setup agent workspaces for execute mode (copy plan files)
+                mode_state = display.get_mode_state()
+                if mode_state and mode_state.plan_mode == "execute" and mode_state.plan_session:
+                    from .plan_execution import setup_agent_workspaces_for_execution
+
+                    task_count = setup_agent_workspaces_for_execution(
+                        agents,
+                        mode_state.plan_session,
+                    )
+                    if task_count > 0:
+                        logger.info(
+                            f"[Textual] Execute mode - copied plan with {task_count} tasks to agent workspaces",
+                        )
+
+            # Inject previous turn workspace as read-only context (same as Rich mode)
+            if current_turn_num > 0 and original_config and orchestrator_cfg:
+                session_dir = Path(SESSION_STORAGE) / sess_id
+                latest_turn_dir = session_dir / f"turn_{current_turn_num}"
+                latest_turn_workspace = latest_turn_dir / "workspace"
+
+                # Determine which workspaces to add as context paths
+                context_workspaces_to_add = []
+                incomplete_ws = getattr(context, "incomplete_turn_workspaces", {})
+
+                if incomplete_ws:
+                    # Incomplete turn - add all agent workspaces
+                    for ws_agent_id, ws_path in incomplete_ws.items():
+                        if ws_path and Path(ws_path).exists():
+                            context_workspaces_to_add.append(
+                                {
+                                    "path": str(Path(ws_path).resolve()),
+                                    "permission": "read",
+                                    "description": f"Incomplete turn {current_turn_num} - {ws_agent_id}'s workspace",
+                                },
+                            )
+                    logger.info(
+                        f"[Textual] Adding {len(context_workspaces_to_add)} workspace(s) from incomplete turn",
+                    )
+                    # Clear after first use
+                    context.incomplete_turn_workspaces = {}
+                elif latest_turn_workspace.exists():
+                    # Complete turn - single winning agent workspace
+                    context_workspaces_to_add.append(
+                        {
+                            "path": str(latest_turn_workspace.resolve()),
+                            "permission": "read",
+                        },
+                    )
+
+                if context_workspaces_to_add:
+                    # Check for session pre-mount (no container restart needed)
+                    agents_with_session_mount = [
+                        (aid, ag)
+                        for aid, ag in agents.items()
+                        if hasattr(ag, "backend") and hasattr(ag.backend, "filesystem_manager") and ag.backend.filesystem_manager and ag.backend.filesystem_manager.has_session_mount()
+                    ]
+
+                    persist_containers = orchestrator_cfg.get("docker", {}).get(
+                        "persist_containers_between_turns",
+                        True,
+                    )
+
+                    if agents_with_session_mount and persist_containers:
+                        # Just update permission manager - no container restart
+                        logger.info(
+                            "[Textual] Session pre-mounted: adding turn path(s) without container restart",
+                        )
+                        for aid, ag in agents.items():
+                            if hasattr(ag, "backend") and hasattr(ag.backend, "filesystem_manager") and ag.backend.filesystem_manager:
+                                for ctx_ws in context_workspaces_to_add:
+                                    ag.backend.filesystem_manager.add_turn_context_path(
+                                        Path(ctx_ws["path"]),
+                                    )
+                    else:
+                        # Fall back: cleanup and recreate agents
+                        logger.info(
+                            f"[Textual] Recreating agents with turn {current_turn_num} workspace(s) as context",
+                        )
+
+                        # Cleanup existing agents
+                        for aid, ag in agents.items():
+                            if hasattr(ag, "backend") and hasattr(ag.backend, "filesystem_manager") and ag.backend.filesystem_manager:
+                                try:
+                                    ag.backend.filesystem_manager.cleanup()
+                                except Exception as e:
+                                    logger.warning(
+                                        f"[Textual] Cleanup failed for {aid}: {e}",
+                                    )
+                            if hasattr(ag.backend, "__aexit__"):
+                                await ag.backend.__aexit__(None, None, None)
+
+                        # Inject context paths into config
+                        modified_config = original_config.copy()
+                        agent_entries = [modified_config["agent"]] if "agent" in modified_config else modified_config.get("agents", [])
+                        for agent_data in agent_entries:
+                            backend_config = agent_data.get("backend", {})
+                            if "cwd" in backend_config:
+                                existing_context_paths = backend_config.get(
+                                    "context_paths",
+                                    [],
+                                )
+                                backend_config["context_paths"] = existing_context_paths + context_workspaces_to_add
+
+                        # Recreate agents
+                        enable_rate_limit = kwargs.get("enable_rate_limit", False)
+                        new_agents = create_agents_from_config(
+                            modified_config,
+                            orchestrator_cfg,
+                            debug=debug,
+                            enable_rate_limit=enable_rate_limit,
+                            config_path=config_path,
+                            memory_session_id=sess_id,
+                            filesystem_session_id=sess_id,
+                            session_storage_base=SESSION_STORAGE,
+                        )
+                        # Update context and local reference
+                        context.agents = new_agents
+                        agents = new_agents
+                        logger.info(
+                            f"[Textual] Recreated {len(agents)} agents with context paths",
+                        )
+
+            # Reload previous_turns and winning_agents_history from session storage
+            # This ensures multi-turn memory sharing works correctly (same as Rich mode)
+            previous_turns = session_info.get("previous_turns", [])
+            winning_agents_history = session_info.get("winning_agents_history", [])
+
+            if not previous_turns and not winning_agents_history and sess_id:
+                from massgen.session import restore_session
+
+                try:
+                    session_state = restore_session(sess_id, SESSION_STORAGE)
+                    if session_state:
+                        previous_turns = session_state.previous_turns
+                        winning_agents_history = session_state.winning_agents_history
+                        logger.debug(
+                            f"[Textual] Reloaded {len(previous_turns)} previous turn(s) " f"and {len(winning_agents_history)} winning agent(s) from session storage",
+                        )
+                except (ValueError, Exception) as e:
+                    logger.debug(
+                        f"[Textual] Could not restore session for previous turns: {e}",
+                    )
+
+            # Build orchestrator config (matching Rich terminal path setup)
+            orchestrator_config = AgentConfig()
+            # Get context sharing parameters (must be extracted before orchestrator creation)
+            snapshot_storage = orchestrator_cfg.get("snapshot_storage") if orchestrator_cfg else None
+            agent_temporary_workspace = orchestrator_cfg.get("agent_temporary_workspace") if orchestrator_cfg else None
+            # Get NLIP config (matching Rich terminal path)
+            orchestrator_enable_nlip = orchestrator_cfg.get("enable_nlip", False) if orchestrator_cfg else False
+            orchestrator_nlip_config = orchestrator_cfg.get("nlip_config", {}) if orchestrator_cfg else {}
+            if orchestrator_enable_nlip:
+                logger.info("[Textual] NLIP enabled for orchestrator")
+            if orchestrator_cfg:
+                if "voting_sensitivity" in orchestrator_cfg:
+                    orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
+                if "max_new_answers_per_agent" in orchestrator_cfg:
+                    orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
+                if "answer_novelty_requirement" in orchestrator_cfg:
+                    orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
+                if orchestrator_cfg.get("skip_coordination_rounds", False):
+                    orchestrator_config.skip_coordination_rounds = True
+                if orchestrator_cfg.get("debug_final_answer"):
+                    orchestrator_config.debug_final_answer = orchestrator_cfg["debug_final_answer"]
+
+                # Parse coordination config if present
+                if "coordination" in orchestrator_cfg:
+                    from .agent_config import CoordinationConfig
+                    from .persona_generator import PersonaGeneratorConfig
+                    from .subagent.models import SubagentOrchestratorConfig
+
+                    coord_cfg = orchestrator_cfg["coordination"]
+
+                    # Parse persona_generator config if present
+                    persona_generator_config = PersonaGeneratorConfig()
+                    if "persona_generator" in coord_cfg:
+                        pg_cfg = coord_cfg["persona_generator"]
+                        persona_generator_config = PersonaGeneratorConfig(
+                            enabled=pg_cfg.get("enabled", False),
+                            diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
+                            persona_guidelines=pg_cfg.get("persona_guidelines"),
+                            persist_across_turns=pg_cfg.get("persist_across_turns", False),
+                        )
+
+                    # Parse subagent_orchestrator config if present
+                    subagent_orchestrator_config = None
+                    if "subagent_orchestrator" in coord_cfg:
+                        so_cfg = coord_cfg["subagent_orchestrator"]
+                        subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
+
+                    orchestrator_config.coordination_config = CoordinationConfig(
+                        enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
+                        planning_mode_instruction=coord_cfg.get(
+                            "planning_mode_instruction",
+                            "During coordination, describe what you would do without actually executing actions. Only provide concrete implementation details without calling external APIs or tools.",
+                        ),
+                        max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
+                        enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
+                        max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
+                        broadcast=coord_cfg.get("broadcast", False),
+                        broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+                        response_depth=coord_cfg.get("response_depth", "medium"),
+                        broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
+                        broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+                        max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
+                        task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
+                        enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
+                        use_skills=coord_cfg.get("use_skills", False),
+                        skills_directory=coord_cfg.get("skills_directory"),
+                        load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
+                        persona_generator=persona_generator_config,
+                        enable_subagents=coord_cfg.get("enable_subagents", False),
+                        subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
+                        subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
+                        subagent_orchestrator=subagent_orchestrator_config,
+                    )
+
+            # Set timeout config if provided
+            timeout_config = kwargs.get("timeout_config")
+            if timeout_config:
+                orchestrator_config.timeout_config = timeout_config
+
+            # Apply TUI mode state overrides (single-agent mode, refinement mode, etc.)
+            mode_state = display.get_mode_state()
+            if mode_state:
+                mode_overrides = mode_state.get_orchestrator_overrides()
+                if mode_overrides:
+                    logger.info(f"[Textual] Applying TUI mode overrides: {mode_overrides}")
+                    for key, value in mode_overrides.items():
+                        if hasattr(orchestrator_config, key):
+                            setattr(orchestrator_config, key, value)
+
+                # Apply plan mode coordination overrides
+                coord_overrides = mode_state.get_coordination_overrides()
+                if coord_overrides:
+                    logger.info(f"[Textual] Plan mode active - applying coordination overrides: {coord_overrides}")
+                    # Ensure coordination_config exists
+                    if orchestrator_config.coordination_config is None:
+                        from .agent_config import CoordinationConfig
+
+                        orchestrator_config.coordination_config = CoordinationConfig()
+
+                    # Apply coordination overrides
+                    for key, value in coord_overrides.items():
+                        if hasattr(orchestrator_config.coordination_config, key):
+                            setattr(orchestrator_config.coordination_config, key, value)
+
+                # In single-agent mode, filter agents to selected agent only
+                if mode_state.is_single_agent_mode() and mode_state.selected_single_agent:
+                    effective_agents = mode_state.get_effective_agents(agents)
+                    if effective_agents:
+                        logger.info(f"[Textual] Single-agent mode: using {list(effective_agents.keys())}")
+                        agents = effective_agents
+
+                # Prepend task planning prompt prefix when TUI plan mode is active
+                if mode_state.is_plan_active():
+                    # Get subagents setting from coordination config
+                    coord_cfg = orchestrator_cfg.get("coordination", {}) if orchestrator_cfg else {}
+                    enable_subagents = coord_cfg.get("enable_subagents", False)
+                    # Also check if it was set via coordination overrides
+                    if orchestrator_config.coordination_config and orchestrator_config.coordination_config.enable_subagents:
+                        enable_subagents = True
+
+                    planning_prefix = get_task_planning_prompt_prefix(
+                        plan_depth=mode_state.plan_config.depth,
+                        enable_subagents=enable_subagents,
+                        broadcast_mode=mode_state.plan_config.broadcast,
+                    )
+                    question = planning_prefix + question
+                    logger.info(
+                        f"[Textual] Plan mode: Prepended task planning instructions "
+                        f"(depth={mode_state.plan_config.depth}, subagents={enable_subagents}, "
+                        f"broadcast={mode_state.plan_config.broadcast})",
+                    )
+
+            # Get generated personas from session info if persist_across_turns is enabled
+            # (matching Rich terminal path setup)
+            generated_personas = None
+            if (
+                hasattr(orchestrator_config, "coordination_config")
+                and orchestrator_config.coordination_config
+                and orchestrator_config.coordination_config.persona_generator
+                and orchestrator_config.coordination_config.persona_generator.persist_across_turns
+            ):
+                generated_personas = session_info.get("generated_personas")
+                if generated_personas:
+                    logger.info("[Textual] Reusing persisted personas from previous turn")
+
+            # Create orchestrator with multi-turn state
+            adapter.update_loading_status("🔧 Setting up workspace...")
+            orchestrator = Orchestrator(
+                agents=agents,
+                config=orchestrator_config,
+                session_id=sess_id,
+                snapshot_storage=snapshot_storage,
+                agent_temporary_workspace=agent_temporary_workspace,
+                previous_turns=previous_turns,
+                winning_agents_history=winning_agents_history,
+                dspy_paraphraser=kwargs.get("dspy_paraphraser"),
+                enable_rate_limit=kwargs.get("enable_rate_limit", False),
+                enable_nlip=orchestrator_enable_nlip,
+                nlip_config=orchestrator_nlip_config,
+                generated_personas=generated_personas,
+            )
+            adapter.update_loading_status("🔌 Connecting to tools...")
+
+            # Create coordination UI with preserve_display and interactive_mode
+            coord_ui = CoordinationUI(
+                display_type="textual_terminal",
+                preserve_display=True,  # Don't cleanup display between turns
+                interactive_mode=True,  # External driver owns the TUI loop
+                **ui_config.get("display_kwargs", {}),
+            )
+            coord_ui.display = display
+            coord_ui.agent_ids = agent_ids
+
+            # Use begin_turn to update display state
+            turn_num = session_info.get("current_turn", 0) + 1
+            display.begin_turn(turn_num, question)
+
+            # Reconfigure logging for the turn (same as Rich mode)
+            setup_logging(debug=_DEBUG_MODE, turn=turn_num)
+
+            # Save execution metadata for this turn (same as Rich mode)
+            save_execution_metadata(
+                query=question,
+                config_path=config_path,
+                config_content=original_config,
+                cli_args={
+                    "mode": "textual_interactive",
+                    "turn": turn_num,
+                    "session_id": sess_id,
+                },
+            )
+
+            # Run orchestration (won't call display.run_async due to interactive_mode)
+            # Use coordinate_with_context if we have conversation history for multi-turn
+            if conversation_history:
+                # Build messages list with history + current question
+                messages = conversation_history + [
+                    {"role": "user", "content": question},
+                ]
+                answer = await coord_ui.coordinate_with_context(
+                    orchestrator=orchestrator,
+                    question=question,
+                    messages=messages,
+                    agent_ids=agent_ids,
+                )
+            else:
+                answer = await coord_ui.coordinate(
+                    orchestrator=orchestrator,
+                    question=question,
+                    agent_ids=agent_ids,
+                )
+
+            # Handle session persistence (same as Rich mode)
+            session_id_to_use = session_info.get("session_id")
+            updated_turn = turn_num
+            normalized_answer = answer
+            # Extract models from all agents for session metadata
+            models_dict = {}
+            model_name_for_registry = None
+            for agent_id, agent in agents.items():
+                if hasattr(agent, "config") and hasattr(agent.config, "backend_params"):
+                    model = agent.config.backend_params.get("model")
+                    if model:
+                        models_dict[agent_id] = model
+            # Create comma-separated string for session registry
+            if models_dict:
+                unique_models = list(dict.fromkeys(models_dict.values()))
+                model_name_for_registry = ", ".join(unique_models)
+            try:
+                from massgen.logger_config import get_log_session_root
+
+                log_dir = get_log_session_root()
+                log_dir_name = log_dir.name if log_dir else None
+                (
+                    session_id_to_use,
+                    updated_turn,
+                    normalized_answer,
+                ) = await handle_session_persistence(
+                    orchestrator,
+                    question,
+                    session_info,
+                    config_path=config_path,
+                    model=model_name_for_registry,
+                    log_directory=log_dir_name,
+                    models_dict=models_dict,
+                )
+                if normalized_answer:
+                    answer = normalized_answer
+                logger.info(
+                    f"[Textual] Persisted turn {updated_turn} to session {session_id_to_use}",
+                )
+            except Exception as persist_err:
+                logger.warning(f"[Textual] Failed to persist session: {persist_err}")
+
+            # End turn
+            display.end_turn(turn_num, answer=answer)
+
+            return TurnResult(
+                answer_text=answer,
+                was_cancelled=False,
+                updated_session_id=session_id_to_use,
+                updated_turn=updated_turn,
+            )
+
+        except CancellationRequested as cancel_exc:
+            # User cancelled the turn - save partial progress if available
+            logger.info("[Textual] Turn cancelled by user")
+            partial_saved = getattr(cancel_exc, "partial_saved", False)
+
+            # Try to save partial result if orchestrator has one
+            if not partial_saved and orchestrator:
+                try:
+                    from massgen.session import save_partial_turn
+
+                    partial_result = orchestrator.get_partial_result()
+                    if partial_result:
+                        save_partial_turn(
+                            session_id=session_info.get("session_id"),
+                            turn_number=turn_num,
+                            question=question,
+                            partial_result=partial_result,
+                            session_storage=SESSION_STORAGE,
+                        )
+                        partial_saved = True
+                        logger.info(f"[Textual] Saved partial turn {turn_num}")
+                except Exception as save_err:
+                    logger.warning(f"[Textual] Failed to save partial turn: {save_err}")
+
+            display.end_turn(turn_num, was_cancelled=True)
+
+            return TurnResult(
+                was_cancelled=True,
+                partial_saved=partial_saved,
+                updated_session_id=session_info.get("session_id"),
+                updated_turn=session_info.get(
+                    "current_turn",
+                    0,
+                ),  # Don't increment on cancel
+            )
+
+        except Exception as e:
+            logger.exception(f"Error in turn: {e}")
+            return TurnResult(
+                error=e,
+                was_cancelled=False,
+                updated_session_id=session_info.get("session_id"),
+                updated_turn=session_info.get("current_turn", 0),
+            )
+
+    # Create the controller
+    controller = InteractiveSessionController(
+        question_source=question_source,
+        adapter=adapter,
+        context=context,
+        turn_runner=run_turn,
+        ui_config=ui_config,
+        debug=debug,
+    )
+
+    # Wire up the TUI input to the question source using set_input_handler
+    # This delegates all input (questions and slash commands) to the controller
+    display.set_input_handler(question_source.submit)
+
+    # Start session (creates app once)
+    display.start_session(
+        initial_question=initial_question or "Welcome! Type your question below...",
+        log_filename=None,
+        session_id=session_id,
+    )
+
+    # Ensure the app also has the input handler set (in case app was created before set_input_handler)
+    if display._app:
+        display._app.set_input_handler(question_source.submit)
+
+    # Run orchestration in background thread
+    def orchestration_thread_fn():
+        """Background thread that runs the controller."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(controller.run())
+        except Exception as e:
+            logger.exception(f"Controller error: {e}")
+        finally:
+            loop.close()
+
+    orch_thread = threading.Thread(target=orchestration_thread_fn, daemon=True)
+    orch_thread.start()
+
+    # If initial question provided, submit it only after app is mounted
+    async def submit_initial_question_when_ready():
+        """Wait for app to be mounted before submitting initial question or showing restore notification."""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, display._app_ready.wait)
+
+        # Show restore notification if we restored a session
+        if restore_notification:
+            await asyncio.sleep(0.3)  # Brief delay for UI to settle
+            adapter.notify(restore_notification, "info")
+
+        # Submit initial question if provided
+        if initial_question:
+            question_source.submit(initial_question)
+
+    # Schedule the initial question submission task
+    initial_question_task = asyncio.create_task(submit_initial_question_when_ready())
+
+    # Run the Textual TUI (blocks until user quits)
+    try:
+        await display.run_async()
+    finally:
+        # Cancel initial question task if still pending
+        if not initial_question_task.done():
+            initial_question_task.cancel()
+        # Signal shutdown
+        controller.stop()
+        orch_thread.join(timeout=5)
+
+    print("✅ Textual session ended")
+
+
 async def run_interactive_mode(
     agents: Optional[Dict[str, SingleAgent]],
     ui_config: Dict[str, Any],
@@ -4559,6 +5722,23 @@ async def run_interactive_mode(
         enable_rate_limit: Whether to enable rate limiting for agent creation
         session_storage_base: Base directory for session storage (for Docker mounts)
     """
+
+    # Textual-first mode: Launch TUI immediately without Rich terminal output
+    # The TUI will handle ASCII art, session config, input, and multi-turn loop
+    display_type = ui_config.get("display_type", "rich_terminal")
+    if display_type == "textual_terminal":
+        return await run_textual_interactive_mode(
+            agents=agents,
+            ui_config=ui_config,
+            original_config=original_config,
+            orchestrator_cfg=orchestrator_cfg,
+            config_path=config_path,
+            memory_session_id=memory_session_id,
+            initial_question=initial_question,
+            restore_session_if_exists=restore_session_if_exists,
+            debug=debug,
+            **kwargs,
+        )
 
     # Use Rich console for better display
     rich_console = Console()
@@ -4613,7 +5793,10 @@ async def run_interactive_mode(
             mode = f"Multi-Agent ({num_agents} agents)"
             mode_icon = "🤝"
         config_table.add_row(f"{mode_icon} Mode:", f"[bold]{mode}[/bold]")
-        config_table.add_row("  └─ Status:", "[dim]Agents will be created after first prompt[/dim]")
+        config_table.add_row(
+            "  └─ Status:",
+            "[dim]Agents will be created after first prompt[/dim]",
+        )
     elif len(agents) == 1:
         mode = "Single Agent"
         mode_icon = "🤖"
@@ -5036,7 +6219,7 @@ async def run_interactive_mode(
                             )
                             print("   Mode: Deferred creation", flush=True)
                         print(
-                            f"   History: {len(conversation_history)//2} exchanges",
+                            f"   History: {len(conversation_history) // 2} exchanges",
                             flush=True,
                         )
                         if config_path:
@@ -5201,7 +6384,9 @@ async def run_interactive_mode(
                                 original_config["orchestrator"]["context_paths"] = []
 
                             for ctx in new_paths:
-                                original_config["orchestrator"]["context_paths"].append(ctx)
+                                original_config["orchestrator"]["context_paths"].append(
+                                    ctx,
+                                )
                                 existing_paths.add(ctx["path"])
 
                             # Update orchestrator_cfg reference
@@ -5221,12 +6406,17 @@ async def run_interactive_mode(
                             session_storage_base=session_storage_base or SESSION_STORAGE,
                         )
                         if not agents:
-                            print(f"{BRIGHT_RED}❌ Failed to create agents{RESET}", flush=True)
+                            print(
+                                f"{BRIGHT_RED}❌ Failed to create agents{RESET}",
+                                flush=True,
+                            )
                             continue
                         print(f"{BRIGHT_GREEN}✅ Agents ready{RESET}")
                     elif new_paths:
                         # Agents exist but we have new paths - need to recreate
-                        print(f"   {BRIGHT_YELLOW}🔄 Updating agents with new context paths...{RESET}")
+                        print(
+                            f"   {BRIGHT_YELLOW}🔄 Updating agents with new context paths...{RESET}",
+                        )
 
                         # Clean up existing agents before recreating to avoid resource leaks
                         for agent_id, agent in agents.items():
@@ -5235,7 +6425,9 @@ async def run_interactive_mode(
                                     try:
                                         agent.backend.filesystem_manager.cleanup()
                                     except Exception as e:
-                                        logger.warning(f"[CLI] Cleanup failed for agent {agent_id}: {e}")
+                                        logger.warning(
+                                            f"[CLI] Cleanup failed for agent {agent_id}: {e}",
+                                        )
                                 if hasattr(agent.backend, "__aexit__"):
                                     await agent.backend.__aexit__(None, None, None)
 
@@ -5249,7 +6441,9 @@ async def run_interactive_mode(
                             filesystem_session_id=memory_session_id,
                             session_storage_base=session_storage_base or SESSION_STORAGE,
                         )
-                        print(f"   {BRIGHT_GREEN}✅ Agents updated with new context paths{RESET}")
+                        print(
+                            f"   {BRIGHT_GREEN}✅ Agents updated with new context paths{RESET}",
+                        )
                     if parsed.context_paths:
                         print()  # Add spacing after context path info
                 except PromptParserError as e:
@@ -5289,7 +6483,12 @@ async def run_interactive_mode(
                     "winning_agents_history": winning_agents_history,
                     "multi_turn": True,  # Enable soft cancellation (return to prompt instead of exit)
                 }
-                response, updated_session_id, updated_turn, was_cancelled = await run_question_with_history(
+                (
+                    response,
+                    updated_session_id,
+                    updated_turn,
+                    was_cancelled,
+                ) = await run_question_with_history(
                     question,
                     agents,
                     ui_config,
@@ -5321,7 +6520,7 @@ async def run_interactive_mode(
                     )
 
                     rich_console.print(
-                        f"\n[green]✅ Complete![/green] [cyan]💭 History: {len(conversation_history)//2} exchanges[/cyan]",
+                        f"\n[green]✅ Complete![/green] [cyan]💭 History: {len(conversation_history) // 2} exchanges[/cyan]",
                     )
                     rich_console.print(
                         "[dim]Tip: Use /inspect to view agent outputs[/dim]",
@@ -5363,6 +6562,468 @@ async def run_interactive_mode(
     except KeyboardInterrupt:
         # Outer handler for any uncaught KeyboardInterrupt - just continue
         print()  # Clean line after ^C
+
+
+def resolve_plan_path(plan_path: str) -> "PlanSession":
+    """Resolve a plan path/ID to a PlanSession object.
+
+    Args:
+        plan_path: Can be:
+            - "latest" - most recent plan
+            - Plan ID like "20260115_173113_836955"
+            - Full path like ".massgen/plans/plan_20260115_173113_836955"
+
+    Returns:
+        PlanSession object
+
+    Raises:
+        FileNotFoundError: If plan not found
+    """
+    from .plan_storage import PLANS_DIR, PlanSession, PlanStorage
+
+    storage = PlanStorage()
+
+    if plan_path == "latest":
+        session = storage.get_latest_plan()
+        if not session:
+            raise FileNotFoundError("No plans found in .massgen/plans/")
+        return session
+
+    # Check if it's a full path
+    plan_path_obj = Path(plan_path)
+    if plan_path_obj.exists() and plan_path_obj.is_dir():
+        # Extract plan_id from directory name
+        plan_id = plan_path_obj.name.replace("plan_", "")
+        session = PlanSession(plan_id)
+        if not session.plan_dir.exists():
+            raise FileNotFoundError(f"Plan directory not valid: {plan_path}")
+        return session
+
+    # Assume it's a plan ID
+    session = PlanSession(plan_path)
+    if not session.plan_dir.exists():
+        # Try with plan_ prefix stripped if present
+        if plan_path.startswith("plan_"):
+            plan_id = plan_path[5:]  # Remove "plan_" prefix
+            session = PlanSession(plan_id)
+
+    if not session.plan_dir.exists():
+        available_plans = list(PLANS_DIR.glob("plan_*")) if PLANS_DIR.exists() else []
+        msg = f"Plan not found: {plan_path}"
+        if available_plans:
+            msg += "\n\nAvailable plans:"
+            for plan_dir in sorted(available_plans, reverse=True)[:10]:
+                msg += f"\n  - {plan_dir.name.replace('plan_', '')}"
+        raise FileNotFoundError(msg)
+
+    return session
+
+
+async def _execute_plan_phase(
+    config: Dict[str, Any],
+    plan_session: "PlanSession",
+    question: str,
+    automation: bool = False,
+) -> Tuple[str, Dict[str, Any]]:
+    """
+    Internal: Execute a plan (Phase 2) and collect results (Phase 3).
+
+    This is the shared implementation used by both run_plan_and_execute
+    and run_execute_plan.
+
+    Args:
+        config: Full config dict
+        plan_session: PlanSession with frozen plan
+        question: Task description
+        automation: Whether in automation mode
+
+    Returns:
+        Tuple of (final_answer, diff_dict)
+    """
+    from rich.console import Console
+
+    from .logger_config import get_log_session_root
+    from .plan_execution import (
+        build_execution_prompt,
+        prepare_plan_execution_config,
+        setup_agent_workspaces_for_execution,
+    )
+
+    console = Console()
+
+    console.print("\n[bold blue]═══ EXECUTION ═══[/bold blue]")
+    console.print("Executing plan with agents...")
+
+    # Update metadata
+    metadata = plan_session.load_metadata()
+    metadata.status = "executing"
+    plan_session.save_metadata(metadata)
+    plan_session.log_event("execution_started", {"question": question})
+
+    # Build execution prompt
+    execution_prompt = build_execution_prompt(question)
+
+    # Use shared helper to prepare config (adds context paths, enables planning tools, injects guidance)
+    exec_config = prepare_plan_execution_config(config, plan_session)
+    orchestrator_cfg = exec_config.get("orchestrator", {})
+
+    # Create agents with plan context
+    agents = create_agents_from_config(
+        exec_config,
+        orchestrator_cfg,
+        memory_session_id=f"plan_exec_{plan_session.plan_id}",
+    )
+
+    # Use shared helper to copy plan and docs to agent workspaces
+    task_count = setup_agent_workspaces_for_execution(agents, plan_session)
+
+    if task_count == 0:
+        frozen_plan_file = plan_session.frozen_dir / "plan.json"
+        console.print(f"[bold red]Error: Frozen plan not found at {frozen_plan_file}[/bold red]")
+        console.print("[red]Cannot execute plan without a valid frozen plan.json[/red]")
+        raise SystemExit(1)
+
+    console.print(f"[dim]Loaded {task_count} tasks from frozen plan[/dim]")
+
+    # Build UI config
+    ui_config = {
+        "display_type": "silent" if automation else "rich_terminal",
+        "logging_enabled": True,
+        "automation_mode": automation,
+    }
+
+    # Run execution
+    result = await run_single_question(
+        execution_prompt,
+        agents,
+        ui_config,
+        return_metadata=True,
+        orchestrator=orchestrator_cfg,
+    )
+
+    final_answer = result["answer"]
+    coordination_result = result.get("coordination_result", {})
+
+    # ========== Collection & Reporting ==========
+    console.print("\n[bold blue]═══ COLLECTION ═══[/bold blue]")
+
+    # Get winning agent's workspace and collect their modified plan
+    if coordination_result:
+        winning_agent_id = coordination_result.get("selected_agent")
+        if winning_agent_id and winning_agent_id in agents:
+            winning_agent = agents[winning_agent_id]
+            if hasattr(winning_agent.backend, "filesystem_manager") and winning_agent.backend.filesystem_manager:
+                winner_workspace = Path(winning_agent.backend.filesystem_manager.cwd)
+
+                # Look for plan.json: agents work with tasks/plan.json during execution
+                winner_plan_file = winner_workspace / "tasks" / "plan.json"
+                if not winner_plan_file.exists():
+                    # Fallback to workspace root
+                    winner_plan_file = winner_workspace / "plan.json"
+
+                if winner_plan_file.exists():
+                    # Copy winning agent's modified plan.json to workspace_dir/plan.json
+                    # This is needed for compute_plan_diff() which compares workspace/plan.json vs frozen/plan.json
+                    plan_session.workspace_dir.mkdir(parents=True, exist_ok=True)
+                    dest_plan_file = plan_session.workspace_dir / "plan.json"
+                    shutil.copy2(winner_plan_file, dest_plan_file)
+                    logger.info(f"[ExecutePlan] Collected modified plan from {winning_agent_id}")
+
+    # Compute plan diff
+    diff = plan_session.compute_plan_diff()
+    plan_session.diff_file.write_text(json.dumps(diff, indent=2))
+    plan_session.log_event("diff_computed", diff)
+
+    # Update metadata
+    metadata = plan_session.load_metadata()
+    metadata.status = "completed"
+    metadata.execution_session_id = coordination_result.get("session_id") if coordination_result else None
+    try:
+        metadata.execution_log_dir = str(get_log_session_root())
+    except Exception:
+        metadata.execution_log_dir = None
+    plan_session.save_metadata(metadata)
+
+    # Print adherence summary
+    adherence = 100 - diff.get("divergence_score", 0) * 100
+    console.print(f"\n[green]Plan Adherence: {adherence:.1f}%[/green]")
+    console.print(f"Plan stored at: {plan_session.plan_dir}")
+
+    if diff.get("tasks_added"):
+        console.print(f"[yellow]Tasks added: {len(diff['tasks_added'])}[/yellow]")
+    if diff.get("tasks_removed"):
+        console.print(f"[yellow]Tasks removed: {len(diff['tasks_removed'])}[/yellow]")
+    if diff.get("tasks_modified"):
+        console.print(f"[yellow]Tasks modified: {len(diff['tasks_modified'])}[/yellow]")
+
+    return final_answer, diff
+
+
+async def run_execute_plan(
+    config: Dict[str, Any],
+    plan_path: str,
+    question: Optional[str] = None,
+    automation: bool = False,
+) -> Tuple[str, Any]:
+    """
+    Execute an existing plan (skips planning phase).
+
+    Args:
+        config: Full config dict
+        plan_path: Path to plan directory, plan ID, or "latest"
+        question: Optional task description override
+        automation: Whether in automation mode
+
+    Returns:
+        Tuple of (final_answer, plan_session)
+    """
+    from rich.console import Console
+
+    console = Console()
+
+    # Resolve plan path to session
+    plan_session = resolve_plan_path(plan_path)
+
+    # Load plan metadata
+    metadata = plan_session.load_metadata()
+    console.print(f"\n[bold cyan]Executing plan: {plan_session.plan_id}[/bold cyan]")
+    console.print(f"Created: {metadata.created_at}")
+    console.print(f"Status: {metadata.status}")
+
+    # Read frozen plan to get task count - fail fast if missing or unreadable
+    frozen_plan_file = plan_session.frozen_dir / "plan.json"
+    if not frozen_plan_file.exists():
+        console.print(f"[bold red]Error: Frozen plan not found at {frozen_plan_file}[/bold red]")
+        console.print("[red]Cannot execute plan without a valid frozen plan.json[/red]")
+        raise SystemExit(1)
+
+    try:
+        plan_data = json.loads(frozen_plan_file.read_text())
+    except json.JSONDecodeError as e:
+        console.print(f"[bold red]Error: Failed to parse frozen plan: {e}[/bold red]")
+        console.print(f"[red]File: {frozen_plan_file}[/red]")
+        raise SystemExit(1)
+
+    task_count = len(plan_data.get("tasks", []))
+    console.print(f"Tasks: {task_count}")
+
+    # Build question if not provided
+    if question is None:
+        question = "Execute the plan in tasks/plan.json."
+
+    # Run execution phase
+    final_answer, _ = await _execute_plan_phase(
+        config=config,
+        plan_session=plan_session,
+        question=question,
+        automation=automation,
+    )
+
+    return final_answer, plan_session
+
+
+async def run_plan_and_execute(
+    config: Dict[str, Any],
+    question: str,
+    plan_depth: str = "medium",
+    broadcast_mode: str = "human",
+    automation: bool = False,
+    debug: bool = False,
+    config_path: Optional[str] = None,
+) -> Tuple[str, Any]:
+    """
+    Run full plan-and-execute workflow:
+    1. Phase 1: Run planning subprocess to create task plan
+    2. Phase 2: Execute the plan with plan context injected
+
+    Args:
+        config: Full config dict
+        question: User's task/question
+        plan_depth: shallow/medium/deep
+        broadcast_mode: human/agents/false
+        automation: Whether in automation mode
+        debug: Debug mode flag
+        config_path: Path to config file (for subprocess)
+
+    Returns:
+        Tuple of (final_answer, plan_session)
+    """
+    import subprocess
+    import tempfile
+
+    import yaml
+    from rich.console import Console
+
+    from .plan_storage import PlanStorage
+
+    console = Console()
+
+    # ========== PHASE 1: Planning ==========
+    console.print("\n[bold blue]═══ PHASE 1: PLANNING ═══[/bold blue]")
+    console.print(f"Running agents to create task plan (depth: {plan_depth})...")
+
+    # Create plan storage
+    storage = PlanStorage()
+
+    # Handle broadcast mode for automation
+    # In automation mode, "human" broadcast doesn't work (no human to respond)
+    # Auto-switch to "false" for fully autonomous planning
+    effective_broadcast_mode = broadcast_mode
+    if automation and broadcast_mode == "human":
+        console.print(
+            "[yellow]Note: Switching broadcast mode from 'human' to 'false' for automation mode[/yellow]",
+        )
+        effective_broadcast_mode = "false"
+
+    # Build planning subprocess command
+    # Write config to temp file if not provided
+    temp_config_path = None
+    if not config_path:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config, f)
+            temp_config_path = f.name
+            config_path = temp_config_path
+
+    cmd = [
+        "uv",
+        "run",
+        "massgen",
+        "--automation",
+        "--plan",
+        "--plan-depth",
+        plan_depth,
+        "--broadcast",
+        effective_broadcast_mode,
+        "--config",
+        config_path,
+    ]
+
+    if debug:
+        cmd.append("--debug")
+
+    # Add end-of-options marker and question last, so question starting with '-' is treated as data
+    cmd.extend(["--", question])
+
+    # Run planning subprocess
+    logger.info(f"[PlanAndExecute] Starting planning subprocess: {' '.join(cmd)}")
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout to avoid deadlock
+            text=True,
+            bufsize=1,  # Line buffered
+        )
+
+        # Parse LOG_DIR, STATUS, and FINAL_DIR from stdout
+        log_dir = None
+        final_dir = None
+
+        stdout_lines = []
+        for line in process.stdout:
+            stdout_lines.append(line)
+            if line.startswith("LOG_DIR:"):
+                log_dir = line.split(":", 1)[1].strip()
+            elif line.startswith("FINAL_DIR:"):
+                final_dir = Path(line.split(":", 1)[1].strip())
+            # Print output in non-automation mode for visibility
+            if not automation:
+                print(line, end="")
+
+        # Wait for process to complete
+        process.wait()
+
+        if process.returncode != 0:
+            # stderr is merged into stdout, so show captured output
+            output = "".join(stdout_lines)
+            raise RuntimeError(f"Planning subprocess failed:\n{output}")
+
+        if not log_dir:
+            raise RuntimeError("Planning subprocess did not provide LOG_DIR")
+
+        logger.info(f"[PlanAndExecute] Planning complete. Log dir: {log_dir}")
+
+    except Exception as e:
+        console.print(f"[red]Planning failed: {e}[/red]")
+        raise
+    finally:
+        # Clean up temp config file
+        if temp_config_path:
+            try:
+                Path(temp_config_path).unlink()
+            except Exception:
+                pass
+
+    # Create plan session and copy workspace
+    planning_session_id = Path(log_dir).name
+    plan_session = storage.create_plan(planning_session_id, log_dir)
+
+    # Use FINAL_DIR from subprocess output, or fall back to log_dir/final/
+    if not final_dir:
+        final_dir = Path(log_dir) / "final"
+
+    if final_dir.exists():
+        # Find the actual workspace directory within final/
+        # Structure is: final/agent_*/workspace/ (we want only workspace content)
+        workspace_source = None
+
+        # Look for agent workspace directories
+        agent_dirs = list(final_dir.glob("agent_*/workspace"))
+        if agent_dirs:
+            # Use first agent's workspace (in planning mode, typically one agent or winner)
+            workspace_source = agent_dirs[0]
+
+            # Check if two-tier workspace is enabled (deliverable/ exists)
+            # If so, only copy the deliverable part
+            deliverable_dir = workspace_source / "deliverable"
+            if deliverable_dir.exists():
+                console.print("[dim]Two-tier workspace detected, copying deliverable/ only[/dim]")
+                workspace_source = deliverable_dir
+
+            logger.info(f"[PlanAndExecute] Using workspace source: {workspace_source}")
+        else:
+            # Fallback to final_dir if no agent workspace structure found
+            # This handles legacy or non-standard setups
+            workspace_source = final_dir
+            logger.warning(f"[PlanAndExecute] No agent workspace found in {final_dir}, using full directory")
+
+        # Copy only workspace artifacts to plan storage
+        storage.finalize_planning_phase(plan_session, workspace_source)
+
+        # Verify a valid plan was created - if not, clean up and fail
+        frozen_plan = plan_session.frozen_dir / "plan.json"
+        if not frozen_plan.exists():
+            console.print("[bold red]Error: Planning phase did not produce a valid plan.json[/bold red]")
+            console.print("[red]The planning agent may have ended early or failed to create a task plan.[/red]")
+            # Clean up the empty plan session directory
+            if plan_session.plan_dir.exists():
+                shutil.rmtree(plan_session.plan_dir)
+                logger.info(f"[PlanAndExecute] Cleaned up empty plan session: {plan_session.plan_dir}")
+            raise SystemExit(1)
+
+        console.print(f"[green]Plan created and frozen: {plan_session.plan_dir}[/green]")
+    else:
+        console.print("[bold red]Error: No final/ directory found in planning logs[/bold red]")
+        console.print("[red]Planning phase did not complete successfully.[/red]")
+        # Clean up the empty plan session directory
+        if plan_session.plan_dir.exists():
+            shutil.rmtree(plan_session.plan_dir)
+            logger.info(f"[PlanAndExecute] Cleaned up empty plan session: {plan_session.plan_dir}")
+        raise SystemExit(1)
+
+    # ========== PHASE 2: Execution ==========
+    console.print("\n[bold blue]═══ PHASE 2: EXECUTION ═══[/bold blue]")
+
+    # Use shared execution phase implementation
+    final_answer, _ = await _execute_plan_phase(
+        config=config,
+        plan_session=plan_session,
+        question=question,
+        automation=automation,
+    )
+
+    return final_answer, plan_session
 
 
 async def main(args):
@@ -5556,26 +7217,17 @@ async def main(args):
         relocate_filesystem_paths(config)
 
         # Generate unique instance ID for parallel execution safety
-        # This prevents Docker container naming and workspace conflicts when running multiple instances
+        # This prevents Docker container naming conflicts when running multiple instances
         import uuid
 
         instance_id = uuid.uuid4().hex[:8]
 
-        # Inject instance_id and apply workspace suffixes to all agent backend configs
+        # Inject instance_id to all agent backend configs for Docker container naming
+        # Note: Workspace suffixing is now handled in create_agents_from_config() for all entrypoints
         agent_entries = [config["agent"]] if "agent" in config else config.get("agents", [])
         for agent_data in agent_entries:
             backend_config = agent_data.get("backend", {})
-            # Set instance_id for Docker container naming
             backend_config["instance_id"] = instance_id
-            # Apply unique suffix to workspace paths to prevent filesystem conflicts
-            if "cwd" in backend_config:
-                original_cwd = backend_config["cwd"]
-                # Append unique suffix to workspace path
-                # e.g., ".massgen/workspaces/workspace1" -> ".massgen/workspaces/workspace1_a1b2c3d4"
-                backend_config["cwd"] = f"{original_cwd}_{instance_id}"
-                logger.debug(
-                    f"Auto-generated unique workspace: {original_cwd} -> {backend_config['cwd']}",
-                )
 
         # Apply command-line overrides
         ui_config = config.get("ui", {})
@@ -5588,6 +7240,13 @@ async def main(args):
             ui_config["skip_agent_selector"] = True
         if args.no_display:
             ui_config["display_type"] = "simple"
+        # --display flag overrides --no-display if both specified
+        if args.display:
+            display_type_map = {"rich": "rich_terminal", "textual": "textual_terminal"}
+            ui_config["display_type"] = display_type_map.get(
+                args.display,
+                "rich_terminal",
+            )
         if args.no_logs:
             ui_config["logging_enabled"] = False
         if args.debug:
@@ -5604,6 +7263,52 @@ async def main(args):
 
         # Update config with timeout settings
         config["timeout_settings"] = timeout_settings
+
+        # Handle --plan mode: auto-configure for task planning
+        if getattr(args, "plan", False):
+            # Ensure orchestrator section exists
+            if "orchestrator" not in config:
+                config["orchestrator"] = {}
+            orchestrator_cfg_plan = config["orchestrator"]
+
+            # Ensure coordination section exists
+            if "coordination" not in orchestrator_cfg_plan:
+                orchestrator_cfg_plan["coordination"] = {}
+
+            # Broadcast mode: CLI flag wins; otherwise default to "human"
+            broadcast_arg = getattr(args, "broadcast", None)
+            if broadcast_arg == "false":
+                orchestrator_cfg_plan["coordination"]["broadcast"] = False
+            elif broadcast_arg is not None:
+                orchestrator_cfg_plan["coordination"]["broadcast"] = broadcast_arg
+            else:
+                orchestrator_cfg_plan["coordination"].setdefault("broadcast", "human")
+
+            # Set plan_depth
+            orchestrator_cfg_plan["coordination"]["plan_depth"] = getattr(
+                args,
+                "plan_depth",
+                "medium",
+            )
+
+            # Auto-add cwd to context_paths if not already present
+            if "context_paths" not in orchestrator_cfg_plan:
+                orchestrator_cfg_plan["context_paths"] = []
+
+            cwd_str = str(Path.cwd())
+            existing_paths = {p.get("path") if isinstance(p, dict) else p for p in orchestrator_cfg_plan["context_paths"]}
+            if cwd_str not in existing_paths:
+                # Use read-only permission - agents write to their workspace, not directly to cwd
+                orchestrator_cfg_plan["context_paths"].append(
+                    {"path": cwd_str, "permission": "read"},
+                )
+                logger.info(f"[Plan Mode] Auto-added cwd to context_paths (read-only): {cwd_str}")
+
+            logger.info(
+                "[Plan Mode] Enabled with depth=%s, broadcast=%s",
+                args.plan_depth,
+                orchestrator_cfg_plan["coordination"].get("broadcast"),
+            )
 
         # Check for prompt in config if not provided via CLI
         if not args.question and "prompt" in config:
@@ -5723,9 +7428,39 @@ async def main(args):
             # Update orchestrator_cfg with any new context_paths
             orchestrator_cfg = config.get("orchestrator", {})
 
+        # Prepend task planning instructions if --plan mode is active
+        if args.question and getattr(args, "plan", False):
+            plan_depth = getattr(args, "plan_depth", "medium")
+            # Check if subagents are enabled in config
+            coordination_cfg = config.get("orchestrator", {}).get("coordination", {})
+            enable_subagents = coordination_cfg.get("enable_subagents", False)
+
+            # Broadcast mode priority: CLI arg > config > default "human"
+            cli_broadcast = getattr(args, "broadcast", None)
+            if cli_broadcast == "false":
+                broadcast_mode = False
+            elif cli_broadcast is not None:
+                broadcast_mode = cli_broadcast
+            else:
+                broadcast_mode = coordination_cfg.get("broadcast", "human")
+
+            planning_prefix = get_task_planning_prompt_prefix(
+                plan_depth,
+                enable_subagents=enable_subagents,
+                broadcast_mode=broadcast_mode,
+            )
+            args.question = planning_prefix + args.question
+            logger.info(
+                f"[Plan Mode] Prepended task planning instructions (depth={plan_depth}, subagents={enable_subagents}, broadcast={broadcast_mode})",
+            )
+
         # For interactive mode without initial question, defer agent creation until first prompt
         # This allows @path references in the first prompt to be included in Docker mounts
-        is_interactive_without_question = not args.question and not getattr(args, "interactive_with_initial_question", None)
+        is_interactive_without_question = not args.question and not getattr(
+            args,
+            "interactive_with_initial_question",
+            None,
+        )
 
         if is_interactive_without_question:
             # Defer agent creation - will be done in run_interactive_mode after first prompt
@@ -5788,9 +7523,103 @@ async def main(args):
                 cli_args=vars(args),
             )
 
+        # Handle plan-and-execute mode
+        if getattr(args, "plan_and_execute", False):
+            if not args.question:
+                print("❌ --plan-and-execute requires a question/task to plan and execute")
+                sys.exit(1)
+
+            from rich.console import Console
+            from rich.panel import Panel
+
+            # Default broadcast to "false" for plan-and-execute (batch workflow)
+            # "human" broadcast is not supported because planning runs as subprocess with piped I/O
+            broadcast = getattr(args, "broadcast", None)
+            if broadcast == "human":
+                print("❌ --broadcast human is not currently supported with --plan-and-execute")
+                print("   Planning runs as a subprocess and cannot receive human input.")
+                print("")
+                print("   For human interaction, run planning and execution separately:")
+                print('     1. uv run massgen --plan --broadcast human "your task"')
+                print("     2. uv run massgen --execute-plan latest")
+                print("")
+                print("   Or use --broadcast false (default) or --broadcast agents for autonomous mode.")
+                sys.exit(1)
+            if broadcast is None:
+                broadcast = "false"
+
+            final_answer, plan_session = await run_plan_and_execute(
+                config=config,
+                question=args.question,
+                plan_depth=getattr(args, "plan_depth", "medium") or "medium",
+                broadcast_mode=broadcast,
+                automation=args.automation,
+                debug=args.debug,
+                config_path=str(resolved_path) if resolved_path else None,
+            )
+
+            # Print results
+            if not args.automation:
+                console = Console()
+                console.print(Panel(final_answer, title="Final Answer", border_style="green"))
+
+            # Write output file if specified
+            if args.output_file:
+                output_path = Path(args.output_file)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(final_answer)
+                print(f"OUTPUT_FILE: {output_path.resolve()}")
+
+            # Print plan location for automation mode
+            if args.automation:
+                print(f"PLAN_DIR: {plan_session.plan_dir}")
+                print(f"PLAN_ID: {plan_session.plan_id}")
+
+            sys.exit(0)
+
+        # Handle --execute-plan mode (execute existing plan without planning phase)
+        if getattr(args, "execute_plan", None):
+            from rich.console import Console
+            from rich.panel import Panel
+
+            try:
+                final_answer, plan_session = await run_execute_plan(
+                    config=config,
+                    plan_path=args.execute_plan,
+                    question=args.question,  # Optional override
+                    automation=args.automation,
+                )
+
+                # Print results
+                if not args.automation:
+                    console = Console()
+                    console.print(Panel(final_answer, title="Final Answer", border_style="green"))
+
+                # Write output file if specified
+                if args.output_file:
+                    output_path = Path(args.output_file)
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_path.write_text(final_answer)
+                    print(f"OUTPUT_FILE: {output_path.resolve()}")
+
+                # Print plan location for automation mode
+                if args.automation:
+                    print(f"PLAN_DIR: {plan_session.plan_dir}")
+                    print(f"PLAN_ID: {plan_session.plan_id}")
+
+                sys.exit(0)
+
+            except FileNotFoundError as e:
+                print(f"❌ {e}")
+                sys.exit(1)
+
         # Run mode based on whether question was provided
         try:
-            if args.question:
+            # Check if using textual display - textual always uses interactive mode
+            # with question as initial_question (textual doesn't support single-question mode)
+            is_textual_display = ui_config.get("display_type") == "textual_terminal"
+
+            if args.question and not is_textual_display:
                 await run_single_question(
                     args.question,
                     agents,
@@ -5799,11 +7628,25 @@ async def main(args):
                     restore_session_if_exists=restore_existing_session,
                     **kwargs,
                 )
+
+                # Print FINAL_DIR for automation mode (allows plan-and-execute to capture workspace)
+                if args.automation:
+                    try:
+                        from massgen.logger_config import get_log_session_dir
+
+                        final_dir = get_log_session_dir() / "final"
+                        if final_dir.exists():
+                            print(f"FINAL_DIR: {final_dir}")
+                    except Exception:
+                        pass  # Log paths not available
             else:
                 # Pass the config path and session_id to interactive mode
                 config_file_path = str(resolved_path) if args.config and resolved_path else None
-                # Check if we have an initial question from config builder
+                # Check if we have an initial question from config builder or CLI arg (for textual mode)
                 initial_q = getattr(args, "interactive_with_initial_question", None)
+                # For textual display, use args.question as initial_question if provided
+                if is_textual_display and args.question:
+                    initial_q = args.question
                 # Remove config_path and enable_rate_limit from kwargs to avoid duplicate argument
                 interactive_kwargs = {k: v for k, v in kwargs.items() if k not in ("config_path", "enable_rate_limit")}
                 await run_interactive_mode(
@@ -5868,7 +7711,14 @@ async def main(args):
                         with ThreadPoolExecutor(
                             max_workers=len(agents_with_docker),
                         ) as executor:
-                            futures = {executor.submit(cleanup_agent, agent_id, agent): agent_id for agent_id, agent in agents_with_docker}
+                            futures = {
+                                executor.submit(
+                                    cleanup_agent,
+                                    agent_id,
+                                    agent,
+                                ): agent_id
+                                for agent_id, agent in agents_with_docker
+                            }
                             for future in as_completed(futures):
                                 agent_id, error = future.result()
                                 if error:
@@ -6084,10 +7934,29 @@ def cli_main():
             prog="massgen serve",
             description="Run MassGen OpenAI-compatible server (FastAPI + Uvicorn)",
         )
-        serve_parser.add_argument("--host", type=str, default=None, help="Host to bind (default: 0.0.0.0)")
-        serve_parser.add_argument("--port", type=int, default=None, help="Port to bind (default: 4000)")
-        serve_parser.add_argument("--config", type=str, default=None, help="Default MassGen config file path")
-        serve_parser.add_argument("--reload", action="store_true", help="Enable auto-reload (dev only)")
+        serve_parser.add_argument(
+            "--host",
+            type=str,
+            default=None,
+            help="Host to bind (default: 0.0.0.0)",
+        )
+        serve_parser.add_argument(
+            "--port",
+            type=int,
+            default=None,
+            help="Port to bind (default: 4000)",
+        )
+        serve_parser.add_argument(
+            "--config",
+            type=str,
+            default=None,
+            help="Default MassGen config file path",
+        )
+        serve_parser.add_argument(
+            "--reload",
+            action="store_true",
+            help="Enable auto-reload (dev only)",
+        )
 
         serve_args = serve_parser.parse_args(sys.argv[2:])
 
@@ -6125,7 +7994,12 @@ def cli_main():
             settings = replace(settings, **overrides)
 
         app = create_app(settings=settings)
-        uvicorn.run(app, host=settings.host, port=settings.port, reload=serve_args.reload)
+        uvicorn.run(
+            app,
+            host=settings.host,
+            port=settings.port,
+            reload=serve_args.reload,
+        )
         return
 
     # Handle 'export' subcommand specially before main argument parsing
@@ -6329,6 +8203,24 @@ Environment Variables:
         action="store_true",
         help="Disable visual coordination display",
     )
+    parser.add_argument(
+        "--display",
+        type=str,
+        choices=["rich", "textual"],
+        default=None,
+        help="Display type: rich (default), textual (TUI)",
+    )
+    parser.add_argument(
+        "--textual-serve",
+        action="store_true",
+        help="Serve Textual TUI in browser via textual-serve (http://localhost:8000)",
+    )
+    parser.add_argument(
+        "--textual-serve-port",
+        type=int,
+        default=8000,
+        help="Port for textual-serve (default: 8000)",
+    )
     parser.add_argument("--no-logs", action="store_true", help="Disable logging")
     parser.add_argument(
         "--debug",
@@ -6372,6 +8264,38 @@ Environment Variables:
         action="store_true",
         help="Enable automation mode: silent output (~10 lines), status.json tracking, meaningful exit codes. "
         "REQUIRED for LLM agents and background execution. Automatically isolates workspaces for parallel runs.",
+    )
+    parser.add_argument(
+        "--plan",
+        action="store_true",
+        help="Task planning mode. Agents interactively create structured feature lists and planning documents. " "Auto-adds cwd to context paths and enables user questions via ask_others.",
+    )
+    parser.add_argument(
+        "--plan-depth",
+        choices=["shallow", "medium", "deep"],
+        default="medium",
+        help="Plan granularity for --plan mode: shallow (5-10 tasks), medium (20-50 tasks), deep (100-200+ tasks). Default: medium.",
+    )
+    parser.add_argument(
+        "--broadcast",
+        choices=["human", "agents", "false"],
+        default=None,
+        help="Broadcast mode for --plan mode: 'human' (agents ask critical questions), 'agents' (agents debate), 'false' (fully autonomous). "
+        "If not specified, uses config file value or defaults to 'human'.",
+    )
+    parser.add_argument(
+        "--plan-and-execute",
+        action="store_true",
+        help="Run full plan-and-execute workflow: agents create plan (Phase 1), then automatically execute it (Phase 2). "
+        "Combines --plan with automatic execution. Plan stored in .massgen/plans/ for validation and adherence tracking.",
+    )
+    parser.add_argument(
+        "--execute-plan",
+        type=str,
+        metavar="PLAN_PATH",
+        help="Execute an existing plan. Provide the plan directory path (e.g., .massgen/plans/plan_20260115_173113_836955) "
+        "or plan ID (e.g., 20260115_173113_836955) or 'latest' for most recent plan. "
+        "Skips planning phase and runs execution directly from the frozen plan.",
     )
     parser.add_argument(
         "--no-session-registry",
@@ -6658,56 +8582,67 @@ Environment Variables:
     # Launch interactive API key setup if requested
     # Skip terminal setup if --web is also provided (web UI will handle setup)
     if args.setup and not args.web:
-        builder = ConfigBuilder()
-        api_keys = builder.interactive_api_key_setup()
-
-        if any(api_keys.values()):
-            print(f"\n{BRIGHT_GREEN}✅ API key setup complete!{RESET}")
-            print(
-                f"{BRIGHT_CYAN}💡 You can now use MassGen with these providers{RESET}\n",
-            )
-        else:
-            print(f"\n{BRIGHT_YELLOW}⚠️  No API keys configured{RESET}")
-            print(
-                f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to set them up{RESET}\n",
-            )
-
-        # Offer to set up Docker
+        # Launch TUI Setup Wizard
         try:
-            docker_choice = (
-                input(
-                    f"{BRIGHT_CYAN}Would you also like to set up Docker images for code execution? [Y/n]: {RESET}",
-                )
-                .strip()
-                .lower()
-            )
-            if docker_choice in ["y", "yes", ""]:
-                setup_docker()
-        except (KeyboardInterrupt, EOFError):
-            print()
+            from textual.app import App
 
-        # Show skills summary and offer to install more
-        try:
-            from .utils.skills_installer import display_skills_summary, install_skills
+            from .frontend.displays.textual_widgets import SetupWizard, WizardCompleted
 
-            display_skills_summary()
+            class SetupWizardApp(App):
+                """Standalone app for setup wizard."""
 
-            skills_choice = (
-                input(
-                    f"{BRIGHT_CYAN}Would you like to install additional skills (openskills, Anthropic collection)? [Y/n]: {RESET}",
-                )
-                .strip()
-                .lower()
-            )
-            if skills_choice in ["y", "yes", ""]:
-                install_skills()
-        except (KeyboardInterrupt, EOFError):
-            print()
+                CSS_PATH = Path(__file__).parent / "frontend" / "displays" / "textual_themes" / "dark.tcss"
+                SCREENS = {"wizard": SetupWizard}
+                BINDINGS = [("ctrl+c", "quit", "Quit")]
 
-        print(f"\n{BRIGHT_GREEN}Setup complete!{RESET}")
-        print(
-            f"{BRIGHT_CYAN}Run 'massgen --quickstart' to create a config and start.{RESET}\n",
-        )
+                def __init__(self):
+                    super().__init__(css_path=str(self.CSS_PATH))
+                    self._wizard_result = None
+
+                def on_mount(self):
+                    # Push the wizard screen as the initial screen
+                    self.push_screen("wizard")
+
+                def on_wizard_completed(self, message: WizardCompleted) -> None:
+                    """Handle wizard completion."""
+                    self._wizard_result = message.result
+                    self.exit(message.result)
+
+                def action_quit(self) -> None:
+                    """Handle Ctrl+C to exit."""
+                    self.exit(None)
+
+                def on_key(self, event) -> None:
+                    """Handle escape key to cancel."""
+                    if event.key == "escape" and len(self.screen_stack) <= 1:
+                        self.exit(None)
+
+            app = SetupWizardApp()
+            result = app.run()
+
+            if result and result.get("success"):
+                print(f"\n{BRIGHT_GREEN}✅ API key setup complete!{RESET}")
+                configured = result.get("configured_providers", [])
+                if configured:
+                    print(f"{BRIGHT_CYAN}💡 Configured providers: {', '.join(configured)}{RESET}")
+                print(f"{BRIGHT_CYAN}💡 Run 'massgen --quickstart' to create a config and start.{RESET}\n")
+            else:
+                print(f"\n{BRIGHT_YELLOW}⚠️  Setup cancelled or no changes made{RESET}")
+                print(f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to configure API keys{RESET}\n")
+
+        except ImportError as e:
+            logger.warning(f"TUI not available, falling back to CLI setup: {e}")
+            # Fallback to CLI-based setup
+            builder = ConfigBuilder()
+            api_keys = builder.interactive_api_key_setup()
+
+            if any(api_keys.values()):
+                print(f"\n{BRIGHT_GREEN}✅ API key setup complete!{RESET}")
+                print(f"{BRIGHT_CYAN}💡 You can now use MassGen with these providers{RESET}\n")
+            else:
+                print(f"\n{BRIGHT_YELLOW}⚠️  No API keys configured{RESET}")
+                print(f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to set them up{RESET}\n")
+
         return
 
     # Install skills if requested
@@ -6720,6 +8655,36 @@ Environment Variables:
     # Setup Docker images if requested
     if args.setup_docker:
         setup_docker()
+        return
+
+    # Launch textual-serve to serve TUI in browser
+    if args.textual_serve:
+        try:
+            from textual_serve.server import Server
+        except ImportError:
+            print(f"{BRIGHT_RED}❌ textual-serve not installed.{RESET}")
+            print(f"{BRIGHT_CYAN}   Run: uv pip install textual-serve{RESET}")
+            sys.exit(1)
+
+        # Build the massgen command to run inside textual-serve
+        cmd_parts = ["massgen", "--display", "textual"]
+        if hasattr(args, "config") and args.config:
+            cmd_parts.extend(["--config", args.config])
+        if hasattr(args, "interactive") and args.interactive:
+            cmd_parts.append("--interactive")
+        if hasattr(args, "question") and args.question:
+            cmd_parts.append(f'"{args.question}"')
+
+        cmd = " ".join(cmd_parts)
+        port = args.textual_serve_port
+
+        print(f"{BRIGHT_CYAN}🌐 Starting MassGen Textual TUI Server...{RESET}")
+        print(f"{BRIGHT_GREEN}   URL: http://localhost:{port}{RESET}")
+        print(f"{BRIGHT_GREEN}   Command: {cmd}{RESET}")
+        print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+        server = Server(cmd, port=port)
+        server.serve()
         return
 
     # Launch web UI server if requested
@@ -6856,87 +8821,186 @@ Environment Variables:
     # Launch quickstart if requested
     # Skip terminal quickstart if --web is also provided (web UI will show wizard directly)
     if args.quickstart and not args.web:
-        builder = ConfigBuilder()
-        result = builder.run_quickstart()
+        # Launch TUI Quickstart Wizard
+        try:
+            from textual.app import App
 
-        if result and len(result) >= 2:
-            # Handle both 2-tuple (legacy) and 3-tuple (with interface choice)
-            filepath = result[0]
-            question = result[1]
-            interface_choice = result[2] if len(result) >= 3 else "terminal"
+            from .frontend.displays.textual_widgets import (
+                QuickstartWizard,
+                WizardCompleted,
+            )
 
-            if filepath and interface_choice == "web":
-                # Launch web UI directly (web launch code above has already been evaluated)
-                try:
-                    from .frontend.web import run_server
+            class QuickstartWizardApp(App):
+                """Standalone app for quickstart wizard."""
 
-                    config_path = filepath
-                    # Use the question from quickstart if provided
-                    prompt_question = question if question else None
+                CSS_PATH = Path(__file__).parent / "frontend" / "displays" / "textual_themes" / "dark.tcss"
+                SCREENS = {"wizard": QuickstartWizard}
+                BINDINGS = [("ctrl+c", "quit", "Quit")]
 
-                    print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
-                    print(
-                        f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}",
-                    )
-                    print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+                def __init__(self):
+                    super().__init__(css_path=str(self.CSS_PATH))
+                    self._wizard_result = None
 
-                    # Build auto-launch URL if question is provided
-                    auto_url = None
-                    if prompt_question:
-                        import urllib.parse
+                def on_mount(self):
+                    # Push the wizard screen as the initial screen
+                    self.push_screen("wizard")
 
-                        prompt_encoded = urllib.parse.quote(prompt_question)
-                        auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
-                        config_encoded = urllib.parse.quote(config_path)
-                        auto_url += f"&config={config_encoded}"
-                        print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+                def on_wizard_completed(self, message: WizardCompleted) -> None:
+                    """Handle wizard completion."""
+                    self._wizard_result = message.result
+                    self.exit(message.result)
 
-                    print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+                def action_quit(self) -> None:
+                    """Handle Ctrl+C to exit."""
+                    self.exit(None)
 
-                    # Auto-open browser
-                    browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+                def on_key(self, event) -> None:
+                    """Handle escape key to cancel."""
+                    if event.key == "escape" and len(self.screen_stack) <= 1:
+                        self.exit(None)
 
-                    def open_browser():
-                        import time
+            app = QuickstartWizardApp()
+            result = app.run()
 
-                        time.sleep(0.5)  # Wait for server to start
-                        webbrowser.open(browser_url)
+            if result:
+                config_path = result.get("config_path")
+                question = result.get("question", "")
+                launch_option = result.get("launch_option", "save_only")
 
-                    threading.Thread(target=open_browser, daemon=True).start()
-                    run_server(
-                        host=args.web_host,
-                        port=args.web_port,
-                        config_path=config_path,
-                        automation_mode=False,
-                    )
-                except ImportError as e:
-                    print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
-                    print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
-                    logger.debug(f"Import error: {e}")
-                    sys.exit(1)
-                return
-            elif filepath and question:
-                # Update args to use the newly created config and launch interactive mode with initial question
-                args.config = filepath
-                args.question = question
-                # Store initial question for interactive mode (don't run single-question mode)
-                args.interactive_with_initial_question = question
-                args.question = None  # Clear to trigger interactive mode instead of single-question
-            elif filepath and question == "":
-                # Empty string means auto-launch into interactive mode (no initial question)
-                args.config = filepath
-                args.question = None  # Trigger interactive mode
-            elif filepath:
-                # Config created but user chose not to run
-                print(f"\n✅ Configuration saved to: {filepath}")
-                print(f'Run with: massgen --config {filepath} "Your question"')
-                return
+                if config_path and launch_option == "web":
+                    # Launch web UI
+                    try:
+                        from .frontend.web import run_server
+
+                        prompt_question = question if question else None
+
+                        print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+                        print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+                        print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+
+                        auto_url = None
+                        if prompt_question:
+                            import urllib.parse
+
+                            prompt_encoded = urllib.parse.quote(prompt_question)
+                            auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                            config_encoded = urllib.parse.quote(config_path)
+                            auto_url += f"&config={config_encoded}"
+                            print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+                        print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+                        browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+
+                        def open_browser():
+                            import time
+
+                            time.sleep(0.5)
+                            webbrowser.open(browser_url)
+
+                        threading.Thread(target=open_browser, daemon=True).start()
+                        run_server(
+                            host=args.web_host,
+                            port=args.web_port,
+                            config_path=config_path,
+                            automation_mode=False,
+                        )
+                    except ImportError as e:
+                        print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+                        print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+                        logger.debug(f"Import error: {e}")
+                        sys.exit(1)
+                    return
+                elif config_path and launch_option == "terminal":
+                    # Launch terminal TUI - update args to continue with normal flow
+                    args.config = config_path
+                    if question:
+                        args.interactive_with_initial_question = question
+                    args.question = None  # Trigger interactive mode
+                elif config_path:
+                    # Save only
+                    print(f"\n{BRIGHT_GREEN}✅ Configuration saved to: {config_path}{RESET}")
+                    print(f'{BRIGHT_CYAN}Run with: massgen --config {config_path} "Your question"{RESET}')
+                    return
+                else:
+                    # User cancelled
+                    return
             else:
-                # User cancelled
+                # Wizard was cancelled
+                print(f"\n{BRIGHT_YELLOW}⚠️  Quickstart cancelled{RESET}")
                 return
-        else:
-            # Builder returned None (cancelled or error)
-            return
+
+        except ImportError as e:
+            logger.warning(f"TUI not available, falling back to CLI quickstart: {e}")
+            # Fallback to CLI-based quickstart
+            builder = ConfigBuilder()
+            result = builder.run_quickstart()
+
+            if result and len(result) >= 2:
+                filepath = result[0]
+                question = result[1]
+                interface_choice = result[2] if len(result) >= 3 else "terminal"
+
+                if filepath and interface_choice == "web":
+                    try:
+                        from .frontend.web import run_server
+
+                        config_path = filepath
+                        prompt_question = question if question else None
+
+                        print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+                        print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+                        print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+
+                        auto_url = None
+                        if prompt_question:
+                            import urllib.parse
+
+                            prompt_encoded = urllib.parse.quote(prompt_question)
+                            auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                            config_encoded = urllib.parse.quote(config_path)
+                            auto_url += f"&config={config_encoded}"
+                            print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+                        print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+                        browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+
+                        def open_browser():
+                            import time
+
+                            time.sleep(0.5)
+                            webbrowser.open(browser_url)
+
+                        threading.Thread(target=open_browser, daemon=True).start()
+                        run_server(
+                            host=args.web_host,
+                            port=args.web_port,
+                            config_path=config_path,
+                            automation_mode=False,
+                        )
+                    except ImportError as e:
+                        print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+                        print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+                        logger.debug(f"Import error: {e}")
+                        sys.exit(1)
+                    return
+                elif filepath and question:
+                    args.config = filepath
+                    args.question = question
+                    args.interactive_with_initial_question = question
+                    args.question = None
+                elif filepath and question == "":
+                    args.config = filepath
+                    args.question = None
+                elif filepath:
+                    print(f"\n✅ Configuration saved to: {filepath}")
+                    print(f'Run with: massgen --config {filepath} "Your question"')
+                    return
+                else:
+                    return
+            else:
+                return
 
     # Launch interactive config builder if requested
     if args.init:

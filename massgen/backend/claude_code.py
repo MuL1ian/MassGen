@@ -64,6 +64,7 @@ from claude_agent_sdk import (  # type: ignore
     ResultMessage,
     SystemMessage,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -78,10 +79,11 @@ from ..logger_config import (
 from ..structured_logging import get_current_round, get_tracer, log_token_usage
 from ..tool import ToolManager
 from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
+from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import FilesystemSupport, LLMBackend, StreamChunk
 
 
-class ClaudeCodeBackend(LLMBackend):
+class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
     """Claude Code backend using claude-code-sdk-python.
 
     Provides streaming interface to Claude Code with built-in tool execution
@@ -245,6 +247,9 @@ class ClaudeCodeBackend(LLMBackend):
         except ImportError as e:
             logger.debug(f"[ClaudeCodeBackend] Native hook adapter not available: {e}")
 
+        # Note: _execution_trace is initialized by StreamingBufferMixin
+        # and configured with agent_id when _clear_streaming_buffer is called
+
     def _setup_windows_subprocess_cleanup_suppression(self):
         """Comprehensive Windows subprocess cleanup warning suppression."""
         # All warning filters
@@ -375,6 +380,70 @@ class ClaudeCodeBackend(LLMBackend):
         logger.debug(
             f"[ClaudeCodeBackend] Set native hooks config: " f"PreToolUse={len(config.get('PreToolUse', []))} hooks, " f"PostToolUse={len(config.get('PostToolUse', []))} hooks",
         )
+
+    def _get_execution_trace_hooks(self) -> Dict[str, List[Any]]:
+        """Create SDK hooks that capture tool executions for the execution trace.
+
+        Returns:
+            Dictionary with PreToolUse and PostToolUse hook configurations
+        """
+        from claude_agent_sdk import HookMatcher
+
+        # Store pending tool calls to correlate with results
+        self._pending_tool_calls: Dict[str, Dict[str, Any]] = {}
+
+        async def pre_tool_use_hook(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+            """Capture tool call before execution."""
+            if self._execution_trace and input_data.get("hook_event_name") == "PreToolUse":
+                tool_name = input_data.get("tool_name", "unknown")
+                tool_input = input_data.get("tool_input", {})
+
+                # Record the tool call
+                self._execution_trace.add_tool_call(name=tool_name, args=tool_input)
+
+                # Store for correlation with result
+                if tool_use_id:
+                    self._pending_tool_calls[tool_use_id] = {
+                        "name": tool_name,
+                        "input": tool_input,
+                    }
+
+                logger.debug(f"[ClaudeCodeBackend] Trace captured tool call: {tool_name}")
+
+            # Return empty to allow the operation
+            return {}
+
+        async def post_tool_use_hook(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+            """Capture tool result after execution."""
+            if self._execution_trace and input_data.get("hook_event_name") == "PostToolUse":
+                tool_name = input_data.get("tool_name", "unknown")
+                tool_response = input_data.get("tool_response", "")
+
+                # Convert response to string if needed
+                if isinstance(tool_response, dict):
+                    result_str = json.dumps(tool_response)
+                else:
+                    result_str = str(tool_response) if tool_response else ""
+
+                # Record the tool result
+                self._execution_trace.add_tool_result(
+                    name=tool_name,
+                    result=result_str,
+                    is_error=False,  # PostToolUse is only for successful calls
+                )
+
+                # Clean up pending call
+                if tool_use_id and tool_use_id in self._pending_tool_calls:
+                    del self._pending_tool_calls[tool_use_id]
+
+                logger.debug(f"[ClaudeCodeBackend] Trace captured tool result: {tool_name}")
+
+            return {}
+
+        return {
+            "PreToolUse": [HookMatcher(hooks=[pre_tool_use_hook])],
+            "PostToolUse": [HookMatcher(hooks=[post_tool_use_hook])],
+        }
 
     async def _setup_code_based_tools_symlinks(self) -> None:
         """Setup symlinks to shared code-based tools if they already exist.
@@ -937,15 +1006,17 @@ class ClaudeCodeBackend(LLMBackend):
                 if paths:
                     execution_context["allowed_paths"] = paths
 
+        # Add multimodal_config for read_media/generate_media tools
+        if hasattr(self, "_multimodal_config") and self._multimodal_config:
+            execution_context["multimodal_config"] = self._multimodal_config
+
         tool_request = {
             "name": tool_name,
             "input": args,
         }
 
-        # Build execution context for observability (agent_id, round tracking)
-        execution_context = {
-            "agent_id": getattr(self, "_current_agent_id", None) or "unknown",
-        }
+        # Add observability context (agent_id, round tracking)
+        execution_context["agent_id"] = getattr(self, "_current_agent_id", None) or "unknown"
         # Add round tracking from context variable (set by orchestrator via set_current_round)
         round_number, round_type = get_current_round()
         if round_number is not None:
@@ -1368,10 +1439,25 @@ class ClaudeCodeBackend(LLMBackend):
             # MassGen-specific config options (not ClaudeAgentOptions parameters)
             "enable_web_search",  # Handled above - controls WebSearch/WebFetch tool availability
             "use_default_prompt",  # Handled in stream_with_tools - controls system prompt mode
+            "max_thinking_tokens",  # Handled below - converted to env.MAX_THINKING_TOKENS
             # Note: use_mcpwrapped_for_tool_filtering and use_no_roots_wrapper are in base excluded params
             # Note: system_prompt is NOT excluded - it's needed for internal workflow prompt injection
             # Validation prevents it from being set in YAML backend config
         }
+
+        # Handle max_thinking_tokens -> env.MAX_THINKING_TOKENS conversion
+        # This enables extended thinking in Claude Agent SDK, providing ThinkingBlock
+        # outputs with the model's internal reasoning process.
+        # See: https://platform.claude.com/docs/en/build-with-claude/extended-thinking
+        max_thinking_tokens = options_kwargs.get("max_thinking_tokens")
+        if max_thinking_tokens is not None:
+            # Merge with existing env dict if present
+            env_dict = options_kwargs.get("env", {})
+            if env_dict is None:
+                env_dict = {}
+            env_dict["MAX_THINKING_TOKENS"] = str(max_thinking_tokens)
+            options_kwargs["env"] = env_dict
+            logger.info(f"[ClaudeCodeBackend] Extended thinking enabled with budget: {max_thinking_tokens} tokens")
 
         # Get cwd from filesystem manager (always available since we require it in __init__)
         cwd_option = Path(str(self.filesystem_manager.get_current_workspace())).resolve()
@@ -1518,6 +1604,10 @@ class ClaudeCodeBackend(LLMBackend):
         # Extract agent_id from kwargs if provided and store for tool execution context
         agent_id = kwargs.get("agent_id", None)
         self._current_agent_id = agent_id  # Store for custom tool execution
+
+        # Clear streaming buffer at start (respects _compression_retry flag)
+        # This also initializes execution trace via the mixin
+        self._clear_streaming_buffer(**kwargs)
 
         # Initialize span tracking variables for proper cleanup in all code paths
         llm_span = None
@@ -1838,7 +1928,21 @@ class ClaudeCodeBackend(LLMBackend):
                 if isinstance(message, (AssistantMessage, UserMessage)):
                     # Process assistant message content
                     for block in message.content:
-                        if isinstance(block, TextBlock):
+                        if isinstance(block, ThinkingBlock):
+                            # Extended thinking content (summarized for Claude 4 models)
+                            thinking_text = block.thinking
+                            if thinking_text:
+                                log_stream_chunk("backend.claude_code", "reasoning", thinking_text, agent_id)
+                                yield StreamChunk(
+                                    type="reasoning",
+                                    content=thinking_text,
+                                    reasoning_delta=thinking_text,
+                                    source="claude_code",
+                                )
+                                # Add to streaming buffer for compression recovery
+                                self._append_reasoning_to_buffer(thinking_text)
+
+                        elif isinstance(block, TextBlock):
                             accumulated_content += block.text
 
                             # Yield content chunk
@@ -1850,6 +1954,12 @@ class ClaudeCodeBackend(LLMBackend):
                             )
                             log_stream_chunk("backend.claude_code", "content", block.text, agent_id)
                             yield StreamChunk(type="content", content=block.text, source="claude_code")
+                            # Add to streaming buffer for compression recovery
+                            self._append_to_streaming_buffer(block.text)
+                            # Also add to execution trace as content (model's text output)
+                            # This is distinct from ThinkingBlock which would be reasoning
+                            if self._execution_trace:
+                                self._execution_trace.add_content(block.text)
 
                         elif isinstance(block, ToolUseBlock):
                             # Claude Code's builtin tool usage
@@ -1870,6 +1980,9 @@ class ClaudeCodeBackend(LLMBackend):
                                 content=f"🔧 {block.name}({block.input})",
                                 source="claude_code",
                             )
+                            # Add to streaming buffer for compression recovery
+                            tool_args = block.input if isinstance(block.input, dict) else {"input": block.input}
+                            self._append_tool_call_to_buffer([{"name": block.name, "arguments": tool_args}])
 
                         elif isinstance(block, ToolResultBlock):
                             # Tool result from Claude Code - use simple content format
@@ -1886,6 +1999,13 @@ class ClaudeCodeBackend(LLMBackend):
                                 type="content",
                                 content=f"🔧 Tool {status}: {block.content}",
                                 source="claude_code",
+                            )
+                            # Add to streaming buffer for compression recovery
+                            result_str = str(block.content) if block.content else ""
+                            self._append_tool_to_buffer(
+                                tool_name="tool",  # Claude Code SDK doesn't include tool name in result block
+                                result_text=result_str,
+                                is_error=block.is_error,
                             )
 
                     # Parse workflow tool calls from accumulated content
@@ -1997,6 +2117,9 @@ class ClaudeCodeBackend(LLMBackend):
                         source="claude_code",
                     )
 
+                    # Finalize streaming buffer
+                    self._finalize_streaming_buffer(agent_id=agent_id)
+
                     # Final done signal
                     log_stream_chunk("backend.claude_code", "done", None, agent_id)
                     yield StreamChunk(type="done", source="claude_code")
@@ -2004,6 +2127,9 @@ class ClaudeCodeBackend(LLMBackend):
 
         except Exception as e:
             error_msg = str(e)
+
+            # Finalize streaming buffer even on error
+            self._finalize_streaming_buffer(agent_id=agent_id)
 
             # Close LLM span on error
             if llm_span_open and llm_span_cm:

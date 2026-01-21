@@ -136,18 +136,18 @@ async def _process_with_openai(
     Returns:
         Text transcription from OpenAI
     """
-    from openai import OpenAI
+    from openai import AsyncOpenAI
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
-    client = OpenAI(api_key=api_key)
+    client = AsyncOpenAI(api_key=api_key)
 
     logger.info(f"[understand_audio] Using OpenAI {model} for audio: {audio_path.name}")
 
     with open(audio_path, "rb") as audio_file:
-        transcription = client.audio.transcriptions.create(
+        transcription = await client.audio.transcriptions.create(
             model=model,
             file=audio_file,
             response_format="text",

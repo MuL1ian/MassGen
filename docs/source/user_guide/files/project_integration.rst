@@ -382,6 +382,180 @@ Agents examine existing projects and create modernized versions:
      --config migration.yaml \
      "Migrate the Flask 1.x application to Flask 3.x with modern best practices"
 
+Project Instructions (CLAUDE.md / AGENTS.md)
+---------------------------------------------
+
+**NEW in v0.1.36** - Automatic discovery of project instruction files
+
+MassGen automatically discovers and includes project instruction files (CLAUDE.md or AGENTS.md) when they exist in your context paths. This follows the `agents.md standard <https://agents.md/>`_ for coding agent instructions.
+
+Quick Example
+~~~~~~~~~~~~~
+
+Create a ``CLAUDE.md`` or ``AGENTS.md`` file in your project root:
+
+.. code-block:: markdown
+
+   # MyProject Instructions
+
+   ## Build & Test
+   - Run `npm install` before testing
+   - Tests use pytest: `pytest tests/`
+
+   ## Code Style
+   - Use TypeScript strict mode
+   - Follow ESLint configuration in `.eslintrc`
+
+Then run MassGen with your project as a context path:
+
+.. code-block:: bash
+
+   cd /path/to/myproject
+   uv run massgen "@. Add dark mode toggle to the settings page"
+
+The contents of ``CLAUDE.md`` will automatically be included in the agent's system prompt.
+
+Supported Files
+~~~~~~~~~~~~~~~
+
+MassGen supports both standard formats:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - File
+     - Description
+   * - ``CLAUDE.md``
+     - Claude Code specific instructions (takes precedence)
+   * - ``AGENTS.md``
+     - Universal standard for coding agents (`agents.md <https://agents.md/>`_, 60k+ projects)
+
+**Priority**: If both files exist, ``CLAUDE.md`` takes precedence.
+
+How Discovery Works
+~~~~~~~~~~~~~~~~~~~
+
+MassGen uses **hierarchical discovery** with "closest wins" semantics:
+
+1. Starts at your context path
+2. Walks up to workspace root looking for ``CLAUDE.md`` or ``AGENTS.md``
+3. Returns the **closest** file found
+4. ``CLAUDE.md`` is preferred over ``AGENTS.md`` at the same directory level
+
+**Example structure**:
+
+.. code-block:: text
+
+   /myproject/                   # Root
+   ├── AGENTS.md                 # Project-wide instructions
+   ├── src/
+   │   ├── CLAUDE.md             # Source-specific instructions (closest wins for src/)
+   │   └── api/
+   │       └── handler.py
+   └── docs/
+       └── AGENTS.md             # Docs-specific instructions
+
+**If you specify** ``@/myproject/src/api``:
+
+- MassGen finds ``/myproject/src/CLAUDE.md`` (closest to api/)
+- Root ``AGENTS.md`` is ignored (src/CLAUDE.md is closer)
+
+Configuration Examples
+~~~~~~~~~~~~~~~~~~~~~~
+
+**Option 1: Directory with instruction file**
+
+.. code-block:: yaml
+
+   orchestrator:
+     context_paths:
+       - path: "/Users/me/myproject"
+         permission: "read"
+
+If ``/Users/me/myproject/CLAUDE.md`` or ``AGENTS.md`` exists, it's automatically included.
+
+**Option 2: Explicit file reference**
+
+.. code-block:: bash
+
+   massgen "@CLAUDE.md @src/ Review the authentication module"
+
+**Option 3: Using @path syntax (CLI)**
+
+.. code-block:: bash
+
+   # Discovers CLAUDE.md from project root
+   cd /Users/me/myproject
+   massgen "@. Add user profile page"
+
+Important Notes
+~~~~~~~~~~~~~~~
+
+.. note::
+
+   **Context, not strict instructions**: The contents of CLAUDE.md/AGENTS.md are provided as **reference context** that may or may not be relevant to the current task. Agents use these as helpful guidelines when applicable but are not required to follow every instruction.
+
+   This differs from operational system prompt instructions - think of it like README.md for agents.
+
+**Static loading**:
+   Instruction files are read **once** at session start. Changes during execution require restarting the session.
+
+**Workspace boundary**:
+   Discovery stops at your workspace root - files outside the workspace are not searched.
+
+**Deduplication**:
+   If multiple context paths resolve to the same instruction file, it's only included once.
+
+Real-World Example
+~~~~~~~~~~~~~~~~~~
+
+.. code-block:: markdown
+
+   # CLAUDE.md
+
+   # Acme Web App
+
+   ## Build Process
+   ```bash
+   npm install
+   npm run build
+   npm test
+   ```
+
+   ## Architecture
+   - Frontend: React 18 + TypeScript
+   - Backend: FastAPI + PostgreSQL
+   - Tests: Jest for frontend, pytest for backend
+
+   ## Code Style
+   - Use TypeScript strict mode
+   - Follow Airbnb style guide
+   - 100% test coverage required for API endpoints
+
+   ## Testing
+   - Run `npm test` for frontend tests
+   - Run `pytest` for backend tests
+   - CI runs both on every PR
+
+**Usage**:
+
+.. code-block:: bash
+
+   cd acme-web-app
+   massgen "@. Add pagination to the users list endpoint"
+
+Agents will receive the build instructions, architecture context, and testing requirements automatically.
+
+Best Practices
+~~~~~~~~~~~~~~
+
+1. **Keep it concise**: Agents receive this as context, so focus on essential information
+2. **Include build steps**: How to set up the development environment
+3. **Document conventions**: Code style, naming patterns, testing requirements
+4. **Use both if needed**: CLAUDE.md for Claude-specific optimizations, AGENTS.md for universal compatibility
+5. **Update regularly**: Keep instructions current as your project evolves
+
 Security Considerations
 -----------------------
 

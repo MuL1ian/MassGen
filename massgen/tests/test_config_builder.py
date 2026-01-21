@@ -32,7 +32,7 @@ class TestCloneAgent:
                 "type": "openai",
                 "model": "gpt-5",
                 "enable_web_search": True,
-                "cwd": "workspace1",
+                "cwd": "workspace",
             },
         }
 
@@ -42,31 +42,31 @@ class TestCloneAgent:
         assert cloned["backend"]["type"] == "gemini"
         assert cloned["backend"]["model"] == "gemini-3-flash-preview"  # Default Gemini model
         assert cloned["backend"]["enable_web_search"] is True  # Compatible, should copy
-        assert cloned["backend"]["cwd"] == "workspace2"  # Filesystem copied and updated to agent_b's number
+        assert cloned["backend"]["cwd"] == "workspace"  # Filesystem copied (unique suffix added at runtime by cli.py)
 
     def test_clone_copies_filesystem_cwd(self, builder):
         """Test that cwd (filesystem) is copied and updated for target agent."""
         source = {
             "id": "agent_a",
-            "backend": {"type": "openai", "model": "gpt-5", "cwd": "workspace1"},
+            "backend": {"type": "openai", "model": "gpt-5", "cwd": "workspace"},
         }
 
         cloned = builder.clone_agent(source, "agent_b", target_backend_type="claude")
 
-        # cwd should exist (copied from source) and updated to agent_b's workspace number
+        # cwd should exist (copied from source) - unique suffix added at runtime by cli.py
         assert "cwd" in cloned["backend"]
-        assert cloned["backend"]["cwd"] == "workspace2"  # agent_b -> workspace2
+        assert cloned["backend"]["cwd"] == "workspace"
 
     def test_clone_updates_workspace_number(self, builder):
         """Test that workspace number updates for target agent ID."""
         source = {
             "id": "agent_a",
-            "backend": {"type": "openai", "model": "gpt-5", "cwd": "workspace1"},
+            "backend": {"type": "openai", "model": "gpt-5", "cwd": "workspace"},
         }
 
         cloned = builder.clone_agent(source, "agent_c", target_backend_type="openai")
 
-        assert cloned["backend"]["cwd"] == "workspace3"  # agent_c -> workspace3
+        assert cloned["backend"]["cwd"] == "workspace"  # unique suffix added at runtime by cli.py
 
     def test_clone_copies_compatible_tools(self, builder):
         """Test that compatible tools are copied across providers."""
@@ -205,7 +205,7 @@ class TestCloneAgent:
                 "enable_code_interpreter": True,
                 "text": {"verbosity": "high"},
                 "reasoning": {"effort": "medium", "summary": "auto"},
-                "cwd": "workspace1",
+                "cwd": "workspace",
             },
         }
 
@@ -256,7 +256,7 @@ class TestApplyPresetToAgent:
 
         updated = builder.apply_preset_to_agent(agent, "coding", agent_index=1)
 
-        assert updated["backend"]["cwd"] == "workspace1"
+        assert updated["backend"]["cwd"] == "workspace"  # unique suffix added at runtime by cli.py
 
     def test_apply_preset_multiple_agents_unique_workspaces(self, builder):
         """Test that multiple agents get unique workspace numbers."""
@@ -270,10 +270,10 @@ class TestApplyPresetToAgent:
             updated = builder.apply_preset_to_agent(agent, "coding", agent_index=i + 1)
             agents[i] = updated
 
-        # Check all have unique workspaces
-        assert agents[0]["backend"]["cwd"] == "workspace1"
-        assert agents[1]["backend"]["cwd"] == "workspace2"
-        assert agents[2]["backend"]["cwd"] == "workspace3"
+        # Check all have workspace base name (unique suffixes added at runtime by cli.py)
+        assert agents[0]["backend"]["cwd"] == "workspace"
+        assert agents[1]["backend"]["cwd"] == "workspace"
+        assert agents[2]["backend"]["cwd"] == "workspace"
 
     def test_apply_preset_filesystem_enabled_for_preset(self, builder):
         """Test that filesystem is enabled for presets that require it."""
@@ -290,7 +290,7 @@ class TestApplyPresetToAgent:
 
         updated = builder.apply_preset_to_agent(agent, "coding", agent_index=3)
 
-        assert updated["backend"]["cwd"] == "workspace3"
+        assert updated["backend"]["cwd"] == "workspace"  # unique suffix added at runtime by cli.py
 
 
 class TestCrossProviderCompatibility:
@@ -343,13 +343,13 @@ class TestCrossProviderCompatibility:
 
     def test_filesystem_copied_across_all_providers(self, builder):
         """Test filesystem (cwd) is copied across all providers and updated to target agent number."""
-        source = {"id": "agent_a", "backend": {"type": "openai", "model": "gpt-5", "cwd": "workspace1"}}
+        source = {"id": "agent_a", "backend": {"type": "openai", "model": "gpt-5", "cwd": "workspace"}}
 
         for target_type in ["gemini", "claude", "grok", "claude_code", "lmstudio"]:
             cloned = builder.clone_agent(source, "agent_b", target_backend_type=target_type)
-            # cwd should exist and be updated to workspace2 for agent_b
+            # cwd should exist - unique suffix added at runtime by cli.py
             assert "cwd" in cloned["backend"], f"cwd should be copied to {target_type}"
-            assert cloned["backend"]["cwd"] == "workspace2", f"cwd should be workspace2 for {target_type}"
+            assert cloned["backend"]["cwd"] == "workspace", f"cwd should be workspace for {target_type}"
 
     def test_command_line_execution_mode_universal(self, builder):
         """Test command_line_execution_mode is universal across providers."""
@@ -377,8 +377,8 @@ class TestWorkspaceUniqueness:
         """Create a ConfigBuilder instance for testing."""
         return ConfigBuilder()
 
-    def test_three_agents_get_workspace1_2_3(self, builder):
-        """Test that three agents get workspace1, workspace2, workspace3."""
+    def test_three_agents_get_workspace_base_name(self, builder):
+        """Test that all agents get 'workspace' base name (unique suffix added at runtime by cli.py)."""
         agents = [
             {"id": "agent_a", "backend": {"type": "openai", "model": "gpt-5"}},
             {"id": "agent_b", "backend": {"type": "gemini", "model": "gemini-2.5-pro"}},
@@ -388,18 +388,19 @@ class TestWorkspaceUniqueness:
         for i, agent in enumerate(agents):
             agents[i] = builder.apply_preset_to_agent(agent, "coding", agent_index=i + 1)
 
-        assert agents[0]["backend"]["cwd"] == "workspace1"
-        assert agents[1]["backend"]["cwd"] == "workspace2"
-        assert agents[2]["backend"]["cwd"] == "workspace3"
+        # All agents get "workspace" base name - unique suffixes added at runtime by cli.py
+        assert agents[0]["backend"]["cwd"] == "workspace"
+        assert agents[1]["backend"]["cwd"] == "workspace"
+        assert agents[2]["backend"]["cwd"] == "workspace"
 
     def test_clone_updates_workspace_for_target_agent(self, builder):
         """Test that cloning updates workspace to match target agent ID."""
-        source = {"id": "agent_a", "backend": {"type": "openai", "model": "gpt-5", "cwd": "workspace1"}}
+        source = {"id": "agent_a", "backend": {"type": "openai", "model": "gpt-5", "cwd": "workspace"}}
 
-        # Clone to agent_d should get workspace4
+        # Clone gets "workspace" base name - unique suffix added at runtime by cli.py
         cloned = builder.clone_agent(source, "agent_d", target_backend_type="openai")
 
-        assert cloned["backend"]["cwd"] == "workspace4"
+        assert cloned["backend"]["cwd"] == "workspace"
 
     def test_mixed_providers_all_unique_workspaces(self, builder):
         """Test mixed preset + clone scenario maintains unique workspaces."""
@@ -414,9 +415,10 @@ class TestWorkspaceUniqueness:
         agent_c = {"id": "agent_c", "backend": {"type": "claude", "model": "claude-3-5-sonnet-20241022"}}
         agent_c = builder.apply_preset_to_agent(agent_c, "coding", agent_index=3)
 
-        assert agent_a["backend"]["cwd"] == "workspace1"
-        assert agent_b["backend"]["cwd"] == "workspace2"  # Updated from agent_b ID
-        assert agent_c["backend"]["cwd"] == "workspace3"
+        # All get "workspace" base name - unique suffixes added at runtime by cli.py
+        assert agent_a["backend"]["cwd"] == "workspace"
+        assert agent_b["backend"]["cwd"] == "workspace"
+        assert agent_c["backend"]["cwd"] == "workspace"
 
 
 if __name__ == "__main__":

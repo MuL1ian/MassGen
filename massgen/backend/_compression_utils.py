@@ -225,6 +225,9 @@ To continue:
 2. Read `tasks/evolving_skill/SKILL.md` to see your workflow (if applicable)
 3. Continue executing the remaining tasks
 
+**FULL EXECUTION HISTORY**: Your complete execution trace is saved at `execution_trace.md`.
+If this summary is missing details you need, read that file to recover them.
+
 ---
 
 {summary.strip()}

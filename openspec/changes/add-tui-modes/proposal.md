@@ -1,0 +1,69 @@
+# Change: Add TUI Mode System for Native Multi-Agent Integration
+
+## Why
+The Textual TUI currently lacks native mode toggles for common multi-agent workflows. Users must use CLI flags or restart sessions to switch between planning/execution, single/multi-agent, or enable/disable refinement. This creates friction for interactive workflows and prevents seamless integration of multi-agent capabilities into a simple coding agent setup.
+
+## What Changes
+
+### Plan Mode (Shift+Tab)
+- Add keyboard binding (Shift+Tab) to toggle plan mode
+- In plan mode, submitted queries run planning phase (`--plan` internally)
+- After planning completes, show approval modal with plan preview
+- User can add additional instructions before approving
+- On approval, auto-transition to execute mode (`--execute-plan`)
+- Display shows plan directory and "Executing Plan" status during execution
+
+### Agent Mode Toggle (Single vs Multi)
+- Add mode toggle in new Mode Bar widget above input area
+- Single-agent mode: one agent from config is active, others greyed out in tab bar
+- Tab bar becomes agent selector in single-agent mode
+- Context preserved across agent switches between turns
+- Single agent keeps voting when refinement is ON (vote = "I'm done refining")
+
+### Refinement Mode Toggle (On/Off)
+- Add toggle in Mode Bar to enable/disable refinement
+- Default: On (normal vote/new_answer patterns)
+- Off + Single agent: skip coordination rounds entirely, direct answer
+- Off + Multi-agent: set max_new_answers_per_agent=1, forcing vote-only after first answer
+
+### Human Override (Ctrl+O)
+- Add keyboard binding (Ctrl+O) to trigger override modal
+- Available AFTER voting completes but BEFORE final presentation
+- Browse all agents' most recent answers
+- Select different agent to do final presentation
+- Chosen agent then does final presentation (writes to workspace normally)
+- **Post-completion redo deferred to future spec**
+
+### Mode Bar Widget
+- New horizontal widget positioned above input area
+- Contains: Plan mode indicator, Agent mode toggle, Refinement toggle
+- Override button appears when override is available
+- Disabled during execution to prevent inconsistent state
+
+### Orchestrator Changes
+- Add `skip_voting` config flag to bypass vote tool injection (used when refinement OFF + single agent)
+- Support runtime config overrides from TUI mode state
+- Note: Single agent + refinement ON keeps voting (vote = "I'm done refining")
+
+### Context Path Write Access (Refinement OFF)
+- Single agent + refinement OFF: Enable write access for context paths even without final presentation LLM call
+- Multi-agent + refinement OFF: Require final presentation only if write context paths exist
+- Multi-agent + refinement OFF + no write context paths: Skip final presentation entirely
+
+### Context Path Write Tracking
+- Track files written to context paths during final presentation
+- Display written files in final answer footer (file-level granularity)
+- When ≤5 files: show inline in footer
+- When >5 files: show summary count with path to `{log_dir}/context_path_writes.txt`
+- Purely mechanistic tracking (no prompt changes)
+
+## Impact
+- Affected specs: textual-tui (new capability)
+- Affected code:
+  - `massgen/frontend/displays/textual_terminal_display.py` (mode integration, write tracking display)
+  - `massgen/frontend/displays/textual_widgets/tab_bar.py` (single-agent mode)
+  - `massgen/frontend/interactive_controller.py` (mode state propagation)
+  - `massgen/orchestrator.py` (skip_voting flag, write context path helpers, write tracking exposure)
+  - `massgen/filesystem_manager/_path_permission_manager.py` (write tracking)
+  - New files: `tui_modes.py`, `mode_bar.py`
+  - Theme files for new widget styling

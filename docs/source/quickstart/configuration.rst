@@ -425,6 +425,9 @@ Different backends support different built-in tools:
      model: "claude-sonnet-4"
      cwd: "workspace"          # Working directory for file operations
 
+.. note::
+   Always use ``cwd: "workspace"`` rather than numbered names like ``workspace1``. MassGen automatically adds a unique suffix per agent at runtime to prevent identity leakage during voting.
+
 See :doc:`../reference/yaml_schema` for complete backend options.
 
 System Messages

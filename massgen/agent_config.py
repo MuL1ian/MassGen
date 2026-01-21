@@ -25,9 +25,19 @@ class TimeoutConfig:
 
     Args:
         orchestrator_timeout_seconds: Maximum time for orchestrator coordination (default: 1800s = 30min)
+        initial_round_timeout_seconds: Soft timeout for round 0 (initial answer). After this time,
+                                       a warning is injected telling the agent to submit. None = disabled.
+        subsequent_round_timeout_seconds: Soft timeout for rounds 1+ (voting/refinement). After this time,
+                                          a warning is injected telling the agent to submit. None = disabled.
+        round_timeout_grace_seconds: Grace period after soft timeout before hard timeout kicks in.
+                                     After hard timeout, non-terminal tool calls are blocked - only
+                                     vote and new_answer are allowed. Default: 120 seconds.
     """
 
     orchestrator_timeout_seconds: int = 1800  # 30 minutes
+    initial_round_timeout_seconds: Optional[int] = None  # None = disabled
+    subsequent_round_timeout_seconds: Optional[int] = None  # None = disabled
+    round_timeout_grace_seconds: int = 120  # Grace period before hard block
 
 
 @dataclass
@@ -104,12 +114,19 @@ class CoordinationConfig:
                         - injection_strategy: str (default "tool_result") - How to inject results:
                           - "tool_result": Append result to next tool call output
                           - "user_message": Inject as separate user message
+        use_two_tier_workspace: If True, agent workspaces are structured with two directories:
+                               - scratch/: Working files, experiments, intermediate results, evaluation scripts
+                               - deliverable/: Final outputs to showcase to voters
+                               When enabled, git versioning is automatically initialized in the workspace
+                               for audit trails and history tracking. Both directories are shared with
+                               other agents during voting/coordination phases.
     """
 
     enable_planning_mode: bool = False
     planning_mode_instruction: str = (
         "During coordination, describe what you would do without actually executing actions. Only provide concrete implementation details without calling external APIs or tools."
     )
+    plan_depth: Optional[str] = None  # "shallow" | "medium" | "deep" - Task planning mode depth
     max_orchestration_restarts: int = 0
     enable_agent_task_planning: bool = False
     max_tasks_per_plan: int = 10
@@ -135,6 +152,7 @@ class CoordinationConfig:
     subagent_orchestrator: Optional["SubagentOrchestratorConfig"] = None
     # Async subagent execution configuration
     async_subagents: Optional[Dict[str, Any]] = None  # {enabled: bool, injection_strategy: str}
+    use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -232,6 +250,23 @@ class AgentConfig:
 
     # Debug/test mode - skip coordination rounds and go straight to final presentation
     skip_coordination_rounds: bool = False
+
+    # Skip voting enforcement (used by TUI single-agent mode with refinement OFF)
+    # When True, agent doesn't need to vote and can go straight to new_answer → final answer
+    skip_voting: bool = False
+
+    # Skip final presentation phase (used by TUI when refinement is OFF)
+    # When True, uses the existing answer directly without an additional LLM call
+    skip_final_presentation: bool = False
+
+    # Disable injection of other agents' answers (used by TUI multi-agent refinement OFF)
+    # When True, agents work independently without seeing each other's work mid-stream
+    disable_injection: bool = False
+
+    # Defer voting until all agents have answered (used by TUI multi-agent refinement OFF)
+    # When True, voting only starts after all agents submit their answers
+    # Prevents wasteful restarts when agents vote before everyone has answered
+    defer_voting_until_all_answered: bool = False
 
     # Debug mode for restart feature - override final answer on attempt 1 only
     debug_final_answer: Optional[str] = None
@@ -743,7 +778,8 @@ class AgentConfig:
         templates = self.message_templates or get_templates()
 
         # Derive valid agent IDs from agent summaries
-        valid_agent_ids = list(agent_summaries.keys()) if agent_summaries else None
+        # Sort for consistent anonymous mapping with coordination_tracker
+        valid_agent_ids = sorted(agent_summaries.keys()) if agent_summaries else None
 
         # Build base conversation
         conversation = templates.build_initial_conversation(task=task, agent_summaries=agent_summaries, valid_agent_ids=valid_agent_ids)
@@ -893,6 +929,9 @@ class AgentConfig:
             "answer_novelty_requirement": self.answer_novelty_requirement,
             "timeout_config": {
                 "orchestrator_timeout_seconds": self.timeout_config.orchestrator_timeout_seconds,
+                "initial_round_timeout_seconds": self.timeout_config.initial_round_timeout_seconds,
+                "subsequent_round_timeout_seconds": self.timeout_config.subsequent_round_timeout_seconds,
+                "round_timeout_grace_seconds": self.timeout_config.round_timeout_grace_seconds,
             },
         }
 

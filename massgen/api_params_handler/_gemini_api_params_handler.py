@@ -105,8 +105,17 @@ class GeminiAPIParamsHandler(APIParamsHandlerBase):
         # Handle thinking_config parameter for Gemini 2.5+ thinking models
         # This enables thought summaries in responses
         # Accepts: thinking_config dict, thinking dict (Claude-style), or include_thoughts bool
+        # Default: Enable thinking for Gemini 2.5+ and 3.x models automatically
         thinking_config = all_params.get("thinking_config") or all_params.get("thinking")
         include_thoughts = all_params.get("include_thoughts")
+
+        # Auto-enable thinking for thinking-capable models if not explicitly configured
+        model = all_params.get("model", "")
+        is_thinking_model = any(pattern in model.lower() for pattern in ["gemini-2.5", "gemini-3", "gemini-exp", "gemini-2.0-flash-thinking"])
+
+        # Enable thinking by default for thinking-capable models
+        if thinking_config is None and include_thoughts is None and is_thinking_model:
+            include_thoughts = True
 
         if thinking_config or include_thoughts:
             from ..logger_config import logger
@@ -119,9 +128,12 @@ class GeminiAPIParamsHandler(APIParamsHandlerBase):
                     config["thinking_config"] = ThinkingConfig(**thinking_config)
                     logger.debug(f"[Gemini] Set thinking_config from dict: {thinking_config}")
                 elif include_thoughts:
-                    # Simple include_thoughts=True convenience parameter
+                    # Simple include_thoughts=True convenience parameter (or auto-enabled)
                     config["thinking_config"] = ThinkingConfig(include_thoughts=True)
-                    logger.debug("[Gemini] Set thinking_config with include_thoughts=True")
+                    if is_thinking_model:
+                        logger.debug(f"[Gemini] Auto-enabled thinking for model: {model}")
+                    else:
+                        logger.debug("[Gemini] Set thinking_config with include_thoughts=True")
                 elif thinking_config is True:
                     # thinking=True (Claude-style shorthand)
                     config["thinking_config"] = ThinkingConfig(include_thoughts=True)

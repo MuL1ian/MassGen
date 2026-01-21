@@ -9,7 +9,7 @@ routed through by generate_media when mode="video".
 import asyncio
 import time
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from massgen.logger_config import logger
 from massgen.tool._multimodal_tools.generation._base import (
@@ -60,7 +60,7 @@ async def _generate_video_openai(config: GenerationConfig) -> GenerationResult:
         )
 
     try:
-        client = OpenAI(api_key=api_key)
+        client = AsyncOpenAI(api_key=api_key)
         model = config.model or get_default_model("openai", MediaType.VIDEO)
 
         # OpenAI Sora API only allows 4, 8, or 12 seconds
@@ -77,7 +77,7 @@ async def _generate_video_openai(config: GenerationConfig) -> GenerationResult:
         start_time = time.time()
 
         # Start video generation
-        video = client.videos.create(
+        video = await client.videos.create(
             model=model,
             prompt=config.prompt,
             seconds=str(duration),
@@ -85,7 +85,7 @@ async def _generate_video_openai(config: GenerationConfig) -> GenerationResult:
 
         # Poll for completion (silently, no stdout writes)
         while video.status in ("in_progress", "queued"):
-            video = client.videos.retrieve(video.id)
+            video = await client.videos.retrieve(video.id)
             await asyncio.sleep(2)
 
         if video.status == "failed":
@@ -102,7 +102,7 @@ async def _generate_video_openai(config: GenerationConfig) -> GenerationResult:
             )
 
         # Download video content
-        content = client.videos.download_content(video.id, variant="video")
+        content = await client.videos.download_content(video.id, variant="video")
         content.write_to_file(str(config.output_path))
 
         # Get file info

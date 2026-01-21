@@ -1,0 +1,101 @@
+/* =============================================================================
+ * MassGen TUI - Catppuccin Mocha Palette Variables
+ * =============================================================================
+ * Catppuccin Mocha - A professional dark theme palette
+ * https://github.com/catppuccin/catppuccin
+ *
+ * To use: Import this file instead of _variables.tcss to switch to Catppuccin.
+ * =============================================================================
+ */
+
+/* === Catppuccin Mocha Base Colors === */
+$bg-base: #1e1e2e;           /* Base */
+$bg-surface: #181825;        /* Mantle */
+$bg-surface-2: #313244;      /* Surface0 */
+$bg-surface-3: #45475a;      /* Surface1 */
+
+$fg-primary: #cdd6f4;        /* Text */
+$fg-muted: #bac2de;          /* Subtext1 */
+$fg-subtle: #a6adc8;         /* Subtext0 */
+$fg-on-accent: #1e1e2e;      /* Base (for text on accent) */
+
+$border-default: #6c7086;    /* Overlay0 */
+$border-highlight: #9399b2;  /* Overlay1 */
+$border-muted: #45475a;      /* Surface1 */
+
+/* Semantic Accent Colors */
+$accent-primary: #89b4fa;    /* Blue */
+$accent-success: #a6e3a1;    /* Green */
+$accent-warning: #fab387;    /* Peach */
+$accent-error: #f38ba8;      /* Red */
+$accent-info: #74c7ec;       /* Sapphire */
+$accent-special: #cba6f7;    /* Mauve */
+
+/* Agent Color Palette - Catppuccin flavors */
+$agent-1: #89b4fa;           /* Blue */
+$agent-1-bg: #1e2030;
+$agent-2: #a6e3a1;           /* Green */
+$agent-2-bg: #1e2b1e;
+$agent-3: #cba6f7;           /* Mauve */
+$agent-3-bg: #2b1e30;
+$agent-4: #fab387;           /* Peach */
+$agent-4-bg: #302820;
+$agent-5: #74c7ec;           /* Sapphire */
+$agent-5-bg: #1e2830;
+$agent-6: #f5c2e7;           /* Pink */
+$agent-6-bg: #301e28;
+$agent-7: #f9e2af;           /* Yellow */
+$agent-7-bg: #302b1e;
+$agent-8: #f38ba8;           /* Red */
+$agent-8-bg: #301e1e;
+
+/* Component-Specific Variables */
+$modal-backdrop: rgba(17, 17, 27, 0.8);
+$scrollbar-track: $bg-surface;
+$scrollbar-thumb: $border-default;
+$scrollbar-thumb-hover: $border-highlight;
+
+/* Focus Ring */
+$focus-ring-color: $accent-primary;
+$focus-ring-width: 2;
+
+/* Button Variants */
+$btn-primary-bg: $accent-primary;
+$btn-primary-fg: $bg-base;
+$btn-success-bg: $accent-success;
+$btn-success-fg: $bg-base;
+$btn-warning-bg: $accent-warning;
+$btn-warning-fg: $bg-base;
+$btn-error-bg: $accent-error;
+$btn-error-fg: $bg-base;
+
+/* Status Badge Colors - Using color-mix for translucency */
+$status-running-bg: rgba(137, 180, 250, 0.2);
+$status-running-fg: $accent-primary;
+$status-success-bg: rgba(166, 227, 161, 0.2);
+$status-success-fg: $accent-success;
+$status-warning-bg: rgba(250, 179, 135, 0.2);
+$status-warning-fg: $accent-warning;
+$status-error-bg: rgba(243, 139, 168, 0.2);
+$status-error-fg: $accent-error;
+
+/* Tool Categories */
+$tool-read: #89b4fa;         /* Blue */
+$tool-write: #fab387;        /* Peach */
+$tool-execute: #a6e3a1;      /* Green */
+$tool-search: #cba6f7;       /* Mauve */
+$tool-web: #74c7ec;          /* Sapphire */
+$tool-default: #6c7086;      /* Overlay0 */
+
+/* Spacing */
+$spacing-xs: 1;
+$spacing-sm: 2;
+$spacing-md: 3;
+$spacing-lg: 4;
+$spacing-xl: 6;
+
+/* Border Radius */
+$radius-sm: 0.3;
+$radius-md: 0.5;
+$radius-lg: 1;
+$radius-pill: 9999;

@@ -20,7 +20,13 @@ class NoneDisplay(BaseDisplay):
     def initialize(self, question: str, log_filename: Optional[str] = None):
         """Initialize the display (no-op)."""
 
-    def update_agent_content(self, agent_id: str, content: str, content_type: str = "thinking"):
+    def update_agent_content(
+        self,
+        agent_id: str,
+        content: str,
+        content_type: str = "thinking",
+        tool_call_id: Optional[str] = None,
+    ):
         """Update content for a specific agent (no-op)."""
         if agent_id in self.agent_ids:
             self.agent_outputs[agent_id].append(content.strip())

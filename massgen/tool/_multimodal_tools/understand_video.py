@@ -241,13 +241,13 @@ async def _process_with_openai(
     Returns:
         Text analysis from OpenAI
     """
-    from openai import OpenAI
+    from openai import AsyncOpenAI
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
-    client = OpenAI(api_key=api_key)
+    client = AsyncOpenAI(api_key=api_key)
 
     # Extract frames from video
     frames_base64 = _extract_key_frames(video_path, num_frames)
@@ -268,7 +268,7 @@ async def _process_with_openai(
         )
 
     # Call OpenAI API
-    response = client.responses.create(
+    response = await client.responses.create(
         model=model,
         input=[{"role": "user", "content": content}],
     )
@@ -353,13 +353,13 @@ async def _process_with_grok(
     Returns:
         Text analysis from Grok
     """
-    from openai import OpenAI
+    from openai import AsyncOpenAI
 
     api_key = os.getenv("XAI_API_KEY")
     if not api_key:
         raise ValueError("XAI_API_KEY not found in environment")
 
-    client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+    client = AsyncOpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
 
     # Extract frames from video
     frames_base64 = _extract_key_frames(video_path, num_frames)
@@ -379,7 +379,7 @@ async def _process_with_grok(
         )
 
     # Call Grok API (OpenAI-compatible)
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": content}],
     )
@@ -406,13 +406,13 @@ async def _process_with_openrouter(
     Returns:
         Text analysis from OpenRouter
     """
-    from openai import OpenAI
+    from openai import AsyncOpenAI
 
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY not found in environment")
 
-    client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+    client = AsyncOpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 
     # Extract frames from video
     frames_base64 = _extract_key_frames(video_path, num_frames)
@@ -432,7 +432,7 @@ async def _process_with_openrouter(
         )
 
     # Call OpenRouter API (OpenAI-compatible)
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": content}],
     )

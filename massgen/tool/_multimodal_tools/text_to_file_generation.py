@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from massgen.tool._result import ExecutionResult, TextContent
 
@@ -333,8 +333,8 @@ async def text_to_file_generation(
                 output_blocks=[TextContent(data=json.dumps(result, indent=2))],
             )
 
-        # Initialize OpenAI client
-        client = OpenAI(api_key=openai_api_key)
+        # Initialize async OpenAI client
+        client = AsyncOpenAI(api_key=openai_api_key)
 
         # Determine storage directory
         if storage_path:
@@ -351,7 +351,7 @@ async def text_to_file_generation(
 
         try:
             # Generate content using OpenAI API
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=model,
                 messages=[
                     {

@@ -517,7 +517,7 @@ Full multi-agent configuration demonstrating all 6 configuration levels:
        backend:
          type: "claude_code"
          model: "claude-sonnet-4-20250514"
-         cwd: "coder_workspace"             # Working directory
+         cwd: "workspace"                    # Working directory (unique suffix added at runtime)
          permission_mode: "bypassPermissions"
 
          # Claude Code-specific parameters
@@ -541,7 +541,7 @@ Full multi-agent configuration demonstrating all 6 configuration levels:
          enable_web_search: true            # OpenAI web search
          enable_code_interpreter: true      # Code interpreter tool
 
-         cwd: "analyst_workspace"  # File operations handled via cwd
+         cwd: "workspace"          # File operations (unique suffix added at runtime)
 
    # ========================================
    # LEVEL 5: ORCHESTRATOR LEVEL - Coordination
@@ -648,7 +648,7 @@ Backend
      - string
      - No
      - ``claude_code``
-     - Working directory for file operations
+     - Working directory for file operations. **Use** ``"workspace"`` **as the value** - MassGen automatically adds a unique suffix per agent at runtime (e.g., ``workspace_f7a3b2c1``). Avoid numbered names like ``workspace1`` as they can leak agent identity during voting.
    * - ``exclude_file_operation_mcps``
      - boolean
      - No
@@ -1059,6 +1059,18 @@ Timeout Configuration
      - integer
      - No
      - Maximum time for orchestrator coordination in seconds (default: 1800 = 30 minutes)
+   * - ``initial_round_timeout_seconds``
+     - integer
+     - No
+     - Soft timeout for round 0 (initial answer). After this time, a warning is injected telling the agent to wrap up. Set to ``null`` to disable (default: disabled)
+   * - ``subsequent_round_timeout_seconds``
+     - integer
+     - No
+     - Soft timeout for rounds 1+ (voting/refinement). After this time, a warning is injected telling the agent to wrap up. Set to ``null`` to disable (default: disabled)
+   * - ``round_timeout_grace_seconds``
+     - integer
+     - No
+     - Grace period after soft timeout before hard timeout kicks in. After hard timeout, only ``vote`` and ``new_answer`` tools are allowed (default: 120 seconds)
 
 Context Path
 ~~~~~~~~~~~~

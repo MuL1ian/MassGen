@@ -4318,7 +4318,8 @@ async def run_coordination_with_history(
         )
 
         # Get agent IDs and model names
-        agent_ids = list(agents.keys())
+        # Sort for consistent anonymous mapping with coordination_tracker
+        agent_ids = sorted(agents.keys())
         agent_models = {}
         for agent_id, agent in agents.items():
             # Try to get model name from agent - check multiple sources
@@ -4709,7 +4710,8 @@ async def run_coordination(
         )
 
         # Get agent IDs and model names
-        agent_ids = list(agents.keys())
+        # Sort for consistent anonymous mapping with coordination_tracker
+        agent_ids = sorted(agents.keys())
         agent_models = {}
         for agent_id, agent in agents.items():
             # Try to get model name from agent - check multiple sources

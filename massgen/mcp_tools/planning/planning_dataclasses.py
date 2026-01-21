@@ -23,20 +23,22 @@ class Task:
     Attributes:
         id: Unique task identifier (UUID or custom string)
         description: Human-readable task description
-        status: Current task status (pending/in_progress/completed/blocked)
+        status: Current task status (pending/in_progress/completed/verified/blocked)
         priority: Task priority level (low/medium/high, defaults to medium)
         created_at: Timestamp when task was created
         completed_at: Timestamp when task was completed (if applicable)
+        verified_at: Timestamp when task was verified (if applicable)
         dependencies: List of task IDs this task depends on
-        metadata: Additional task-specific metadata
+        metadata: Additional task-specific metadata (includes verification_group)
     """
 
     id: str
     description: str
-    status: Literal["pending", "in_progress", "completed", "blocked"] = "pending"
+    status: Literal["pending", "in_progress", "completed", "verified", "blocked"] = "pending"
     priority: Literal["low", "medium", "high"] = "medium"
     created_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
+    verified_at: Optional[datetime] = None
     dependencies: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -49,6 +51,7 @@ class Task:
             "priority": self.priority,
             "created_at": self.created_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "verified_at": self.verified_at.isoformat() if self.verified_at else None,
             "dependencies": self.dependencies.copy(),
             "metadata": self.metadata.copy(),
         }
@@ -63,6 +66,7 @@ class Task:
             priority=data.get("priority", "medium"),
             created_at=datetime.fromisoformat(data["created_at"]),
             completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
+            verified_at=datetime.fromisoformat(data["verified_at"]) if data.get("verified_at") else None,
             dependencies=data.get("dependencies", []),
             metadata=data.get("metadata", {}),
         )
@@ -104,13 +108,13 @@ class TaskPlan:
 
     def can_start_task(self, task_id: str) -> bool:
         """
-        Check if a task can be started (all dependencies completed).
+        Check if a task can be started (all dependencies completed or verified).
 
         Args:
             task_id: Task to check
 
         Returns:
-            True if all dependencies are completed, False otherwise
+            True if all dependencies are completed/verified, False otherwise
         """
         task = self.get_task(task_id)
         if not task:
@@ -118,7 +122,7 @@ class TaskPlan:
 
         for dep_id in task.dependencies:
             dep_task = self.get_task(dep_id)
-            if not dep_task or dep_task.status != "completed":
+            if not dep_task or dep_task.status not in ("completed", "verified"):
                 return False
 
         return True
@@ -146,6 +150,56 @@ class TaskPlan:
                 blocked.append(task)
         return blocked
 
+    def get_tasks_awaiting_verification(self) -> Dict[str, List[Task]]:
+        """
+        Get all tasks with status='completed' that need verification, grouped by verification_group.
+
+        Returns:
+            Dictionary mapping verification_group to list of completed tasks.
+            Tasks without a verification_group are grouped under 'ungrouped'.
+        """
+        awaiting: Dict[str, List[Task]] = {}
+        for task in self.tasks:
+            if task.status == "completed":
+                group = task.metadata.get("verification_group", "ungrouped")
+                if group not in awaiting:
+                    awaiting[group] = []
+                awaiting[group].append(task)
+        return awaiting
+
+    def get_verification_group_status(self, group: str) -> Dict[str, Any]:
+        """
+        Get the status of a verification group.
+
+        Args:
+            group: The verification_group name to check
+
+        Returns:
+            Dict containing:
+                - group (str): The verification_group name
+                - total (int): Total number of tasks in the group
+                - status_counts (dict): Counts per status with keys:
+                    pending, in_progress, completed, verified, blocked
+                - all_completed (bool): True if no tasks are pending, in_progress, or blocked
+                - all_verified (bool): True if all tasks have status "verified"
+        """
+        status_counts = {"pending": 0, "in_progress": 0, "completed": 0, "verified": 0, "blocked": 0}
+        tasks_in_group = []
+
+        for task in self.tasks:
+            task_group = task.metadata.get("verification_group", "ungrouped")
+            if task_group == group:
+                status_counts[task.status] += 1
+                tasks_in_group.append(task)
+
+        return {
+            "group": group,
+            "total": len(tasks_in_group),
+            "status_counts": status_counts,
+            "all_completed": status_counts["pending"] == 0 and status_counts["in_progress"] == 0 and status_counts["blocked"] == 0,
+            "all_verified": status_counts["pending"] == 0 and status_counts["in_progress"] == 0 and status_counts["blocked"] == 0 and status_counts["completed"] == 0,
+        }
+
     def get_blocking_tasks(self, task_id: str) -> List[str]:
         """
         Get list of incomplete dependency task IDs blocking a task.
@@ -163,7 +217,7 @@ class TaskPlan:
         blocking = []
         for dep_id in task.dependencies:
             dep_task = self.get_task(dep_id)
-            if dep_task and dep_task.status != "completed":
+            if dep_task and dep_task.status not in ("completed", "verified"):
                 blocking.append(dep_id)
 
         return blocking
@@ -241,16 +295,20 @@ class TaskPlan:
     def update_task_status(
         self,
         task_id: str,
-        status: Literal["pending", "in_progress", "completed", "blocked"],
+        status: Literal["pending", "in_progress", "completed", "verified", "blocked"],
         completion_notes: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Update task status and detect newly unblocked tasks.
 
+        Status flow: pending -> in_progress -> completed -> verified
+        - 'completed' means the implementation is done
+        - 'verified' means the task has been tested and confirmed working
+
         Args:
             task_id: ID of task to update
             status: New status
-            completion_notes: Optional notes documenting how task was completed
+            completion_notes: Optional notes documenting how task was completed/verified
 
         Returns:
             Dictionary with updated task and newly_ready_tasks
@@ -284,6 +342,15 @@ class TaskPlan:
                 "task": task.to_dict(),
                 "newly_ready_tasks": [t.to_dict() for t in newly_ready],
             }
+
+        if status == "verified":
+            task.verified_at = datetime.now()
+
+            # Store verification notes in metadata if provided
+            if completion_notes:
+                task.metadata["verification_notes"] = completion_notes
+
+            return {"task": task.to_dict()}
 
         return {"task": task.to_dict()}
 

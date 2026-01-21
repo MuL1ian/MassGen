@@ -31,12 +31,13 @@ def get_workflow_tools(
     broadcast_mode: Optional[str] = None,
     broadcast_wait_by_default: bool = True,
     vote_only: bool = False,
+    anon_agent_ids: Optional[List[str]] = None,
 ) -> List[Dict]:
     """
     Get workflow tool definitions with proper formatting.
 
     Args:
-        valid_agent_ids: List of valid agent IDs for voting
+        valid_agent_ids: List of valid agent IDs for voting (real IDs, legacy)
         template_overrides: Optional template overrides
         api_format: API format to use (chat_completions, claude, response)
         orchestrator: Optional orchestrator instance (for broadcast tools)
@@ -44,6 +45,10 @@ def get_workflow_tools(
         broadcast_wait_by_default: Default waiting behavior for broadcasts
         vote_only: If True, only include vote tool (exclude new_answer and broadcast).
                    Used when agent has reached max_new_answers_per_agent limit.
+        anon_agent_ids: Pre-computed anonymous agent IDs (e.g., ["agent1", "agent3"]).
+                       If provided, these are used directly for the vote enum.
+                       Pass from coordination_tracker.get_agents_with_answers_anon() for
+                       global consistency with injections and vote validation.
 
     Returns:
         List of tool definitions
@@ -55,6 +60,7 @@ def get_workflow_tools(
         "api_format": api_format,
         "enable_workflow_tools": True,
         "valid_agent_ids": valid_agent_ids,
+        "anon_agent_ids": anon_agent_ids,
         "broadcast_enabled": bool(broadcast_mode and broadcast_mode is not False),
     }
 
@@ -67,6 +73,7 @@ def get_workflow_tools(
     vote_toolkit = VoteToolkit(
         valid_agent_ids=valid_agent_ids,
         template_overrides=template_overrides,
+        anon_agent_ids=anon_agent_ids,
     )
     tools.extend(vote_toolkit.get_tools(config))
 

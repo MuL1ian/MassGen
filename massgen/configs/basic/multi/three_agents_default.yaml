@@ -1,35 +1,52 @@
 # MassGen Three Agent Configuration
-# Gemini-3-Pro, GPT-5-nano, and Grok-4-fast with builtin tools enabled
+# Gemini-3-Pro, GPT-5-nano, and Grok-4-1-fast-reasoning with builtin tools enabled
 # uv run python -m massgen.cli --config massgen/configs/basic/multi/three_agents_default.yaml "What is 2+2?"
 agents:
-  - id: "gemini3pro"
+  - id: "agent_a"
     backend:
       type: "gemini"
-      model: "gemini-3-pro-preview"
+      model: "gemini-3-flash-preview"
       enable_web_search: true
-      # enable_code_execution: true
-    # system_message: "You are a helpful AI assistant with web search and code execution capabilities. For any question involving current events, recent information, or real-time data, ALWAYS use web search first."
+      cwd: "workspace"
 
-  - id: "gpt5nano"
+  - id: "agent_b"
     backend:
       type: "openai"
-      model: "gpt-5-nano"
+      model: "gpt-5"
       text:
-        verbosity: "medium"
+        verbosity: "low"
       reasoning:
         effort: "low"
         summary: "auto"
+      cwd: "workspace"
       enable_web_search: true
-      enable_code_interpreter: true
-    # system_message: "You are a helpful AI assistant with web search and code execution capabilities. For any question involving current events, recent information, or real-time data, ALWAYS use web search first."
 
-  - id: "grok3mini"
+  - id: "agent_c"
     backend:
       type: "grok"
-      model: "grok-4-fast-reasoning"
+      model: "grok-4-1-fast-reasoning"
       enable_web_search: true
-    # system_message: "You are a helpful AI assistant with web search capabilities. For any question involving current events, recent information, or real-time data, ALWAYS use web search first."
+      cwd: "workspace"
 
 ui:
   display_type: "rich_terminal"
   logging_enabled: true
+
+# Orchestrator settings
+orchestrator:
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+  max_new_answers_per_agent: 5
+  coordination:
+    use_two_tier_workspace: true  # Enable scratch/deliverable workspace structure with git versioning
+    max_orchestration_restarts: 2
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+    enable_memory_filesystem_mode: true
+
+# Timeout settings to prevent agents from getting stuck
+timeout_settings:
+  orchestrator_timeout_seconds: 1800        # 30 min overall session limit
+  initial_round_timeout_seconds: 600        # 10 min for first answer
+  subsequent_round_timeout_seconds: 300     # 5 min for voting rounds
+  round_timeout_grace_seconds: 120          # 2 min grace before hard block

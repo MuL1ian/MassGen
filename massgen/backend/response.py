@@ -637,7 +637,10 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                 "mcp_status": ChunkType.MCP_STATUS,
             }
 
-            def chunk_adapter(chunk: StreamChunk) -> TextStreamChunk:
+            def chunk_adapter(chunk: StreamChunk) -> StreamChunk:
+                # Pass through hook_execution chunks unchanged to preserve hook_info
+                if getattr(chunk, "type", None) == "hook_execution":
+                    return chunk
                 return TextStreamChunk(
                     type=chunk_type_map.get(chunk.type, chunk.type),
                     status=getattr(chunk, "status", None),
@@ -1562,13 +1565,25 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         """Convert any object to dictionary with multiple fallback methods."""
         try:
             if hasattr(obj, "model_dump"):
-                return obj.model_dump()
+                result = obj.model_dump()
             elif hasattr(obj, "dict"):
-                return obj.dict()
+                result = obj.dict()
             else:
-                return dict(obj)
-        except Exception:
+                result = dict(obj)
+
+            # Fix reasoning items: Response API expects 'content' to be an array, not a string. This occurs in gpt-5-mini
+            # When reasoning is encrypted/summarized, content may be empty string ""
+            # which causes "expected an array of unknown values, but got a string" error
+            if isinstance(result, dict) and result.get("type") == "reasoning":
+                if isinstance(result.get("content"), str):
+                    # Convert empty string to empty array, or wrap non-empty string in array
+                    content = result["content"]
+                    result["content"] = [] if content == "" else [{"type": "text", "text": content}]
+
+            return result
+        except Exception as e:
             # Final fallback: extract key attributes manually
+            logger.warning(f"[ResponseBackend] _convert_to_dict failed for {type(obj).__name__}, using fallback: {e}")
             return {key: getattr(obj, key, None) for key in dir(obj) if not key.startswith("_") and not callable(getattr(obj, key, None))}
 
     def get_provider_name(self) -> str:

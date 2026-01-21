@@ -205,6 +205,7 @@ class WebDisplay(BaseDisplay):
         agent_id: str,
         content: str,
         content_type: str = "thinking",
+        tool_call_id: Optional[str] = None,
     ) -> None:
         """Stream content updates to a specific agent panel.
 
@@ -212,6 +213,7 @@ class WebDisplay(BaseDisplay):
             agent_id: The agent's identifier
             content: Content to append
             content_type: Type of content ("thinking", "tool", "status")
+            tool_call_id: Optional unique ID for tool calls (enables tracking across events)
         """
         if agent_id not in self.agent_ids:
             return
@@ -249,6 +251,49 @@ class WebDisplay(BaseDisplay):
             {
                 "agent_id": agent_id,
                 "status": status,
+            },
+        )
+
+    def update_timeout_status(self, agent_id: str, timeout_state: Dict[str, Any]) -> None:
+        """Update timeout display for an agent.
+
+        Args:
+            agent_id: The agent whose timeout status to update
+            timeout_state: Timeout state from orchestrator.get_agent_timeout_state()
+        """
+        if agent_id not in self.agent_ids:
+            return
+
+        self._emit(
+            "timeout_status",
+            {
+                "agent_id": agent_id,
+                "timeout_state": timeout_state,
+            },
+        )
+
+    def update_hook_execution(
+        self,
+        agent_id: str,
+        tool_call_id: Optional[str],
+        hook_info: Dict[str, Any],
+    ) -> None:
+        """Update display with hook execution information.
+
+        Args:
+            agent_id: The agent whose tool call has hooks
+            tool_call_id: Optional ID of the tool call this hook is attached to
+            hook_info: Hook execution info dict
+        """
+        if agent_id not in self.agent_ids:
+            return
+
+        self._emit(
+            "hook_execution",
+            {
+                "agent_id": agent_id,
+                "tool_call_id": tool_call_id,
+                "hook_info": hook_info,
             },
         )
 

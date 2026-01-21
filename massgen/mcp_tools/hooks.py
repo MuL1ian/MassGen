@@ -23,6 +23,7 @@ import asyncio
 import fnmatch
 import importlib
 import json
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -117,6 +118,15 @@ class HookResult:
     # Error tracking for fail-open scenarios
     hook_errors: List[str] = field(default_factory=list)
 
+    # Hook execution tracking (for display in TUI/WebUI)
+    hook_name: Optional[str] = None
+    hook_type: Optional[str] = None  # "pre" or "post"
+    execution_time_ms: Optional[float] = None
+
+    # Aggregated hook executions (populated by GeneralHookManager.execute_hooks)
+    # Each entry: {"hook_name": str, "hook_type": str, "decision": str, "reason": str, "execution_time_ms": float, "injection_preview": str}
+    executed_hooks: List[Dict[str, Any]] = field(default_factory=list)
+
     def __post_init__(self):
         """Sync legacy and new fields for compatibility."""
         # Sync decision with allowed
@@ -133,6 +143,29 @@ class HookResult:
         """Check if any errors occurred during hook execution."""
         return len(self.hook_errors) > 0
 
+    def add_executed_hook(
+        self,
+        hook_name: str,
+        hook_type: str,
+        decision: str,
+        reason: Optional[str] = None,
+        execution_time_ms: Optional[float] = None,
+        injection_preview: Optional[str] = None,
+        injection_content: Optional[str] = None,
+    ) -> None:
+        """Track an executed hook for display purposes."""
+        self.executed_hooks.append(
+            {
+                "hook_name": hook_name,
+                "hook_type": hook_type,
+                "decision": decision,
+                "reason": reason,
+                "execution_time_ms": execution_time_ms,
+                "injection_preview": injection_preview,
+                "injection_content": injection_content,
+            },
+        )
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HookResult":
         """Create HookResult from dictionary (e.g., from JSON)."""
@@ -145,6 +178,10 @@ class HookResult:
             updated_input=data.get("updated_input"),
             inject=data.get("inject"),
             hook_errors=data.get("hook_errors", []),
+            hook_name=data.get("hook_name"),
+            hook_type=data.get("hook_type"),
+            execution_time_ms=data.get("execution_time_ms"),
+            executed_hooks=data.get("executed_hooks", []),
         )
 
     @classmethod
@@ -517,10 +554,12 @@ class GeneralHookManager:
             context["tool_output"] = tool_output
 
         if not hooks:
+            logger.info(f"[GeneralHookManager] No hooks registered for agent_id={agent_id}, hook_type={hook_type}")
             return HookResult.allow()
 
         # Filter to matching hooks
         matching_hooks = [h for h in hooks if h.matches(function_name)]
+        logger.info(f"[GeneralHookManager] {len(matching_hooks)} matching hooks for {function_name} (out of {len(hooks)} registered)")
 
         if not matching_hooks:
             return HookResult.allow()
@@ -528,18 +567,53 @@ class GeneralHookManager:
         final_result = HookResult.allow()
         modified_args = arguments
         all_injections: List[Dict[str, Any]] = []
+        hook_type_str = "pre" if hook_type == HookType.PRE_TOOL_USE else "post"
 
         for hook in matching_hooks:
+            start_time = time.time()
             try:
                 # Update context with current args
                 ctx = dict(context)
                 result = await hook.execute(function_name, modified_args, ctx)
 
+                # Calculate execution time
+                execution_time_ms = (time.time() - start_time) * 1000
+
                 # Handle deny - short circuit
                 if not result.allowed or result.decision == "deny":
-                    return HookResult.deny(
+                    deny_result = HookResult.deny(
                         reason=result.reason or result.metadata.get("reason", f"Denied by hook {hook.name}"),
                     )
+                    # Track the denying hook
+                    deny_result.add_executed_hook(
+                        hook_name=hook.name,
+                        hook_type=hook_type_str,
+                        decision="deny",
+                        reason=deny_result.reason,
+                        execution_time_ms=execution_time_ms,
+                    )
+                    return deny_result
+
+                # Track successful hook execution
+                injection_preview = None
+                injection_content = None
+                if result.inject and result.inject.get("content"):
+                    content = result.inject["content"]
+                    injection_preview = content[:100] + "..." if len(content) > 100 else content
+                    injection_content = content
+
+                final_result.add_executed_hook(
+                    hook_name=hook.name,
+                    hook_type=hook_type_str,
+                    decision=result.decision,
+                    reason=result.reason,
+                    execution_time_ms=execution_time_ms,
+                    injection_preview=injection_preview,
+                    injection_content=injection_content,
+                )
+                logger.info(
+                    f"[GeneralHookManager] Tracked hook execution: {hook.name} ({hook_type_str}) - " f"decision={result.decision}, has_inject={result.inject is not None}",
+                )
 
                 # Handle ask decision
                 if result.decision == "ask":
@@ -562,11 +636,21 @@ class GeneralHookManager:
                         final_result.add_error(err)
 
             except Exception as e:
+                execution_time_ms = (time.time() - start_time) * 1000
                 error_msg = f"Hook '{hook.name}' failed unexpectedly: {e}"
                 logger.error(f"[GeneralHookManager] {error_msg}", exc_info=True)
                 # Track the error but fail open (allow tool execution to proceed)
                 # This ensures users can see which hooks failed even in fail-open mode
                 final_result.add_error(error_msg)
+
+                # Track failed hook execution
+                final_result.add_executed_hook(
+                    hook_name=hook.name,
+                    hook_type=hook_type_str,
+                    decision="error",
+                    reason=error_msg,
+                    execution_time_ms=execution_time_ms,
+                )
 
                 # Check if hook requires fail-closed behavior
                 if hasattr(hook, "fail_closed") and hook.fail_closed:
@@ -911,6 +995,361 @@ class HighPriorityTaskReminderHook(PatternHook):
         return HookResult.allow()
 
 
+class RoundTimeoutState:
+    """Shared state between soft and hard timeout hooks.
+
+    This ensures the hard timeout only fires after the soft timeout has been
+    delivered, guaranteeing the progression: soft timeout → grace period → hard timeout.
+
+    Also tracks consecutive hard timeout denials to detect infinite loops where
+    the model keeps trying blocked tools instead of voting.
+    """
+
+    # Maximum consecutive denials before forcing termination
+    MAX_CONSECUTIVE_DENIALS = 10
+
+    def __init__(self):
+        self.soft_timeout_fired_at: Optional[float] = None
+        self.consecutive_hard_denials: int = 0
+        self.force_terminate: bool = False
+
+    def mark_soft_fired(self) -> None:
+        """Record the timestamp when soft timeout was injected."""
+        self.soft_timeout_fired_at = time.time()
+
+    def record_hard_denial(self) -> bool:
+        """Record a hard timeout denial and check if we should force terminate.
+
+        Returns:
+            True if we've exceeded the max consecutive denials and should terminate
+        """
+        self.consecutive_hard_denials += 1
+        if self.consecutive_hard_denials >= self.MAX_CONSECUTIVE_DENIALS:
+            self.force_terminate = True
+            logger.warning(
+                f"[RoundTimeoutState] Force terminate triggered after " f"{self.consecutive_hard_denials} consecutive hard timeout denials",
+            )
+            return True
+        return False
+
+    def reset_denial_count(self) -> None:
+        """Reset denial count (called when a valid tool is allowed)."""
+        self.consecutive_hard_denials = 0
+
+    def reset(self) -> None:
+        """Reset state for a new round."""
+        self.soft_timeout_fired_at = None
+        self.consecutive_hard_denials = 0
+        self.force_terminate = False
+
+
+class RoundTimeoutPostHook(PatternHook):
+    """PostToolUse hook that injects soft timeout warning when round time limit is exceeded.
+
+    This hook checks elapsed time after each tool call and injects a warning message
+    telling the agent to submit an answer or vote immediately when the soft timeout
+    is reached. Different timeouts can be configured for round 0 (initial answer)
+    vs subsequent rounds (voting/refinement).
+
+    The hook fires only once per round - after injecting the warning, it won't
+    inject again until reset_for_new_round() is called.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        get_round_start_time: Callable[[], float],
+        get_agent_round: Callable[[], int],
+        initial_timeout_seconds: Optional[int],
+        subsequent_timeout_seconds: Optional[int],
+        grace_seconds: int,
+        agent_id: str,
+        shared_state: Optional["RoundTimeoutState"] = None,
+        use_two_tier_workspace: bool = False,
+    ):
+        """
+        Initialize the round timeout post hook.
+
+        Args:
+            name: Hook identifier
+            get_round_start_time: Callable returning the start time of current round
+            get_agent_round: Callable returning the current round number for this agent
+            initial_timeout_seconds: Soft timeout for round 0 (None = disabled)
+            subsequent_timeout_seconds: Soft timeout for rounds 1+ (None = disabled)
+            grace_seconds: Time allowed after soft timeout before hard block
+            agent_id: Agent identifier for logging
+            shared_state: Optional shared state for coordinating with hard timeout hook
+            use_two_tier_workspace: If True, include guidance about deliverable/ directory
+        """
+        super().__init__(name, matcher="*", timeout=5)
+        self.get_round_start_time = get_round_start_time
+        self.get_agent_round = get_agent_round
+        self.initial_timeout_seconds = initial_timeout_seconds
+        self.subsequent_timeout_seconds = subsequent_timeout_seconds
+        self.grace_seconds = grace_seconds
+        self.agent_id = agent_id
+        self._soft_timeout_fired = False
+        self._shared_state = shared_state
+        self.use_two_tier_workspace = use_two_tier_workspace
+
+    def _get_timeout_for_current_round(self) -> Optional[int]:
+        """Return timeout based on round number (0 = initial, 1+ = subsequent)."""
+        round_num = self.get_agent_round()
+        if round_num == 0:
+            return self.initial_timeout_seconds
+        else:
+            return self.subsequent_timeout_seconds
+
+    def reset_for_new_round(self) -> None:
+        """Reset the hook state for a new round."""
+        self._soft_timeout_fired = False
+        if self._shared_state:
+            self._shared_state.reset()
+
+    async def execute(
+        self,
+        _function_name: str,
+        _arguments: str,
+        _context: Optional[Dict[str, Any]] = None,
+        **_kwargs,
+    ) -> HookResult:
+        """Execute the soft timeout check after each tool call."""
+        if self._soft_timeout_fired:
+            return HookResult.allow()
+
+        timeout = self._get_timeout_for_current_round()
+        if timeout is None:
+            return HookResult.allow()
+
+        elapsed = time.time() - self.get_round_start_time()
+        logger.debug(
+            f"[RoundTimeoutPostHook] Agent {self.agent_id}: " f"elapsed={elapsed:.0f}s, soft_timeout={timeout}s, soft_fired={self._soft_timeout_fired}",
+        )
+        if elapsed < timeout:
+            return HookResult.allow()
+
+        self._soft_timeout_fired = True
+        # Record timestamp for hard timeout coordination
+        if self._shared_state:
+            self._shared_state.mark_soft_fired()
+        round_num = self.get_agent_round()
+        round_type = "initial answer" if round_num == 0 else "voting"
+
+        # Add deliverable guidance if two-tier workspace is enabled
+        deliverable_guidance = ""
+        if self.use_two_tier_workspace:
+            deliverable_guidance = """
+IMPORTANT: Before submitting, ensure your `deliverable/` directory is COMPLETE and SELF-CONTAINED.
+Voters will evaluate `deliverable/` as a standalone package. It must include:
+- ALL files needed to use your output (not just one component)
+- Any assets, dependencies, or supporting files
+- A README if helpful for understanding how to run/use it
+
+Do NOT leave partial work in deliverable/ - include everything needed or nothing.
+"""
+
+        injection = f"""
+============================================================
+⏰ ROUND TIME LIMIT APPROACHING - PLEASE WRAP UP
+============================================================
+
+You have exceeded the soft time limit for this {round_type} round ({elapsed:.0f}s / {timeout}s).
+{deliverable_guidance}
+Please wrap up your current work and submit soon:
+1. `new_answer` - Submit your current best answer (can be a work-in-progress)
+2. `vote` - Vote for an existing answer if one is satisfactory
+
+You may finish any final touches to make your work presentable, but please
+submit within the next {self.grace_seconds} seconds. After that, tool calls
+will be blocked and you'll need to submit immediately.
+
+The next coordination round will allow further iteration if needed.
+============================================================
+"""
+
+        logger.info(f"[RoundTimeoutPostHook] Soft timeout reached for {self.agent_id} after {elapsed:.0f}s")
+        return HookResult(
+            allowed=True,
+            inject={
+                "content": injection,
+                "strategy": "tool_result",
+            },
+        )
+
+
+class RoundTimeoutPreHook(PatternHook):
+    """PreToolUse hook that blocks non-terminal tools after hard timeout.
+
+    This hook enforces a hard timeout after the soft timeout was injected + grace period.
+    The hard timeout only fires AFTER the soft timeout has been delivered, ensuring
+    the progression: soft timeout → grace period → hard timeout.
+
+    Once hard timeout is reached, only 'vote' and 'new_answer' tools are allowed.
+    All other tool calls are denied with an error message.
+
+    This ensures agents cannot continue indefinitely and must submit.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        get_round_start_time: Callable[[], float],
+        get_agent_round: Callable[[], int],
+        initial_timeout_seconds: Optional[int],
+        subsequent_timeout_seconds: Optional[int],
+        grace_seconds: int,
+        agent_id: str,
+        shared_state: Optional["RoundTimeoutState"] = None,
+    ):
+        """
+        Initialize the round timeout pre hook.
+
+        Args:
+            name: Hook identifier
+            get_round_start_time: Callable returning the start time of current round
+            get_agent_round: Callable returning the current round number for this agent
+            initial_timeout_seconds: Soft timeout for round 0 (None = disabled)
+            subsequent_timeout_seconds: Soft timeout for rounds 1+ (None = disabled)
+            grace_seconds: Grace period after soft timeout before blocking
+            agent_id: Agent identifier for logging
+            shared_state: Optional shared state for coordinating with soft timeout hook
+        """
+        super().__init__(name, matcher="*", timeout=5)
+        self.get_round_start_time = get_round_start_time
+        self.get_agent_round = get_agent_round
+        self.initial_timeout_seconds = initial_timeout_seconds
+        self.subsequent_timeout_seconds = subsequent_timeout_seconds
+        self.grace_seconds = grace_seconds
+        self.agent_id = agent_id
+        self._shared_state = shared_state
+
+    def _get_timeout_for_current_round(self) -> Optional[int]:
+        """Return timeout based on round number (0 = initial, 1+ = subsequent)."""
+        round_num = self.get_agent_round()
+        if round_num == 0:
+            return self.initial_timeout_seconds
+        else:
+            return self.subsequent_timeout_seconds
+
+    async def execute(
+        self,
+        function_name: str,
+        arguments: str,
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> HookResult:
+        """Execute the hard timeout check before each tool call.
+
+        Hard timeout is calculated from when the soft timeout was injected,
+        NOT from round start time. This ensures agents always get the soft
+        timeout warning before being blocked.
+
+        Also tracks consecutive denials to detect infinite loops.
+        """
+        timeout = self._get_timeout_for_current_round()
+        if timeout is None:
+            return HookResult.allow()
+
+        # If using shared state, check if soft timeout has fired first
+        if self._shared_state:
+            # Check if force terminate has been triggered by too many denials
+            if self._shared_state.force_terminate:
+                logger.error(
+                    f"[RoundTimeoutPreHook] FORCE TERMINATE active for {self.agent_id} - " f"blocking {function_name} (agent stuck in denial loop)",
+                )
+                return HookResult(
+                    decision="deny",
+                    reason=(
+                        f"⛔ FORCE TERMINATED - Too many blocked tool calls\n"
+                        f"Tool `{function_name}` blocked. You have made {self._shared_state.consecutive_hard_denials} "
+                        f"consecutive blocked tool calls.\n"
+                        f"The system is terminating your turn. Use `vote` or `new_answer` ONLY."
+                    ),
+                )
+
+            soft_fired_at = self._shared_state.soft_timeout_fired_at
+            if soft_fired_at is None:
+                # Soft timeout hasn't fired yet - allow tool call
+                # (Can't have hard timeout without soft first)
+                logger.debug(
+                    f"[RoundTimeoutPreHook] Agent {self.agent_id}: " f"soft timeout not fired yet, allowing {function_name}",
+                )
+                return HookResult.allow()
+
+            # Calculate hard timeout from when soft was injected
+            time_since_soft = time.time() - soft_fired_at
+            logger.debug(
+                f"[RoundTimeoutPreHook] Agent {self.agent_id}: " f"time_since_soft={time_since_soft:.0f}s, grace={self.grace_seconds}s",
+            )
+
+            if time_since_soft < self.grace_seconds:
+                # Within grace period - reset denial count and allow
+                self._shared_state.reset_denial_count()
+                return HookResult.allow()
+
+            # Hard timeout reached - only allow vote/new_answer
+            if function_name in ("vote", "new_answer"):
+                # Valid terminal tool - reset denial count
+                self._shared_state.reset_denial_count()
+                return HookResult.allow()
+
+            # Block this tool and track the denial
+            denial_count = self._shared_state.consecutive_hard_denials + 1
+            force_terminate = self._shared_state.record_hard_denial()
+
+            logger.warning(
+                f"[RoundTimeoutPreHook] DENIED tool `{function_name}` for {self.agent_id} - "
+                f"grace period exceeded ({time_since_soft:.0f}s / {self.grace_seconds}s), "
+                f"denial #{denial_count}" + (" - FORCE TERMINATE TRIGGERED" if force_terminate else ""),
+            )
+
+            return HookResult(
+                decision="deny",
+                reason=(
+                    f"⛔ HARD TIMEOUT - TOOL `{function_name}` BLOCKED (attempt #{denial_count})\n"
+                    f"You received the time limit warning {time_since_soft:.0f}s ago "
+                    f"(grace period: {self.grace_seconds}s).\n"
+                    f"Only `vote` or `new_answer` tools are allowed. Submit immediately. Note any unsolved problems."
+                    + (
+                        f"\n⚠️ WARNING: {denial_count} consecutive blocked calls. " f"Turn will be terminated after {RoundTimeoutState.MAX_CONSECUTIVE_DENIALS} blocked calls."
+                        if denial_count >= 3
+                        else ""
+                    )
+                ),
+            )
+
+        # Fallback to wall-clock based timeout if no shared state (backwards compatibility)
+        elapsed = time.time() - self.get_round_start_time()
+        hard_timeout = timeout + self.grace_seconds
+
+        if elapsed < hard_timeout:
+            return HookResult.allow()
+
+        # Hard timeout reached - only allow vote/new_answer
+        if function_name in ("vote", "new_answer"):
+            return HookResult.allow()
+
+        # Block all other tools
+        logger.warning(
+            f"[RoundTimeoutPreHook] DENIED tool `{function_name}` for {self.agent_id} - " f"hard timeout exceeded ({elapsed:.0f}s / {hard_timeout:.0f}s)",
+        )
+        return HookResult(
+            decision="deny",
+            reason=(
+                f"⛔ HARD TIMEOUT - TOOL `{function_name}` BLOCKED\n"
+                f"You have exceeded the hard time limit ({elapsed:.0f}s / {hard_timeout:.0f}s).\n"
+                f"Only `vote` or `new_answer` tools are allowed. Submit immediately. Note any unsolved problems."
+            ),
+        )
+
+    def reset_for_new_round(self) -> None:
+        """Reset hook state for a new round.
+
+        Note: RoundTimeoutPreHook now uses shared state for coordination,
+        but the reset is handled by RoundTimeoutPostHook which owns the state.
+        """
+
+
 class PermissionClientSession(ClientSession):
     """
     ClientSession subclass that intercepts tool calls to apply permission hooks.
@@ -969,7 +1408,12 @@ class PermissionClientSession(ClientSession):
 
             except Exception as e:
                 logger.error(f"[PermissionClientSession] Error in permission hook: {e}")
-                # Continue with the call if hook fails - don't break functionality
+                # Fail closed: deny tool execution when permission check errors
+                # This is safer than allowing potentially dangerous operations through
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=f"Error: Permission check failed: {e}")],
+                    isError=True,
+                )
 
         # Call the parent's call_tool method
         try:
@@ -1017,6 +1461,9 @@ __all__ = [
     # Built-in hooks
     "MidStreamInjectionHook",
     "HighPriorityTaskReminderHook",
+    # Per-round timeout hooks
+    "RoundTimeoutPostHook",
+    "RoundTimeoutPreHook",
     # Session-based hooks
     "PermissionClientSession",
     "convert_sessions_to_permission_sessions",

@@ -373,6 +373,9 @@ This anonymous evaluation lets agents:
 * Catch potential errors without bias
 * Decide whether to vote or provide a better answer based purely on merit
 
+.. note::
+   **Workspace Naming**: Always use ``cwd: "workspace"`` in your configs rather than numbered names like ``workspace1`` or ``workspace2``. MassGen automatically adds unique random suffixes per agent at runtime (e.g., ``workspace_f7a3b2c1``). This prevents agents from inferring their identity from workspace paths, which would undermine the anonymous voting design.
+
 **Workspace Snapshots (for file operations):**
 
 When an agent with filesystem capabilities provides an answer:

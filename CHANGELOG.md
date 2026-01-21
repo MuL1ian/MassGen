@@ -9,16 +9,251 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
-**v0.1.36 (January 9, 2026)** - Hook Framework & Unified @path Context Handling
-General hook framework for agent lifecycle events with PreToolUse/PostToolUse hooks, content injection strategies, and custom hook support. Unified `@path` syntax for inline context path references in CLI and Web UI with autocomplete file picker. Claude Code native hooks integration. Docker resource cleanup improvements when recreating agents for new path references.
+**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
+Interactive terminal UI with `--display textual` for interactive MassGen sessions. Real-time agent output streaming, context path injection, human feedback integration, keyboard-driven navigation, workspace file browser, answer browser with side-by-side comparisons, and comprehensive modals for metrics/costs/votes/timeline. Enhanced plan execution with mode selection UI and improved final answer presentation.
 
-**v0.1.35 (January 7, 2026)** - Enhanced Log Analysis & Workflow Observability
-New `massgen logs analyze` command generates analysis prompts or launches multi-agent self-analysis using MassGen. Comprehensive Logfire attributes for workflow explanation including round context, vote context, and local file references. New `direct_mcp_servers` config option for code-based tools mode to keep specific MCP servers as direct protocol tools. Grok and Gemini tool fixes, vote-only mode improvements.
+**v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
+Complete plan-then-execute workflow with `--plan-and-execute` for autonomous planning and execution, `--execute-plan` to run existing plans. Task verification workflow with `verified` status and verification groups for batch validation. Plan storage system in `.massgen/plans/` with frozen snapshots and execution tracking. Response API function call message sanitization fixes.
 
-**v0.1.34 (January 5, 2026)** - OpenAI-Compatible Server & Model Discovery
-Local OpenAI-compatible HTTP server enables integration with any OpenAI SDK client. Dynamic model discovery for Groq and Together backends fetches available models via authenticated API calls. WebUI improvements include file diffs, answer refresh polling, and workspace browser optimizations. Subagent reliability enhancements for status tracking, cancellation recovery, and error handling.
+**v0.1.38 (January 15, 2026)** - Task Planning, Two-Tier Workspaces & Project Instructions
+Task planning mode with `--plan` flag creates structured plans for future workflows (plan-only, no auto-execution). Two-tier git-backed workspaces with scratch/deliverable separation and automatic snapshot commits. Project instruction auto-discovery (CLAUDE.md/AGENTS.md) following the agents.md standard. Batch image analysis with multi-image comparison support. Circuit breaker for timeout denial loops, soft→hard timeout race condition fix, and Docker health monitoring with log capture on MCP failures.
 
 ---
+
+## [0.1.40] - 2026-01-19
+
+### Added
+- **Textual TUI Interactive Mode**: Interactive terminal UI with `--display textual` for interactive MassGen sessions
+  - Real-time agent output streaming with syntax highlighting
+  - Agent tab bar for switching between agents and post-evaluation views
+  - Keyboard-driven navigation with extensive keyboard shortcuts
+  - Keyboard navigation with `j/k` scrolling and `:q` to quit
+  - Comprehensive modals:
+    - `?` or `h`: Keyboard shortcuts help
+    - `f`: Full agent output
+    - `c`: Cost breakdown (token usage and costs)
+    - `m`: Tool metrics
+    - `v`: Vote results
+    - `o`: Orchestrator events
+    - `s`: System status
+    - `p`: MCP server status
+    - `b`: Answer browser with side-by-side comparisons
+    - `t`: Coordination timeline
+    - `w`: Workspace file browser with tree navigation and file preview
+  - Context path injection UI with `@` syntax support
+  - Human feedback integration with prompt modal
+  - Enhanced final answer presentation with formatting
+  - Plan execution mode selection UI
+  - Scrolling improvements with visual indicators
+  - Tool input/output display with color-coded formatting
+
+### Changed
+- **Final Answer View**: Improved presentation and formatting in Textual TUI
+- **Subagent Display**: Fixed subagent rendering and progress bar updates
+- **Context Path Handling**: Enhanced context path validation and display
+- **Broadcasting**: Improved broadcasting behavior for questions similar to context injection
+
+### Fixed
+- **Tool Inputs Not Showing**: Fixed issue where tool inputs were not displayed in later answers
+- **Empty Space Issue**: Resolved empty space rendering problem in agent answers
+- **Scrolling**: Fixed scrolling behavior and visual indicators
+- **Cancellation**: Improved Ctrl+C handling and graceful shutdown
+- **Menu Display**: Fixed issue with too many items being displayed in menus
+- **Click Handling**: Resolved click event issues in TUI
+- **Path Permissions**: Fixed workspace path permission handling
+- **Task Plan Display**: Fixed task plan rendering in TUI
+
+### Documentation, Configurations and Resources
+- **Textual TUI Architecture**: New `docs/dev_notes/textual_tui_architecture.md` for TUI implementation details
+- **Textual UI Developer Skill**: New `massgen/skills/textual-ui-developer/SKILL.md` for TUI development workflows
+- **OpenSpec Proposals**: Multiple design documents in `openspec/changes/`:
+  - `add-tui-modes/` - TUI modes design and specs
+  - `tui-production-upgrade/` - Enhanced TUI widgets
+  - `update-textual-tui-polish/` - TUI polish and refinements
+- **Updated CLAUDE.md**: Enhanced project instructions with TUI development guidance
+- **Updated Config**: Modified `massgen/configs/basic/multi/three_agents_default.yaml` for TUI testing
+
+### Technical Details
+- **Major Focus**: Textual TUI interactive mode, keyboard navigation, workspace browser, performance optimization
+- **Contributors**: @ncrispino, @praneeth999, @HenryQi and the MassGen team
+
+## [0.1.39] - 2026-01-16
+
+### Added
+- **Plan and Execute Workflow**: Complete plan-then-execute workflow separating "what to build" from "how to build it"
+  - `--plan-and-execute`: Create plan then immediately execute it
+  - `--execute-plan <id|path|latest>`: Execute an existing plan without re-planning
+  - `--broadcast <human|agents|false>`: Control planning collaboration (auto-switches to `false` in automation mode)
+
+- **Task Verification Workflow**: New `verified` status for distinguishing implementation from validation
+  - Status flow: `pending` → `in_progress` → `completed` → `verified`
+  - `verification_group` labels for batch verification (e.g., "foundation", "frontend_ui")
+  - `get_tasks_awaiting_verification()` and `get_verification_group_status()` helpers
+  - Agents verify entire groups at logical checkpoints
+
+- **Plan Storage System**: Persistent plan management in `.massgen/plans/`
+  - Plan structure: `plan_metadata.json`, `execution_log.jsonl`, `plan_diff.json`
+  - `frozen/` directory for immutable planning-phase snapshots
+  - `workspace/` directory for modified plan after execution
+  - Plan IDs use timestamp format: `YYYYMMDD_HHMMSS_microseconds`
+
+### Changed
+- **Planning Prompt Improvements**: Updated guidance to focus on outcomes over implementation
+  - "Describe WHAT the final product needs, not HOW to build it"
+  - Verification methods must be automated (not manual inspection)
+  - Quality focus: "If it's visual, it should LOOK good"
+
+### Fixed
+- **Response API Function Call Messages**: Sanitized function_call messages for OpenAI Response API compatibility ([#792](https://github.com/massgen/MassGen/pull/792))
+  - Filter function_call messages to only include valid fields (type, name, arguments, call_id, id)
+  - Remove invalid fields like 'content' that cause `Unknown parameter` errors
+  - Ensure 'arguments' field is JSON-serialized string, not an object
+  - Fixes: `Unknown parameter: 'input[N].content'` and `Invalid type for 'input[N].arguments'`
+
+- **Plan Execution Edge Cases**: Various fixes for plan execution workflow
+  - Single-agent config handling for both `agent:` and `agents:` shapes
+  - Plan collection path fixed to look for `tasks/plan.json` (file) not `plan/` (directory)
+  - Subprocess deadlock prevention by merging stderr into stdout
+  - Argparse handling for questions starting with `-` via `--` end-of-options marker
+  - Progress calculation now counts `verified` tasks as completed
+
+### Documentations, Configurations and Resources
+- **Planning Mode Guide**: Updated `docs/source/user_guide/advanced/planning_mode.rst` with plan-and-execute workflow
+- **Roadmap**: New `ROADMAP_v0.1.40.md` for next release planning
+
+### Technical Details
+- **Major Focus**: Plan-and-execute workflow, task verification, plan storage system
+- **Contributors**: @ncrispino, @HenryQi, @db-ol and the MassGen team
+
+## [0.1.38] - 2026-01-15
+
+### Added
+- **Task Planning Mode**: Create structured plans for future workflows with `--plan` flag (plan-only, no auto-execution)
+  - `--plan`: Enable task planning mode for structured work breakdown
+  - `--plan-depth`: Control planning granularity (shallow/medium/deep)
+  - Planning prompt prefix for configurable depth
+  - Outputs `feature_list.json` with task dependencies and priorities
+
+- **Two-Tier Workspace**: Git-backed scratch/deliverable separation
+  - `use_two_tier_workspace: true` config option
+  - `scratch/` directory for work-in-progress
+  - `deliverable/` directory for complete, self-contained outputs
+  - Automatic `[INIT]`, `[SNAPSHOT]`, `[TASK]` git commits
+  - Task completion triggers git commit with completion notes
+  - Agents can use `git log` to review work history
+
+- **Project Instructions Auto-Discovery**: CLAUDE.md/AGENTS.md support following [agents.md](https://agents.md/) standard
+  - Automatic discovery from context paths (via `@path` syntax)
+  - Hierarchical "closest wins" algorithm for monorepo support
+  - CLAUDE.md takes precedence over AGENTS.md at same level
+  - Contents injected into system prompts with softer framing
+
+- **Batch Image Analysis**: Multi-image support in media tools
+  - `understand_image` accepts `images` dict for named multi-image comparison
+  - `read_media` accepts `inputs` list for batch image processing
+  - Dict keys become reference names in prompts for image identification
+  - `max_concurrent` parameter for concurrency control
+
+- **Docker Health Monitoring**: Container diagnostics on MCP failures
+  - `get_container_health()` for health status checking
+  - `get_container_logs()` and `save_container_logs()` for log retrieval
+  - Automatic log capture when MCP disconnections occur
+  - Health info tracked in enforcement events
+
+- **Enhanced Enforcement Tracking**: Improved status.json visibility
+  - `finish_reason`: `"timeout"`, `"completed"`, `"error"`, or `"in_progress"`
+  - `finish_reason_details`: Human-readable explanation
+  - `is_complete`: Boolean completion status
+  - Fields appear at top of status.json for immediate visibility
+
+### Changed
+- **Improved Deliverable Guidance**: System prompts emphasize self-contained packages
+  - Checklist: all required files, dependencies, assets, README
+  - Explicit examples for different artifact types
+  - Soft timeout message reinforces complete deliverables
+
+- **Git History in System Prompt**: Agents aware of version control
+  - Commit prefix documentation: `[INIT]`, `[SNAPSHOT]`, `[TASK]`
+  - Guidance to use `git log` for reviewing work history
+
+### Fixed
+- **Vote Tracking Bug**: Ignored votes no longer leak into final results
+  - Clear `agent_states[agent_id].votes` when vote ignored due to restart
+  - Sync between `agent_states` and `coordination_tracker.votes`
+
+- **Soft→Hard Timeout Race Condition**: Guaranteed progression
+  - Hard timeout now calculated from soft timeout injection time
+  - Soft timeout must fire before hard timeout can trigger
+  - `RoundTimeoutState` class for shared state between hooks
+
+- **MCP Reset on Restart**: Full tools restored after hard timeout restart
+  - Reset `_mcp_initialized = False` in `handle_restart()`
+  - Forces MCP re-initialization (17 tools vs 2)
+
+- **Circuit Breaker for Hard Timeout**: Prevents infinite denial loops
+  - Tracks consecutive denied tool calls
+  - Warning after 3+ consecutive denials
+  - Force terminate after 10 blocked tool calls
+
+- **`use_two_tier_workspace` Config Pass-Through**: Flag now reaches orchestrator
+  - Added to `CoordinationConfig` creation in cli.py
+  - Planning MCP server receives `--use-two-tier-workspace` flag
+
+### Documentations, Configurations and Resources
+- **Project Integration Guide**: New `docs/source/user_guide/files/project_integration.rst`
+- **Debugging Assumptions**: Added guidance to `CLAUDE.md` for log analysis
+- **OpenSpec Proposals**: New `openspec/changes/add-enforcement-observability/` and `openspec/changes/add-task-planning-mode/`
+- **Skills**: New `massgen/skills/massgen-log-analyzer/SKILL.md`
+- **Roadmap**: Renamed `ROADMAP_v0.1.38.md` to `ROADMAP_v0.1.39.md`
+
+### Technical Details
+- **Major Focus**: Task planning, two-tier workspaces, project instructions, timeout reliability
+- **Contributors**: @ncrispino, @chiwang, @HenryQi and the MassGen team
+
+## [0.1.37] - 2026-01-12
+
+### Added
+- **Execution Traces**: Full execution history preserved as searchable markdown files ([MAS-226](https://linear.app/massgen-ai/issue/MAS-226))
+  - **Trace file format**: Human-readable `execution_trace.md` saved alongside snapshots
+  - **Compression recovery**: Agents can read trace files to recover detailed history after context compression
+  - **Cross-agent access**: Other agents can access execution traces in temp workspaces to understand approaches
+  - **Full content preservation**: Tool calls, results, and reasoning blocks saved without truncation
+  - **Grep-friendly**: Searchable format for debugging and analysis
+
+- **Claude Code Thinking Mode**: Streaming buffer support for Claude Code reasoning
+  - Thinking content captured in streaming buffer for trace files
+  - Integration with execution trace system
+
+- **Voting Execution Traces**: Vote reasoning captured in execution trace files
+  - Full vote context preserved for analysis
+
+### Changed
+- **Standardized Agent Labeling**: Consistent agent identification across backends
+  - Unified labeling format for multi-agent coordination
+  - Improved workspace anonymization for cross-agent sharing
+
+- **Gemini Thinking Mode**: Fixed thinking/reasoning content handling
+  - Proper streaming buffer integration for Gemini reasoning blocks
+
+- **Streaming Buffer Improvements**: Enhanced reasoning content capture
+  - Better handling of thinking blocks across providers
+  - Improved trace file generation
+
+### Fixed
+- **Claude Code Backend**: Fixed skills and tool handling issues
+- **Config Builder**: Fixed configuration generation edge cases
+- **Round Timeout Handling**: Improved timeout behavior during coordination
+
+### Documentations, Configurations and Resources
+- **Timeouts Guide**: Updated `docs/source/reference/timeouts.rst` with comprehensive timeout documentation
+- **Backends Guide**: Updated `docs/source/user_guide/backends.rst` with OpenRouter support
+- **Logging Guide**: Updated `docs/source/user_guide/logging.rst` with execution trace information
+- **Debug Config**: New `massgen/configs/debug/round_timeout_test.yaml` for timeout testing
+- **OpenSpec**: New `openspec/changes/add-execution-traces/` with proposal and specs
+
+### Technical Details
+- **Major Focus**: Execution traces for context recovery, thinking mode improvements, standardized agent labeling
+- **Contributors**: @ncrispino, @chiwang, @HenryQi and the MassGen team
 
 ## [0.1.36] - 2026-01-09
 

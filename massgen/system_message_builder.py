@@ -32,6 +32,7 @@ from massgen.system_prompt_sections import (
     OutputFirstVerificationSection,
     PlanningModeSection,
     PostEvaluationSection,
+    ProjectInstructionsSection,
     SkillsSection,
     SubagentSection,
     SystemPromptBuilder,
@@ -94,6 +95,7 @@ class SystemMessageBuilder:
         previous_turns: List[Dict[str, Any]],
         human_qa_history: Optional[List[Dict[str, str]]] = None,
         vote_only: bool = False,
+        agent_mapping: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -111,6 +113,9 @@ class SystemMessageBuilder:
             previous_turns: List of previous turn data for filesystem context
             human_qa_history: List of human Q&A pairs from broadcast channel (human mode only)
             vote_only: If True, agent has reached max answers and can only vote
+            agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
+                          Pass from coordination_tracker.get_reverse_agent_mapping() for
+                          global consistency with vote tool and injections.
 
         Returns:
             Complete system prompt string with XML structure
@@ -221,8 +226,19 @@ class SystemMessageBuilder:
             main_workspace = str(agent.backend.filesystem_manager.get_current_workspace())
             context_paths = agent.backend.filesystem_manager.path_permission_manager.get_context_paths() if agent.backend.filesystem_manager.path_permission_manager else []
 
+            # Check if two-tier workspace is enabled
+            use_two_tier_workspace = False
+            if hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
+                use_two_tier_workspace = getattr(agent.backend.filesystem_manager, "use_two_tier_workspace", False)
+
+            # Add project instructions section (CLAUDE.md / AGENTS.md discovery)
+            # This comes BEFORE workspace structure so project context is established first
+            if context_paths:
+                logger.info(f"[SystemMessageBuilder] Checking for project instructions in {len(context_paths)} context paths")
+                builder.add_section(ProjectInstructionsSection(context_paths, workspace_root=main_workspace))
+
             # Add workspace structure section (critical paths)
-            builder.add_section(WorkspaceStructureSection(main_workspace, [p.get("path", "") for p in context_paths]))
+            builder.add_section(WorkspaceStructureSection(main_workspace, [p.get("path", "") for p in context_paths], use_two_tier_workspace=use_two_tier_workspace))
 
             # Check command execution settings
             enable_command_execution = False
@@ -249,6 +265,7 @@ class SystemMessageBuilder:
                 docker_mode=docker_mode,
                 enable_sudo=enable_sudo,
                 concurrent_tool_execution=concurrent_tool_execution,
+                agent_mapping=agent_mapping,
             )
 
             builder.add_section(fs_ops)
@@ -317,7 +334,21 @@ class SystemMessageBuilder:
         if hasattr(agent, "backend") and hasattr(agent.backend, "config"):
             auto_discover_enabled = agent.backend.config.get("auto_discover_custom_tools", False)
         if auto_discover_enabled:
-            builder.add_section(EvolvingSkillsSection())
+            # Check for plan.json to provide plan-aware guidance
+            plan_context = None
+            if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
+                workspace_path = Path(agent.backend.filesystem_manager.get_current_workspace())
+                plan_file = workspace_path / "tasks" / "plan.json"
+                if plan_file.exists():
+                    try:
+                        import json
+
+                        plan_context = json.loads(plan_file.read_text())
+                        logger.info(f"[SystemMessageBuilder] Found plan.json with {len(plan_context.get('tasks', []))} tasks for evolving skills")
+                    except Exception as e:
+                        logger.warning(f"[SystemMessageBuilder] Failed to read plan.json: {e}")
+
+            builder.add_section(EvolvingSkillsSection(plan_context=plan_context))
             logger.info(f"[SystemMessageBuilder] Added evolving skills section for {agent_id}")
 
         # PRIORITY 10 (MEDIUM): Broadcast Communication (conditional)
@@ -358,6 +389,7 @@ class SystemMessageBuilder:
         docker_mode: bool = False,
         enable_sudo: bool = False,
         concurrent_tool_execution: bool = False,
+        agent_mapping: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build system message for final presentation phase.
 
@@ -377,6 +409,9 @@ class SystemMessageBuilder:
             docker_mode: Whether commands run in Docker
             enable_sudo: Whether sudo is available
             concurrent_tool_execution: Whether tools execute in parallel
+            agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
+                          Pass from coordination_tracker.get_reverse_agent_mapping() for
+                          global consistency with vote tool and injections.
 
         Returns:
             Complete system message string
@@ -409,6 +444,7 @@ class SystemMessageBuilder:
                 docker_mode=docker_mode,
                 enable_sudo=enable_sudo,
                 concurrent_tool_execution=concurrent_tool_execution,
+                agent_mapping=agent_mapping,
             )
 
             # Build sections list
@@ -469,6 +505,7 @@ This makes the work reusable for similar future tasks."""
         agent,  # ChatAgent
         all_answers: Dict[str, str],
         previous_turns: List[Dict[str, Any]],
+        agent_mapping: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build system message for post-evaluation phase.
 
@@ -479,6 +516,9 @@ This makes the work reusable for similar future tasks."""
             agent: The evaluating agent
             all_answers: All answers from coordination phase
             previous_turns: List of previous turn data for filesystem context
+            agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
+                          Pass from coordination_tracker.get_reverse_agent_mapping() for
+                          global consistency with vote tool and injections.
 
         Returns:
             Complete system message string
@@ -504,6 +544,7 @@ This makes the work reusable for similar future tasks."""
                 enable_command_execution=False,
                 docker_mode=False,
                 enable_sudo=False,
+                agent_mapping=agent_mapping,
             )
 
             parts.append(fs_ops.build_content())
@@ -538,6 +579,7 @@ This makes the work reusable for similar future tasks."""
         docker_mode: bool = False,
         enable_sudo: bool = False,
         concurrent_tool_execution: bool = False,
+        agent_mapping: Optional[Dict[str, str]] = None,
     ) -> Tuple[Any, Any, Optional[Any]]:  # Tuple[FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection]]
         """Build filesystem-related sections.
 
@@ -552,6 +594,9 @@ This makes the work reusable for similar future tasks."""
             docker_mode: Whether commands run in Docker
             enable_sudo: Whether sudo is available
             concurrent_tool_execution: Whether tools execute in parallel
+            agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
+                          Pass from coordination_tracker.get_reverse_agent_mapping() for
+                          global consistency with vote tool and injections.
 
         Returns:
             Tuple of (FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection])
@@ -578,6 +623,7 @@ This makes the work reusable for similar future tasks."""
             workspace_prepopulated=workspace_prepopulated,
             agent_answers=all_answers,
             enable_command_execution=enable_command_execution,
+            agent_mapping=agent_mapping,
         )
 
         # Build filesystem best practices section

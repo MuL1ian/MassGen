@@ -1,0 +1,47 @@
+# Debug config for testing per-round timeouts
+# Run with: uv run massgen --config massgen/configs/debug/round_timeout_test.yaml "Create a website about Bob Dylan"
+#
+# This config tests the per-round timeout feature
+# - Initial round (round 0): 120 second soft timeout, then 10 second grace before hard block
+# - Subsequent rounds (voting): 60 second soft timeout, then 10 second grace before hard block
+#
+
+
+agents:
+  - id: "agent_a"
+    backend:
+      type: "chatcompletion"
+      model: "openai/gpt-5-mini"
+      base_url: "https://openrouter.ai/api/v1"
+      reasoning:
+        effort: "medium"
+      cwd: "workspace"  # Required for filesystem mode
+      enable_mcp_command_line: true
+      command_line_execution_mode: "docker"
+      command_line_docker_enable_sudo: true
+
+  - id: "agent_b"
+    backend:
+      type: "grok"
+      model: "grok-4-1-fast-reasoning"
+      cwd: "workspace"  # Required for filesystem mode
+      enable_mcp_command_line: true
+      command_line_execution_mode: "docker"
+      command_line_docker_enable_sudo: true
+
+orchestrator:
+  snapshot_storage: "snapshots"
+  agent_temporary_workspace: "temp_workspaces"
+  max_new_answers_per_agent: 3
+
+  coordination:
+    # Enable task planning
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+
+# Per-round timeout settings (the feature being tested)
+timeout_settings:
+  orchestrator_timeout_seconds: 600  # 10 minute overall timeout
+  initial_round_timeout_seconds: 120  # 120 second soft timeout for initial round
+  subsequent_round_timeout_seconds: 60  # 60 second soft timeout for voting rounds
+  round_timeout_grace_seconds: 10  # 10 second grace period before hard block

@@ -6,7 +6,7 @@ This module contains all audio generation implementations that are
 routed through by generate_media when mode="audio".
 """
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from massgen.logger_config import logger
 from massgen.tool._multimodal_tools.generation._base import (
@@ -60,7 +60,7 @@ async def _generate_audio_openai(config: GenerationConfig) -> GenerationResult:
         )
 
     try:
-        client = OpenAI(api_key=api_key)
+        client = AsyncOpenAI(api_key=api_key)
         model = config.model or get_default_model("openai", MediaType.AUDIO)
         voice = config.voice or "alloy"
 
@@ -89,7 +89,7 @@ async def _generate_audio_openai(config: GenerationConfig) -> GenerationResult:
             request_params["instructions"] = instructions
 
         # Use streaming response for efficient file handling
-        with client.audio.speech.with_streaming_response.create(**request_params) as response:
+        async with client.audio.speech.with_streaming_response.create(**request_params) as response:
             response.stream_to_file(config.output_path)
 
         # Get file info

@@ -24,6 +24,10 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 ## Planning
 When planning or creating specs, use AskUserQuestions to ensure you align with the user before creating full planning files.
 
+## Debugging Assumptions
+
+**IMPORTANT**: When the user asks you to check logs from a MassGen run, assume they ran with the current uncommitted changes unless they explicitly say otherwise. Do NOT assume "the run used an older commit" just because the execution_metadata.yaml shows a different git commit - the user likely ran with local modifications after you suggested changes. Always debug the actual code behavior first.
+
 ## Project Overview
 
 MassGen is a multi-agent system that coordinates multiple AI agents to solve complex tasks through parallel processing, intelligence sharing, and consensus building. Agents work simultaneously, observe each other's progress, and vote to converge on the best solution.
@@ -299,6 +303,9 @@ Once symlinked, Claude Code will automatically discover and use these skills whe
 ### Creating New Skills
 
 When you notice a repeatable workflow emerging (e.g., same sequence of steps done multiple times), suggest creating a new skill for it. Use the `skill-creator` skill to help structure and create new skills in `massgen/skills/`.
+
+### Improving Existing Skills
+After you finish a workflow using a skill, it is a good idea to improve it, especially if a human has guided you through new workflows or you found other errors or inefficiencies. You should edit the file in `massgen/skills/` to improve it and have the human approve it.
 
 ## Linear Integration
 

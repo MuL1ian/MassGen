@@ -89,12 +89,73 @@ When analyzing, the `--turn` flag specifies which turn to analyze. Without it, t
 
 | File | Contains |
 |------|----------|
+| `status.json` | Real-time status with **agent reliability metrics** (enforcement events, buffer loss) |
 | `metrics_summary.json` | Cost, tokens, tool stats, round history |
 | `coordination_events.json` | Full event timeline with tool calls |
 | `coordination_table.txt` | Human-readable coordination flow |
 | `streaming_debug.log` | Raw streaming data including command strings |
 | `agent_*/*/vote.json` | Vote reasoning and context |
+| `agent_*/*/execution_trace.md` | **Full tool calls, arguments, results, and reasoning** - invaluable for debugging |
 | `execution_metadata.yaml` | Config and session metadata |
+
+**Execution Traces (`execution_trace.md`):**
+These are the most detailed debug artifacts. Each agent snapshot includes an execution trace with:
+- Complete tool calls with full arguments (not truncated)
+- Full tool results (not truncated)
+- Reasoning/thinking blocks from the model
+- Timestamps and round markers
+
+Use execution traces when you need to understand exactly what an agent did and why - they capture everything the agent saw and produced during that answer/vote iteration.
+
+**Enforcement Reliability (`status.json`):**
+The `status.json` file includes per-agent reliability metrics that track workflow enforcement events:
+
+```json
+{
+  "agents": {
+    "agent_a": {
+      "reliability": {
+        "enforcement_attempts": [
+          {
+            "round": 0,
+            "attempt": 1,
+            "max_attempts": 3,
+            "reason": "no_workflow_tool",
+            "tool_calls": ["search", "read_file"],
+            "error_message": "Must use workflow tools",
+            "buffer_preview": "First 500 chars of lost content...",
+            "buffer_chars": 1500,
+            "timestamp": 1736683468.123
+          }
+        ],
+        "by_round": {"0": {"count": 2, "reasons": ["no_workflow_tool", "invalid_vote_id"]}},
+        "unknown_tools": ["execute_command"],
+        "workflow_errors": ["invalid_vote_id"],
+        "total_enforcement_retries": 2,
+        "total_buffer_chars_lost": 3000,
+        "outcome": "ok"
+      }
+    }
+  }
+}
+```
+
+**Enforcement Reason Codes:**
+| Reason | Description |
+|--------|-------------|
+| `no_workflow_tool` | Agent called tools but none were `vote` or `new_answer` |
+| `no_tool_calls` | Agent provided text-only response, no tools called |
+| `invalid_vote_id` | Agent voted for non-existent agent ID |
+| `vote_no_answers` | Agent tried to vote when no answers exist |
+| `vote_and_answer` | Agent used both `vote` and `new_answer` in same response |
+| `answer_limit` | Agent hit max answer count limit |
+| `answer_novelty` | Answer too similar to existing answers |
+| `answer_duplicate` | Exact duplicate of existing answer |
+| `api_error` | API/streaming error (e.g., "peer closed connection") |
+| `connection_recovery` | API stream ended early, recovered with preserved context |
+| `mcp_disconnected` | MCP server disconnected mid-session (e.g., "Server 'X' not connected") |
+
+This data is invaluable for understanding **why agents needed retries** and **how much content was lost** due to enforcement restarts.
 
 ## Logfire Setup
 
@@ -585,6 +646,17 @@ In this case, please sleep (for up to a minute) and try again.
 
 When asked to analyze a MassGen log run, generate a **markdown report** saved to `[log_dir]/turn_N/ANALYSIS_REPORT.md` where N is the turn being analyzed. Each turn (coordination session) gets its own analysis report as a sibling to the attempt directories. The report must cover the **Standard Analysis Questions** below.
 
+### Important: Ground Truth and Correctness
+
+**CRITICAL**: Do not assume any agent's answer is "correct" unless the user explicitly provides ground truth.
+
+- Report what each agent claimed/produced without asserting correctness
+- Note when agents agree or disagree, but don't claim agreement = correctness
+- If agents produce different answers, present both neutrally
+- Only mark answers as correct/incorrect if user provides the actual answer
+- Phrases to avoid: "correctly identified", "got the right answer", "solved correctly"
+- Phrases to use: "claimed", "produced", "submitted", "arrived at"
+
 ### Standard Analysis Questions
 
 Every analysis report MUST answer these questions:
@@ -627,6 +699,59 @@ Every analysis report MUST answer these questions:
 - Any timeouts?
 - Any agent errors?
 
+#### 8. Agent Reasoning & Behavior Analysis (CRITICAL)
+
+**This is the most important section.** Analyzing how agents think and act reveals root causes of successes and failures.
+
+**Data Sources:**
+- `agent_outputs/agent_*.txt` - Full output including reasoning (if available)
+- `agent_*/*/execution_trace.md` - Complete tool calls with arguments and results
+- `streaming_debug.log` - Raw streaming chunks
+
+**Note:** Some models don't emit explicit reasoning traces. For these, analyze **tool call patterns and content** instead - the sequence of actions still reveals decision-making.
+
+**For EACH agent, analyze:**
+
+1. **Strategy** - What approach did they take? (from reasoning OR tool sequence)
+2. **Tool Responses** - How did they handle successes/failures/inconsistencies?
+3. **Error Recovery** - Did they detect problems? Implement workarounds?
+4. **Decision Quality** - Logical errors? Over/under-verification? Analysis paralysis?
+5. **Cross-Agent Comparison** - Which had best reasoning? What patterns led to success?
+
+**Key Patterns:**
+
+| Pattern | Good Sign | Bad Sign |
+|---------|-----------|----------|
+| Failure detection | Pivots after 2-3 failures | Repeats broken approach 6+ times |
+| Result validation | Cross-validates outputs | Accepts first result blindly |
+| Inconsistency handling | Investigates conflicts | Ignores contradictions |
+| Workarounds | Creative alternatives when stuck | Gives up or loops |
+| Time management | Commits when confident | Endless verification, no answer |
+
+**Extract Key Evidence:** For each agent, include 2-3 quotes (if reasoning available) OR describe key tool sequences that illustrate their decision quality.
+
+#### 9. Tool Reliability Analysis
+
+Analyze tool behavior patterns beyond simple error listing:
+
+1. **Consistency** - Same input, same output? Document variance.
+2. **False Positives/Negatives** - Tools reporting wrong success/failure status?
+3. **Root Cause Hypotheses** - For each failure pattern, propose likely causes (path issues, rate limits, model limitations, etc.)
+
+#### 10. Enforcement & Workflow Reliability Analysis
+
+**Data Source:** `status.json` → `agents[].reliability`
+
+Check if agents needed retries due to workflow violations. Key metrics:
+- `total_enforcement_retries` - How many times agent was forced to retry
+- `total_buffer_chars_lost` - Content discarded due to restarts
+- `unknown_tools` - Hallucinated tool names
+- `by_round` - Which rounds had issues
+
+**Red Flags:** >=2 retries per round, >5000 chars lost, populated `unknown_tools` list.
+
+See "Enforcement Reliability" in the Key Local Log Files section for the full schema and reason codes.
+
 ### Data Sources for Each Question
 
 | Question | Primary Source | Secondary Source |
@@ -638,6 +763,7 @@ Every analysis report MUST answer these questions:
 | Agent decisions | `agent_*/*/vote.json`, `coordination_events.json` | Logfire vote spans |
 | Cost/tokens | `metrics_summary.json` | Logfire usage attributes |
 | Errors | `coordination_events.json`, `metrics_summary.json` | Logfire `is_exception=true` |
+| Enforcement | `status.json` → `agents[].reliability` | - |
 
 ### Analysis Commands
 

@@ -3057,6 +3057,7 @@ class RichTerminalDisplay(TerminalDisplay):
         agent_id: str,
         content: str,
         content_type: str = "thinking",
+        tool_call_id: Optional[str] = None,
     ) -> None:
         """Update content for a specific agent with rich formatting and file output."""
 
@@ -4870,14 +4871,15 @@ class RichTerminalDisplay(TerminalDisplay):
             self._flush_char_delay = char_delay
             self._flush_word_delay = word_delay
 
-    async def prompt_for_broadcast_response(self, broadcast_request: Any) -> Optional[str]:
+    async def prompt_for_broadcast_response(self, broadcast_request: Any) -> Optional[Any]:
         """Prompt human for response to a broadcast question using Rich formatting.
 
         Args:
             broadcast_request: BroadcastRequest object with question details
 
         Returns:
-            Human's response string, or None if skipped/timeout
+            Human's response string (for simple questions) or List[StructuredResponse] (for structured questions),
+            or None if skipped/timeout
         """
         import sys
         import termios
@@ -4948,90 +4950,11 @@ class RichTerminalDisplay(TerminalDisplay):
             self.console.print(banner)
             self.console.print("\n")
 
-            # Display the actual question in a cyan panel
-            panel_content = Text()
-            panel_content.append("QUESTION:\n", style="bold yellow")
-            panel_content.append(f"{broadcast_request.question}\n\n", style="bold cyan")
-            panel_content.append("HOW TO RESPOND:\n", style="bold yellow")
-            panel_content.append("  • Type your answer and press Enter\n", style="white")
-            panel_content.append("  • Press Enter alone to skip\n", style="white")
-            panel_content.append(f"  • Timeout: {broadcast_request.timeout} seconds\n\n", style="dim")
-
-            panel = Panel(
-                panel_content,
-                title=f"📢 FROM: {broadcast_request.sender_agent_id.upper()}",
-                border_style="cyan bold",
-                box=DOUBLE,
-                padding=(1, 2),
-            )
-
-            self.console.print(panel)
-            self.console.print("\n")
-
-            logger.info("📢 [Human Input] Modal prompt displayed, waiting for user input")
-
-            # Ensure all output is flushed before waiting for input
-            sys.stdout.flush()
-            sys.stderr.flush()
-
-            # Use asyncio to read input with timeout
-            try:
-                logger.info("📢 [Human Input] Waiting for user input (blocking)...")
-                logger.info(f"📢 [Human Input] stdin.isatty()={sys.stdin.isatty()}, timeout={broadcast_request.timeout}s")
-
-                # Use a synchronous approach - input() in executor sometimes has issues
-                import sys
-                from concurrent.futures import ThreadPoolExecutor
-
-                self.console.print("\n💬 [bold cyan]Your response (or Enter to skip):[/bold cyan] ", end="")
-                sys.stdout.flush()
-
-                # Create dedicated executor for blocking I/O
-                executor = ThreadPoolExecutor(max_workers=1)
-                try:
-                    response = await asyncio.wait_for(
-                        asyncio.get_event_loop().run_in_executor(
-                            executor,
-                            sys.stdin.readline,
-                        ),
-                        timeout=float(broadcast_request.timeout),
-                    )
-                    logger.info(f"📢 [Human Input] Input received: {len(response)} chars")
-                finally:
-                    executor.shutdown(wait=False)
-
-                response = response.strip()
-                if response:
-                    logger.info(f"📢 [Human Input] User provided response: {response[:50]}...")
-                    self.console.print(f"\n✅ Response submitted: [green bold]{response[:80]}{'...' if len(response) > 80 else ''}[/green bold]\n")
-                    await asyncio.sleep(1.5)  # Show confirmation briefly
-                    return response
-                else:
-                    logger.info("📢 [Human Input] User skipped (empty response)")
-                    self.console.print("\n⏭️  [yellow]Skipped (no response provided)[/yellow]\n")
-                    await asyncio.sleep(1.0)
-                    return None
-
-            except asyncio.TimeoutError:
-                logger.warning(f"📢 [Human Input] Timeout after {broadcast_request.timeout} seconds")
-                self.console.print("\n⏱️  [red bold]Timeout - no response submitted[/red bold]\n")
-                await asyncio.sleep(1.0)
-                return None
-            except EOFError as eof_err:
-                logger.error(f"📢 [Human Input] EOFError - stdin.isatty()={sys.stdin.isatty()}, stdin.closed={sys.stdin.closed}")
-                self.console.print("\n❌ [red]Error: stdin not available (EOF)[/red]\n")
-                self.console.print(f"[dim]Details: {eof_err}[/dim]\n")
-                self.console.print("[dim]This happens when the terminal is not interactive or stdin is redirected[/dim]\n")
-                await asyncio.sleep(2.0)
-                return None
-            except Exception as e:
-                import traceback
-
-                logger.error(f"📢 [Human Input] Unexpected error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-                self.console.print(f"\n❌ [red]Error getting response: {type(e).__name__}: {e}[/red]\n")
-                self.console.print(f"[dim]{traceback.format_exc()}[/dim]\n")
-                await asyncio.sleep(2.0)
-                return None
+            # Check if this is a structured question
+            if broadcast_request.is_structured:
+                return await self._prompt_structured_questions(broadcast_request, logger)
+            else:
+                return await self._prompt_simple_question(broadcast_request, logger)
 
         finally:
             logger.info("📢 [Human Input] Cleaning up and restoring display")
@@ -5068,6 +4991,265 @@ class RichTerminalDisplay(TerminalDisplay):
                     logger.warning(f"📢 [Human Input] Could not restart keyboard thread: {e}")
 
             logger.info("📢 [Human Input] Broadcast prompt cleanup complete, resuming normal operation")
+
+    async def _prompt_simple_question(self, broadcast_request: Any, logger) -> Optional[str]:
+        """Handle simple free-form text question prompt.
+
+        Args:
+            broadcast_request: BroadcastRequest with simple question string
+            logger: Logger instance
+
+        Returns:
+            User's text response or None if skipped/timeout
+        """
+        import sys
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Display the actual question in a cyan panel
+        panel_content = Text()
+        panel_content.append("QUESTION:\n", style="bold yellow")
+        panel_content.append(f"{broadcast_request.question}\n\n", style="bold cyan")
+        panel_content.append("HOW TO RESPOND:\n", style="bold yellow")
+        panel_content.append("  • Type your answer and press Enter\n", style="white")
+        panel_content.append("  • Press Enter alone to skip\n", style="white")
+        panel_content.append(f"  • Timeout: {broadcast_request.timeout} seconds\n\n", style="dim")
+
+        panel = Panel(
+            panel_content,
+            title=f"📢 FROM: {broadcast_request.sender_agent_id.upper()}",
+            border_style="cyan bold",
+            box=DOUBLE,
+            padding=(1, 2),
+        )
+
+        self.console.print(panel)
+        self.console.print("\n")
+
+        logger.info("📢 [Human Input] Modal prompt displayed, waiting for user input")
+
+        # Ensure all output is flushed before waiting for input
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+        # Use asyncio to read input with timeout
+        try:
+            logger.info("📢 [Human Input] Waiting for user input (blocking)...")
+            logger.info(f"📢 [Human Input] stdin.isatty()={sys.stdin.isatty()}, timeout={broadcast_request.timeout}s")
+
+            self.console.print("\n💬 [bold cyan]Your response (or Enter to skip):[/bold cyan] ", end="")
+            sys.stdout.flush()
+
+            # Create dedicated executor for blocking I/O
+            executor = ThreadPoolExecutor(max_workers=1)
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        executor,
+                        sys.stdin.readline,
+                    ),
+                    timeout=float(broadcast_request.timeout),
+                )
+                logger.info(f"📢 [Human Input] Input received: {len(response)} chars")
+            finally:
+                executor.shutdown(wait=False)
+
+            response = response.strip()
+            if response:
+                logger.info(f"📢 [Human Input] User provided response: {response[:50]}...")
+                self.console.print(f"\n✅ Response submitted: [green bold]{response[:80]}{'...' if len(response) > 80 else ''}[/green bold]\n")
+                await asyncio.sleep(1.5)  # Show confirmation briefly
+                return response
+            else:
+                logger.info("📢 [Human Input] User skipped (empty response)")
+                self.console.print("\n⏭️  [yellow]Skipped (no response provided)[/yellow]\n")
+                await asyncio.sleep(1.0)
+                return None
+
+        except asyncio.TimeoutError:
+            logger.warning(f"📢 [Human Input] Timeout after {broadcast_request.timeout} seconds")
+            self.console.print("\n⏱️  [red bold]Timeout - no response submitted[/red bold]\n")
+            await asyncio.sleep(1.0)
+            return None
+        except EOFError as eof_err:
+            logger.error(f"📢 [Human Input] EOFError - stdin.isatty()={sys.stdin.isatty()}, stdin.closed={sys.stdin.closed}")
+            self.console.print("\n❌ [red]Error: stdin not available (EOF)[/red]\n")
+            self.console.print(f"[dim]Details: {eof_err}[/dim]\n")
+            self.console.print("[dim]This happens when the terminal is not interactive or stdin is redirected[/dim]\n")
+            await asyncio.sleep(2.0)
+            return None
+        except Exception as e:
+            import traceback
+
+            logger.error(f"📢 [Human Input] Unexpected error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+            self.console.print(f"\n❌ [red]Error getting response: {type(e).__name__}: {e}[/red]\n")
+            self.console.print(f"[dim]{traceback.format_exc()}[/dim]\n")
+            await asyncio.sleep(2.0)
+            return None
+
+    async def _prompt_structured_questions(self, broadcast_request: Any, logger) -> Optional[List]:
+        """Handle structured questions with options.
+
+        Args:
+            broadcast_request: BroadcastRequest with structured questions
+            logger: Logger instance
+
+        Returns:
+            List of StructuredResponse objects or None if skipped/timeout
+        """
+        import sys
+        from concurrent.futures import ThreadPoolExecutor
+
+        from massgen.broadcast.broadcast_dataclasses import StructuredResponse
+
+        questions = broadcast_request.structured_questions
+        responses = []
+
+        for q_idx, question in enumerate(questions):
+            # Clear and show progress for multi-question flows
+            if len(questions) > 1:
+                self.console.print(f"\n[bold magenta]Question {q_idx + 1} of {len(questions)}[/bold magenta]\n")
+
+            # Build question panel content
+            panel_content = Text()
+            panel_content.append("QUESTION:\n", style="bold yellow")
+            panel_content.append(f"{question.text}\n\n", style="bold cyan")
+
+            # Display options with numbers
+            panel_content.append("OPTIONS:\n", style="bold yellow")
+            for i, option in enumerate(question.options, 1):
+                panel_content.append(f"  {i}. {option.label}", style="white")
+                if option.description:
+                    panel_content.append(f" - {option.description}", style="dim")
+                panel_content.append("\n", style="white")
+
+            panel_content.append("\n", style="white")
+            panel_content.append("HOW TO RESPOND:\n", style="bold yellow")
+            if question.multi_select:
+                panel_content.append("  • Enter numbers separated by commas (e.g., 1,3)\n", style="white")
+            else:
+                panel_content.append("  • Enter a number to select an option\n", style="white")
+
+            if question.allow_other:
+                panel_content.append("  • Type 'other: your text' for a custom answer\n", style="white")
+
+            if not question.required:
+                panel_content.append("  • Press Enter alone to skip\n", style="white")
+
+            panel_content.append(f"  • Timeout: {broadcast_request.timeout} seconds\n", style="dim")
+
+            panel = Panel(
+                panel_content,
+                title=f"📢 FROM: {broadcast_request.sender_agent_id.upper()}",
+                border_style="cyan bold",
+                box=DOUBLE,
+                padding=(1, 2),
+            )
+
+            self.console.print(panel)
+            self.console.print("\n")
+
+            logger.info(f"📢 [Human Input] Structured question {q_idx + 1}/{len(questions)} displayed")
+
+            # Ensure all output is flushed before waiting for input
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            try:
+                prompt_text = "selection" if question.multi_select else "choice"
+                self.console.print(f"\n💬 [bold cyan]Your {prompt_text}:[/bold cyan] ", end="")
+                sys.stdout.flush()
+
+                # Create dedicated executor for blocking I/O
+                executor = ThreadPoolExecutor(max_workers=1)
+                try:
+                    raw_input = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            executor,
+                            sys.stdin.readline,
+                        ),
+                        timeout=float(broadcast_request.timeout),
+                    )
+                    logger.info(f"📢 [Human Input] Input received: {len(raw_input)} chars")
+                finally:
+                    executor.shutdown(wait=False)
+
+                raw_input = raw_input.strip()
+
+                # Parse response
+                selected_options = []
+                other_text = None
+
+                if not raw_input:
+                    if question.required:
+                        self.console.print("\n⚠️  [yellow]This question is required. Selecting first option.[/yellow]\n")
+                        selected_options = [question.options[0].id] if question.options else []
+                    else:
+                        logger.info(f"📢 [Human Input] User skipped question {q_idx + 1}")
+                elif raw_input.lower().startswith("other:"):
+                    other_text = raw_input[6:].strip()
+                    logger.info(f"📢 [Human Input] User provided 'other' response: {other_text[:50]}...")
+                else:
+                    # Parse number selections
+                    try:
+                        nums = [int(n.strip()) for n in raw_input.split(",") if n.strip()]
+                        for num in nums:
+                            if 1 <= num <= len(question.options):
+                                selected_options.append(question.options[num - 1].id)
+                            else:
+                                self.console.print(f"[yellow]⚠️ Option {num} is out of range, ignoring[/yellow]")
+
+                        if not question.multi_select and len(selected_options) > 1:
+                            self.console.print("[yellow]⚠️ Single-select question - using first selection only[/yellow]")
+                            selected_options = selected_options[:1]
+
+                        logger.info(f"📢 [Human Input] User selected options: {selected_options}")
+                    except ValueError:
+                        # Treat as "other" text if not parseable as numbers
+                        other_text = raw_input
+                        logger.info(f"📢 [Human Input] Treating input as 'other': {other_text[:50]}...")
+
+                # Build response
+                response = StructuredResponse(
+                    question_index=q_idx,
+                    selected_options=selected_options,
+                    other_text=other_text,
+                )
+                responses.append(response)
+
+                # Show confirmation
+                if selected_options:
+                    selected_labels = [opt.label for opt in question.options if opt.id in selected_options]
+                    self.console.print(f"\n✅ Selected: [green bold]{', '.join(selected_labels)}[/green bold]\n")
+                elif other_text:
+                    self.console.print(f"\n✅ Custom answer: [green bold]{other_text[:60]}{'...' if len(other_text) > 60 else ''}[/green bold]\n")
+                else:
+                    self.console.print("\n⏭️  [yellow]Skipped[/yellow]\n")
+
+                await asyncio.sleep(0.5)  # Brief pause between questions
+
+            except asyncio.TimeoutError:
+                logger.warning(f"📢 [Human Input] Timeout on question {q_idx + 1}")
+                self.console.print("\n⏱️  [red bold]Timeout - skipping remaining questions[/red bold]\n")
+                await asyncio.sleep(1.0)
+                # Return partial responses or None
+                return responses if responses else None
+            except EOFError as eof_err:
+                logger.error(f"📢 [Human Input] EOFError on question {q_idx + 1}")
+                self.console.print(f"\n❌ [red]Error: stdin not available - {eof_err}[/red]\n")
+                await asyncio.sleep(2.0)
+                return responses if responses else None
+            except Exception as e:
+                import traceback
+
+                logger.error(f"📢 [Human Input] Error on question {q_idx + 1}: {e}\n{traceback.format_exc()}")
+                self.console.print(f"\n❌ [red]Error: {e}[/red]\n")
+                await asyncio.sleep(2.0)
+                return responses if responses else None
+
+        logger.info(f"📢 [Human Input] All {len(questions)} questions answered")
+        self.console.print(f"\n✅ [green bold]All {len(questions)} questions answered![/green bold]\n")
+        await asyncio.sleep(1.0)
+        return responses
 
 
 # Convenience function to check Rich availability

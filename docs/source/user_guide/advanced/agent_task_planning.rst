@@ -31,7 +31,7 @@ Or use the example:
 Available Tools
 ---------------
 
-When enabled, agents receive 8 MCP planning tools:
+When enabled, agents receive 9 MCP planning tools:
 
 * ``create_task_plan()`` - Create a task plan with optional dependencies
 * ``add_task()`` - Add tasks dynamically
@@ -41,6 +41,7 @@ When enabled, agents receive 8 MCP planning tools:
 * ``get_blocked_tasks()`` - See tasks waiting on dependencies
 * ``edit_task()`` - Update task descriptions
 * ``delete_task()`` - Remove tasks
+* ``clear_task_plan()`` - Clear the current plan to start fresh (used internally on agent restart)
 
 Example Usage
 -------------

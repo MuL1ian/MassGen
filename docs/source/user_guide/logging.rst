@@ -17,6 +17,7 @@ All logs are stored in the ``.massgen/massgen_logs/`` directory with timestamped
            │   └── YYYYMMDD_HHMMSS_NNNNNN/ # Timestamped coordination steps
            │       ├── answer.txt          # Agent's answer at this step
            │       ├── context.txt         # Context available to agent
+           │       ├── execution_trace.md  # Full tool calls, results, and reasoning
            │       └── workspace/          # Agent workspace (if filesystem tools used)
            ├── agent_b/                    # Second agent's logs
            │   └── ...
@@ -70,12 +71,77 @@ Each coordination step gets a timestamped directory containing:
 
 * ``answer.txt`` - The agent's answer/proposal at this step
 * ``context.txt`` - What answers/context the agent could see (recent answers from other agents)
+* ``execution_trace.md`` - Complete execution history with full tool calls, results, and reasoning
 
 **Use cases:**
 
 * Review what each agent proposed during coordination
 * Understand how agents' thinking evolved as they saw other agents' work
 * Debug why specific decisions were made
+
+Execution Traces
+~~~~~~~~~~~~~~~~
+
+**Location**: ``agent_<id>/YYYYMMDD_HHMMSS_NNNNNN/execution_trace.md``
+
+Execution traces are the most detailed debug artifacts available. Each trace captures the complete execution history for that answer/vote iteration:
+
+**Contents:**
+
+* **Tool calls** - Complete tool names and arguments (not truncated)
+* **Tool results** - Full output from each tool (not truncated)
+* **Reasoning blocks** - Model's internal thinking/chain-of-thought (if available)
+* **Round markers** - Which coordination round the activity occurred in
+* **Timestamps** - When each action occurred
+
+**Example execution trace:**
+
+.. code-block:: markdown
+
+   # Execution Trace: agent_a
+   **Model**: gemini-2.5-flash | **Started**: 2025-01-10 13:56:31
+
+   ## Round 1 (Answer 1.1)
+
+   ### Tool Call: mcp__filesystem__read_file
+   **Args**:
+   ```json
+   {"path": "/workspace/main.py"}
+   ```
+
+   ### Tool Result: mcp__filesystem__read_file
+   ```
+   def main():
+       print("Hello world")
+       # ... full file content
+   ```
+
+   ### Reasoning
+   I need to understand the existing code structure before making changes.
+   The main.py file shows a simple entry point...
+
+   ### Answer Submitted (1.1)
+   Created the requested feature with proper error handling...
+
+**Use cases:**
+
+* **Deep debugging** - See exactly what an agent did and why
+* **Compression recovery** - Agents can read their own trace to recover lost context
+* **Cross-agent analysis** - Understand how other agents approached the problem
+* **Tool failure analysis** - Full arguments and error messages for failed tools
+
+**Accessing traces:**
+
+.. code-block:: bash
+
+   # View an agent's execution trace for a specific step
+   cat .massgen/massgen_logs/log_20251010_135631/agent_a/20251010_135655_287787/execution_trace.md
+
+   # Search for specific tool calls across all traces
+   grep -r "Tool Call:" .massgen/massgen_logs/log_*/agent_*/*/execution_trace.md
+
+   # Find traces with errors
+   grep -l "Tool Error:" .massgen/massgen_logs/log_*/agent_*/*/execution_trace.md
 
 Consolidated Agent Outputs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -604,6 +670,7 @@ Understanding Agent Decisions
 2. Find the round where decision changed
 3. Check ``agent_<id>/YYYYMMDD_HHMMSS_NNNNNN/context.txt`` to see what the agent could see
 4. Check ``agent_<id>/YYYYMMDD_HHMMSS_NNNNNN/answer.txt`` for the agent's reasoning
+5. Check ``agent_<id>/YYYYMMDD_HHMMSS_NNNNNN/execution_trace.md`` for complete tool usage and thinking
 
 Performance Analysis
 ~~~~~~~~~~~~~~~~~~~~

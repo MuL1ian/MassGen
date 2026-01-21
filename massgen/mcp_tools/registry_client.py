@@ -20,6 +20,102 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# In-memory cache for registry lookups within a session
+# This prevents repeated HTTP requests when building system messages for multiple agents
+_SESSION_CACHE: Dict[str, Any] = {}
+
+# Flag to track if warmup is in progress (prevent duplicate warmups)
+_WARMUP_IN_PROGRESS: bool = False
+
+# NPM packages that are NOT in the public MCP registry.
+# Without this skip list, each package triggers a full registry scan (~18 seconds)
+# before returning "not found". Maps package name -> fallback description.
+_PACKAGES_NOT_IN_REGISTRY: Dict[str, str] = {
+    # MCP reference implementations (official but not in public registry)
+    "@modelcontextprotocol/server-filesystem": "Secure file operations with configurable access controls",
+    # Tool wrappers used by MassGen
+    "mcpwrapped@1.0.4": "MCP tool wrapper for filtering visible tools",
+}
+
+
+def warmup_mcp_registry_cache(config: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Pre-warm the MCP registry cache by fetching descriptions for all servers.
+
+    This function is designed to be called in a background thread when the TUI starts,
+    before the user types their first question. By pre-fetching server descriptions,
+    the first agent's system message build will be fast (cache hit instead of HTTP lookup).
+
+    The function warms up:
+    1. Auto-discovered servers from MCP_SERVER_REGISTRY (context7, brave_search, etc.)
+    2. Servers defined in the config's mcp_servers sections
+
+    Args:
+        config: Optional MassGen config dict for additional servers.
+                If None, only warms up the standard auto-discovery servers.
+
+    Example:
+        >>> import threading
+        >>> warmup_thread = threading.Thread(target=warmup_mcp_registry_cache, daemon=True)
+        >>> warmup_thread.start()
+    """
+    global _WARMUP_IN_PROGRESS
+
+    if _WARMUP_IN_PROGRESS:
+        logger.debug("[MCP Warmup] Warmup already in progress, skipping")
+        return
+
+    _WARMUP_IN_PROGRESS = True
+    try:
+        # Collect all unique MCP servers to warm up
+        all_mcp_servers: List[Dict[str, Any]] = []
+        seen_servers: set = set()
+
+        # 1. Add auto-discovery servers from MCP_SERVER_REGISTRY
+        # These are the most common (context7 is always added when auto_discover_custom_tools=True)
+        try:
+            from massgen.mcp_tools.server_registry import get_auto_discovery_servers
+
+            for server in get_auto_discovery_servers():
+                server_name = server.get("name", "")
+                if server_name and server_name not in seen_servers:
+                    seen_servers.add(server_name)
+                    all_mcp_servers.append(server)
+        except ImportError:
+            logger.debug("[MCP Warmup] Could not import server_registry, skipping auto-discovery servers")
+
+        # 2. Add servers from config (if provided)
+        if config:
+            agent_configs = config.get("agents", [])
+            if not agent_configs and "agent" in config:
+                agent_configs = [config["agent"]]
+
+            for agent_data in agent_configs:
+                backend_cfg = agent_data.get("backend", {})
+                mcp_servers = backend_cfg.get("mcp_servers", [])
+
+                for server in mcp_servers:
+                    server_name = server.get("name", "")
+                    if server_name and server_name not in seen_servers:
+                        seen_servers.add(server_name)
+                        all_mcp_servers.append(server)
+
+        if not all_mcp_servers:
+            logger.debug("[MCP Warmup] No MCP servers to warm up")
+            return
+
+        logger.info(f"[MCP Warmup] Pre-warming cache for {len(all_mcp_servers)} MCP server(s): {list(seen_servers)}")
+
+        # Fetch descriptions (this populates both file cache and session cache)
+        descriptions = get_mcp_server_descriptions(all_mcp_servers, use_cache=True)
+
+        logger.info(f"[MCP Warmup] Cache warmed for {len(descriptions)} server(s)")
+
+    except Exception as e:
+        logger.warning(f"[MCP Warmup] Background warmup failed: {e}")
+    finally:
+        _WARMUP_IN_PROGRESS = False
+
 
 def extract_package_info_from_config(mcp_config: Dict[str, Any]) -> Optional[Tuple[str, str]]:
     """
@@ -89,6 +185,9 @@ def get_mcp_server_descriptions(
     """
     Fetch descriptions for all MCP servers from the registry.
 
+    Uses a session-level in-memory cache to prevent repeated HTTP requests
+    when building system messages for multiple agents.
+
     Args:
         mcp_servers: List of MCP server configurations
         fallback_descriptions: Dict of server_name -> description to use
@@ -107,6 +206,8 @@ def get_mcp_server_descriptions(
         >>> print(descriptions)
         {'context7': 'Up-to-date documentation for libraries...', 'brave': 'Web search...'}
     """
+    global _SESSION_CACHE
+
     if fallback_descriptions is None:
         fallback_descriptions = {}
 
@@ -116,11 +217,28 @@ def get_mcp_server_descriptions(
     for server in mcp_servers:
         server_name = server.get("name", "unknown")
 
+        # Check session cache first (fast path for multi-agent scenarios)
+        cache_key = f"desc:{server_name}"
+        if cache_key in _SESSION_CACHE:
+            descriptions[server_name] = _SESSION_CACHE[cache_key]
+            logger.debug(f"Session cache hit for {server_name}")
+            continue
+
         # First try to extract package info and query registry
         package_info = extract_package_info_from_config(server)
 
         if package_info:
             package_name, registry_type = package_info
+
+            # Check skip list for packages known to not be in the registry
+            # This avoids an 18-second full registry scan for each missing package
+            if package_name in _PACKAGES_NOT_IN_REGISTRY:
+                desc = _PACKAGES_NOT_IN_REGISTRY[package_name]
+                descriptions[server_name] = desc
+                _SESSION_CACHE[cache_key] = desc
+                logger.debug(f"Using skip list description for {server_name} ({package_name})")
+                continue
+
             logger.debug(f"Looking up {server_name} -> {package_name} ({registry_type})")
 
             server_info = client.find_server_by_package(
@@ -131,20 +249,24 @@ def get_mcp_server_descriptions(
 
             if server_info and server_info.get("description"):
                 descriptions[server_name] = server_info["description"]
+                _SESSION_CACHE[cache_key] = server_info["description"]
                 continue
 
         # Fall back to inline description from config
         if server.get("description"):
             descriptions[server_name] = server["description"]
+            _SESSION_CACHE[cache_key] = server["description"]
             continue
 
         # Fall back to provided fallback descriptions
         if server_name in fallback_descriptions:
             descriptions[server_name] = fallback_descriptions[server_name]
+            _SESSION_CACHE[cache_key] = fallback_descriptions[server_name]
             continue
 
         # Last resort: generate generic description
         descriptions[server_name] = f"MCP server '{server_name}'"
+        _SESSION_CACHE[cache_key] = descriptions[server_name]
 
     return descriptions
 

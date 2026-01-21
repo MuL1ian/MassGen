@@ -157,17 +157,17 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.36 (January 9, 2026)** - @path Context Handling & Hook Framework
+**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
 
-Reference files inline with ``@path`` syntax - just type ``@`` to trigger an autocomplete file picker (like Claude Code). Extend agent behavior with PreToolUse/PostToolUse hooks for permission validation, content injection, and custom processing. Built-in ``MidStreamInjectionHook`` and ``HighPriorityTaskReminderHook``. Plus: Claude Code native hooks integration and improved Docker resource management.
+Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, comprehensive modals for metrics/costs/votes/workspace browsing (``?``, ``c``, ``v``, ``w``, etc.), answer browser with side-by-side comparisons, and context path ``@`` syntax UI. Context path autocomplete and plan execution mode selection.
 
-**v0.1.35 (January 7, 2026)** - Log Analysis & Workflow Observability
+**v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
 
-New ``massgen logs analyze`` command generates analysis prompts or launches multi-agent self-analysis using MassGen. Logfire workflow attributes capture round intent, vote reasoning, and local file references. ``direct_mcp_servers`` config option for code-based tools mode to keep specific MCPs as protocol tools. Tool handling fixes for Grok, Gemini, unknown tools, and vote-only mode.
+Complete plan-then-execute workflow with ``--plan-and-execute`` for autonomous planning and execution, ``--execute-plan`` to run existing plans. Task verification workflow with ``verified`` status and verification groups for batch validation. Plan storage system in ``.massgen/plans/`` with frozen snapshots and execution tracking. Response API function call message sanitization fixes.
 
-**v0.1.34 (January 5, 2026)** - OpenAI-Compatible Server & Model Discovery
+**v0.1.38 (January 15, 2026)** - Task Planning Mode & Two-Tier Workspace
 
-Run MassGen as a local HTTP server with ``massgen serve`` compatible with any OpenAI SDK client. Dynamic model discovery for Groq and Together backends via authenticated API calls. WebUI improvements: file diffs, answer refresh polling, faster workspace browser. Subagent reliability enhancements for status tracking and cancellation recovery.
+Create structured plans with ``--plan`` flag and ``--plan-depth`` (shallow/medium/deep) for future workflows (plan-only, no auto-execution). Git-backed two-tier workspace separates scratch exploration from final deliverables. Automatic ``CLAUDE.md`` and ``AGENTS.md`` discovery for project context. Batch image analysis with ``read_media`` tool. Reliability fixes: circuit breaker for infinite loops, timeout race conditions, MCP tool restoration.
 
 :doc:`Full changelog → <changelog>`
 
@@ -217,6 +217,7 @@ Documentation
    :caption: User Guide
 
    user_guide/concepts
+   user_guide/task_planning
    user_guide/backends
    user_guide/webui
    user_guide/tools/index

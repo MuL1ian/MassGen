@@ -263,13 +263,21 @@ class MCPClient:
                 return True
 
             except Exception as e:
+                # Build detailed error message for empty exceptions
+                error_msg = str(e) if str(e) else f"<{type(e).__name__}: no message>"
+                error_details = {
+                    "exception_type": type(e).__name__,
+                    "exception_message": str(e),
+                    "exception_args": str(e.args) if e.args else None,
+                }
+
                 self._circuit_breaker.record_failure(
                     server_name,
                     error_type="connection",
-                    error_message=str(e),
+                    error_message=error_msg,
                 )
                 server_client.connection_state = ConnectionState.FAILED
-                logger.error(f"Failed to connect to {server_name}: {e}")
+                logger.error(f"Failed to connect to {server_name}: {error_msg} | Details: {error_details}")
 
                 # Cleanup manager task to prevent resource leak
                 if server_client.manager_task and not server_client.manager_task.done():
@@ -451,15 +459,23 @@ class MCPClient:
                     await server_client.disconnect_event.wait()
 
         except Exception as e:
-            logger.error(f"MCP manager error for {server_name}: {e}", exc_info=True)
+            # Build detailed error info for debugging (especially for empty exception messages)
+            error_msg = str(e) if str(e) else f"<{type(e).__name__}: no message>"
+            error_details = {
+                "exception_type": type(e).__name__,
+                "exception_message": str(e),
+                "exception_args": str(e.args) if e.args else None,
+            }
+            logger.error(f"MCP manager error for {server_name}: {error_msg} | Details: {error_details}", exc_info=True)
 
             if self.status_callback:
                 await self.status_callback(
                     "error",
                     {
                         "server": server_name,
-                        "message": f"Failed to connect to MCP server '{server_name}': {e}",
-                        "error": str(e),
+                        "message": f"Failed to connect to MCP server '{server_name}': {error_msg}",
+                        "error": error_msg,
+                        "error_details": error_details,
                     },
                 )
 

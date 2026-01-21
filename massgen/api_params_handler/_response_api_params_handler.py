@@ -77,14 +77,32 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
             "stream": True,
         }
 
-        # Set default reasoning effort for GPT-5.1 and GPT-5.2 models
+        # Set default reasoning configuration for reasoning models (GPT-5, o-series)
         # Per OpenAI docs, GPT-5.1 and GPT-5.2 default to reasoning=none, but GPT-5 defaults to medium
         # We want GPT-5.1/5.2 to behave like GPT-5 for better task completion
         # See: https://cookbook.openai.com/examples/gpt-5/gpt-5-2_prompting_guide#8-prompt-migration-guide-to-gpt-52
         model_name = all_params.get("model", "").lower()
-        if model_name.startswith("gpt-5.") and "reasoning" not in all_params:
-            all_params["reasoning"] = {"effort": "medium"}
-            logger.info(f"[ResponseAPIParamsHandler] Set default reasoning effort 'medium' for {model_name}")
+        is_reasoning_model = model_name.startswith("gpt-5") or model_name.startswith("o3") or model_name.startswith("o4")
+
+        if is_reasoning_model:
+            # Get existing reasoning config or create default
+            reasoning_config = all_params.get("reasoning", {})
+            if not isinstance(reasoning_config, dict):
+                reasoning_config = {}
+
+            # Set default effort for GPT-5.x models (they default to none without this)
+            if model_name.startswith("gpt-5.") and "effort" not in reasoning_config:
+                reasoning_config["effort"] = "medium"
+                logger.info(f"[ResponseAPIParamsHandler] Set default reasoning effort 'medium' for {model_name}")
+
+            # Always enable reasoning summaries by default for execution trace visibility
+            # Uses "auto" to get the most detailed summarizer available for each model
+            # See: https://platform.openai.com/docs/guides/reasoning#reasoning-summaries
+            if "summary" not in reasoning_config:
+                reasoning_config["summary"] = "auto"
+                logger.info(f"[ResponseAPIParamsHandler] Enabled reasoning summaries for {model_name}")
+
+            all_params["reasoning"] = reasoning_config
 
         # Pass previous_response_id for reasoning model continuity (e.g., GPT-5)
         # This ensures reasoning items from previous responses are available

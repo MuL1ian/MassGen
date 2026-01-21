@@ -95,30 +95,76 @@ class BroadcastToolkit(BaseToolkit):
         # Get sensitivity guidance
         sensitivity_guidance = self._get_sensitivity_guidance()
 
+        # Build description for ask_others
+        target = "the human user" if self.broadcast_mode == "human" else "other agents"
+        base_description = (
+            f"Call this tool to ask questions to {target} for collaborative problem-solving. "
+            "PREFERRED: Use the 'questions' parameter with structured questions that have predefined options - "
+            "this provides a better UX and clearer responses. "
+            "Only use 'question' (simple text) for truly open-ended questions where options don't make sense. "
+            "IMPORTANT: Include ALL relevant context in your questions. " + sensitivity_guidance
+        )
+
+        # Define the structured question schema
+        question_option_schema = {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Unique identifier for this option"},
+                "label": {"type": "string", "description": "Display text for the option"},
+                "description": {"type": "string", "description": "Optional explanation of the option"},
+            },
+            "required": ["id", "label"],
+        }
+
+        structured_question_schema = {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "The question text to display"},
+                "options": {
+                    "type": "array",
+                    "items": question_option_schema,
+                    "description": "List of options for the human to choose from",
+                },
+                "multiSelect": {
+                    "type": "boolean",
+                    "description": "Whether multiple options can be selected (default: false)",
+                },
+                "allowOther": {
+                    "type": "boolean",
+                    "description": "Whether to allow free-form 'Other' response (default: true)",
+                },
+                "required": {
+                    "type": "boolean",
+                    "description": "Whether a response is required - cannot skip (default: false)",
+                },
+            },
+            "required": ["text", "options"],
+        }
+
         # Tool 1: ask_others
         if api_format == "claude":
             ask_others_tool = {
                 "name": "ask_others",
-                "description": (
-                    "Call this tool to ask a question to "
-                    + ("the human user" if self.broadcast_mode == "human" else "other agents")
-                    + " for collaborative problem-solving. "
-                    + "IMPORTANT: Other agents cannot see your workspace or files. Include ALL relevant context "
-                    + "in your question (requirements, constraints, what you've discovered). "
-                    + sensitivity_guidance
-                    + " Example: ask_others(question='I need to build a simple static website about Bob Dylan. "
-                    + "What framework would you recommend - considering I want fast build times and minimal dependencies?')"
-                ),
+                "description": base_description,
                 "input_schema": {
                     "type": "object",
                     "properties": {
+                        "questions": {
+                            "type": "array",
+                            "items": structured_question_schema,
+                            "description": (
+                                "PREFERRED: Array of structured questions with predefined options. "
+                                "Use this for most questions - it provides better UX and clearer responses. "
+                                "Each question can have single-select or multi-select options. "
+                                'Example: [{"text": "Which framework?", "options": [{"id": "react", "label": "React"}, {"id": "vue", "label": "Vue"}]}]'
+                            ),
+                        },
                         "question": {
                             "type": "string",
                             "description": (
-                                "Your specific, actionable question with ALL relevant context included. "
-                                + ("The human user" if self.broadcast_mode == "human" else "Other agents")
-                                + " cannot see your files or workspace, so include requirements, "
-                                + "constraints, and any important details they need to give a useful answer."
+                                "FALLBACK: A simple text question for truly open-ended questions where predefined options don't make sense. "
+                                f"{target.capitalize()} cannot see your files or workspace, so include requirements, "
+                                "constraints, and any important details they need to give a useful answer."
                             ),
                         },
                         "wait": {
@@ -128,35 +174,35 @@ class BroadcastToolkit(BaseToolkit):
                             ),
                         },
                     },
-                    "required": ["question"],
                 },
             }
         else:
             # Chat completions format (OpenAI, etc.)
+            # Note: strict mode doesn't work well with oneOf, so we use additionalProperties: false
             ask_others_tool = {
                 "type": "function",
                 "function": {
                     "name": "ask_others",
-                    "description": (
-                        "Call this tool to ask a question to "
-                        + ("the human user" if self.broadcast_mode == "human" else "other agents")
-                        + " for collaborative problem-solving. "
-                        + "IMPORTANT: Other agents cannot see your workspace or files. Include ALL relevant context "
-                        + "in your question (requirements, constraints, what you've discovered). "
-                        + sensitivity_guidance
-                        + " Example: ask_others(question='I need to build a simple static website about Bob Dylan. "
-                        + "What framework would you recommend - considering I want fast build times and minimal dependencies?')"
-                    ),
+                    "description": base_description,
                     "parameters": {
                         "type": "object",
                         "properties": {
+                            "questions": {
+                                "type": "array",
+                                "items": structured_question_schema,
+                                "description": (
+                                    "PREFERRED: Array of structured questions with predefined options. "
+                                    "Use this for most questions - it provides better UX and clearer responses. "
+                                    "Each question can have single-select or multi-select options. "
+                                    'Example: [{"text": "Which framework?", "options": [{"id": "react", "label": "React"}, {"id": "vue", "label": "Vue"}]}]'
+                                ),
+                            },
                             "question": {
                                 "type": "string",
                                 "description": (
-                                    "Your specific, actionable question with ALL relevant context included. "
-                                    + ("The human user" if self.broadcast_mode == "human" else "Other agents")
-                                    + " cannot see your files or workspace, so include requirements, "
-                                    + "constraints, and any important details they need to give a useful answer."
+                                    "FALLBACK: A simple text question for truly open-ended questions where predefined options don't make sense. "
+                                    f"{target.capitalize()} cannot see your files or workspace, so include requirements, "
+                                    "constraints, and any important details they need to give a useful answer."
                                 ),
                             },
                             "wait": {
@@ -166,9 +212,7 @@ class BroadcastToolkit(BaseToolkit):
                                 ),
                             },
                         },
-                        "required": ["question"],
                     },
-                    "strict": True,
                 },
             }
 
@@ -338,12 +382,26 @@ class BroadcastToolkit(BaseToolkit):
         """Core implementation of ask_others."""
         from loguru import logger
 
+        from massgen.broadcast.broadcast_dataclasses import StructuredQuestion
+
         # Parse arguments
         args = json.loads(arguments) if isinstance(arguments, str) else arguments
-        question = args.get("question", "")
         wait = args.get("wait")
         if wait is None:
             wait = self.wait_by_default
+
+        # Determine question type: structured (questions array) or simple (question string)
+        questions_data = args.get("questions")
+        question_str = args.get("question", "")
+
+        if questions_data and isinstance(questions_data, list) and len(questions_data) > 0:
+            # Structured questions - parse into StructuredQuestion objects
+            question = [StructuredQuestion.from_dict(q) for q in questions_data]
+            logger.info(f"📢 [{agent_id}] Structured ask_others with {len(question)} questions")
+        else:
+            # Simple string question (backward compatible)
+            question = question_str
+            logger.info(f"📢 [{agent_id}] Simple ask_others: {question[:50]}...")
 
         # In human mode, check if Q&A history already exists
         # If so, return it without prompting human again - let agent decide if they need to ask differently

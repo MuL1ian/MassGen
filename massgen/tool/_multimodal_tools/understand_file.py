@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from massgen.tool._result import ExecutionResult, TextContent
 
@@ -305,8 +305,8 @@ async def understand_file(
                 output_blocks=[TextContent(data=json.dumps(result, indent=2))],
             )
 
-        # Initialize OpenAI client
-        client = OpenAI(api_key=openai_api_key)
+        # Initialize async OpenAI client
+        client = AsyncOpenAI(api_key=openai_api_key)
 
         # Resolve file path
         # Use agent_cwd if available, otherwise fall back to Path.cwd()
@@ -508,7 +508,7 @@ async def understand_file(
 
         try:
             # Call OpenAI API for file understanding
-            response = client.responses.create(
+            response = await client.responses.create(
                 model=model,
                 input=[
                     {
