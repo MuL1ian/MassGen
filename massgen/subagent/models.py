@@ -31,7 +31,6 @@ class SubagentConfig:
         context_files: List of file paths the subagent can READ (read-only access enforced)
         use_docker: Whether to use Docker container (inherits from parent settings)
         system_prompt: Optional custom system prompt for the subagent
-        context: Optional project/goal context so subagent understands what it's working on
     """
 
     id: str
@@ -42,7 +41,6 @@ class SubagentConfig:
     context_files: List[str] = field(default_factory=list)
     use_docker: bool = True
     system_prompt: Optional[str] = None
-    context: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -57,7 +55,6 @@ class SubagentConfig:
         context_files: Optional[List[str]] = None,
         use_docker: bool = True,
         system_prompt: Optional[str] = None,
-        context: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> "SubagentConfig":
         """
@@ -72,7 +69,6 @@ class SubagentConfig:
             context_files: File paths subagent can read (read-only, no write access)
             use_docker: Whether to use Docker
             system_prompt: Optional custom system prompt
-            context: Project/goal context so subagent understands what it's working on
             metadata: Additional metadata
 
         Returns:
@@ -88,7 +84,6 @@ class SubagentConfig:
             context_files=context_files or [],
             use_docker=use_docker,
             system_prompt=system_prompt,
-            context=context,
             metadata=metadata or {},
         )
 

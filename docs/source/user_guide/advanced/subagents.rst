@@ -73,11 +73,18 @@ Enable subagents in your YAML config:
 .. code-block:: yaml
 
    orchestrator:
-     enable_subagents: true
-     subagent_default_timeout: 300  # 5 minutes per subagent (default)
-     subagent_min_timeout: 60       # Minimum 1 minute (prevents too-short timeouts)
-     subagent_max_timeout: 600      # Maximum 10 minutes (prevents runaway subagents)
-     subagent_max_concurrent: 3     # Max 3 subagents at once
+     coordination:
+       enable_subagents: true
+       subagent_default_timeout: 300  # 5 minutes per subagent (default)
+       subagent_min_timeout: 60       # Minimum 1 minute (prevents too-short timeouts)
+       subagent_max_timeout: 600      # Maximum 10 minutes (prevents runaway subagents)
+       subagent_max_concurrent: 3     # Max 3 subagents at once
+
+       # Optional: per-round timeouts for subagents (inherits parent if omitted)
+       subagent_round_timeouts:
+         initial_round_timeout_seconds: 600
+         subsequent_round_timeout_seconds: 300
+         round_timeout_grace_seconds: 120
 
 .. note::
 
@@ -100,10 +107,11 @@ Full Example
          parts, use spawn_subagents to parallelize the work.
 
    orchestrator:
-     enable_subagents: true
-     subagent_default_timeout: 300
-     subagent_max_concurrent: 3
-     enable_agent_task_planning: true  # Recommended for complex orchestration
+     coordination:
+       enable_subagents: true
+       subagent_default_timeout: 300
+       subagent_max_concurrent: 3
+       enable_agent_task_planning: true  # Recommended for complex orchestration
 
    ui:
      display_type: "rich_terminal"
@@ -117,18 +125,19 @@ By default, subagents inherit all parent agent configurations. To customize:
 .. code-block:: yaml
 
    orchestrator:
-     enable_subagents: true
-     subagent_orchestrator:
-       enabled: true
-       agents:
-         - id: "subagent_worker"
-           backend:
-             type: "openai"
-             model: "gpt-5-mini"  # Use cheaper model for subagents
-         - id: "subagent_worker_2"
-           backend:
-             type: "gemini"
-             model: "gemini-3-flash-preview"
+     coordination:
+       enable_subagents: true
+       subagent_orchestrator:
+         enabled: true
+         agents:
+           - id: "subagent_worker"
+             backend:
+               type: "openai"
+               model: "gpt-5-mini"  # Use cheaper model for subagents
+           - id: "subagent_worker_2"
+             backend:
+               type: "gemini"
+               model: "gemini-3-flash-preview"
 
 How Agents Use Subagents
 ------------------------
@@ -154,9 +163,10 @@ When subagents are enabled, agents have access to the ``spawn_subagents`` tool:
            "subagent_id": "songs"
          }
        ],
-       "context": "Building a Bob Dylan tribute website with biography, discography, and songs pages"
-     }
-   }
+      "context": "Building a Bob Dylan tribute website with biography, discography, and songs pages",
+      "refine": true
+    }
+  }
 
 Critical Rules for Calling Subagent Tool
 ~~~~~~~~~~~~~~
@@ -170,6 +180,7 @@ Critical Rules for Calling Subagent Tool
 4. **No nesting**: Subagents cannot spawn their own subagents.
 
 5. **Read-only context files**: Use ``context_files`` to share files, but subagents can only read them.
+6. **Refine mode**: Use ``refine: false`` to return the first answer without multi-round refinement.
 
 Result Structure
 ~~~~~~~~~~~~~~~~
@@ -204,6 +215,24 @@ The ``spawn_subagents`` tool returns:
        "completed": 3,
        "failed": 0,
        "timeout": 0
+     }
+   }
+
+Refinement Control
+~~~~~~~~~~~~~~~~~~
+
+Use ``refine: false`` to disable multi-round refinement for faster, single-pass answers:
+
+.. code-block:: json
+
+   {
+     "tool": "spawn_subagents",
+     "arguments": {
+       "tasks": [
+         {"task": "Summarize the repo structure in README.md", "subagent_id": "summary"}
+       ],
+       "context": "Quick repo summary for onboarding",
+       "refine": false
      }
    }
 
@@ -538,8 +567,26 @@ The tool returns immediately with running status:
          "status_file": "/path/to/logs/oauth-research/full_logs/status.json"
        }
      ],
-     "note": "Results will be automatically injected when subagents complete."
+    "note": "Results will be automatically injected when subagents complete."
    }
+
+Continuing Subagents
+--------------------
+
+You can resume any subagent (completed, timed out, or failed) using ``continue_subagent``.
+The subagent's conversation is restored via its session ID and your new message is appended.
+
+.. code-block:: json
+
+   {
+     "tool": "continue_subagent",
+     "arguments": {
+       "subagent_id": "oauth-research",
+       "message": "Please continue and include OAuth 2.1 differences"
+     }
+   }
+
+To find continuable subagents, use ``list_subagents()`` and look for ``continuable: true``.
 
 Automatic Result Injection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

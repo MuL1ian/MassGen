@@ -1211,6 +1211,16 @@ class Orchestrator(ChatAgent):
                 parent_coordination_config["enable_agent_task_planning"] = coord_cfg.enable_agent_task_planning
             if hasattr(coord_cfg, "task_planning_filesystem_mode"):
                 parent_coordination_config["task_planning_filesystem_mode"] = coord_cfg.task_planning_filesystem_mode
+            if hasattr(coord_cfg, "subagent_round_timeouts") and coord_cfg.subagent_round_timeouts:
+                parent_coordination_config["subagent_round_timeouts"] = coord_cfg.subagent_round_timeouts
+
+            # Include parent round timeouts for inheritance if subagent settings are omitted
+            if hasattr(self.config, "timeout_config") and self.config.timeout_config:
+                parent_coordination_config["parent_round_timeouts"] = {
+                    "initial_round_timeout_seconds": self.config.timeout_config.initial_round_timeout_seconds,
+                    "subsequent_round_timeout_seconds": self.config.timeout_config.subsequent_round_timeout_seconds,
+                    "round_timeout_grace_seconds": self.config.timeout_config.round_timeout_grace_seconds,
+                }
 
             if parent_coordination_config:
                 coordination_config_file = tempfile.NamedTemporaryFile(

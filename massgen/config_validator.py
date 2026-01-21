@@ -823,6 +823,39 @@ class ConfigValidator:
                             "Use 'shallow' (5-10 tasks), 'medium' (20-50 tasks), or 'deep' (100-200+ tasks)",
                         )
 
+                # Validate subagent_round_timeouts if present
+                if "subagent_round_timeouts" in coordination:
+                    round_timeouts = coordination["subagent_round_timeouts"]
+                    if not isinstance(round_timeouts, dict):
+                        result.add_error(
+                            f"'subagent_round_timeouts' must be a dictionary, got {type(round_timeouts).__name__}",
+                            f"{location}.coordination.subagent_round_timeouts",
+                            "Use keys like initial_round_timeout_seconds, subsequent_round_timeout_seconds, round_timeout_grace_seconds",
+                        )
+                    else:
+                        timeout_fields = [
+                            "initial_round_timeout_seconds",
+                            "subsequent_round_timeout_seconds",
+                            "round_timeout_grace_seconds",
+                        ]
+                        for field_name in timeout_fields:
+                            if field_name in round_timeouts:
+                                value = round_timeouts[field_name]
+                                if field_name == "round_timeout_grace_seconds":
+                                    if not isinstance(value, (int, float)) or value < 0:
+                                        result.add_error(
+                                            f"'{field_name}' must be a non-negative number",
+                                            f"{location}.coordination.subagent_round_timeouts.{field_name}",
+                                            "Use a value like 120 (seconds)",
+                                        )
+                                else:
+                                    if not isinstance(value, (int, float)) or value <= 0:
+                                        result.add_error(
+                                            f"'{field_name}' must be a positive number",
+                                            f"{location}.coordination.subagent_round_timeouts.{field_name}",
+                                            "Use a value like 300 (seconds)",
+                                        )
+
         # Validate voting_sensitivity if present
         if "voting_sensitivity" in orchestrator_config:
             voting_sensitivity = orchestrator_config["voting_sensitivity"]

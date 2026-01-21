@@ -2289,6 +2289,7 @@ async def run_question_with_history(
             enable_subagents=coord_cfg.get("enable_subagents", False),
             subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
             subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
+            subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
             subagent_orchestrator=subagent_orchestrator_config,
             use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
         )
@@ -7407,14 +7408,19 @@ async def main(args):
             # Only register in global session registry if not suppressed (e.g., subagent runs)
             if not getattr(args, "no_session_registry", False):
                 registry = SessionRegistry()
+
+                # Auto-detect subagent sessions by session_id prefix
+                is_subagent = memory_session_id.startswith("subagent_")
+
                 registry.register_session(
                     session_id=memory_session_id,
                     config_path=str(resolved_path) if resolved_path else None,
                     model=model_name,
                     log_directory=log_dir_name,
+                    subagent=is_subagent,  # Label subagent sessions
                 )
                 logger.info(
-                    f"📝 Registered new session in registry: {memory_session_id}",
+                    f"📝 Registered {'subagent' if is_subagent else 'new'} session in registry: {memory_session_id}",
                 )
             else:
                 logger.debug(
