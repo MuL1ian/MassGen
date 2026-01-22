@@ -130,6 +130,31 @@ Screen {
     padding: 0;
 }
 
+/* === Cancellation State === */
+/* Visual feedback when execution is cancelled */
+#main_container.cancelled-state {
+    background: #1a0d0d;
+}
+
+#main_container.cancelled-state AgentPanel {
+    border-left: thick $accent-error;
+}
+
+.cancellation-banner {
+    dock: top;
+    height: 2;
+    background: #5c1a1a;
+    color: #f85149;
+    text-align: center;
+    text-style: bold;
+    padding: 0 1;
+    display: none;
+}
+
+.cancellation-banner.visible {
+    display: block;
+}
+
 #agents_container {
     layout: vertical;
     width: 100%;
@@ -538,6 +563,27 @@ AgentPanel.agent-color-6 { border-left: thick $agent-6; border-right: none; }
 AgentPanel.agent-color-7 { border-left: thick $accent-warning; border-right: none; }
 AgentPanel.agent-color-8 { border-left: thick $accent-error; border-right: none; }
 
+/* === Agent Panel Pulsing Animation === */
+/* Visual indicator for active/working agents */
+AgentPanel.pulse-bright {
+    border-left: thick #79c0ff;
+    background: #0d1a26;
+}
+
+AgentPanel.pulse-normal {
+    border-left: thick $accent-primary;
+}
+
+/* Specific pulse colors per agent color */
+AgentPanel.agent-color-1.pulse-bright { border-left: thick #79c0ff; background: #0d1a26; }
+AgentPanel.agent-color-2.pulse-bright { border-left: thick #56d364; background: #0d1f14; }
+AgentPanel.agent-color-3.pulse-bright { border-left: thick #bc8cff; background: #1a0d26; }
+AgentPanel.agent-color-4.pulse-bright { border-left: thick #ffa657; background: #261a0d; }
+AgentPanel.agent-color-5.pulse-bright { border-left: thick #56d7e5; background: #0d1f1f; }
+AgentPanel.agent-color-6.pulse-bright { border-left: thick #f778ba; background: #260d1a; }
+AgentPanel.agent-color-7.pulse-bright { border-left: thick #e3b341; background: #262010; }
+AgentPanel.agent-color-8.pulse-bright { border-left: thick #ff7b72; background: #26100d; }
+
 /* Agent header row - horizontal layout for left/right content */
 .agent-header-row {
     width: 100%;
@@ -888,6 +934,38 @@ SuggestionRow.selected {
     border: solid $accent-warning;
 }
 
+/* === Queued Input Banner === */
+/* Shows above input bar when input is queued for injection during execution */
+#queued_input_banner {
+    height: auto;
+    max-height: 3;
+    background: rgba(210, 153, 34, 0.15);
+    border: solid $accent-warning;
+    padding: 0 1;
+    margin-left: 1;
+    margin-bottom: 1;
+    display: none;
+}
+
+#queued_input_banner.visible {
+    display: block;
+}
+
+QueuedInputBanner {
+    height: auto;
+    max-height: 3;
+    background: rgba(210, 153, 34, 0.15);
+    border: solid $accent-warning;
+    padding: 0 1;
+    margin-left: 1;
+    margin-bottom: 1;
+    display: none;
+}
+
+QueuedInputBanner.visible {
+    display: block;
+}
+
 #restart_banner {
     background: $bg-surface-2;
     color: $accent-warning;
@@ -1070,7 +1148,8 @@ ToolDetailModal > Container {
     height: auto;
     max-height: 80%;
     background: $bg-surface;
-    border: solid $border-default;
+    border: double $accent-primary;
+    border-left: thick $accent-primary;
     padding: 1 2;
 }
 
@@ -1170,8 +1249,9 @@ TaskPlanModal > Container {
     max-width: 100;
     height: auto;
     max-height: 80%;
-    background: #1e1e1e;
-    border: thick $accent-special;
+    background: $bg-surface;
+    border: double $accent-special;
+    border-left: thick $accent-special;
     padding: 1 2;
 }
 
@@ -2071,11 +2151,19 @@ ToolCallCard {
     max-height: 6;
     padding: 0 1;
     margin: 0 0 1 1;
-    background: $bg-surface;
     border-left: thick $border-highlight;
     border-top: solid $border-default;
     border-bottom: solid $border-default;
     border-right: none;
+}
+
+/* Tool card appearance animation - fade in effect */
+ToolCallCard.appearing {
+    opacity: 0.3;
+}
+
+ToolCallCard.appeared {
+    opacity: 1.0;
 }
 
 /* ToolCallCard with injection content needs more height */
@@ -3868,6 +3956,7 @@ WizardModal #wizard_outer {
     height: 90%;
     background: $bg-surface;
     border: double $accent-primary;
+    border-left: thick $accent-primary;
     padding: 1 2;
 }
 

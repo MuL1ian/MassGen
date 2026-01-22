@@ -189,6 +189,15 @@ TOOL_CATEGORIES = {
             "coordination",
         ],
     },
+    "human_input": {
+        "icon": "💬",
+        "color": "#d29922",  # Warning/gold color to match queued input banner
+        "patterns": [
+            "human_input",
+            "user_input",
+            "injected_input",
+        ],
+    },
 }
 
 

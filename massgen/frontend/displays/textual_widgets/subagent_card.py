@@ -18,7 +18,7 @@ from massgen.frontend.displays.log_streamer import LogStreamer
 from massgen.subagent.models import SubagentDisplayData
 
 
-class SubagentCard(Static):
+class SubagentCard(Static, can_focus=True):
     """Rich card displaying spawned subagents with live progress.
 
     Design:
@@ -39,9 +39,17 @@ class SubagentCard(Static):
     - Progress bars per subagent (time-based: elapsed/timeout)
     - Live activity display (last log line)
     - Workspace file count
-    - Click to open SubagentModal for full details
+    - Single click to expand inline, double click for modal
+    - Keyboard navigation: Up/Down to select, Enter for modal, Space to expand
     - Auto-polling every 500ms while any subagent is running
     """
+
+    BINDINGS = [
+        ("up", "select_prev", "Previous"),
+        ("down", "select_next", "Next"),
+        ("enter", "open_selected", "Open Modal"),
+        ("space", "toggle_expand", "Expand"),
+    ]
 
     class OpenModal(Message):
         """Message posted when user clicks to open subagent modal."""
@@ -151,6 +159,8 @@ class SubagentCard(Static):
         self._poll_timer: Optional[Timer] = None
         self._log_streamers: Dict[str, LogStreamer] = {}
         self._selected_index = 0  # For keyboard navigation
+        self._expanded = False  # Expandable inline view state
+        self._last_click_time = 0.0  # For double-click detection
 
     def compose(self) -> ComposeResult:
         yield Static(self._build_content())
@@ -164,7 +174,28 @@ class SubagentCard(Static):
         self._stop_polling()
 
     def on_click(self) -> None:
-        """Open modal for selected/first subagent when clicked."""
+        """Handle click: single click toggles expand, double click opens modal."""
+        import time
+
+        current_time = time.time()
+        time_since_last = current_time - self._last_click_time
+        self._last_click_time = current_time
+
+        # Double click detection (within 0.4 seconds)
+        if time_since_last < 0.4:
+            # Double click - open modal
+            self._open_modal()
+        else:
+            # Single click - toggle expand
+            self._toggle_expand()
+
+    def _toggle_expand(self) -> None:
+        """Toggle the expanded state to show/hide inline details."""
+        self._expanded = not self._expanded
+        self._refresh_content()
+
+    def _open_modal(self) -> None:
+        """Open the subagent modal for detailed view."""
         if self._subagents:
             # Get the first running subagent, or first overall
             selected = None
@@ -242,30 +273,46 @@ class SubagentCard(Static):
         running = sum(1 for sa in self._subagents if sa.status == "running")
         errors = sum(1 for sa in self._subagents if sa.status in ("error", "failed", "timeout"))
 
-        # Header
+        # Header with expand indicator
+        expand_indicator = "▼" if self._expanded else "▶"
         status_text = ""
         if running > 0:
             status_text = f" ● {running} active"
         elif errors > 0:
             status_text = f" ✗ {errors} failed"
 
+        text.append(f"{expand_indicator} ", style="dim")
         text.append(f"🚀 Spawn Subagents ({completed}/{total}){status_text}\n", style="bold #7c3aed")
 
         # Render each subagent
-        for sa in self._subagents:
-            self._render_subagent_row(text, sa)
+        for idx, sa in enumerate(self._subagents):
+            is_selected = idx == self._selected_index
+            self._render_subagent_row(text, sa, is_selected)
 
         # Footer hint
-        text.append("\n  (click for details)", style="dim italic")
+        if self._expanded:
+            text.append("\n  (click to collapse, double-click for full modal)", style="dim italic")
+        else:
+            text.append("\n  (click to expand, double-click for full modal)", style="dim italic")
 
         return text
 
-    def _render_subagent_row(self, text: Text, sa: SubagentDisplayData) -> None:
+    def _render_subagent_row(self, text: Text, sa: SubagentDisplayData, is_selected: bool = False) -> None:
         """Render a single subagent row.
 
-        Format:
+        Format (collapsed):
           ● subagent_id        ████████░░░░  68%  8.2s   23 files
             └─ Last activity or message...
+
+        Format (expanded):
+          ● subagent_id        ████████░░░░  68%  8.2s   23 files
+            Task: Research topic X
+            └─ [Recent log lines]
+
+        Args:
+            text: Rich Text to append to
+            sa: SubagentDisplayData object
+            is_selected: Whether this row is currently selected
         """
         # Status icon and color
         icon = self.STATUS_ICONS.get(sa.status, "○")
@@ -279,6 +326,9 @@ class SubagentCard(Static):
             style = "#d29922"
         else:
             style = "#6e7681"
+
+        # Selection indicator
+        selection_marker = "» " if is_selected else "  "
 
         # Truncate ID for display
         display_id = sa.id[:20] if len(sa.id) > 20 else sa.id
@@ -296,8 +346,9 @@ class SubagentCard(Static):
         # File count
         file_str = f"{sa.workspace_file_count} files" if sa.workspace_file_count > 0 else ""
 
-        # Main row
-        text.append(f"  {icon} ", style=style)
+        # Main row with selection marker
+        text.append(selection_marker, style="bold #58a6ff" if is_selected else "")
+        text.append(f"{icon} ", style=style)
         text.append(f"{display_id} ", style=style)
         text.append(f"{progress_bar} ", style="#a371f7")
         text.append(f"{sa.progress_percent:3d}%  ", style="#8b949e")
@@ -306,10 +357,31 @@ class SubagentCard(Static):
             text.append(f"  {file_str}", style="#6e7681")
         text.append("\n")
 
-        # Activity line (if running or has content)
+        # Show more details when expanded
+        if self._expanded:
+            # Show task description
+            if sa.task:
+                task_preview = sa.task[:70] + "..." if len(sa.task) > 70 else sa.task
+                text.append(f"      Task: {task_preview}\n", style="#8b949e")
+
+            # Show workspace path
+            if sa.workspace_path:
+                text.append(f"      Path: {sa.workspace_path}\n", style="dim #6e7681")
+
+            # Show error if any
+            if sa.status in ("error", "failed") and sa.error:
+                error_preview = sa.error[:100] + "..." if len(sa.error) > 100 else sa.error
+                text.append(f"      Error: {error_preview}\n", style="#f85149")
+
+            # Show answer preview if completed
+            if sa.status == "completed" and sa.answer_preview:
+                answer_preview = sa.answer_preview[:100] + "..." if len(sa.answer_preview) > 100 else sa.answer_preview
+                text.append(f"      Result: {answer_preview}\n", style="#7ee787")
+
+        # Activity line (always show, but shorter when collapsed)
         activity = self._get_activity_line(sa)
         if activity:
-            text.append(f"    └─ {activity}\n", style="italic #8b949e")
+            text.append(f"      └─ {activity}\n", style="italic #8b949e")
 
     def _render_progress_bar(self, percent: int) -> str:
         """Render a progress bar string.
@@ -397,6 +469,33 @@ class SubagentCard(Static):
         """
         self._status_callback = callback
         self._start_polling_if_needed()
+
+    # --- Keyboard navigation actions ---
+
+    def action_select_prev(self) -> None:
+        """Select the previous subagent in the list."""
+        if not self._subagents:
+            return
+        self._selected_index = (self._selected_index - 1) % len(self._subagents)
+        self._refresh_content()
+
+    def action_select_next(self) -> None:
+        """Select the next subagent in the list."""
+        if not self._subagents:
+            return
+        self._selected_index = (self._selected_index + 1) % len(self._subagents)
+        self._refresh_content()
+
+    def action_open_selected(self) -> None:
+        """Open the modal for the currently selected subagent."""
+        if not self._subagents:
+            return
+        selected = self._subagents[self._selected_index]
+        self.post_message(self.OpenModal(selected, self._subagents))
+
+    def action_toggle_expand(self) -> None:
+        """Toggle the expanded state."""
+        self._toggle_expand()
 
     @classmethod
     def from_spawn_result(

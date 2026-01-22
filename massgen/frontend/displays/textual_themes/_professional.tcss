@@ -1,0 +1,578 @@
+/* =============================================================================
+ * MassGen TUI - Professional Theme
+ * =============================================================================
+ * A softer, less saturated theme for professional environments.
+ * Designed for extended use without eye strain.
+ *
+ * Characteristics:
+ * - Warmer, neutral gray backgrounds
+ * - Less saturated, more muted accent colors
+ * - Higher contrast for readability
+ * - Suitable for both well-lit and dim environments
+ */
+
+/* Background Colors - Warm neutral palette */
+$bg-base: #1e1e1e;           /* Warm dark gray */
+$bg-surface: #252526;        /* Slightly elevated */
+$bg-surface-2: #2d2d2d;      /* Cards, modals */
+$bg-surface-3: #3c3c3c;      /* Hover states */
+
+/* Foreground/Text Colors - High contrast, warm tones */
+$fg-primary: #d4d4d4;        /* Primary text */
+$fg-muted: #9d9d9d;          /* Secondary text */
+$fg-subtle: #6d6d6d;         /* Tertiary text */
+$fg-on-accent: #1e1e1e;      /* Text on accent backgrounds */
+
+/* Border Colors - Subtle, warm */
+$border-default: #404040;    /* Standard borders */
+$border-highlight: #505050;  /* Highlighted borders */
+$border-muted: #333333;      /* Subtle borders */
+
+/* Semantic Accent Colors - Muted, professional */
+$accent-primary: #569cd6;    /* Muted blue */
+$accent-success: #6a9955;    /* Muted green */
+$accent-warning: #ce9178;    /* Muted orange/peach */
+$accent-error: #d16969;      /* Muted red */
+$accent-info: #9cdcfe;       /* Light blue info */
+$accent-special: #c586c0;    /* Muted purple */
+
+/* Agent Colors - Professional palette */
+$agent-1: #569cd6;           /* Blue - Agent A */
+$agent-1-bg: #1e2530;
+$agent-2: #6a9955;           /* Green - Agent B */
+$agent-2-bg: #1e2820;
+$agent-3: #c586c0;           /* Purple - Agent C */
+$agent-3-bg: #2a1e30;
+$agent-4: #ce9178;           /* Peach - Agent D */
+$agent-4-bg: #2a251e;
+$agent-5: #9cdcfe;           /* Light blue - Agent E */
+$agent-5-bg: #1e2a30;
+$agent-6: #dcdcaa;           /* Yellow - Agent F */
+$agent-6-bg: #2a2a1e;
+$agent-7: #d7ba7d;           /* Gold - Agent G */
+$agent-7-bg: #2a281e;
+$agent-8: #d16969;           /* Red - Agent H */
+$agent-8-bg: #2a1e1e;
+
+/* Status Badge Colors - 35% opacity for better visibility */
+$status-running-bg: rgba(86, 156, 214, 0.35);
+$status-running-fg: $accent-primary;
+$status-success-bg: rgba(106, 153, 85, 0.35);
+$status-success-fg: $accent-success;
+$status-warning-bg: rgba(206, 145, 120, 0.35);
+$status-warning-fg: $accent-warning;
+$status-error-bg: rgba(209, 105, 105, 0.35);
+$status-error-fg: $accent-error;
+
+/* Tool Categories */
+$tool-read: #569cd6;         /* Read operations */
+$tool-write: #ce9178;        /* Write operations */
+$tool-execute: #6a9955;      /* Execution/run */
+$tool-search: #c586c0;       /* Search operations */
+$tool-web: #9cdcfe;          /* Web/network */
+$tool-default: #9d9d9d;      /* Default/other */
+
+/* =============================================================================
+ * Component Styles
+ * =============================================================================
+ */
+
+Screen {
+    background: $bg-base;
+    color: $fg-primary;
+    layers: base overlay;
+}
+
+.hidden {
+    display: none;
+}
+
+/* === Welcome Screen === */
+#welcome_screen {
+    width: 100%;
+    height: 1fr;
+    align: center middle;
+    background: $bg-base;
+}
+
+#welcome_screen Label, #welcome_screen Static {
+    width: auto;
+    text-align: center;
+}
+
+#welcome_logo {
+    color: $accent-primary;
+    text-style: bold;
+}
+
+#welcome_tagline {
+    color: $accent-success;
+    text-style: bold;
+    margin-top: 2;
+}
+
+#welcome_workflow {
+    color: $fg-muted;
+    margin-top: 1;
+}
+
+#welcome_hint {
+    color: $fg-subtle;
+    text-style: italic;
+    margin-top: 2;
+}
+
+/* === Status Bar === */
+#status_bar {
+    dock: bottom;
+    height: 1;
+    background: $bg-surface;
+    color: $fg-muted;
+    padding: 0 1;
+}
+
+#status_bar #execution_status {
+    width: auto;
+    color: $accent-primary;
+}
+
+#status_bar #cost_label {
+    width: auto;
+    margin: 0 2;
+}
+
+/* === Main Container === */
+#main_container {
+    width: 100%;
+    height: 1fr;
+    background: $bg-base;
+}
+
+/* === Agent Panel === */
+.agent-panel {
+    border: solid $border-default;
+    background: $bg-surface;
+    padding: 0 1;
+    margin: 0 1 1 0;
+    height: 100%;
+    min-width: 30;
+}
+
+.agent-panel.focused {
+    border: solid $accent-primary;
+}
+
+/* Agent header with model info */
+.agent-header {
+    height: auto;
+    padding: 1 0;
+    border-bottom: solid $border-muted;
+}
+
+.agent-name {
+    text-style: bold;
+    color: $fg-primary;
+}
+
+.agent-model {
+    color: $fg-muted;
+}
+
+.agent-status {
+    color: $fg-subtle;
+}
+
+/* Activity indicator */
+.activity-indicator {
+    color: $accent-primary;
+    text-style: bold;
+}
+
+.activity-indicator.thinking {
+    color: $accent-info;
+}
+
+.activity-indicator.tool {
+    color: $accent-warning;
+}
+
+.activity-indicator.streaming {
+    color: $accent-success;
+}
+
+.activity-indicator.idle {
+    color: $fg-subtle;
+}
+
+/* === Tool Cards === */
+.tool-card {
+    border: solid $border-default;
+    background: $bg-surface-2;
+    padding: 1;
+    margin: 1 0;
+    height: auto;
+}
+
+.tool-card.running {
+    border-left: thick $accent-primary;
+}
+
+.tool-card.success {
+    border-left: thick $accent-success;
+}
+
+.tool-card.error {
+    border-left: thick $accent-error;
+}
+
+.tool-card .tool-name {
+    text-style: bold;
+    color: $fg-primary;
+}
+
+.tool-card .tool-status {
+    color: $fg-muted;
+}
+
+.tool-card .tool-elapsed {
+    color: $fg-subtle;
+}
+
+/* === Input Area === */
+#question_input {
+    border: solid $border-default;
+    background: $bg-surface;
+    padding: 1;
+    height: auto;
+    min-height: 3;
+}
+
+#question_input:focus {
+    border: solid $accent-primary;
+}
+
+/* === Modals === */
+ModalScreen {
+    background: rgba(30, 30, 30, 0.85);
+}
+
+.modal-container {
+    background: $bg-surface-2;
+    border: solid $accent-primary;
+    padding: 1 2;
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+}
+
+.modal-header {
+    text-style: bold;
+    color: $accent-primary;
+    padding-bottom: 1;
+    border-bottom: solid $border-muted;
+}
+
+.modal-content {
+    padding: 1 0;
+    height: auto;
+    max-height: 60vh;
+}
+
+.modal-footer {
+    padding-top: 1;
+    border-top: solid $border-muted;
+}
+
+/* === Buttons === */
+Button {
+    background: $bg-surface-2;
+    color: $fg-primary;
+    border: solid $border-default;
+    padding: 0 2;
+}
+
+Button:hover {
+    background: $bg-surface-3;
+}
+
+Button:focus {
+    border: solid $accent-primary;
+}
+
+Button.-primary {
+    background: $accent-primary;
+    color: $fg-on-accent;
+}
+
+Button.-primary:hover {
+    background: #6aabdf;
+}
+
+Button.-success {
+    background: $accent-success;
+    color: $fg-on-accent;
+}
+
+Button.-warning {
+    background: $accent-warning;
+    color: $fg-on-accent;
+}
+
+Button.-error {
+    background: $accent-error;
+    color: $fg-on-accent;
+}
+
+/* === Data Tables === */
+DataTable {
+    background: $bg-surface;
+    color: $fg-primary;
+}
+
+DataTable > .datatable--header {
+    background: $bg-surface-2;
+    color: $accent-primary;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: $bg-surface-3;
+}
+
+DataTable > .datatable--hover {
+    background: $bg-surface-2;
+}
+
+/* === Scrollbars === */
+ScrollBar {
+    background: $bg-surface;
+}
+
+ScrollBar > .scrollbar--bar {
+    background: $border-default;
+}
+
+ScrollBar > .scrollbar--bar:hover {
+    background: $border-highlight;
+}
+
+/* === Rich Log === */
+RichLog {
+    background: $bg-base;
+    color: $fg-primary;
+    padding: 1;
+}
+
+/* === Input === */
+Input {
+    background: $bg-surface;
+    color: $fg-primary;
+    border: solid $border-default;
+}
+
+Input:focus {
+    border: solid $accent-primary;
+}
+
+Input > .input--placeholder {
+    color: $fg-subtle;
+}
+
+/* === Checkbox and Switch === */
+Checkbox {
+    color: $fg-primary;
+}
+
+Checkbox > .toggle--button {
+    background: $bg-surface-2;
+}
+
+Checkbox.-on > .toggle--button {
+    background: $accent-primary;
+}
+
+Switch {
+    color: $fg-primary;
+}
+
+Switch > .switch--slider {
+    background: $bg-surface-2;
+}
+
+Switch.-on > .switch--slider {
+    background: $accent-primary;
+}
+
+/* === Tab Bar === */
+.tab-bar {
+    background: $bg-surface;
+    height: 3;
+}
+
+.tab-item {
+    padding: 0 2;
+    color: $fg-muted;
+}
+
+.tab-item:hover {
+    color: $fg-primary;
+    background: $bg-surface-2;
+}
+
+.tab-item.active {
+    color: $accent-primary;
+    border-bottom: thick $accent-primary;
+}
+
+/* === Progress Bar === */
+ProgressBar {
+    padding: 0 1;
+}
+
+ProgressBar > .bar--bar {
+    background: $bg-surface-2;
+}
+
+ProgressBar > .bar--complete {
+    background: $accent-primary;
+}
+
+/* === Labels and Static text === */
+Label {
+    color: $fg-primary;
+}
+
+Static {
+    color: $fg-primary;
+}
+
+/* === Notifications === */
+Toast {
+    background: $bg-surface-2;
+    color: $fg-primary;
+    border: solid $border-default;
+}
+
+Toast.-information {
+    border-left: thick $accent-info;
+}
+
+Toast.-warning {
+    border-left: thick $accent-warning;
+}
+
+Toast.-error {
+    border-left: thick $accent-error;
+}
+
+/* =============================================================================
+ * Professional Theme - Enhanced Component Styles
+ * =============================================================================
+ */
+
+/* Elevated surface colors for glassmorphism effect */
+$bg-elevated-1: #323232;     /* Slight elevation */
+$bg-elevated-2: #3a3a3a;     /* Medium elevation - modals */
+$bg-elevated-3: #454545;     /* High elevation */
+
+/* --- Status Badge Enhancements --- */
+StatusBadge.status-connected {
+    color: $accent-success;
+    background: rgba(106, 153, 85, 0.35);
+    border-left: thick $accent-success;
+}
+
+StatusBadge.status-working {
+    color: $accent-warning;
+    background: rgba(206, 145, 120, 0.35);
+    border-left: thick $accent-warning;
+}
+
+StatusBadge.status-streaming {
+    color: $accent-primary;
+    background: rgba(86, 156, 214, 0.35);
+    border-left: thick $accent-primary;
+}
+
+StatusBadge.status-completed {
+    color: $accent-success;
+    background: rgba(106, 153, 85, 0.35);
+    border-left: thick $accent-success;
+}
+
+StatusBadge.status-error {
+    color: $accent-error;
+    background: rgba(209, 105, 105, 0.35);
+    border-left: thick $accent-error;
+}
+
+StatusBadge.status-waiting {
+    color: $fg-muted;
+    background: rgba(157, 157, 157, 0.15);
+    border-left: thick $border-default;
+}
+
+/* --- Queued Input Banner --- */
+QueuedInputBanner {
+    background: rgba(206, 145, 120, 0.40);
+    border: double $accent-warning;
+    border-left: thick $accent-warning;
+}
+
+QueuedInputBanner:hover {
+    background: rgba(206, 145, 120, 0.50);
+}
+
+/* --- Tool Call Card Focus --- */
+ToolCallCard:focus {
+    background: $bg-elevated-1;
+    border-left: double $accent-primary;
+    outline: none;
+}
+
+/* --- Agent Panel Focus --- */
+AgentPanel:focus,
+AgentPanel:focus-within {
+    border-left: double $accent-primary;
+    background: $bg-elevated-1;
+    outline: none;
+}
+
+/* --- Modal Elevation --- */
+ToolDetailModal > Container {
+    background: $bg-elevated-2;
+    border: double $accent-primary;
+    border-left: thick $accent-primary;
+}
+
+TaskPlanModal > Container {
+    background: $bg-elevated-2;
+    border: double $accent-special;
+    border-left: thick $accent-special;
+}
+
+/* --- Agent Tab Active States --- */
+AgentTab.active {
+    background: $bg-surface-2;
+    border: solid $accent-primary;
+    border-bottom: tall $accent-primary;
+}
+
+AgentTab:focus {
+    border: thick $accent-primary;
+    outline: none;
+}
+
+/* --- Button Focus --- */
+Button:focus {
+    text-style: bold;
+    border: thick $accent-primary;
+    outline: none;
+}
+
+/* --- TextArea Focus --- */
+TextArea:focus {
+    border: thick $accent-primary;
+    outline: none;
+}

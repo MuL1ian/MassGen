@@ -23,6 +23,7 @@ import asyncio
 import fnmatch
 import importlib
 import json
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -1356,6 +1357,147 @@ def convert_sessions_to_permission_sessions(sessions: List[ClientSession], permi
     return converted
 
 
+class HumanInputHook(PatternHook):
+    """PostToolUse hook that injects human-provided input during agent execution.
+
+    This hook allows users to inject messages to agents mid-stream during execution.
+    When a user types input while agents are working, it gets queued and injected
+    into the next tool result via this hook.
+
+    The hook is thread-safe and supports callbacks to notify the TUI when
+    input has been injected (so the visual indicator can be cleared).
+    """
+
+    def __init__(self, name: str = "human_input_hook"):
+        """Initialize the human input hook.
+
+        Args:
+            name: Hook identifier
+        """
+        super().__init__(name, matcher="*", timeout=5)
+        # Queue of pending messages, each with its own set of agents that received it
+        # Format: [{"content": str, "injected_agents": set}, ...]
+        self._pending_messages: list = []
+        self._lock = threading.Lock()
+        self._on_inject_callback: Optional[Callable[[str], None]] = None
+
+    def set_pending_input(self, content: str) -> None:
+        """Queue human input for injection into ALL agents' next tool results.
+
+        Multiple messages can be queued - each will be injected to all agents.
+
+        Args:
+            content: The human input text to inject
+        """
+        with self._lock:
+            self._pending_messages.append(
+                {
+                    "content": content,
+                    "injected_agents": set(),
+                },
+            )
+            logger.info(
+                f"[HumanInputHook] QUEUED message #{len(self._pending_messages)}: " f"'{content[:50]}...' (len={len(content)})",
+            )
+
+    def clear_pending_input(self) -> None:
+        """Clear all pending messages without injecting them."""
+        with self._lock:
+            count = len(self._pending_messages)
+            self._pending_messages.clear()
+            logger.debug(f"[HumanInputHook] Cleared {count} pending messages")
+
+    def has_pending_input(self) -> bool:
+        """Check if there are any pending messages queued for injection.
+
+        Returns:
+            True if any messages are queued, False otherwise
+        """
+        with self._lock:
+            return len(self._pending_messages) > 0
+
+    def set_inject_callback(self, callback: Optional[Callable[[str], None]]) -> None:
+        """Set a callback to be invoked when input is injected.
+
+        The callback receives the injected content string.
+
+        Args:
+            callback: Function to call after injection, or None to clear
+        """
+        self._on_inject_callback = callback
+
+    async def execute(
+        self,
+        function_name: str,
+        arguments: str,
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> HookResult:
+        """Execute the human input hook after a tool call.
+
+        Injects ALL pending messages that this agent hasn't received yet.
+        Each message is delivered to ALL agents (once per agent per message).
+        Messages are kept until explicitly cleared (e.g., when turn ends).
+
+        Args:
+            function_name: Name of the tool that just executed
+            arguments: Tool arguments (JSON string)
+            context: Additional context (should contain 'agent_id')
+
+        Returns:
+            HookResult with injection content if any messages pending for this agent
+        """
+        # Get agent_id from context
+        agent_id = (context or {}).get("agent_id", "unknown")
+
+        messages_to_inject = []
+        is_first_injection = False
+
+        with self._lock:
+            logger.info(
+                f"[HumanInputHook] execute() for {function_name}, agent={agent_id}, " f"pending_count={len(self._pending_messages)}",
+            )
+
+            # Find all messages this agent hasn't received yet
+            for msg in self._pending_messages:
+                if agent_id not in msg["injected_agents"]:
+                    messages_to_inject.append(msg["content"])
+                    msg["injected_agents"].add(agent_id)
+                    # First injection globally (first message, first agent)
+                    if not is_first_injection and len(msg["injected_agents"]) == 1:
+                        is_first_injection = True
+
+            if messages_to_inject:
+                logger.info(
+                    f"[HumanInputHook] Will inject {len(messages_to_inject)} message(s) for {agent_id}",
+                )
+
+        # Check outside the lock to avoid holding it during callback
+        if messages_to_inject:
+            # Combine all messages
+            combined_content = "\n".join(messages_to_inject)
+            logger.info(
+                f"[HumanInputHook] INJECTING {len(messages_to_inject)} message(s) " f"after {function_name} for {agent_id}",
+            )
+
+            # Notify TUI on first injection (to clear the banner)
+            if is_first_injection and self._on_inject_callback:
+                try:
+                    self._on_inject_callback(combined_content)
+                except Exception as e:
+                    logger.warning(f"[HumanInputHook] Inject callback failed: {e}")
+
+            return HookResult(
+                allowed=True,
+                inject={
+                    "content": f"\n[Human Input]: {combined_content}\n",
+                    "strategy": "tool_result",
+                },
+            )
+
+        return HookResult.allow()
+
+
 __all__ = [
     # Core types
     "HookType",
@@ -1371,6 +1513,7 @@ __all__ = [
     # Built-in hooks
     "MidStreamInjectionHook",
     "HighPriorityTaskReminderHook",
+    "HumanInputHook",
     # Per-round timeout hooks
     "RoundTimeoutPostHook",
     "RoundTimeoutPreHook",

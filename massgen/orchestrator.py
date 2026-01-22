@@ -54,6 +54,7 @@ from .mcp_tools.hooks import (
     GeneralHookManager,
     HighPriorityTaskReminderHook,
     HookType,
+    HumanInputHook,
     MidStreamInjectionHook,
     RoundTimeoutPostHook,
     RoundTimeoutPreHook,
@@ -281,6 +282,10 @@ class Orchestrator(ChatAgent):
         # Coordination state tracking for cleanup
         self._active_streams: Dict = {}
         self._active_tasks: Dict = {}
+
+        # Human input hook for injecting user input during execution
+        # Shared across all agents (one per orchestration session)
+        self._human_input_hook: Optional[HumanInputHook] = None
 
         # Agent startup rate limiting (per model)
         # Load from centralized configuration file instead of hardcoding
@@ -4424,6 +4429,14 @@ Your answer:"""
         reminder_hook = HighPriorityTaskReminderHook()
         manager.register_global_hook(HookType.POST_TOOL_USE, reminder_hook)
 
+        # Register human input hook (shared across all agents)
+        # Create on first agent setup, reuse for subsequent agents
+        if self._human_input_hook is None:
+            self._human_input_hook = HumanInputHook()
+            # Share hook with display so TUI can queue input
+            self._share_human_input_hook_with_display()
+        manager.register_global_hook(HookType.POST_TOOL_USE, self._human_input_hook)
+
         # Register per-round timeout hooks if configured
         self._register_round_timeout_hooks(agent_id, manager)
 
@@ -4441,6 +4454,31 @@ Your answer:"""
         logger.debug(
             f"[Orchestrator] Set up hook manager for {agent_id} with mid-stream and reminder hooks",
         )
+
+    def _share_human_input_hook_with_display(self) -> None:
+        """Share the human input hook reference with the TUI display.
+
+        This allows the TUI to queue user input for injection during execution.
+        Called once when the human input hook is first created.
+        """
+        if not self._human_input_hook:
+            return
+
+        # Get display from coordination_ui if available
+        display = None
+        if hasattr(self, "coordination_ui") and self.coordination_ui:
+            display = getattr(self.coordination_ui, "display", None)
+
+        if not display:
+            logger.debug("[Orchestrator] No display available for human input hook sharing")
+            return
+
+        # Check if display supports human input hook
+        if hasattr(display, "set_human_input_hook"):
+            display.set_human_input_hook(self._human_input_hook)
+            logger.info("[Orchestrator] Shared human input hook with TUI display")
+        else:
+            logger.debug("[Orchestrator] Display does not support human input hook")
 
     def _register_round_timeout_hooks(
         self,
@@ -4647,6 +4685,12 @@ Your answer:"""
         # Register high-priority task reminder hook
         reminder_hook = HighPriorityTaskReminderHook()
         manager.register_global_hook(HookType.POST_TOOL_USE, reminder_hook)
+
+        # Register human input hook (shared across all agents)
+        if self._human_input_hook is None:
+            self._human_input_hook = HumanInputHook()
+            self._share_human_input_hook_with_display()
+        manager.register_global_hook(HookType.POST_TOOL_USE, self._human_input_hook)
 
         # Register per-round timeout hooks if configured
         self._register_round_timeout_hooks(agent_id, manager)

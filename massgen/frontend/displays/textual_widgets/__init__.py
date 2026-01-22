@@ -22,6 +22,7 @@ from .mode_bar import ModeBar, ModeChanged, ModeToggle, OverrideRequested
 from .multi_line_input import MultiLineInput
 from .path_suggestion import PathSuggestion, PathSuggestionDropdown
 from .plan_approval_modal import PlanApprovalModal, PlanApprovalResult
+from .queued_input_banner import QueuedInputBanner
 from .quickstart_wizard import QuickstartWizard
 from .setup_wizard import SetupWizard
 from .subagent_card import SubagentCard
@@ -79,6 +80,7 @@ __all__ = [
     "FinalPresentationCard",
     # Input widgets
     "MultiLineInput",
+    "QueuedInputBanner",
     # Path autocomplete
     "PathSuggestion",
     "PathSuggestionDropdown",

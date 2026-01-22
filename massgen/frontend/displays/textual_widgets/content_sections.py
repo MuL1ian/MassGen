@@ -716,7 +716,8 @@ class TimelineSection(Vertical):
             return
         try:
             container = self.query_one("#timeline_container", TimelineScrollContainer)
-            container.scroll_end(animate=False)
+            # Use smooth animated scrolling for better UX
+            container.scroll_end(animate=True)
         except Exception:
             pass
 

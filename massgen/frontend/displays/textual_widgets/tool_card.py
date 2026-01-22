@@ -217,6 +217,15 @@ TOOL_CATEGORIES = {
             "coordination",
         ],
     },
+    "human_input": {
+        "icon": "💬",
+        "color": "#d29922",  # Warning/gold color to match queued input banner
+        "patterns": [
+            "human_input",
+            "user_input",
+            "injected_input",
+        ],
+    },
     "subagent": {
         "icon": "🚀",
         "color": "#a371f7",
@@ -373,10 +382,21 @@ class ToolCallCard(Static):
         self._async_id: Optional[str] = None  # e.g., shell_id for background shells
         self._is_background = False  # True if this is an async operation
 
+        # Appearance animation state
+        self.add_class("appearing")  # Start in appearing state
+
     def on_mount(self) -> None:
-        """Start the elapsed time timer when mounted."""
+        """Start the elapsed time timer and complete appearance animation."""
         if self._status == "running":
             self._start_elapsed_timer()
+
+        # Complete the appearance animation after a brief delay
+        self.set_timer(0.15, self._complete_appearance)
+
+    def _complete_appearance(self) -> None:
+        """Complete the appearance animation by transitioning to appeared state."""
+        self.remove_class("appearing")
+        self.add_class("appeared")
 
     def on_unmount(self) -> None:
         """Stop the timer when unmounted."""
