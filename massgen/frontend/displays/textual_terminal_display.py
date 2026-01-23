@@ -68,9 +68,9 @@ try:
         WorkspaceBrowserModal,
     )
     from .textual_widgets import (
+        AgentStatusRibbon,
         AgentTabBar,
         AgentTabChanged,
-        BackgroundTasksModal,
         CompletionFooter,
         FinalPresentationCard,
         ModeBar,
@@ -79,6 +79,7 @@ try:
         OverrideRequested,
         PathSuggestionDropdown,
         QueuedInputBanner,
+        SessionInfoClicked,
         SubagentCard,
         SubagentModal,
         TaskPlanCard,
@@ -2876,6 +2877,7 @@ if TEXTUAL_AVAILABLE:
             self.final_stream_panel = None
             self.safe_indicator = None
             self._tab_bar: Optional[AgentTabBar] = None
+            self._status_ribbon: Optional[AgentStatusRibbon] = None
             self._active_agent_id: Optional[str] = None
             # Final presentation state (streams into winner's AgentPanel)
             self._final_presentation_agent: Optional[str] = None
@@ -2935,7 +2937,7 @@ if TEXTUAL_AVAILABLE:
 
         def compose(self) -> ComposeResult:
             """Compose the UI layout with adaptive agent arrangement."""
-            num_agents = len(self.coordination_display.agent_ids)
+            len(self.coordination_display.agent_ids)
             agents_info_list = []
             # Use agent_models dict passed at display creation time
             agent_models = getattr(self.coordination_display, "agent_models", {})
@@ -2947,21 +2949,10 @@ if TEXTUAL_AVAILABLE:
                     agent_info = f"{agent_id} ({model})"
                 agents_info_list.append(agent_info)
 
-            session_id = getattr(self.coordination_display, "session_id", None)
             turn = getattr(self.coordination_display, "current_turn", 1)
-            mode = "Single Agent" if num_agents == 1 else "Multi-Agent"
             agent_ids = self.coordination_display.agent_ids
 
-            # === TOP DOCKED WIDGET ===
-            # Header - dock: top, ALWAYS visible
-            self.header_widget = HeaderWidget(
-                question=self.question,
-                session_id=session_id,
-                turn=turn,
-                agents_info=agents_info_list,
-                mode=mode,
-            )
-            yield self.header_widget
+            # Header removed - session info now in tab bar (right side)
 
             # === BOTTOM DOCKED WIDGETS (yield order: last yielded = very bottom) ===
             # Input area container - dock: bottom
@@ -3015,10 +3006,23 @@ if TEXTUAL_AVAILABLE:
             # Tab bar for agent switching (flows below header, hidden during welcome)
             # NOTE: No dock:top - just flows naturally after docked widgets
             agent_models = getattr(self.coordination_display, "agent_models", {})
-            self._tab_bar = AgentTabBar(agent_ids, agent_models=agent_models, id="agent_tab_bar")
+            self._tab_bar = AgentTabBar(
+                agent_ids,
+                agent_models=agent_models,
+                turn=turn,
+                question=self.question,
+                id="agent_tab_bar",
+            )
             if self._showing_welcome:
                 self._tab_bar.add_class("hidden")
             yield self._tab_bar
+
+            # Agent status ribbon - shows round, activity, timeout, tasks, tokens, cost
+            initial_agent = agent_ids[0] if agent_ids else ""
+            self._status_ribbon = AgentStatusRibbon(agent_id=initial_agent, id="agent_status_ribbon")
+            if self._showing_welcome:
+                self._status_ribbon.add_class("hidden")
+            yield self._status_ribbon
 
             # Set initial active agent
             self._active_agent_id = agent_ids[0] if agent_ids else None
@@ -3279,11 +3283,11 @@ if TEXTUAL_AVAILABLE:
             if self._welcome_screen:
                 self._welcome_screen.add_class("hidden")
 
-            # Show header, tab bar, main container, and status bar
-            if self.header_widget:
-                self.header_widget.remove_class("hidden")
+            # Show tab bar, status ribbon, main container, and status bar
             if self._tab_bar:
                 self._tab_bar.remove_class("hidden")
+            if self._status_ribbon:
+                self._status_ribbon.remove_class("hidden")
             if self._status_bar:
                 self._status_bar.remove_class("hidden")
                 self._status_bar.start_timer()
@@ -3876,6 +3880,7 @@ Type your question and press Enter to ask the agents.
             # Also update the tab bar status badge
             if self._tab_bar:
                 self._tab_bar.update_agent_status(agent_id, status)
+            # NOTE: Activity indicator removed from ribbon - see Phase 13.2 for ExecutionStatusLine
             # Update StatusBar activity indicator with granular phase icons
             if self._status_bar:
                 # Map status strings to activity types for phase icons
@@ -4522,9 +4527,10 @@ Type your question and press Enter to ask the agents.
                 main_container.remove_class("hidden")
             except Exception:
                 pass
-            if self.header_widget:
-                self.header_widget.update_question(question)
-                self.header_widget.update_turn(turn)
+            # Update tab bar session info (turn + question)
+            if self._tab_bar:
+                self._tab_bar.update_turn(turn)
+                self._tab_bar.update_question(question)
             if turn > 1:
                 separator = f"\n{'='*50}\n   TURN {turn}\n{'='*50}\n"
                 for agent_id, widget in self.agent_widgets.items():
@@ -4716,6 +4722,11 @@ Type your question and press Enter to ask the agents.
                     tui_log(f"  Updating tab bar active: {agent_id}")
                     self._tab_bar.set_active(agent_id)
 
+                # Update status ribbon to show this agent's status
+                if self._status_ribbon:
+                    tui_log(f"  Updating status ribbon for: {agent_id}")
+                    self._status_ribbon.set_agent(agent_id)
+
                 self._active_agent_id = agent_id
                 tui_log(f"  Switch complete to: {agent_id}")
 
@@ -4750,6 +4761,18 @@ Type your question and press Enter to ask the agents.
                 self.notify(f"Single agent: {event.agent_id}", severity="information", timeout=2)
 
             self._switch_to_agent(event.agent_id)
+            event.stop()
+
+        def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
+            """Handle click on session info to show full prompt."""
+            tui_log(f"on_session_info_clicked: turn={event.turn}")
+            # Show the full prompt in a text modal
+            self.push_screen(
+                TextContentModal(
+                    title=f"Turn {event.turn} • Prompt",
+                    content=event.question or "(No prompt)",
+                ),
+            )
             event.stop()
 
         # ============================================================
@@ -5656,6 +5679,10 @@ Type your question and press Enter to ask the agents.
                 panel = self.agent_widgets[agent_id]
                 panel.update_context_display(context_sources)
 
+            # Update status ribbon with round number
+            if self._status_ribbon:
+                self._status_ribbon.set_round(agent_id, round_num)
+
         def _celebrate_winner(self, winner_id: str, answer_preview: str) -> None:
             """Display prominent winner celebration effects.
 
@@ -6405,25 +6432,10 @@ Type your question and press Enter to ask the agents.
 
         def compose(self) -> ComposeResult:
             with Vertical():
-                # Header row with main info on left, clickable badges on right
-                with Horizontal(id=self._header_dom_id, classes="agent-header-row"):
-                    yield Label(
-                        self._header_text_left(),
-                        id=f"{self._header_dom_id}_left",
-                        classes="agent-header-left",
-                    )
-                    # Background tasks badge (clickable, hidden when no bg tasks)
-                    yield Label(
-                        self._format_bg_badge(),
-                        id=f"{self._header_dom_id}_bg",
-                        classes="agent-header-badge header-badge-bg hidden",
-                    )
-                    # Task plan badge (clickable, hidden when no task plan)
-                    yield Label(
-                        self._format_tasks_badge(),
-                        id=f"{self._header_dom_id}_tasks",
-                        classes="agent-header-badge header-badge-tasks hidden",
-                    )
+                # NOTE: Agent header row removed in Phase 8c/10 - redundant with tab bar + status ribbon
+                # Agent ID shown in tabs, round number shown in ribbon
+                # Background tasks can be viewed via tool cards in timeline
+
                 # Context sources label (hidden by default, shown when context is injected)
                 yield Label(
                     "",
@@ -6454,24 +6466,9 @@ Type your question and press Enter to ask the agents.
                 yield self.content_log
                 yield self.current_line_label
 
-        def on_click(self, event: events.Click) -> None:
-            """Handle click on header badges to open respective modals."""
-            widget = getattr(event, "widget", None)
-            if widget and hasattr(widget, "id"):
-                bg_badge_id = f"{self._header_dom_id}_bg"
-                tasks_badge_id = f"{self._header_dom_id}_tasks"
-
-                if widget.id == bg_badge_id:
-                    # Clicked on background tasks badge
-                    bg_tasks = self._get_background_tools()
-                    if bg_tasks:
-                        self.app.push_screen(BackgroundTasksModal(bg_tasks, self.agent_id))
-                        event.stop()
-                elif widget.id == tasks_badge_id:
-                    # Clicked on task plan badge
-                    if self._active_task_plan_tasks:
-                        self.post_message(TaskPlanCard.OpenModal(self._active_task_plan_tasks))
-                        event.stop()
+        # NOTE: on_click handler removed in Phase 8c/10 - header badges no longer exist
+        # Background tasks can be viewed via tool cards in timeline
+        # Task plan is shown in collapsible TaskPlanCard
 
         def _hide_loading(self):
             """Hide the loading indicator when content arrives."""
@@ -6575,45 +6572,19 @@ Type your question and press Enter to ask the agents.
 
             # Debug: log task statuses
             if tasks:
-                completed = sum(1 for t in tasks if t.get("status") == "completed")
+                completed = sum(1 for t in tasks if t.get("status") in ("completed", "verified"))
                 verified = sum(1 for t in tasks if t.get("status") == "verified")
                 in_progress = sum(1 for t in tasks if t.get("status") == "in_progress")
                 tui_log(f"update_task_plan: {completed} completed, {verified} verified, {in_progress} in_progress (of {len(tasks)} total)")
 
-            # Refresh the header to show task plan info
-            self._refresh_header()
-
         def _refresh_header(self) -> None:
-            """Refresh the header display (used when task plan or bg tasks change)."""
-            try:
-                left_label = self.query_one(f"#{self._header_dom_id}_left", Label)
-                left_label.update(self._header_text_left())
-            except Exception:
-                pass
+            """Refresh the header display.
 
-            # Update background tasks badge
-            try:
-                bg_label = self.query_one(f"#{self._header_dom_id}_bg", Label)
-                bg_text = self._format_bg_badge()
-                bg_label.update(bg_text)
-                if bg_text:
-                    bg_label.remove_class("hidden")
-                else:
-                    bg_label.add_class("hidden")
-            except Exception:
-                pass
-
-            # Update task plan badge
-            try:
-                tasks_label = self.query_one(f"#{self._header_dom_id}_tasks", Label)
-                tasks_text = self._format_tasks_badge()
-                tasks_label.update(tasks_text)
-                if tasks_text:
-                    tasks_label.remove_class("hidden")
-                else:
-                    tasks_label.add_class("hidden")
-            except Exception:
-                pass
+            NOTE: Agent header row removed in Phase 8c/10 - now a no-op.
+            Round number shown in status ribbon, agent ID in tabs.
+            Background tasks visible via tool cards in timeline.
+            """
+            # Header row was removed - ribbon and tabs show this info now
 
         def toggle_task_plan(self) -> None:
             """Toggle the visibility of the pinned task plan."""

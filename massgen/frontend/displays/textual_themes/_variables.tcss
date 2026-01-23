@@ -27,6 +27,8 @@ $bg-base: #0d1117;           /* Main app background */
 $bg-surface: #161b22;        /* Elevated surfaces (headers, panels) */
 $bg-surface-2: #21262d;      /* Cards, modals, popups */
 $bg-surface-3: #30363d;      /* Hover states, selections */
+$bg-card: #1c2128;           /* Card backgrounds - between surface and surface-2 */
+$bg-elevated: #2d333b;       /* Elevated content within cards, hover states */
 
 $fg-primary: #e6edf3;        /* Primary text - high contrast */
 $fg-muted: #8b949e;          /* Secondary text - medium contrast */
@@ -36,6 +38,8 @@ $fg-on-accent: #ffffff;      /* Text on accent backgrounds */
 $border-default: #30363d;    /* Standard borders */
 $border-highlight: #484f58;  /* Highlighted/focused borders */
 $border-muted: #21262d;      /* Subtle/background borders */
+$border-subtle: #21262d;     /* Very subtle borders - same as muted */
+$border-focus: #58a6ff;      /* Focus rings - same as accent-primary */
 
 /* Semantic Accent Colors */
 $accent-primary: #58a6ff;    /* Primary actions, links, focus */

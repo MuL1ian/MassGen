@@ -218,123 +218,90 @@ Each phase section ends with a **CHECKPOINT** task to remind you to pause for ap
 - Light theme updated: `#0066cc` → `#1a6bb8`, `#0891b2` → `#0e7490`, `#1a7f37` → `#2e7d4a`
 - New utility CSS classes added for Phase 8 preparation
 
-## 8. Phase 8: Professional Visual Polish
+## 8. Phase 8: Professional Visual Polish ✓ COMPLETED
 
-### 8.1 Animation & Feedback System (Phase 8a)
-- [ ] 8.1.1 Implement pulsing dot animation for active agent tabs (800ms cycle, opacity 0.5↔1.0)
-- [ ] 8.1.2 Add blinking cursor `▌` at end of streaming text (530ms cycle)
-- [ ] 8.1.3 Implement tool card time ticking during execution (`⟳ 0.1s → 0.2s...`)
-- [ ] 8.1.4 Add fade-in transitions for tool results (150ms)
-- [ ] 8.1.5 Add fade-in/out for modal open/close (150ms)
-- [ ] 8.1.6 Implement phase indicator highlight pulse on change (300ms)
-- [ ] 8.1.7 Add round separator fade-in (200ms)
-- [ ] 8.1.8 Implement error toast with auto-dismiss (3s)
-- [ ] **8.1.9 CHECKPOINT: User approval for animations**
+### 8.1 Animation & Feedback System (Phase 8a) - SKIPPED
+User requested no pulsing animations. Fade-in classes exist for future use.
+- [x] 8.1.1-8.1.8 SKIPPED per user preference
+- [x] **8.1.9 CHECKPOINT: User approved skipping animations**
 
-### 8.2 Professional Color Palette (Phase 8b)
-- [ ] 8.2.1 Define CSS variables for background layers ($bg-base, $bg-surface, $bg-card, $bg-elevated)
-- [ ] 8.2.2 Define CSS variables for borders ($border-subtle, $border-default, $border-focus)
-- [ ] 8.2.3 Define CSS variables for text hierarchy ($text-primary, $text-secondary, $text-muted)
-- [ ] 8.2.4 Define CSS variables for semantic accents ($accent-blue, $accent-green, $accent-yellow, $accent-red, $accent-purple)
-- [ ] 8.2.5 Update dark.tcss with new color palette
-- [ ] 8.2.6 Update light.tcss with corresponding light theme colors
-- [ ] 8.2.7 Apply new colors to all existing widgets
-- [ ] **8.2.8 CHECKPOINT: User approval for color palette**
+### 8.2 Professional Color Palette (Phase 8b) ✓
+- [x] 8.2.1 CSS variables for background layers ($bg-base, $bg-surface, $bg-card, $bg-elevated)
+- [x] 8.2.2 CSS variables for borders ($border-subtle, $border-default, $border-focus)
+- [x] 8.2.3-8.2.7 Applied to dark.tcss
+- [x] **8.2.8 CHECKPOINT: User approved color palette**
 
-### 8.3 Agent Status Ribbon (Phase 8c)
-- [ ] 8.3.1 Create new `AgentStatusRibbon` widget
-- [ ] 8.3.2 Implement activity indicator display (◉ Streaming, ○ Idle, ⏳ Thinking, ⏹ Canceled, ✗ Error)
-- [ ] 8.3.3 Add elapsed time display with real-time ticking updates
-- [ ] 8.3.4 Add compact tasks progress display (X/Y with mini progress bar `━━░░`)
-- [ ] 8.3.5 Add token count display
-- [ ] 8.3.6 Add cost estimate display
-- [ ] 8.3.7 Make Tasks segment clickable → opens Task Plan Modal
-- [ ] 8.3.8 Wire ribbon to update when switching agent tabs
-- [ ] 8.3.9 Position ribbon below tab bar in layout
-- [ ] 8.3.10 Add round timeout display with tiered timeouts:
-  - Show soft timeout countdown (from `initial_round_timeout_seconds` or `subsequent_round_timeout_seconds`)
-  - Show grace period when soft expires (from `round_timeout_grace_seconds`)
-  - Show hard timeout as soft + grace total
-  - Format: `⏱ 5:30 soft │ 2:00 grace` or `⏱ 7:30 remaining`
-- [ ] 8.3.11 Update timeout display colors: normal (muted), warning (<30s soft, yellow), grace period (orange), critical (<30s total, red)
-- [ ] **8.3.12 CHECKPOINT: User approval for status ribbon**
+### 8.3 Agent Status Ribbon (Phase 8c) ✓ SIMPLIFIED
+Simplified version mounted - shows Round, Timeout, Tokens, Cost placeholders.
+- [x] 8.3.1 Created `AgentStatusRibbon` widget
+- [x] 8.3.9 Positioned below tab bar
+- [x] 8.3.12 Round selector shows `Round N ▾`
+- [~] 8.3.2-8.3.4 Activity indicator and tasks REMOVED (redundant)
+- [~] 8.3.5-8.3.6 Token/cost display - placeholders only, backend wiring in Phase 13.1
+- [x] **8.3.16 CHECKPOINT: User approved simplified ribbon**
 
-### 8.4 Phase Indicator Bar (Phase 8d)
-- [ ] 8.4.1 Create new `PhaseIndicatorBar` widget
-- [ ] 8.4.2 Implement phase states: Initial Answer → Voting → Consensus → Presentation
-- [ ] 8.4.3 Add visual indicators: ○ pending, ● current (with pulse), ✓ completed
-- [ ] 8.4.4 Add arrow separators (→) between phases
-- [ ] 8.4.5 Wire to orchestrator phase changes
-- [ ] 8.4.6 Add highlight pulse animation on phase change (300ms)
-- [ ] 8.4.7 Only show in multi-agent mode
-- [ ] **8.4.8 CHECKPOINT: User approval for phase indicator**
+### 8.4 Phase Indicator Bar (Phase 8d) - REMOVED
+Removed as redundant - ExecutionStatusLine in Phase 13.2 will handle status display.
+- [x] 8.4.1 Widget created but removed from layout
+- [x] **8.4.8 CHECKPOINT: User approved removal**
 
-### 8.5 Session Info Panel (Phase 8e)
-- [ ] 8.5.1 Create new `SessionInfoPanel` widget
-- [ ] 8.5.2 Add turn counter display (Turn X of Y)
-- [ ] 8.5.3 Add elapsed time with real-time updates
-- [ ] 8.5.4 Add total cost estimate (aggregated across agents)
-- [ ] 8.5.5 Add total token count (aggregated across agents)
-- [ ] 8.5.6 Position in header area (top of screen)
-- [ ] 8.5.7 Style with rounded borders, subtle background
-- [ ] **8.5.8 CHECKPOINT: User approval for session info panel**
+### 8.5 Session Info Panel (Phase 8e) - REMOVED
+Removed as redundant - session info moved to tab bar right side.
+- [x] 8.5.1 Widget created but removed from layout
+- [x] **8.5.8 CHECKPOINT: User approved removal**
 
-### 8.6 Improved Round Separators (Phase 8f)
-- [ ] 8.6.1 Replace box-style round indicators with dashed line separators (┄┄┄)
-- [ ] 8.6.2 Center "Round X Complete" text in separator
-- [ ] 8.6.3 Add summary line below (vote count, consensus status)
-- [ ] 8.6.4 Add fade-in animation when separator appears (200ms)
-- [ ] 8.6.5 Add breathing room (padding) around separators
-- [ ] **8.6.6 CHECKPOINT: User approval for round separators**
+**New: Session Info in Tab Bar**
+- [x] Turn number and question displayed on right side of tab bar
+- [x] Blue icon (◈) and styling to distinguish from agent names
+- [x] Clickable to show full prompt in modal
+- [x] HeaderWidget removed entirely (info consolidated in tab bar)
 
-### 8.7 Final Answer Card Redesign (Phase 8g)
-- [ ] 8.7.1 Remove trophy emoji from title, use "Final Answer" (title case, not ALL CAPS)
-- [ ] 8.7.2 Replace gold colors (#ffd700) with muted green ($accent-green, desaturated)
-- [ ] 8.7.3 Simplify vote summary: "2 agents agreed • 1 round" instead of cryptic "Winner: A1.1 (2v) | Votes: A1.1(2)"
-- [ ] 8.7.4 Use rounded corners (border: round) for softer appearance
-- [ ] 8.7.5 Remove external "✓ Complete" progress bar (redundant)
-- [ ] 8.7.6 Add summary footer inside card (consensus status, rounds, agents, cost)
-- [ ] 8.7.7 Use softer border weight (solid instead of double/thick)
-- [ ] 8.7.8 Post-eval status cleanup:
-  - Change completed title from "✅ FINAL ANSWER" to "✓ Final Answer"
-  - Change "🔍 Evaluating..." to "◉ Evaluating..."
-  - Change "🔄 Restart Requested" to "↻ Restart Requested"
-  - Keep "✓ Verified" as-is (already clean)
-- [ ] 8.7.9 Improve internal padding and whitespace
-- [ ] 8.7.10 Apply proper markdown rendering
-- [ ] **8.7.11 CHECKPOINT: User approval for final answer card**
+### 8.6 Round Separators (Phase 8f) - **SUPERSEDED BY PHASE 12**
+**Note:** This phase is superseded by Phase 12 (View-Based Navigation).
+Round separators are removed entirely - navigation via view dropdown instead.
 
-### 8.8 Enhanced Tab Design (Phase 8h)
-- [ ] 8.8.1 Implement two-line tab display (agent name bold + model name muted)
-- [ ] 8.8.2 Add rounded corners for selected tab (╭╮╰╯), square for unselected
-- [ ] 8.8.3 Add underline indicator (════) below selected tab
-- [ ] 8.8.4 Implement status-specific indicator colors:
-  - `◉` Streaming/Active (accent-blue, pulsing)
-  - `○` Idle/Waiting (text-muted)
-  - `✓` Done (accent-green)
-  - `⏹` Canceled (accent-yellow)
-  - `✗` Error (accent-red)
-- [ ] 8.8.5 Update tab spacing for breathing room
-- [ ] **8.8.6 CHECKPOINT: User approval for tab design**
+- [x] 8.6.1 ~~Remove banner-style separators~~ → Handled by Phase 12
+- [x] 8.6.2 ~~Round switching via dropdown~~ → Handled by Phase 12
+- [x] **8.6.3 SUPERSEDED: See Phase 12 for implementation**
 
-### 8.9 Visual Depth Through Layering (Phase 8i)
-- [ ] 8.9.1 Apply $bg-card to main card elements
-- [ ] 8.9.2 Apply $bg-elevated to nested/inset content
-- [ ] 8.9.3 Add left accent borders where appropriate
-- [ ] 8.9.4 Add focus ring ($border-focus) to interactive elements
-- [ ] 8.9.5 Ensure consistent layering across all widgets
-- [ ] **8.9.6 CHECKPOINT: User approval for visual depth**
+### 8.7 Final Answer Card Redesign (Phase 8g) - **SUPERSEDED BY PHASE 12**
+**Note:** This phase is superseded by Phase 12 (View-Based Navigation).
+Final Answer becomes a dedicated view/screen, not an inline card.
 
-### 8.10 Improved Task Modal (Phase 8j)
-- [ ] 8.10.1 Update task modal with rounded corners
-- [ ] 8.10.2 Add progress bar in modal header (━━━━░░░░)
-- [ ] 8.10.3 Add fraction display (X/Y) with visual bar
-- [ ] 8.10.4 Implement task indicators (✓ done, ● current, ○ pending)
-- [ ] 8.10.5 Add "← current" marker for active task
-- [ ] 8.10.6 Ensure full task names displayed (not truncated)
-- [ ] 8.10.7 Add close button and click-outside-to-dismiss
-- [ ] 8.10.8 Modal fade-in animation (150ms)
-- [ ] **8.10.9 CHECKPOINT: User approval for task modal**
+- [x] 8.7.1-8.7.10 ~~Inline card redesign~~ → Replaced by Phase 12.3 (Final Answer View)
+- [x] **8.7.11 SUPERSEDED: See Phase 12.3 for implementation**
+
+### 8.8 Enhanced Tab Design (Phase 8h) ✓
+- [x] 8.8.1 Two-line tab display (agent name + model name)
+- [x] 8.8.3 Underline indicator for active tab (border-bottom: tall)
+- [x] 8.8.4 Status indicators: ○ waiting, ◉ working, ✓ completed, ✗ error
+- [x] 8.8.5 Tab spacing updated
+- [x] **8.8.6 CHECKPOINT: User approved tab design**
+
+### 8.9 Visual Depth Through Layering (Phase 8i) ✓
+- [x] 8.9.1 Applied $bg-card to modal content areas
+- [x] 8.9.4 Added focus rings ($border-focus) to AgentTab, ModeToggle, #session_info
+- [x] 8.9.5 Consistent focus states across interactive elements
+- [x] **8.9.6 CHECKPOINT: User approved visual depth**
+
+### 8.10 Improved Task Modal (Phase 8j) ✓
+Already complete from previous phases:
+- [x] 8.10.1 Rounded corners (`border: round $accent-special`)
+- [x] 8.10.2 Progress bar in header
+- [x] 8.10.3 Fraction display (X/Y)
+- [x] 8.10.4 Task indicators (✓ ● ○)
+- [x] 8.10.5 "← current" marker for active task
+- [x] 8.10.6 Full task names displayed
+- [x] 8.10.7 Close button present
+- [x] **8.10.9 CHECKPOINT: User approved task modal**
+
+**Implementation Notes for Phase 8:**
+- Files modified: `tab_bar.py`, `dark.tcss`, `_variables.tcss`, `textual_terminal_display.py`
+- SessionInfoWidget added to tab_bar.py with click-to-expand prompt modal
+- SessionInfoClicked message for modal handling
+- HeaderWidget removed from compose (info consolidated in tab bar)
+- Phase Indicator Bar and Session Info Panel widgets exist but removed from layout
+- Status ribbon simplified: Round selector + timeout + token/cost placeholders
 
 ---
 
@@ -349,14 +316,15 @@ Each phase section ends with a **CHECKPOINT** task to remind you to pause for ap
 
 ---
 
-## 10. Phase 10: Content Area Cleanup
+## 10. Phase 10: Content Area Cleanup ✓ COMPLETED
 
 ### 10.1 Remove Redundant Agent Header
-- [ ] 10.1.1 Remove "agent_a [1]" style header from content area (redundant with tabs)
-- [ ] 10.1.2 Move round info to Agent Status Ribbon (handled in 8.3.10)
-- [ ] 10.1.3 Ensure content area starts directly with agent output
-- [ ] 10.1.4 Update all themes to remove content header styling
-- [ ] **10.1.5 CHECKPOINT: User approval for content area cleanup**
+Completed as part of Phase 8 - header info consolidated into tab bar.
+- [x] 10.1.1 Removed "agent_a [1]" style header (redundant with tabs)
+- [x] 10.1.2 Round info in Agent Status Ribbon
+- [x] 10.1.3 Content area starts directly with agent output
+- [x] 10.1.4 HeaderWidget removed entirely
+- [x] **10.1.5 CHECKPOINT: User approved (part of Phase 8)**
 
 ---
 
@@ -382,23 +350,135 @@ Show visual cues when content is scrollable in containers.
 
 ---
 
-## 12. Phase 12: Testing & Verification
+## 12. Phase 12: View-Based Round & Final Answer Navigation
 
-- [ ] 12.1 Run MassGen with multi-agent config, verify welcome screen
-- [ ] 12.2 Test mode toggle interactions
-- [ ] 12.3 Verify tool cards collapse/expand behavior
-- [ ] 12.4 Test task list progress display
-- [ ] 12.5 Verify all keyboard shortcuts still work
-- [ ] 12.6 Test both dark and light themes
-- [ ] 12.7 Verify modal styling consistency
-- [ ] 12.8 Test diff view with file edit operations
-- [ ] 12.9 Test workspace modal tree view navigation
-- [ ] 12.10 Verify tool result preview formatting
-- [ ] 12.11 Test agent status ribbon updates during execution
-- [ ] 12.12 Verify phase indicator bar shows correct coordination state
-- [ ] 12.13 Test session info panel updates
-- [ ] 12.14 Verify activity pulse animation works
-- [ ] 12.15 Test final answer card with consensus results
-- [ ] 12.16 Test round timeout display with soft/grace/hard timeouts
-- [ ] 12.17 Test collapsible reasoning blocks (expand/collapse)
-- [ ] 12.18 Test scroll indicators in content area
+**This phase supersedes Phase 8f (Round Separators) and Phase 8g (Final Answer Card).**
+
+### 12.1 View Dropdown in Status Ribbon (Phase 12a)
+- [ ] 12.1.1 Update `AgentStatusRibbon` round selector to become a full view selector
+- [ ] 12.1.2 Add "Final Answer" option at top of dropdown (only shown after consensus)
+- [ ] 12.1.3 Show separator line between Final Answer and rounds
+- [ ] 12.1.4 Display round indicators: `◉ Round N (current)`, `Round N`, `↻ Round N` (context reset)
+- [ ] 12.1.5 Implement dropdown click handler to switch views
+- [ ] 12.1.6 Update ribbon label to show current view ("Round 2 ▾" or "✓ Final Answer ▾")
+- [ ] **12.1.7 CHECKPOINT: User approval for view dropdown**
+
+### 12.2 Round View Content (Phase 12b)
+- [ ] 12.2.1 Create per-round content storage: `agent_views[agent_id]["rounds"][round_num]`
+- [ ] 12.2.2 Modify content append methods to store content by round number
+- [ ] 12.2.3 Implement `switch_to_round(agent_id, round_num)` method
+- [ ] 12.2.4 Clear and repopulate agent panel when switching rounds
+- [ ] 12.2.5 Remove `RestartBanner` widget (no longer needed)
+- [ ] 12.2.6 Remove inline separators from content flow
+- [ ] 12.2.7 Track current view per agent: `agent_views[agent_id]["current_view"]`
+- [ ] **12.2.8 CHECKPOINT: User approval for round view switching**
+
+### 12.3 Final Answer View - Dedicated Screen (Phase 12c)
+- [ ] 12.3.1 Create new `FinalAnswerView` widget (dedicated screen, not inline card)
+- [ ] 12.3.2 Design centered layout with generous whitespace
+- [ ] 12.3.3 Add "Final Answer" title (centered, clean typography)
+- [ ] 12.3.4 Add horizontal separators above/below content
+- [ ] 12.3.5 Display final answer content with proper markdown rendering
+- [ ] 12.3.6 Add metadata footer: consensus status, presenting agent, rounds, agents agreed
+- [ ] 12.3.7 Add action buttons: [Copy] [Workspace] [Voting Details]
+- [ ] 12.3.8 Add "Type below to continue" hint
+- [ ] 12.3.9 Store final answer data: `agent_views[agent_id]["final_answer"]`
+- [ ] 12.3.10 Remove inline `FinalPresentationCard` (replaced by this view)
+- [ ] **12.3.11 CHECKPOINT: User approval for Final Answer view**
+
+### 12.4 Auto-Navigation (Phase 12d)
+- [ ] 12.4.1 When consensus is reached, add "Final Answer" to view dropdown
+- [ ] 12.4.2 Auto-switch presenting agent's tab to Final Answer view
+- [ ] 12.4.3 Keep other agent tabs on their current round view
+- [ ] 12.4.4 Allow user to navigate back to any round via dropdown
+- [ ] **12.4.5 CHECKPOINT: User approval for auto-navigation**
+
+### 12.5 Deprecations & Cleanup (Phase 12e)
+- [ ] 12.5.1 Remove `RestartBanner` class from `content_sections.py`
+- [ ] 12.5.2 Remove `FinalPresentationCard` class from `content_sections.py`
+- [ ] 12.5.3 Remove round separator CSS from `dark.tcss` and `light.tcss`
+- [ ] 12.5.4 Remove inline final answer card CSS
+- [ ] 12.5.5 Update `__init__.py` exports (remove deprecated, add new)
+- [ ] 12.5.6 Clean up any references to removed widgets
+- [ ] **12.5.7 CHECKPOINT: User approval for cleanup**
+
+---
+
+## 13. Phase 13: Backend Integration for Status Ribbon
+
+### 13.1 Token/Cost Wiring
+The status ribbon has placeholders for tokens and cost that need backend integration.
+
+- [ ] 13.1.1 Add token tracking to `ChatAgent` - accumulate input/output tokens per turn
+- [ ] 13.1.2 Add cost calculation using `token_manager` pricing data
+- [ ] 13.1.3 Pass token/cost data through `TextualTerminalDisplay` callbacks
+- [ ] 13.1.4 Wire `AgentStatusRibbon.set_tokens()` and `set_cost()` methods
+- [ ] 13.1.5 Update ribbon display in real-time during streaming
+- [ ] **13.1.6 CHECKPOINT: User approval for token/cost display**
+
+### 13.2 Execution Status Line (Multi-Agent Aware)
+Add a status line above the mode bar showing activity across ALL agents, not just the focused one.
+
+**Design Options (implement 1c as default, test others):**
+
+**Option 1c - Two-Line Status (DEFAULT):**
+```
+  ◉ agent_a thinking...                                     R2 • 45s • $0.02
+  B: ✓ done  C: ◉ write_file
+```
+
+**Option 1b - All Agents Inline:**
+```
+  A: ◉ thinking    B: ✓ done    C: ◉ write_file (0.3s)
+```
+
+**Option 1a - Current Focus + Agent Pills:**
+```
+  ◉ agent_a is thinking...                    [B ✓] [C ◉]
+```
+
+**Tasks:**
+- [ ] 13.2.1 Create `ExecutionStatusLine` widget with multi-agent awareness
+- [ ] 13.2.2 Position above mode bar / below agent panels
+- [ ] 13.2.3 Implement Option 1c (two-line) as default layout:
+  - Top line: focused agent's detailed status + round/time/cost
+  - Bottom line: other agents' compact status (letter: indicator action)
+- [ ] 13.2.4 Track status for ALL agents, not just focused one:
+  - `◉` streaming/thinking (with optional elapsed time)
+  - `✓` done/ready
+  - `○` waiting/idle
+  - Tool name when executing tool (e.g., `write_file`)
+  - Vote target when voted (e.g., `voted A1.2`)
+- [ ] 13.2.5 Wire to orchestrator events for real-time updates across all agents
+- [ ] 13.2.6 Update bottom line when switching agent tabs (swap focused vs other agents)
+- [ ] 13.2.7 Use subtle styling (dim/muted) - bottom line even more muted than top
+- [ ] 13.2.8 (Optional) Implement 1a and 1b as alternative layouts for A/B testing
+- [ ] **13.2.9 CHECKPOINT: User approval for execution status line**
+
+---
+
+## 14. Phase 14: Testing & Verification
+
+- [ ] 13.1 Run MassGen with multi-agent config, verify welcome screen
+- [ ] 13.2 Test mode toggle interactions
+- [ ] 13.3 Verify tool cards collapse/expand behavior
+- [ ] 13.4 Test task list progress display
+- [ ] 13.5 Verify all keyboard shortcuts still work
+- [ ] 13.6 Test both dark and light themes
+- [ ] 13.7 Verify modal styling consistency
+- [ ] 13.8 Test diff view with file edit operations
+- [ ] 13.9 Test workspace modal tree view navigation
+- [ ] 13.10 Verify tool result preview formatting
+- [ ] 13.11 Test agent status ribbon updates during execution
+- [ ] 13.12 Verify phase indicator bar shows correct coordination state
+- [ ] 13.13 Test session info panel updates
+- [ ] 13.14 Verify activity pulse animation works
+- [ ] 13.15 Test view dropdown in status ribbon
+- [ ] 13.16 Test round view switching (select different round, verify content changes)
+- [ ] 13.17 Test Final Answer view (clean layout, metadata, buttons)
+- [ ] 13.18 Test auto-navigation to Final Answer on consensus
+- [ ] 13.19 Verify navigation back from Final Answer to rounds
+- [ ] 13.20 Test round timeout display with soft/grace/hard timeouts
+- [ ] 13.21 Test collapsible reasoning blocks (expand/collapse)
+- [ ] 13.22 Test scroll indicators in content area
+- [ ] 13.23 Verify "ctx reset" indicator shows on appropriate rounds in dropdown

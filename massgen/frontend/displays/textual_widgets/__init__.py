@@ -5,6 +5,7 @@ Textual widgets for the MassGen TUI.
 This module provides reusable Textual widgets for the production TUI interface.
 """
 
+from .agent_status_ribbon import AgentStatusRibbon, RoundSelected, TasksClicked
 from .background_tasks_modal import BackgroundTasksModal
 from .content_sections import (
     CompletionFooter,
@@ -21,13 +22,15 @@ from .injection_card import InjectionSubCard
 from .mode_bar import ModeBar, ModeChanged, ModeToggle, OverrideRequested
 from .multi_line_input import MultiLineInput
 from .path_suggestion import PathSuggestion, PathSuggestionDropdown
+from .phase_indicator_bar import PhaseIndicatorBar
 from .plan_approval_modal import PlanApprovalModal, PlanApprovalResult
 from .queued_input_banner import QueuedInputBanner
 from .quickstart_wizard import QuickstartWizard
+from .session_info_panel import SessionInfoPanel
 from .setup_wizard import SetupWizard
 from .subagent_card import SubagentCard
 from .subagent_modal import SubagentModal
-from .tab_bar import AgentTab, AgentTabBar, AgentTabChanged
+from .tab_bar import AgentTab, AgentTabBar, AgentTabChanged, SessionInfoClicked
 from .task_plan_card import TaskPlanCard
 from .task_plan_modal import TaskPlanModal
 from .tool_card import ToolCallCard, format_tool_display_name, get_tool_category
@@ -50,6 +53,15 @@ __all__ = [
     "AgentTab",
     "AgentTabBar",
     "AgentTabChanged",
+    "SessionInfoClicked",
+    # Agent status ribbon
+    "AgentStatusRibbon",
+    "RoundSelected",
+    "TasksClicked",
+    # Phase indicator bar
+    "PhaseIndicatorBar",
+    # Session info panel
+    "SessionInfoPanel",
     # Tool cards and modal
     "ToolCallCard",
     "ToolDetailModal",

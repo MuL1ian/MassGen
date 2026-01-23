@@ -316,11 +316,24 @@ accent-purple:  #A371F7  (AI/special indicators)
 A new component below the tab bar showing real-time status for the selected agent:
 ```
 ╭──────────────────────────────────────────────────────────────────────────╮
-│ ◉ Streaming... 12s │ ⏱ 5:30 soft │ Tasks: 3/7 ━━░░ │ 2.4k tokens │ $0.003 │
+│ Round 2 ▾ │ ◉ Streaming... 12s │ ⏱ 5:30 │ Tasks: 3/7 ━━░░ │ 2.4k │ $0.003 │
 ╰──────────────────────────────────────────────────────────────────────────╯
+         │
+         ▼ (dropdown on click)
+    ┌─────────────────────────┐
+    │ ◉ Round 2 (current)     │
+    │ ↻ Round 1 • ctx reset   │
+    │   Round 0 • initial     │
+    └─────────────────────────┘
 ```
 
 Features:
+- **Round navigation dropdown** (first element):
+  - `◉ Round N (current)` - live streaming round
+  - `↻ Round N • ctx reset` - rounds where context was reset
+  - `Round 0 • initial` - first round (no reset indicator)
+  - Clicking a round switches content view to that round's history
+  - Shows "↻ Context was reset for this round" header when viewing historical reset rounds
 - **Activity indicator**: ◉ Streaming, ○ Idle, ⏳ Thinking, ⏹ Canceled, ✗ Error
 - **Elapsed time**: How long current activity has been running
 - **Round timeout display**: Shows tiered timeouts from config:
@@ -332,6 +345,7 @@ Features:
 - **Cost estimate**: Running total for this agent
 
 Interaction:
+- Clicking the Round dropdown shows available rounds with context reset indicators
 - Clicking the Tasks segment opens the full Task Plan Modal with detailed list
 - Ribbon updates automatically when switching agent tabs
 - Model name is shown in the tab itself (two-line display), not duplicated here
@@ -355,16 +369,18 @@ Utilize empty space in top-left with session summary:
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Phase 8f: Improved Round Separators
-Replace heavy boxed round indicators with elegant separators:
+### Phase 8f: Round Separators (SIMPLIFIED)
+**Note:** Primary round navigation now handled by dropdown in Status Ribbon (Phase 8c).
+Round separators are optional subtle visual breaks, not primary navigation.
+
+Options:
+1. **Remove entirely** - round switching via dropdown is sufficient
+2. **Minimal visual break** - subtle dashed line without prominent text:
 ```
-┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ Round 1 Complete ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-                  2 agents voted • consensus reached
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
 ```
 
-- Dashed/dotted line separators (lighter weight)
-- Summary info below (vote count, consensus status)
-- More breathing room between rounds
+The old banner-style separators ("Round 1 Complete") are no longer needed since users can navigate rounds via the dropdown.
 
 ### Phase 8g: Final Answer Card Redesign
 
@@ -509,3 +525,265 @@ Features:
 │                                                                          │
 ╰──────────────────────────────────────────────────────────────── ⏎ Send ──╯
 ```
+
+---
+
+## Phase 12: View-Based Round & Final Answer Navigation
+
+**This phase supersedes Phase 8f (Round Separators) and Phase 8g (Final Answer Card).**
+
+### Problem with Current Approach
+
+The current TUI shows all rounds inline with separators, and embeds the Final Answer as a card within the content flow. This creates:
+- Cluttered, long-scrolling content areas
+- No easy way to jump between rounds
+- Final Answer gets lost in the content stream
+- Poor UX when sessions have many rounds
+
+### New Paradigm: Views Instead of Inline Content
+
+The agent panel becomes a **view container** that shows ONE view at a time:
+- **Round views**: Show content for a specific round only
+- **Final Answer view**: Dedicated clean presentation screen
+
+Navigation happens via a dropdown in the Status Ribbon.
+
+### 12a: View Dropdown in Status Ribbon
+
+Update the Status Ribbon's round selector to become a full view selector:
+
+```
+┌─ Status Ribbon ───────────────────────────────────────────────┐
+│ [Round 2 ▾] │ ◉ Streaming... 12s │ Tasks: 3/7 │ 2.4k │ $0.003 │
+└───────────────────────────────────────────────────────────────┘
+        │
+        ▼ (dropdown on click)
+   ┌─────────────────────────────┐
+   │ ✓ Final Answer              │  ← Only shown when consensus reached
+   │ ─────────────────────────── │
+   │ ◉ Round 2 (current)         │  ← Currently streaming/active
+   │   Round 1                   │  ← Historical round
+   │   Round 0 • initial         │  ← First round
+   └─────────────────────────────┘
+```
+
+**Dropdown items:**
+- `✓ Final Answer` - Only appears after consensus, at top with separator
+- `◉ Round N (current)` - The live/active round (pulsing indicator)
+- `Round N` - Historical rounds (plain text)
+- `↻` prefix for rounds that had context reset
+
+### 12b: Round View Content
+
+When a round is selected, the agent panel shows ONLY that round's content:
+
+```
+┌─ Agent Panel (Round 2 selected) ──────────────────────────────┐
+│                                                               │
+│  [Thinking block for round 2...]                              │
+│                                                               │
+│  ╭─ filesystem/write_file ──────────────────── 0.3s ✓ ─╮     │
+│  │  tasks/poem.md                                      │     │
+│  ╰─────────────────────────────────────────────────────╯     │
+│                                                               │
+│  Here's the poem I created...                                 │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+```
+
+**Key changes:**
+- No RestartBanner separators (removed entirely)
+- No FinalPresentationCard inline
+- Clean, focused view of single round
+- Content stored per-round: `agent_content[agent_id][round_num]`
+
+### 12c: Final Answer View (Dedicated Screen)
+
+When "Final Answer" is selected from dropdown, show a dedicated presentation:
+
+```
+┌─ Status Ribbon ───────────────────────────────────────────────┐
+│ [✓ Final Answer ▾] │ Complete │ 2 agents • 1 round │ $0.02   │
+└───────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                                                                 │
+│                        Final Answer                             │
+│                                                                 │
+│   ─────────────────────────────────────────────────────────     │
+│                                                                 │
+│   The music of the heart is heard,                              │
+│   A tapestry of joy and care,                                   │
+│   Where love's sweet melody is stirred,                         │
+│   And hope floats gently through the air.                       │
+│                                                                 │
+│   A garden tended, soft and slow,                               │
+│   Where seeds of trust begin to grow,                           │
+│   Love is the bridge, the open door,                            │
+│   The peace we find, and so much more.                          │
+│                                                                 │
+│   ─────────────────────────────────────────────────────────     │
+│                                                                 │
+│   ✓ Consensus reached                                           │
+│   Presented by agent_a (claude-haiku)                           │
+│   2 agents agreed • 1 round • verified by post-evaluation       │
+│                                                                 │
+│                                                                 │
+│   ┌──────────┐  ┌────────────────┐  ┌──────────────────────┐   │
+│   │  📋 Copy │  │  📂 Workspace  │  │  📊 Voting Details   │   │
+│   └──────────┘  └────────────────┘  └──────────────────────┘   │
+│                                                                 │
+│   💬 Type below to continue the conversation                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Design principles:**
+- Generous whitespace - let the answer breathe
+- Centered title, clean typography
+- Metadata footer with key stats
+- Action buttons at bottom
+- No cramped inline card styling
+
+### 12d: Auto-Navigation
+
+When consensus is reached:
+1. Final Answer view is added to dropdown
+2. **Auto-switch to Final Answer view** for the presenting agent's tab
+3. User can navigate back to any round via dropdown
+4. Other agent tabs stay on their current round view
+
+### 12e: Implementation Changes
+
+**Files to modify:**
+
+| File | Changes |
+|------|---------|
+| `textual_terminal_display.py` | Add view state management, round content storage |
+| `agent_status_ribbon.py` | Convert round selector to view dropdown with Final Answer option |
+| `content_sections.py` | Remove `RestartBanner`, remove inline `FinalPresentationCard` |
+| `tab_bar.py` | No changes (tabs switch agents, not views) |
+| **NEW** `final_answer_view.py` | Dedicated Final Answer screen component |
+
+**Data structures:**
+```python
+# Per-agent content storage
+self._agent_views = {
+    "agent_a": {
+        "rounds": {
+            0: [content_widgets...],  # Round 0 content
+            1: [content_widgets...],  # Round 1 content
+            2: [content_widgets...],  # Round 2 content (current)
+        },
+        "final_answer": FinalAnswerData | None,
+        "current_view": "round:2" | "final_answer",
+    }
+}
+```
+
+**View switching logic:**
+```python
+def switch_view(self, agent_id: str, view: str):
+    """Switch agent panel to show specific view.
+
+    Args:
+        agent_id: The agent
+        view: "round:N" or "final_answer"
+    """
+    # Clear current content
+    # Load content for selected view
+    # Update ribbon to show selected view
+```
+
+### 12f: Deprecations
+
+The following are **removed** by this phase:
+- `RestartBanner` widget - no longer needed
+- Inline `FinalPresentationCard` - replaced by dedicated view
+- Round separator styling in CSS
+
+### Visual Summary
+
+**Before (Inline):**
+```
+┌─────────────────────────────────┐
+│ Round 1 content                 │
+│ ┄┄┄ Round 1 Complete ┄┄┄        │
+│ Round 2 content                 │
+│ ╭─ Final Answer ────────────╮   │
+│ │ [crammed inline]          │   │
+│ ╰───────────────────────────╯   │
+└─────────────────────────────────┘
+```
+
+**After (View-Based):**
+```
+┌─ [Round 2 ▾] ───────────────────┐
+│                                 │
+│ [Only Round 2 content]          │
+│ [Clean, focused]                │
+│                                 │
+└─────────────────────────────────┘
+
+   OR (when Final Answer selected)
+
+┌─ [✓ Final Answer ▾] ────────────┐
+│                                 │
+│        Final Answer             │
+│                                 │
+│   [Beautiful, spacious]         │
+│                                 │
+│   [Copy] [Workspace] [Details]  │
+└─────────────────────────────────┘
+```
+
+---
+
+## Phase 13: Backend Integration
+
+### 13.2 Execution Status Line (Multi-Agent Aware)
+
+A status line above the mode bar showing activity across ALL agents - so you can see what B and C are doing even when focused on agent A's tab.
+
+**Option 1c - Two-Line Status (DEFAULT):**
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  [Agent content area]                                               │
+└─────────────────────────────────────────────────────────────────────┘
+
+  ◉ agent_a thinking...                                     R2 • 45s • $0.02
+  B: ✓ done  C: ◉ write_file
+
+╭─────────────────────────────────────────────────────────────────────╮
+│  ◉ Normal    ○ Multi-Agent    ◉ Refine                              │
+```
+
+- Top line: focused agent's detailed status + session stats (round, time, cost)
+- Bottom line: other agents' compact status
+- When switching tabs, the lines swap appropriately
+
+**Option 1b - All Agents Inline (Alternative):**
+```
+  A: ◉ thinking    B: ✓ done    C: ◉ write_file (0.3s)
+```
+
+All agents equal weight, scan left-to-right. More compact, single line.
+
+**Option 1a - Current Focus + Agent Pills (Alternative):**
+```
+  ◉ agent_a is thinking...                    [B ✓] [C ◉]
+```
+
+Primary action prominent, others as minimal pills on the right.
+
+**Status Indicators:**
+| Indicator | Meaning |
+|-----------|---------|
+| `◉` | Streaming/thinking (pulsing animation) |
+| `✓` | Done/ready |
+| `○` | Waiting/idle |
+| `tool_name` | Executing tool (e.g., `write_file`, `read_file`) |
+| `voted X` | Voted for answer X (e.g., `voted A1.2`) |
+
+**Implementation:** Start with 1c, test in real sessions, adjust based on feedback.

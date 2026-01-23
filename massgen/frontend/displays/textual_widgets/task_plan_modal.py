@@ -32,8 +32,8 @@ class TaskPlanModal(ModalScreen[None]):
         max-width: 120;
         height: auto;
         max-height: 85%;
-        background: #1c2128;
-        border: solid #a371f7;
+        background: $bg-card;
+        border: round $accent-special;
         padding: 1 2;
     }
 
@@ -53,7 +53,7 @@ class TaskPlanModal(ModalScreen[None]):
     TaskPlanModal .modal-title {
         text-style: bold;
         width: 1fr;
-        color: #a371f7;
+        color: $accent-special;
     }
 
     TaskPlanModal .modal-stats {
@@ -66,11 +66,11 @@ class TaskPlanModal(ModalScreen[None]):
         min-width: 3;
         background: transparent;
         border: none;
-        color: #8b949e;
+        color: $fg-muted;
     }
 
     TaskPlanModal .modal-close:hover {
-        color: #e6edf3;
+        color: $fg-primary;
     }
 
     TaskPlanModal .progress-bar {
@@ -94,12 +94,12 @@ class TaskPlanModal(ModalScreen[None]):
     }
 
     TaskPlanModal .task-row:hover {
-        background: #161b22;
+        background: $bg-surface;
     }
 
     TaskPlanModal .task-focused {
-        background: #161b22;
-        border-left: solid #39c5cf;
+        background: $bg-surface;
+        border-left: solid $accent-info;
     }
 
     TaskPlanModal .task-header {
@@ -120,7 +120,7 @@ class TaskPlanModal(ModalScreen[None]):
         align: center middle;
         margin-top: 1;
         padding-top: 1;
-        border-top: solid #30363d;
+        border-top: solid $border-default;
     }
 
     TaskPlanModal .close-button {

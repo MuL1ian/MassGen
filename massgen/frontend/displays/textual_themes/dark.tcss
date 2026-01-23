@@ -18,6 +18,8 @@ $bg-base: #0d1117;
 $bg-surface: #161b22;
 $bg-surface-2: #21262d;
 $bg-surface-3: #30363d;
+$bg-card: #1c2128;            /* Card backgrounds */
+$bg-elevated: #2d333b;        /* Hover states, nested content */
 
 /* Foreground/Text Colors */
 $fg-primary: #e6edf3;
@@ -31,6 +33,8 @@ $border-highlight: #484f58;
 $border-muted: #21262d;
 $border-soft: #282e36;
 $border-accent: #3a424d;
+$border-subtle: #21262d;      /* Very subtle borders */
+$border-focus: #5199d9;       /* Focus rings (matches accent-primary) */
 
 /* Semantic Accent Colors (desaturated for softer appearance) */
 $accent-primary: #5199d9;
@@ -199,7 +203,7 @@ Screen {
 /* === Agent Tab Bar === */
 /* NOTE: No dock: top - flows naturally below HeaderWidget */
 AgentTabBar {
-    height: 2;
+    height: 3;
     width: 100%;
     layout: horizontal;
     background: transparent;
@@ -209,7 +213,7 @@ AgentTabBar {
 
 AgentTab {
     width: auto;
-    height: 2;
+    height: 3;
     padding: 0 2;
     margin: 0;
     content-align: center middle;
@@ -223,10 +227,16 @@ AgentTab:hover {
     color: $fg-primary;
 }
 
+AgentTab:focus {
+    background: $bg-surface;
+    color: $fg-primary;
+    border: solid $border-focus;
+    outline: none;
+}
+
 AgentTab.active {
     background: $bg-surface-2;
     color: $fg-primary;
-    border: none;
     border-bottom: tall $accent-primary;
 }
 
@@ -340,6 +350,119 @@ AgentTab.disabled:hover {
     /* Clicking disabled tab selects it as new single agent */
 }
 
+/* === Session Info (in tab bar) === */
+#session_info {
+    width: 1fr;
+    height: 100%;
+    content-align: right middle;
+    text-align: right;
+    padding-right: 1;
+}
+
+#session_info:hover {
+    background: $bg-surface;
+}
+
+#session_info:focus {
+    background: $bg-surface;
+    border: solid $border-focus;
+    outline: none;
+}
+
+/* === Agent Status Ribbon === */
+AgentStatusRibbon {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    background: $bg-surface-2;
+    border-bottom: solid $border-default;
+    padding: 0 1;
+}
+
+AgentStatusRibbon .ribbon-container {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
+}
+
+AgentStatusRibbon .ribbon-section {
+    width: auto;
+    height: auto;
+    padding: 0 1;
+}
+
+AgentStatusRibbon .ribbon-divider {
+    width: auto;
+    height: auto;
+    color: $fg-muted;
+}
+
+AgentStatusRibbon #round_selector {
+    color: $fg-primary;
+}
+
+AgentStatusRibbon #round_selector:hover {
+    color: $accent-primary;
+    text-style: underline;
+}
+
+AgentStatusRibbon #timeout_display.warning {
+    color: $accent-warning;
+}
+
+AgentStatusRibbon #timeout_display.critical {
+    color: $accent-error;
+}
+
+AgentStatusRibbon #token_count {
+    color: $fg-muted;
+}
+
+AgentStatusRibbon #cost_display {
+    color: $fg-muted;
+}
+
+/* === Phase Indicator Bar === */
+PhaseIndicatorBar {
+    width: 100%;
+    height: 1;
+    background: $bg-surface;
+    border-bottom: solid $border-default;
+    padding: 0 2;
+    content-align: center middle;
+}
+
+PhaseIndicatorBar.hidden {
+    display: none;
+}
+
+PhaseIndicatorBar #phase_content {
+    width: 100%;
+    height: 1;
+    text-align: center;
+}
+
+/* === Session Info Panel === */
+SessionInfoPanel {
+    width: 100%;
+    height: 1;
+    background: $bg-surface;
+    border: solid $border-default;
+    border-title-color: $fg-muted;
+    padding: 0 1;
+    content-align: center middle;
+}
+
+SessionInfoPanel.hidden {
+    display: none;
+}
+
+SessionInfoPanel #session_content {
+    width: 100%;
+    height: 1;
+    text-align: center;
+}
+
 /* === Mode Bar (above input) === */
 #mode_bar {
     height: 2;
@@ -374,6 +497,8 @@ ModeToggle:focus {
     background: #3a424d;
     color: $fg-primary;
     text-style: bold;
+    border: solid $border-focus;
+    outline: none;
 }
 
 ModeToggle.disabled {
@@ -1171,7 +1296,7 @@ ToolDetailModal .modal-close {
     height: 1;
     content-align: center middle;
     text-align: center;
-    background: $bg-surface-2;
+    background: $bg-card;
     border: solid $border-default;
 }
 
@@ -1204,7 +1329,7 @@ ToolDetailModal .modal-content {
     height: auto;
     padding: 0 1;
     margin-top: 1;
-    background: $bg-base;
+    background: $bg-card;
     border: solid $border-default;
 }
 
@@ -2067,8 +2192,13 @@ Button:hover {
 
 Button:focus {
     text-style: bold;
-    border: solid $accent-primary;
+    border: solid $border-focus;
     outline: none;
+}
+
+/* Generic focus ring for interactive elements */
+.focusable:focus {
+    border: solid $border-focus;
 }
 
 Button.-primary {
@@ -2161,6 +2291,25 @@ ToolCallCard.appearing {
 
 ToolCallCard.appeared {
     opacity: 1.0;
+}
+
+/* === General Animation Utility Classes === */
+/* Fade-in animation - apply .appearing then swap to .appeared */
+.appearing {
+    opacity: 0.3;
+}
+
+.appeared {
+    opacity: 1.0;
+}
+
+/* Pulsing indicator for active states */
+.pulsing {
+    opacity: 1.0;
+}
+
+.pulsing-dim {
+    opacity: 0.6;
 }
 
 /* Collapsed state - single line height */
