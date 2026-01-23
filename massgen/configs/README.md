@@ -227,10 +227,27 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.41 - Latest
-**New Features:** Async Subagent Execution, Subagent Round Timeouts, Extended Subagent Configuration
+### v0.1.42 - Latest
+**New Features:** TUI Visual Redesign, Human Input Queue, AG2 Single-Agent Fix
 
-⚠️ **Note**: These features are experimental and under active development.
+**Key Features:**
+- **TUI Visual Redesign**: 13-phase visual overhaul with modern "Conversational AI" aesthetic, rounded corners, redesigned agent tabs, polished modals
+- **Human Input Queue**: Inject messages to agents mid-stream during execution with `HumanInputHook`
+- **AG2 Single-Agent Fix**: Single-agent AutoGen setups now vote and coordinate correctly
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Experience the redesigned TUI with interactive mode
+uv run massgen --display textual \
+  --config massgen/configs/basic/multi/three_agents_default.yaml \
+  "Compare the pros and cons of React vs Vue for building a dashboard"
+```
+
+### v0.1.41
+**New Features:** Async Subagent Execution, Subagent Round Timeouts, Extended Subagent Configuration
 
 **Key Features:**
 - **Async Subagent Execution**: Spawn subagents with `async_=True` for non-blocking parallel work while parent continues

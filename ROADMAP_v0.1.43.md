@@ -1,8 +1,8 @@
-# MassGen v0.1.42 Roadmap
+# MassGen v0.1.43 Roadmap
 
 ## Overview
 
-Version 0.1.42 focuses on improving context compression and log analysis workflows.
+Version 0.1.43 focuses on improving context compression and log analysis workflows.
 
 - **OpenAI Responses /compact Endpoint** (Required): Use OpenAI's native context compression instead of custom summarization
 - **Add Model Selector for Log Analysis** (Required): Allow users to choose which model to use for log analysis
@@ -139,9 +139,9 @@ Version 0.1.42 focuses on improving context compression and log analysis workflo
 
 ---
 
-## Future Enhancements (Post-v0.1.42)
+## Future Enhancements (Post-v0.1.43)
 
-### v0.1.43 Plans
+### v0.1.44 Plans
 - **Improve Log Sharing and Analysis**: Enhanced log sharing workflows and analysis tools
 - **Claude Code Plugin for MassGen Agents**: Plugin for spawning MassGen agents from Claude Code
 
@@ -159,7 +159,7 @@ Version 0.1.42 focuses on improving context compression and log analysis workflo
 | Phase 1 | OpenAI /compact Endpoint | API integration, compression | @ncrispino | **REQUIRED** |
 | Phase 2 | Model Selector | CLI enhancement, config support | @ncrispino | **REQUIRED** |
 
-**Target Release**: January 24, 2026
+**Target Release**: January 27, 2026
 
 ---
 
@@ -181,7 +181,7 @@ Version 0.1.42 focuses on improving context compression and log analysis workflo
 
 ### For Users
 
-- v0.1.42 brings compression and analysis improvements:
+- v0.1.43 brings compression and analysis improvements:
 
   **OpenAI /compact Endpoint:**
   - Automatic use of OpenAI's native compression
@@ -209,7 +209,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ---
 
-*This roadmap reflects v0.1.42 priorities focusing on OpenAI context compression and log analysis model selection.*
+*This roadmap reflects v0.1.43 priorities focusing on OpenAI context compression and log analysis model selection.*
 
-**Last Updated:** January 21, 2026
+**Last Updated:** January 23, 2026
 **Maintained By:** MassGen Team
