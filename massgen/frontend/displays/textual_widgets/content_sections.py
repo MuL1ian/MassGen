@@ -701,6 +701,15 @@ class TimelineSection(Vertical):
     TimelineSection #scroll_bottom_indicator {
         dock: bottom;
     }
+
+    /* Phase 12: Generic hidden rule for round-based visibility */
+    TimelineSection .hidden {
+        display: none;
+    }
+
+    TimelineSection #timeline_container .hidden {
+        display: none;
+    }
     """
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
@@ -861,19 +870,20 @@ class TimelineSection(Vertical):
             if items_to_remove <= 0:
                 return
 
-            # Show truncation notice once at the top
-            if not self._truncation_shown:
-                self._truncation_shown = True
-                from textual.widgets import Static
+            # Track which rounds have truncation notices
+            if not hasattr(self, "_truncation_shown_rounds"):
+                self._truncation_shown_rounds = set()
 
-                truncation_notice = Static(
-                    f"[dim]⋯ Earlier output truncated (showing last {self.MAX_TIMELINE_ITEMS} items)[/]",
-                    classes="truncation-notice",
-                    markup=True,
-                )
-                # Insert at the beginning
-                if content_children:
-                    container.mount(truncation_notice, before=content_children[0])
+            # First, determine which rounds will have items removed
+            rounds_being_truncated = set()
+            for child in content_children[:items_to_remove]:
+                round_classes = [c for c in child.classes if c.startswith("round-")]
+                for rc in round_classes:
+                    try:
+                        round_num = int(rc.replace("round-", ""))
+                        rounds_being_truncated.add(round_num)
+                    except ValueError:
+                        pass
 
             # Remove the oldest items (from the beginning of the list)
             removed_count = 0
@@ -888,9 +898,28 @@ class TimelineSection(Vertical):
                 child.remove()
                 removed_count += 1
 
-            # NOTE: Don't decrement _item_count - it's used for unique widget IDs
-            # and must be monotonically increasing to avoid duplicate IDs
+            # Add truncation notices only for rounds that actually had items removed
             if removed_count > 0:
+                from textual.widgets import Static
+
+                for truncated_round in rounds_being_truncated:
+                    if truncated_round not in self._truncation_shown_rounds:
+                        self._truncation_shown_rounds.add(truncated_round)
+
+                        truncation_notice = Static(
+                            f"[dim]⋯ Earlier output truncated (showing last {self.MAX_TIMELINE_ITEMS} items)[/]",
+                            classes="truncation-notice",
+                            markup=True,
+                        )
+                        # Tag with the round whose items were truncated
+                        truncation_notice.add_class(f"round-{truncated_round}")
+
+                        # Find the first remaining item of this round to insert before
+                        remaining_children = list(container.children)
+                        round_items = [c for c in remaining_children if f"round-{truncated_round}" in c.classes and "truncation-notice" not in c.classes]
+                        if round_items:
+                            container.mount(truncation_notice, before=round_items[0])
+
                 container.refresh(layout=True)
 
         except Exception:
@@ -906,6 +935,11 @@ class TimelineSection(Vertical):
         Returns:
             The created ToolCallCard
         """
+        # Debug logging - include widget ID to identify which panel
+        widget_id = self.id or "unknown"
+        with open("/tmp/tui_debug.log", "a") as f:
+            f.write(f"DEBUG: TimelineSection.add_tool: panel={widget_id}, tool={tool_data.tool_name}, round={round_number}, viewed={self._viewed_round}\n")
+
         card = ToolCallCard(
             tool_name=tool_data.tool_name,
             tool_type=tool_data.tool_type,
@@ -1110,12 +1144,13 @@ class TimelineSection(Vertical):
         except Exception:
             pass
 
-    def add_separator(self, label: str = "", round_number: int = 1) -> None:
+    def add_separator(self, label: str = "", round_number: int = 1, subtitle: str = "") -> None:
         """Add a visual separator to the timeline.
 
         Args:
             label: Optional label for the separator
             round_number: The round this content belongs to (for view switching)
+            subtitle: Optional subtitle (e.g., "Restart • Context cleared")
         """
         from massgen.logger_config import logger
 
@@ -1129,14 +1164,15 @@ class TimelineSection(Vertical):
         try:
             container = self.query_one("#timeline_container", TimelineScrollContainer)
 
-            # Check if this is a round separator (should be prominent)
+            # Check if this is a round/restart/final separator (should be prominent)
             is_round = label.upper().startswith("ROUND") if label else False
             is_restart = "RESTART" in label.upper() if label else False
+            is_final = "FINAL" in label.upper() if label else False
 
-            if is_round or is_restart:
-                # Create prominent round/restart banner
-                widget = RestartBanner(label=label, id=widget_id)
-                logger.debug(f"TimelineSection.add_separator: Created RestartBanner for '{label}'")
+            if is_round or is_restart or is_final:
+                # Create prominent round/restart/final banner
+                widget = RestartBanner(label=label, subtitle=subtitle, id=widget_id)
+                logger.debug(f"TimelineSection.add_separator: Created RestartBanner for '{label}' subtitle='{subtitle}'")
             else:
                 # Regular separator
                 sep_text = Text()
@@ -1256,24 +1292,61 @@ class TimelineSection(Vertical):
         Args:
             round_number: The round number to display
         """
+        from massgen.logger_config import logger
+
         self._viewed_round = round_number
+
+        logger.debug(f"TimelineSection.switch_to_round: switching to round {round_number}")
+
+        # Debug logging - include widget ID to identify which panel
+        widget_id = self.id or "unknown"
+        with open("/tmp/tui_debug.log", "a") as f:
+            f.write(f"DEBUG: TimelineSection.switch_to_round called! panel={widget_id}, round={round_number}\n")
 
         try:
             container = self.query_one("#timeline_container", TimelineScrollContainer)
 
-            # Iterate through all children and toggle visibility based on round class
-            for widget in container.children:
+            # Query ALL descendants (not just direct children) to handle nested widgets
+            # like tool cards that have nested content
+            widgets_found = 0
+            widgets_hidden = 0
+            widgets_shown = 0
+
+            for widget in container.query("*"):
                 # Check if widget has any round class
                 round_classes = [c for c in widget.classes if c.startswith("round-")]
                 if round_classes:
+                    widgets_found += 1
                     # Widget is tagged with a round - show/hide based on match
                     if f"round-{round_number}" in widget.classes:
                         widget.remove_class("hidden")
+                        widgets_shown += 1
                     else:
                         widget.add_class("hidden")
+                        widgets_hidden += 1
                 # Widgets without round tags (e.g., scroll indicators) stay visible
-        except Exception:
-            pass
+
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: TimelineSection.switch_to_round: panel={widget_id}, found={widgets_found}, hidden={widgets_hidden}, shown={widgets_shown}\n")
+
+            # Reset scroll indicators when switching rounds
+            # They will be re-shown by the scroll position handler if needed
+            try:
+                top_indicator = self.query_one("#scroll_top_indicator", Static)
+                bottom_indicator = self.query_one("#scroll_bottom_indicator", Static)
+                top_indicator.add_class("hidden")
+                bottom_indicator.add_class("hidden")
+            except Exception:
+                pass
+
+            # Scroll to top of new round's content
+            container.scroll_home(animate=False)
+
+            logger.debug(f"TimelineSection.switch_to_round: done switching to round {round_number}")
+        except Exception as e:
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: TimelineSection.switch_to_round ERROR: {e}\n")
+            logger.error(f"TimelineSection.switch_to_round error: {e}")
 
 
 class ThinkingSection(Vertical):
@@ -1786,9 +1859,10 @@ class RestartBanner(Static):
     }
     """
 
-    def __init__(self, label: str = "", id: Optional[str] = None) -> None:
+    def __init__(self, label: str = "", subtitle: str = "", id: Optional[str] = None) -> None:
         super().__init__(id=id)
         self._label = label
+        self._subtitle = subtitle
 
     def render(self) -> Text:
         """Render a subtle, professional restart banner."""
@@ -1798,7 +1872,16 @@ class RestartBanner(Static):
 
         # Clean up the label - extract meaningful info
         display_label = self._label
-        if "RESTART" in display_label.upper():
+        subtitle = self._subtitle
+        is_final = "FINAL" in display_label.upper()
+
+        if is_final:
+            # Final Presentation banner - use green/success color scheme
+            display_label = "🏆 Final Presentation"
+            label_color = "#4ade80"  # Green for success/victory
+            line_color = "#22c55e"  # Slightly darker green for lines
+            subtitle_color = "#86efac"  # Lighter green for subtitle
+        elif "RESTART" in display_label.upper():
             # Try to extract round number
             match = re.search(r"ROUND\s*(\d+)", display_label, re.IGNORECASE)
             if match:
@@ -1806,12 +1889,22 @@ class RestartBanner(Static):
                 display_label = f"⟳ Round {round_num} Complete"
             else:
                 display_label = "⟳ New Round Starting"
+            label_color = "#e2b340"  # Amber/gold for rounds
+            line_color = "#5a6374"  # Default dim gray
+            subtitle_color = "#9ca3af"  # Gray for subtitle
         elif display_label.upper().startswith("ROUND"):
             # Simple "Round X" label - format as round start indicator
             match = re.search(r"ROUND\s*(\d+)", display_label, re.IGNORECASE)
             if match:
                 round_num = match.group(1)
                 display_label = f"▶ Round {round_num}"
+            label_color = "#e2b340"  # Amber/gold for rounds
+            line_color = "#5a6374"  # Default dim gray
+            subtitle_color = "#9ca3af"  # Gray for subtitle
+        else:
+            label_color = "#e2b340"  # Default amber
+            line_color = "#5a6374"  # Default dim gray
+            subtitle_color = "#9ca3af"  # Gray for subtitle
 
         # Subtle dotted line style - professional and understated
         line_char = "┄"
@@ -1819,18 +1912,25 @@ class RestartBanner(Static):
 
         # Top line - gradient fade effect using dim styling
         text.append("  ", style="")
-        text.append(line_char * line_width, style="dim #5a6374")
+        text.append(line_char * line_width, style=f"dim {line_color}")
         text.append("\n")
 
-        # Center label with subtle amber/gold accent
+        # Center label
         label_centered = display_label.center(line_width)
         text.append("  ", style="")
-        text.append(label_centered, style="#e2b340")
+        text.append(label_centered, style=label_color)
         text.append("\n")
+
+        # Subtitle line (if provided)
+        if subtitle:
+            subtitle_centered = subtitle.center(line_width)
+            text.append("  ", style="")
+            text.append(subtitle_centered, style=f"dim italic {subtitle_color}")
+            text.append("\n")
 
         # Bottom line
         text.append("  ", style="")
-        text.append(line_char * line_width, style="dim #5a6374")
+        text.append(line_char * line_width, style=f"dim {line_color}")
 
         return text
 

@@ -1662,11 +1662,17 @@ class TextualTerminalDisplay(TerminalDisplay):
 
     def show_restart_banner(self, reason: str, instructions: str, attempt: int, max_attempts: int):
         """Display restart decision banner."""
+        # Debug logging
+        with open("/tmp/tui_debug.log", "a") as f:
+            f.write(f"DEBUG: TextualTerminalDisplay.show_restart_banner called! attempt={attempt}\n")
+
         banner_msg = f"\n{'=' * 60}\n" f"RESTART TRIGGERED (Attempt {attempt}/{max_attempts})\n" f"Reason: {reason}\n" f"Instructions: {instructions}\n" f"{'=' * 60}\n"
 
         self._write_to_system_file(banner_msg)
 
         if self._app:
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write("DEBUG: TextualTerminalDisplay.show_restart_banner calling app.show_restart_banner\n")
             self._app.call_from_thread(
                 self._app.show_restart_banner,
                 reason,
@@ -1674,6 +1680,9 @@ class TextualTerminalDisplay(TerminalDisplay):
                 attempt,
                 max_attempts,
             )
+        else:
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write("DEBUG: TextualTerminalDisplay.show_restart_banner - NO APP!\n")
 
     def show_restart_context_panel(self, reason: str, instructions: str):
         """Display restart context panel at top of UI (for attempt 2+)."""
@@ -1685,6 +1694,48 @@ class TextualTerminalDisplay(TerminalDisplay):
                 self._app.show_restart_context,
                 reason,
                 instructions,
+            )
+
+    def show_agent_restart(self, agent_id: str, round_num: int):
+        """Notify that a specific agent is starting a new round.
+
+        This is called when an agent restarts due to new context from other agents.
+        The TUI should show a fresh timeline for this agent.
+
+        Args:
+            agent_id: The agent that is restarting
+            round_num: The new round number for this agent
+        """
+        with open("/tmp/tui_debug.log", "a") as f:
+            f.write(f"DEBUG: TextualTerminalDisplay.show_agent_restart agent={agent_id} round={round_num}\n")
+
+        if self._app:
+            self._app.call_from_thread(
+                self._app.show_agent_restart,
+                agent_id,
+                round_num,
+            )
+
+    def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
+        """Notify that the final presentation phase is starting for the winning agent.
+
+        This shows a fresh view with a distinct "Final Presentation" banner
+        in green to indicate this is the winning agent presenting.
+
+        Args:
+            agent_id: The winning agent presenting the final answer
+            vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
+            answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
+        """
+        with open("/tmp/tui_debug.log", "a") as f:
+            f.write(f"DEBUG: TextualTerminalDisplay.show_final_presentation_start agent={agent_id} votes={vote_counts} labels={answer_labels}\n")
+
+        if self._app:
+            self._app.call_from_thread(
+                self._app.show_final_presentation_start,
+                agent_id,
+                vote_counts,
+                answer_labels,
             )
 
     def cleanup(self):
@@ -4369,6 +4420,8 @@ Type your question and press Enter to ask the agents.
                         vote_results=formatted_vote_results,
                         id="final_presentation_card",
                     )
+                    # Tag with current round for CSS visibility switching
+                    card.add_class(f"round-{self._current_round}")
                     timeline.add_widget(card)
                     self._final_presentation_card = card
 
@@ -4496,6 +4549,8 @@ Type your question and press Enter to ask the agents.
                         vote_results=formatted_vote_results,
                         id="winner_selected_card",
                     )
+                    # Tag with current round for CSS visibility switching
+                    card.add_class(f"round-{self._current_round}")
                     timeline.add_widget(card)
                     self._final_presentation_card = card
 
@@ -4661,6 +4716,11 @@ Type your question and press Enter to ask the agents.
             """Show restart banner in header and all agent panels."""
             import time
 
+            # Debug logging
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: MassGenApp.show_restart_banner called! attempt={attempt}\n")
+                f.write(f"DEBUG: MassGenApp.show_restart_banner agent_widgets={list(self.agent_widgets.keys())}\n")
+
             # Track the restart
             self._current_restart = {
                 "attempt": attempt,
@@ -4703,6 +4763,46 @@ Type your question and press Enter to ask the agents.
             """Show restart context."""
             if self.header_widget:
                 self.header_widget.show_restart_context(reason, instructions)
+
+        def show_agent_restart(self, agent_id: str, round_num: int):
+            """Show that a specific agent is starting a new round.
+
+            This is called when an agent restarts due to new context from other agents.
+            Only affects the specified agent's panel.
+
+            Args:
+                agent_id: The agent that is restarting
+                round_num: The new round number for this agent
+            """
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: MassGenApp.show_agent_restart agent={agent_id} round={round_num}\n")
+
+            panel = self.agent_widgets.get(agent_id)
+            if panel:
+                # Use start_new_round which handles timeline visibility and ribbon update
+                panel.start_new_round(round_num, is_context_reset=False)
+                with open("/tmp/tui_debug.log", "a") as f:
+                    f.write("DEBUG: MassGenApp.show_agent_restart called panel.start_new_round\n")
+
+        def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
+            """Show that the final presentation is starting for the winning agent.
+
+            This shows a fresh view with a distinct "Final Presentation" banner.
+
+            Args:
+                agent_id: The winning agent presenting the final answer
+                vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
+                answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
+            """
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: MassGenApp.show_final_presentation_start agent={agent_id} votes={vote_counts} labels={answer_labels}\n")
+
+            panel = self.agent_widgets.get(agent_id)
+            if panel:
+                # Use start_final_presentation which shows distinct green banner
+                panel.start_final_presentation(vote_counts=vote_counts, answer_labels=answer_labels)
+                with open("/tmp/tui_debug.log", "a") as f:
+                    f.write("DEBUG: MassGenApp.show_final_presentation_start called panel.start_final_presentation\n")
 
         def display_vote_results(self, formatted_results: str):
             """Display vote results."""
@@ -6544,8 +6644,9 @@ Type your question and press Enter to ask the agents.
             self._session_count = 1
             self._presentation_shown = False
 
-            # Context tracking
+            # Context tracking (per-round for view switching)
             self._context_sources: List[str] = []
+            self._context_by_round: Dict[int, List[str]] = {}  # round_num -> context_sources
             self._context_label_id = f"context_{self._dom_safe_id}"
 
             # Timer for updating elapsed time display
@@ -6582,6 +6683,7 @@ Type your question and press Enter to ask the agents.
                     id=self._context_label_id,
                     classes="context-label hidden",
                 )
+
                 # Loading indicator - centered, shown when waiting with no content
                 with Container(id=self._loading_id, classes="loading-container"):
                     yield ProgressIndicator(
@@ -6654,13 +6756,22 @@ Type your question and press Enter to ask the agents.
             """Start the loading spinner when the panel is mounted."""
             self._start_loading_spinner("Ready")
 
-            # Add initial "Round 1" banner
+            # Add initial "Round 1" banner to timeline
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
                 timeline.add_separator("Round 1", round_number=1)
                 logger.debug(f"AgentPanel.on_mount: Added Round 1 banner to timeline {self._timeline_section_id}")
             except Exception as e:
                 logger.debug(f"AgentPanel.on_mount: Failed to add Round 1 banner: {e}")
+
+            # Initialize ribbon with Round 1 so the dropdown shows it immediately
+            try:
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    app._status_ribbon.set_round(self.agent_id, 1, False)
+                    logger.debug(f"AgentPanel.on_mount: Initialized ribbon with Round 1 for {self.agent_id}")
+            except Exception as e:
+                logger.debug(f"AgentPanel.on_mount: Failed to initialize ribbon: {e}")
 
         def set_in_use(self, in_use: bool) -> None:
             """Set whether this panel is in use (for single-agent mode).
@@ -6689,6 +6800,8 @@ Type your question and press Enter to ask the agents.
                 context_sources: List of answer labels this agent can see (e.g., ["agent1.1", "agent2.1"])
             """
             self._context_sources = context_sources.copy()
+            # Store context by current round for view switching
+            self._context_by_round[self._current_round] = context_sources.copy()
 
             try:
                 context_label = self.query_one(f"#{self._context_label_id}", Label)
@@ -6704,7 +6817,7 @@ Type your question and press Enter to ask the agents.
                         else:
                             short_labels.append(label)
 
-                    ctx_text = f"📥 Context: {', '.join(short_labels)}"
+                    ctx_text = f"Context: {', '.join(short_labels)}"
                     if len(context_sources) > 3:
                         ctx_text += f" +{len(context_sources) - 3}"
 
@@ -7100,21 +7213,12 @@ Type your question and press Enter to ask the agents.
                     self._add_thinking_content(normalized, content_type)
 
         def _add_tool_content(self, normalized, raw_content: str, raw_type: str):
-            """Route tool content to TimelineSection (chronologically)."""
-            # Check for session restart indicator
-            is_session_start = ("Registered" in raw_content and "tools" in raw_content) or ("Connected to" in raw_content and "server" in raw_content)
+            """Route tool content to TimelineSection (chronologically).
 
-            if is_session_start and self._presentation_shown:
-                # New session starting after a presentation
-                self._session_count += 1
-                self._add_restart_content(f"attempt:{self._session_count} New attempt")
-                self._presentation_shown = False
-                self._session_completed = False
-                self._tool_handler.reset()
-                # Phase 12: Don't clear timeline - CSS visibility handles round separation
-                # Just reset per-round state (task plans, bg tools badge)
-                self._reset_round_state()
-
+            Note: Restart detection is handled solely via show_restart_separator()
+            called from the orchestrator. We removed the duplicate detection here
+            that used _session_count to avoid conflicting round transitions.
+            """
             # Process through handler
             tool_data = self._tool_handler.process(normalized)
 
@@ -7929,33 +8033,130 @@ Type your question and press Enter to ask the agents.
             Phase 12: With CSS-based visibility, all round content stays in the DOM.
             We switch visibility to show the new round and hide old round content.
 
+            IMPORTANT: This method is atomic - tracking is updated FIRST before any
+            visibility changes to ensure all new content gets tagged with the correct
+            round number.
+
             Args:
                 round_number: The new round number
                 is_context_reset: Whether this round started with a context reset
             """
-            # Update round tracking
+            from massgen.logger_config import logger
+
+            logger.debug(
+                f"AgentPanel.start_new_round: round={round_number}, " f"prev_round={self._current_round}, context_reset={is_context_reset}",
+            )
+
+            # Debug logging
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: AgentPanel.start_new_round agent={self.agent_id} new_round={round_number} prev_round={self._current_round}\n")
+
+            # Step 1: Update round tracking FIRST (before any visibility changes)
+            # This ensures all subsequent content gets tagged with the new round number
             self._current_round = round_number
             self._viewed_round = round_number  # Auto-follow to new round
             self._current_view = "round"
 
-            # Switch timeline visibility to new round (hides old round content)
+            # Step 2: Switch timeline visibility to new round (hides old round content)
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
                 timeline.switch_to_round(round_number)
 
-                # Add "Round X" banner at the top of each new round
+                # Step 3: Add "Round X" banner at the top of each new round
                 if round_number > 1:
-                    timeline.add_separator(f"Round {round_number}", round_number=round_number)
-            except Exception:
-                pass
+                    # Build subtitle based on restart context
+                    subtitle = "Restart"
+                    if is_context_reset:
+                        subtitle += " • Context cleared"
+                    timeline.add_separator(f"Round {round_number}", round_number=round_number, subtitle=subtitle)
+            except Exception as e:
+                logger.error(f"AgentPanel.start_new_round timeline error: {e}")
 
-            # Reset per-round UI state
+            # Step 4: Reset per-round UI state
             self._hide_completion_footer()
             self._tool_handler.reset()
             self._reasoning_header_shown = False
 
-            # Notify the status ribbon about the new round
+            # Step 5: Clear context display for new round (will be updated when context is injected)
+            self._restore_context_for_round(round_number)
+
+            # Step 6: Notify the status ribbon about the new round
             self._update_ribbon_round(round_number, is_context_reset)
+
+            logger.debug(f"AgentPanel.start_new_round: completed round={round_number}")
+
+        def start_final_presentation(self, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None) -> None:
+            """Start the final presentation phase - shows fresh view with distinct banner.
+
+            This is similar to start_new_round but uses a "Final Presentation" banner
+            with a distinct green color scheme to indicate the winning agent presenting.
+
+            Args:
+                vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
+                answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
+            """
+            from massgen.logger_config import logger
+
+            # Increment round for final presentation
+            new_round = self._current_round + 1
+
+            logger.debug(
+                f"AgentPanel.start_final_presentation: agent={self.agent_id}, " f"new_round={new_round}",
+            )
+
+            # Debug logging
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: AgentPanel.start_final_presentation agent={self.agent_id} new_round={new_round} votes={vote_counts} labels={answer_labels}\n")
+
+            # Step 1: Update round tracking
+            self._current_round = new_round
+            self._viewed_round = new_round
+            self._current_view = "round"
+
+            # Step 2: Build vote summary subtitle using answer labels (e.g., "A1.1")
+            subtitle = ""
+            if vote_counts:
+                # Format: "Votes: A1.1(2), A2.1(1)"
+                sorted_votes = sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)
+                vote_parts = []
+                for agent_id, count in sorted_votes:
+                    # Use answer label if available, otherwise fall back to shortened agent name
+                    if answer_labels and agent_id in answer_labels:
+                        label = answer_labels[agent_id]
+                    else:
+                        # Fallback: "agent_a" -> "Aa", "agent1" -> "A1"
+                        label = agent_id.replace("agent_", "A").replace("agent", "A")
+                    vote_parts.append(f"{label} ({count})")
+                subtitle = f"Votes: {', '.join(vote_parts)}"
+
+            # Step 3: Switch timeline visibility and add final presentation banner
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.switch_to_round(new_round)
+
+                # Add "Final Presentation" banner with distinct styling and vote summary
+                timeline.add_separator("FINAL PRESENTATION", round_number=new_round, subtitle=subtitle)
+            except Exception as e:
+                logger.error(f"AgentPanel.start_final_presentation timeline error: {e}")
+
+            # Step 3: Reset per-round UI state
+            self._hide_completion_footer()
+            self._tool_handler.reset()
+            self._reasoning_header_shown = False
+
+            # Step 4: Clear context display for final presentation (will be updated if needed)
+            self._restore_context_for_round(new_round)
+
+            # Step 5: Update ribbon to show "Final" instead of round number
+            try:
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    # Use a special indicator for final presentation
+                    app._status_ribbon.set_round(self.agent_id, new_round)
+            except Exception:
+                pass
+
+            logger.debug("AgentPanel.start_final_presentation: completed")
 
         def _update_ribbon_round(self, round_number: int, is_context_reset: bool = False) -> None:
             """Update the status ribbon with the current round info."""
@@ -7991,6 +8192,42 @@ Type your question and press Enter to ask the agents.
                 app = self.app
                 if hasattr(app, "_status_ribbon") and app._status_ribbon:
                     app._status_ribbon.set_viewed_round(self.agent_id, round_number)
+            except Exception:
+                pass
+
+            # Restore context display for this round
+            self._restore_context_for_round(round_number)
+
+        def _restore_context_for_round(self, round_number: int) -> None:
+            """Restore the context display for a specific round.
+
+            When viewing historical rounds, show the context that was active during that round.
+            """
+            # Get context sources for this round (empty if not set)
+            context_sources = self._context_by_round.get(round_number, [])
+            self._context_sources = context_sources
+
+            try:
+                context_label = self.query_one(f"#{self._context_label_id}", Label)
+
+                if context_sources:
+                    # Format: "Context: A1.1, A2.1" (same as update_context_display)
+                    short_labels = []
+                    for label in context_sources[:3]:
+                        if label.startswith("agent"):
+                            short_labels.append("A" + label[5:])
+                        else:
+                            short_labels.append(label)
+
+                    ctx_text = f"Context: {', '.join(short_labels)}"
+                    if len(context_sources) > 3:
+                        ctx_text += f" +{len(context_sources) - 3}"
+
+                    context_label.update(ctx_text)
+                    context_label.remove_class("hidden")
+                else:
+                    context_label.update("")
+                    context_label.add_class("hidden")
             except Exception:
                 pass
 

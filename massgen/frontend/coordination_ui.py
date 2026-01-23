@@ -363,7 +363,31 @@ class CoordinationUI:
                     # Signal that orchestration will restart - UI will be reinitialized
                     continue
 
-                # Reset reasoning prefix state when final presentation starts
+                # Handle per-agent restart (new round for specific agent)
+                elif chunk_type == "agent_restart":
+                    # Agent is starting a new round due to new context from other agents
+                    if self.display and hasattr(self.display, "show_agent_restart"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
+                        if agent_id:
+                            self.display.show_agent_restart(agent_id, round_num)
+                    continue
+
+                # Handle final presentation start (show fresh view for winning agent)
+                elif chunk_type == "final_presentation_start":
+                    if self.display and hasattr(self.display, "show_final_presentation_start"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
+                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
+                        if agent_id:
+                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
+                    # Reset reasoning prefix state
+                    for attr_name in list(vars(self).keys()):
+                        if attr_name.startswith("_summary_active_"):
+                            delattr(self, attr_name)
+                    continue
+
+                # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
                     # Clear all summary active flags for final presentation
                     for attr_name in list(vars(self).keys()):
@@ -984,7 +1008,31 @@ class CoordinationUI:
                     # Signal that orchestration will restart - UI will be reinitialized
                     continue
 
-                # Reset reasoning prefix state when final presentation starts
+                # Handle per-agent restart (new round for specific agent)
+                elif chunk_type == "agent_restart":
+                    # Agent is starting a new round due to new context from other agents
+                    if self.display and hasattr(self.display, "show_agent_restart"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
+                        if agent_id:
+                            self.display.show_agent_restart(agent_id, round_num)
+                    continue
+
+                # Handle final presentation start (show fresh view for winning agent)
+                elif chunk_type == "final_presentation_start":
+                    if self.display and hasattr(self.display, "show_final_presentation_start"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
+                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
+                        if agent_id:
+                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
+                    # Reset reasoning prefix state
+                    for attr_name in list(vars(self).keys()):
+                        if attr_name.startswith("_summary_active_"):
+                            delattr(self, attr_name)
+                    continue
+
+                # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
                     # Clear all summary active flags for final presentation
                     for attr_name in list(vars(self).keys()):
@@ -1482,7 +1530,31 @@ class CoordinationUI:
                     # Signal that orchestration will restart - UI will be reinitialized
                     continue
 
-                # Reset reasoning prefix state when final presentation starts
+                # Handle per-agent restart (new round for specific agent)
+                elif chunk_type == "agent_restart":
+                    # Agent is starting a new round due to new context from other agents
+                    if self.display and hasattr(self.display, "show_agent_restart"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
+                        if agent_id:
+                            self.display.show_agent_restart(agent_id, round_num)
+                    continue
+
+                # Handle final presentation start (show fresh view for winning agent)
+                elif chunk_type == "final_presentation_start":
+                    if self.display and hasattr(self.display, "show_final_presentation_start"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
+                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
+                        if agent_id:
+                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
+                    # Reset reasoning prefix state
+                    for attr_name in list(vars(self).keys()):
+                        if attr_name.startswith("_summary_active_"):
+                            delattr(self, attr_name)
+                    continue
+
+                # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
                     # Clear all summary active flags for final presentation
                     for attr_name in list(vars(self).keys()):

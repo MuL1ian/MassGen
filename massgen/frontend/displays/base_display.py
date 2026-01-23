@@ -140,6 +140,31 @@ class BaseDisplay(ABC):
             instructions: Instructions for this attempt
         """
 
+    def show_agent_restart(self, agent_id: str, round_num: int):
+        """Notify that a specific agent is starting a new round.
+
+        This is called when an agent restarts due to new context from other agents.
+        The display should show a fresh view for this agent.
+
+        Args:
+            agent_id: The agent that is restarting
+            round_num: The new round number for this agent
+        """
+        pass  # Default implementation does nothing
+
+    def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
+        """Notify that the final presentation phase is starting.
+
+        This is called when the winning agent begins their final presentation.
+        The display should show a fresh view with a distinct banner.
+
+        Args:
+            agent_id: The winning agent presenting the final answer
+            vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
+            answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
+        """
+        pass  # Default implementation does nothing
+
     @abstractmethod
     def cleanup(self):
         """Clean up display resources."""
