@@ -2849,6 +2849,8 @@ if TEXTUAL_AVAILABLE:
             # Mode toggles
             Binding("shift+tab", "toggle_plan_mode", "Plan Mode", priority=True),
             Binding("ctrl+o", "trigger_override", "Override", priority=True, show=False),
+            # Task plan toggle
+            Binding("ctrl+t", "toggle_task_plan", "Toggle Tasks", priority=True, show=False),
         ]
 
         def __init__(
@@ -3767,14 +3769,24 @@ SLASH COMMANDS:
 {command_help}
 
 KEYBOARD SHORTCUTS:
-  Tab/Shift+Tab   - Navigate agents
+  Tab/←/→         - Navigate between agents
+  Ctrl+G          - Show this help
+  Ctrl+T          - Toggle task plan (collapse/expand)
+  Ctrl+P          - Toggle CWD context auto-include
+  Ctrl+U          - Show subagents panel
+  Ctrl+C          - Cancel current turn (double to quit)
+  Ctrl+D          - Quit immediately
+
+MODAL SHORTCUTS (when not typing):
   s               - System status log
   o               - Orchestrator events
   i               - Agent selector
   c               - Coordination table
   v               - Vote results
-  Ctrl+Q          - Quit
-  Ctrl+K          - Toggle safe keyboard mode
+
+TOOL CARDS:
+  Click           - Expand/collapse tool card
+  Double-click    - Open full detail modal
 
 Type your question and press Enter to ask the agents.
 """
@@ -4979,6 +4991,11 @@ Type your question and press Enter to ask the agents.
         def action_toggle_cwd(self) -> None:
             """Toggle CWD auto-include (Ctrl+P binding)."""
             self._toggle_cwd_auto_include()
+
+        def action_toggle_task_plan(self) -> None:
+            """Toggle task plan visibility (Ctrl+T binding)."""
+            if self._active_agent_id and self._active_agent_id in self.agent_widgets:
+                self.agent_widgets[self._active_agent_id].toggle_task_plan()
 
         def action_show_help(self) -> None:
             """Show help modal (Ctrl+/ binding)."""
@@ -6426,6 +6443,10 @@ Type your question and press Enter to ask the agents.
                     yield Label("👤 Not in use", classes="not-in-use-label")
                     yield Label("Single-agent mode active", classes="not-in-use-sublabel")
 
+                # Pinned task plan - stays at top, collapsible (hidden until task plan created)
+                self._pinned_task_plan_id = f"pinned_task_plan_{self._dom_safe_id}"
+                yield Container(id=self._pinned_task_plan_id, classes="pinned-task-plan hidden")
+
                 # Chronological timeline layout - tools and text interleaved
                 yield TimelineSection(id=self._timeline_section_id)
                 yield CompletionFooter(id=self._completion_footer_id)
@@ -6596,42 +6617,84 @@ Type your question and press Enter to ask the agents.
                 pass
 
         def toggle_task_plan(self) -> None:
-            """Toggle the visibility of the task plan display (for future use with keybindings)."""
+            """Toggle the visibility of the pinned task plan."""
             if not self._active_task_plan_tasks:
                 return
 
             self._task_plan_visible = not self._task_plan_visible
 
-            # Show or hide the task plan in the timeline
             try:
-                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-
+                pinned_container = self.query_one(f"#{self._pinned_task_plan_id}", Container)
                 if self._task_plan_visible:
-                    # Add a TaskPlanCard to the beginning of timeline
-                    from massgen.frontend.displays.textual_widgets import TaskPlanCard
-
-                    # Check if a toggle card already exists
-                    existing = timeline.query(f"#{self._task_plan_display_id}")
-                    if existing:
-                        for card in existing:
-                            card.remove()
-
-                    card = TaskPlanCard(
-                        tasks=self._active_task_plan_tasks,
-                        operation="get",  # Use "get" to show full view
-                        id=self._task_plan_display_id,
-                    )
-                    card.expanded = True  # Start expanded
-                    timeline.mount(card, before=0)
+                    pinned_container.remove_class("collapsed")
                 else:
-                    # Remove the toggle card
-                    try:
-                        card = timeline.query_one(f"#{self._task_plan_display_id}")
-                        card.remove()
-                    except Exception:
-                        pass
+                    pinned_container.add_class("collapsed")
             except Exception:
                 pass
+
+        def _update_pinned_task_plan(
+            self,
+            tasks: List[Dict[str, Any]],
+            focused_task_id: Optional[str] = None,
+            operation: str = "update",
+            show_notification: bool = True,
+        ) -> None:
+            """Update the pinned task plan widget.
+
+            Args:
+                tasks: List of task dictionaries
+                focused_task_id: Task to highlight
+                operation: Type of operation
+                show_notification: Whether to show update notification in timeline
+            """
+            from massgen.frontend.displays.textual_widgets import TaskPlanCard
+
+            try:
+                pinned_container = self.query_one(f"#{self._pinned_task_plan_id}", Container)
+
+                # Find existing card or create new one
+                existing_card = None
+                try:
+                    existing_card = pinned_container.query_one(TaskPlanCard)
+                except Exception:
+                    pass
+
+                if existing_card:
+                    # Update existing card
+                    existing_card.update_tasks(tasks, focused_task_id=focused_task_id, operation=operation)
+                    # Brief highlight animation
+                    existing_card.add_class("updated")
+                    self.set_timer(0.5, lambda: existing_card.remove_class("updated"))
+                else:
+                    # Create new card
+                    card = TaskPlanCard(
+                        tasks=tasks,
+                        focused_task_id=focused_task_id,
+                        operation=operation,
+                        id=f"pinned_card_{self._dom_safe_id}",
+                    )
+                    pinned_container.mount(card)
+
+                # Show the pinned area
+                pinned_container.remove_class("hidden")
+                self._task_plan_visible = True
+
+                # Add a brief notification to timeline for updates (not creates)
+                if show_notification and operation != "create":
+                    try:
+                        timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                        completed = sum(1 for t in tasks if t.get("status") == "completed")
+                        total = len(tasks)
+                        timeline.add_text(
+                            f"📋 Task updated ({completed}/{total} done)",
+                            style="dim italic",
+                            text_class="status",
+                        )
+                    except Exception:
+                        pass
+
+            except Exception as e:
+                tui_log(f"_update_pinned_task_plan error: {e}")
 
         def _make_full_width_bar(self, content: str, style: str) -> Text:
             """Create a full-width bar with background color spanning the entire display.
@@ -7555,7 +7618,11 @@ Type your question and press Enter to ask the agents.
             tui_log(f"_check_and_display_subagent_card: added SubagentCard with {len(subagents)} subagents")
 
         def _check_and_display_task_plan(self, tool_data, timeline) -> None:
-            """Check if tool result is from Planning MCP and display TaskPlanCard.
+            """Check if tool result is from Planning MCP and display/update TaskPlanCard.
+
+            Instead of adding a new card each time, this method:
+            - Creates a single persistent TaskPlanCard on first create_task_plan
+            - Updates that same card in place for subsequent updates
 
             Planning MCP tools include:
             - create_task_plan
@@ -7639,19 +7706,17 @@ Type your question and press Enter to ask the agents.
                 tui_log("_check_and_display_task_plan: no tasks found in result")
                 return
 
-            tui_log(f"_check_and_display_task_plan: found {len(tasks)} tasks, adding TaskPlanCard")
-            # Create and add TaskPlanCard to timeline
-            from massgen.frontend.displays.textual_widgets import TaskPlanCard
+            tui_log(f"_check_and_display_task_plan: found {len(tasks)} tasks, updating pinned area")
 
-            card = TaskPlanCard(
+            # Update the pinned task plan area (shows notification for updates)
+            self._update_pinned_task_plan(
                 tasks=tasks,
                 focused_task_id=focused_task_id,
                 operation=operation,
-                id=f"task_plan_{tool_data.tool_id}",
+                show_notification=(operation != "create"),  # Only show notification for updates
             )
-            timeline.add_widget(card)
 
-            # Update the agent panel's task plan tracking for toggle feature
+            # Update the agent panel's task plan tracking
             self.update_task_plan(tasks, plan_id=tool_data.tool_id, operation=operation)
 
         def _clear_timeline(self):
@@ -7667,9 +7732,19 @@ Type your question and press Enter to ask the agents.
 
         def _reset_round_state(self):
             """Reset per-round state (task plan, background tools indicator, etc.)."""
-            # Clear task plan
+            # Clear task plan tracking
             self._active_task_plan_id = None
             self._active_task_plan_tasks = None
+
+            # Clear pinned task plan UI container
+            try:
+                pinned_container = self.query_one(f"#{self._pinned_task_plan_id}", Container)
+                pinned_container.remove_children()
+                pinned_container.add_class("hidden")
+                pinned_container.remove_class("collapsed")
+                self._task_plan_visible = True  # Reset visibility state for next round
+            except Exception:
+                pass
 
             # Clear tools tracking (resets bg count) but keep visual timeline
             try:

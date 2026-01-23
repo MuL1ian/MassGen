@@ -83,10 +83,10 @@ class InjectionToggle(Static):
 
 
 # Tool category detection - maps tool names to semantic categories
+# Icons removed - rely on color-coded left border for category indication
 TOOL_CATEGORIES = {
     "filesystem": {
-        "icon": "📁",
-        "color": "#4ec9b0",
+        "color": "#5a9d8a",  # Softer teal (was #4ec9b0)
         "patterns": [
             "read_file",
             "write_file",
@@ -105,8 +105,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "web": {
-        "icon": "🌐",
-        "color": "#569cd6",
+        "color": "#6a8db0",  # Softer blue (was #569cd6)
         "patterns": [
             "web_search",
             "search_web",
@@ -119,8 +118,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "code": {
-        "icon": "💻",
-        "color": "#dcdcaa",
+        "color": "#b8b896",  # Softer yellow (was #dcdcaa)
         "patterns": [
             "execute_command",
             "run_code",
@@ -134,8 +132,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "database": {
-        "icon": "🗄️",
-        "color": "#c586c0",
+        "color": "#a67db0",  # Softer purple (was #c586c0)
         "patterns": [
             "query",
             "sql",
@@ -148,8 +145,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "git": {
-        "icon": "📦",
-        "color": "#f14e32",
+        "color": "#c06050",  # Softer red (was #f14e32)
         "patterns": [
             "git_",
             "commit",
@@ -165,8 +161,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "api": {
-        "icon": "🔌",
-        "color": "#ce9178",
+        "color": "#a88068",  # Softer orange (was #ce9178)
         "patterns": [
             "api_",
             "request",
@@ -180,8 +175,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "ai": {
-        "icon": "🤖",
-        "color": "#9cdcfe",
+        "color": "#7ab0d0",  # Softer cyan (was #9cdcfe)
         "patterns": [
             "generate",
             "complete",
@@ -194,8 +188,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "memory": {
-        "icon": "🧠",
-        "color": "#b5cea8",
+        "color": "#90b088",  # Softer green (was #b5cea8)
         "patterns": [
             "memory",
             "remember",
@@ -207,8 +200,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "workspace": {
-        "icon": "📝",
-        "color": "#4fc1ff",
+        "color": "#50a8c8",  # Softer blue (was #4fc1ff)
         "patterns": [
             "workspace",
             "new_answer",
@@ -218,8 +210,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "human_input": {
-        "icon": "💬",
-        "color": "#d29922",  # Warning/gold color to match queued input banner
+        "color": "#b89040",  # Softer gold (was #d29922)
         "patterns": [
             "human_input",
             "user_input",
@@ -227,8 +218,7 @@ TOOL_CATEGORIES = {
         ],
     },
     "subagent": {
-        "icon": "🚀",
-        "color": "#a371f7",
+        "color": "#9070c0",  # Softer purple (was #9070c0)
         "patterns": [
             "spawn_subagent",
             "subagent",
@@ -247,7 +237,7 @@ def get_tool_category(tool_name: str) -> dict:
         tool_name: The tool name to categorize.
 
     Returns:
-        Dict with icon, color, and category name.
+        Dict with color and category name.
     """
     tool_lower = tool_name.lower()
 
@@ -263,13 +253,12 @@ def get_tool_category(tool_name: str) -> dict:
         for pattern in info["patterns"]:
             if pattern in tool_lower:
                 return {
-                    "icon": info["icon"],
                     "color": info["color"],
                     "category": category_name,
                 }
 
     # Default to generic tool
-    return {"icon": "🔧", "color": "#858585", "category": "tool"}
+    return {"color": "#858585", "category": "tool"}
 
 
 def format_tool_display_name(tool_name: str) -> str:
@@ -316,10 +305,10 @@ class ToolCallCard(Static):
     can_focus = True
 
     STATUS_ICONS = {
-        "running": "⏳",
-        "success": "✓",
-        "error": "✗",
-        "background": "⚙️",  # For async/background operations (e.g., background shells)
+        "running": "◉",  # Solid circle - non-emoji for running
+        "success": "✓",  # Keep checkmark
+        "error": "✗",  # Keep X mark
+        "background": "○",  # Hollow circle for async/background operations
     }
 
     def __init__(
@@ -366,6 +355,9 @@ class ToolCallCard(Static):
         self._post_hooks: list = []  # Hooks that ran after tool
         self._injection_expanded: bool = False  # Track if injection content is expanded
 
+        # Collapsed state for non-subagent cards (default collapsed for cleaner UI)
+        self._collapsed: bool = True
+
         # Subagent-specific state
         self._is_subagent = self._category["category"] == "subagent"
         self._expanded = False  # For showing workspace inline
@@ -384,6 +376,10 @@ class ToolCallCard(Static):
 
         # Appearance animation state
         self.add_class("appearing")  # Start in appearing state
+
+        # Add collapsed class for non-subagent cards
+        if not self._is_subagent:
+            self.add_class("collapsed")
 
     def on_mount(self) -> None:
         """Start the elapsed time timer and complete appearance animation."""
@@ -506,24 +502,15 @@ class ToolCallCard(Static):
     def _render_collapsed_without_injection(self) -> Text:
         """Render card view without injection content (injection is in separate widget).
 
-        Design with hooks:
-        ```
-        🪝 timeout_hard: allowed
-        ▶ 📁 filesystem/write_file                              ⏳ running...
-          {"content": "In circuits humming...", "path": "/tmp/poem.txt"}
-        ```
-        or completed:
-        ```
-          📁 filesystem/read_file                               ✓ (0.3s)
-          {"path": "/tmp/example.txt"}
-          → File contents: Hello world...
-        ```
-        Note: Injection content is rendered separately in InjectionToggle widget.
+        Compact design - status inline after tool name, no fixed-width padding:
+        Collapsed: `▸ filesystem/read_file ✓ 0.3s`
+        Expanded:  `▾ filesystem/read_file ✓ 0.3s`
+                   `  {"path": "/tmp/example.txt"}`
+                   `  → File contents: Hello world...`
         """
         text = Text()
 
         # Low-value hooks to hide (these just add noise without useful info)
-        # Use prefix matching for patterns like round_timeout_hard_agent_a
         hidden_hook_prefixes = {
             "timeout_allowed",
             "round_allowed",
@@ -545,79 +532,82 @@ class ToolCallCard(Static):
                 continue
 
             if decision == "deny":
-                text.append("  🚫 ", style="bold red")
+                text.append("⊘ ", style="bold red")
                 text.append(f"{hook_name}: ", style="red")
                 text.append("BLOCKED", style="bold red")
                 if reason:
-                    text.append(f" - {reason[:40]}...\n" if len(reason) > 40 else f" - {reason}\n", style="dim red")
+                    reason_text = f" - {reason[:40]}..." if len(reason) > 40 else f" - {reason}"
+                    text.append(reason_text + "\n", style="dim red")
                 else:
                     text.append("\n")
-            else:
-                text.append("  🪝 ", style="dim magenta")
-                text.append(f"{hook_name}: ", style="dim magenta")
-                text.append("allowed\n", style="dim")
 
-        # Tool card content
-        icon = self._category["icon"]
-        status_icon = self.STATUS_ICONS.get(self._status, "⏳")
+        # Tool card content - compact single line format
+        status_icon = self.STATUS_ICONS.get(self._status, "◉")
         elapsed = self._get_elapsed_str()
 
-        # Line 1: Icon + name + status
+        # Expand/collapse indicator
         if self._status == "running":
             text.append("▶ ", style="bold cyan")
+        elif self._collapsed:
+            text.append("▸ ", style="dim")
         else:
-            text.append("  ")
+            text.append("▾ ", style="dim")
 
-        text.append(f"{icon} ", style=self._category["color"])
-
+        # Tool name with status-based styling
         if self._status == "running":
             text.append(self._display_name, style="bold cyan")
+        elif self._status == "error":
+            text.append(self._display_name, style="bold")
         else:
             text.append(self._display_name, style="bold")
 
-        # Padding to align status on right (use wider terminal width)
-        # Increased from 90 to 120 to push time further right on wide terminals
-        name_len = len(self._display_name) + 4
-        padding = max(1, 120 - name_len)
-        text.append(" " * padding)
-
+        # Status icon inline (no padding - flows naturally)
+        text.append(" ")
         if self._status == "success":
-            text.append(f"{status_icon}", style="bold green")
+            text.append(status_icon, style="green")
         elif self._status == "error":
-            text.append(f"{status_icon}", style="bold red")
+            text.append(status_icon, style="red")
         elif self._status == "running":
-            text.append(f"{status_icon}", style="bold yellow")
+            text.append(status_icon, style="yellow")
         else:
-            text.append(f"{status_icon}", style="yellow")
+            text.append(status_icon, style="dim yellow")
 
+        # Elapsed time (compact format)
         if elapsed:
             text.append(f" {elapsed}", style="dim")
         elif self._status == "running":
-            text.append(" running...", style="italic yellow")
+            text.append(" ...", style="dim italic")
 
-        # Line 2: Args (if available) - show more content
-        if self._params:
-            text.append("\n    ")
-            args_display = self._params
-            if len(args_display) > 120:
-                args_display = args_display[:117] + "..."
-            text.append(args_display, style="dim")
+        # Inline preview when collapsed - show hint of params/result in dim text
+        if self._collapsed:
+            preview = self._get_inline_preview()
+            if preview:
+                text.append(f"  {preview}", style="dim italic #555555")
 
-        # Line 3: Result or error preview (if completed)
-        if self._result:
-            text.append("\n    → ")
-            result_preview = self._result.replace("\n", " ")
-            if len(result_preview) > 110:
-                result_preview = result_preview[:107] + "..."
-            text.append(result_preview, style="dim green")
-        elif self._error:
-            text.append("\n    ✗ ")
-            error_preview = self._error.replace("\n", " ")
-            if len(error_preview) > 110:
-                error_preview = error_preview[:107] + "..."
-            text.append(error_preview, style="dim red")
+        # Expanded content - show params and result
+        if not self._collapsed:
+            # Args preview
+            if self._params:
+                text.append("\n  ")
+                args_display = self._params
+                if len(args_display) > 80:
+                    args_display = args_display[:77] + "..."
+                text.append(args_display, style="dim")
 
-        # Note: Injection content is now rendered in a separate InjectionToggle widget
+            # Result or error preview
+            if self._result:
+                text.append("\n  → ")
+                result_preview = self._result.replace("\n", " ")
+                if len(result_preview) > 75:
+                    result_preview = result_preview[:72] + "..."
+                text.append(result_preview, style="dim green")
+            elif self._error:
+                text.append("\n  ✗ ")
+                error_preview = self._error.replace("\n", " ")
+                if len(error_preview) > 75:
+                    error_preview = error_preview[:72] + "..."
+                text.append(error_preview, style="dim red")
+
         return text
 
     def _render_injection_content(self) -> Text:
@@ -703,53 +693,46 @@ class ToolCallCard(Static):
     def _render_subagent(self) -> Text:
         """Render specialized subagent card with task bullets and workspace.
 
-        Design:
-        ```
-        🚀 Spawn Subagents                                    ⏳ running...
-          • Task 1: Research competitor analysis
-          • Task 2: Analyze market trends
-          • Task 3: Generate summary report
-        [Click to expand workspace]
-        ```
+        Compact design - status inline after tool name:
+        `▶ Spawn Subagents ◉ ...`
+        `  • Task 1: Research competitor analysis`
         """
         text = Text()
 
-        # Header line with pulsing indicator when running
-        icon = self._category["icon"]
-        status_icon = self.STATUS_ICONS.get(self._status, "⏳")
+        # Header line - compact format with inline status
+        status_icon = self.STATUS_ICONS.get(self._status, "◉")
         elapsed = self._get_elapsed_str()
 
-        # Running indicator
+        # Expand/collapse indicator
         if self._status == "running":
-            text.append("▶ ", style="bold #a371f7")
+            text.append("▶ ", style="bold #9070c0")
+        elif self._expanded:
+            text.append("▾ ", style="dim")
         else:
-            text.append("  ")
+            text.append("▸ ", style="dim")
 
-        text.append(f"{icon} ", style=self._category["color"])
-
+        # Tool name
         if self._status == "running":
-            text.append(self._display_name, style="bold #a371f7")
+            text.append(self._display_name, style="bold #9070c0")
         else:
             text.append(self._display_name, style="bold")
 
-        # Padding for status alignment (use wider terminal width)
-        name_len = len(self._display_name) + 4
-        padding = max(1, 90 - name_len)
-        text.append(" " * padding)
-
+        # Status icon inline (no padding)
+        text.append(" ")
         if self._status == "success":
-            text.append(f"{status_icon}", style="bold green")
+            text.append(status_icon, style="green")
         elif self._status == "error":
-            text.append(f"{status_icon}", style="bold red")
+            text.append(status_icon, style="red")
         elif self._status == "running":
-            text.append(f"{status_icon}", style="bold #a371f7")
+            text.append(status_icon, style="#9070c0")
         else:
-            text.append(f"{status_icon}", style="#a371f7")
+            text.append(status_icon, style="dim #9070c0")
 
+        # Elapsed time
         if elapsed:
             text.append(f" {elapsed}", style="dim")
         elif self._status == "running":
-            text.append(" spawning...", style="italic #a371f7")
+            text.append(" ...", style="dim italic")
 
         # Render bullet list of subagent tasks
         if self._subagent_tasks:
@@ -760,7 +743,7 @@ class ToolCallCard(Static):
                 # Status indicator for each task
                 if task_status == "running":
                     bullet = "◉"
-                    style = "bold #a371f7"
+                    style = "bold #9070c0"
                 elif task_status == "completed":
                     bullet = "✓"
                     style = "green"
@@ -771,14 +754,14 @@ class ToolCallCard(Static):
                     bullet = "○"
                     style = "dim"
 
-                text.append(f"\n    {bullet} ", style=style)
+                text.append(f"\n  {bullet} ", style=style)
                 # Truncate long descriptions
                 if len(task_desc) > 60:
                     task_desc = task_desc[:57] + "..."
                 text.append(task_desc, style="dim" if task_status == "pending" else style)
         elif self._params:
             # Fallback: show params if no parsed tasks
-            text.append("\n    ")
+            text.append("\n  ")
             args_display = self._params
             if len(args_display) > 70:
                 args_display = args_display[:67] + "..."
@@ -788,30 +771,27 @@ class ToolCallCard(Static):
         if self._expanded:
             content = self._workspace_content or self._get_formatted_result()
             if content:
-                text.append("\n    ┌─ Details ──────────────────────────────────\n", style="dim #a371f7")
-                # Show workspace content with indentation
-                lines = content.split("\n")[:15]  # Limit lines
+                text.append("\n  ─────────────────────────────────────\n", style="dim #9070c0")
+                lines = content.split("\n")[:15]
                 for line in lines:
                     if len(line) > 70:
                         line = line[:67] + "..."
-                    text.append(f"    │ {line}\n", style="dim")
+                    text.append(f"  {line}\n", style="dim")
                 if len(content.split("\n")) > 15:
-                    text.append("    │ ...(more)...\n", style="dim italic")
-                text.append("    └──────────────────────────────────────────", style="dim #a371f7")
+                    text.append("  ...(more)...\n", style="dim italic")
         elif not self._expanded and (self._workspace_content or self._result):
-            # Show expand hint
-            text.append("\n    ", style="dim")
-            text.append("[click to expand]", style="dim italic #a371f7")
+            text.append("\n  ", style="dim")
+            text.append("[click to expand]", style="dim italic #9070c0")
 
-        # Result/error summary (when completed)
+        # Result/error summary (when completed and not expanded)
         if self._result and not self._expanded:
-            text.append("\n    → ")
+            text.append("\n  → ")
             result_preview = self._result.replace("\n", " ")
             if len(result_preview) > 55:
                 result_preview = result_preview[:52] + "..."
             text.append(result_preview, style="dim green")
         elif self._error:
-            text.append("\n    ✗ ")
+            text.append("\n  ✗ ")
             error_preview = self._error.replace("\n", " ")
             if len(error_preview) > 55:
                 error_preview = error_preview[:52] + "..."
@@ -831,18 +811,115 @@ class ToolCallCard(Static):
             secs = int(elapsed % 60)
             return f"({mins}m{secs}s)"
 
-    def on_click(self) -> None:
-        """Handle click - toggle expansion for subagents, or show modal for others.
+    def _get_available_preview_width(self) -> int:
+        """Calculate available width for inline preview based on terminal size."""
+        try:
+            if self.app and hasattr(self.app, "size"):
+                terminal_width = self.app.size.width
+                # Subtract: indicator(2) + name(~25) + status(1) + time(~8) + spacing(5)
+                used_width = len(self._display_name) + 20
+                available = terminal_width - used_width
+                return max(30, min(available, 200))  # Between 30 and 200 chars
+        except Exception:
+            pass
+        return 60  # Default
+
+    def _get_inline_preview(self, max_len: int = 0) -> str:
+        """Get inline preview of params or result for collapsed view.
+
+        Auto-sizes based on available terminal width if max_len not specified.
+        """
+        import json
+
+        if max_len == 0:
+            max_len = self._get_available_preview_width()
+
+        preview_parts = []
+
+        # Try to extract meaningful info from params
+        if self._params:
+            try:
+                params = json.loads(self._params)
+                if isinstance(params, dict):
+                    # Prioritize certain keys for preview, show multiple if space allows
+                    shown_keys = []
+                    for key in ["path", "file_path", "url", "query", "command", "content"]:
+                        if key in params:
+                            val = str(params[key])
+                            # Truncate value based on available space
+                            val_max = min(len(val), max(20, max_len // 2))
+                            if len(val) > val_max:
+                                val = val[: val_max - 3] + "..."
+                            shown_keys.append(f"{key}={val}")
+                            if len(" ".join(shown_keys)) > max_len - 20:
+                                break  # Stop if we've used most of the space
+                    preview_parts.extend(shown_keys)
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON, show truncated raw params
+                raw = self._params.replace("\n", " ").strip()
+                raw_max = min(len(raw), max_len - 10)
+                if len(raw) > raw_max:
+                    raw = raw[: raw_max - 3] + "..."
+                if raw:
+                    preview_parts.append(raw)
+
+        # Add result hint if completed and space allows
+        if self._result and self._status == "success":
+            current_len = len(" ".join(preview_parts))
+            remaining = max_len - current_len - 5
+            if remaining > 15:
+                result_hint = self._result.replace("\n", " ").strip()
+                if len(result_hint) > remaining:
+                    result_hint = result_hint[: remaining - 3] + "..."
+                if result_hint:
+                    preview_parts.append(f"→ {result_hint}")
+        elif self._error and self._status == "error":
+            current_len = len(" ".join(preview_parts))
+            remaining = max_len - current_len - 5
+            if remaining > 15:
+                error_hint = self._error.replace("\n", " ").strip()
+                if len(error_hint) > remaining:
+                    error_hint = error_hint[: remaining - 3] + "..."
+                if error_hint:
+                    preview_parts.append(f"✗ {error_hint}")
+
+        result = " ".join(preview_parts)
+        if len(result) > max_len:
+            result = result[: max_len - 3] + "..."
+        return result
+
+    def on_click(self, event: Click) -> None:
+        """Handle click - context-aware behavior.
+
+        - Click on left edge (x < 3): collapse if expanded
+        - Click when collapsed: expand
+        - Click when expanded (not on left edge): open detail modal
 
         Note: Injection content expansion is handled by the InjectionToggle widget,
-        which intercepts clicks on the injection area. Clicks elsewhere on the card
-        will open the detail modal.
+        which intercepts clicks on the injection area.
         """
         if self._is_subagent:
             self.toggle_expanded()
+            return
+
+        # Check if click is on the left edge (collapse zone)
+        click_x = event.x if hasattr(event, "x") else 0
+        on_left_edge = click_x < 3
+
+        if self._collapsed:
+            # Collapsed -> expand on any click
+            self._collapsed = False
+            self.remove_class("collapsed")
+            self.add_class("expanded")
+            self._refresh_main_content()
+        elif on_left_edge:
+            # Expanded + click on left edge -> collapse
+            self._collapsed = True
+            self.add_class("collapsed")
+            self.remove_class("expanded")
+            self._refresh_main_content()
         else:
-            # Always open modal for non-subagent cards
-            # (injection area has its own click handler via InjectionToggle)
+            # Expanded + click elsewhere -> open detail modal
             self.post_message(self.ToolCardClicked(self))
 
     def _has_injection_content(self) -> bool:
@@ -1162,8 +1239,8 @@ class ToolCallCard(Static):
 
     @property
     def icon(self) -> str:
-        """Get category icon."""
-        return self._category["icon"]
+        """Get category icon (deprecated - returns empty string)."""
+        return ""
 
     @property
     def params(self) -> Optional[str]:

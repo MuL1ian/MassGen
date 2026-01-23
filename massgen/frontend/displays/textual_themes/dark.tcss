@@ -2143,14 +2143,13 @@ Footer {
 ToolCallCard {
     width: 100%;
     height: auto;
-    min-height: 2;
+    min-height: 1;
     max-height: 6;
-    padding: 0 1;
-    margin: 0 0 1 1;
-    border-left: thick $border-highlight;
-    border-top: solid $border-default;
-    border-bottom: solid $border-default;
-    border-right: none;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
+    background: transparent;
+    border: none;
+    border-left: solid $border-default;
 }
 
 /* Tool card appearance animation - fade in effect */
@@ -2162,122 +2161,117 @@ ToolCallCard.appeared {
     opacity: 1.0;
 }
 
+/* Collapsed state - single line height */
+ToolCallCard.collapsed {
+    max-height: 1;
+    min-height: 1;
+}
+
+/* Expanded state */
+ToolCallCard.expanded {
+    max-height: 8;
+}
+
 /* ToolCallCard with injection content needs more height */
 ToolCallCard.has-injection {
     max-height: 20;
 }
 
 ToolCallCard:hover {
-    background: $bg-surface-2;
-    border-top: solid $border-highlight;
-    border-bottom: solid $border-highlight;
-    border-right: none;
+    background: $bg-surface;
+    border-left: solid $border-highlight;
 }
 
 ToolCallCard:focus {
-    background: $bg-surface-2;
-    border-top: solid $accent-primary;
-    border-bottom: solid $accent-primary;
-    border-right: none;
+    background: $bg-surface;
+    border-left: solid $accent-primary;
     outline: none;
 }
 
 ToolCallCard.status-running {
-    border-top: solid $border-default;
-    border-bottom: solid $border-default;
-    border-right: none;
-    border-left: thick $accent-primary;
-    background: $bg-surface;
+    border-left: solid $accent-primary;
+    background: transparent;
 }
 
 ToolCallCard.status-success {
-    border-top: solid $border-default;
-    border-bottom: solid $border-default;
-    border-right: none;
-    border-left: thick $accent-success;
-    background: $bg-base;
+    border-left: solid $accent-success;
+    background: transparent;
 }
 
 ToolCallCard.status-error {
-    border-top: solid $border-default;
-    border-bottom: solid $border-default;
-    border-right: none;
-    border-left: thick $accent-error;
-    background: #1a0f0f;
+    border-left: solid $accent-error;
+    background: #1a0f0f20;
 }
 
 ToolCallCard.status-background {
-    border-top: solid $border-default;
-    border-bottom: solid $border-default;
-    border-right: none;
-    border-left: thick $accent-warning;
-    background: #1a1610;
+    border-left: solid $accent-warning;
+    background: transparent;
 }
 
 /* Tool type category colors - refined palette */
 ToolCallCard.type-filesystem {
-    border-left: thick $accent-success;
+    border-left: solid $accent-success;
 }
 
 ToolCallCard.type-web {
-    border-left: thick $accent-primary;
+    border-left: solid $accent-primary;
 }
 
 ToolCallCard.type-code {
-    border-left: thick $accent-warning;
+    border-left: solid $accent-warning;
 }
 
 ToolCallCard.type-database {
-    border-left: thick $accent-special;
+    border-left: solid $accent-special;
 }
 
 ToolCallCard.type-git {
-    border-left: thick $agent-4;
+    border-left: solid $agent-4;
 }
 
 ToolCallCard.type-api {
-    border-left: thick #db6d28;
+    border-left: solid #db6d28;
 }
 
 ToolCallCard.type-ai {
-    border-left: thick #79c0ff;
+    border-left: solid #79c0ff;
 }
 
 ToolCallCard.type-memory {
-    border-left: thick #7ee787;
+    border-left: solid #7ee787;
 }
 
 ToolCallCard.type-workspace {
-    border-left: thick #39d353;
+    border-left: solid #39d353;
 }
 
 /* === Subagent Tool Cards - Special styling for spawn_subagents === */
 ToolCallCard.type-subagent {
-    border-left: thick $accent-special;
+    border-left: solid $accent-special;
     background: #1a1526;
     max-height: 15;
     padding: 0 1;
 }
 
 ToolCallCard.type-subagent.status-running {
-    border-left: thick $accent-special;
+    border-left: solid $accent-special;
     background: #1f1830;
     border: solid $accent-special;
-    border-left: thick $accent-special;
+    border-left: solid $accent-special;
 }
 
 ToolCallCard.type-subagent.status-success {
-    border-left: thick $accent-success;
+    border-left: solid $accent-success;
     background: $agent-2-bg;
 }
 
 ToolCallCard.type-subagent.status-error {
-    border-left: thick $accent-error;
+    border-left: solid $accent-error;
     background: #1f0d0f;
 }
 
 ToolCallCard.type-subagent.status-background {
-    border-left: thick $accent-warning;
+    border-left: solid $accent-warning;
     background: #1f1a10;
 }
 
@@ -2363,80 +2357,112 @@ AgentPanel .streaming_label {
 
 TimelineSection .timeline-text {
     width: 100%;
-    padding: 0 0 0 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
 }
 
 TimelineSection .timeline-text.status {
     color: $accent-primary;
     border-left: solid $accent-primary;
-    padding-left: 1;
-    margin-left: 1;
+    padding-left: 2;
+    margin: 1 0 1 1;
 }
 
+/* Thinking/reasoning blocks - continuous vertical line */
 TimelineSection .timeline-text.thinking {
     color: $fg-muted;
-    border-left: solid $border-highlight;
-    padding-left: 1;
-    margin-left: 1;
+    border-left: solid #484f58;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
+}
+
+/* Inline reasoning - continuous with thinking blocks */
+TimelineSection .timeline-text.reasoning-inline {
+    color: #8b949e;
+    border-left: solid #484f58;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
 }
 
 TimelineSection .timeline-text.injection {
     color: #d2a8ff;
     background: #2d2d4a;
-    border-left: thick $accent-special;
-    padding-left: 1;
-    margin: 1 0;
+    border-left: solid $accent-special;
+    padding-left: 2;
+    margin: 1 0 1 1;
 }
 
 TimelineSection .timeline-text.reminder {
     color: #f9c74f;
     background: #4a3d2d;
-    border-left: thick $accent-warning;
-    padding-left: 1;
-    margin: 1 0;
+    border-left: solid $accent-warning;
+    padding-left: 2;
+    margin: 1 0 1 1;
 }
 
 TimelineSection .timeline-text.response {
     color: $accent-success;
     border-left: solid $accent-success;
-    padding-left: 1;
-    margin-left: 1;
-    background: $agent-2-bg;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
 }
 
 TimelineSection .timeline-text.answer {
     color: $accent-warning;
-    border-left: thick $accent-warning;
-    padding-left: 1;
-    margin-left: 1;
-    background: #1f1a0d;
+    border-left: solid $accent-warning;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
 }
 
 /* Final presentation content - clean, no background */
 TimelineSection .timeline-text.final-answer {
     color: #e6e6e6;
-    padding-left: 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
 }
 
 /* Post-evaluation content - subtle blue tint */
 TimelineSection .timeline-text.post-eval {
     color: #a8c7fa;
     border-left: solid $accent-primary;
-    padding-left: 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
+}
+
+/* Pinned Task Plan Container - stays at top of agent panel */
+.pinned-task-plan {
+    width: 100%;
+    height: auto;
+    max-height: 12;
+    margin: 0 0 1 0;
+    padding: 0;
+    background: $bg-surface;
+    border-bottom: solid $border-default;
+}
+
+.pinned-task-plan.hidden {
+    display: none;
+}
+
+.pinned-task-plan.collapsed {
+    max-height: 2;
+    overflow: hidden;
 }
 
 /* Task Plan Card - Visual todo list from Planning MCP */
 TaskPlanCard {
     width: 100%;
     height: auto;
-    min-height: 3;
-    padding: 0 1;
-    margin: 0 0 1 1;
-    background: #1a1f2e;
-    border-left: thick $accent-special;
+    min-height: 2;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
+    background: transparent;
+    border-left: solid $accent-special;
+}
+
+/* Update animation - brief highlight */
+TaskPlanCard.updated {
+    background: #2d2d4a;
 }
 
 TaskPlanCard .task-header {
@@ -2475,8 +2501,8 @@ TaskPlanCard .task-count {
 TimelineSection .timeline-text.vote {
     color: $accent-special;
     border-left: solid $accent-special;
-    padding-left: 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
 }
 
 TimelineSection .timeline-text.truncation-notice,

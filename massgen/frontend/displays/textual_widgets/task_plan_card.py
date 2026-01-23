@@ -146,8 +146,10 @@ class TaskPlanCard(Static):
         yield Static(self._build_content())
 
     def on_click(self) -> None:
-        """Open the task plan modal when clicked."""
-        self.post_message(self.OpenModal(self._tasks, self._focused_task_id))
+        """Toggle expanded state on click. Double-click opens modal."""
+        # Toggle expanded/collapsed
+        self.expanded = not self.expanded
+        self._refresh_content()
 
     def _refresh_content(self) -> None:
         """Refresh the displayed content."""
@@ -193,7 +195,7 @@ class TaskPlanCard(Static):
         return 60  # Default reasonable width
 
     def _build_content(self) -> Text:
-        """Build the card content as Rich Text."""
+        """Build the card content as Rich Text - compact single-line tasks."""
         text = Text()
 
         if not self._tasks:
@@ -205,35 +207,26 @@ class TaskPlanCard(Static):
         completed = sum(1 for t in self._tasks if t.get("status") == "completed")
         in_progress = sum(1 for t in self._tasks if t.get("status") == "in_progress")
 
-        # Show expand/collapse arrow if there are more tasks than max visible
-        max_visible = self._get_max_visible()
-        has_hidden = total > max_visible and not self.expanded
+        # Always show collapse indicator (▾ expanded, ▸ collapsed)
+        arrow = "▾" if self.expanded else "▸"
 
-        arrow = "▼" if self.expanded else "▶" if has_hidden else ""
-        header_prefix = f"{arrow} " if arrow else ""
-
-        # Show in-progress indicator in header
-        progress_indicator = ""
+        # Compact header: "▸ Tasks (3/5) • 1 active"
+        header = f"{arrow} Tasks ({completed}/{total})"
         if in_progress > 0:
-            progress_indicator = f" ● {in_progress} active"
-
-        text.append(f"{header_prefix}📋 Tasks ({completed}/{total}){progress_indicator}\n", style="bold #a371f7")
+            header += f" • {in_progress} active"
+        text.append(header, style="bold #9070c0")
 
         # Get visible tasks based on operation and expanded state
         visible_tasks, start_idx = self._get_visible_tasks()
-
-        # Get dynamic description length
         max_desc_len = self._get_max_description_length()
 
-        # Show "more above" indicator
+        # Show "more above" indicator inline
         if start_idx > 0 and not self.expanded:
-            text.append(f"  ↑ {start_idx} more above\n", style="dim italic")
+            text.append(f"  ↑{start_idx}", style="dim")
 
-        # Render each visible task
+        # Render each visible task on same line if collapsed, separate lines if expanded
         for i, task in enumerate(visible_tasks):
             is_focused = task.get("id") == self._focused_task_id
-
-            # Status icon
             status = task.get("status", "pending")
             icon = self.STATUS_ICONS.get(status, "○")
 
@@ -242,12 +235,8 @@ class TaskPlanCard(Static):
             if len(desc) > max_desc_len:
                 desc = desc[: max_desc_len - 3] + "..."
 
-            # Style based on status and focus
-            if is_focused and status == "completed":
-                # Focused completed task - subtle highlight (just completed!)
-                style = "bold #7ee787"  # Soft green text, no background
-                icon = "✓"
-            elif status == "completed":
+            # Style based on status
+            if status == "completed":
                 style = "dim #6e7681"
             elif status == "in_progress":
                 style = "bold #58a6ff"
@@ -256,36 +245,31 @@ class TaskPlanCard(Static):
             else:
                 style = "#8b949e"
 
-            # Add focus highlight for non-completed focused tasks
-            if is_focused and status != "completed":
-                style = f"{style} on #21262d"
+            # Add focus highlight
+            if is_focused:
+                icon = "▶" if status != "completed" else "✓"
+                if status == "completed":
+                    style = "bold #7ee787"
 
             # Priority indicator
             priority = task.get("priority", "medium")
-            priority_marker = ""
-            if priority == "high":
-                priority_marker = " !"
+            priority_marker = " !" if priority == "high" else ""
 
-            # Extra visual indicator for focused task
-            prefix = "▶ " if is_focused else "  "
-            text.append(f"{prefix}{icon} {desc}{priority_marker}\n", style=style)
+            # Always use newlines for readability
+            text.append(f"\n {icon} {desc}{priority_marker}", style=style)
 
-        # Show "more below" indicator or click hint
+        # Show "more below" indicator
         remaining = total - (start_idx + len(visible_tasks))
         if remaining > 0 and not self.expanded:
-            text.append(f"  ↓ {remaining} more below (click to expand)", style="dim italic")
-        elif self.expanded and total > max_visible:
-            text.append("  (click to collapse)", style="dim italic")
+            text.append(f"  ↓{remaining}", style="dim")
 
-        # Render reminder at bottom if set
+        # Render reminder if set
         if self._reminder:
-            text.append("\n")
-            # Truncate reminder if too long
             reminder_text = self._reminder.replace("\n", " ").strip()
-            max_len = self._get_max_description_length() + 10  # Allow slightly more for reminder
+            max_len = self._get_max_description_length()
             if len(reminder_text) > max_len:
                 reminder_text = reminder_text[: max_len - 3] + "..."
-            text.append(f"💡 {reminder_text}", style="bold #ffa657 on #4a3d2d")
+            text.append(f"\n 💡 {reminder_text}", style="bold #ffa657")
 
         return text
 

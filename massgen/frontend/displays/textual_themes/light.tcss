@@ -1936,15 +1936,24 @@ Footer {
 ToolCallCard {
     width: 100%;
     height: auto;
-    min-height: 2;
+    min-height: 1;
     max-height: 6;
-    padding: 0 1;
-    margin: 0 0 1 1;
-    background: #f8f9fa;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
+    background: transparent;
+    border: none;
     border-left: solid #dee2e6;
-    border-top: solid #dee2e6;
-    border-bottom: solid #dee2e6;
-    border-right: none;
+}
+
+/* Collapsed state - single line height */
+ToolCallCard.collapsed {
+    max-height: 1;
+    min-height: 1;
+}
+
+/* Expanded state */
+ToolCallCard.expanded {
+    max-height: 8;
 }
 
 /* ToolCallCard with injection content needs more height */
@@ -1953,112 +1962,100 @@ ToolCallCard.has-injection {
 }
 
 ToolCallCard:hover {
-    background: #e9ecef;
-    border-top: solid #adb5bd;
-    border-bottom: solid #adb5bd;
-    border-right: none;
+    background: #f0f0f0;
+    border-left: solid #adb5bd;
 }
 
 ToolCallCard:focus {
-    background: #dee2e6;
-    border-top: solid #2196f3;
-    border-bottom: solid #2196f3;
-    border-right: none;
+    background: #e8e8e8;
+    border-left: solid #2196f3;
     outline: none;
 }
 
 ToolCallCard.status-running {
-    border-top: solid #2196f3;
-    border-bottom: solid #2196f3;
-    border-right: none;
-    background: #e3f2fd;
+    border-left: solid #2196f3;
+    background: transparent;
 }
 
 ToolCallCard.status-success {
-    border-top: solid #4caf50;
-    border-bottom: solid #4caf50;
-    border-right: none;
-    background: #e8f5e9;
+    border-left: solid #4caf50;
+    background: transparent;
 }
 
 ToolCallCard.status-error {
-    border-top: solid #f44336;
-    border-bottom: solid #f44336;
-    border-right: none;
-    background: #ffebee;
+    border-left: solid #f44336;
+    background: #ffebee20;
 }
 
 ToolCallCard.status-background {
-    border-top: solid #ff9800;
-    border-bottom: solid #ff9800;
-    border-right: none;
-    background: #fff8e1;
+    border-left: solid #ff9800;
+    background: transparent;
 }
 
 /* Tool type category colors */
 ToolCallCard.type-filesystem {
-    border-left: tall #4caf50;
+    border-left: solid #4caf50;
 }
 
 ToolCallCard.type-web {
-    border-left: tall #2196f3;
+    border-left: solid #2196f3;
 }
 
 ToolCallCard.type-code {
-    border-left: tall #ff9800;
+    border-left: solid #ff9800;
 }
 
 ToolCallCard.type-database {
-    border-left: tall #9c27b0;
+    border-left: solid #9c27b0;
 }
 
 ToolCallCard.type-git {
-    border-left: tall #f44336;
+    border-left: solid #f44336;
 }
 
 ToolCallCard.type-api {
-    border-left: tall #795548;
+    border-left: solid #795548;
 }
 
 ToolCallCard.type-ai {
-    border-left: tall #00bcd4;
+    border-left: solid #00bcd4;
 }
 
 ToolCallCard.type-memory {
-    border-left: tall #8bc34a;
+    border-left: solid #8bc34a;
 }
 
 ToolCallCard.type-workspace {
-    border-left: tall #2196f3;
+    border-left: solid #2196f3;
 }
 
 /* === Subagent Tool Cards - Special styling for spawn_subagents === */
 ToolCallCard.type-subagent {
-    border-left: tall #9c27b0;
+    border-left: solid #9c27b0;
     background: #f3e5f5;
     max-height: 15;
     padding: 0 1;
 }
 
 ToolCallCard.type-subagent.status-running {
-    border-left: tall #9c27b0;
+    border-left: solid #9c27b0;
     background: #ede7f6;
     border: solid #9c27b0;
-    border-left: tall #9c27b0;
+    border-left: solid #9c27b0;
 }
 
 ToolCallCard.type-subagent.status-success {
-    border-left: tall #4caf50;
+    border-left: solid #4caf50;
     background: #e8f5e9;
 }
 
 ToolCallCard.type-subagent.status-error {
-    border-left: tall #f44336;
+    border-left: solid #f44336;
     background: #ffebee;
 }
 
 ToolCallCard.type-subagent.status-background {
-    border-left: tall #ff9800;
+    border-left: solid #ff9800;
     background: #fff8e1;
 }
 
@@ -2144,80 +2141,112 @@ AgentPanel .streaming_label {
 
 TimelineSection .timeline-text {
     width: 100%;
-    padding: 0 0 1 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
 }
 
 TimelineSection .timeline-text.status {
     color: #2196f3;
     border-left: solid #2196f3;
-    padding-left: 1;
-    margin-left: 1;
+    padding-left: 2;
+    margin: 1 0 1 1;
 }
 
+/* Thinking/reasoning blocks - continuous vertical line */
 TimelineSection .timeline-text.thinking {
-    color: #888888;
+    color: #666666;
     border-left: solid #cccccc;
-    padding-left: 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
+}
+
+/* Inline reasoning - continuous with thinking blocks */
+TimelineSection .timeline-text.reasoning-inline {
+    color: #666666;
+    border-left: solid #cccccc;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
 }
 
 TimelineSection .timeline-text.injection {
     color: #7c3aed;
     background: #ede9fe;
-    border-left: thick #a855f7;
-    padding-left: 1;
-    margin: 1 0;
+    border-left: solid #a855f7;
+    padding-left: 2;
+    margin: 1 0 1 1;
 }
 
 TimelineSection .timeline-text.reminder {
     color: #d97706;
     background: #fef3c7;
-    border-left: thick #f59e0b;
-    padding-left: 1;
-    margin: 1 0;
+    border-left: solid #f59e0b;
+    padding-left: 2;
+    margin: 1 0 1 1;
 }
 
 TimelineSection .timeline-text.response {
     color: #4caf50;
     border-left: solid #4caf50;
-    padding-left: 1;
-    margin-left: 1;
-    background: #e8f5e9;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
 }
 
 TimelineSection .timeline-text.answer {
     color: #f57c00;
-    border-left: thick #f57c00;
-    padding-left: 1;
-    margin-left: 1;
-    background: #fff3e0;
+    border-left: solid #f57c00;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
 }
 
 /* Final presentation content - clean, no background */
 TimelineSection .timeline-text.final-answer {
     color: #1f2937;
-    padding-left: 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
 }
 
 /* Post-evaluation content - subtle blue tint */
 TimelineSection .timeline-text.post-eval {
     color: #1e40af;
     border-left: solid #3b82f6;
-    padding-left: 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
+}
+
+/* Pinned Task Plan Container - stays at top of agent panel */
+.pinned-task-plan {
+    width: 100%;
+    height: auto;
+    max-height: 12;
+    margin: 0 0 1 0;
+    padding: 0;
+    background: #fafafa;
+    border-bottom: solid #e0e0e0;
+}
+
+.pinned-task-plan.hidden {
+    display: none;
+}
+
+.pinned-task-plan.collapsed {
+    max-height: 2;
+    overflow: hidden;
 }
 
 /* Task Plan Card - Visual todo list from Planning MCP */
 TaskPlanCard {
     width: 100%;
     height: auto;
-    min-height: 3;
-    padding: 0 1;
-    margin: 0 0 1 1;
-    background: #f5f0ff;
-    border-left: thick #a855f7;
+    min-height: 2;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
+    background: transparent;
+    border-left: solid #a855f7;
+}
+
+/* Update animation - brief highlight */
+TaskPlanCard.updated {
+    background: #ede9fe;
 }
 
 TaskPlanCard .task-header {
@@ -2256,8 +2285,8 @@ TaskPlanCard .task-count {
 TimelineSection .timeline-text.vote {
     color: #9c27b0;
     border-left: solid #9c27b0;
-    padding-left: 1;
-    margin-left: 1;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
 }
 
 TimelineSection .timeline-text.truncation-notice {
