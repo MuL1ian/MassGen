@@ -34,7 +34,6 @@ from .modals import (  # Browser modals; Status modals; Coordination modals; Con
     TurnDetailModal,
     VoteResultsModal,
     WorkspaceBrowserModal,
-    WorkspaceFilesModal,
 )
 
 __all__ = [
@@ -69,7 +68,6 @@ __all__ = [
     "KeyboardShortcutsModal",
     # Workspace modals
     "FileInspectionModal",
-    "WorkspaceFilesModal",
     # Agent output modal
     "AgentOutputModal",
 ]

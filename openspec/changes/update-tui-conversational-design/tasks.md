@@ -124,38 +124,66 @@ Each phase section ends with a **CHECKPOINT** task to remind you to pause for ap
 - Click on task card opens full modal (same as Ctrl+T)
 - Removed expand/collapse toggle - modal provides full view
 
-## 6. Phase 6: Modals + Enhanced Previews
+## 6. Phase 6: Modals + Enhanced Previews ✓ COMPLETED
 
 ### 6.1 Modal Visual Redesign
-- [ ] 6.1.1 Update all modal containers to use rounded borders
-- [ ] 6.1.2 Remove emoji from modal titles
-- [ ] 6.1.3 Use bullet separators in modal headers
-- [ ] 6.1.4 Soften border colors across all modals
-- [ ] 6.1.5 Improve internal padding and margins
-- [ ] 6.1.6 Unify button styling across modals
-- [ ] 6.1.7 Polish close button with softer hover states
+- [x] 6.1.1 Update all modal containers to use solid borders (softer than thick)
+- [x] 6.1.2 Remove emoji from modal titles
+- [x] 6.1.3 Use bullet separators in modal headers
+- [x] 6.1.4 Soften border colors across all modals (hardcoded hex colors - theme vars don't work in DEFAULT_CSS)
+- [x] 6.1.5 Improve internal padding and margins
+- [x] 6.1.6 Unify button styling across modals
+- [x] 6.1.7 Polish close button with softer hover states
 
-### 6.2 Diff View for File Edits
+**Implementation Notes:**
+- Files modified: `task_plan_modal.py`, `tool_detail_modal.py`, `background_tasks_modal.py`, `plan_approval_modal.py`, `subagent_modal.py`
+- All modals now use `border: solid` instead of `border: thick`
+- **Important**: Theme variables (`$accent-*`) don't work in modal `DEFAULT_CSS` blocks - used hardcoded hex colors instead:
+  - `#a371f7` (purple), `#d29922` (warning/yellow), `#39c5cf` (info/cyan), `#58a6ff` (primary/blue)
+  - `#3fb950` (success/green), `#f85149` (error/red), `#8b949e` (muted), `#e6edf3` (primary text)
+  - `#0d1117` (bg-base), `#1c2128` (surface), `#161b22` (surface-2), `#21262d` (surface-3), `#30363d` (border)
+- Title changes: TaskPlanModal (📋 → "Task Plan"), ToolDetailModal (emoji removed), BackgroundTasksModal (⚙️ → "Background Operations"), PlanApprovalModal ("Plan Ready for Execution" → "Plan Approval"), SubagentModal (🚀 → "Subagent . ")
+- Close buttons have softer colors (#8b949e) with hover states (#e6edf3)
+
+### 6.2 Diff View for File Edits (DEFERRED)
 - [ ] 6.2.1 Create `DiffView` widget for displaying file changes
 - [ ] 6.2.2 Implement colored diff rendering (green +, red -)
 - [ ] 6.2.3 Add line numbers to diff display
 - [ ] 6.2.4 Show context lines around changes
 - [ ] 6.2.5 Add "+X -Y lines" summary header
 - [ ] 6.2.6 Integrate diff view into tool result display for write_file/edit operations
+**Note: Deferred to a future phase.**
 
-### 6.3 Workspace Modal Improvements
-- [ ] 6.3.1 Implement tree view for directory structure (replace flat list)
-- [ ] 6.3.2 Add collapsible directory nodes
-- [ ] 6.3.3 Show file statistics (number of files, +X -Y lines)
-- [ ] 6.3.4 Add simple text-based file/folder icons
-- [ ] 6.3.5 Show summary line (agents, turns, consensus status)
+### 6.3 Workspace Browser Improvements
+- [x] 6.3.1 Implemented proper tree view with ASCII connectors (├──, └──, │)
+- [x] 6.3.2 Collapsible directories - dirs with >3 files collapsed by default
+- [x] 6.3.3 Click directory header (▶/▼) to expand/collapse
+- [x] 6.3.4 Filter out subagent directories (UUID patterns, agent_*, subagent_*, gitignored dirs)
+- [x] 6.3.5 Removed redundant WorkspaceFilesModal - consolidated into WorkspaceBrowserModal
+- [x] 6.3.6 Removed emoji from UI (📁 → text, 📂 → text)
+
+**Implementation Notes:**
+- Files modified: `browser_modals.py`, `workspace_modals.py` (removed WorkspaceFilesModal), `textual/__init__.py`, `textual/widgets/__init__.py`, `textual/widgets/modals/__init__.py`, `textual_terminal_display.py`
+- Tree display shows: `▶ dirname/ (count)` for collapsed, `▼ dirname/` for expanded
+- Added `_expanded_dirs` set and `_dir_file_counts` dict for state tracking
+- `_toggle_directory()` and `_refresh_file_list()` methods handle expansion
+- Directory filtering uses `SKIP_DIRS_FOR_LOGGING` constant + custom patterns for UUIDs, timestamps, agent dirs
+- `/workspace` command now calls `_show_workspace_browser()` instead of removed modal
 
 ### 6.4 Better Tool Result Previews
-- [ ] 6.4.1 Create formatted preview renderer for common result types
-- [ ] 6.4.2 Replace raw dict display with readable formatting
-- [ ] 6.4.3 Implement smart truncation with "show more" expansion
-- [ ] 6.4.4 Add basic syntax highlighting for code in results
-- [ ] **6.4.5 CHECKPOINT: User approval for modals + enhanced previews**
+- [x] 6.4.1 Create formatted preview renderer for common result types (ResultRenderer class)
+- [x] 6.4.2 Replace raw dict display with readable formatting
+- [x] 6.4.3 Implement smart truncation with line/char limits
+- [x] 6.4.4 Add basic syntax highlighting for code in results (JSON, Python, etc.)
+- [x] **6.4.5 CHECKPOINT: User approval for modals + enhanced previews ✓**
+
+**Implementation Notes:**
+- New file created: `result_renderer.py`
+- Content type detection: JSON, Python, JavaScript, TypeScript, Markdown, YAML, XML, Shell
+- Uses `rich.syntax.Syntax` for syntax highlighting
+- Smart truncation with configurable limits (50 lines, 5000 chars default)
+- JSON is pretty-printed before highlighting
+- Integrated into ToolDetailModal for arguments and output display
 
 ## 7. Phase 7: Header + Final Polish
 
@@ -210,7 +238,13 @@ Each phase section ends with a **CHECKPOINT** task to remind you to pause for ap
 - [ ] 8.3.7 Make Tasks segment clickable → opens Task Plan Modal
 - [ ] 8.3.8 Wire ribbon to update when switching agent tabs
 - [ ] 8.3.9 Position ribbon below tab bar in layout
-- [ ] **8.3.10 CHECKPOINT: User approval for status ribbon**
+- [ ] 8.3.10 Add round timeout display with tiered timeouts:
+  - Show soft timeout countdown (from `initial_round_timeout_seconds` or `subsequent_round_timeout_seconds`)
+  - Show grace period when soft expires (from `round_timeout_grace_seconds`)
+  - Show hard timeout as soft + grace total
+  - Format: `⏱ 5:30 soft │ 2:00 grace` or `⏱ 7:30 remaining`
+- [ ] 8.3.11 Update timeout display colors: normal (muted), warning (<30s soft, yellow), grace period (orange), critical (<30s total, red)
+- [ ] **8.3.12 CHECKPOINT: User approval for status ribbon**
 
 ### 8.4 Phase Indicator Bar (Phase 8d)
 - [ ] 8.4.1 Create new `PhaseIndicatorBar` widget
@@ -241,12 +275,21 @@ Each phase section ends with a **CHECKPOINT** task to remind you to pause for ap
 - [ ] **8.6.6 CHECKPOINT: User approval for round separators**
 
 ### 8.7 Final Answer Card Redesign (Phase 8g)
-- [ ] 8.7.1 Update final answer card with rounded corners (╭╮╰╯)
-- [ ] 8.7.2 Add left accent border (▌) for visual weight
-- [ ] 8.7.3 Add summary footer (consensus status, rounds, agents, cost)
-- [ ] 8.7.4 Improve internal padding and whitespace
-- [ ] 8.7.5 Apply proper markdown rendering
-- [ ] **8.7.6 CHECKPOINT: User approval for final answer card**
+- [ ] 8.7.1 Remove trophy emoji from title, use "Final Answer" (title case, not ALL CAPS)
+- [ ] 8.7.2 Replace gold colors (#ffd700) with muted green ($accent-green, desaturated)
+- [ ] 8.7.3 Simplify vote summary: "2 agents agreed • 1 round" instead of cryptic "Winner: A1.1 (2v) | Votes: A1.1(2)"
+- [ ] 8.7.4 Use rounded corners (border: round) for softer appearance
+- [ ] 8.7.5 Remove external "✓ Complete" progress bar (redundant)
+- [ ] 8.7.6 Add summary footer inside card (consensus status, rounds, agents, cost)
+- [ ] 8.7.7 Use softer border weight (solid instead of double/thick)
+- [ ] 8.7.8 Post-eval status cleanup:
+  - Change completed title from "✅ FINAL ANSWER" to "✓ Final Answer"
+  - Change "🔍 Evaluating..." to "◉ Evaluating..."
+  - Change "🔄 Restart Requested" to "↻ Restart Requested"
+  - Keep "✓ Verified" as-is (already clean)
+- [ ] 8.7.9 Improve internal padding and whitespace
+- [ ] 8.7.10 Apply proper markdown rendering
+- [ ] **8.7.11 CHECKPOINT: User approval for final answer card**
 
 ### 8.8 Enhanced Tab Design (Phase 8h)
 - [ ] 8.8.1 Implement two-line tab display (agent name bold + model name muted)
@@ -282,20 +325,67 @@ Each phase section ends with a **CHECKPOINT** task to remind you to pause for ap
 
 ---
 
-## 9. Testing & Verification
+## 9. Phase 9: Remove Outer Container Border
 
-- [ ] 9.1 Run MassGen with multi-agent config, verify welcome screen
-- [ ] 9.2 Test mode toggle interactions
-- [ ] 9.3 Verify tool cards collapse/expand behavior
-- [ ] 9.4 Test task list progress display
-- [ ] 9.5 Verify all keyboard shortcuts still work
-- [ ] 9.6 Test both dark and light themes
-- [ ] 9.7 Verify modal styling consistency
-- [ ] 9.8 Test diff view with file edit operations
-- [ ] 9.9 Test workspace modal tree view navigation
-- [ ] 9.10 Verify tool result preview formatting
-- [ ] 9.11 Test agent status ribbon updates during execution
-- [ ] 9.12 Verify phase indicator bar shows correct coordination state
-- [ ] 9.13 Test session info panel updates
-- [ ] 9.14 Verify activity pulse animation works
-- [ ] 9.15 Test final answer card with consensus results
+### 9.1 Container Styling
+- [ ] 9.1.1 Remove border from main app container (Screen or top-level widget)
+- [ ] 9.1.2 Ensure content flows edge-to-edge without outer frame
+- [ ] 9.1.3 Update dark.tcss and light.tcss to remove container borders
+- [ ] 9.1.4 Test that keyboard focus rings and modals still work correctly
+- [ ] **9.1.5 CHECKPOINT: User approval for borderless container**
+
+---
+
+## 10. Phase 10: Content Area Cleanup
+
+### 10.1 Remove Redundant Agent Header
+- [ ] 10.1.1 Remove "agent_a [1]" style header from content area (redundant with tabs)
+- [ ] 10.1.2 Move round info to Agent Status Ribbon (handled in 8.3.10)
+- [ ] 10.1.3 Ensure content area starts directly with agent output
+- [ ] 10.1.4 Update all themes to remove content header styling
+- [ ] **10.1.5 CHECKPOINT: User approval for content area cleanup**
+
+---
+
+## 11. Phase 11: UX Polish
+
+### 11.1 Collapsible Reasoning Blocks
+Long `<thinking>` or reasoning sections should be collapsed by default to improve readability.
+- [ ] 11.1.1 Detect reasoning/thinking blocks in content (look for `<thinking>` tags or "Thinking:" prefixes)
+- [ ] 11.1.2 Show first 3-5 lines of reasoning by default
+- [ ] 11.1.3 Add "[+N more lines]" expander link below truncated content
+- [ ] 11.1.4 Implement click to expand/collapse reasoning blocks
+- [ ] 11.1.5 Remember expansion state within session
+- [ ] **11.1.6 CHECKPOINT: User approval for collapsible reasoning blocks**
+
+### 11.2 Scroll Indicators
+Show visual cues when content is scrollable in containers.
+- [ ] 11.2.1 Add scroll position tracking to main content area (ScrollableContainer)
+- [ ] 11.2.2 Show ▲ indicator at top when content exists above viewport
+- [ ] 11.2.3 Show ▼ indicator at bottom when content exists below viewport
+- [ ] 11.2.4 Use subtle styling (muted color, small size) to avoid distraction
+- [ ] 11.2.5 Hide indicators when at scroll boundaries
+- [ ] **11.2.6 CHECKPOINT: User approval for scroll indicators**
+
+---
+
+## 12. Phase 12: Testing & Verification
+
+- [ ] 12.1 Run MassGen with multi-agent config, verify welcome screen
+- [ ] 12.2 Test mode toggle interactions
+- [ ] 12.3 Verify tool cards collapse/expand behavior
+- [ ] 12.4 Test task list progress display
+- [ ] 12.5 Verify all keyboard shortcuts still work
+- [ ] 12.6 Test both dark and light themes
+- [ ] 12.7 Verify modal styling consistency
+- [ ] 12.8 Test diff view with file edit operations
+- [ ] 12.9 Test workspace modal tree view navigation
+- [ ] 12.10 Verify tool result preview formatting
+- [ ] 12.11 Test agent status ribbon updates during execution
+- [ ] 12.12 Verify phase indicator bar shows correct coordination state
+- [ ] 12.13 Test session info panel updates
+- [ ] 12.14 Verify activity pulse animation works
+- [ ] 12.15 Test final answer card with consensus results
+- [ ] 12.16 Test round timeout display with soft/grace/hard timeouts
+- [ ] 12.17 Test collapsible reasoning blocks (expand/collapse)
+- [ ] 12.18 Test scroll indicators in content area

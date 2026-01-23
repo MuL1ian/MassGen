@@ -32,8 +32,8 @@ class TaskPlanModal(ModalScreen[None]):
         max-width: 120;
         height: auto;
         max-height: 85%;
-        background: $surface;
-        border: thick #a371f7;
+        background: #1c2128;
+        border: solid #a371f7;
         padding: 1 2;
     }
 
@@ -66,6 +66,11 @@ class TaskPlanModal(ModalScreen[None]):
         min-width: 3;
         background: transparent;
         border: none;
+        color: #8b949e;
+    }
+
+    TaskPlanModal .modal-close:hover {
+        color: #e6edf3;
     }
 
     TaskPlanModal .progress-bar {
@@ -89,12 +94,12 @@ class TaskPlanModal(ModalScreen[None]):
     }
 
     TaskPlanModal .task-row:hover {
-        background: #21262d;
+        background: #161b22;
     }
 
     TaskPlanModal .task-focused {
-        background: #1a2332;
-        border-left: thick #58a6ff;
+        background: #161b22;
+        border-left: solid #39c5cf;
     }
 
     TaskPlanModal .task-header {
@@ -168,7 +173,7 @@ class TaskPlanModal(ModalScreen[None]):
             # Header section
             with Container(classes="modal-header"):
                 with Container(classes="header-row"):
-                    yield Static("📋 Task Plan", classes="modal-title")
+                    yield Static("Task Plan", classes="modal-title")
                     yield Static(self._build_stats(total, completed, in_progress, blocked), classes="modal-stats")
                     yield Button("✕", variant="default", classes="modal-close", id="close_btn")
 

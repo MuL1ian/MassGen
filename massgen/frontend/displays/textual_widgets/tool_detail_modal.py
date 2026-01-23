@@ -15,6 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from massgen.frontend.displays.content_normalizer import ContentNormalizer
+from massgen.frontend.displays.textual_widgets.result_renderer import ResultRenderer
 
 
 class ToolDetailModal(ModalScreen[None]):
@@ -56,8 +57,8 @@ class ToolDetailModal(ModalScreen[None]):
         max-width: 100;
         height: auto;
         max-height: 80%;
-        background: $surface;
-        border: thick $primary;
+        background: #1c2128;
+        border: solid #58a6ff;
         padding: 1 2;
     }
 
@@ -76,12 +77,19 @@ class ToolDetailModal(ModalScreen[None]):
     ToolDetailModal .modal-close {
         width: auto;
         min-width: 3;
+        background: transparent;
+        border: none;
+        color: #8b949e;
+    }
+
+    ToolDetailModal .modal-close:hover {
+        color: #e6edf3;
     }
 
     ToolDetailModal .modal-divider {
         height: 1;
         width: 100%;
-        color: $primary-darken-2;
+        color: #30363d;
     }
 
     ToolDetailModal .modal-body {
@@ -94,7 +102,7 @@ class ToolDetailModal(ModalScreen[None]):
         height: 1;
         margin-top: 1;
         text-style: bold;
-        color: $secondary;
+        color: #39c5cf;
     }
 
     ToolDetailModal .modal-content {
@@ -103,15 +111,15 @@ class ToolDetailModal(ModalScreen[None]):
     }
 
     ToolDetailModal .args-content {
-        color: $text-muted;
+        color: #8b949e;
     }
 
     ToolDetailModal .result-content {
-        color: $text;
+        color: #e6edf3;
     }
 
     ToolDetailModal .error-content {
-        color: $error;
+        color: #f85149;
     }
 
     ToolDetailModal .modal-footer {
@@ -173,7 +181,9 @@ class ToolDetailModal(ModalScreen[None]):
                 yield Static("ARGUMENTS", classes="modal-section-title")
                 with Container(classes="modal-content"):
                     if self.args:
-                        yield Static(self.args, classes="args-content")
+                        # Use ResultRenderer to format arguments (often JSON)
+                        rendered_args, _ = ResultRenderer.render(self.args, max_lines=30)
+                        yield Static(rendered_args, classes="args-content")
                     else:
                         yield Static("[dim]Arguments not captured[/]", classes="args-content", markup=True)
 
@@ -186,9 +196,11 @@ class ToolDetailModal(ModalScreen[None]):
                     yield Static("OUTPUT", classes="modal-section-title")
                     with Container(classes="modal-content"):
                         if self.result:
-                            yield Static(self.result, classes="result-content")
+                            # Use ResultRenderer to format result with syntax highlighting
+                            rendered_result, was_truncated = ResultRenderer.render(self.result)
+                            yield Static(rendered_result, classes="result-content")
                         elif self.status == "running":
-                            yield Static("[dim]⏳ Waiting for output...[/]", classes="result-content", markup=True)
+                            yield Static("[dim]Waiting for output...[/]", classes="result-content", markup=True)
                         else:
                             yield Static("[dim]No output captured[/]", classes="result-content", markup=True)
 
@@ -197,18 +209,17 @@ class ToolDetailModal(ModalScreen[None]):
                 yield Button("Close (Esc)", variant="primary", classes="close-button", id="close_btn_footer")
 
     def _build_header(self) -> Text:
-        """Build the header text with icon, name, and status."""
+        """Build the header text with name and status (no emoji)."""
         text = Text()
-        text.append(f"{self.icon} ", style="bold")
         text.append(self.tool_name, style="bold")
 
-        # Add status with appropriate styling
+        # Add status with appropriate styling (text symbols, no emoji)
         if self.status == "success":
             text.append("  ✓", style="bold green")
         elif self.status == "error":
             text.append("  ✗", style="bold red")
         else:
-            text.append("  ⏳", style="bold yellow")
+            text.append("  ...", style="bold yellow")
 
         if self.elapsed:
             text.append(f" {self.elapsed}", style="dim")

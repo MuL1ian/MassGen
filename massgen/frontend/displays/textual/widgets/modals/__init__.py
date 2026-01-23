@@ -10,7 +10,7 @@ Modals are organized by function:
 - content_modals: TextContentModal, TurnDetailModal, ConversationHistoryModal, ContextModal
 - input_modals: BroadcastPromptModal, StructuredBroadcastPromptModal
 - shortcuts_modal: KeyboardShortcutsModal
-- workspace_modals: WorkspaceFilesModal, FileInspectionModal
+- workspace_modals: FileInspectionModal
 - agent_output_modal: AgentOutputModal
 """
 
@@ -41,7 +41,7 @@ from .status_modals import (
     MetricsModal,
     SystemStatusModal,
 )
-from .workspace_modals import FileInspectionModal, WorkspaceFilesModal
+from .workspace_modals import FileInspectionModal
 
 __all__ = [
     # Browser modals
@@ -71,7 +71,6 @@ __all__ = [
     "KeyboardShortcutsModal",
     # Workspace modals
     "FileInspectionModal",
-    "WorkspaceFilesModal",
     # Agent output modal
     "AgentOutputModal",
 ]

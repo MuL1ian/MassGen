@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Workspace-related modals: File browser and file inspection."""
+"""Workspace-related modals: File inspection."""
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -16,106 +16,7 @@ except ImportError:
 from ..modal_base import BaseModal
 
 if TYPE_CHECKING:
-    from massgen.frontend.displays.textual_terminal_display import (
-        TextualApp,
-        TextualTerminalDisplay,
-    )
-
-
-class WorkspaceFilesModal(BaseModal):
-    """Modal to display workspace files and open workspace directory."""
-
-    def __init__(self, display: "TextualTerminalDisplay", app: "TextualApp"):
-        super().__init__()
-        self.coordination_display = display
-        self.app_ref = app
-        self.workspace_path = self._get_workspace_path()
-
-    def _get_workspace_path(self) -> Optional[Path]:
-        """Get the workspace directory path."""
-        orchestrator = getattr(self.coordination_display, "orchestrator", None)
-        if not orchestrator:
-            return None
-        workspace_dir = getattr(orchestrator, "workspace_dir", None)
-        if workspace_dir:
-            return Path(workspace_dir)
-        return None
-
-    def compose(self) -> ComposeResult:
-        with Container(id="workspace_container"):
-            yield Label("📁 Workspace Files", id="workspace_header")
-            yield TextArea(self._build_file_list(), id="workspace_content", read_only=True)
-            with Horizontal(id="workspace_buttons"):
-                yield Button("Open Workspace", id="open_workspace_button")
-                yield Button("Close (ESC)", id="close_workspace_button")
-
-    def _build_file_list(self) -> str:
-        """Build a list of files in the workspace."""
-        if not self.workspace_path or not self.workspace_path.exists():
-            return "No workspace directory available."
-
-        lines = [f"Workspace: {self.workspace_path}", ""]
-
-        try:
-            files = list(self.workspace_path.rglob("*"))
-            files = [f for f in files if f.is_file()]
-
-            if not files:
-                lines.append("No files in workspace.")
-            else:
-                lines.append(f"Files ({len(files)} total):")
-                lines.append("-" * 50)
-
-                # Show first 20 files
-                for f in sorted(files)[:20]:
-                    rel_path = f.relative_to(self.workspace_path)
-                    size = f.stat().st_size
-                    size_str = self._format_size(size)
-                    lines.append(f"  {rel_path} ({size_str})")
-
-                if len(files) > 20:
-                    lines.append(f"  ... and {len(files) - 20} more files")
-
-        except Exception as e:
-            lines.append(f"Error reading workspace: {e}")
-
-        return "\n".join(lines)
-
-    def _format_size(self, size: int) -> str:
-        """Format file size in human-readable form."""
-        for unit in ["B", "KB", "MB", "GB"]:
-            if size < 1024:
-                return f"{size:.1f} {unit}" if unit != "B" else f"{size} {unit}"
-            size /= 1024
-        return f"{size:.1f} TB"
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        if event.button.id == "open_workspace_button":
-            self._open_workspace()
-        elif event.button.id == "close_workspace_button":
-            self.dismiss()
-
-    def _open_workspace(self) -> None:
-        """Open the workspace directory in the system file browser."""
-        import platform
-        import subprocess
-
-        if not self.workspace_path or not self.workspace_path.exists():
-            self.app_ref.notify("No workspace directory available", severity="warning")
-            return
-
-        try:
-            system = platform.system()
-            if system == "Darwin":  # macOS
-                subprocess.run(["open", str(self.workspace_path)])
-            elif system == "Windows":
-                subprocess.run(["explorer", str(self.workspace_path)])
-            else:  # Linux
-                subprocess.run(["xdg-open", str(self.workspace_path)])
-            self.app_ref.notify(f"Opened: {self.workspace_path}", severity="information")
-        except Exception as e:
-            self.app_ref.notify(f"Error opening workspace: {e}", severity="error")
+    from massgen.frontend.displays.textual_terminal_display import TextualApp
 
 
 class FileInspectionModal(BaseModal):
@@ -129,7 +30,7 @@ class FileInspectionModal(BaseModal):
 
     def compose(self) -> ComposeResult:
         with Container(id="file_inspection_container"):
-            yield Label("📁 File Inspection", id="file_inspection_header")
+            yield Label("File Inspection", id="file_inspection_header")
             with Horizontal(id="file_inspection_content"):
                 # Left panel: Directory tree
                 with Container(id="file_tree_panel"):

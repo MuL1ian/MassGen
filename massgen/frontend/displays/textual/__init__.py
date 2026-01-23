@@ -36,7 +36,6 @@ from .widgets import (  # Base classes; Browser modals; Status modals; Coordinat
     TurnDetailModal,
     VoteResultsModal,
     WorkspaceBrowserModal,
-    WorkspaceFilesModal,
 )
 
 __all__ = [
@@ -71,7 +70,6 @@ __all__ = [
     "KeyboardShortcutsModal",
     # Workspace modals
     "FileInspectionModal",
-    "WorkspaceFilesModal",
     # Agent output modal
     "AgentOutputModal",
 ]

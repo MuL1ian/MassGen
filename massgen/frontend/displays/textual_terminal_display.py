@@ -66,7 +66,6 @@ try:
         TimelineModal,
         VoteResultsModal,
         WorkspaceBrowserModal,
-        WorkspaceFilesModal,
     )
     from .textual_widgets import (
         AgentTabBar,
@@ -6161,8 +6160,8 @@ Type your question and press Enter to ask the agents.
             self._show_modal_async(CostBreakdownModal(self.coordination_display))
 
         def _show_workspace_files_modal(self):
-            """Display workspace files in a modal."""
-            self._show_modal_async(WorkspaceFilesModal(self.coordination_display, self))
+            """Display workspace files in a modal (uses WorkspaceBrowserModal)."""
+            self._show_workspace_browser()
 
         def _show_context_modal(self):
             """Display context paths modal."""

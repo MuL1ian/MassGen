@@ -39,10 +39,10 @@ class BackgroundTaskRow(Static, can_focus=True):
         text = Text()
         task = self._task_data
 
-        # Tool name
+        # Tool name (no emoji)
         tool_name = task.get("tool_name", "Unknown")
         display_name = task.get("display_name", tool_name)
-        text.append("⚙️ ", style="bold #d29922")
+        text.append("● ", style="bold #d29922")
         text.append(display_name, style="bold")
 
         # Async ID (e.g., shell_id)
@@ -90,8 +90,8 @@ class BackgroundTaskDetailModal(ModalScreen[None]):
         width: 95%;
         max-width: 140;
         height: 85%;
-        background: $surface;
-        border: thick #d29922;
+        background: #1c2128;
+        border: solid #d29922;
         padding: 1 2;
     }
 
@@ -119,6 +119,11 @@ class BackgroundTaskDetailModal(ModalScreen[None]):
         min-width: 3;
         background: transparent;
         border: none;
+        color: #8b949e;
+    }
+
+    BackgroundTaskDetailModal .modal-close:hover {
+        color: #e6edf3;
     }
 
     BackgroundTaskDetailModal .info-section {
@@ -126,8 +131,8 @@ class BackgroundTaskDetailModal(ModalScreen[None]):
         width: 100%;
         padding: 1;
         margin-bottom: 1;
-        background: #1a1610;
-        border-left: thick #d29922;
+        background: #0d1117;
+        border-left: solid #d29922;
     }
 
     BackgroundTaskDetailModal .output-header {
@@ -201,7 +206,7 @@ class BackgroundTaskDetailModal(ModalScreen[None]):
             # Header
             with Container(classes="modal-header"):
                 with Container(classes="header-row"):
-                    title = f"⚙️ {display_name}"
+                    title = f"Background Task . {display_name}"
                     if async_id:
                         title += f" [{async_id}]"
                     yield Static(title, classes="modal-title")
@@ -270,7 +275,7 @@ class BackgroundTaskDetailModal(ModalScreen[None]):
     def _build_output_header(self) -> Text:
         """Build the output section header with status."""
         text = Text()
-        text.append("📄 Live Output", style="bold")
+        text.append("Live Output", style="bold")
 
         # Get current status
         status_info = self._get_shell_status()
@@ -412,8 +417,8 @@ class BackgroundTasksModal(ModalScreen[None]):
         max-width: 100;
         height: auto;
         max-height: 70%;
-        background: $surface;
-        border: thick #d29922;
+        background: #1c2128;
+        border: solid #d29922;
         padding: 1 2;
     }
 
@@ -446,6 +451,11 @@ class BackgroundTasksModal(ModalScreen[None]):
         min-width: 3;
         background: transparent;
         border: none;
+        color: #8b949e;
+    }
+
+    BackgroundTasksModal .modal-close:hover {
+        color: #e6edf3;
     }
 
     BackgroundTasksModal .modal-body {
@@ -460,17 +470,17 @@ class BackgroundTasksModal(ModalScreen[None]):
         width: 100%;
         padding: 1;
         margin-bottom: 1;
-        background: #1a1610;
-        border-left: thick #d29922;
+        background: #0d1117;
+        border-left: solid #d29922;
     }
 
     BackgroundTasksModal BackgroundTaskRow:hover {
-        background: #252015;
+        background: #161b22;
     }
 
     BackgroundTasksModal BackgroundTaskRow:focus {
-        background: #302510;
-        border-left: thick #ffb000;
+        background: #21262d;
+        border-left: solid #58a6ff;
     }
 
     BackgroundTasksModal .task-content {
@@ -515,9 +525,9 @@ class BackgroundTasksModal(ModalScreen[None]):
             # Header section
             with Container(classes="modal-header"):
                 with Container(classes="header-row"):
-                    title = "⚙️ Background Operations"
+                    title = "Background Operations"
                     if self.agent_id:
-                        title += f" - {self.agent_id}"
+                        title += f" . {self.agent_id}"
                     yield Static(title, classes="modal-title")
                     yield Static(f"{count} running", classes="modal-stats")
                     yield Button("✕", variant="default", classes="modal-close", id="close_btn")

@@ -2,10 +2,11 @@
 """Browser-related modals: Answer browser, Timeline, Browser tabs, Workspace browser."""
 
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 try:
     from textual.app import ComposeResult
@@ -22,7 +23,27 @@ try:
 except ImportError:
     TEXTUAL_AVAILABLE = False
 
+from massgen.filesystem_manager._constants import SKIP_DIRS_FOR_LOGGING
+
 from ..modal_base import BaseModal
+
+# Additional patterns to skip in workspace view
+WORKSPACE_SKIP_PATTERNS = [
+    re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"),  # UUID
+    re.compile(r"^\d{8}_\d{6}_\d+$"),  # Timestamp directories like 20260122_123456_789012
+    re.compile(r"^agent_[a-z]$"),  # agent_a, agent_b, etc.
+    re.compile(r"^subagent_"),  # subagent workspaces
+]
+
+
+def _should_skip_dir(name: str) -> bool:
+    """Check if a directory should be skipped in workspace view."""
+    if name in SKIP_DIRS_FOR_LOGGING:
+        return True
+    for pattern in WORKSPACE_SKIP_PATTERNS:
+        if pattern.match(name):
+            return True
+    return False
 
 
 def render_file_preview(file_path: Path, max_lines: int = 100) -> tuple:
@@ -856,12 +877,15 @@ class WorkspaceBrowserModal(BaseModal):
         self._selected_file_idx: int = 0
         self._load_counter: int = 0  # Counter to ensure unique widget IDs
         self._current_workspace_path: Optional[str] = None  # Track currently displayed workspace
+        self._tree_lines: List[tuple] = []  # Store tree structure for click handling
+        self._expanded_dirs: Set[str] = set()  # Track which directories are expanded
+        self._dir_file_counts: Dict[str, int] = {}  # Track file counts per directory
         # Default to specified agent or first agent
         self._current_agent_filter: Optional[str] = selected_agent  # None = all agents
 
     def compose(self) -> ComposeResult:
         with Container(id="workspace_browser_container"):
-            yield Label("📁 Workspace Browser", id="workspace_browser_header")
+            yield Label("Workspace Browser", id="workspace_browser_header")
 
             # Selector row with agent filter and answer selector
             with Horizontal(id="workspace_selector_row"):
@@ -894,7 +918,7 @@ class WorkspaceBrowserModal(BaseModal):
 
             # Footer buttons
             with Horizontal(id="workspace_browser_footer"):
-                yield Button("📂 Open in Finder", id="open_workspace_finder_button")
+                yield Button("Open in Finder", id="open_workspace_finder_button")
                 yield Button("Close (ESC)", id="close_workspace_browser_button")
 
     def on_mount(self) -> None:
@@ -915,13 +939,13 @@ class WorkspaceBrowserModal(BaseModal):
         # Build answer options
         options = []
 
-        # Add "🏆 Final Workspace" option FIRST if the selected agent has a final workspace
+        # Add "Final Workspace" option FIRST if the selected agent has a final workspace
         if self._current_agent_filter and self._current_agent_filter in self.agent_final_paths:
-            options.append(("🏆 Final Workspace", self.FINAL_WORKSPACE_IDX))
+            options.append(("Final Workspace", self.FINAL_WORKSPACE_IDX))
 
         # Add "Current Workspace" option if the selected agent has a current workspace
         if self._current_agent_filter and self._current_agent_filter in self.agent_workspace_paths:
-            options.append(("📂 Current Workspace", self.CURRENT_WORKSPACE_IDX))
+            options.append(("Current Workspace", self.CURRENT_WORKSPACE_IDX))
 
         # Filter answers by agent
         if self._current_agent_filter:
@@ -956,6 +980,9 @@ class WorkspaceBrowserModal(BaseModal):
         file_list = self.query_one("#workspace_file_list", VerticalScroll)
         file_list.remove_children()
         self._current_files = []
+        self._tree_lines = []  # Reset tree structure
+        self._expanded_dirs = set()  # Reset expanded state
+        self._dir_file_counts = {}  # Reset file counts
         self._load_counter += 1  # Increment to ensure unique IDs
 
         # Determine workspace path based on selection
@@ -986,8 +1013,8 @@ class WorkspaceBrowserModal(BaseModal):
         try:
             files = []
             for root, dirs, filenames in os.walk(workspace_path):
-                # Skip hidden directories
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                # Skip hidden directories and filtered patterns (subagent dirs, gitignored, etc.)
+                dirs[:] = [d for d in dirs if not d.startswith(".") and not _should_skip_dir(d)]
                 for fname in filenames:
                     if not fname.startswith("."):
                         full_path = os.path.join(root, fname)
@@ -1012,11 +1039,14 @@ class WorkspaceBrowserModal(BaseModal):
                 file_list.mount(Static("[dim]Workspace is empty[/]", markup=True))
                 return
 
-            for idx, f in enumerate(self._current_files):
-                size_str = self._format_size(f["size"])
+            # Build tree structure for display
+            self._tree_lines = self._build_file_tree(self._current_files)
+            for idx, (display_text, file_idx) in enumerate(self._tree_lines):
+                # Use idx (tree line index) for unique widget IDs, not file_idx
+                # (multiple directories would have file_idx=-1 causing duplicates)
                 file_list.mount(
                     Static(
-                        f"[cyan]{f['rel_path']}[/] [dim]({size_str})[/]",
+                        display_text,
                         id=f"file_item_{self._load_counter}_{idx}",
                         classes="workspace-file-item",
                         markup=True,
@@ -1038,6 +1068,81 @@ class WorkspaceBrowserModal(BaseModal):
             return f"{size // 1024}KB"
         else:
             return f"{size // (1024 * 1024)}MB"
+
+    def _build_file_tree(self, files: List[Dict[str, Any]]) -> List[tuple]:
+        """Build tree-style display for files with collapsible directories.
+
+        Returns:
+            List of (display_text, file_idx_or_dir_name) tuples
+            - file_idx >= 0: clickable file
+            - file_idx == -1: non-clickable item
+            - file_idx is str starting with "dir:": clickable directory toggle
+        """
+        # Group files by directory
+        dir_files: Dict[str, List[tuple]] = {}  # dir -> [(filename, size, file_idx), ...]
+        root_files: List[tuple] = []  # [(filename, size, file_idx), ...]
+
+        for idx, f in enumerate(files):
+            rel_path = f["rel_path"]
+            size_str = self._format_size(f["size"])
+
+            if "/" in rel_path or "\\" in rel_path:
+                # Has directory component
+                parts = rel_path.replace("\\", "/").split("/")
+                dir_name = parts[0]
+                file_name = "/".join(parts[1:])
+                if dir_name not in dir_files:
+                    dir_files[dir_name] = []
+                dir_files[dir_name].append((file_name, size_str, idx))
+            else:
+                root_files.append((rel_path, size_str, idx))
+
+        # Store file counts for auto-collapse logic
+        self._dir_file_counts = {d: len(f) for d, f in dir_files.items()}
+
+        result = []
+
+        # Add directories with their files
+        sorted_dirs = sorted(dir_files.keys())
+        for i, dir_name in enumerate(sorted_dirs):
+            is_last_dir = (i == len(sorted_dirs) - 1) and not root_files
+            dir_connector = "└── " if is_last_dir else "├── "
+
+            dir_file_list = dir_files[dir_name]
+            file_count = len(dir_file_list)
+
+            # Auto-expand directories with <= 3 files, collapse others
+            is_expanded = dir_name in self._expanded_dirs
+            if file_count <= 3 and dir_name not in self._expanded_dirs:
+                # Auto-expand small directories (unless explicitly collapsed)
+                is_expanded = True
+                self._expanded_dirs.add(dir_name)
+
+            # Directory header with expand/collapse indicator
+            arrow = "▼" if is_expanded else "▶"
+            count_hint = f" ({file_count})" if not is_expanded else ""
+            result.append(
+                (
+                    f"[bold cyan]{dir_connector}{arrow} {dir_name}/{count_hint}[/]",
+                    f"dir:{dir_name}",  # Special marker for directory toggle
+                ),
+            )
+
+            # Only show files if expanded
+            if is_expanded:
+                for j, (file_name, size_str, file_idx) in enumerate(dir_file_list):
+                    is_last_file = j == len(dir_file_list) - 1
+                    prefix = "    " if is_last_dir else "│   "
+                    file_connector = "└── " if is_last_file else "├── "
+                    result.append((f"{prefix}{file_connector}[cyan]{file_name}[/] [dim]({size_str})[/]", file_idx))
+
+        # Add root-level files
+        for i, (file_name, size_str, file_idx) in enumerate(root_files):
+            is_last = i == len(root_files) - 1
+            connector = "└── " if is_last else "├── "
+            result.append((f"{connector}[cyan]{file_name}[/] [dim]({size_str})[/]", file_idx))
+
+        return result
 
     def _preview_file(self, file_idx: int) -> None:
         """Preview the selected file with syntax highlighting."""
@@ -1086,19 +1191,67 @@ class WorkspaceBrowserModal(BaseModal):
                 self._load_workspace_files(answer_idx)
 
     def on_click(self, event) -> None:
-        """Handle click on file items."""
+        """Handle click on file items and directory toggles."""
         # Check if clicked on a file item
         if hasattr(event, "widget") and event.widget:
             widget_id = getattr(event.widget, "id", "")
-            # ID format is now: file_item_{load_counter}_{idx}
+            # ID format is: file_item_{load_counter}_{tree_line_idx}
             if widget_id and widget_id.startswith("file_item_"):
                 try:
-                    # Get the last part which is the file index
-                    idx = int(widget_id.split("_")[-1])
-                    self._selected_file_idx = idx
-                    self._preview_file(idx)
+                    # Get the tree line index from widget ID
+                    tree_idx = int(widget_id.split("_")[-1])
+                    # Look up the actual file index from tree_lines
+                    if self._tree_lines and 0 <= tree_idx < len(self._tree_lines):
+                        item_data = self._tree_lines[tree_idx][1]
+
+                        # Check if it's a directory toggle
+                        if isinstance(item_data, str) and item_data.startswith("dir:"):
+                            dir_name = item_data[4:]  # Remove "dir:" prefix
+                            self._toggle_directory(dir_name)
+                            return
+
+                        # Skip non-clickable items
+                        if item_data == -1:
+                            return
+
+                        # It's a file - preview it
+                        file_idx = item_data
+                        self._selected_file_idx = file_idx
+                        self._preview_file(file_idx)
                 except (ValueError, IndexError):
                     pass
+
+    def _toggle_directory(self, dir_name: str) -> None:
+        """Toggle directory expansion and refresh the file list."""
+        if dir_name in self._expanded_dirs:
+            self._expanded_dirs.remove(dir_name)
+        else:
+            self._expanded_dirs.add(dir_name)
+        self._refresh_file_list()
+
+    def _refresh_file_list(self) -> None:
+        """Refresh the file list display without reloading files."""
+        if not self._current_files:
+            return
+
+        try:
+            file_list = self.query_one("#workspace_file_list", VerticalScroll)
+            file_list.remove_children()
+            self._load_counter += 1
+
+            # Rebuild tree with current expansion state
+            self._tree_lines = self._build_file_tree(self._current_files)
+            for idx, (display_text, item_data) in enumerate(self._tree_lines):
+                file_list.mount(
+                    Static(
+                        display_text,
+                        id=f"file_item_{self._load_counter}_{idx}",
+                        classes="workspace-file-item",
+                        markup=True,
+                    ),
+                )
+        except Exception:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "close_workspace_browser_button":

@@ -62,6 +62,51 @@ The current TUI feels utilitarian and developer-focused rather than polished and
 - **Color Refinements**: Slightly desaturated accents, warmer tones
 - **Consistent Hierarchy**: De-emphasize chrome, emphasize content
 
+### Phase 9: Remove Outer Container Border
+- **Borderless Container**: Remove the visible border/frame around the entire TUI
+- **Edge-to-Edge Content**: Let content flow to terminal edges for cleaner appearance
+- **CSS Updates**: Modify dark.tcss and light.tcss to remove Screen/container borders
+
+### Phase 10: Content Area Cleanup
+- **Remove Redundant Agent Header**: Remove "agent_a [1]" header from content area (redundant with tabs)
+- **Direct Content Start**: Content area starts directly with agent output, no header
+- **Round Info Relocated**: Round/timeout info moved to Agent Status Ribbon (Phase 8c)
+
+### Phase 11: UX Polish
+
+#### 11a: Collapsible Reasoning Blocks
+Long `<thinking>` or reasoning sections should be collapsed by default for better readability.
+
+**Current behavior:** Full reasoning text shown inline, can be overwhelming
+**Proposed:** Show first 3-5 lines with "[+N more lines]" expander
+
+```
+╭─ Thinking ────────────────────────────────────────────────────╮
+│  Let me analyze this problem step by step...                  │
+│  First, I need to consider the constraints...                 │
+│  The key insight here is that...                              │
+│                                        [+47 more lines]       │
+╰───────────────────────────────────────────────────────────────╯
+```
+
+**Implementation:** `content_sections.py` - reasoning block rendering
+
+#### 11b: Scroll Indicators
+Show visual cues when content is scrollable in the main content area.
+
+**Proposed:** Subtle `▲` at top / `▼` at bottom when more content exists
+
+```
+                              ▲
+╭───────────────────────────────────────────────────────────────╮
+│  [visible content area]                                       │
+│                                                               │
+╰───────────────────────────────────────────────────────────────╯
+                              ▼
+```
+
+**Implementation:** Check Textual's ScrollableContainer for scroll position events
+
 ## Impact
 - **Affected specs**: tui (new capability spec)
 - **Affected code**:
@@ -271,13 +316,17 @@ accent-purple:  #A371F7  (AI/special indicators)
 A new component below the tab bar showing real-time status for the selected agent:
 ```
 ╭──────────────────────────────────────────────────────────────────────────╮
-│ ◉ Streaming... 12s │ Tasks: 3/7 ━━░░ │ 2.4k tokens │ $0.003            │
+│ ◉ Streaming... 12s │ ⏱ 5:30 soft │ Tasks: 3/7 ━━░░ │ 2.4k tokens │ $0.003 │
 ╰──────────────────────────────────────────────────────────────────────────╯
 ```
 
 Features:
 - **Activity indicator**: ◉ Streaming, ○ Idle, ⏳ Thinking, ⏹ Canceled, ✗ Error
 - **Elapsed time**: How long current activity has been running
+- **Round timeout display**: Shows tiered timeouts from config:
+  - Soft timeout countdown (from `initial_round_timeout_seconds` or `subsequent_round_timeout_seconds`)
+  - Grace period when soft expires (from `round_timeout_grace_seconds`)
+  - Color coding: normal (muted), warning (<30s, yellow), grace (orange), critical (<30s total, red)
 - **Tasks progress**: Compact "X/Y" with mini progress bar (clickable → opens task modal)
 - **Token count**: Running total for this agent
 - **Cost estimate**: Running total for this agent
@@ -318,20 +367,49 @@ Replace heavy boxed round indicators with elegant separators:
 - More breathing room between rounds
 
 ### Phase 8g: Final Answer Card Redesign
+
+**Current problems (to fix):**
+- 🏆 Trophy emoji - inconsistent with emoji-free direction
+- `#ffd700` gold header - harsh, dated
+- "FINAL ANSWER" in ALL CAPS - shouty
+- "Winner: A1.1 (2v) | Votes: A1.1(2)" - cryptic, hard to parse
+- Thick gold border - too heavy
+- "✓ Complete" progress bar at bottom - redundant
+
+**Proposed redesign:**
 ```
 ╭─ Final Answer ───────────────────────────────────────────────╮
 │                                                              │
-│  ▌ [Answer content with proper markdown rendering]          │
+│  The music of the heart is heard,                            │
+│  A tapestry of joy and care...                               │
 │                                                              │
-│  ────────────────────────────────────────────────────────── │
-│  ✓ Consensus reached  •  3 rounds  •  2 agents  •  $0.04    │
+│  ─────────────────────────────────────────────────────────── │
+│  ✓ Consensus • 2 agents agreed • 1 round • $0.02             │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
+**Changes needed in `content_sections.py`:**
+- `_build_title()`: Change from "🏆 FINAL ANSWER" to "Final Answer"
+- `_build_vote_summary()`: Change from "Winner: A1.1 (2v) | Votes: A1.1(2)" to "2 agents agreed • 1 round"
+- `complete()`: Change "✅ FINAL ANSWER" to "✓ Final Answer"
+- `set_post_eval_status()`: Remove emojis from status messages
+- CSS: Replace gold (#ffd700) with muted green
+- CSS: Use rounded corners (border: round)
+- Remove redundant "✓ Complete" progress indicator
+- Add summary footer inside card instead of external progress bar
+
+**Post-eval states (cleaned up):**
+```
+◉ Evaluating...           (pulsing indicator)
+✓ Verified                [▸ Show Details]
+↻ Restart Requested       [▸ Show Details]
+```
+
 Features:
-- Left accent border (▌) for visual weight
-- Clear summary footer with session stats
-- Rounded corners, softer borders
+- Title case "Final Answer" (not ALL CAPS)
+- Clean summary footer with session stats
+- Rounded corners, softer muted green borders
+- Human-readable vote summary
 - Proper whitespace
 
 ### Phase 8h: Enhanced Tab Design with Model Names

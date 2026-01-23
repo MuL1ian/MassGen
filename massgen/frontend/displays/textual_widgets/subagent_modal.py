@@ -61,8 +61,8 @@ class SubagentModal(ModalScreen[None]):
         max-width: 140;
         height: 90%;
         max-height: 50;
-        background: $surface;
-        border: thick #7c3aed;
+        background: #1c2128;
+        border: solid #a371f7;
         padding: 1 2;
     }
 
@@ -82,7 +82,7 @@ class SubagentModal(ModalScreen[None]):
     SubagentModal .modal-title {
         text-style: bold;
         width: 1fr;
-        color: #7c3aed;
+        color: #a371f7;
     }
 
     SubagentModal .modal-status {
@@ -95,6 +95,11 @@ class SubagentModal(ModalScreen[None]):
         min-width: 3;
         background: transparent;
         border: none;
+        color: #8b949e;
+    }
+
+    SubagentModal .modal-close:hover {
+        color: #e6edf3;
     }
 
     SubagentModal .metadata-section {
@@ -102,7 +107,7 @@ class SubagentModal(ModalScreen[None]):
         width: 100%;
         padding: 0 1;
         margin-bottom: 1;
-        background: #161b22;
+        background: #0d1117;
     }
 
     SubagentModal .progress-bar {
@@ -122,7 +127,7 @@ class SubagentModal(ModalScreen[None]):
 
     SubagentModal .log-header {
         height: auto;
-        background: #21262d;
+        background: #0d1117;
         padding: 0 1;
     }
 
@@ -157,7 +162,7 @@ class SubagentModal(ModalScreen[None]):
     }
 
     SubagentModal .section-title {
-        background: #21262d;
+        background: #0d1117;
         padding: 0 1;
         color: #8b949e;
     }
@@ -187,7 +192,7 @@ class SubagentModal(ModalScreen[None]):
         width: 100%;
         padding: 0 1;
         margin-bottom: 1;
-        background: #161b22;
+        background: #0d1117;
         layout: horizontal;
         align: center middle;
     }
@@ -195,13 +200,13 @@ class SubagentModal(ModalScreen[None]):
     SubagentModal .nav-button {
         width: auto;
         min-width: 5;
-        background: #30363d;
-        border: solid #444c56;
+        background: #161b22;
+        border: solid #30363d;
         margin: 0 1;
     }
 
     SubagentModal .nav-button:hover {
-        background: #484f58;
+        background: #21262d;
     }
 
     SubagentModal .nav-button:disabled {
@@ -289,10 +294,10 @@ class SubagentModal(ModalScreen[None]):
 
             # Log stream section
             with Container(classes="log-section"):
-                yield Static("📜 Live Log Stream", classes="section-title")
+                yield Static("Live Log Stream", classes="section-title")
                 yield RichLog(highlight=True, markup=True, id="log-stream")
 
-            # Workspace section (collapsed)
+            # Workspace section
             with Container(classes="workspace-section"):
                 yield Static(self._build_workspace_info(), id="workspace-info")
 
@@ -466,7 +471,7 @@ class SubagentModal(ModalScreen[None]):
     def _build_title(self) -> Text:
         """Build the modal title."""
         text = Text()
-        text.append("🚀 ", style="")
+        text.append("Subagent . ", style="")
         text.append(self._subagent.id, style="bold #7c3aed")
         return text
 
@@ -521,7 +526,7 @@ class SubagentModal(ModalScreen[None]):
     def _build_workspace_info(self) -> Text:
         """Build workspace info section."""
         text = Text()
-        text.append("📁 Workspace: ", style="bold #8b949e")
+        text.append("Workspace: ", style="bold #8b949e")
         text.append(f"{self._subagent.workspace_file_count} files", style="#c9d1d9")
 
         if self._subagent.workspace_path:
@@ -537,13 +542,13 @@ class SubagentModal(ModalScreen[None]):
         text = Text()
 
         if self._subagent.error:
-            text.append("❌ Error\n", style="bold #f85149")
+            text.append("Error\n", style="bold #f85149")
             text.append(self._subagent.error, style="#f85149")
         elif self._subagent.answer_preview:
-            text.append("📝 Answer\n", style="bold #7ee787")
+            text.append("Answer\n", style="bold #7ee787")
             text.append(self._subagent.answer_preview, style="#c9d1d9")
         else:
-            text.append("⏳ Awaiting completion...", style="dim #8b949e")
+            text.append("Awaiting completion...", style="dim #8b949e")
 
         return text
 

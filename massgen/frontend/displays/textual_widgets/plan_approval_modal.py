@@ -43,8 +43,8 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
         max-width: 100;
         height: auto;
         max-height: 70%;
-        background: $surface;
-        border: thick #58a6ff;
+        background: #1c2128;
+        border: solid #39c5cf;
         padding: 1 2;
     }
 
@@ -64,7 +64,7 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
     PlanApprovalModal .modal-title {
         text-style: bold;
         width: 1fr;
-        color: #58a6ff;
+        color: #39c5cf;
     }
 
     PlanApprovalModal .modal-close {
@@ -72,6 +72,11 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
         min-width: 3;
         background: transparent;
         border: none;
+        color: #8b949e;
+    }
+
+    PlanApprovalModal .modal-close:hover {
+        color: #e6edf3;
     }
 
     PlanApprovalModal .modal-stats {
@@ -79,7 +84,7 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
         width: 100%;
         padding: 1;
         margin-bottom: 1;
-        background: #21262d;
+        background: #0d1117;
         border: solid #30363d;
     }
 
@@ -103,7 +108,7 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
     }
 
     PlanApprovalModal .task-row:hover {
-        background: #21262d;
+        background: #161b22;
     }
 
     PlanApprovalModal .modal-footer {
@@ -169,7 +174,7 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
             # Header
             with Container(classes="modal-header"):
                 with Container(classes="header-row"):
-                    yield Static("Plan Ready for Execution", classes="modal-title")
+                    yield Static("Plan Approval", classes="modal-title")
                     yield Button("✕", variant="default", classes="modal-close", id="close_btn")
 
             # Stats summary
