@@ -715,6 +715,8 @@ class TimelineSection(Vertical):
         self._scroll_mode = False
         self._new_content_count = 0  # Count of new items since entering scroll mode
         self._truncation_shown = False  # Track if we've shown truncation message
+        # Phase 12: View-based round navigation
+        self._viewed_round: int = 1  # Which round is currently being displayed
 
     def compose(self) -> ComposeResult:
         # Phase 11.2: Top scroll indicator (hidden by default - shows ▲ when content above)
@@ -894,11 +896,12 @@ class TimelineSection(Vertical):
         except Exception:
             pass
 
-    def add_tool(self, tool_data: ToolDisplayData) -> ToolCallCard:
+    def add_tool(self, tool_data: ToolDisplayData, round_number: int = 1) -> ToolCallCard:
         """Add a tool card to the timeline.
 
         Args:
             tool_data: Tool display data
+            round_number: The round this content belongs to (for view switching)
 
         Returns:
             The created ToolCallCard
@@ -912,6 +915,12 @@ class TimelineSection(Vertical):
 
         if tool_data.args_summary:
             card.set_params(tool_data.args_summary, tool_data.args_full)
+
+        # Phase 12: Tag with round class for CSS visibility switching
+        card.add_class(f"round-{round_number}")
+        # Hide if viewing a different round
+        if round_number != self._viewed_round:
+            card.add_class("hidden")
 
         self._tools[tool_data.tool_id] = card
         self._item_count += 1
@@ -1052,13 +1061,14 @@ class TimelineSection(Vertical):
                     injection_content=injection_content,
                 )
 
-    def add_text(self, content: str, style: str = "", text_class: str = "") -> None:
+    def add_text(self, content: str, style: str = "", text_class: str = "", round_number: int = 1) -> None:
         """Add text content to the timeline.
 
         Args:
             content: Text content
             style: Rich style string
             text_class: CSS class (status, thinking, response)
+            round_number: The round this content belongs to (for view switching)
         """
         # Clean up excessive whitespace - collapse multiple newlines to single
         import re
@@ -1088,17 +1098,24 @@ class TimelineSection(Vertical):
             else:
                 widget = Static(content, id=widget_id, classes=classes)
 
+            # Phase 12: Tag with round class for CSS visibility switching
+            widget.add_class(f"round-{round_number}")
+            # Hide if viewing a different round
+            if round_number != self._viewed_round:
+                widget.add_class("hidden")
+
             container.mount(widget)
             self._auto_scroll()
             self._trim_old_items()  # Keep timeline size bounded
         except Exception:
             pass
 
-    def add_separator(self, label: str = "") -> None:
+    def add_separator(self, label: str = "", round_number: int = 1) -> None:
         """Add a visual separator to the timeline.
 
         Args:
             label: Optional label for the separator
+            round_number: The round this content belongs to (for view switching)
         """
         self._item_count += 1
         widget_id = f"tl_sep_{self._item_count}"
@@ -1111,8 +1128,7 @@ class TimelineSection(Vertical):
 
             if is_restart:
                 # Create prominent restart banner
-                banner = RestartBanner(label=label, id=widget_id)
-                container.mount(banner)
+                widget = RestartBanner(label=label, id=widget_id)
             else:
                 # Regular separator
                 sep_text = Text()
@@ -1120,8 +1136,15 @@ class TimelineSection(Vertical):
                 if label:
                     sep_text.append(f" {label} ", style="dim italic")
                     sep_text.append("─" * 10, style="dim")
-                container.mount(Static(sep_text, id=widget_id))
+                widget = Static(sep_text, id=widget_id)
 
+            # Phase 12: Tag with round class for CSS visibility switching
+            widget.add_class(f"round-{round_number}")
+            # Hide if viewing a different round
+            if round_number != self._viewed_round:
+                widget.add_class("hidden")
+
+            container.mount(widget)
             self._auto_scroll()
             self._trim_old_items()  # Keep timeline size bounded
         except Exception as e:
@@ -1130,11 +1153,12 @@ class TimelineSection(Vertical):
 
             print(f"[ERROR] add_separator failed: {e}", file=sys.stderr)
 
-    def add_reasoning(self, content: str) -> None:
+    def add_reasoning(self, content: str, round_number: int = 1) -> None:
         """Add coordination/reasoning content inline with subtle styling.
 
         Args:
             content: Reasoning/voting/coordination text
+            round_number: The round this content belongs to (for view switching)
         """
         if not content.strip():
             return
@@ -1150,18 +1174,30 @@ class TimelineSection(Vertical):
                 id=widget_id,
                 classes="timeline-text thinking-inline",
             )
+            # Phase 12: Tag with round class for CSS visibility switching
+            widget.add_class(f"round-{round_number}")
+            # Hide if viewing a different round
+            if round_number != self._viewed_round:
+                widget.add_class("hidden")
             container.mount(widget)
             self._auto_scroll()
         except Exception:
             pass
 
-    def add_widget(self, widget) -> None:
+    def add_widget(self, widget, round_number: int = 1) -> None:
         """Add a generic widget to the timeline.
 
         Args:
             widget: Any Textual widget to add to the timeline
+            round_number: The round this content belongs to (for view switching)
         """
         self._item_count += 1
+
+        # Phase 12: Tag with round class for CSS visibility switching
+        widget.add_class(f"round-{round_number}")
+        # Hide if viewing a different round
+        if round_number != self._viewed_round:
+            widget.add_class("hidden")
 
         try:
             container = self.query_one("#timeline_container", TimelineScrollContainer)
@@ -1189,6 +1225,45 @@ class TimelineSection(Vertical):
         keeping the visual timeline history intact.
         """
         self._tools.clear()
+
+    def set_viewed_round(self, round_number: int) -> None:
+        """Update which round is currently being viewed.
+
+        Phase 12: Called when a new round starts to track the active round.
+        New content will use this round number for visibility tagging.
+
+        Args:
+            round_number: The round number being viewed
+        """
+        self._viewed_round = round_number
+
+    def switch_to_round(self, round_number: int) -> None:
+        """Switch visibility to show only the specified round.
+
+        Phase 12: CSS-based visibility switching. All round content stays in DOM,
+        we just toggle the 'hidden' class based on round tags.
+
+        Args:
+            round_number: The round number to display
+        """
+        self._viewed_round = round_number
+
+        try:
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
+
+            # Iterate through all children and toggle visibility based on round class
+            for widget in container.children:
+                # Check if widget has any round class
+                round_classes = [c for c in widget.classes if c.startswith("round-")]
+                if round_classes:
+                    # Widget is tagged with a round - show/hide based on match
+                    if f"round-{round_number}" in widget.classes:
+                        widget.remove_class("hidden")
+                    else:
+                        widget.add_class("hidden")
+                # Widgets without round tags (e.g., scroll indicators) stay visible
+        except Exception:
+            pass
 
 
 class ThinkingSection(Vertical):

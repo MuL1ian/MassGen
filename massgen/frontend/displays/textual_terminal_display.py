@@ -89,6 +89,7 @@ try:
         ToolCallCard,
         ToolDetailModal,
         ToolSection,
+        ViewSelected,
     )
     from .tui_modes import TuiModeState
 
@@ -4242,6 +4243,7 @@ Type your question and press Enter to ask the agents.
             This finalizes the card by:
             1. Marking post-eval as verified (if not already set to restart)
             2. Calling complete() to show footer with Copy/Workspace buttons
+            3. Storing the final answer content for view-based navigation
             """
             # Finalize the FinalPresentationCard
             if self._final_presentation_card:
@@ -4252,9 +4254,29 @@ Type your question and press Enter to ask the agents.
                 # Mark the card as complete (shows footer with buttons)
                 self._final_presentation_card.complete()
 
-                # Scroll to show the complete card
+                # Phase 12.4: Store final answer for view-based navigation
                 if agent_id in self.agent_widgets:
                     panel = self.agent_widgets[agent_id]
+
+                    # Get the final answer content from the card
+                    final_content = getattr(self._final_presentation_card, "_answer_content", "")
+                    vote_results = getattr(self._final_presentation_card, "_vote_results", {})
+
+                    # Store for the FinalAnswerView
+                    final_metadata = {
+                        "winner": agent_id,
+                        "vote_counts": vote_results.get("vote_counts", {}),
+                        "total_rounds": panel.get_current_round(),
+                        "agreement": sum(1 for v in vote_results.get("vote_counts", {}).values() if v > 0),
+                        "total_agents": len(self.agent_widgets),
+                    }
+                    panel.set_final_answer(final_content, final_metadata)
+
+                    # Mark all agents' ribbons as having final answer available
+                    if self._status_ribbon:
+                        for aid in self.agent_widgets:
+                            self._status_ribbon.set_final_answer_available(aid, True)
+
                     try:
                         timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
                         timeline._auto_scroll()
@@ -4491,6 +4513,13 @@ Type your question and press Enter to ask the agents.
 
                     # Scroll to show the card
                     timeline.scroll_to_widget("winner_selected_card")
+
+                    # Phase 12.4: Mark final answer as available for view-based navigation
+                    # Note: Final answer content will be set via set_final_answer() when streaming completes
+                    # For now, mark final answer as available in the ribbon
+                    if self._status_ribbon:
+                        self._status_ribbon.set_final_answer_available(winner_id, True)
+
                 except Exception as e:
                     logger.debug(f"Failed to add winner selected card: {e}")
 
@@ -4827,6 +4856,37 @@ Type your question and press Enter to ask the agents.
                 self.notify(f"Single agent: {event.agent_id}", severity="information", timeout=2)
 
             self._switch_to_agent(event.agent_id)
+            event.stop()
+
+        def on_view_selected(self, event: ViewSelected) -> None:
+            """Handle view selection from AgentStatusRibbon dropdown.
+
+            Switches the agent panel to show either a specific round or the final answer.
+            """
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: App.on_view_selected type={event.view_type} round={event.round_number} agent={event.agent_id}\n")
+
+            if event.agent_id not in self.agent_widgets:
+                with open("/tmp/tui_debug.log", "a") as f:
+                    f.write("DEBUG: App.on_view_selected agent not found, returning\n")
+                return
+
+            panel = self.agent_widgets[event.agent_id]
+
+            if event.view_type == "final_answer":
+                with open("/tmp/tui_debug.log", "a") as f:
+                    f.write("DEBUG: App.on_view_selected calling switch_to_final_answer\n")
+                panel.switch_to_final_answer()
+            elif event.view_type == "round" and event.round_number is not None:
+                with open("/tmp/tui_debug.log", "a") as f:
+                    f.write(f"DEBUG: App.on_view_selected calling switch_to_round({event.round_number})\n")
+                panel.switch_to_round(event.round_number)
+                # Also exit final answer view if currently showing it
+                if panel._current_view == "final_answer":
+                    panel.switch_from_final_answer()
+
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write("DEBUG: App.on_view_selected done\n")
             event.stop()
 
         def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
@@ -5558,7 +5618,9 @@ Type your question and press Enter to ask the agents.
                     )
 
                     # Add tool card to timeline and mark as success immediately
-                    timeline.add_tool(tool_data)
+                    # Phase 12: Pass round_number for CSS visibility
+                    current_round = panel._current_round
+                    timeline.add_tool(tool_data, round_number=current_round)
                     tool_data.status = "success"
                     timeline.update_tool(tool_id, tool_data)
 
@@ -5582,7 +5644,7 @@ Type your question and press Enter to ask the agents.
 
                         # Simple format: just show what was voted for
                         sep_label = f"🗳️ VOTED → {target_short}"
-                        timeline.add_separator(sep_label)
+                        timeline.add_separator(sep_label, round_number=current_round)
                 except Exception:
                     pass  # Silently ignore if panel not found
 
@@ -5679,17 +5741,16 @@ Type your question and press Enter to ask the agents.
                     )
 
                     # Add tool card directly to timeline
-                    timeline.add_tool(tool_data)
+                    # Phase 12: Pass round_number for CSS visibility
+                    timeline.add_tool(tool_data, round_number=panel._current_round)
                     # Mark as success immediately
                     tool_data.status = "success"
                     timeline.update_tool(tool_id, tool_data)
 
-                    # Add a restart separator AFTER the answer card
-                    # new_answer terminates a round, so separator marks end of this attempt
-                    sep_label = f"⚡ RESTART — ROUND {answer_count} COMPLETE"
-                    timeline.add_separator(sep_label)
+                    # Phase 12: No inline separator - view dropdown handles round navigation
+                    # The round will change when orchestrator calls _add_restart_content
 
-                    # Reset per-round state (badges) now that round is complete
+                    # Reset per-round state (badges) now that answer is submitted
                     # The background shells will be killed by orchestrator when new round starts
                     panel._reset_round_state()
                 except Exception as e:
@@ -5744,6 +5805,10 @@ Type your question and press Enter to ask the agents.
             if agent_id in self.agent_widgets:
                 panel = self.agent_widgets[agent_id]
                 panel.update_context_display(context_sources)
+
+                # If this is a new round for this panel, start the new round
+                if round_num > panel._current_round:
+                    panel.start_new_round(round_num, is_context_reset=False)
 
             # Update status ribbon with round number
             if self._status_ribbon:
@@ -6496,6 +6561,15 @@ Type your question and press Enter to ask the agents.
             self._task_plan_toggle_id = f"task_plan_toggle_{self._dom_safe_id}"
             self._task_plan_display_id = f"task_plan_display_{self._dom_safe_id}"
 
+            # Phase 12: CSS-based round navigation (no storage needed - widgets stay in DOM)
+            self._current_round: int = 1  # which round content is being received
+            self._current_view: str = "round"  # "round" or "final_answer"
+            self._viewed_round: int = 1  # which round is currently displayed
+
+            # Final answer storage
+            self._final_answer_content: Optional[str] = None
+            self._final_answer_metadata: Optional[Dict[str, Any]] = None
+
         def compose(self) -> ComposeResult:
             with Vertical():
                 # NOTE: Agent header row removed in Phase 8c/10 - redundant with tab bar + status ribbon
@@ -6526,6 +6600,16 @@ Type your question and press Enter to ask the agents.
 
                 # Chronological timeline layout - tools and text interleaved
                 yield TimelineSection(id=self._timeline_section_id)
+
+                # Final Answer view (hidden by default, shown via view dropdown)
+                from .textual_widgets import FinalAnswerView
+
+                self._final_answer_view_id = f"final_answer_view_{self._dom_safe_id}"
+                yield FinalAnswerView(
+                    agent_id=self.agent_id,
+                    id=self._final_answer_view_id,
+                )
+
                 yield CompletionFooter(id=self._completion_footer_id)
 
                 # Legacy RichLog kept for fallback/compatibility
@@ -6721,10 +6805,12 @@ Type your question and press Enter to ask the agents.
                         timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
                         completed = sum(1 for t in tasks if t.get("status") == "completed")
                         total = len(tasks)
+                        # Phase 12: Pass round_number for CSS visibility
                         timeline.add_text(
                             f"📋 Task updated ({completed}/{total} done)",
                             style="dim italic",
                             text_class="status",
+                            round_number=self._current_round,
                         )
                     except Exception:
                         pass
@@ -6944,33 +7030,26 @@ Type your question and press Enter to ask the agents.
             self.content_log.write(formatted)
 
         def show_restart_separator(self, attempt: int = 1, reason: str = ""):
-            """Show a highly visible restart separator in the TimelineSection."""
-            # Reset tool row count for fresh alternation after restart
+            """Handle restart - start new round with view-based navigation.
+
+            With Phase 12 view-based navigation, restarts create a new round that
+            users can switch to via the dropdown. This clears the timeline for fresh
+            content and updates the round tracking.
+            """
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: show_restart_separator called! attempt={attempt}\n")
+
+            # Determine if this was a context reset
+            is_context_reset = "context" in reason.lower() or "reset" in reason.lower()
+
+            # Start the new round (clears timeline, updates ribbon, stores content)
+            self.start_new_round(attempt, is_context_reset)
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write("DEBUG: show_restart_separator done, called start_new_round\n")
+
+            # Reset per-attempt UI state
             self._tool_row_count = 0
             self._reasoning_header_shown = False
-
-            # Build banner text
-            banner_label = f"⚡ RESTART — ATTEMPT {attempt}"
-            if reason and reason != "New attempt":
-                short_reason = reason[:40] + "..." if len(reason) > 40 else reason
-                banner_label += f" — {short_reason}"
-
-            # Add to timeline using the RestartBanner widget
-            try:
-                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                timeline.add_separator(banner_label)
-
-                # Clear the timeline for fresh content after restart
-                # (optional - comment out if you want to keep history)
-                # timeline.clear()
-
-                # Hide completion footer for new attempt
-                self._hide_completion_footer()
-            except Exception as e:
-                # Log error for debugging
-                import sys
-
-                print(f"[ERROR] show_restart_separator failed: {e}", file=sys.stderr)
 
         def add_content(self, content: str, content_type: str, tool_call_id: Optional[str] = None):
             """Add content to agent panel using section-based routing.
@@ -7024,7 +7103,9 @@ Type your question and press Enter to ask the agents.
                 self._presentation_shown = False
                 self._session_completed = False
                 self._tool_handler.reset()
-                self._clear_timeline()
+                # Phase 12: Don't clear timeline - CSS visibility handles round separation
+                # Just reset per-round state (task plans, bg tools badge)
+                self._reset_round_state()
 
             # Process through handler
             tool_data = self._tool_handler.process(normalized)
@@ -7032,6 +7113,7 @@ Type your question and press Enter to ask the agents.
             if not tool_data:
                 return
 
+            # Phase 12: No viewing_current check needed - CSS visibility handles it
             # Add or update tool card in TimelineSection (chronologically)
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
@@ -7053,10 +7135,13 @@ Type your question and press Enter to ask the agents.
                         self._show_subagent_card_from_args(tool_data, timeline)
                     elif not is_planning_tool:
                         # New tool started - add card to timeline (skip planning tools)
-                        timeline.add_tool(tool_data)
+                        # Phase 12: Pass round_number for CSS visibility
+                        timeline.add_tool(tool_data, round_number=self._current_round)
                 else:
-                    # Tool completed/failed - update existing card (if it exists)
+                    # Tool completed/failed - update the card in timeline
+                    # Phase 12: No storage needed - widgets stay in DOM with round tags
                     if not is_planning_tool and not is_subagent_tool:
+                        # Update tool card with result/error
                         timeline.update_tool(tool_data.tool_id, tool_data)
 
                     # Check if this is a Planning MCP tool and display TaskPlanCard
@@ -7092,9 +7177,10 @@ Type your question and press Enter to ask the agents.
                 self._show_completion_footer()
 
             # Add status to timeline as a subtle line
+            # Phase 12: Pass round_number for CSS visibility
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                timeline.add_text(f"● {normalized.cleaned_content}", style="dim cyan", text_class="status")
+                timeline.add_text(f"● {normalized.cleaned_content}", style="dim cyan", text_class="status", round_number=self._current_round)
             except Exception:
                 # Fallback
                 status_bar = self._make_full_width_bar(f"  📊  {normalized.cleaned_content}", "bold yellow on #2d333b")
@@ -7124,9 +7210,10 @@ Type your question and press Enter to ask the agents.
                 self._show_completion_footer()
 
             # Add to timeline with response styling
+            # Phase 12: Pass round_number for CSS visibility
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                timeline.add_text(normalized.cleaned_content, style="bold #4ec9b0", text_class="response")
+                timeline.add_text(normalized.cleaned_content, style="bold #4ec9b0", text_class="response", round_number=self._current_round)
             except Exception:
                 # Fallback
                 self.content_log.write(Text(f"🎤 {normalized.cleaned_content}", style="magenta"))
@@ -7135,34 +7222,30 @@ Type your question and press Enter to ask the agents.
             self.current_line_label.update(Text(""))
 
         def _add_restart_content(self, content: str):
-            """Handle restart separator."""
+            """Handle round transition - start a new round with view-based navigation.
+
+            With Phase 12 view-based navigation, rounds are separated by the dropdown
+            selector rather than inline banners. This method:
+            1. Parses the round number
+            2. Starts the new round (which clears the timeline)
+            3. Does NOT add inline separators (use dropdown to switch views)
+            """
             # Parse attempt number
             attempt = 1
-            reason = content
+            is_context_reset = "context" in content.lower() or "reset" in content.lower()
+
             if "attempt:" in content:
                 try:
                     parts = content.split("attempt:")
                     if len(parts) > 1:
                         attempt_part = parts[1].split()[0]
                         attempt = int(attempt_part)
-                        reason = content.replace(f"attempt:{attempt}", "").strip()
                 except (ValueError, IndexError):
                     pass
 
-            # Add to timeline as separator
-            try:
-                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                label = f"⚡ RESTART — ATTEMPT {attempt}"
-                if reason and reason != "New attempt":
-                    short_reason = reason[:30] + "..." if len(reason) > 30 else reason
-                    label += f" — {short_reason}"
-                timeline.add_separator(label)
-
-                # Hide completion footer for new attempt
-                self._hide_completion_footer()
-            except Exception:
-                # Fallback to legacy method
-                self.show_restart_separator(attempt, reason)
+            # Start the new round (clears timeline, updates ribbon)
+            # No inline separator - view dropdown handles round navigation
+            self.start_new_round(attempt, is_context_reset)
 
             self._line_buffer = ""
             self.current_line_label.update(Text(""))
@@ -7182,16 +7265,20 @@ Type your question and press Enter to ask the agents.
             is_coordination = getattr(normalized, "is_coordination", False)
 
             # Add to timeline
+            # Phase 12: No storage needed - widgets stay in DOM with round tags
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
 
                 # Handle line buffering for streaming
+                # Capture current_round in closure for CSS visibility tagging
+                current_round = self._current_round
+
                 def write_line(line: str):
+                    # Phase 12: Pass round_number for CSS visibility
                     if is_coordination or raw_type == "thinking":
-                        # Thinking/reasoning shown inline with subtle styling
-                        timeline.add_text(line, style="dim italic", text_class="thinking-inline")
+                        timeline.add_text(line, style="dim italic", text_class="thinking-inline", round_number=current_round)
                     else:
-                        timeline.add_text(line)
+                        timeline.add_text(line, round_number=current_round)
 
                 self._line_buffer = _process_line_buffer(
                     self._line_buffer,
@@ -7232,10 +7319,12 @@ Type your question and press Enter to ask the agents.
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
                 # Add as styled text with injection class
+                # Phase 12: Pass round_number for CSS visibility
                 timeline.add_text(
                     f"📥 Context Update: {preview}",
                     style="bold",
                     text_class="injection",
+                    round_number=self._current_round,
                 )
             except Exception:
                 # Fallback to legacy RichLog
@@ -7292,10 +7381,12 @@ Type your question and press Enter to ask the agents.
                 # Fallback: display as standalone text in timeline
                 preview = content[:100] + "..." if len(content) > 100 else content
                 preview = preview.replace("\n", " ")
+                # Phase 12: Pass round_number for CSS visibility
                 timeline.add_text(
                     f"💡 Reminder: {preview}",
                     style="bold",
                     text_class="reminder",
+                    round_number=self._current_round,
                 )
             except Exception:
                 # Fallback to legacy RichLog
@@ -7814,6 +7905,181 @@ Type your question and press Enter to ask the agents.
                 footer.hide()
             except Exception:
                 pass
+
+        # ========================================================================
+        # Phase 12: CSS-based round navigation
+        # ========================================================================
+        # Storage methods removed - widgets stay in DOM with round-N tags
+
+        def start_new_round(self, round_number: int, is_context_reset: bool = False) -> None:
+            """Start a new round - update tracking and switch visibility.
+
+            Phase 12: With CSS-based visibility, all round content stays in the DOM.
+            We switch visibility to show the new round and hide old round content.
+
+            Args:
+                round_number: The new round number
+                is_context_reset: Whether this round started with a context reset
+            """
+            # Update round tracking
+            self._current_round = round_number
+            self._viewed_round = round_number  # Auto-follow to new round
+            self._current_view = "round"
+
+            # Switch timeline visibility to new round (hides old round content)
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.switch_to_round(round_number)
+
+                # Add a restart separator visible in the new round
+                if round_number > 1:
+                    timeline.add_separator(f"RESTART Round {round_number}", round_number=round_number)
+            except Exception:
+                pass
+
+            # Reset per-round UI state
+            self._hide_completion_footer()
+            self._tool_handler.reset()
+            self._reasoning_header_shown = False
+
+            # Notify the status ribbon about the new round
+            self._update_ribbon_round(round_number, is_context_reset)
+
+        def _update_ribbon_round(self, round_number: int, is_context_reset: bool = False) -> None:
+            """Update the status ribbon with the current round info."""
+            try:
+                # Find the ribbon in the parent hierarchy
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    app._status_ribbon.set_round(self.agent_id, round_number, is_context_reset)
+            except Exception:
+                pass
+
+        def switch_to_round(self, round_number: int) -> None:
+            """Switch view to a specific round using CSS visibility.
+
+            Phase 12: CSS-based visibility switching. All round content stays in DOM,
+            we just toggle the 'hidden' class based on round tags.
+
+            Args:
+                round_number: The round number to display
+            """
+            self._viewed_round = round_number
+            self._current_view = "round"
+
+            # Use TimelineSection's CSS-based switching
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.switch_to_round(round_number)
+            except Exception:
+                pass
+
+            # Update ribbon to show we're viewing this round
+            try:
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    app._status_ribbon.set_viewed_round(self.agent_id, round_number)
+            except Exception:
+                pass
+
+        def switch_to_final_answer(self) -> None:
+            """Switch the view to display the final answer."""
+            from .textual_widgets import FinalAnswerView
+
+            self._current_view = "final_answer"
+
+            # Hide timeline, show final answer view
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.add_class("hidden")
+            except Exception:
+                pass
+
+            # Show the final answer view and update its content
+            try:
+                final_view = self.query_one(f"#{self._final_answer_view_id}", FinalAnswerView)
+                if self._final_answer_content:
+                    final_view.set_content(self._final_answer_content)
+                if self._final_answer_metadata:
+                    final_view.set_metadata(self._final_answer_metadata)
+                final_view.show()
+            except Exception as e:
+                tui_log(f"switch_to_final_answer error showing view: {e}")
+
+            # Update ribbon
+            try:
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    app._status_ribbon.set_viewing_final_answer(self.agent_id, True)
+            except Exception:
+                pass
+
+        def switch_from_final_answer(self) -> None:
+            """Switch back from final answer view to round view."""
+            from .textual_widgets import FinalAnswerView
+
+            self._current_view = "round"
+
+            # Show timeline, hide final answer view
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.remove_class("hidden")
+            except Exception:
+                pass
+
+            try:
+                final_view = self.query_one(f"#{self._final_answer_view_id}", FinalAnswerView)
+                final_view.hide()
+            except Exception:
+                pass
+
+            # Update ribbon
+            try:
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    app._status_ribbon.set_viewing_final_answer(self.agent_id, False)
+            except Exception:
+                pass
+
+        def set_final_answer(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+            """Store the final answer content for this agent.
+
+            Args:
+                content: The final answer text
+                metadata: Optional metadata (votes, presenting agent, rounds, etc.)
+            """
+            self._final_answer_content = content
+            self._final_answer_metadata = metadata or {}
+
+            # Mark final answer as available in the ribbon
+            try:
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    app._status_ribbon.set_final_answer_available(self.agent_id, True)
+            except Exception:
+                pass
+
+        def get_current_round(self) -> int:
+            """Get the current round number being received."""
+            return self._current_round
+
+        def get_viewed_round(self) -> int:
+            """Get the round number currently being viewed."""
+            return self._viewed_round
+
+        def get_view_state(self) -> Tuple[str, Optional[int]]:
+            """Get the current view state.
+
+            Returns:
+                Tuple of (view_type, round_number) where view_type is "round" or "final_answer"
+            """
+            if self._current_view == "final_answer":
+                return ("final_answer", None)
+            return ("round", self._viewed_round)
+
+        # ========================================================================
+        # End Phase 12.2
+        # ========================================================================
 
         def update_status(self, status: str):
             """Update agent status."""

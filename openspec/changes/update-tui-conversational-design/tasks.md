@@ -368,46 +368,73 @@ User preferred inline reasoning over collapsible sections for smoother UX.
 
 **This phase supersedes Phase 8f (Round Separators) and Phase 8g (Final Answer Card).**
 
-### 12.1 View Dropdown in Status Ribbon (Phase 12a)
-- [ ] 12.1.1 Update `AgentStatusRibbon` round selector to become a full view selector
-- [ ] 12.1.2 Add "Final Answer" option at top of dropdown (only shown after consensus)
-- [ ] 12.1.3 Show separator line between Final Answer and rounds
-- [ ] 12.1.4 Display round indicators: `◉ Round N (current)`, `Round N`, `↻ Round N` (context reset)
-- [ ] 12.1.5 Implement dropdown click handler to switch views
-- [ ] 12.1.6 Update ribbon label to show current view ("Round 2 ▾" or "✓ Final Answer ▾")
-- [ ] **12.1.7 CHECKPOINT: User approval for view dropdown**
+### 12.1 View Dropdown in Status Ribbon (Phase 12a) ✓ COMPLETED
+- [x] 12.1.1 Update `AgentStatusRibbon` round selector to become a full view selector
+- [x] 12.1.2 Add "Final Answer" option at top of dropdown (only shown after consensus)
+- [x] 12.1.3 Show separator line between Final Answer and rounds
+- [x] 12.1.4 Display round indicators: `◉ Round N (current)`, `Round N`, `↻ Round N` (context reset)
+- [x] 12.1.5 Implement dropdown click handler to switch views
+- [x] 12.1.6 Update ribbon label to show current view ("Round 2 ▾" or "✓ Final Answer ▾")
+- [x] **12.1.7 CHECKPOINT: User approved view dropdown**
 
-### 12.2 Round View Content (Phase 12b)
-- [ ] 12.2.1 Create per-round content storage: `agent_views[agent_id]["rounds"][round_num]`
-- [ ] 12.2.2 Modify content append methods to store content by round number
-- [ ] 12.2.3 Implement `switch_to_round(agent_id, round_num)` method
-- [ ] 12.2.4 Clear and repopulate agent panel when switching rounds
-- [ ] 12.2.5 Remove `RestartBanner` widget (no longer needed)
-- [ ] 12.2.6 Remove inline separators from content flow
-- [ ] 12.2.7 Track current view per agent: `agent_views[agent_id]["current_view"]`
-- [ ] **12.2.8 CHECKPOINT: User approval for round view switching**
+### 12.2 Round View Content (Phase 12b) - CSS VISIBILITY APPROACH (PARTIAL)
 
-### 12.3 Final Answer View - Dedicated Screen (Phase 12c)
-- [ ] 12.3.1 Create new `FinalAnswerView` widget (dedicated screen, not inline card)
-- [ ] 12.3.2 Design centered layout with generous whitespace
-- [ ] 12.3.3 Add "Final Answer" title (centered, clean typography)
-- [ ] 12.3.4 Add horizontal separators above/below content
-- [ ] 12.3.5 Display final answer content with proper markdown rendering
-- [ ] 12.3.6 Add metadata footer: consensus status, presenting agent, rounds, agents agreed
-- [ ] 12.3.7 Add action buttons: [Copy] [Workspace] [Voting Details]
-- [ ] 12.3.8 Add "Type below to continue" hint
-- [ ] 12.3.9 Store final answer data: `agent_views[agent_id]["final_answer"]`
-- [ ] 12.3.10 Remove inline `FinalPresentationCard` (replaced by this view)
-- [ ] **12.3.11 CHECKPOINT: User approval for Final Answer view**
+**Approach Changed:** Instead of storing/repopulating content, we use CSS visibility:
+- Each widget tagged with `round-{N}` class when created
+- `switch_to_round()` toggles `hidden` class on widgets
+- Widgets stay in DOM, visibility controlled by CSS
 
-### 12.4 Auto-Navigation (Phase 12d)
-- [ ] 12.4.1 When consensus is reached, add "Final Answer" to view dropdown
-- [ ] 12.4.2 Auto-switch presenting agent's tab to Final Answer view
-- [ ] 12.4.3 Keep other agent tabs on their current round view
-- [ ] 12.4.4 Allow user to navigate back to any round via dropdown
-- [ ] **12.4.5 CHECKPOINT: User approval for auto-navigation**
+**Completed:**
+- [x] 12.2.1 ~~Create per-round content storage~~ → CHANGED to CSS tagging approach
+- [x] 12.2.2 Modified content append methods to tag widgets with `round_number`
+- [x] 12.2.3 Implemented `switch_to_round()` using CSS visibility toggle
+- [x] 12.2.4 ~~Clear and repopulate~~ → CHANGED: toggle visibility instead
+- [~] 12.2.5 RestartBanner kept for now (tagged with round class)
+- [x] 12.2.6 Inline separators removed from content flow
+- [x] 12.2.7 Track current view per agent: `_current_round`, `_viewed_round`, `_current_view`
 
-### 12.5 Deprecations & Cleanup (Phase 12e)
+**Known Issues (TO FIX):**
+- [ ] 12.2.8 **BUG: Duplicate content appearing** - Two "new_answer" cards showing in same round view
+- [ ] 12.2.9 **BUG: Restart banner positioning** - Banner appears at top instead of inline with round start
+- [ ] 12.2.10 **Investigation needed:** Check if round numbers are off-by-one (starts at 0 vs 1?)
+- [ ] 12.2.11 **Investigation needed:** Check `notify_new_answer` being called multiple times for same answer
+- [ ] 12.2.12 **Fix:** Ensure `_current_round` is set BEFORE content is tagged
+- [ ] **12.2.13 CHECKPOINT: User approval for round view switching (PENDING)**
+
+**Files Modified:**
+- `content_sections.py`: Added `round_number` param to `add_tool()`, `add_text()`, `add_separator()`, `add_reasoning()`, `add_widget()`
+- `content_sections.py`: Added `set_viewed_round()` and `switch_to_round()` methods to `TimelineSection`
+- `textual_terminal_display.py`: Updated all content routing to pass `round_number=self._current_round`
+- `textual_terminal_display.py`: Simplified `start_new_round()` to call `timeline.switch_to_round()`
+- `textual_terminal_display.py`: Removed `_round_content`, `_round_tools` dicts (no longer needed)
+- `textual_terminal_display.py`: Removed `_store_content_item()`, `_store_tool_data()`, `_render_content_item()` methods
+
+**Debug Notes:**
+- Check `/tmp/tui_debug.log` for round switching debug output
+- Key areas: `start_new_round()`, `switch_to_round()`, `_add_restart_content()`
+
+### 12.3 Final Answer View - Dedicated Screen (Phase 12c) ✓ COMPLETED
+- [x] 12.3.1 Create new `FinalAnswerView` widget (dedicated screen, not inline card)
+- [x] 12.3.2 Design centered layout with generous whitespace
+- [x] 12.3.3 Add "Final Answer" title (centered, clean typography)
+- [x] 12.3.4 Add horizontal separators above/below content
+- [x] 12.3.5 Display final answer content with proper markdown rendering
+- [x] 12.3.6 Add metadata footer: consensus status, presenting agent, rounds, agents agreed
+- [x] 12.3.7 Add action buttons: [Copy] [Workspace] [Voting Details]
+- [x] 12.3.8 Add "Type below to continue" hint
+- [x] 12.3.9 Store final answer data: `_final_answer_content`, `_final_answer_metadata`
+- [~] 12.3.10 Inline FinalPresentationCard kept as fallback
+- [x] **12.3.11 CHECKPOINT: User approved Final Answer view**
+
+### 12.4 Auto-Navigation (Phase 12d) ✓ COMPLETED
+- [x] 12.4.1 When consensus is reached, add "Final Answer" to view dropdown
+- [x] 12.4.2 Auto-switch presenting agent's tab to Final Answer view
+- [x] 12.4.3 Keep other agent tabs on their current round view
+- [x] 12.4.4 Allow user to navigate back to any round via dropdown
+- [x] **12.4.5 CHECKPOINT: User approved auto-navigation**
+
+### 12.5 Deprecations & Cleanup (Phase 12e) - DEFERRED
+Deferred until Phase 12.2 bugs are fixed.
 - [ ] 12.5.1 Remove `RestartBanner` class from `content_sections.py`
 - [ ] 12.5.2 Remove `FinalPresentationCard` class from `content_sections.py`
 - [ ] 12.5.3 Remove round separator CSS from `dark.tcss` and `light.tcss`
@@ -415,6 +442,33 @@ User preferred inline reasoning over collapsible sections for smoother UX.
 - [ ] 12.5.5 Update `__init__.py` exports (remove deprecated, add new)
 - [ ] 12.5.6 Clean up any references to removed widgets
 - [ ] **12.5.7 CHECKPOINT: User approval for cleanup**
+
+### 12.6 Bug Investigation & Fixes (NEW - TO DO)
+
+**Duplicate Content Bug:**
+The issue is that content (especially "new_answer" tool cards) appears duplicated when viewing historical rounds.
+
+**Hypotheses to investigate:**
+1. `notify_new_answer()` called multiple times for same answer submission
+2. Round number not updated before content is tagged
+3. `_clear_timeline()` being called somewhere unexpectedly
+4. CSS visibility not working correctly (both rounds visible)
+5. Off-by-one error in round numbering (orchestrator starts at 0, TUI starts at 1?)
+
+**Investigation steps:**
+- [ ] 12.6.1 Add debug logging to `notify_new_answer()` to track call count per answer
+- [ ] 12.6.2 Add debug logging to show `_current_round` value when content is added
+- [ ] 12.6.3 Verify orchestrator's round numbering matches TUI's round numbering
+- [ ] 12.6.4 Check if `_add_restart_content()` is being called at correct times
+- [ ] 12.6.5 Verify CSS `hidden` class is being toggled correctly in `switch_to_round()`
+- [ ] 12.6.6 Check for any remaining `_clear_timeline()` calls that defeat CSS visibility
+
+**Fix tasks after investigation:**
+- [ ] 12.6.7 Synchronize round numbering between orchestrator and TUI
+- [ ] 12.6.8 Ensure `start_new_round()` is called exactly once per round transition
+- [ ] 12.6.9 Ensure all content is tagged with correct round number
+- [ ] 12.6.10 Remove any remaining `timeline.clear()` calls that break CSS visibility
+- [ ] **12.6.11 CHECKPOINT: User approval for bug fixes**
 
 ---
 
@@ -489,3 +543,182 @@ Implemented simplified single-line centered design with pulsing dots animation.
 - [ ] 13.21 Test collapsible reasoning blocks (expand/collapse)
 - [ ] 13.22 Test scroll indicators in content area
 - [ ] 13.23 Verify "ctx reset" indicator shows on appropriate rounds in dropdown
+
+---
+
+## 15. Phase 15: UI Polish & Cleanup
+
+This phase addresses specific TUI improvements identified from visual review.
+
+### 15.1 Mode Bar Cleanup
+**Goal**: Remove the blue separator line and polish mode display with inline pill style.
+
+**Files to Modify:**
+- `massgen/frontend/displays/textual_themes/dark.tcss` (lines 1001-1012, 483-535)
+- `massgen/frontend/displays/textual_themes/light.tcss` (equivalent sections)
+
+**Tasks:**
+- [ ] 15.1.1 Remove separator line (`border-top: solid $accent-primary;`) from `#input_header`
+- [ ] 15.1.2 Polish ModeToggle pill styling (subtle backgrounds, remove border for cleaner look)
+- [ ] 15.1.3 Update light.tcss with matching changes
+- [ ] **15.1.4 CHECKPOINT: User approval for mode bar cleanup**
+
+**CSS Changes:**
+```tcss
+/* #input_header - remove separator */
+border-top: none;  /* REMOVE: was solid $accent-primary */
+
+/* ModeToggle - cleaner pills */
+border: none;  /* Remove border for cleaner look */
+```
+
+### 15.2 Task Box Theming Fix
+**Goal**: Fix CSS variable error, remove empty space, improve styling.
+
+**Files to Modify:**
+- `massgen/frontend/displays/textual_widgets/task_plan_modal.py` (lines 25-130)
+- `massgen/frontend/displays/textual_widgets/task_plan_card.py` (lines 46-105)
+
+**Tasks:**
+- [ ] 15.2.1 Fix `$bg-card` CSS variable error in task_plan_modal.py (use `#161b22`)
+- [ ] 15.2.2 Fix other undefined CSS variables in task_plan_modal.py:
+  - `$accent-special` → `#9568d9`
+  - `$fg-muted` → `#8b949e`
+  - `$fg-primary` → `#e6edf3`
+  - `$bg-surface` → `#1c2128`
+  - `$accent-info` → `#3ab0b5`
+  - `$border-default` → `#30363d`
+- [ ] 15.2.3 Reduce margin in task_plan_card.py (`margin: 0 0 1 1;` → `margin: 0 0 0 1;`)
+- [ ] **15.2.4 CHECKPOINT: User approval for task box fix**
+
+### 15.3 Task Update Bundling
+**Goal**: Bundle sequential task updates instead of showing each individually.
+
+**Files to Modify:**
+- `massgen/frontend/displays/textual_terminal_display.py` (lines 6718-6730 in `_update_pinned_task_plan`)
+- `massgen/frontend/displays/textual_widgets/content_sections.py` (add `widget_id` param to `add_text`)
+
+**Current Problem:**
+Each call to `_update_pinned_task_plan()` adds a new timeline entry, resulting in:
+```
+📋 Task updated (1/7 done)
+📋 Task updated (2/7 done)
+📋 Task updated (2/7 done)
+```
+
+**Tasks:**
+- [ ] 15.3.1 Add `_last_task_update_id: Optional[str] = None` to AgentPanel.__init__
+- [ ] 15.3.2 Add optional `widget_id` parameter to `TimelineSection.add_text()` method
+- [ ] 15.3.3 Update `_update_pinned_task_plan()` to track and reuse existing notification widget
+- [ ] 15.3.4 Reset `_last_task_update_id` on new round/context reset
+- [ ] **15.3.5 CHECKPOINT: User approval for task update bundling**
+
+**Solution Pattern:**
+```python
+# In _update_pinned_task_plan():
+if self._last_task_update_id:
+    # Update existing widget in place
+    existing = timeline.query_one(f"#{self._last_task_update_id}", Static)
+    existing.update(update_text)
+else:
+    # Create new widget with tracked ID
+    widget_id = f"task_update_{self._item_count}"
+    self._last_task_update_id = widget_id
+    timeline.add_text(update_text, widget_id=widget_id)
+```
+
+### 15.4 Scrolling Indicator Styling
+**Goal**: Remove ugly orange color, use theme-consistent colors.
+
+**Files to Modify:**
+- `massgen/frontend/displays/textual_widgets/content_sections.py` (lines 669-703)
+- `massgen/frontend/displays/textual_themes/dark.tcss` (lines 2679-2691)
+- `massgen/frontend/displays/textual_themes/light.tcss` (lines 2290-2302)
+
+**Current Problem:**
+- "↑ Scrolling · q/Esc" indicator uses ugly orange `#f0883e`
+- "▲ more above" / "▼ more below" indicators have no theme overrides
+
+**Tasks:**
+- [ ] 15.4.1 Fix component CSS in content_sections.py - replace orange with subtle gray:
+  - `color: #f0883e;` → `color: #7d8590;`
+  - `border-bottom: solid #f0883e;` → `border-bottom: solid #30363d;`
+  - `background: #2d333b;` → `background: #21262d;`
+- [ ] 15.4.2 Add scroll-arrow-indicator overrides to dark.tcss:
+  ```tcss
+  TimelineSection .scroll-arrow-indicator {
+      color: $fg-subtle;
+      background: transparent;
+  }
+  ```
+- [ ] 15.4.3 Add scroll-arrow-indicator overrides to light.tcss:
+  ```tcss
+  TimelineSection .scroll-arrow-indicator {
+      color: #57606a;
+      background: transparent;
+  }
+  ```
+- [ ] **15.4.4 CHECKPOINT: User approval for scrolling indicators**
+
+### Implementation Order
+1. **15.2** - Fix CSS error first (prevents startup error)
+2. **15.1** - Mode bar cleanup (quick visual fix)
+3. **15.4** - Scrolling indicator styling (visual polish)
+4. **15.3** - Task update bundling (requires more code changes)
+
+### 15.5 Hide Raw Text Content (Keep Reasoning Only)
+**Goal**: Hide plain text content from timeline, keeping only reasoning/thinking and tool cards.
+
+**Rationale**: Since structured tools (answer, vote, file operations) already show the meaningful output, raw text content is redundant and clutters the UI.
+
+**Files to Modify:**
+- `massgen/frontend/displays/textual_terminal_display.py` (lines 7253-7310 in `_add_thinking_content`)
+
+**Current Behavior:**
+- Reasoning content (`raw_type == "thinking"` or `is_coordination`) → shown with 💭 dim italic styling
+- Plain text content → shown as regular text in timeline
+
+**Desired Behavior:**
+- Reasoning content → keep showing with 💭 dim italic styling
+- Plain text content → hide completely (don't add to timeline)
+
+**Tasks:**
+- [ ] 15.5.1 Modify `_add_thinking_content()` to skip non-thinking text:
+  ```python
+  def _add_thinking_content(self, normalized, raw_type: str):
+      # ... existing filtering ...
+
+      is_coordination = getattr(normalized, "is_coordination", False)
+
+      # Only display thinking/reasoning content, skip plain text
+      if not is_coordination and raw_type != "thinking":
+          return  # Skip plain text content
+
+      # ... rest of display logic for reasoning only ...
+  ```
+- [ ] 15.5.2 Verify tool cards (answer, vote, etc.) still display correctly
+- [ ] 15.5.3 Verify reasoning blocks with 💭 still appear
+- [ ] **15.5.4 CHECKPOINT: User approval for hiding raw text content**
+
+**Alternative (if needed):** Instead of completely hiding, could add a config option or toggle to show/hide raw text.
+
+### Implementation Order (Updated)
+1. **15.2** - Fix CSS error first (prevents startup error)
+2. **15.1** - Mode bar cleanup (quick visual fix)
+3. **15.4** - Scrolling indicator styling (visual polish)
+4. **15.5** - Hide raw text content (cleaner timeline)
+5. **15.3** - Task update bundling (requires more code changes)
+
+### Verification
+Test with:
+```bash
+uv run massgen --display textual --config three_agents.yaml "Create a poem about love"
+```
+
+Verify:
+- [ ] No CSS errors on startup
+- [ ] Modes display cleanly without separator line
+- [ ] Task updates appear as single line that updates in place
+- [ ] Scrolling indicators have subtle, theme-consistent colors
+- [ ] Task modal opens without CSS variable errors
+- [ ] Only reasoning (💭) and tool cards appear - no raw text clutter
