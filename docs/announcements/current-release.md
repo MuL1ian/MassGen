@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.42, featuring Human Input Queue - inject messages to agents mid-stream while they're working! This release also includes a comprehensive TUI Visual Redesign with a modern "Conversational AI" aesthetic - rounded corners, professional color palette, edge-to-edge layouts, and polished modals.
+We're excited to release MassGen v0.1.42, featuring Human Input Queue - inject messages to agents mid-stream while they're working! 🚀 This release also includes a comprehensive TUI Visual Redesign with a modern "Conversational AI" aesthetic - rounded corners, professional color palette, edge-to-edge layouts, and polished modals.
 
 ## Install
 
