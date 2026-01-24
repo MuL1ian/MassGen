@@ -21,7 +21,8 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import RichLog, Static
 
-from ..content_handlers import ToolDisplayData
+from ..content_handlers import ToolDisplayData, get_mcp_tool_name
+from .tool_batch_card import ToolBatchCard, ToolBatchItem
 from .tool_card import ToolCallCard
 
 logger = logging.getLogger(__name__)
@@ -718,6 +719,8 @@ class TimelineSection(Vertical):
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
         self._tools: Dict[str, ToolCallCard] = {}
+        self._batches: Dict[str, ToolBatchCard] = {}  # batch_id -> ToolBatchCard
+        self._tool_to_batch: Dict[str, str] = {}  # tool_id -> batch_id mapping
         self._item_count = 0
         self._reasoning_section_id = f"reasoning_{id}" if id else "reasoning_section"
         # Scroll mode: when True, auto-scroll is paused (user is reading history)
@@ -1035,6 +1038,214 @@ class TimelineSection(Vertical):
                     },
                 )
         return bg_tools
+
+    # === Batch Card Methods ===
+
+    def add_batch(self, batch_id: str, server_name: str, round_number: int = 1) -> ToolBatchCard:
+        """Create a new batch card for grouping MCP tools from the same server.
+
+        Args:
+            batch_id: Unique ID for this batch
+            server_name: MCP server name (e.g., "filesystem")
+            round_number: Round number for CSS visibility
+
+        Returns:
+            The created ToolBatchCard
+        """
+        card = ToolBatchCard(
+            server_name=server_name,
+            id=f"batch_{batch_id}",
+        )
+
+        # Phase 12: Tag with round class for CSS visibility
+        card.add_class(f"round-{round_number}")
+        if round_number != self._viewed_round:
+            card.add_class("hidden")
+
+        self._batches[batch_id] = card
+        self._item_count += 1
+
+        try:
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
+            container.mount(card)
+            self._auto_scroll()
+            self._trim_old_items()
+        except Exception:
+            pass
+
+        return card
+
+    def add_tool_to_batch(
+        self,
+        batch_id: str,
+        tool_data: ToolDisplayData,
+    ) -> None:
+        """Add a tool to an existing batch card.
+
+        Args:
+            batch_id: ID of the batch to add to
+            tool_data: Tool display data
+        """
+        if batch_id not in self._batches:
+            return
+
+        batch_card = self._batches[batch_id]
+
+        # Create ToolBatchItem from ToolDisplayData
+        from datetime import datetime
+
+        mcp_tool_name = get_mcp_tool_name(tool_data.tool_name) or tool_data.tool_name
+        item = ToolBatchItem(
+            tool_id=tool_data.tool_id,
+            tool_name=tool_data.tool_name,
+            display_name=mcp_tool_name,
+            status=tool_data.status,
+            args_summary=tool_data.args_summary,
+            args_full=tool_data.args_full,
+            start_time=tool_data.start_time or datetime.now(),
+        )
+
+        batch_card.add_tool(item)
+        self._tool_to_batch[tool_data.tool_id] = batch_id
+        self._auto_scroll()
+
+    def update_tool_in_batch(self, tool_id: str, tool_data: ToolDisplayData) -> bool:
+        """Update a tool within a batch card.
+
+        Args:
+            tool_id: ID of the tool to update
+            tool_data: Updated tool data
+
+        Returns:
+            True if tool was found and updated, False otherwise
+        """
+        batch_id = self._tool_to_batch.get(tool_id)
+        if not batch_id or batch_id not in self._batches:
+            return False
+
+        batch_card = self._batches[batch_id]
+        mcp_tool_name = get_mcp_tool_name(tool_data.tool_name) or tool_data.tool_name
+
+        # Calculate elapsed time
+        elapsed_seconds = None
+        if tool_data.elapsed_seconds is not None:
+            elapsed_seconds = tool_data.elapsed_seconds
+        elif tool_data.start_time and tool_data.end_time:
+            elapsed_seconds = (tool_data.end_time - tool_data.start_time).total_seconds()
+
+        item = ToolBatchItem(
+            tool_id=tool_data.tool_id,
+            tool_name=tool_data.tool_name,
+            display_name=mcp_tool_name,
+            status=tool_data.status,
+            args_summary=tool_data.args_summary,
+            args_full=tool_data.args_full,
+            result_summary=tool_data.result_summary,
+            result_full=tool_data.result_full,
+            error=tool_data.error,
+            start_time=tool_data.start_time,
+            end_time=tool_data.end_time,
+            elapsed_seconds=elapsed_seconds,
+        )
+
+        batch_card.update_tool(tool_id, item)
+        self._auto_scroll()
+        return True
+
+    def get_batch(self, batch_id: str) -> Optional[ToolBatchCard]:
+        """Get a batch card by ID."""
+        return self._batches.get(batch_id)
+
+    def get_tool_batch(self, tool_id: str) -> Optional[str]:
+        """Get the batch ID for a tool, if it's in a batch."""
+        return self._tool_to_batch.get(tool_id)
+
+    def convert_tool_to_batch(
+        self,
+        pending_tool_id: str,
+        new_tool_data: ToolDisplayData,
+        batch_id: str,
+        server_name: str,
+        round_number: int = 1,
+    ) -> Optional[ToolBatchCard]:
+        """Convert a standalone tool card to a batch and add a second tool.
+
+        This is called when a second consecutive MCP tool from the same server arrives.
+        It removes the original standalone ToolCallCard and creates a ToolBatchCard
+        containing both tools.
+
+        Args:
+            pending_tool_id: ID of the existing standalone tool to convert
+            new_tool_data: The second tool's data
+            batch_id: ID for the new batch
+            server_name: MCP server name
+            round_number: Round number for CSS visibility
+
+        Returns:
+            The created ToolBatchCard, or None if conversion failed
+        """
+        from datetime import datetime
+
+        # Get the existing tool card
+        existing_card = self._tools.get(pending_tool_id)
+        if not existing_card:
+            return None
+
+        # Extract data from existing card to create batch item
+        first_item = ToolBatchItem(
+            tool_id=pending_tool_id,
+            tool_name=existing_card.tool_name,
+            display_name=get_mcp_tool_name(existing_card.tool_name) or existing_card._display_name,
+            status=existing_card.status,
+            args_summary=existing_card._params,
+            args_full=existing_card._params_full,
+            result_summary=existing_card._result,
+            result_full=existing_card._result_full,
+            start_time=existing_card._start_time,
+        )
+
+        # Create second item from new tool data
+        second_item = ToolBatchItem(
+            tool_id=new_tool_data.tool_id,
+            tool_name=new_tool_data.tool_name,
+            display_name=get_mcp_tool_name(new_tool_data.tool_name) or new_tool_data.tool_name,
+            status=new_tool_data.status,
+            args_summary=new_tool_data.args_summary,
+            args_full=new_tool_data.args_full,
+            start_time=new_tool_data.start_time or datetime.now(),
+        )
+
+        # Create batch card
+        batch_card = ToolBatchCard(
+            server_name=server_name,
+            id=f"batch_{batch_id}",
+        )
+
+        # Tag with round class for CSS visibility
+        batch_card.add_class(f"round-{round_number}")
+        if round_number != self._viewed_round:
+            batch_card.add_class("hidden")
+
+        # Add both tools to batch
+        batch_card.add_tool(first_item)
+        batch_card.add_tool(second_item)
+
+        # Track in our dictionaries
+        self._batches[batch_id] = batch_card
+        self._tool_to_batch[pending_tool_id] = batch_id
+        self._tool_to_batch[new_tool_data.tool_id] = batch_id
+
+        # Mount batch card right after the existing tool card, then remove the old card
+        try:
+            container = self.query_one("#timeline_container", TimelineScrollContainer)
+            container.mount(batch_card, after=existing_card)
+            existing_card.remove()
+            del self._tools[pending_tool_id]
+            self._auto_scroll()
+        except Exception:
+            pass
+
+        return batch_card
 
     def add_hook_to_tool(self, tool_call_id: Optional[str], hook_info: dict) -> None:
         """Add hook execution info to a tool card.

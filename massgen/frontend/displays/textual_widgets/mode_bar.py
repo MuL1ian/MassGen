@@ -205,10 +205,10 @@ class ModeBar(Widget):
     DEFAULT_CSS = """
     ModeBar {
         height: 2;
-        width: 100%;
+        width: auto;
         layout: horizontal;
         background: transparent;
-        border-bottom: solid $primary-darken-2;
+        border-bottom: none;
         padding: 0 1;
         align: left middle;
     }
@@ -524,10 +524,11 @@ class WorkflowStatusLine(Static):
 
     DEFAULT_CSS = """
     WorkflowStatusLine {
-        height: 1;
+        height: 2;
         width: 1fr;
         padding: 0 1;
         text-align: right;
+        content-align: right middle;
         color: $text-muted;
         text-style: italic;
         background: transparent;

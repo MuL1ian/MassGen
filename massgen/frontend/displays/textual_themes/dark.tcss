@@ -538,20 +538,17 @@ ModeToggle.disabled {
 
 /* Plan mode states - green text + underline */
 ModeToggle.state-plan {
-    background: transparent;
     color: $accent-success;
     border-bottom: tall $accent-success;
 }
 
 ModeToggle.state-plan:hover,
 ModeToggle.state-plan:focus {
-    background: transparent;
     color: $accent-success;
     border-bottom: tall $accent-success;
 }
 
 ModeToggle.state-execute {
-    background: transparent;
     color: $accent-success;
     border-bottom: tall $accent-success;
     text-style: bold;
@@ -559,7 +556,6 @@ ModeToggle.state-execute {
 
 ModeToggle.state-execute:hover,
 ModeToggle.state-execute:focus {
-    background: transparent;
     color: $accent-success;
     border-bottom: tall $accent-success;
     text-style: bold;
@@ -567,35 +563,30 @@ ModeToggle.state-execute:focus {
 
 /* Agent mode states - single is muted (reduced mode) */
 ModeToggle.state-single {
-    background: transparent;
     color: $fg-muted;
     border-bottom: tall $border-default;
 }
 
 /* Multi-agent (default) - normal text */
 ModeToggle.state-multi {
-    background: transparent;
     color: $fg-primary;
     border-bottom: tall $border-default;
 }
 
 /* Refinement on - default state, not highlighted */
 ModeToggle.state-on {
-    background: transparent;
     color: $fg-primary;
     border-bottom: tall $border-default;
 }
 
 /* Refinement off - muted gray (reduced mode) */
 ModeToggle.state-off {
-    background: transparent;
     color: $fg-muted;
     border-bottom: tall $border-default;
 }
 
 /* Normal (inactive plan) - visible but subdued */
 ModeToggle.state-normal {
-    background: transparent;
     color: $fg-primary;
     border-bottom: tall $border-default;
 }
@@ -1078,14 +1069,17 @@ SuggestionRow.selected {
 
 /* Workflow status line - conversational messages about multi-agent workflow */
 /* Now inside input_header horizontal, takes remaining space and aligns right */
+/* DEBUG: magenta background to verify visibility */
 #workflow_status {
-    height: 1;
+    height: 2;
+    min-width: 30;
     width: 1fr;
     padding: 0 1;
     text-align: right;
-    color: $fg-muted;
-    text-style: italic;
-    background: transparent;
+    content-align: right middle;
+    color: white;
+    text-style: bold;
+    background: magenta;
 }
 
 #workflow_status.hidden {
@@ -2527,6 +2521,70 @@ ToolCallCard.type-subagent.expanded {
     max-height: 100%;
     height: auto;
     min-height: 8;
+}
+
+/* === Tool Batch Cards === */
+/* Tree view for batched MCP tool calls from the same server */
+
+ToolBatchCard {
+    width: 100%;
+    height: auto;
+    min-height: 3;
+    max-height: 20;
+    padding: 0 1;
+    margin: 1 0 1 1;
+    background: transparent;
+    border-left: solid $border-default;
+}
+
+/* Appearance animation */
+ToolBatchCard.appearing {
+    opacity: 0.3;
+}
+
+ToolBatchCard.appeared {
+    opacity: 1.0;
+}
+
+ToolBatchCard:hover {
+    background: $bg-surface;
+    border-left: solid $border-highlight;
+}
+
+ToolBatchCard:focus {
+    background: $bg-surface;
+    border-left: solid $accent-primary;
+    outline: none;
+}
+
+/* Collapsed state */
+ToolBatchCard.collapsed {
+    max-height: 6;
+}
+
+/* Expanded state */
+ToolBatchCard.expanded {
+    max-height: 30;
+}
+
+/* Status-based styling */
+ToolBatchCard.status-running {
+    border-left: solid $accent-primary;
+}
+
+ToolBatchCard.status-success {
+    border-left: solid $accent-success;
+}
+
+ToolBatchCard.status-error {
+    border-left: solid $accent-error;
+    background: #1a0f0f20;
+}
+
+/* Batch card content container */
+ToolBatchCard #batch-content {
+    height: auto;
+    width: 100%;
 }
 
 /* === Content Sections === */

@@ -2052,6 +2052,70 @@ ToolCallCard.type-subagent.expanded {
     min-height: 8;
 }
 
+/* === Tool Batch Cards === */
+/* Tree view for batched MCP tool calls from the same server */
+
+ToolBatchCard {
+    width: 100%;
+    height: auto;
+    min-height: 3;
+    max-height: 20;
+    padding: 0 1;
+    margin: 1 0 1 1;
+    background: transparent;
+    border-left: solid #dddddd;
+}
+
+/* Appearance animation */
+ToolBatchCard.appearing {
+    opacity: 0.3;
+}
+
+ToolBatchCard.appeared {
+    opacity: 1.0;
+}
+
+ToolBatchCard:hover {
+    background: #f0f0f0;
+    border-left: solid #bbbbbb;
+}
+
+ToolBatchCard:focus {
+    background: #f0f0f0;
+    border-left: solid #1a6bb8;
+    outline: none;
+}
+
+/* Collapsed state */
+ToolBatchCard.collapsed {
+    max-height: 6;
+}
+
+/* Expanded state */
+ToolBatchCard.expanded {
+    max-height: 30;
+}
+
+/* Status-based styling */
+ToolBatchCard.status-running {
+    border-left: solid #1a6bb8;
+}
+
+ToolBatchCard.status-success {
+    border-left: solid #2e7d32;
+}
+
+ToolBatchCard.status-error {
+    border-left: solid #c62828;
+    background: #ffebee;
+}
+
+/* Batch card content container */
+ToolBatchCard #batch-content {
+    height: auto;
+    width: 100%;
+}
+
 /* === Content Sections === */
 
 /* Tool Section - fixed size collapsible box for tool cards */

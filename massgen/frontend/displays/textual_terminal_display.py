@@ -41,7 +41,11 @@ try:
     from textual.widget import Widget
     from textual.widgets import Button, Footer, Input, Label, RichLog, Static, TextArea
 
-    from .content_handlers import ThinkingContentHandler, ToolContentHandler
+    from .content_handlers import (
+        ThinkingContentHandler,
+        ToolBatchTracker,
+        ToolContentHandler,
+    )
     from .content_normalizer import ContentNormalizer
 
     # Import extracted modals from the new textual/ package
@@ -6917,6 +6921,7 @@ Type your question and press Enter to ask the agents.
             # New section-based content handlers
             self._tool_handler = ToolContentHandler()
             self._thinking_handler = ThinkingContentHandler()
+            self._batch_tracker = ToolBatchTracker()
 
             # Section widget IDs - using timeline for chronological view
             self._timeline_section_id = f"timeline_section_{self._dom_safe_id}"
@@ -7209,21 +7214,8 @@ Type your question and press Enter to ask the agents.
                 pinned_container.remove_class("hidden")
                 self._task_plan_visible = True
 
-                # Add a brief notification to timeline for updates (not creates)
-                if show_notification and operation != "create":
-                    try:
-                        timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                        completed = sum(1 for t in tasks if t.get("status") == "completed")
-                        total = len(tasks)
-                        # Phase 12: Pass round_number for CSS visibility
-                        timeline.add_text(
-                            f"📋 Task updated ({completed}/{total} done)",
-                            style="dim italic",
-                            text_class="status",
-                            round_number=self._current_round,
-                        )
-                    except Exception:
-                        pass
+                # NOTE: Task update notifications removed - pinned task card at top
+                # already shows current status, so inline notifications are redundant
 
             except Exception as e:
                 tui_log(f"_update_pinned_task_plan error: {e}")
@@ -7449,6 +7441,9 @@ Type your question and press Enter to ask the agents.
             with open("/tmp/tui_debug.log", "a") as f:
                 f.write(f"DEBUG: show_restart_separator called! attempt={attempt}\n")
 
+            # Finalize any current batch when restart occurs
+            self._batch_tracker.finalize_current_batch()
+
             # Determine if this was a context reset
             is_context_reset = "context" in reason.lower() or "reset" in reason.lower()
 
@@ -7507,6 +7502,9 @@ Type your question and press Enter to ask the agents.
             Note: Restart detection is handled solely via show_restart_separator()
             called from the orchestrator. We removed the duplicate detection here
             that used _session_count to avoid conflicting round transitions.
+
+            MCP tools from the same server are batched into ToolBatchCard when 2+
+            consecutive tools arrive. Single tools appear as normal ToolCallCard.
             """
             # Process through handler
             tool_data = self._tool_handler.process(normalized)
@@ -7524,26 +7522,64 @@ Type your question and press Enter to ask the agents.
                 # Check if this is a subagent tool - we'll show SubagentCard instead
                 is_subagent_tool = self._is_subagent_tool(tool_data.tool_name)
 
+                # Skip batching for special tool types (planning, subagent)
+                skip_batching = is_planning_tool or is_subagent_tool
+
                 if tool_data.status == "running":
                     # Check if this is an args update for existing tool
                     existing_card = timeline.get_tool(tool_data.tool_id)
+                    existing_batch = timeline.get_tool_batch(tool_data.tool_id) if not skip_batching else None
+
                     if existing_card:
-                        # Update existing card with args (both truncated and full)
+                        # Update existing standalone card with args
                         if tool_data.args_summary:
                             existing_card.set_params(tool_data.args_summary, tool_data.args_full)
+                    elif existing_batch:
+                        # Update existing tool in batch with args
+                        timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
                     elif is_subagent_tool:
                         # Subagent tool starting - show SubagentCard with pending tasks from args
                         self._show_subagent_card_from_args(tool_data, timeline)
-                    elif not is_planning_tool:
-                        # New tool started - add card to timeline (skip planning tools)
-                        # Phase 12: Pass round_number for CSS visibility
+                    elif is_planning_tool:
+                        # Planning tools are skipped - TaskPlanCard is shown on completion
+                        pass
+                    elif not skip_batching:
+                        # Check if this MCP tool should be batched
+                        action, server_name, batch_id, pending_id = self._batch_tracker.process_tool(tool_data)
+
+                        if action == "pending":
+                            # First MCP tool - show as normal card, track for potential batch
+                            timeline.add_tool(tool_data, round_number=self._current_round)
+                        elif action == "convert_to_batch" and server_name and batch_id and pending_id:
+                            # Second tool from same server - convert to batch
+                            timeline.convert_tool_to_batch(
+                                pending_id,
+                                tool_data,
+                                batch_id,
+                                server_name,
+                                round_number=self._current_round,
+                            )
+                        elif action == "add_to_batch" and batch_id:
+                            # Add to existing batch
+                            timeline.add_tool_to_batch(batch_id, tool_data)
+                        else:
+                            # Standalone non-MCP tool
+                            timeline.add_tool(tool_data, round_number=self._current_round)
+                    else:
+                        # Fallback for other special tools
                         timeline.add_tool(tool_data, round_number=self._current_round)
                 else:
                     # Tool completed/failed - update the card in timeline
                     # Phase 12: No storage needed - widgets stay in DOM with round tags
                     if not is_planning_tool and not is_subagent_tool:
-                        # Update tool card with result/error
-                        timeline.update_tool(tool_data.tool_id, tool_data)
+                        # Use batch tracker to determine if this is a batch or standalone update
+                        action, server_name, batch_id, _ = self._batch_tracker.process_tool(tool_data)
+
+                        if action == "update_batch" and timeline.get_tool_batch(tool_data.tool_id):
+                            timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
+                        else:
+                            # Update standalone tool card with result/error
+                            timeline.update_tool(tool_data.tool_id, tool_data)
 
                     # Check if this is a Planning MCP tool and display TaskPlanCard
                     tui_log(f"_add_tool_content: tool_status={tool_data.status}, tool_name={tool_data.tool_name}")
@@ -7571,6 +7607,9 @@ Type your question and press Enter to ask the agents.
             """Route status content to TimelineSection with subtle display."""
             if not normalized.should_display:
                 return
+
+            # Finalize any current batch when non-tool content arrives
+            self._batch_tracker.finalize_current_batch()
 
             # Detect session completion for restart tracking
             if "completed" in normalized.cleaned_content.lower():
@@ -7605,6 +7644,9 @@ Type your question and press Enter to ask the agents.
             """Route presentation content to TimelineSection."""
             if not normalized.should_display:
                 return
+
+            # Finalize any current batch when non-tool content arrives
+            self._batch_tracker.finalize_current_batch()
 
             # Mark presentation shown for restart detection
             if "Providing answer" in normalized.original:
@@ -7664,6 +7706,9 @@ Type your question and press Enter to ask the agents.
             cleaned = self._thinking_handler.process(normalized)
             if not cleaned:
                 return
+
+            # Finalize any current batch when non-tool content arrives
+            self._batch_tracker.finalize_current_batch()
 
             # Check if this is coordination content
             is_coordination = getattr(normalized, "is_coordination", False)
@@ -8364,6 +8409,7 @@ Type your question and press Enter to ask the agents.
             # Step 4: Reset per-round UI state
             self._hide_completion_footer()
             self._tool_handler.reset()
+            self._batch_tracker.reset()
             self._reasoning_header_shown = False
 
             # Step 5: Clear context display for new round (will be updated when context is injected)

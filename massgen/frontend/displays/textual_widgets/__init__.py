@@ -57,6 +57,7 @@ from .subagent_modal import SubagentModal
 from .tab_bar import AgentTab, AgentTabBar, AgentTabChanged, SessionInfoClicked
 from .task_plan_card import TaskPlanCard
 from .task_plan_modal import TaskPlanModal
+from .tool_batch_card import ToolBatchCard, ToolBatchItem
 from .tool_card import ToolCallCard, format_tool_display_name, get_tool_category
 from .tool_detail_modal import ToolDetailModal
 from .wizard_base import (
@@ -102,6 +103,8 @@ __all__ = [
     "SessionInfoPanel",
     # Tool cards and modal
     "ToolCallCard",
+    "ToolBatchCard",
+    "ToolBatchItem",
     "ToolDetailModal",
     "get_tool_category",
     "format_tool_display_name",
