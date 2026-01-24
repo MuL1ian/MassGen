@@ -36,7 +36,6 @@ from .mode_bar import (
     OverrideRequested,
     PlanConfigChanged,
     PlanSettingsClicked,
-    WorkflowStatusLine,
 )
 from .multi_line_input import MultiLineInput
 from .path_suggestion import PathSuggestion, PathSuggestionDropdown
@@ -69,14 +68,13 @@ from .wizard_base import (
 )
 
 __all__ = [
-    # Mode bar and workflow status
+    # Mode bar
     "ModeBar",
     "ModeToggle",
     "ModeChanged",
     "OverrideRequested",
     "PlanConfigChanged",
     "PlanSettingsClicked",
-    "WorkflowStatusLine",
     # Plan options popover
     "PlanOptionsPopover",
     "PlanSelected",

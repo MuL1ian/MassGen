@@ -1067,34 +1067,6 @@ SuggestionRow.selected {
     background: $bg-base;
 }
 
-/* Workflow status line - conversational messages about multi-agent workflow */
-/* Now inside input_header horizontal, takes remaining space and aligns right */
-/* DEBUG: magenta background to verify visibility */
-#workflow_status {
-    height: 2;
-    min-width: 30;
-    width: 1fr;
-    padding: 0 1;
-    text-align: right;
-    content-align: right middle;
-    color: white;
-    text-style: bold;
-    background: magenta;
-}
-
-#workflow_status.hidden {
-    display: none;
-}
-
-#workflow_status.active {
-    color: $accent-primary;
-}
-
-#workflow_status.consensus {
-    color: $accent-success;
-    text-style: bold italic;
-}
-
 /* Input hint text - docked to right side */
 #input_hint {
     dock: right;
@@ -2585,6 +2557,9 @@ ToolBatchCard.status-error {
 ToolBatchCard #batch-content {
     height: auto;
     width: 100%;
+    scrollbar-size: 1 1;
+    scrollbar-background: transparent;
+    scrollbar-color: $border-default;
 }
 
 /* === Content Sections === */
@@ -2829,7 +2804,7 @@ TimelineSection .scroll-indicator {
     dock: top;
     width: 100%;
     height: auto;
-    background: $bg-surface-2;
+    background: transparent;
     color: #7d8590;
     text-align: center;
     padding: 0;

@@ -222,20 +222,38 @@ class ToolBatchCard(Static, can_focus=True):
             error_preview = tool.error.replace("\n", " ")[:50]
             text.append(f"\n         ✗ {error_preview}", style="dim red")
 
+    def _shorten_path(self, path: str, max_len: int) -> str:
+        """Shorten a path, keeping the end (filename/dirs) visible.
+
+        For long absolute paths, shows .../<meaningful_part> instead of
+        /very/long/path/that/gets/trun...
+        """
+        if len(path) <= max_len:
+            return path
+
+        # For paths, keep the end (filename + parent dirs) visible
+        if "/" in path or "\\" in path:
+            # Reserve 3 chars for "..."
+            suffix_len = max_len - 3
+            if suffix_len > 0:
+                return "..." + path[-suffix_len:]
+
+        # Fallback: truncate from the end (non-path values)
+        return path[: max_len - 3] + "..."
+
     def _truncate_args(self, args: str, max_len: int) -> str:
         """Truncate args string for display, keeping end of paths visible."""
         import json
+        import re
 
         try:
             data = json.loads(args)
             if isinstance(data, dict):
-                # Prioritize path-like keys and show end of path
+                # For any dict with a path-like key, just show that path value
                 for key in ["path", "file_path", "directory", "url"]:
                     if key in data:
                         val = str(data[key])
-                        if len(val) > max_len - 3:
-                            # Keep end of paths visible (show filename/folder)
-                            val = "..." + val[-(max_len - 6) :]
+                        val = self._shorten_path(val, max_len - 2)  # -2 for quotes
                         return f'"{val}"'
                 # For content, show beginning
                 if "content" in data:
@@ -243,22 +261,33 @@ class ToolBatchCard(Static, can_focus=True):
                     if len(val) > max_len - 3:
                         val = val[: max_len - 6] + "..."
                     return f'"{val}"'
-                # For other dicts, try to shorten path values
-                shortened = {}
+                # For other dicts, find any path-like value and show its end
                 for k, v in data.items():
                     if isinstance(v, str) and self._is_path_like(v):
-                        # Show end of path
-                        if len(v) > 30:
-                            v = "..." + v[-27:]
-                    shortened[k] = v
-                result = json.dumps(shortened)
+                        v = self._shorten_path(v, max_len - 2)  # -2 for quotes
+                        return f'"{v}"'
+                # No paths found - show truncated JSON
+                result = json.dumps(data)
                 if len(result) <= max_len:
                     return result
                 return result[: max_len - 3] + "..."
         except (json.JSONDecodeError, TypeError):
             pass
 
-        # Fallback: simple truncation
+        # Fallback: check for path patterns in non-JSON strings
+        # Match patterns like "path": "/some/path" or path=/some/path
+        path_match = re.search(r'["\']?(/[^"\'>\s]+|[A-Za-z]:\\[^"\'>\s]+)', args)
+        if path_match:
+            path_val = path_match.group(1)
+            if self._is_path_like(path_val):
+                shortened = self._shorten_path(path_val, max_len - 2)
+                return f'"{shortened}"'
+
+        # Final fallback: if contains path-like content, keep the end visible
+        if self._is_path_like(args):
+            return self._shorten_path(args, max_len)
+
+        # Non-path content: truncate from the end normally
         if len(args) > max_len:
             return args[: max_len - 3] + "..."
         return args

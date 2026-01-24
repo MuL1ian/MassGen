@@ -667,21 +667,6 @@ class TimelineSection(Vertical):
         margin: 0 0 1 0;
     }
 
-    TimelineSection .scroll-indicator {
-        width: 100%;
-        height: auto;
-        background: #21262d;
-        color: #7d8590;
-        text-align: center;
-        padding: 0 1;
-        text-style: bold;
-        border-bottom: solid #30363d;
-    }
-
-    TimelineSection .scroll-indicator.hidden {
-        display: none;
-    }
-
     /* Phase 11.2: Scroll arrow indicators */
     TimelineSection .scroll-arrow-indicator {
         width: 100%;

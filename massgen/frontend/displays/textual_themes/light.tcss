@@ -2355,7 +2355,7 @@ TimelineSection .scroll-indicator {
     dock: top;
     width: 100%;
     height: auto;
-    background: #d0d7de;
+    background: transparent;
     color: #57606a;
     text-align: center;
     padding: 0;

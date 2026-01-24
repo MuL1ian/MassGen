@@ -99,7 +99,6 @@ try:
         ToolDetailModal,
         ToolSection,
         ViewSelected,
-        WorkflowStatusLine,
     )
     from .tui_modes import TuiModeState
 
@@ -3106,10 +3105,6 @@ if TEXTUAL_AVAILABLE:
                     # Mode bar - toggles for plan/agent/refinement modes (left side)
                     self._mode_bar = ModeBar(id="mode_bar")
                     yield self._mode_bar
-                    # Workflow status line - conversational messages (right side, fills remaining space)
-                    self._workflow_status = WorkflowStatusLine(id="workflow_status")
-                    self._workflow_status.set_agents(agent_ids, agent_models)
-                    yield self._workflow_status
                     # Input hint - hidden by default, used only for vim mode hints
                     self._input_hint = Static("", id="input_hint", classes="hidden")
                     yield self._input_hint
@@ -5916,10 +5911,6 @@ Type your question and press Enter to ask the agents.
                 },
             )
 
-            # Update workflow status line with vote
-            if hasattr(self, "_workflow_status") and self._workflow_status:
-                self._workflow_status.record_vote(voter, voted_for)
-
             if self._status_bar:
                 self._status_bar.add_vote(voted_for, voter)
                 standings = self._status_bar.get_standings_text()
@@ -6199,11 +6190,6 @@ Type your question and press Enter to ask the agents.
                 )
                 self._status_bar.celebrate_winner(winner_id)
 
-            # Update workflow status line with consensus message
-            if hasattr(self, "_workflow_status") and self._workflow_status:
-                winner_name = model_name if model_name else winner_id
-                self._workflow_status.show_consensus(winner_name)
-
             # 2. Add winner CSS class to the winning agent's tab
             try:
                 tab_bar = self.query_one(AgentTabBar)
@@ -6236,10 +6222,6 @@ Type your question and press Enter to ask the agents.
             tui_log(f"notify_phase called with phase='{phase}'")
             if self._status_bar:
                 self._status_bar.update_phase(phase)
-
-            # Update workflow status line with conversational message
-            if hasattr(self, "_workflow_status") and self._workflow_status:
-                self._workflow_status.set_phase(phase)
 
             # Toggle execution mode on input area based on phase
             try:
