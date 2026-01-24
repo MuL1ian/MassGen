@@ -4157,3 +4157,24 @@ AgentStatusRibbon #round_selector.final-answer-view {
 AgentStatusRibbon #round_selector.final-answer-view:hover {
     color: #238636;
 }
+
+/* === Toast Notifications === */
+ToastRack {
+    margin-bottom: 5;  /* Push up above mode bar and input */
+}
+
+Toast.-information {
+    border-left: thick #1a6bb8;
+}
+
+Toast.-warning {
+    border-left: thick #c4912a;
+}
+
+Toast.-error {
+    border-left: thick #d93025;
+}
+
+Toast.-success {
+    border-left: thick #2e7d4a;
+}

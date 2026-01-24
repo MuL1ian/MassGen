@@ -449,6 +449,10 @@ Static {
 }
 
 /* === Notifications === */
+ToastRack {
+    margin-bottom: 5;  /* Push up above mode bar and input */
+}
+
 Toast {
     background: $bg-surface-2;
     color: $fg-primary;

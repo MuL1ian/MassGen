@@ -6,7 +6,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .logger_config import logger
 
@@ -21,6 +21,8 @@ class PlanMetadata:
     created_at: str
     planning_session_id: str
     planning_log_dir: str
+    planning_prompt: Optional[str] = None  # Original user query that initiated planning
+    planning_turn: Optional[int] = None  # Turn number when planning was initiated
     execution_session_id: Optional[str] = None
     execution_log_dir: Optional[str] = None
     status: str = "planning"  # planning, ready, executing, completed, failed
@@ -114,8 +116,24 @@ class PlanStorage:
     def __init__(self):
         PLANS_DIR.mkdir(parents=True, exist_ok=True)
 
-    def create_plan(self, planning_session_id: str, planning_log_dir: str) -> PlanSession:
-        """Create a new plan session."""
+    def create_plan(
+        self,
+        planning_session_id: str,
+        planning_log_dir: str,
+        planning_prompt: Optional[str] = None,
+        planning_turn: Optional[int] = None,
+    ) -> PlanSession:
+        """Create a new plan session.
+
+        Args:
+            planning_session_id: Session ID for the planning phase.
+            planning_log_dir: Log directory for planning phase.
+            planning_prompt: Original user query that initiated planning.
+            planning_turn: Turn number when planning was initiated.
+
+        Returns:
+            New PlanSession object.
+        """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         plan_id = timestamp
 
@@ -126,10 +144,12 @@ class PlanStorage:
             created_at=datetime.now().isoformat(),
             planning_session_id=planning_session_id,
             planning_log_dir=planning_log_dir,
+            planning_prompt=planning_prompt,
+            planning_turn=planning_turn,
             status="planning",
         )
         session.save_metadata(metadata)
-        session.log_event("plan_created", {"plan_id": plan_id})
+        session.log_event("plan_created", {"plan_id": plan_id, "prompt": planning_prompt, "turn": planning_turn})
 
         logger.info(f"[PlanStorage] Created plan session: {plan_id}")
         return session
@@ -145,6 +165,50 @@ class PlanStorage:
 
         plan_id = plan_dirs[0].name.replace("plan_", "")
         return PlanSession(plan_id)
+
+    def get_all_plans(self, limit: int = 10) -> List[PlanSession]:
+        """Get all plan sessions sorted by creation date (newest first).
+
+        Args:
+            limit: Maximum number of plans to return. Defaults to 10.
+
+        Returns:
+            List of PlanSession objects, sorted newest first.
+        """
+        if not PLANS_DIR.exists():
+            return []
+
+        # Plan directories are named plan_{timestamp} where timestamp is YYYYMMDD_HHMMSS_microseconds
+        # Sorting by name (reverse) gives us newest first
+        plan_dirs = sorted(PLANS_DIR.glob("plan_*"), reverse=True)
+
+        sessions = []
+        for plan_dir in plan_dirs[:limit]:
+            plan_id = plan_dir.name.replace("plan_", "")
+            try:
+                session = PlanSession(plan_id)
+                # Verify the session has valid metadata
+                if session.metadata_file.exists():
+                    sessions.append(session)
+            except Exception:
+                # Skip invalid plan directories
+                continue
+
+        return sessions
+
+    def get_plan_by_id(self, plan_id: str) -> Optional[PlanSession]:
+        """Get a specific plan session by its ID.
+
+        Args:
+            plan_id: The plan ID to retrieve.
+
+        Returns:
+            PlanSession if found, None otherwise.
+        """
+        session = PlanSession(plan_id)
+        if session.plan_dir.exists() and session.metadata_file.exists():
+            return session
+        return None
 
     def finalize_planning_phase(self, session: PlanSession, workspace_source: Path):
         """Copy planning workspace to plan storage and freeze it."""

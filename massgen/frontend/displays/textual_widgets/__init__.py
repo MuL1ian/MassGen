@@ -29,11 +29,24 @@ from .content_sections import (
 from .execution_status_line import ExecutionStatusLine
 from .final_answer_view import FinalAnswerView
 from .injection_card import InjectionSubCard
-from .mode_bar import ModeBar, ModeChanged, ModeToggle, OverrideRequested
+from .mode_bar import (
+    ModeBar,
+    ModeChanged,
+    ModeToggle,
+    OverrideRequested,
+    PlanConfigChanged,
+    PlanSettingsClicked,
+)
 from .multi_line_input import MultiLineInput
 from .path_suggestion import PathSuggestion, PathSuggestionDropdown
 from .phase_indicator_bar import PhaseIndicatorBar
 from .plan_approval_modal import PlanApprovalModal, PlanApprovalResult
+from .plan_options import (
+    BroadcastModeChanged,
+    PlanDepthChanged,
+    PlanOptionsPopover,
+    PlanSelected,
+)
 from .queued_input_banner import QueuedInputBanner
 from .quickstart_wizard import QuickstartWizard
 from .session_info_panel import SessionInfoPanel
@@ -59,6 +72,13 @@ __all__ = [
     "ModeToggle",
     "ModeChanged",
     "OverrideRequested",
+    "PlanConfigChanged",
+    "PlanSettingsClicked",
+    # Plan options popover
+    "PlanOptionsPopover",
+    "PlanSelected",
+    "PlanDepthChanged",
+    "BroadcastModeChanged",
     # Tab bar
     "AgentTab",
     "AgentTabBar",

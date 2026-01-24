@@ -137,13 +137,22 @@ Screen {
 }
 
 /* === Cancellation State === */
-/* Visual feedback when execution is cancelled */
+/* PERSISTENT visual feedback when execution is cancelled.
+ * Persists until user submits a new question to clearly indicate
+ * the system is waiting for input. */
 #main_container.cancelled-state {
     background: #1a0d0d;
 }
 
+/* Gray out agent panels in cancelled state */
 #main_container.cancelled-state AgentPanel {
     border-left: thick $accent-error;
+    opacity: 0.6;
+}
+
+/* Gray out timeline content in cancelled state */
+#main_container.cancelled-state TimelineScrollContainer {
+    opacity: 0.7;
 }
 
 .cancellation-banner {
@@ -473,6 +482,7 @@ ModeBar {
     layout: horizontal;
     background: $bg-base;
     padding: 0;
+    margin-left: 1;  /* Align with input box left edge */
     align: left middle;
     border: none;
     border-bottom: none;
@@ -2299,7 +2309,7 @@ ToolCallCard {
     min-height: 1;
     max-height: 6;
     padding: 0 0 0 2;
-    margin: 1 0 1 1;
+    margin: 0 0 0 1;  /* Compact spacing between consecutive tool cards */
     background: transparent;
     border: none;
     border-left: solid $border-default;
@@ -4568,4 +4578,112 @@ AgentStatusRibbon #round_selector.final-answer-view {
 
 AgentStatusRibbon #round_selector.final-answer-view:hover {
     color: #56d364;
+}
+
+/* === Plan Options Popover === */
+/* Dropdown overlay for plan mode configuration */
+PlanOptionsPopover {
+    layer: overlay;
+    dock: bottom;
+    width: auto;
+    min-width: 35;
+    max-width: 50;
+    height: auto;
+    max-height: 25;
+    background: $bg-surface;
+    border: solid $accent-primary;
+    padding: 1;
+    margin-bottom: 3;
+    margin-left: 1;
+    display: none;
+}
+
+PlanOptionsPopover.visible {
+    display: block;
+}
+
+PlanOptionsPopover #popover_title {
+    text-style: bold;
+    color: $fg-primary;
+    margin-bottom: 1;
+}
+
+PlanOptionsPopover #popover_content {
+    width: 100%;
+    height: auto;
+}
+
+PlanOptionsPopover .section-label {
+    color: $fg-muted;
+    margin-top: 1;
+    margin-bottom: 0;
+    height: 1;
+}
+
+PlanOptionsPopover Select {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+PlanOptionsPopover #close_btn {
+    margin-top: 1;
+    width: 100%;
+    background: $bg-surface-2;
+}
+
+PlanOptionsPopover #close_btn:hover {
+    background: $bg-elevated;
+}
+
+/* Plan settings button in mode bar */
+#plan_settings_btn {
+    width: auto;
+    height: 1;
+    min-width: 3;
+    background: $bg-surface-2;
+    color: $fg-muted;
+    border: none;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+#plan_settings_btn:hover {
+    background: #3a424d;
+    color: $fg-primary;
+}
+
+#plan_settings_btn.hidden {
+    display: none;
+}
+
+/* Plan status label in mode bar */
+#plan_status {
+    color: $fg-muted;
+    text-style: italic;
+    padding: 0 1;
+}
+
+#plan_status.hidden {
+    display: none;
+}
+
+/* === Toast Notifications === */
+ToastRack {
+    margin-bottom: 5;  /* Push up above mode bar and input */
+}
+
+Toast.-information {
+    border-left: thick $accent-info;
+}
+
+Toast.-warning {
+    border-left: thick $accent-warning;
+}
+
+Toast.-error {
+    border-left: thick $accent-error;
+}
+
+Toast.-success {
+    border-left: thick $accent-success;
 }

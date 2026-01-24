@@ -66,8 +66,13 @@ class TuiModeState:
     pending_plan_approval: bool = False
     plan_config: PlanConfig = field(default_factory=PlanConfig)
 
+    # Selected plan ID for execution (None = use latest, "new" = create new)
+    selected_plan_id: Optional[str] = None
+
     # Track the original question for plan execution prompt
     last_planning_question: Optional[str] = None
+    # Track which turn planning was initiated on
+    planning_started_turn: Optional[int] = None
 
     # Agent mode: "multi" | "single"
     agent_mode: str = "multi"
@@ -82,6 +87,9 @@ class TuiModeState:
 
     # Track if override is available (after voting, before presentation)
     override_available: bool = False
+
+    # Track cancelled state - persists until user provides new input
+    was_cancelled: bool = False
 
     # Execution lock - prevents mode changes during agent execution
     execution_locked: bool = False
@@ -193,12 +201,18 @@ class TuiModeState:
         self.plan_session = None
         self.pending_plan_approval = False
         self.last_planning_question = None
+        self.planning_started_turn = None
+        self.selected_plan_id = None
 
     def reset_override_state(self) -> None:
         """Reset override-related state after override completion or cancellation."""
         self.override_pending = False
         self.override_selected_agent = None
         self.override_available = False
+
+    def reset_cancelled_state(self) -> None:
+        """Reset cancelled state when user starts a new turn."""
+        self.was_cancelled = False
 
     def is_plan_active(self) -> bool:
         """Check if plan mode is active (not normal)."""

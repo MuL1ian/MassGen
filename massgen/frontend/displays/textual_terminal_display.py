@@ -71,6 +71,7 @@ try:
         AgentStatusRibbon,
         AgentTabBar,
         AgentTabChanged,
+        BroadcastModeChanged,
         CompletionFooter,
         ExecutionStatusLine,
         FinalPresentationCard,
@@ -79,6 +80,10 @@ try:
         MultiLineInput,
         OverrideRequested,
         PathSuggestionDropdown,
+        PlanDepthChanged,
+        PlanOptionsPopover,
+        PlanSelected,
+        PlanSettingsClicked,
         QueuedInputBanner,
         SessionInfoClicked,
         SubagentCard,
@@ -2287,7 +2292,12 @@ class TextualTerminalDisplay(TerminalDisplay):
 
             # Create and finalize plan session
             storage = PlanStorage()
-            session = storage.create_plan(log_dir.name, str(log_dir))
+            session = storage.create_plan(
+                log_dir.name,
+                str(log_dir),
+                planning_prompt=mode_state.last_planning_question,
+                planning_turn=mode_state.planning_started_turn,
+            )
 
             # Copy workspace to frozen - use the parent of plan_path as workspace source
             workspace_source = approval.plan_path.parent
@@ -3023,13 +3033,13 @@ if TEXTUAL_AVAILABLE:
             # === BOTTOM DOCKED WIDGETS (yield order: last yielded = very bottom) ===
             # Input area container - dock: bottom
             with Container(id="input_area"):
-                # Input header with modes (left) and hint (right) on same line
+                # Input header with modes (left), plan status (right), vim indicator
                 with Horizontal(id="input_header"):
                     # Mode bar - toggles for plan/agent/refinement modes (left side)
                     self._mode_bar = ModeBar(id="mode_bar")
                     yield self._mode_bar
-                    # Hint for submission (right side) - uses width: 1fr to take remaining space
-                    self._input_hint = Static("Enter to submit • Shift+Enter for new line • Ctrl+G help", id="input_hint")
+                    # Input hint - hidden by default, used only for vim mode hints
+                    self._input_hint = Static("", id="input_hint", classes="hidden")
                     yield self._input_hint
                     # Vim mode indicator (hidden by default)
                     self._vim_indicator = Static("", id="vim_indicator")
@@ -3053,8 +3063,9 @@ if TEXTUAL_AVAILABLE:
 
                 # Multi-line input: Enter to submit, Shift+Enter for new line
                 # Type @ to trigger path autocomplete
+                # Hint text is now part of placeholder (frees up space on input header row)
                 self.question_input = MultiLineInput(
-                    placeholder="Type your question... (Enter to submit, Shift+Enter for newline, @ for files)",
+                    placeholder="Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help",
                     id="question_input",
                 )
                 yield self.question_input
@@ -3133,6 +3144,10 @@ if TEXTUAL_AVAILABLE:
             # Path autocomplete dropdown (hidden by default, floats above input area)
             self._path_dropdown = PathSuggestionDropdown(id="path_dropdown")
             yield self._path_dropdown
+
+            # Plan options popover (hidden by default, shows when settings button clicked)
+            self._plan_options_popover = PlanOptionsPopover(id="plan_options_popover")
+            yield self._plan_options_popover
 
         def _get_layout_class(self, num_agents: int) -> str:
             """Return CSS class for adaptive layout based on agent count."""
@@ -3561,6 +3576,9 @@ if TEXTUAL_AVAILABLE:
                 tui_log("  Empty text, returning")
                 return
 
+            # Clear any persistent cancelled state when user starts a new turn
+            self._clear_cancelled_state()
+
             self.question_input.clear()
 
             # During execution, queue input for injection (except slash commands)
@@ -3603,9 +3621,14 @@ if TEXTUAL_AVAILABLE:
                 tui_log("  Calling _input_handler...")
 
                 # Store question for plan execution if in plan mode
+                # Only capture the FIRST user input - don't overwrite with subsequent/injected inputs
                 if not text.startswith("/") and self._mode_state.plan_mode == "plan":
-                    self._mode_state.last_planning_question = text
-                    tui_log(f"  Stored planning question: {text[:50]}...")
+                    if self._mode_state.last_planning_question is None:
+                        self._mode_state.last_planning_question = text
+                        self._mode_state.planning_started_turn = self.coordination_display.current_turn
+                        tui_log(f"  Stored planning question (turn {self._mode_state.planning_started_turn}): {text[:50]}...")
+                    else:
+                        tui_log(f"  Plan question already set, not overwriting with: {text[:50]}...")
 
                 self._input_handler(text)
                 if not text.startswith("/"):
@@ -3805,26 +3828,29 @@ if TEXTUAL_AVAILABLE:
                 return
 
             if vim_normal is None:
-                # Vim mode off - hide indicator
+                # Vim mode off - hide indicator and input hint (hint is now in placeholder)
                 self._vim_indicator.update("")
                 self._vim_indicator.remove_class("vim-normal-indicator")
                 self._vim_indicator.remove_class("vim-insert-indicator")
                 if hasattr(self, "_input_hint"):
-                    self._input_hint.update("Enter to submit • Shift+Enter for new line • Ctrl+G help")
+                    self._input_hint.update("")
+                    self._input_hint.add_class("hidden")
             elif vim_normal:
-                # Normal mode
+                # Normal mode - show vim hints in input_hint
                 self._vim_indicator.update(" NORMAL ")
                 self._vim_indicator.remove_class("vim-insert-indicator")
                 self._vim_indicator.add_class("vim-normal-indicator")
                 if hasattr(self, "_input_hint"):
                     self._input_hint.update("VIM: i/a insert • hjkl move • /vim off")
+                    self._input_hint.remove_class("hidden")
             else:
-                # Insert mode
+                # Insert mode - show vim hints in input_hint
                 self._vim_indicator.update(" INSERT ")
                 self._vim_indicator.remove_class("vim-normal-indicator")
                 self._vim_indicator.add_class("vim-insert-indicator")
                 if hasattr(self, "_input_hint"):
                     self._input_hint.update("VIM: Esc normal • Enter submit • /vim off")
+                    self._input_hint.remove_class("hidden")
 
             # Force refresh to ensure visual update
             self._vim_indicator.refresh(layout=True)
@@ -5024,6 +5050,97 @@ Type your question and press Enter to ask the agents.
             self.action_trigger_override()
             event.stop()
 
+        def on_plan_settings_clicked(self, event: PlanSettingsClicked) -> None:
+            """Handle plan settings button click - show/hide plan options popover."""
+            tui_log("on_plan_settings_clicked - START")
+            if hasattr(self, "_plan_options_popover"):
+                popover = self._plan_options_popover
+                tui_log(f"  popover exists, visible={'visible' in popover.classes}, classes={list(popover.classes)}")
+                if "visible" in popover.classes:
+                    # Already visible - just hide it
+                    tui_log("  -> hiding popover")
+                    popover.hide()
+                else:
+                    # Not visible - update state and recompose to show plans, then show
+                    tui_log("  -> updating state and showing")
+                    self._update_plan_options_popover_state()
+                    tui_log(f"  -> after state update, plans count: {len(popover._available_plans)}")
+                    # Reset initialized flag before recompose to ignore spurious events
+                    popover._initialized = False
+                    tui_log("  -> set _initialized=False")
+                    popover.refresh(recompose=True)
+                    tui_log("  -> after refresh(recompose=True)")
+                    # Use call_later to show after recompose completes (show() sets _initialized=True)
+                    tui_log("  -> calling call_later(popover.show)")
+                    self.call_later(popover.show)
+            else:
+                tui_log("  popover does not exist!")
+            tui_log("on_plan_settings_clicked - END")
+            event.stop()
+
+        def on_plan_selected(self, event: PlanSelected) -> None:
+            """Handle plan selection from popover."""
+            tui_log(f"on_plan_selected: plan_id={event.plan_id}, is_new={event.is_new}")
+            if event.is_new:
+                # User wants to create a new plan
+                self._mode_state.selected_plan_id = None
+                self.notify("Will create new plan on next query", severity="information", timeout=2)
+            elif event.plan_id:
+                # Specific plan selected
+                self._mode_state.selected_plan_id = event.plan_id
+                self.notify(f"Selected plan: {event.plan_id[:15]}...", severity="information", timeout=2)
+            else:
+                # Latest plan (auto) - don't notify on initial load
+                self._mode_state.selected_plan_id = None
+                # Only notify if popover is visible (user actually selected)
+                if hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes:
+                    pass  # Don't notify for "latest" - it's the default
+
+            # Don't auto-hide - let user close with Close button or click settings again
+            event.stop()
+
+        def on_plan_depth_changed(self, event: PlanDepthChanged) -> None:
+            """Handle plan depth change from popover."""
+            tui_log(f"on_plan_depth_changed: depth={event.depth}")
+            self._mode_state.plan_config.depth = event.depth
+            self.notify(f"Plan depth: {event.depth}", severity="information", timeout=2)
+            event.stop()
+
+        def on_broadcast_mode_changed(self, event: BroadcastModeChanged) -> None:
+            """Handle broadcast mode change from popover."""
+            tui_log(f"on_broadcast_mode_changed: broadcast={event.broadcast}")
+            self._mode_state.plan_config.broadcast = event.broadcast
+
+            if event.broadcast == "human":
+                self.notify("Broadcast: Agents can ask human questions", severity="information", timeout=2)
+            elif event.broadcast == "agents":
+                self.notify("Broadcast: Agents debate without human", severity="information", timeout=2)
+            else:
+                self.notify("Broadcast: Fully autonomous (no questions)", severity="warning", timeout=2)
+            event.stop()
+
+        def _update_plan_options_popover_state(self) -> None:
+            """Update the plan options popover internal state (without recompose)."""
+            if not hasattr(self, "_plan_options_popover"):
+                return
+
+            try:
+                from massgen.plan_storage import PlanStorage
+
+                storage = PlanStorage()
+                plans = storage.get_all_plans(limit=5)
+
+                # Update popover internal state
+                popover = self._plan_options_popover
+                popover._plan_mode = self._mode_state.plan_mode
+                popover._available_plans = plans
+                popover._current_plan_id = self._mode_state.selected_plan_id
+                popover._current_depth = self._mode_state.plan_config.depth
+                popover._current_broadcast = self._mode_state.plan_config.broadcast
+                # Don't recompose - let the popover show with updated state
+            except Exception as e:
+                tui_log(f"_update_plan_options_popover_state error: {e}")
+
         def _handle_plan_mode_change(self, mode: str) -> None:
             """Handle plan mode toggle.
 
@@ -6101,7 +6218,11 @@ Type your question and press Enter to ask the agents.
                 pass
 
         def _show_cancelled_status(self) -> None:
-            """Stop execution status updates and show cancelled state with visual feedback."""
+            """Stop execution status updates and show cancelled state with PERSISTENT visual feedback.
+
+            The cancelled state persists until the user submits a new question, making it
+            clear that the system is waiting for input rather than auto-dismissing.
+            """
             try:
                 # Stop the execution status timer
                 if hasattr(self, "_execution_status_timer") and self._execution_status_timer:
@@ -6115,6 +6236,10 @@ Type your question and press Enter to ask the agents.
 
                 # Stop all pulsing animations
                 self._stop_all_pulses()
+
+                # Mark cancelled state in mode tracker (persists until new input)
+                if hasattr(self.coordination_display, "_mode_state"):
+                    self.coordination_display._mode_state.was_cancelled = True
 
                 # Update execution status to show cancelled
                 if hasattr(self, "_execution_status"):
@@ -6133,24 +6258,42 @@ Type your question and press Enter to ask the agents.
 
                     self._execution_status.update(f"❌ Cancelled{elapsed_text}")
 
-                # Add visual state change - red tint on main container
+                # Add PERSISTENT visual state change - red tint on main container
+                # This persists until user submits a new question
                 try:
                     main = self.query_one("#main_container")
                     main.add_class("cancelled-state")
 
-                    # Show notification
-                    self.notify("Execution cancelled", severity="warning", timeout=3)
+                    # Update placeholder to indicate waiting for input
+                    if hasattr(self, "question_input"):
+                        self.question_input.placeholder = "Type to continue • Previous turn was cancelled"
 
-                    # Auto-dismiss the cancelled state after 3 seconds
-                    def remove_cancelled_state():
-                        try:
-                            main.remove_class("cancelled-state")
-                        except Exception:
-                            pass
+                    # Show notification (brief)
+                    self.notify("Execution cancelled - type to continue", severity="warning", timeout=3)
 
-                    self.set_timer(3.0, remove_cancelled_state)
+                    # NO auto-dismiss timer - state persists until user provides new input
                 except Exception:
                     pass
+            except Exception:
+                pass
+
+        def _clear_cancelled_state(self) -> None:
+            """Clear the persistent cancelled state when user starts a new turn."""
+            try:
+                # Clear mode state flag
+                if hasattr(self.coordination_display, "_mode_state"):
+                    self.coordination_display._mode_state.reset_cancelled_state()
+
+                # Remove visual cancelled state
+                try:
+                    main = self.query_one("#main_container")
+                    main.remove_class("cancelled-state")
+                except Exception:
+                    pass
+
+                # Restore default placeholder
+                if hasattr(self, "question_input"):
+                    self.question_input.placeholder = "Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help"
             except Exception:
                 pass
 
