@@ -441,7 +441,7 @@ class CoordinationUI:
 
                     # Process content by source
                     # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
-                    await self._process_content(source, content)
+                    await self._process_content(source, content, chunk_type)
 
             # Flush agent content buffers BEFORE processing final answer
             # This ensures any streamed content reaches the display before we complete
@@ -1089,7 +1089,7 @@ class CoordinationUI:
 
                     # Process content by source
                     # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
-                    await self._process_content(source, content)
+                    await self._process_content(source, content, chunk_type)
 
             # Flush agent content buffers BEFORE processing final answer
             # This ensures any streamed content reaches the display before we complete
@@ -1613,7 +1613,7 @@ class CoordinationUI:
 
                     # Process content by source
                     # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
-                    await self._process_content(source, content)
+                    await self._process_content(source, content, chunk_type)
 
             # Flush agent content buffers BEFORE processing final answer
             # This ensures any streamed content reaches the display before we complete
@@ -1808,11 +1808,11 @@ class CoordinationUI:
         print(f"\n📈 Summary: {agents_voted}/{total_votes} agents voted")
         print("=" * 50)
 
-    async def _process_content(self, source: Optional[str], content: str):
+    async def _process_content(self, source: Optional[str], content: str, chunk_type: str = "thinking"):
         """Process content from coordination stream."""
         # Handle agent content
         if source in self.agent_ids:
-            await self._process_agent_content(source, content)
+            await self._process_agent_content(source, content, chunk_type)
 
         # Handle orchestrator content
         elif source in ["coordination_hub", "orchestrator"] or source is None:
@@ -1835,12 +1835,16 @@ class CoordinationUI:
                 if self.logger:
                     self.logger.log_orchestrator_event(event)
 
-    async def _process_agent_content(self, agent_id: str, content: str):
+    async def _process_agent_content(self, agent_id: str, content: str, chunk_type: str = "thinking"):
         """Process content from a specific agent.
 
         Uses buffered filtering to handle streaming: small chunks are accumulated
         until we see a newline or have enough content to check for workspace JSON.
         """
+        # Store chunk_type for this agent's buffer
+        if not hasattr(self, "_agent_chunk_types"):
+            self._agent_chunk_types = {}
+        self._agent_chunk_types[agent_id] = chunk_type
         # Filter coordination messages that duplicate tool cards/notifications
         # These are yielded by orchestrator when processing workspace tool calls
         if "Providing answer:" in content or "🗳️ Voting for" in content:
@@ -1954,8 +1958,12 @@ class CoordinationUI:
         # Emit the buffered content
         await self._emit_agent_content(agent_id, buffer)
 
-    async def _emit_agent_content(self, agent_id: str, content: str):
+    async def _emit_agent_content(self, agent_id: str, content: str, chunk_type: str = None):
         """Emit agent content to the display after filtering."""
+        # Get chunk_type from stored value if not provided
+        if chunk_type is None:
+            chunk_type = getattr(self, "_agent_chunk_types", {}).get(agent_id, "thinking")
+
         # Determine content type and process
         # Check for tool-related content markers
         is_tool_content = "🔧" in content or "Arguments for Calling" in content or "Results for Calling" in content
@@ -1973,7 +1981,7 @@ class CoordinationUI:
                 self.logger.log_agent_content(agent_id, content, content_type)
 
         else:
-            # Thinking content
+            # Thinking/content - use the original chunk_type
             # For displays that support streaming final answer (textual_terminal and web),
             # route content through stream_final_answer_chunk when the selected agent is streaming
             if self.orchestrator and hasattr(self.display, "stream_final_answer_chunk"):
@@ -1992,11 +2000,11 @@ class CoordinationUI:
                         vote_results = status.get("vote_results", {})
                         self.display.stream_final_answer_chunk(content, effective_selected_agent, vote_results)
                         if self.logger:
-                            self.logger.log_agent_content(agent_id, content, "thinking")
+                            self.logger.log_agent_content(agent_id, content, chunk_type)
                         return
-            self.display.update_agent_content(agent_id, content, "thinking")
+            self.display.update_agent_content(agent_id, content, chunk_type)
             if self.logger:
-                self.logger.log_agent_content(agent_id, content, "thinking")
+                self.logger.log_agent_content(agent_id, content, chunk_type)
 
     def _parse_workspace_action(self, content: str) -> Optional[tuple]:
         """Parse workspace action from JSON content.

@@ -7776,18 +7776,39 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         source=selected_agent_id,
                     )
                 elif chunk_type == "mcp_status":
-                    # Handle MCP status messages in final presentation
+                    # MCP status - preserve type for TUI tool tracking
                     mcp_content = f"🔧 MCP: {chunk.content}"
+                    log_stream_chunk("orchestrator", "mcp_status", chunk.content, selected_agent_id)
+                    yield StreamChunk(
+                        type="mcp_status",
+                        content=mcp_content,
+                        source=selected_agent_id,
+                        tool_call_id=getattr(chunk, "tool_call_id", None),
+                    )
+                elif chunk_type == "custom_tool_status":
+                    # Custom tool status - preserve type for TUI tool tracking
+                    custom_content = f"🔧 Custom Tool: {chunk.content}"
+                    log_stream_chunk("orchestrator", "custom_tool_status", chunk.content, selected_agent_id)
+                    yield StreamChunk(
+                        type="custom_tool_status",
+                        content=custom_content,
+                        source=selected_agent_id,
+                        tool_call_id=getattr(chunk, "tool_call_id", None),
+                    )
+                elif chunk_type == "hook_execution":
+                    # Hook execution - pass through with source
                     log_stream_chunk(
                         "orchestrator",
-                        "content",
-                        mcp_content,
+                        "hook_execution",
+                        str(getattr(chunk, "hook_info", "")),
                         selected_agent_id,
                     )
                     yield StreamChunk(
-                        type="content",
-                        content=mcp_content,
+                        type="hook_execution",
+                        content=chunk.content,
                         source=selected_agent_id,
+                        hook_info=getattr(chunk, "hook_info", None),
+                        tool_call_id=getattr(chunk, "tool_call_id", None),
                     )
                 elif chunk_type == "done":
                     # Save the final workspace snapshot (from final workspace directory)

@@ -94,6 +94,7 @@ try:
         SubagentModal,
         TaskPlanCard,
         TaskPlanModal,
+        TasksClicked,
         TimelineSection,
         ToolCallCard,
         ToolDetailModal,
@@ -1224,14 +1225,19 @@ class TextualTerminalDisplay(TerminalDisplay):
             tool_call_id: Optional unique ID for tool calls (enables tracking across events)
         """
         # Bug 2 fix: Skip timeline updates if content is being routed to post-eval card
+        # But allow tool content through - tools should be displayed during post-evaluation
         if hasattr(self, "_routing_to_post_eval_card") and self._routing_to_post_eval_card:
-            return
+            if content_type != "tool":
+                return
 
-        # Skip timeline updates after final presentation card is complete
+        # Skip non-tool timeline updates after final presentation card is complete
         # (prevents "presenting final answer" messages from appearing below the card)
+        # But always allow tool content through - tools should be displayed during final presentation
         if hasattr(self, "_final_presentation_card") and self._final_presentation_card:
             if hasattr(self._final_presentation_card, "_is_streaming") and not self._final_presentation_card._is_streaming:
-                return
+                # Only skip non-tool content - tool calls should still be shown
+                if content_type != "tool":
+                    return
 
         if not content:
             return
@@ -2442,6 +2448,9 @@ if TEXTUAL_AVAILABLE:
             self.cwd = cwd
             self.mode = mode  # "off", "read", or "write"
 
+    class StatusBarThemeClicked(Message):
+        """Message emitted when the theme indicator in StatusBar is clicked."""
+
     class StatusBar(Widget):
         """Persistent status bar showing orchestration state at the bottom of the TUI."""
 
@@ -2499,6 +2508,8 @@ if TEXTUAL_AVAILABLE:
             yield Static("", id="status_spacer")
             # Right-aligned items
             yield Static("", id="status_mcp")
+            # Theme toggle indicator - clickable to toggle light/dark theme
+            yield Static("[dim]D[/]", id="status_theme", classes="clickable")
             # CWD display - clickable to toggle auto-include as context
             cwd = Path.cwd()
             cwd_short = f"~/{cwd.name}" if len(str(cwd)) > 30 else str(cwd)
@@ -2519,6 +2530,8 @@ if TEXTUAL_AVAILABLE:
                     self.post_message(StatusBarCancelClicked())
                 elif widget.id == "status_cwd":
                     self.toggle_cwd_auto_include()
+                elif widget.id == "status_theme":
+                    self.post_message(StatusBarThemeClicked())
 
         def toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode and update display."""
@@ -2987,6 +3000,8 @@ if TEXTUAL_AVAILABLE:
             Binding("ctrl+o", "trigger_override", "Override", priority=True, show=False),
             # Task plan toggle
             Binding("ctrl+t", "toggle_task_plan", "Toggle Tasks", priority=True, show=False),
+            # Theme toggle
+            Binding("ctrl+shift+t", "toggle_theme", "Theme", priority=True, show=False),
         ]
 
         def __init__(
@@ -3245,6 +3260,7 @@ if TEXTUAL_AVAILABLE:
                     self.coordination_display.restart_instructions or "",
                 )
             self._update_safe_indicator()
+            self._update_theme_indicator()
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
@@ -3431,6 +3447,16 @@ if TEXTUAL_AVAILABLE:
             else:
                 self.safe_indicator.update("")
                 self.safe_indicator.styles.display = "none"
+
+        def _update_theme_indicator(self) -> None:
+            """Update theme icon in status bar."""
+            try:
+                theme_widget = self.query_one("#status_theme", Static)
+                is_dark = self.coordination_display.theme == "dark"
+                icon = "[dim]D[/]" if is_dark else "[dim]L[/]"
+                theme_widget.update(icon)
+            except Exception:
+                pass  # Widget not mounted yet
 
         def set_input_handler(self, handler: Callable[[str], None]) -> None:
             """Set the input handler callback for controller integration."""
@@ -3771,10 +3797,17 @@ if TEXTUAL_AVAILABLE:
                 self._toggle_vim_mode()
                 return True
 
+            if cmd == "/theme":
+                self.action_toggle_theme()
+                return True
+
             return False
 
         def _handle_slash_command(self, command: str) -> None:
             """Handle slash commands within the TUI using unified SlashCommandDispatcher."""
+            # DEBUG: Write to file
+            with open("/tmp/theme_debug.log", "a") as f:
+                f.write(f"_handle_slash_command called with: {command}\n")
             try:
                 from massgen.frontend.interactive_controller import (
                     SessionContext,
@@ -3789,6 +3822,9 @@ if TEXTUAL_AVAILABLE:
 
                 dispatcher = SlashCommandDispatcher(context=context, adapter=None)
                 result = dispatcher.dispatch(command)
+                # DEBUG: Write to file
+                with open("/tmp/theme_debug.log", "a") as f:
+                    f.write(f"dispatch result: ui_action={result.ui_action}, handled={result.handled}\n")
 
                 if result.should_exit:
                     self.exit()
@@ -3831,6 +3867,10 @@ if TEXTUAL_AVAILABLE:
                     self.action_open_unified_browser()
                 elif result.ui_action == "toggle_vim":
                     self._toggle_vim_mode()
+                elif result.ui_action == "toggle_theme":
+                    with open("/tmp/theme_debug.log", "a") as f:
+                        f.write("toggle_theme ui_action matched, calling action_toggle_theme\n")
+                    self.action_toggle_theme()
                 elif result.ui_action == "show_history":
                     self._show_history_modal()
                 elif result.message and not result.ui_action:
@@ -3951,6 +3991,7 @@ KEYBOARD SHORTCUTS:
   Tab/←/→         - Navigate between agents
   Ctrl+G          - Show this help
   Ctrl+T          - Toggle task plan (collapse/expand)
+  Ctrl+Shift+T    - Toggle light/dark theme
   Ctrl+P          - Toggle CWD context auto-include
   Ctrl+U          - Show subagents panel
   Ctrl+C          - Cancel current turn (double to quit)
@@ -5104,10 +5145,11 @@ Type your question and press Enter to ask the agents.
             elif event.view_type == "round" and event.round_number is not None:
                 with open("/tmp/tui_debug.log", "a") as f:
                     f.write(f"DEBUG: App.on_view_selected calling switch_to_round({event.round_number})\n")
-                panel.switch_to_round(event.round_number)
-                # Also exit final answer view if currently showing it
-                if panel._current_view == "final_answer":
+                # Check if we're currently viewing final answer BEFORE changing state
+                was_viewing_final = panel._current_view == "final_answer"
+                if was_viewing_final:
                     panel.switch_from_final_answer()
+                panel.switch_to_round(event.round_number)
 
             with open("/tmp/tui_debug.log", "a") as f:
                 f.write("DEBUG: App.on_view_selected done\n")
@@ -5452,6 +5494,15 @@ Type your question and press Enter to ask the agents.
             self.push_screen(modal)
             event.stop()
 
+        def on_tasks_clicked(self, event: TasksClicked) -> None:
+            """Handle tasks label click in ribbon - show task plan modal."""
+            if event.agent_id in self.agent_widgets:
+                panel = self.agent_widgets[event.agent_id]
+                if panel._active_task_plan_tasks:
+                    modal = TaskPlanModal(tasks=panel._active_task_plan_tasks)
+                    self.push_screen(modal)
+            event.stop()
+
         def on_button_pressed(self, event: Button.Pressed) -> None:
             """Handle button clicks in main app."""
             if event.button.id == "cancel_button":
@@ -5527,6 +5578,54 @@ Type your question and press Enter to ask the agents.
             """Toggle task plan visibility (Ctrl+T binding)."""
             if self._active_agent_id and self._active_agent_id in self.agent_widgets:
                 self.agent_widgets[self._active_agent_id].toggle_task_plan()
+
+        def action_toggle_theme(self) -> None:
+            """Toggle between light and dark themes (Ctrl+Shift+T binding)."""
+            from textual.css.stylesheet import Stylesheet
+
+            with open("/tmp/theme_debug.log", "a") as f:
+                f.write("action_toggle_theme called\n")
+
+            current = self.coordination_display.theme
+            new_theme = "light" if current == "dark" else "dark"
+
+            # Load and apply new CSS
+            css_path = self.THEMES_DIR / f"{new_theme}.tcss"
+            if not css_path.exists():
+                self.notify(f"Theme file not found: {css_path}", severity="error")
+                return
+
+            try:
+                # Create a fresh stylesheet with the new CSS
+                new_stylesheet = Stylesheet(variables=self.get_css_variables())
+                new_stylesheet.read(css_path)
+                new_stylesheet.parse()
+
+                # Replace the app's stylesheet (this is what refresh_css uses)
+                self.stylesheet = new_stylesheet
+
+                # Update the theme state AFTER successfully loading CSS
+                self.coordination_display.theme = new_theme
+
+                # Now refresh_css will use the new stylesheet
+                # It calls: stylesheet.set_variables(), reparse(), update()
+                self.refresh_css(animate=False)
+
+                # Force full repaint of all widgets
+                self.refresh(repaint=True, layout=True)
+
+                # Also refresh the screen
+                if self.screen.is_mounted:
+                    self.screen.refresh(repaint=True, layout=True)
+
+            except Exception as e:
+                self.notify(f"Theme error: {e}", severity="error", timeout=3)
+                logger.exception(f"Failed to toggle theme: {e}")
+                return
+
+            # Update status bar indicator
+            self._update_theme_indicator()
+            self.notify(f"Theme: {new_theme.title()}", timeout=1.5)
 
         def action_show_help(self) -> None:
             """Show help modal (Ctrl+/ binding)."""
@@ -5851,6 +5950,10 @@ Type your question and press Enter to ask the agents.
             """Handle CWD mode change from status bar click."""
             self._cwd_context_mode = event.mode
             # No toast - the visual update in the hint/status bar is enough
+
+        def on_status_bar_theme_clicked(self, event: StatusBarThemeClicked) -> None:
+            """Handle theme toggle from status bar click."""
+            self.action_toggle_theme()
 
         def _toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode: off → read → write → off (Ctrl+P)."""
@@ -6475,14 +6578,12 @@ Type your question and press Enter to ask the agents.
         _PULSE_FRAMES = ["pulse-bright", "pulse-bright", "pulse-normal", "pulse-normal"]
 
         def _start_agent_pulse(self, agent_id: str) -> None:
-            """Start pulsing animation for an active agent."""
-            from massgen.logger_config import logger
+            """Start pulsing animation for an active agent.
 
-            logger.info(f"[PULSE] _start_agent_pulse called for {agent_id}")
-
-            if agent_id in self._pulsing_agents:
-                logger.info(f"[PULSE] {agent_id} already pulsing, skipping")
-                return  # Already pulsing
+            NOTE: Pulsing animation disabled - was too distracting.
+            Left as no-op to avoid breaking callers.
+            """
+            return  # Pulsing disabled
 
             self._pulsing_agents.add(agent_id)
             logger.info(f"[PULSE] Added {agent_id} to pulsing_agents: {self._pulsing_agents}")
@@ -7078,13 +7179,7 @@ Type your question and press Enter to ask the agents.
             """Start the loading spinner when the panel is mounted."""
             self._start_loading_spinner("Ready")
 
-            # Add initial "Round 1" banner to timeline
-            try:
-                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                timeline.add_separator("Round 1", round_number=1)
-                logger.debug(f"AgentPanel.on_mount: Added Round 1 banner to timeline {self._timeline_section_id}")
-            except Exception as e:
-                logger.debug(f"AgentPanel.on_mount: Failed to add Round 1 banner: {e}")
+            # Note: Round 1 banner is added by TimelineSection.on_mount
 
             # Initialize ribbon with Round 1 so the dropdown shows it immediately
             try:
@@ -7169,6 +7264,14 @@ Type your question and press Enter to ask the agents.
                 verified = sum(1 for t in tasks if t.get("status") == "verified")
                 in_progress = sum(1 for t in tasks if t.get("status") == "in_progress")
                 tui_log(f"update_task_plan: {completed} completed, {verified} verified, {in_progress} in_progress (of {len(tasks)} total)")
+
+                # Update ribbon tasks display
+                try:
+                    ribbon = self.coordination_display._agent_status_ribbon
+                    if ribbon:
+                        ribbon.set_tasks(self.agent_id, completed, len(tasks))
+                except Exception:
+                    pass
 
         def _refresh_header(self) -> None:
             """Refresh the header display.
@@ -7744,9 +7847,9 @@ Type your question and press Enter to ask the agents.
             # Check if this is coordination content
             is_coordination = getattr(normalized, "is_coordination", False)
 
-            # Phase 15.5: Only display thinking/reasoning content, skip plain text
-            if not is_coordination and raw_type != "thinking":
-                return  # Skip plain text content - tool cards show meaningful output
+            # Phase 15.5: Display thinking and content, skip other types
+            if not is_coordination and raw_type not in ("thinking", "content", "text"):
+                return  # Skip non-displayable content
 
             # Add to timeline
             # Phase 12: No storage needed - widgets stay in DOM with round tags
@@ -7757,9 +7860,13 @@ Type your question and press Enter to ask the agents.
                 # Capture current_round in closure for CSS visibility tagging
                 current_round = self._current_round
 
+                # Use different text_class for thinking vs content
+                # This affects how TimelineSection labels the CollapsibleTextCard
+                text_class = "thinking-inline" if raw_type == "thinking" else "content-inline"
+
                 def write_line(line: str):
                     # Phase 12: Pass round_number for CSS visibility
-                    timeline.add_text(line, style="dim italic", text_class="thinking-inline", round_number=current_round)
+                    timeline.add_text(line, style="dim italic", text_class=text_class, round_number=current_round)
 
                 self._line_buffer = _process_line_buffer(
                     self._line_buffer,
@@ -8586,18 +8693,18 @@ Type your question and press Enter to ask the agents.
                 pass
 
         def switch_to_round(self, round_number: int) -> None:
-            """Switch view to a specific round using CSS visibility.
+            """Scroll to a specific round in the unified timeline.
 
-            Phase 12: CSS-based visibility switching. All round content stays in DOM,
-            we just toggle the 'hidden' class based on round tags.
+            All round content stays visible in a continuous timeline.
+            Selecting a round smoothly scrolls to that round's separator banner.
 
             Args:
-                round_number: The round number to display
+                round_number: The round number to scroll to
             """
             self._viewed_round = round_number
             self._current_view = "round"
 
-            # Use TimelineSection's CSS-based switching
+            # Use TimelineSection's scroll-to behavior
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
                 timeline.switch_to_round(round_number)

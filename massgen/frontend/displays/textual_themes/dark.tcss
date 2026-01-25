@@ -438,13 +438,25 @@ AgentStatusRibbon .ribbon-divider {
     color: $fg-muted;
 }
 
-AgentStatusRibbon #round_selector {
+AgentStatusRibbon #round_nav_label {
     color: $fg-primary;
 }
 
-AgentStatusRibbon #round_selector:hover {
+AgentStatusRibbon #round_nav_label:hover {
+    color: $accent-primary;
+}
+
+AgentStatusRibbon #tasks_display {
+    color: $fg-muted;
+}
+
+AgentStatusRibbon #tasks_display:hover {
     color: $accent-primary;
     text-style: underline;
+}
+
+AgentStatusRibbon #tasks_display.has-tasks {
+    color: $accent-info;
 }
 
 AgentStatusRibbon #timeout_display.warning {
@@ -767,17 +779,9 @@ AgentPanel.agent-color-7 { border-left: thick $accent-warning; border-right: non
 AgentPanel.agent-color-8 { border-left: thick $accent-error; border-right: none; }
 
 /* === Agent Panel Pulsing Animation === */
-/* Visual indicator for active/working agents */
-AgentPanel.pulse-bright {
-    border-left: thick #79c0ff;
-    background: #0d1a26;
-}
-
-AgentPanel.pulse-normal {
-    border-left: thick $accent-primary;
-}
-
-/* Specific pulse colors per agent color */
+/* DISABLED: Was too distracting. Kept for reference. */
+/* AgentPanel.pulse-bright { border-left: thick #79c0ff; background: #0d1a26; }
+AgentPanel.pulse-normal { border-left: thick $accent-primary; }
 AgentPanel.agent-color-1.pulse-bright { border-left: thick #79c0ff; background: #0d1a26; }
 AgentPanel.agent-color-2.pulse-bright { border-left: thick #56d364; background: #0d1f14; }
 AgentPanel.agent-color-3.pulse-bright { border-left: thick #bc8cff; background: #1a0d26; }
@@ -785,7 +789,7 @@ AgentPanel.agent-color-4.pulse-bright { border-left: thick #ffa657; background: 
 AgentPanel.agent-color-5.pulse-bright { border-left: thick #56d7e5; background: #0d1f1f; }
 AgentPanel.agent-color-6.pulse-bright { border-left: thick #f778ba; background: #260d1a; }
 AgentPanel.agent-color-7.pulse-bright { border-left: thick #e3b341; background: #262010; }
-AgentPanel.agent-color-8.pulse-bright { border-left: thick #ff7b72; background: #26100d; }
+AgentPanel.agent-color-8.pulse-bright { border-left: thick #ff7b72; background: #26100d; } */
 
 /* Agent header row - horizontal layout for left/right content */
 .agent-header-row {
@@ -2368,13 +2372,13 @@ Footer {
 ToolCallCard {
     width: 100%;
     height: auto;
-    min-height: 1;
-    max-height: 6;
-    padding: 0 0 0 2;
-    margin: 0 0 1 1;  /* Compact spacing between consecutive tool cards */
-    background: transparent;
+    min-height: 2;
+    max-height: 8;
+    padding: 0 1 0 2;
+    margin: 1 0 1 1;  /* Better visual separation between tool cards */
+    background: $bg-card;
     border: none;
-    border-left: solid $border-default;
+    border-left: thick $border-default;
 }
 
 /* Tool card appearance animation - fade in effect */
@@ -2525,46 +2529,52 @@ ToolCallCard.type-subagent.expanded {
     min-height: 8;
 }
 
-/* === Terminal Tool Hero Cards (new_answer, vote) === */
-/* These tools are the culmination of agent work and get prominent styling */
+/* === Terminal Tool Cards (new_answer, vote) === */
+/* Minimalist emphasis: left accent bar only, muted colors */
 ToolCallCard.terminal-tool {
-    border: heavy #ffa500;
-    background: #1f1a10;
-    min-height: 4;
+    border: none;
+    border-left: tall #64748b;
+    background: transparent;
+    min-height: 3;
     max-height: 12;
     padding: 0 1;
-    margin: 1 1;
+    margin: 1 0;
 }
 
 ToolCallCard.terminal-tool.status-running {
-    border: heavy #ffa500;
-    background: #1f1a10;
+    border: none;
+    border-left: tall #64748b;
+    background: transparent;
 }
 
 ToolCallCard.terminal-tool.status-success {
-    border: heavy #3fb950;
-    background: #0d1f14;
+    border: none;
+    border-left: tall #6b9e7a;
+    background: transparent;
 }
 
 ToolCallCard.terminal-tool.status-error {
-    border: heavy $accent-error;
-    background: #1f0d0f;
+    border: none;
+    border-left: tall #b07070;
+    background: transparent;
 }
 
 ToolCallCard.terminal-tool:hover {
-    background: #2a2515;
-    border: heavy #ffb833;
+    background: #1e1e1e;
+    border: none;
+    border-left: tall #8b9cb5;
 }
 
 ToolCallCard.terminal-tool:focus {
-    background: #2a2515;
-    border: heavy #ffcc66;
+    background: #1e1e1e;
+    border: none;
+    border-left: tall #94a3b8;
     outline: none;
 }
 
-/* Terminal tool header styling - gold accent for tool name */
+/* Terminal tool header styling - muted accent for tool name */
 ToolCallCard.terminal-tool #tool-main-content {
-    color: #ffa500;
+    color: #94a3b8;
 }
 
 /* === Tool Batch Cards === */
@@ -2576,9 +2586,9 @@ ToolBatchCard {
     min-height: 3;
     max-height: 20;
     padding: 0 1;
-    margin: 0 0 1 1;
-    background: transparent;
-    border-left: solid $border-default;
+    margin: 1 0 1 1;  /* Match ToolCallCard spacing for consistency */
+    background: $bg-card;
+    border-left: thick $border-default;
 }
 
 /* Appearance animation */
@@ -2632,6 +2642,34 @@ ToolBatchCard #batch-content {
     scrollbar-size: 1 1;
     scrollbar-background: transparent;
     scrollbar-color: $border-default;
+}
+
+/* === Collapsible Text Cards === */
+/* Collapsible blocks for long reasoning/content text */
+
+CollapsibleTextCard {
+    width: 100%;
+    height: auto;
+    padding: 0 1 0 4;  /* top right bottom left - 4 chars left indent for wrapped text */
+    margin: 1 0;
+    background: transparent;
+    border-left: solid $border-subtle;
+}
+
+CollapsibleTextCard:hover {
+    background: $bg-surface;
+    border-left: solid $border-default;
+}
+
+CollapsibleTextCard:focus {
+    background: $bg-surface;
+    border-left: solid $accent-primary;
+    outline: none;
+}
+
+CollapsibleTextCard.expanded {
+    max-height: 100%;
+    background: $bg-card;
 }
 
 /* === Content Sections === */
@@ -2909,7 +2947,7 @@ TimelineSection #scroll_bottom_indicator {
     dock: bottom;
 }
 
-/* Restart Banner - clean inline separator */
+/* Restart Banner - strong single-line separator spanning full width */
 RestartBanner {
     width: 100%;
     height: 1;
@@ -3171,6 +3209,18 @@ StatusBar.consensus-reached #status_votes {
 }
 
 #status_cwd:hover {
+    color: $accent-primary;
+    text-style: underline;
+}
+
+/* StatusBar Theme toggle */
+#status_theme {
+    width: auto;
+    color: $fg-muted;
+    margin-left: 2;
+}
+
+#status_theme:hover {
     color: $accent-primary;
     text-style: underline;
 }
@@ -4838,7 +4888,7 @@ PlanOptionsPopover #close_btn:hover {
 
 /* === Toast Notifications === */
 ToastRack {
-    margin-bottom: 5;  /* Push up above mode bar and input */
+    margin-bottom: 8;  /* Push up above tab bar and input */
 }
 
 Toast.-information {

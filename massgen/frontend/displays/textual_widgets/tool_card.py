@@ -422,8 +422,8 @@ class ToolCallCard(Static):
     def _start_elapsed_timer(self) -> None:
         """Start periodic refresh for elapsed time display."""
         if self._elapsed_timer is None:
-            # Update every 100ms for smooth display
-            self._elapsed_timer = self.set_interval(0.1, self._refresh_elapsed)
+            # Update every 500ms - sufficient granularity for elapsed time display
+            self._elapsed_timer = self.set_interval(0.5, self._refresh_elapsed)
 
     def _stop_elapsed_timer(self) -> None:
         """Stop the elapsed time timer."""
@@ -729,13 +729,29 @@ class ToolCallCard(Static):
                 args_display = self._truncate_params_display(self._params, 77)
                 text.append(args_display, style="dim")
 
-            # Result or error preview
+            # Result or error preview - preserve newlines for readability
             if self._result:
-                text.append("\n  → ")
-                result_preview = self._result.replace("\n", " ")
-                if len(result_preview) > 75:
-                    result_preview = result_preview[:72] + "..."
-                text.append(result_preview, style="dim green")
+                # Show first 2 meaningful lines of result
+                lines = [ln.strip() for ln in self._result.split("\n") if ln.strip()]
+                if not lines:
+                    lines = [self._result.strip()[:75]]
+
+                text.append("\n  → ", style="dim green")
+                if len(lines) > 2:
+                    # Show first 2 lines with continuation indicator
+                    first_line = lines[0][:72] + "..." if len(lines[0]) > 75 else lines[0]
+                    text.append(first_line, style="dim green")
+                    second_line = lines[1][:72] + "..." if len(lines[1]) > 75 else lines[1]
+                    text.append(f"\n  → {second_line}", style="dim green")
+                    text.append(f"\n  (+{len(lines) - 2} more lines)", style="dim italic #6e7681")
+                elif len(lines) == 2:
+                    first_line = lines[0][:72] + "..." if len(lines[0]) > 75 else lines[0]
+                    text.append(first_line, style="dim green")
+                    second_line = lines[1][:72] + "..." if len(lines[1]) > 75 else lines[1]
+                    text.append(f"\n  → {second_line}", style="dim green")
+                else:
+                    result_line = lines[0][:72] + "..." if len(lines[0]) > 75 else lines[0]
+                    text.append(result_line, style="dim green")
             elif self._error:
                 text.append("\n  ✗ ")
                 error_preview = self._error.replace("\n", " ")

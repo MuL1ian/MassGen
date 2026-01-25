@@ -694,6 +694,7 @@ class SlashCommandDispatcher:
    /files, /w           - Browse workspace files from answers
    /browser, /u         - Unified browser (Answers/Votes/Workspace/Timeline tabs)
    /vim                 - Toggle vim mode (hjkl navigation, i to insert)
+   /theme               - Toggle light/dark theme
 
 💡 Input:
    Enter            - Submit your question
@@ -773,6 +774,8 @@ class SlashCommandDispatcher:
             return self._handle_browser()
         elif cmd == "/vim":
             return self._handle_vim()
+        elif cmd == "/theme":
+            return self._handle_theme()
         else:
             return CommandResult(
                 handled=False,
@@ -1031,6 +1034,13 @@ class SlashCommandDispatcher:
         return CommandResult(
             handled=True,
             ui_action="toggle_vim",
+        )
+
+    def _handle_theme(self) -> CommandResult:
+        """Handle /theme command - toggle light/dark theme."""
+        return CommandResult(
+            handled=True,
+            ui_action="toggle_theme",
         )
 
 

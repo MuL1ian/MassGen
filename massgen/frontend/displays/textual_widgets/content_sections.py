@@ -22,8 +22,13 @@ from textual.reactive import reactive
 from textual.widgets import RichLog, Static
 
 from ..content_handlers import ToolDisplayData, get_mcp_tool_name
+from .collapsible_text_card import CollapsibleTextCard
 from .tool_batch_card import ToolBatchCard, ToolBatchItem
 from .tool_card import ToolCallCard
+
+# Thresholds for when to use collapsible text cards
+COLLAPSE_LINE_THRESHOLD = 3
+COLLAPSE_CHAR_THRESHOLD = 200
 
 logger = logging.getLogger(__name__)
 
@@ -442,7 +447,7 @@ class TimelineScrollContainer(ScrollableContainer):
         self._user_scrolled_up = False
         self._auto_scrolling = False
         self._scroll_pending = False
-        self._debug_scroll = True  # Debug flag
+        self._debug_scroll = False  # Debug flag (disabled for performance)
 
     def _log(self, msg: str) -> None:
         """Debug logging helper."""
@@ -502,14 +507,7 @@ class TimelineScrollContainer(ScrollableContainer):
             window_size = vscroll.window_size if vscroll else "N/A"
             window_virtual_size = vscroll.window_virtual_size if vscroll else "N/A"
             self._log(f"watch_scroll_y: scroll_y={new_value:.1f} max={self.max_scroll_y:.1f} | scrollbar pos={scrollbar_pos} window_size={window_size} virtual={window_virtual_size}")
-            # Manually sync scrollbar position (Textual might not be doing this automatically)
-            if vscroll and self.max_scroll_y > 0:
-                # position is in units of the scrollbar, need to map scroll_y to position
-                # position should go from 0 to (virtual_size - window_size)
-                new_pos = int(new_value)
-                if vscroll.position != new_pos:
-                    vscroll.position = new_pos
-                    self._log(f"watch_scroll_y: SET scrollbar.position = {new_pos}")
+            # Note: Removed manual scrollbar sync - Textual handles this automatically
         except Exception as e:
             self._log(f"watch_scroll_y: old={old_value:.1f} new={new_value:.1f} max={self.max_scroll_y:.1f} auto={self._auto_scrolling} (scrollbar error: {e})")
 
@@ -633,13 +631,14 @@ class TimelineSection(Vertical):
     TimelineSection #timeline_container {
         width: 100%;
         height: 1fr;
-        padding: 0 1;
+        padding: 1 2;
         overflow-y: auto;
     }
 
     TimelineSection .timeline-text {
         width: 100%;
-        padding: 0 0 1 0;
+        padding: 1 1;
+        margin: 1 0;
     }
 
     TimelineSection .timeline-text.status {
@@ -647,7 +646,7 @@ class TimelineSection(Vertical):
     }
 
     TimelineSection .timeline-text.thinking {
-        color: #858585;
+        color: #9ca3af;
     }
 
     TimelineSection .timeline-text.response {
@@ -657,14 +656,14 @@ class TimelineSection(Vertical):
     TimelineSection .timeline-text.coordination {
         color: #858585;
         background: $surface-darken-1;
-        padding: 0 1;
+        /* Inherit base padding/margin for consistency */
     }
 
     TimelineSection .timeline-text.reasoning-inline {
         color: #8b949e;
         border-left: thick #484f58;
         padding-left: 1;
-        margin: 0 0 1 0;
+        /* Inherit base margin (1 0) for consistent spacing */
     }
 
     /* Phase 11.2: Scroll arrow indicators */
@@ -714,16 +713,19 @@ class TimelineSection(Vertical):
         self._truncation_shown = False  # Track if we've shown truncation message
         # Phase 12: View-based round navigation
         self._viewed_round: int = 1  # Which round is currently being displayed
+        # Content batch: accumulates consecutive thinking/content into single card
+        self._current_reasoning_card: Optional[CollapsibleTextCard] = None
+        self._current_batch_label: Optional[str] = None  # Track label for batch switching
 
     def compose(self) -> ComposeResult:
-        # Phase 11.2: Top scroll indicator (hidden by default - shows ▲ when content above)
-        yield Static("▲ more above", id="scroll_top_indicator", classes="scroll-arrow-indicator hidden")
         # Scroll mode indicator (hidden by default)
         yield Static("", id="scroll_mode_indicator", classes="scroll-indicator hidden")
         # Main timeline content with scroll detection
         yield TimelineScrollContainer(id="timeline_container")
-        # Phase 11.2: Bottom scroll indicator (hidden by default - shows ▼ when content below)
-        yield Static("▼ more below", id="scroll_bottom_indicator", classes="scroll-arrow-indicator hidden")
+
+    def on_mount(self) -> None:
+        """Add initial Round 1 banner when timeline is mounted."""
+        self.add_separator("Round 1", round_number=1)
 
     def on_timeline_scroll_container_scroll_mode_entered(
         self,
@@ -749,27 +751,10 @@ class TimelineSection(Vertical):
         self,
         event: TimelineScrollContainer.ScrollPositionChanged,
     ) -> None:
-        """Handle scroll position changes - show/hide scroll arrow indicators.
+        """Handle scroll position changes.
 
-        Phase 11.2: Scroll indicators.
+        Scroll position is tracked but no longer shows "more above/below" indicators.
         """
-        try:
-            top_indicator = self.query_one("#scroll_top_indicator", Static)
-            bottom_indicator = self.query_one("#scroll_bottom_indicator", Static)
-
-            # Show top indicator when NOT at top (content above)
-            if event.at_top:
-                top_indicator.add_class("hidden")
-            else:
-                top_indicator.remove_class("hidden")
-
-            # Show bottom indicator when NOT at bottom (content below)
-            if event.at_bottom:
-                bottom_indicator.add_class("hidden")
-            else:
-                bottom_indicator.remove_class("hidden")
-        except Exception:
-            pass
 
     def _update_scroll_indicator(self) -> None:
         """Update the scroll mode indicator in the UI."""
@@ -923,6 +908,9 @@ class TimelineSection(Vertical):
         Returns:
             The created ToolCallCard
         """
+        # Close any open reasoning batch when tool arrives
+        self._close_reasoning_batch()
+
         # Debug logging - include widget ID to identify which panel
         widget_id = self.id or "unknown"
         with open("/tmp/tui_debug.log", "a") as f:
@@ -938,11 +926,8 @@ class TimelineSection(Vertical):
         if tool_data.args_summary:
             card.set_params(tool_data.args_summary, tool_data.args_full)
 
-        # Phase 12: Tag with round class for CSS visibility switching
+        # Tag with round class for navigation (scroll-to behavior)
         card.add_class(f"round-{round_number}")
-        # Hide if viewing a different round
-        if round_number != self._viewed_round:
-            card.add_class("hidden")
 
         self._tools[tool_data.tool_id] = card
         self._item_count += 1
@@ -1042,10 +1027,8 @@ class TimelineSection(Vertical):
             id=f"batch_{batch_id}",
         )
 
-        # Phase 12: Tag with round class for CSS visibility
+        # Tag with round class for navigation (scroll-to behavior)
         card.add_class(f"round-{round_number}")
-        if round_number != self._viewed_round:
-            card.add_class("hidden")
 
         self._batches[batch_id] = card
         self._item_count += 1
@@ -1206,10 +1189,8 @@ class TimelineSection(Vertical):
             id=f"batch_{batch_id}",
         )
 
-        # Tag with round class for CSS visibility
+        # Tag with round class for navigation (scroll-to behavior)
         batch_card.add_class(f"round-{round_number}")
-        if round_number != self._viewed_round:
-            batch_card.add_class("hidden")
 
         # Add both tools to batch
         batch_card.add_tool(first_item)
@@ -1297,17 +1278,30 @@ class TimelineSection(Vertical):
         Args:
             content: Text content
             style: Rich style string
-            text_class: CSS class (status, thinking, response)
+            text_class: CSS class (status, thinking-inline, content-inline, response)
             round_number: The round this content belongs to (for view switching)
         """
-        # Clean up excessive whitespace - collapse multiple newlines to single
+        # Clean up excessive newlines only - preserve all spacing
         import re
 
         content = re.sub(r"\n{3,}", "\n\n", content)  # Max 2 consecutive newlines
-        content = content.strip()
 
-        if not content:
+        if not content.strip():  # Check if effectively empty
             return
+
+        # Check if this is thinking or content - route to appropriate batching
+        is_thinking = "thinking" in text_class
+        is_content = "content" in text_class and "content-inline" in text_class
+
+        if is_thinking:
+            self.add_reasoning(content, round_number=round_number, label="Thinking")
+            return
+        elif is_content:
+            self.add_reasoning(content, round_number=round_number, label="Content")
+            return
+
+        # Other content - close any open batch
+        self._close_reasoning_batch()
 
         self._item_count += 1
         widget_id = f"tl_text_{self._item_count}"
@@ -1320,19 +1314,18 @@ class TimelineSection(Vertical):
                 classes += f" {text_class}"
 
             if style:
+                # Short content with explicit style
                 widget = Static(
                     Text(content, style=style),
                     id=widget_id,
                     classes=classes,
                 )
             else:
+                # Short content - simple inline display
                 widget = Static(content, id=widget_id, classes=classes)
 
-            # Phase 12: Tag with round class for CSS visibility switching
+            # Tag with round class for navigation (scroll-to behavior)
             widget.add_class(f"round-{round_number}")
-            # Hide if viewing a different round
-            if round_number != self._viewed_round:
-                widget.add_class("hidden")
 
             container.mount(widget)
             self._auto_scroll()
@@ -1349,6 +1342,9 @@ class TimelineSection(Vertical):
             subtitle: Optional subtitle (e.g., "Restart • Context cleared")
         """
         from massgen.logger_config import logger
+
+        # Close any open reasoning batch
+        self._close_reasoning_batch()
 
         self._item_count += 1
         widget_id = f"tl_sep_{self._item_count}"
@@ -1378,14 +1374,9 @@ class TimelineSection(Vertical):
                     sep_text.append("─" * 10, style="dim")
                 widget = Static(sep_text, id=widget_id)
 
-            # Phase 12: Tag with round class for CSS visibility switching
+            # Tag with round class for navigation (scroll-to behavior)
             widget.add_class(f"round-{round_number}")
-            # Hide if viewing a different round
-            if round_number != self._viewed_round:
-                widget.add_class("hidden")
-                logger.debug(f"TimelineSection.add_separator: Hiding widget (round {round_number} != viewed {self._viewed_round})")
-            else:
-                logger.debug(f"TimelineSection.add_separator: Widget visible (round {round_number} == viewed {self._viewed_round})")
+            logger.debug(f"TimelineSection.add_separator: Adding widget for round {round_number}")
 
             container.mount(widget)
             self._auto_scroll()
@@ -1395,33 +1386,56 @@ class TimelineSection(Vertical):
             # Log the error but don't crash
             logger.error(f"TimelineSection.add_separator failed: {e}")
 
-    def add_reasoning(self, content: str, round_number: int = 1) -> None:
-        """Add coordination/reasoning content inline with subtle styling.
+    def _close_reasoning_batch(self) -> None:
+        """Close current reasoning batch when non-reasoning content arrives.
+
+        This ends the accumulation of content into a single card, so the next
+        content will start a new batch.
+        """
+        self._current_reasoning_card = None
+        self._current_batch_label = None
+
+    def add_reasoning(self, content: str, round_number: int = 1, label: str = "Thinking") -> None:
+        """Add thinking/content - accumulates into single collapsible card.
+
+        Consecutive statements with the same label are batched into ONE CollapsibleTextCard.
+        The batch closes when:
+        - Non-batched content (tools, separators) arrives
+        - The label changes (Thinking → Content or vice versa)
 
         Args:
-            content: Reasoning/voting/coordination text
+            content: Text content
             round_number: The round this content belongs to (for view switching)
+            label: Label for the card ("Thinking" or "Content")
         """
         if not content.strip():
             return
 
-        self._item_count += 1
-        widget_id = f"tl_reasoning_{self._item_count}"
-
         try:
             container = self.query_one("#timeline_container", TimelineScrollContainer)
-            # Subtle inline styling - dim italic with thinking emoji
-            widget = Static(
-                Text(f"💭 {content}", style="dim italic #8b949e"),
-                id=widget_id,
-                classes="timeline-text thinking-inline",
-            )
-            # Phase 12: Tag with round class for CSS visibility switching
-            widget.add_class(f"round-{round_number}")
-            # Hide if viewing a different round
-            if round_number != self._viewed_round:
-                widget.add_class("hidden")
-            container.mount(widget)
+
+            # Close batch if label changed
+            if self._current_reasoning_card is not None and self._current_batch_label != label:
+                self._close_reasoning_batch()
+
+            if self._current_reasoning_card is not None:
+                # Append to existing batch
+                self._current_reasoning_card.append_content(content)
+            else:
+                # Start new batch
+                self._item_count += 1
+                widget_id = f"tl_reasoning_{self._item_count}"
+
+                self._current_reasoning_card = CollapsibleTextCard(
+                    content,
+                    label=label,
+                    id=widget_id,
+                    classes="timeline-text thinking-inline",
+                )
+                self._current_reasoning_card.add_class(f"round-{round_number}")
+                self._current_batch_label = label
+                container.mount(self._current_reasoning_card)
+
             self._auto_scroll()
         except Exception:
             pass
@@ -1435,11 +1449,8 @@ class TimelineSection(Vertical):
         """
         self._item_count += 1
 
-        # Phase 12: Tag with round class for CSS visibility switching
+        # Tag with round class for navigation (scroll-to behavior)
         widget.add_class(f"round-{round_number}")
-        # Hide if viewing a different round
-        if round_number != self._viewed_round:
-            widget.add_class("hidden")
 
         try:
             container = self.query_one("#timeline_container", TimelineScrollContainer)
@@ -1452,6 +1463,9 @@ class TimelineSection(Vertical):
 
     def clear(self) -> None:
         """Clear all timeline content."""
+        # Close any open reasoning batch
+        self._close_reasoning_batch()
+
         try:
             container = self.query_one("#timeline_container", TimelineScrollContainer)
             container.remove_children()
@@ -1480,21 +1494,20 @@ class TimelineSection(Vertical):
         self._viewed_round = round_number
 
     def switch_to_round(self, round_number: int) -> None:
-        """Switch visibility to show only the specified round.
+        """Scroll to the specified round's content.
 
-        Phase 12: CSS-based visibility switching. All round content stays in DOM,
-        we just toggle the 'hidden' class based on round tags.
+        All rounds stay visible in a unified timeline. Selecting a round
+        smoothly scrolls to that round's separator banner.
 
         Args:
-            round_number: The round number to display
+            round_number: The round number to scroll to
         """
         from massgen.logger_config import logger
 
         self._viewed_round = round_number
 
-        logger.debug(f"TimelineSection.switch_to_round: switching to round {round_number}")
+        logger.debug(f"TimelineSection.switch_to_round: scrolling to round {round_number}")
 
-        # Debug logging - include widget ID to identify which panel
         widget_id = self.id or "unknown"
         with open("/tmp/tui_debug.log", "a") as f:
             f.write(f"DEBUG: TimelineSection.switch_to_round called! panel={widget_id}, round={round_number}\n")
@@ -1502,43 +1515,28 @@ class TimelineSection(Vertical):
         try:
             container = self.query_one("#timeline_container", TimelineScrollContainer)
 
-            # Query ALL descendants (not just direct children) to handle nested widgets
-            # like tool cards that have nested content
-            widgets_found = 0
-            widgets_hidden = 0
-            widgets_shown = 0
+            # Find the RestartBanner for this round and scroll to it
+            # RestartBanners are tagged with round-X class
+            found_separator = False
+            for widget in container.query(f".round-{round_number}"):
+                # Look for RestartBanner (has the round separator banner)
+                if isinstance(widget, RestartBanner):
+                    widget.scroll_visible(animate=True, top=True)
+                    found_separator = True
+                    with open("/tmp/tui_debug.log", "a") as f:
+                        f.write("DEBUG: TimelineSection.switch_to_round: Found RestartBanner, scrolling to it\n")
+                    break
 
-            for widget in container.query("*"):
-                # Check if widget has any round class
-                round_classes = [c for c in widget.classes if c.startswith("round-")]
-                if round_classes:
-                    widgets_found += 1
-                    # Widget is tagged with a round - show/hide based on match
-                    if f"round-{round_number}" in widget.classes:
-                        widget.remove_class("hidden")
-                        widgets_shown += 1
-                    else:
-                        widget.add_class("hidden")
-                        widgets_hidden += 1
-                # Widgets without round tags (e.g., scroll indicators) stay visible
+            # If no RestartBanner found (e.g., round 1 which may not have one),
+            # find the first widget for this round
+            if not found_separator:
+                for widget in container.query(f".round-{round_number}"):
+                    widget.scroll_visible(animate=True, top=True)
+                    with open("/tmp/tui_debug.log", "a") as f:
+                        f.write("DEBUG: TimelineSection.switch_to_round: No RestartBanner, scrolling to first widget\n")
+                    break
 
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: TimelineSection.switch_to_round: panel={widget_id}, found={widgets_found}, hidden={widgets_hidden}, shown={widgets_shown}\n")
-
-            # Reset scroll indicators when switching rounds
-            # They will be re-shown by the scroll position handler if needed
-            try:
-                top_indicator = self.query_one("#scroll_top_indicator", Static)
-                bottom_indicator = self.query_one("#scroll_bottom_indicator", Static)
-                top_indicator.add_class("hidden")
-                bottom_indicator.add_class("hidden")
-            except Exception:
-                pass
-
-            # Scroll to top of new round's content
-            container.scroll_home(animate=False)
-
-            logger.debug(f"TimelineSection.switch_to_round: done switching to round {round_number}")
+            logger.debug(f"TimelineSection.switch_to_round: done scrolling to round {round_number}")
         except Exception as e:
             with open("/tmp/tui_debug.log", "a") as f:
                 f.write(f"DEBUG: TimelineSection.switch_to_round ERROR: {e}\n")
@@ -2032,13 +2030,16 @@ class CompletionFooter(Static):
 
 
 class RestartBanner(Static):
-    """Subtle, professional restart separator banner.
+    """Prominent round separator banner - single strong line spanning full width.
 
-    Design - understated gradient style:
+    Design:
     ```
-    ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-                        ⟳ Round 1 Complete
-    ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+    ━━━━━━━━━━ Round 2 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ Context reset ━━
+    ```
+
+    For Final Answer:
+    ```
+    ━━━━━━━━━━ ✓ Final Answer ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ A1.1 won (2) ━━━━━
     ```
     """
 
@@ -2062,55 +2063,80 @@ class RestartBanner(Static):
         self._subtitle = subtitle
 
     def render(self) -> Text:
-        """Render a clean, inline separator with centered label."""
+        """Render a single strong line separator with label and subtitle."""
         import re
 
-        text = Text()
+        # Use no_wrap to prevent line breaking
+        text = Text(no_wrap=True)
 
         # Clean up the label - extract meaningful info
         display_label = self._label
         is_final = "FINAL" in display_label.upper()
 
+        # Thin line character for minimalist look
+        line_char = "─"
+        # Get actual widget width dynamically
+        try:
+            total_width = self.size.width
+            if total_width < 40:
+                # Fallback if width not yet computed or too small
+                total_width = 200
+        except Exception:
+            total_width = 200  # Fallback
+
         if is_final:
-            # Final Presentation - prominent green styling
-            display_label = "🏆 Final Presentation"
-            label_color = "#4ade80"  # Green for success
-            line_color = "#22c55e"  # Green for lines
+            # Final Presentation - muted green styling
+            display_label = "✓ Final Answer"
+            line_color = "#4b5563"  # Neutral gray line
+            label_color = "#6b9e7a"  # Muted green for label
+            subtitle_color = "#9ca3af"  # Gray for subtitle
         elif "RESTART" in display_label.upper():
-            # Extract round number for restart
+            # Extract round number for restart - neutral gray styling
             match = re.search(r"ROUND\s*(\d+)", display_label, re.IGNORECASE)
             if match:
                 round_num = match.group(1)
                 display_label = f"Round {round_num}"
             else:
                 display_label = "New Round"
-            label_color = "#9ca3af"  # Muted gray
-            line_color = "#4b5563"  # Dim gray
+            line_color = "#4b5563"  # Neutral gray line
+            label_color = "#9ca3af"  # Gray for label
+            subtitle_color = "#6b7280"  # Dim gray for subtitle
         elif display_label.upper().startswith("ROUND"):
-            # Simple "Round X" label
+            # Simple "Round X" label - neutral gray styling
             match = re.search(r"ROUND\s*(\d+)", display_label, re.IGNORECASE)
             if match:
                 round_num = match.group(1)
                 display_label = f"Round {round_num}"
-            label_color = "#9ca3af"  # Muted gray
-            line_color = "#4b5563"  # Dim gray
+            line_color = "#4b5563"  # Neutral gray line
+            label_color = "#9ca3af"  # Gray for label
+            subtitle_color = "#6b7280"  # Dim gray for subtitle
         else:
-            label_color = "#9ca3af"  # Muted gray
-            line_color = "#4b5563"  # Dim gray
+            line_color = "#4b5563"  # Neutral gray
+            label_color = "#9ca3af"  # Gray
+            subtitle_color = "#6b7280"  # Dim gray
 
-        # Single-line inline separator: ──── ▸ Round 1 ────────────────
-        line_char = "─"
-        total_width = 70
-        label_with_arrow = f" ▸ {display_label} "
-        label_len = len(label_with_arrow)
+        # Build single line: ━━━━━ Label ━━━━━━━━━━━━━━━━━━━━━ Subtitle ━━━━━
+        left_line_len = 6
+        label_text = f" {display_label} "
 
-        # Calculate line lengths (left shorter, right fills remaining)
-        left_len = 4
-        right_len = max(4, total_width - left_len - label_len)
+        # Start with left segment - use same color as label for visibility
+        text.append(line_char * left_line_len, style=line_color)
+        text.append(label_text, style=f"bold {label_color}")
 
-        text.append(line_char * left_len, style=f"dim {line_color}")
-        text.append(label_with_arrow, style=label_color)
-        text.append(line_char * right_len, style=f"dim {line_color}")
+        if self._subtitle:
+            subtitle_text = f" {self._subtitle} "
+            # Middle segment fills the space
+            middle_len = total_width - left_line_len - len(label_text) - len(subtitle_text) - 6
+            if middle_len < 4:
+                middle_len = 4
+
+            text.append(line_char * middle_len, style=line_color)
+            text.append(subtitle_text, style=f"italic {subtitle_color}")
+            text.append(line_char * 6, style=line_color)
+        else:
+            # No subtitle - just fill with line
+            remaining = total_width - left_line_len - len(label_text)
+            text.append(line_char * remaining, style=line_color)
 
         return text
 

@@ -1953,13 +1953,13 @@ Footer {
 ToolCallCard {
     width: 100%;
     height: auto;
-    min-height: 1;
-    max-height: 6;
-    padding: 0 0 0 2;
-    margin: 0 0 1 1;
-    background: transparent;
+    min-height: 2;
+    max-height: 8;
+    padding: 0 1 0 2;
+    margin: 1 0 1 1;  /* Better visual separation between tool cards */
+    background: #f6f8fa;
     border: none;
-    border-left: solid #dee2e6;
+    border-left: thick #dee2e6;
 }
 
 /* Collapsed state - single line height */
@@ -2082,46 +2082,52 @@ ToolCallCard.type-subagent.expanded {
     min-height: 8;
 }
 
-/* === Terminal Tool Hero Cards (new_answer, vote) === */
-/* These tools are the culmination of agent work and get prominent styling */
+/* === Terminal Tool Cards (new_answer, vote) === */
+/* Minimalist emphasis: left accent bar only, muted colors */
 ToolCallCard.terminal-tool {
-    border: heavy #d97706;
-    background: #fef3c7;
-    min-height: 4;
+    border: none;
+    border-left: tall #64748b;
+    background: transparent;
+    min-height: 3;
     max-height: 12;
     padding: 0 1;
-    margin: 1 1;
+    margin: 1 0;
 }
 
 ToolCallCard.terminal-tool.status-running {
-    border: heavy #d97706;
-    background: #fef3c7;
+    border: none;
+    border-left: tall #64748b;
+    background: transparent;
 }
 
 ToolCallCard.terminal-tool.status-success {
-    border: heavy #16a34a;
-    background: #dcfce7;
+    border: none;
+    border-left: tall #4d7c5a;
+    background: transparent;
 }
 
 ToolCallCard.terminal-tool.status-error {
-    border: heavy #f44336;
-    background: #ffebee;
+    border: none;
+    border-left: tall #a05050;
+    background: transparent;
 }
 
 ToolCallCard.terminal-tool:hover {
-    background: #fde68a;
-    border: heavy #b45309;
+    background: #f5f5f5;
+    border: none;
+    border-left: tall #475569;
 }
 
 ToolCallCard.terminal-tool:focus {
-    background: #fde68a;
-    border: heavy #92400e;
+    background: #f5f5f5;
+    border: none;
+    border-left: tall #334155;
     outline: none;
 }
 
-/* Terminal tool header styling - amber accent for tool name */
+/* Terminal tool header styling - muted accent for tool name */
 ToolCallCard.terminal-tool #tool-main-content {
-    color: #92400e;
+    color: #475569;
 }
 
 /* === Tool Batch Cards === */
@@ -2133,9 +2139,9 @@ ToolBatchCard {
     min-height: 3;
     max-height: 20;
     padding: 0 1;
-    margin: 0 0 1 1;
-    background: transparent;
-    border-left: solid #dddddd;
+    margin: 1 0 1 1;  /* Match ToolCallCard spacing for consistency */
+    background: #f6f8fa;
+    border-left: thick #dddddd;
 }
 
 /* Appearance animation */
@@ -2186,6 +2192,34 @@ ToolBatchCard.status-error {
 ToolBatchCard #batch-content {
     height: auto;
     width: 100%;
+}
+
+/* === Collapsible Text Cards === */
+/* Collapsible blocks for long reasoning/content text */
+
+CollapsibleTextCard {
+    width: 100%;
+    height: auto;
+    padding: 0 1 0 4;  /* top right bottom left - 4 chars left indent for wrapped text */
+    margin: 1 0;
+    background: transparent;
+    border-left: solid #e0e0e0;
+}
+
+CollapsibleTextCard:hover {
+    background: #f8f8f8;
+    border-left: solid #cccccc;
+}
+
+CollapsibleTextCard:focus {
+    background: #f8f8f8;
+    border-left: solid #1a6bb8;
+    outline: none;
+}
+
+CollapsibleTextCard.expanded {
+    max-height: 100%;
+    background: #fafafa;
 }
 
 /* === Content Sections === */
@@ -2437,17 +2471,13 @@ TimelineSection .scroll-indicator.hidden {
     display: none;
 }
 
-/* Restart Banner - prominent separator with color */
+/* Restart Banner - strong single-line separator spanning full width */
 RestartBanner {
     width: 100%;
-    height: auto;
-    margin: 2 0;
-    padding: 1 0;
-    text-align: center;
-    background: #f3e5f5;
-    border-top: solid #9c27b0;
-    border-bottom: solid #9c27b0;
-    color: #9c27b0;
+    height: 1;
+    margin: 1 0;
+    padding: 0;
+    background: transparent;
 }
 
 /* Final Presentation Banner - prominent separator with golden color */
@@ -2746,6 +2776,18 @@ StatusBar.consensus-reached #status_votes {
 }
 
 #status_cwd:hover {
+    color: #1a6bb8;
+    text-style: underline;
+}
+
+/* StatusBar Theme toggle */
+#status_theme {
+    width: auto;
+    color: #57606a;
+    margin-left: 2;
+}
+
+#status_theme:hover {
     color: #1a6bb8;
     text-style: underline;
 }
@@ -4284,19 +4326,42 @@ FinalAnswerView .separator {
     color: #d0d7de;
 }
 
-/* Round selector in AgentStatusRibbon - Final answer state */
-AgentStatusRibbon #round_selector.final-answer-view {
+/* Round navigation in AgentStatusRibbon */
+AgentStatusRibbon #round_nav_label {
+    color: #24292f;
+}
+
+AgentStatusRibbon #round_nav_label:hover {
+    color: #0969da;
+}
+
+/* Round selector - Final answer state */
+AgentStatusRibbon #round_nav_label.final-answer-view {
     color: #2e7d4a;
     text-style: bold;
 }
 
-AgentStatusRibbon #round_selector.final-answer-view:hover {
+AgentStatusRibbon #round_nav_label.final-answer-view:hover {
     color: #238636;
+}
+
+/* Tasks display in AgentStatusRibbon */
+AgentStatusRibbon #tasks_display {
+    color: #57606a;
+}
+
+AgentStatusRibbon #tasks_display:hover {
+    color: #0969da;
+    text-style: underline;
+}
+
+AgentStatusRibbon #tasks_display.has-tasks {
+    color: #0969da;
 }
 
 /* === Toast Notifications === */
 ToastRack {
-    margin-bottom: 5;  /* Push up above mode bar and input */
+    margin-bottom: 8;  /* Push up above tab bar and input */
 }
 
 Toast.-information {

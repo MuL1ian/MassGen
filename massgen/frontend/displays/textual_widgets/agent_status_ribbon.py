@@ -64,6 +64,24 @@ class TasksClicked(Message):
         super().__init__()
 
 
+class TasksLabel(Label):
+    """Clickable tasks label that emits TasksClicked when clicked."""
+
+    can_focus = True
+
+    def __init__(self, agent_id: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._agent_id = agent_id
+
+    def set_agent_id(self, agent_id: str) -> None:
+        """Update the agent ID."""
+        self._agent_id = agent_id
+
+    async def on_click(self) -> None:
+        """Handle click on tasks label."""
+        self.post_message(TasksClicked(self._agent_id))
+
+
 class DropdownItem(Label):
     """Clickable dropdown item that emits its ID when clicked."""
 
@@ -268,16 +286,86 @@ class RoundSelector(Label):
         self.post_message(self.Clicked())
 
 
+class RoundPill(Label):
+    """Minimal clickable round marker for navigation."""
+
+    can_focus = True
+
+    DEFAULT_CSS = """
+    RoundPill {
+        width: auto;
+        height: 1;
+        padding: 0;
+        margin: 0 1 0 0;
+        background: transparent;
+        color: $text-muted;
+    }
+
+    RoundPill:hover {
+        color: $text;
+        text-style: underline;
+    }
+
+    RoundPill.current {
+        color: $primary;
+        text-style: bold;
+    }
+
+    RoundPill.viewing {
+        color: $accent;
+        text-style: bold;
+    }
+
+    RoundPill.final {
+        color: $success;
+    }
+
+    RoundPill.final.current {
+        color: $success;
+        text-style: bold;
+    }
+    """
+
+    class Clicked(Message):
+        """Emitted when a round pill is clicked."""
+
+        def __init__(self, round_number: Optional[int], is_final: bool = False) -> None:
+            self.round_number = round_number
+            self.is_final = is_final
+            super().__init__()
+
+    def __init__(
+        self,
+        label: str,
+        round_number: Optional[int] = None,
+        is_final: bool = False,
+        **kwargs,
+    ) -> None:
+        super().__init__(label, **kwargs)
+        self._round_number = round_number
+        self._is_final = is_final
+
+    async def on_click(self) -> None:
+        """Handle click on the pill."""
+        self.post_message(self.Clicked(self._round_number, self._is_final))
+
+
 class AgentStatusRibbon(Widget):
-    """Real-time status bar below tabs.
+    """Real-time status bar below tabs with bookmark-style round navigation.
 
     Design:
     ```
     ┌──────────────────────────────────────────────────────────────────────────┐
-    │ Round 2 ▾ │ ◉ Streaming... 12s │ ⏱ 5:30 │ Tasks: 3/7 ━━░░ │ 2.4k │ $0.003 │
+    │ ◀ [1] [2] [3] [✓]                              ⏱ 5:30 │ 2.4k │ $0.003   │
     └──────────────────────────────────────────────────────────────────────────┘
     ```
+
+    Left side: Round pills (fixed width, shows last N rounds + final)
+    Right side: Timeout, tokens, cost (anchored right)
     """
+
+    # How many recent rounds to show (excluding final)
+    MAX_VISIBLE_ROUNDS = 5
 
     DEFAULT_CSS = """
     AgentStatusRibbon {
@@ -295,6 +383,32 @@ class AgentStatusRibbon(Widget):
         layout: horizontal;
     }
 
+    AgentStatusRibbon .round-nav {
+        width: auto;
+        height: 1;
+        layout: horizontal;
+    }
+
+    AgentStatusRibbon .more-indicator {
+        width: auto;
+        height: 1;
+        color: $text-muted;
+        padding: 0;
+        margin: 0;
+    }
+
+    AgentStatusRibbon .pill-sep {
+        width: auto;
+        height: 1;
+        color: $text-muted;
+        padding: 0;
+        margin: 0 1;
+    }
+
+    AgentStatusRibbon .spacer {
+        width: 1fr;
+    }
+
     AgentStatusRibbon .ribbon-section {
         width: auto;
         height: auto;
@@ -305,24 +419,6 @@ class AgentStatusRibbon(Widget):
         width: auto;
         height: auto;
         color: $text-muted;
-    }
-
-    AgentStatusRibbon #round_selector {
-        color: $text;
-    }
-
-    AgentStatusRibbon #round_selector:hover {
-        color: $primary;
-        text-style: underline;
-    }
-
-    AgentStatusRibbon #round_selector.final-answer-view {
-        color: $success;
-        text-style: bold;
-    }
-
-    AgentStatusRibbon #round_selector.final-answer-view:hover {
-        color: $success-lighten-1;
     }
 
     AgentStatusRibbon #timeout_display {
@@ -345,6 +441,28 @@ class AgentStatusRibbon(Widget):
     AgentStatusRibbon #cost_display {
         color: $text-muted;
         width: auto;
+    }
+
+    AgentStatusRibbon #tasks_display {
+        color: $text-muted;
+        width: auto;
+    }
+
+    AgentStatusRibbon #tasks_display:hover {
+        color: $primary;
+        text-style: underline;
+    }
+
+    AgentStatusRibbon #tasks_display.has-tasks {
+        color: $warning;
+    }
+
+    AgentStatusRibbon #tasks_display.hidden {
+        display: none;
+    }
+
+    AgentStatusRibbon #tasks_divider.hidden {
+        display: none;
     }
     """
 
@@ -397,8 +515,13 @@ class AgentStatusRibbon(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="ribbon-container"):
-            yield RoundSelector("Round 1 ▾", id="round_selector", classes="ribbon-section")
-            yield Static("│", classes="ribbon-divider")
+            # Left: Round navigation (simple label)
+            yield Label("R1", id="round_nav_label", classes="ribbon-section")
+            # Spacer
+            yield Static("", classes="spacer")
+            # Right: Stats (anchored right)
+            yield TasksLabel(agent_id=self.current_agent, id="tasks_display", classes="ribbon-section")
+            yield Static("│", classes="ribbon-divider", id="tasks_divider")
             yield Label("⏱ --:--", id="timeout_display", classes="ribbon-section")
             yield Static("│", classes="ribbon-divider")
             yield Label("-", id="token_count", classes="ribbon-section")
@@ -406,8 +529,10 @@ class AgentStatusRibbon(Widget):
             yield Label("$--.---", id="cost_display", classes="ribbon-section")
 
     def on_mount(self) -> None:
-        """Start the elapsed time timer."""
+        """Start the elapsed time timer and initialize display."""
         self._timer_handle = self.set_interval(1.0, self._update_elapsed_time)
+        # Initialize round display with default R1
+        self._update_round_display()
 
     def on_unmount(self) -> None:
         """Clean up timer."""
@@ -537,28 +662,51 @@ class AgentStatusRibbon(Widget):
         return ("round", self._viewed_round.get(agent_id, 1))
 
     def _update_round_display(self) -> None:
-        """Update the round selector display based on current view."""
+        """Update the round navigation label based on current state."""
         try:
-            selector = self.query_one("#round_selector", RoundSelector)
-
-            if self._viewing_final_answer.get(self.current_agent):
-                selector.update("✓ Final Answer ▾")
-                selector.add_class("final-answer-view")
-            else:
-                round_num = self._viewed_round.get(
-                    self.current_agent,
-                    self._current_round.get(self.current_agent, 1),
-                )
-                current_round = self._current_round.get(self.current_agent, 1)
-
-                # Show indicator if viewing historical round
-                if round_num < current_round:
-                    selector.update(f"Round {round_num} ▾ (history)")
-                else:
-                    selector.update(f"Round {round_num} ▾")
-                selector.remove_class("final-answer-view")
+            nav_label = self.query_one("#round_nav_label", Label)
         except Exception:
-            pass
+            return
+
+        try:
+            # Get round info for current agent (default to round 1)
+            rounds = self._rounds.get(self.current_agent, [(1, False)])
+            self._current_round.get(self.current_agent, 1)
+            has_final = self._has_final_answer.get(self.current_agent, False)
+            self._viewing_final_answer.get(self.current_agent, False)
+
+            # Sort rounds and get the most recent N
+            sorted_rounds = sorted(rounds, key=lambda x: x[0])
+            total_rounds = len(sorted_rounds)
+
+            # Determine which rounds to show
+            if total_rounds <= self.MAX_VISIBLE_ROUNDS:
+                visible_rounds = sorted_rounds
+                has_more = False
+            else:
+                visible_rounds = sorted_rounds[-self.MAX_VISIBLE_ROUNDS :]
+                has_more = True
+
+            # Build the label text with individual underlines: "[u]R1[/u] · [u]R2[/u] · [u]✓[/u]"
+            parts = []
+            if has_more:
+                parts.append("[u]◀[/u]")
+
+            for round_num, _ in visible_rounds:
+                parts.append(f"[u]R{round_num}[/u]")
+
+            if has_final:
+                parts.append("[u]✓[/u]")
+
+            # Join with dots (not underlined)
+            label_text = " · ".join(parts) if parts else "[u]R1[/u]"
+
+            # Update label with Rich markup
+            nav_label.update(label_text)
+
+        except Exception as e:
+            with open("/tmp/tui_debug.log", "a") as f:
+                f.write(f"DEBUG: _update_round_display error: {e}\n")
 
     def set_tasks(self, agent_id: str, complete: int, total: int) -> None:
         """Set the task progress for an agent.
@@ -575,19 +723,31 @@ class AgentStatusRibbon(Widget):
             self._update_tasks_display()
 
     def _update_tasks_display(self) -> None:
-        """Update the tasks progress display."""
+        """Update the tasks progress display in ribbon."""
         try:
-            tasks_label = self.query_one("#tasks_progress", Label)
+            tasks_label = self.query_one("#tasks_display", TasksLabel)
+            tasks_divider = self.query_one("#tasks_divider", Static)
+
+            # Update agent_id for click handling
+            tasks_label.set_agent_id(self.current_agent)
+
             complete = self._tasks_complete.get(self.current_agent, 0)
             total = self._tasks_total.get(self.current_agent, 0)
 
             if total > 0:
-                # Mini progress bar: ━━░░ (4 chars)
-                filled = int((complete / total) * 4)
-                bar = "━" * filled + "░" * (4 - filled)
-                tasks_label.update(f"Tasks: {complete}/{total} {bar}")
+                # Show tasks count
+                tasks_label.update(f"Tasks {complete}/{total}")
+                tasks_label.remove_class("hidden")
+                tasks_divider.remove_class("hidden")
+                if complete < total:
+                    tasks_label.add_class("has-tasks")
+                else:
+                    tasks_label.remove_class("has-tasks")
             else:
-                tasks_label.update("Tasks: -/-")
+                # Hide tasks display when no tasks
+                tasks_label.update("")
+                tasks_label.add_class("hidden")
+                tasks_divider.add_class("hidden")
         except Exception:
             pass
 
@@ -736,8 +896,29 @@ class AgentStatusRibbon(Widget):
         self._dropdown_open = True
         logger.info("AgentStatusRibbon._toggle_dropdown: done")
 
+    def on_round_pill_clicked(self, event: RoundPill.Clicked) -> None:
+        """Handle click on a round pill - emit ViewSelected to scroll to that round."""
+        with open("/tmp/tui_debug.log", "a") as f:
+            f.write(f"DEBUG: on_round_pill_clicked round={event.round_number} is_final={event.is_final}\n")
+        event.stop()
+
+        agent_id = self.current_agent
+
+        if event.is_final:
+            # Clicking final answer pill
+            self._viewing_final_answer[agent_id] = True
+            self.post_message(ViewSelected("final_answer", agent_id))
+        else:
+            # Clicking a round pill
+            self._viewing_final_answer[agent_id] = False
+            if event.round_number is not None:
+                self._viewed_round[agent_id] = event.round_number
+            self.post_message(ViewSelected("round", agent_id, event.round_number))
+
+        self._update_round_display()
+
     def on_view_selected(self, event: ViewSelected) -> None:
-        """Handle view selection from dropdown - update local state, let event bubble."""
+        """Handle view selection - update local state, let event bubble."""
         with open("/tmp/tui_debug.log", "a") as f:
             f.write(f"DEBUG: AgentStatusRibbon.on_view_selected type={event.view_type} round={event.round_number}\n")
         self._dropdown_open = False
