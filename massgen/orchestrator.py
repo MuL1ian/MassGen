@@ -3416,7 +3416,17 @@ Your answer:"""
                                 f"VOTE BLOCK ENTERED for {agent_id}, result_data={result_data}",
                             )
                             # Ignore votes from agents with restart pending (votes are about current state)
-                            if self._check_restart_pending(agent_id):
+                            # EXCEPTION: For single agent, if it's voting for itself after producing
+                            # its first answer, accept the vote (no other agents to wait for)
+                            restart_pending = self._check_restart_pending(agent_id)
+                            is_single_agent = len(self.agents) == 1
+                            agent_has_answer = self.agent_states[agent_id].answer is not None
+                            if restart_pending and is_single_agent and agent_has_answer:
+                                # Single agent voting for itself - clear restart_pending and accept vote
+                                self.agent_states[agent_id].restart_pending = False
+                                restart_pending = False
+                                logger.info(f"[Orchestrator] Single agent {agent_id} vote accepted (has own answer)")
+                            if restart_pending:
                                 voted_for = result_data.get("agent_id", "<unknown>")
                                 reason = result_data.get("reason", "No reason provided")
                                 # Track the ignored vote action

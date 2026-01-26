@@ -157,17 +157,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.42 (January 23, 2026)** - TUI Visual Redesign
+
+Comprehensive visual overhaul with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, redesigned agent tabs with dot indicators, and polished modals. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
+
 **v0.1.41 (January 21, 2026)** - Async Subagent Execution
 
-Non-blocking subagent spawning with ``async_=True`` parameter on ``spawn_subagents`` tool. Parent agents continue working while subagents run in background, then poll for completion when ready. New subagent round timeouts (``subagent_round_timeouts``) for per-round timeout control. Extended subagent configuration parameters for fine-grained control over timeouts and concurrency.
+Non-blocking subagent spawning with ``async_=True`` parameter on ``spawn_subagents`` tool. Parent agents continue working while subagents run in background, then poll for completion when ready. New subagent round timeouts (``subagent_round_timeouts``) for per-round timeout control.
 
-**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
+**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode
 
-Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, comprehensive modals for metrics/costs/votes/workspace browsing (``?``, ``c``, ``v``, ``w``, etc.), answer browser with side-by-side comparisons, and context path ``@`` syntax UI. Context path autocomplete and plan execution mode selection.
-
-**v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
-
-Complete plan-then-execute workflow with ``--plan-and-execute`` for autonomous planning and execution, ``--execute-plan`` to run existing plans. Task verification workflow with ``verified`` status and verification groups for batch validation. Plan storage system in ``.massgen/plans/`` with frozen snapshots and execution tracking.
+Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, comprehensive modals for metrics/costs/votes/workspace browsing, answer browser with side-by-side comparisons, and context path ``@`` syntax UI.
 
 :doc:`Full changelog → <changelog>`
 

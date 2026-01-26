@@ -9,17 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.42 (January 23, 2026)** - TUI Visual Redesign
+Comprehensive visual redesign of the Textual TUI with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, edge-to-edge layouts, redesigned agent tabs and tool cards, polished modals, and scroll indicators. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
+
 **v0.1.41 (January 21, 2026)** - Async Subagent Execution
 Background subagent execution with `async_=True` parameter for non-blocking subagent spawning. Parent agents continue working while subagents run in background, then poll for results when ready. New subagent round timeouts for per-round timeout control. Extended subagent configuration parameters for fine-grained control over concurrency and timeouts.
 
 **v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
 Interactive terminal UI with `--display textual` for interactive MassGen sessions. Real-time agent output streaming, context path injection, human feedback integration, keyboard-driven navigation, workspace file browser, answer browser with side-by-side comparisons, and comprehensive modals for metrics/costs/votes/timeline. Enhanced plan execution with mode selection UI and improved final answer presentation.
 
-**v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
-Complete plan-then-execute workflow with `--plan-and-execute` for autonomous planning and execution, `--execute-plan` to run existing plans. Task verification workflow with `verified` status and verification groups for batch validation. Plan storage system in `.massgen/plans/` with frozen snapshots and execution tracking. Response API function call message sanitization fixes.
-
 ---
 
+## [0.1.42] - 2026-01-23
+
+### Added
+- **TUI Visual Redesign**: Comprehensive visual overhaul with modern "Conversational AI" aesthetic ([#806](https://github.com/massgen/MassGen/pull/806))
+  - **Phase 1**: Unified input card with integrated mode toggles, rounded corners (╭╮╰╯), simplified radio-style indicators
+  - **Phase 2**: Agent tabs redesign with dot indicators (◉ active, ○ waiting, ✓ done), two-line display (name + model)
+  - **Phase 3**: Tool cards with adaptive density - collapsed by default, click to expand parameters/results
+  - **Phase 4**: Welcome screen improvements with centered input and muted help hints
+  - **Phase 5**: Task lists with visual progress bars, "X of Y" counts, and "← current" markers
+  - **Phase 6**: Modal polish with rounded containers, consistent headers, softer borders, unified button styling
+  - **Phase 7**: Header polish with bullet separators, desaturated color palette, warmer tones
+  - **Phase 8**: Professional visual polish throughout
+  - **Phase 9**: Edge-to-edge borderless container layout
+  - **Phase 11**: UX polish with collapsible reasoning blocks, scroll indicators
+  - **Phase 12**: CSS-based round navigation (partial)
+  - **Phase 13**: Backend integration with token usage updates for TUI status ribbon
+
+- **Human Input Queue**: Inject messages to agents mid-stream during execution
+  - `HumanInputHook` for queuing and injecting human input during agent execution
+  - Thread-safe queue with per-agent tracking (each message delivered once per agent)
+  - Callback support for TUI visual indicator updates
+  - Messages persist until turn ends, allowing injection to multiple agents
+
+### Fixed
+- **AG2 Single-Agent Coordination**: Fixed coordination issues for single-agent AG2 setups ([#804](https://github.com/massgen/MassGen/pull/804))
+  - Single agent can now vote for itself after producing its first answer
+  - Properly clears `restart_pending` flag for single-agent scenarios
+  - Fixes stuck coordination when using AG2 adapter with single agent
+
+- **Plan Execution in TUI**: Fixed plan-then-execute workflow in Textual TUI
+- **Planning Prompt Improvements**: Better subagent clarity and planning guidance
+
+### Changed
+- **Token Usage Updates**: Orchestrator now emits `token_usage_update` stream chunks for real-time TUI status updates
+- **Plan Session ID**: Orchestrator accepts optional `plan_session_id` to prevent workspace contamination during plan execution
+
+### Documentation, Configurations and Resources
+- **TUI Redesign Handoffs**: Design handoff documents for implementation phases
+  - New `docs/dev_notes/tui_redesign_phase6_handoff.md` for modal improvements
+  - New `docs/dev_notes/tui_redesign_phase9_11_13_handoff.md` for layout and UX polish
+- **OpenSpec Proposals**: Complete TUI redesign specification in `openspec/changes/update-tui-conversational-design/`
+  - `proposal.md` - Full 13-phase redesign proposal
+  - `design.md` - Visual design decisions and rationale
+  - `specs/tui/spec.md` - Detailed component specifications
+  - `tasks.md` - Implementation task breakdown
+  - `HANDOFF_PHASE12.md` - Phase 12 handoff for CSS round navigation
+
+### Technical Details
+- **Major Focus**: TUI visual redesign, human input injection, AG2 single-agent fixes
+- **Contributors**: @ncrispino, @HenryQi, @db-ol and the MassGen team
 ## [0.1.41] - 2026-01-21
 
 ### Added

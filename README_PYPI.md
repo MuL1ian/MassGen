@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.41 Features](#-latest-features-v0141)
+- [v0.1.42 Features](#-latest-features-v0142)
 </details>
 
 <details open>
@@ -154,26 +154,24 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.41)
+## 🆕 Latest Features (v0.1.42)
 
-**🎉 Released: January 21, 2026** | **Next Update: January 24, 2026**
+**🎉 Released: January 23, 2026**
 
-⚠️ **Note**: v0.1.41 features are experimental and under active development.
+**What's New in v0.1.42:**
+- **🎨 TUI Visual Redesign** - Modern "Conversational AI" aesthetic with rounded corners, redesigned agent tabs, polished modals
+- **💬 Human Input Queue** - Inject messages to agents mid-stream during execution
+- **🔧 AG2 Single-Agent Fix** - Single-agent AG2 setups now coordinate correctly
 
-**What's New in v0.1.41:**
-- **⚡ Async Subagent Execution** - Spawn subagents with `async_=True` for non-blocking parallel work
-- **🔄 Poll for Completion** - Check subagent status and retrieve results when ready
-- **⏱️ Subagent Round Timeouts** - Per-round timeout control with `subagent_round_timeouts` config
-- **⚙️ Extended Subagent Config** - Fine-grained control over timeouts, concurrency limits
-
-**Try v0.1.41 Features:**
+**Try v0.1.42 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Async subagent execution - parent continues while subagent works in background
-uv run massgen --display textual --config massgen/configs/features/async_subagent_example.yaml \
-  "Use one subagent to research the band Geese in the background while you create a creative website about them, including similar bands."
+# Experience the redesigned TUI with interactive mode
+uv run massgen --display textual \
+  --config massgen/configs/basic/multi/three_agents_default.yaml \
+  "Compare the pros and cons of React vs Vue for building a dashboard"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1208,23 +1206,27 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.41)
+### Recent Achievements (v0.1.42)
 
-**🎉 Released: January 21, 2026**
+**🎉 Released: January 23, 2026**
 
-#### Async Subagent Execution
-- **Non-Blocking Subagent Spawning**: Use `async_=True` parameter on `spawn_subagents` tool to run subagents in background while parent continues working
-- **Poll for Completion**: Check subagent status and retrieve results when ready
-- **Configurable Injection Strategy**: Choose `tool_result` (append to tool response) or `user_message` (add as follow-up message)
+#### TUI Visual Redesign
+- **Modern Aesthetic**: "Conversational AI" design with rounded corners, professional desaturated colors
+- **Agent Tabs Redesign**: Dot indicators (◉ active, ○ waiting, ✓ done), two-line display showing name and model
+- **Tool Cards**: Adaptive density - collapsed by default, expandable for parameters and results
+- **Modal Polish**: Rounded containers, consistent headers, unified button styling
 
-#### Subagent Round Timeouts & Configuration
-- **Per-Round Timeout Control**: New `subagent_round_timeouts` config with `initial_round_timeout_seconds`, `subsequent_round_timeout_seconds`, `round_timeout_grace_seconds`
-- **Extended Subagent Parameters**: `subagent_default_timeout`, `subagent_min_timeout`, `subagent_max_timeout`, `subagent_max_concurrent`
+#### Human Input Queue
+- **Mid-Stream Injection**: Send messages to agents during execution via `HumanInputHook`
+- **Thread-Safe Queue**: Per-agent tracking with each message delivered once per agent
+- **TUI Integration**: Visual indicators for queued human input
 
-#### Configuration
-- **Example Config**: `massgen/configs/features/async_subagent_example.yaml`
+#### Bug Fixes
+- **AG2 Single-Agent Coordination**: Single-agent AG2 setups now vote and coordinate correctly
 
-### Previous Achievements (v0.0.3 - v0.1.40)
+### Previous Achievements (v0.0.3 - v0.1.41)
+
+✅ **Async Subagent Execution (v0.1.41)**: Background subagent execution with `async_=True` for non-blocking parallel work, poll for completion and retrieve results, per-round timeout control with `subagent_round_timeouts` config, extended subagent parameters for timeout and concurrency control
 
 ✅ **Textual TUI Interactive Mode (v0.1.40)**: Interactive terminal UI with `--display textual` for real-time agent streaming, comprehensive modals for costs/votes/workspace/answers, context path injection with `@path/to/file` syntax, human feedback integration via prompt modals
 
@@ -1450,9 +1452,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.42 Roadmap
+### v0.1.43 Roadmap
 
-Version 0.1.42 focuses on OpenAI Responses API improvements and log analysis model selection:
+Version 0.1.43 focuses on OpenAI Responses API improvements and log analysis model selection:
 
 #### Planned Features
 - **OpenAI Responses /compact Endpoint** (@ncrispino): Use OpenAI's native `/compact` endpoint for context compression instead of custom summarization
@@ -1462,7 +1464,7 @@ Key technical approach:
 - **Native Context Compression**: Leverage OpenAI's API-level compression for better token efficiency
 - **Flexible Log Analysis**: Allow users to balance cost vs quality by selecting analysis model
 
-For detailed milestones and technical specifications, see the [full v0.1.42 roadmap](ROADMAP_v0.1.42.md).
+For detailed milestones and technical specifications, see the [full v0.1.43 roadmap](ROADMAP_v0.1.43.md).
 
 ---
 
