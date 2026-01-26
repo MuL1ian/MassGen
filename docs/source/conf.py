@@ -93,7 +93,7 @@ suppress_warnings = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = []
+exclude_patterns = ["case_studies"]  # Exclude standalone HTML from Sphinx processing
 
 # Autodoc settings
 autodoc_default_options = {

@@ -63,7 +63,7 @@ Think of it as a "parallel study group" for AI - inspired by advanced systems li
 .. raw:: html
 
    <div style="text-align: center; margin: 20px 0;">
-     <a href="../case_studies/index.html" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 1.1em; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: transform 0.2s, box-shadow 0.2s;">
+     <a href="case_studies/index.html" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 1.1em; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: transform 0.2s, box-shadow 0.2s;">
        🎨 View Interactive Case Studies →
      </a>
    </div>
