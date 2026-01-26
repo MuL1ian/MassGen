@@ -6,5 +6,7 @@ echo "Cleaning and rebuilding documentation..."
 rm -rf build/*
 echo "Build directory cleaned."
 uv run sphinx-build -M html source build
+echo "Copying case_studies to build output..."
+cp -r source/case_studies build/html/
 echo "Opening documentation in browser..."
 open build/html/index.html
