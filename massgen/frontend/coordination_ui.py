@@ -6,6 +6,7 @@ Main interface for coordinating agents with visual display.
 """
 
 import asyncio
+import json
 import logging
 import queue
 import re
@@ -134,6 +135,99 @@ class CoordinationUI:
                 if hasattr(self, reasoning_active_key):
                     setattr(self, reasoning_active_key, False)
                 return reasoning_delta
+
+    def _parse_chunk_data(self, chunk: Any, content: str) -> Optional[Dict[str, Any]]:
+        """Parse structured data from a chunk, trying data attr first then JSON string.
+
+        Args:
+            chunk: The chunk object that may have a 'data' attribute
+            content: The content string that may be JSON
+
+        Returns:
+            Parsed dict or None if parsing fails
+        """
+        data = getattr(chunk, "data", None)
+        if data is None and isinstance(content, str) and content:
+            try:
+                data = json.loads(content)
+            except (json.JSONDecodeError, ValueError):
+                data = None
+        return data if isinstance(data, dict) else None
+
+    def _reset_summary_active_flags(self) -> None:
+        """Reset all _summary_active_ flags for final presentation."""
+        for attr_name in list(vars(self).keys()):
+            if attr_name.startswith("_summary_active_"):
+                delattr(self, attr_name)
+
+    def _handle_coordination_chunk(
+        self,
+        chunk_type: str,
+        chunk: Any,
+        content: str,
+        orchestrator: Any,
+    ) -> bool:
+        """Handle coordination-related chunk types consistently.
+
+        Args:
+            chunk_type: The type of chunk being processed
+            chunk: The chunk object
+            content: The content string from the chunk
+            orchestrator: The orchestrator instance for restart info
+
+        Returns:
+            True if the chunk was handled (caller should continue to next chunk),
+            False if the chunk was not handled by this method
+        """
+        if chunk_type == "restart_banner":
+            # Extract restart info from orchestrator state
+            reason = getattr(orchestrator, "restart_reason", "Answer needs improvement")
+            instructions = getattr(
+                orchestrator,
+                "restart_instructions",
+                "Please address the issues identified",
+            )
+            # Next attempt number (current is 0-indexed, so +2 for next attempt)
+            attempt = getattr(orchestrator, "current_attempt", 0) + 2
+            max_attempts = getattr(orchestrator, "max_attempts", 3)
+
+            if self.display and hasattr(self.display, "show_restart_banner"):
+                self.display.show_restart_banner(reason, instructions, attempt, max_attempts)
+            return True
+
+        elif chunk_type == "restart_required":
+            # Signal that orchestration will restart - UI will be reinitialized
+            return True
+
+        elif chunk_type == "agent_restart":
+            # Agent is starting a new round due to new context from other agents
+            if self.display and hasattr(self.display, "show_agent_restart"):
+                data = self._parse_chunk_data(chunk, content)
+                if data:
+                    agent_id = data.get("agent_id")
+                    round_num = data.get("round", 1)
+                    if agent_id:
+                        self.display.show_agent_restart(agent_id, round_num)
+            return True
+
+        elif chunk_type == "final_presentation_start":
+            if self.display and hasattr(self.display, "show_final_presentation_start"):
+                data = self._parse_chunk_data(chunk, content)
+                if data:
+                    agent_id = data.get("agent_id")
+                    vote_counts = data.get("vote_counts")
+                    answer_labels = data.get("answer_labels")
+                    if agent_id:
+                        self.display.show_final_presentation_start(
+                            agent_id,
+                            vote_counts=vote_counts,
+                            answer_labels=answer_labels,
+                        )
+            # Reset reasoning prefix state
+            self._reset_summary_active_flags()
+            return True
+
+        return False
 
     def __post_init__(self):
         """Post-initialization setup."""
@@ -345,54 +439,13 @@ class CoordinationUI:
                                 self.logger.log_agent_content(source, reasoning_content, "reasoning")
                     continue
 
-                # Handle restart banner
-                elif chunk_type == "restart_banner":
-                    # Extract restart info from orchestrator state
-                    reason = getattr(orchestrator, "restart_reason", "Answer needs improvement")
-                    instructions = getattr(orchestrator, "restart_instructions", "Please address the issues identified")
-                    # Next attempt number
-                    attempt = getattr(orchestrator, "current_attempt", 0) + 2
-                    max_attempts = getattr(orchestrator, "max_attempts", 3)
-
-                    if self.display and hasattr(self.display, "show_restart_banner"):
-                        self.display.show_restart_banner(reason, instructions, attempt, max_attempts)
-                    continue
-
-                # Handle restart required signal (internal - don't display)
-                elif chunk_type == "restart_required":
-                    # Signal that orchestration will restart - UI will be reinitialized
-                    continue
-
-                # Handle per-agent restart (new round for specific agent)
-                elif chunk_type == "agent_restart":
-                    # Agent is starting a new round due to new context from other agents
-                    if self.display and hasattr(self.display, "show_agent_restart"):
-                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
-                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
-                        if agent_id:
-                            self.display.show_agent_restart(agent_id, round_num)
-                    continue
-
-                # Handle final presentation start (show fresh view for winning agent)
-                elif chunk_type == "final_presentation_start":
-                    if self.display and hasattr(self.display, "show_final_presentation_start"):
-                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
-                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
-                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
-                        if agent_id:
-                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
-                    # Reset reasoning prefix state
-                    for attr_name in list(vars(self).keys()):
-                        if attr_name.startswith("_summary_active_"):
-                            delattr(self, attr_name)
+                # Handle coordination chunk types (restart_banner, restart_required, agent_restart, final_presentation_start)
+                if self._handle_coordination_chunk(chunk_type, chunk, content, orchestrator):
                     continue
 
                 # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
-                    # Clear all summary active flags for final presentation
-                    for attr_name in list(vars(self).keys()):
-                        if attr_name.startswith("_summary_active_"):
-                            delattr(self, attr_name)
+                    self._reset_summary_active_flags()
 
                 # Handle post-evaluation content streaming
                 # Bug 2 fix: Removed local _routed_to_post_eval variable - display-level flag handles this now
@@ -994,53 +1047,13 @@ class CoordinationUI:
                                 self.logger.log_agent_content(source, reasoning_content, "reasoning")
                     continue
 
-                # Handle restart banner
-                elif chunk_type == "restart_banner":
-                    # Extract restart info from orchestrator state
-                    reason = getattr(orchestrator, "restart_reason", "Answer needs improvement")
-                    instructions = getattr(orchestrator, "restart_instructions", "Please address the issues identified")
-                    # Next attempt number (current is 0-indexed, so current_attempt=0 means attempt 1 just finished, attempt 2 is next)
-                    attempt = getattr(orchestrator, "current_attempt", 0) + 2
-                    max_attempts = getattr(orchestrator, "max_attempts", 3)
-
-                    self.display.show_restart_banner(reason, instructions, attempt, max_attempts)
-                    continue
-
-                # Handle restart required signal (internal - don't display)
-                elif chunk_type == "restart_required":
-                    # Signal that orchestration will restart - UI will be reinitialized
-                    continue
-
-                # Handle per-agent restart (new round for specific agent)
-                elif chunk_type == "agent_restart":
-                    # Agent is starting a new round due to new context from other agents
-                    if self.display and hasattr(self.display, "show_agent_restart"):
-                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
-                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
-                        if agent_id:
-                            self.display.show_agent_restart(agent_id, round_num)
-                    continue
-
-                # Handle final presentation start (show fresh view for winning agent)
-                elif chunk_type == "final_presentation_start":
-                    if self.display and hasattr(self.display, "show_final_presentation_start"):
-                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
-                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
-                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
-                        if agent_id:
-                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
-                    # Reset reasoning prefix state
-                    for attr_name in list(vars(self).keys()):
-                        if attr_name.startswith("_summary_active_"):
-                            delattr(self, attr_name)
+                # Handle coordination chunk types (restart_banner, restart_required, agent_restart, final_presentation_start)
+                if self._handle_coordination_chunk(chunk_type, chunk, content, orchestrator):
                     continue
 
                 # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
-                    # Clear all summary active flags for final presentation
-                    for attr_name in list(vars(self).keys()):
-                        if attr_name.startswith("_summary_active_"):
-                            delattr(self, attr_name)
+                    self._reset_summary_active_flags()
 
                 # Handle post-evaluation content streaming
                 # Bug 2 fix: Removed local _routed_to_post_eval variable - display-level flag handles this now
@@ -1519,53 +1532,13 @@ class CoordinationUI:
                                 self.logger.log_agent_content(source, reasoning_content, "reasoning")
                     continue
 
-                # Handle restart banner
-                elif chunk_type == "restart_banner":
-                    # Extract restart info from orchestrator state
-                    reason = getattr(orchestrator, "restart_reason", "Answer needs improvement")
-                    instructions = getattr(orchestrator, "restart_instructions", "Please address the issues identified")
-                    # Next attempt number (current is 0-indexed, so current_attempt=0 means attempt 1 just finished, attempt 2 is next)
-                    attempt = getattr(orchestrator, "current_attempt", 0) + 2
-                    max_attempts = getattr(orchestrator, "max_attempts", 3)
-
-                    self.display.show_restart_banner(reason, instructions, attempt, max_attempts)
-                    continue
-
-                # Handle restart required signal (internal - don't display)
-                elif chunk_type == "restart_required":
-                    # Signal that orchestration will restart - UI will be reinitialized
-                    continue
-
-                # Handle per-agent restart (new round for specific agent)
-                elif chunk_type == "agent_restart":
-                    # Agent is starting a new round due to new context from other agents
-                    if self.display and hasattr(self.display, "show_agent_restart"):
-                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
-                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
-                        if agent_id:
-                            self.display.show_agent_restart(agent_id, round_num)
-                    continue
-
-                # Handle final presentation start (show fresh view for winning agent)
-                elif chunk_type == "final_presentation_start":
-                    if self.display and hasattr(self.display, "show_final_presentation_start"):
-                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
-                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
-                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
-                        if agent_id:
-                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
-                    # Reset reasoning prefix state
-                    for attr_name in list(vars(self).keys()):
-                        if attr_name.startswith("_summary_active_"):
-                            delattr(self, attr_name)
+                # Handle coordination chunk types (restart_banner, restart_required, agent_restart, final_presentation_start)
+                if self._handle_coordination_chunk(chunk_type, chunk, content, orchestrator):
                     continue
 
                 # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
-                    # Clear all summary active flags for final presentation
-                    for attr_name in list(vars(self).keys()):
-                        if attr_name.startswith("_summary_active_"):
-                            delattr(self, attr_name)
+                    self._reset_summary_active_flags()
 
                 # Handle post-evaluation content streaming
                 if source and content and chunk_type == "content":
