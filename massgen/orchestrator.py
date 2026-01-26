@@ -6034,17 +6034,11 @@ Your answer:"""
                     self.agent_states[agent_id].restart_count += 1
                     current_round = self.agent_states[agent_id].restart_count
 
-                    # Debug logging
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write(f"DEBUG: _stream_agent_execution agent={agent_id} restart_count={current_round} (doing real work)\n")
-
                     # If this is a restart (round > 1), notify the UI to show fresh timeline
                     if current_round > 1:
                         logger.info(
                             f"[Orchestrator] Agent {agent_id} starting round {current_round} (restart)",
                         )
-                        with open("/tmp/tui_debug.log", "a") as f:
-                            f.write(f"DEBUG: _stream_agent_execution YIELDING agent_restart for {agent_id} round={current_round}\n")
                         yield (
                             "agent_restart",
                             {
@@ -7825,9 +7819,6 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         )
 
         # Notify TUI to show fresh final presentation view
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: get_final_presentation YIELDING final_presentation_start for {selected_agent_id}\n")
-
         # Build answer labels mapping for vote display (agent_id -> "A1.1" style label)
         answer_labels = {}
         if vote_counts:

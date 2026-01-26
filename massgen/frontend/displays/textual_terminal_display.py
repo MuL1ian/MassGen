@@ -1674,17 +1674,11 @@ class TextualTerminalDisplay(TerminalDisplay):
 
     def show_restart_banner(self, reason: str, instructions: str, attempt: int, max_attempts: int):
         """Display restart decision banner."""
-        # Debug logging
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TextualTerminalDisplay.show_restart_banner called! attempt={attempt}\n")
-
         banner_msg = f"\n{'=' * 60}\n" f"RESTART TRIGGERED (Attempt {attempt}/{max_attempts})\n" f"Reason: {reason}\n" f"Instructions: {instructions}\n" f"{'=' * 60}\n"
 
         self._write_to_system_file(banner_msg)
 
         if self._app:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: TextualTerminalDisplay.show_restart_banner calling app.show_restart_banner\n")
             self._app.call_from_thread(
                 self._app.show_restart_banner,
                 reason,
@@ -1692,9 +1686,6 @@ class TextualTerminalDisplay(TerminalDisplay):
                 attempt,
                 max_attempts,
             )
-        else:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: TextualTerminalDisplay.show_restart_banner - NO APP!\n")
 
     def show_restart_context_panel(self, reason: str, instructions: str):
         """Display restart context panel at top of UI (for attempt 2+)."""
@@ -1718,9 +1709,6 @@ class TextualTerminalDisplay(TerminalDisplay):
             agent_id: The agent that is restarting
             round_num: The new round number for this agent
         """
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TextualTerminalDisplay.show_agent_restart agent={agent_id} round={round_num}\n")
-
         if self._app:
             self._app.call_from_thread(
                 self._app.show_agent_restart,
@@ -1739,9 +1727,6 @@ class TextualTerminalDisplay(TerminalDisplay):
             vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
             answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
         """
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TextualTerminalDisplay.show_final_presentation_start agent={agent_id} votes={vote_counts} labels={answer_labels}\n")
-
         if self._app:
             self._app.call_from_thread(
                 self._app.show_final_presentation_start,
@@ -1997,9 +1982,6 @@ class TextualTerminalDisplay(TerminalDisplay):
         Content routing in coordination_ui.py sends all content through the normal
         pipeline, and final presentation is treated as round N+1.
         """
-        # Debug logging
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG stream_final_answer_chunk: DEPRECATED - called but no-op. agent={selected_agent}\n")
         # No-op - content now flows through update_agent_content()
 
     def _prepare_agent_content(self, agent_id: str, content: str, content_type: str) -> Optional[str]:
@@ -3752,9 +3734,10 @@ if TEXTUAL_AVAILABLE:
                 self._toggle_vim_mode()
                 return True
 
-            if cmd == "/theme":
-                self.action_toggle_theme()
-                return True
+            # TODO: Re-enable /theme command when additional themes are ready
+            # if cmd == "/theme":
+            #     self.action_toggle_theme()
+            #     return True
 
             return False
 
@@ -4320,18 +4303,10 @@ Type your question and press Enter to ask the agents.
             - Action buttons (Copy, Workspace)
             - Continue conversation prompt
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                already_added = getattr(self, "_final_completion_added", False)
-                f.write(f"DEBUG _add_final_completion_card: agent={agent_id}, _final_completion_added={already_added}\n")
-
             # Prevent duplicate cards
             if hasattr(self, "_final_completion_added") and self._final_completion_added:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG _add_final_completion_card: RETURNING EARLY - already added\n")
                 return
             self._final_completion_added = True
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG _add_final_completion_card: Set _final_completion_added=True\n")
             self._final_header_added = True  # Compat flag for other code paths
 
             # Track for post-evaluation routing
@@ -4396,15 +4371,10 @@ Type your question and press Enter to ask the agents.
                     if hasattr(orch, "get_context_path_writes_categorized"):
                         context_paths = orch.get_context_path_writes_categorized()
 
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG _add_final_completion_card: context_paths={context_paths}\n")
-
                 # Remove any existing completion card to avoid duplicate ID issues
                 try:
                     existing_card = timeline.query_one("#final_presentation_card", FinalPresentationCard)
                     existing_card.remove()
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG _add_final_completion_card: Removed existing card\n")
                 except Exception:
                     pass  # No existing card, that's fine
 
@@ -4420,9 +4390,6 @@ Type your question and press Enter to ask the agents.
                 current_round = getattr(panel, "_current_round", 1)
                 card.add_class(f"round-{current_round}")
 
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG _add_final_completion_card: Adding card with round-{current_round}, answer_len={len(answer) if answer else 0}\n")
-
                 timeline.add_widget(card)
                 self._final_presentation_card = card
 
@@ -4437,20 +4404,13 @@ Type your question and press Enter to ask the agents.
                     # Update input placeholder to encourage follow-up
                     if hasattr(self, "question_input"):
                         self.question_input.placeholder = "Type your follow-up question..."
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG _add_final_completion_card: set_content_and_complete called, auto-locked\n")
 
                 self.set_timer(0.1, set_content_and_complete)
-
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG _add_final_completion_card: Card CREATED and added to timeline, card.display={card.display}, card.visible={card.visible}\n")
 
                 # Scroll to show the card
                 timeline.scroll_to_widget("final_presentation_card")
 
             except Exception as e:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG _add_final_completion_card: EXCEPTION: {e}\n")
                 logger.debug(f"Failed to create final completion card: {e}")
 
         def show_post_evaluation(self, content: str, agent_id: str):
@@ -4547,24 +4507,17 @@ Type your question and press Enter to ask the agents.
                 self._final_presentation_card.complete()
 
                 # Auto-lock timeline to show only final answer
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG end_post_evaluation: agent_id={agent_id}, in_widgets={agent_id in self.agent_widgets}\n")
                 if agent_id in self.agent_widgets:
                     panel = self.agent_widgets[agent_id]
                     try:
                         timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
-                        with open("/tmp/tui_debug.log", "a") as f:
-                            f.write("DEBUG end_post_evaluation: Found timeline, calling lock_to_final_answer\n")
                         timeline.lock_to_final_answer("final_presentation_card")
                         self._final_presentation_card.set_locked_mode(True)
                         # Update input placeholder to encourage follow-up
                         if hasattr(self, "question_input"):
                             self.question_input.placeholder = "Type your follow-up question..."
-                        with open("/tmp/tui_debug.log", "a") as f:
-                            f.write("DEBUG end_post_evaluation: set_locked_mode(True) called\n")
-                    except Exception as e:
-                        with open("/tmp/tui_debug.log", "a") as f:
-                            f.write(f"DEBUG end_post_evaluation: EXCEPTION: {e}\n")
+                    except Exception:
+                        pass
 
                 # Phase 12.4: Store final answer for view-based navigation
                 if agent_id in self.agent_widgets:
@@ -4604,17 +4557,8 @@ Type your question and press Enter to ask the agents.
             Final presentation content now flows through the normal pipeline
             (update_agent_content), and a completion card is added at the end.
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                final_added = getattr(self, "_final_header_added", False)
-                quick_highlighted = getattr(self, "_winner_quick_highlighted", False)
-                f.write(
-                    f"DEBUG begin_final_stream: agent={agent_id} _final_header_added={final_added} " f"_winner_quick_highlighted={quick_highlighted}\n",
-                )
-
             # Prevent duplicate cards - check if we've already started or if winner was quick-highlighted
             if hasattr(self, "_final_header_added") and self._final_header_added:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG begin_final_stream: RETURNING EARLY - _final_header_added is True\n")
                 return
             if hasattr(self, "_winner_quick_highlighted") and self._winner_quick_highlighted:
                 # Winner already shown via highlight_winner_quick, skip adding another card
@@ -4660,17 +4604,12 @@ Type your question and press Enter to ask the agents.
                 self._active_agent_id = agent_id
 
             # 3. Create FinalPresentationCard and add to timeline
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG begin_final_stream: Creating card, agent_id={agent_id} in widgets={agent_id in self.agent_widgets}\n")
-
             if agent_id in self.agent_widgets:
                 panel = self.agent_widgets[agent_id]
 
                 try:
                     timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
                     self._final_stream_timeline = timeline
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG begin_final_stream: Got timeline (no tool clearing - handled by round transitions)\n")
 
                     # Get coordination_tracker for answer label lookup
                     tracker = None
@@ -4713,14 +4652,10 @@ Type your question and press Enter to ask the agents.
                     # during final presentation (was causing content cutoff issue)
                     timeline.add_widget(card)
                     self._final_presentation_card = card
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG begin_final_stream: Card CREATED and assigned to _final_presentation_card\n")
 
                     # Scroll to show the card
                     timeline.scroll_to_widget("final_presentation_card")
                 except Exception as e:
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write(f"DEBUG begin_final_stream: EXCEPTION creating card: {e}\n")
                     logger.debug(f"Failed to create final presentation card: {e}")
 
         def update_final_stream(self, chunk: str):
@@ -4730,9 +4665,6 @@ Type your question and press Enter to ask the agents.
             primary path. Final presentation content now flows through the normal
             pipeline (update_agent_content).
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG update_final_stream: DEPRECATED - chunk_len={len(chunk) if chunk else 0}\n")
-
             if not chunk:
                 return
 
@@ -4741,14 +4673,10 @@ Type your question and press Enter to ask the agents.
                 if not hasattr(self, "_pending_final_chunks"):
                     self._pending_final_chunks = []
                 self._pending_final_chunks.append(chunk)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG update_final_stream: BUFFERED (no card yet)\n")
                 return
 
             # Flush any pending chunks first (from before card was created)
             if hasattr(self, "_pending_final_chunks") and self._pending_final_chunks:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG update_final_stream: FLUSHING {len(self._pending_final_chunks)} pending chunks\n")
                 for pending_chunk in self._pending_final_chunks:
                     try:
                         self._final_presentation_card.append_chunk(pending_chunk)
@@ -4759,8 +4687,6 @@ Type your question and press Enter to ask the agents.
             # Now append the current chunk
             try:
                 self._final_presentation_card.append_chunk(chunk)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG update_final_stream: APPENDED to card\n")
             except Exception as e:
                 logger.error(f"FinalPresentationCard.append_chunk failed: {e}")
 
@@ -5034,11 +4960,6 @@ Type your question and press Enter to ask the agents.
             """Show restart banner in header and all agent panels."""
             import time
 
-            # Debug logging
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: MassGenApp.show_restart_banner called! attempt={attempt}\n")
-                f.write(f"DEBUG: MassGenApp.show_restart_banner agent_widgets={list(self.agent_widgets.keys())}\n")
-
             # Track the restart
             self._current_restart = {
                 "attempt": attempt,
@@ -5092,15 +5013,10 @@ Type your question and press Enter to ask the agents.
                 agent_id: The agent that is restarting
                 round_num: The new round number for this agent
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: MassGenApp.show_agent_restart agent={agent_id} round={round_num}\n")
-
             panel = self.agent_widgets.get(agent_id)
             if panel:
                 # Use start_new_round which handles timeline visibility and ribbon update
                 panel.start_new_round(round_num, is_context_reset=False)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: MassGenApp.show_agent_restart called panel.start_new_round\n")
 
         def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
             """Show that the final presentation is starting for the winning agent.
@@ -5112,15 +5028,10 @@ Type your question and press Enter to ask the agents.
                 vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
                 answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: MassGenApp.show_final_presentation_start agent={agent_id} votes={vote_counts} labels={answer_labels}\n")
-
             panel = self.agent_widgets.get(agent_id)
             if panel:
                 # Use start_final_presentation which shows distinct green banner
                 panel.start_final_presentation(vote_counts=vote_counts, answer_labels=answer_labels)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: MassGenApp.show_final_presentation_start called panel.start_final_presentation\n")
 
         def display_vote_results(self, formatted_results: str):
             """Display vote results."""
@@ -5281,31 +5192,20 @@ Type your question and press Enter to ask the agents.
 
             Switches the agent panel to show either a specific round or the final answer.
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: App.on_view_selected type={event.view_type} round={event.round_number} agent={event.agent_id}\n")
-
             if event.agent_id not in self.agent_widgets:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: App.on_view_selected agent not found, returning\n")
                 return
 
             panel = self.agent_widgets[event.agent_id]
 
             if event.view_type == "final_answer":
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: App.on_view_selected calling switch_to_final_answer\n")
                 panel.switch_to_final_answer()
             elif event.view_type == "round" and event.round_number is not None:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG: App.on_view_selected calling switch_to_round({event.round_number})\n")
                 # Check if we're currently viewing final answer BEFORE changing state
                 was_viewing_final = panel._current_view == "final_answer"
                 if was_viewing_final:
                     panel.switch_from_final_answer()
                 panel.switch_to_round(event.round_number)
 
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: App.on_view_selected done\n")
             event.stop()
 
         def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
@@ -7722,9 +7622,6 @@ Type your question and press Enter to ask the agents.
             users can switch to via the dropdown. This clears the timeline for fresh
             content and updates the round tracking.
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: show_restart_separator called! attempt={attempt}\n")
-
             # Mark that non-tool content arrived (prevents future batching across this content)
             self._batch_tracker.mark_content_arrived()
             # Finalize any current batch when restart occurs
@@ -7735,8 +7632,6 @@ Type your question and press Enter to ask the agents.
 
             # Start the new round (clears timeline, updates ribbon, stores content)
             self.start_new_round(attempt, is_context_reset)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: show_restart_separator done, called start_new_round\n")
 
             # Reset per-attempt UI state
             self._tool_row_count = 0
@@ -7761,19 +7656,6 @@ Type your question and press Enter to ask the agents.
 
             # Normalize content first, passing tool_call_id
             normalized = ContentNormalizer.normalize(content, content_type, tool_call_id)
-
-            # Debug: Log timeline order to trace file (tool content logged in _add_tool_content to filter planning tools)
-            if not hasattr(self, "_timeline_event_counter"):
-                self._timeline_event_counter = 0
-                # Clear the trace file at start of session
-                with open("/tmp/tui_timeline_trace.log", "w") as f:
-                    f.write("=== TUI Timeline Trace ===\n")
-            # Only log non-tool content here; tool content is logged in _add_tool_content()
-            if not normalized.content_type.startswith("tool_"):
-                self._timeline_event_counter += 1
-                preview = content[:80].replace("\n", "\\n") if content else ""
-                with open("/tmp/tui_timeline_trace.log", "a") as f:
-                    f.write(f"[{self._timeline_event_counter:04d}] type={normalized.content_type} raw={content_type} preview={preview}\n")
 
             # Route based on detected content type
             if normalized.content_type.startswith("tool_"):
@@ -7834,12 +7716,7 @@ Type your question and press Enter to ask the agents.
                     # Check if this is an args update for existing tool
                     existing_card = timeline.get_tool(tool_data.tool_id) if tool_data.status == "running" else None
                     existing_batch = timeline.get_tool_batch(tool_data.tool_id) if tool_data.status == "running" and not skip_batching else None
-                    is_args_update = existing_card is not None or existing_batch is not None
-
-                    if not is_args_update:
-                        self._timeline_event_counter += 1
-                        with open("/tmp/tui_timeline_trace.log", "a") as f:
-                            f.write(f"[{self._timeline_event_counter:04d}] type=tool_{tool_data.status} tool={tool_data.display_name} tool_id={tool_data.tool_id}\n")
+                    existing_card is not None or existing_batch is not None
 
                 if tool_data.status == "running":
                     # Check if this is an args update for existing tool
@@ -7862,10 +7739,6 @@ Type your question and press Enter to ask the agents.
                     elif not skip_batching:
                         # Check if this MCP tool should be batched
                         action, server_name, batch_id, pending_id = self._batch_tracker.process_tool(tool_data)
-
-                        # Debug: Log batching decision
-                        with open("/tmp/tui_timeline_trace.log", "a") as f:
-                            f.write(f"       BATCH_DECISION: tool={tool_data.display_name} action={action} server={server_name} batch_id={batch_id} pending_id={pending_id}\n")
 
                         if action == "pending":
                             # First MCP tool - show as normal card, track for potential batch
@@ -8773,10 +8646,6 @@ Type your question and press Enter to ask the agents.
                 f"AgentPanel.start_new_round: round={round_number}, " f"prev_round={self._current_round}, context_reset={is_context_reset}",
             )
 
-            # Debug logging
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: AgentPanel.start_new_round agent={self.agent_id} new_round={round_number} prev_round={self._current_round}\n")
-
             # Terminal tool transition delay - give users time to see completed action
             if self._transition_pending:
                 # Already waiting for a transition - update the pending round
@@ -8858,8 +8727,6 @@ Type your question and press Enter to ask the agents.
             giving users time to see the completed action before the view switches.
             """
             self._last_tool_was_terminal = True
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: AgentPanel.mark_terminal_tool_complete agent={self.agent_id}\n")
 
         def start_final_presentation(self, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None) -> None:
             """Start the final presentation phase - shows fresh view with distinct banner.
@@ -8879,10 +8746,6 @@ Type your question and press Enter to ask the agents.
             logger.debug(
                 f"AgentPanel.start_final_presentation: agent={self.agent_id}, " f"new_round={new_round}",
             )
-
-            # Debug logging
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: AgentPanel.start_final_presentation agent={self.agent_id} new_round={new_round} votes={vote_counts} labels={answer_labels}\n")
 
             # Step 1: Update round tracking
             self._current_round = new_round

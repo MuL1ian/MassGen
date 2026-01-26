@@ -191,7 +191,10 @@ class PlanStorage:
                 if session.metadata_file.exists():
                     sessions.append(session)
             except Exception:
-                # Skip invalid plan directories
+                # Log and skip invalid/corrupted plan directories
+                logger.exception(
+                    f"[PlanStorage] Failed to load plan directory '{plan_dir.name}' (plan_id={plan_id}). Skipping.",
+                )
                 continue
 
         return sessions
@@ -229,15 +232,23 @@ class PlanStorage:
             if temp_frozen.exists():
                 shutil.rmtree(temp_frozen)
 
+            # Early guard: bail out if workspace_source doesn't exist
+            # This prevents Steps 3-4 from deleting existing snapshots when there's no source
+            if not workspace_source.exists():
+                logger.warning(
+                    f"[PlanStorage] workspace_source does not exist: {workspace_source}. " "Skipping snapshot creation to preserve existing workspace/frozen dirs.",
+                )
+                return
+
             # Step 1: Copy source to temp workspace
-            if workspace_source.exists():
-                temp_workspace.mkdir(parents=True, exist_ok=True)
-                for item in workspace_source.rglob("*"):
-                    if item.is_file():
-                        rel_path = item.relative_to(workspace_source)
-                        dest = temp_workspace / rel_path
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(item, dest)
+            # (workspace_source guaranteed to exist due to early guard above)
+            temp_workspace.mkdir(parents=True, exist_ok=True)
+            for item in workspace_source.rglob("*"):
+                if item.is_file():
+                    rel_path = item.relative_to(workspace_source)
+                    dest = temp_workspace / rel_path
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, dest)
 
             # Step 2: Rename project_plan.json -> plan.json in temp workspace
             # Planning phase outputs project_plan.json (to distinguish from internal tasks/plan.json)
@@ -248,8 +259,8 @@ class PlanStorage:
                 logger.info("[PlanStorage] Renamed project_plan.json -> plan.json")
 
             # Step 3: Create frozen copy from temp workspace
-            if temp_workspace.exists():
-                shutil.copytree(temp_workspace, temp_frozen)
+            # (temp_workspace guaranteed to exist since we just created it in Step 1)
+            shutil.copytree(temp_workspace, temp_frozen)
 
             # Step 4: Atomic move - remove existing and rename temp to final
             # Remove existing directories if they exist
@@ -259,10 +270,9 @@ class PlanStorage:
                 shutil.rmtree(session.frozen_dir)
 
             # Atomic rename to final locations
-            if temp_workspace.exists():
-                temp_workspace.rename(session.workspace_dir)
-            if temp_frozen.exists():
-                temp_frozen.rename(session.frozen_dir)
+            # (temp_workspace and temp_frozen guaranteed to exist from Steps 1 & 3)
+            temp_workspace.rename(session.workspace_dir)
+            temp_frozen.rename(session.frozen_dir)
 
             logger.info(f"[PlanStorage] Froze workspace snapshot: {session.frozen_dir}")
 

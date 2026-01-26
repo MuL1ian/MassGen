@@ -891,11 +891,6 @@ class TimelineSection(ScrollableContainer):
         # Close any open reasoning batch when tool arrives
         self._close_reasoning_batch()
 
-        # Debug logging - include widget ID to identify which panel
-        widget_id = self.id or "unknown"
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TimelineSection.add_tool: panel={widget_id}, tool={tool_data.tool_name}, round={round_number}, viewed={self._viewed_round}\n")
-
         card = ToolCallCard(
             tool_name=tool_data.tool_name,
             tool_type=tool_data.tool_type,
@@ -1270,13 +1265,6 @@ class TimelineSection(ScrollableContainer):
         is_thinking = "thinking" in text_class
         is_content = "content" in text_class and "content-inline" in text_class
 
-        # Debug logging for routing
-        content_preview = content[:50].replace("\n", "\\n")
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(
-                f"DEBUG add_text: text_class='{text_class}', is_thinking={is_thinking}, " f"is_content={is_content}, content_preview={content_preview}\n",
-            )
-
         if is_thinking:
             self.add_reasoning(content, round_number=round_number, label="Thinking")
             return
@@ -1372,15 +1360,6 @@ class TimelineSection(ScrollableContainer):
         This ends the accumulation of content into a single card, so the next
         content will start a new batch.
         """
-        # Debug logging for reasoning batch closure
-        if self._current_reasoning_card is not None:
-            import traceback
-
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG _close_reasoning_batch: CLOSING card={self._current_reasoning_card.id}, label={self._current_batch_label}\n")
-                f.write("       Stack trace:\n")
-                for line in traceback.format_stack()[-5:-1]:
-                    f.write(f"       {line.strip()}\n")
         self._current_reasoning_card = None
         self._current_batch_label = None
 
@@ -1400,32 +1379,18 @@ class TimelineSection(ScrollableContainer):
         if not content.strip():
             return
 
-        # Debug logging for reasoning batching
-        content_preview = content[:50].replace("\n", "\\n")
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(
-                f"DEBUG add_reasoning: label={label}, current_card={self._current_reasoning_card is not None}, " f"current_label={self._current_batch_label}, content_preview={content_preview}\n",
-            )
-
         try:
             # Close batch if label changed
             if self._current_reasoning_card is not None and self._current_batch_label != label:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG add_reasoning: LABEL CHANGED from {self._current_batch_label} to {label}, closing batch\n")
                 self._close_reasoning_batch()
 
             if self._current_reasoning_card is not None:
                 # Append to existing batch
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG add_reasoning: APPENDING to existing card={self._current_reasoning_card.id}\n")
                 self._current_reasoning_card.append_content(content)
             else:
                 # Start new batch
                 self._item_count += 1
                 widget_id = f"tl_reasoning_{self._item_count}"
-
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG add_reasoning: CREATING NEW card={widget_id} with label={label}\n")
 
                 self._current_reasoning_card = CollapsibleTextCard(
                     content,
@@ -1438,9 +1403,8 @@ class TimelineSection(ScrollableContainer):
                 self.mount(self._current_reasoning_card)
 
             self._auto_scroll()
-        except Exception as e:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG add_reasoning: EXCEPTION {e}\n")
+        except Exception:
+            pass
 
     def add_widget(self, widget, round_number: int = 1) -> None:
         """Add a generic widget to the timeline.
@@ -1455,34 +1419,10 @@ class TimelineSection(ScrollableContainer):
         widget.add_class(f"round-{round_number}")
 
         try:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG TimelineSection.add_widget: mounting widget type={type(widget).__name__}, id={widget.id}\n")
             self.mount(widget)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG TimelineSection.add_widget: mounted, widget.is_mounted={widget.is_mounted}\n")
             self._auto_scroll()
-        except Exception as e:
-            import sys
-            import traceback
-
-            print(f"[ERROR] add_widget failed: {e}", file=sys.stderr)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG TimelineSection.add_widget: ERROR: {e}\n")
-                f.write(f"DEBUG TimelineSection.add_widget: ERROR str: {str(e)}\n")
-                f.write(f"DEBUG TimelineSection.add_widget: ERROR repr: {repr(e)}\n")
-                # Try to get CSS error details
-                try:
-                    if hasattr(e, "errors"):
-                        f.write(f"DEBUG TimelineSection.add_widget: errors attr: {e.errors}\n")
-                        for err in e.errors:
-                            f.write(f"DEBUG TimelineSection.add_widget: CSS ERROR: {err}\n")
-                    if hasattr(e, "rules"):
-                        f.write(f"DEBUG TimelineSection.add_widget: rules: {e.rules}\n")
-                    # Try printing all attributes
-                    f.write(f"DEBUG TimelineSection.add_widget: dir(e): {[a for a in dir(e) if not a.startswith('_')]}\n")
-                except Exception as inner:
-                    f.write(f"DEBUG TimelineSection.add_widget: inner error: {inner}\n")
-                f.write(f"DEBUG TimelineSection.add_widget: Traceback:\n{traceback.format_exc()}\n")
+        except Exception:
+            pass
 
     def clear(self) -> None:
         """Clear all timeline content."""
@@ -1546,10 +1486,6 @@ class TimelineSection(ScrollableContainer):
 
         logger.debug(f"TimelineSection.switch_to_round: scrolling to round {round_number}")
 
-        widget_id = self.id or "unknown"
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TimelineSection.switch_to_round called! panel={widget_id}, round={round_number}\n")
-
         try:
             # Find the RestartBanner for this round and scroll to it
             # RestartBanners are tagged with round-X class
@@ -1559,8 +1495,6 @@ class TimelineSection(ScrollableContainer):
                 if isinstance(widget, RestartBanner):
                     widget.scroll_visible(animate=True, top=True)
                     found_separator = True
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG: TimelineSection.switch_to_round: Found RestartBanner, scrolling to it\n")
                     break
 
             # If no RestartBanner found (e.g., round 1 which may not have one),
@@ -1568,14 +1502,10 @@ class TimelineSection(ScrollableContainer):
             if not found_separator:
                 for widget in self.query(f".round-{round_number}"):
                     widget.scroll_visible(animate=True, top=True)
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG: TimelineSection.switch_to_round: No RestartBanner, scrolling to first widget\n")
                     break
 
             logger.debug(f"TimelineSection.switch_to_round: done scrolling to round {round_number}")
         except Exception as e:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: TimelineSection.switch_to_round ERROR: {e}\n")
             logger.error(f"TimelineSection.switch_to_round error: {e}")
 
 
@@ -2500,9 +2430,6 @@ class FinalPresentationCard(Vertical):
         from textual.containers import Horizontal, ScrollableContainer
         from textual.widgets import Label
 
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG FinalPresentationCard.compose: STARTING\n")
-
         # Header section - compact single line
         with Vertical(id="final_card_header"):
             yield Label(self._build_title(), id="final_card_title")
@@ -2515,9 +2442,6 @@ class FinalPresentationCard(Vertical):
         with ScrollableContainer(id="final_card_content"):
             yield self._text_widget
 
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG FinalPresentationCard.compose: DONE, _text_widget set\n")
-
         # Post-evaluation section (hidden until post-eval content arrives)
         with Vertical(id="final_card_post_eval", classes="hidden"):
             with Horizontal(id="post_eval_header"):
@@ -2528,8 +2452,6 @@ class FinalPresentationCard(Vertical):
 
         # Context paths section (hidden if no paths)
         has_paths = bool(self.context_paths.get("new") or self.context_paths.get("modified"))
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG FinalPresentationCard.compose: context_paths={self.context_paths}, has_paths={has_paths}\n")
         with Vertical(id="final_card_context_paths", classes="" if has_paths else "hidden"):
             new_count = len(self.context_paths.get("new", []))
             mod_count = len(self.context_paths.get("modified", []))
@@ -2582,14 +2504,6 @@ class FinalPresentationCard(Vertical):
         Args:
             chunk: Text chunk to append
         """
-        # Debug logging
-        with open("/tmp/tui_debug.log", "a") as f:
-            chunk_preview = chunk[:50].replace("\n", "\\n") if chunk else "None"
-            f.write(
-                f"DEBUG FinalPresentationCard.append_chunk: chunk_len={len(chunk) if chunk else 0}, "
-                f"is_mounted={self.is_mounted}, accumulated={len(self._final_content)}, preview={chunk_preview}\n",
-            )
-
         if not chunk:
             return
 
@@ -2624,20 +2538,15 @@ class FinalPresentationCard(Vertical):
         # Use direct reference if available (set in compose)
         if self._text_widget is not None:
             try:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG FinalPresentationCard._try_update_text: SUCCESS (direct ref) updating with {len(full_text)} chars\n")
                 self._text_widget.update(full_text)
                 self._text_widget.refresh()
                 return True
-            except Exception as e:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG FinalPresentationCard._try_update_text: direct ref failed ({e})\n")
+            except Exception:
+                pass
 
         # Fallback to query
         try:
             text_widget = self.query_one("#final_card_text", Static)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG FinalPresentationCard._try_update_text: SUCCESS (query) updating with {len(full_text)} chars\n")
             text_widget.update(full_text)
             text_widget.refresh()
             return True
@@ -2648,43 +2557,27 @@ class FinalPresentationCard(Vertical):
         try:
             # Check if we have any children at all
             if not list(self.children):
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG FinalPresentationCard._try_update_text: NO CHILDREN - compose didn't run, creating manually\n")
                 # Create a simple Static widget directly
                 self._text_widget = Static(full_text, id="final_card_text_manual", markup=False)
                 self.mount(self._text_widget)
                 return True
-            else:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG FinalPresentationCard._try_update_text: has {len(list(self.children))} children but can't find text widget\n")
-        except Exception as e:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG FinalPresentationCard._try_update_text: manual creation failed ({e})\n")
+        except Exception:
+            pass
 
         return False
 
     def on_mount(self) -> None:
         """Flush any pending content when the widget is mounted."""
-        # Debug logging
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(
-                f"DEBUG FinalPresentationCard.on_mount: CALLED! pending={len(self._final_content)}, " f"chars={sum(len(c) for c in self._final_content)}\n",
-            )
-
         # Flush any buffered content that arrived before mount
         self._try_update_text()
 
         # In completion-only mode, show footer immediately and mark as completed
         # (content has already been shown through the normal pipeline)
         if self.has_class("completion-only"):
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG FinalPresentationCard.on_mount: completion-only mode, calling complete()\n")
             self.complete()
 
     def _on_compose(self) -> None:
         """Called after compose() completes - use this to flush content."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG FinalPresentationCard._on_compose: CALLED! pending={len(self._final_content)}\n")
         # Try to update after compose completes
         if self._final_content:
             self._try_update_text()
@@ -2692,9 +2585,6 @@ class FinalPresentationCard(Vertical):
     def complete(self) -> None:
         """Mark the presentation as complete and show action buttons."""
         from textual.widgets import Label
-
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG FinalPresentationCard.complete: CALLED, has_class completion-only={self.has_class('completion-only')}\n")
 
         self._is_streaming = False
 
@@ -2811,20 +2701,14 @@ class FinalPresentationCard(Vertical):
         Args:
             locked: Whether to enable locked mode
         """
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG FinalPresentationCard.set_locked_mode: locked={locked}, is_mounted={self.is_mounted}\n")
-
         if locked:
             self.add_class("locked-mode")
             try:
                 link = self.query_one("#final_card_unlock_btn", Static)
                 link.display = True
                 link.update("↩ Previous Work")
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG FinalPresentationCard.set_locked_mode: link found, set display=True\n")
-            except Exception as e:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG FinalPresentationCard.set_locked_mode: link query failed: {e}\n")
+            except Exception:
+                pass
         else:
             self.remove_class("locked-mode")
             try:

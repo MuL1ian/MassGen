@@ -851,9 +851,6 @@ class ToolBatchTracker:
         This is used to prevent batching tools that have content between them.
         Called whenever non-tool content is added to the timeline.
         """
-        # Debug: Log when content breaks potential batching
-        with open("/tmp/tui_timeline_trace.log", "a") as f:
-            f.write(f"       CONTENT_BREAK: mark_content_arrived() called, pending={self._pending_tool_id}, batch={self._current_batch_id}\n")
         self._content_since_last_tool = True
 
     def process_tool(self, tool_data: ToolDisplayData) -> tuple[str, Optional[str], Optional[str], Optional[str]]:

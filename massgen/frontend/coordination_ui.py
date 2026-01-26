@@ -1994,8 +1994,6 @@ class CoordinationUI:
             # Route all content through update_agent_content() so it goes through
             # the normal content pipeline (ContentNormalizer, tool cards, thinking sections, etc.)
             # Final presentation content is handled as a new round (N+1) with the same pipeline.
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG _emit_agent_content: agent={agent_id} chunk_type={chunk_type} ROUTING TO update_agent_content\n")
             self.display.update_agent_content(agent_id, content, chunk_type)
             if self.logger:
                 self.logger.log_agent_content(agent_id, content, chunk_type)
