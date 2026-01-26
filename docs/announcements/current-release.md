@@ -1,4 +1,4 @@
-# MassGen v0.1.42 Release Announcement
+# MassGen v0.1.43 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.42, featuring Human Input Queue! 🚀 Guide your agents in real-time—inject feedback mid-stream while they work, keeping them on track without interrupting their flow. Plus, a comprehensive TUI Visual Redesign brings a modern "Conversational AI" aesthetic to the terminal. Experience it: massgen --display textual
+We're excited to release MassGen v0.1.43, featuring Tool Call Batching in the TUI! 🚀 Consecutive MCP tool calls are now grouped into collapsible tree views—see filesystem operations batched with timing info, expand to view details, and enjoy cleaner final answer presentation with reasoning separated from results. Experience it: massgen --display textual
 
 ## Install
 
 ```bash
-pip install massgen==0.1.42
+pip install massgen==0.1.43
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.42
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.43
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,28 +29,32 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.42, featuring Human Input Queue!
+We're excited to release MassGen v0.1.43, featuring Tool Call Batching in the TUI! 🚀
 
-**Human Input Queue**
-- Inject messages to agents mid-stream while they work
-- Thread-safe queue with per-agent tracking
-- Visual indicators in TUI when input is pending
+**Tool Call Batching (TUI)**
+- Consecutive MCP tool calls grouped into collapsible tree views
+- Shows 3 items by default with "+N more" indicator
+- Click to expand full list of operations
+- Tree structure: server → operation → file path → status
 
-**TUI Visual Redesign**
-The Textual terminal UI has been completely refreshed with a modern "Conversational AI" aesthetic:
-- Rounded corners and softer borders throughout
-- Professional desaturated color palette
-- Edge-to-edge layouts with proper spacing
-- Redesigned agent tabs, tool cards, and modals
-- Scroll indicators and progress bars
+**Clean Final Answers**
+- Reasoning text now separated from actual answer content
+- Visual distinction: reasoning collapsed/smaller, answer prominent
+- Clear "FINAL ANSWER" display with winner and vote count
 
-**AG2 Single-Agent Fix**
-- Fixed coordination issues for single-agent AG2 setups
-- Proper vote handling when only one agent present
+**Plan Mode Enhancements**
+- New PlanOptionsPopover for browsing recent plans
+- Plan depth selector (thorough/balanced/quick)
+- Broadcast mode toggle for collaboration control
+
+**Bug Fixes**
+- Fixed bottom status bar not showing
+- Fixed scrolling bar display issues
+- Fixed mode button interactions
 
 Try the new TUI: `massgen --display textual "your question"`
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.42
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.43
 
 <!-- Paste feature-highlights.md content here -->
 

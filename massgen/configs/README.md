@@ -227,7 +227,28 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.42 - Latest
+### v0.1.43 - Latest
+**New Features:** Tool Call Batching, Interactive Case Studies, Plan Mode Enhancements, Quoted Path Support
+
+**Key Features:**
+- **Tool Call Batching**: Consecutive MCP tool calls grouped into collapsible tree views with timing info
+- **Interactive Case Studies**: Side-by-side SVG comparisons between MassGen and single-agent outputs
+- **Plan Mode Enhancements**: New `PlanOptionsPopover` for browsing plans, selecting depth, and toggling broadcast
+- **Quoted Path Support**: `@"/path/with spaces/file.txt"` syntax for paths containing spaces
+- **Final Presentation Fixes**: Reasoning text separated from actual answers in final display
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Experience tool call batching - multiple file operations batch into collapsible trees
+uv run massgen --display textual \
+  --config massgen/configs/providers/gemini/gemini_3_flash.yaml \
+  "Create a project structure with src/, tests/, and docs/ directories, then add README.md and requirements.txt"
+```
+
+### v0.1.42
 **New Features:** TUI Visual Redesign, Human Input Queue, AG2 Single-Agent Fix
 
 **Key Features:**
@@ -237,9 +258,6 @@ Most configurations use environment variables for API keys:so
 
 **Try It:**
 ```bash
-# Install or upgrade
-pip install --upgrade massgen
-
 # Experience the redesigned TUI with interactive mode
 uv run massgen --display textual \
   --config massgen/configs/basic/multi/three_agents_default.yaml \

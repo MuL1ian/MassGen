@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.42 Features](#-latest-features-v0142)
+- [v0.1.43 Features](#-latest-features-v0143)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.41)](#recent-achievements-v0141)
-- [Previous Achievements (v0.0.3 - v0.1.40)](#previous-achievements-v003---v0140)
+- [Recent Achievements (v0.1.43)](#recent-achievements-v0143)
+- [Previous Achievements (v0.0.3 - v0.1.42)](#previous-achievements-v003---v0142)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.42 Roadmap](#v0142-roadmap)
+- [v0.1.44 Roadmap](#v0144-roadmap)
 </details>
 
 <details open>
@@ -155,24 +155,26 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.42)
+## 🆕 Latest Features (v0.1.43)
 
-**🎉 Released: January 23, 2026**
+**🎉 Released: January 26, 2026**
 
-**What's New in v0.1.42:**
-- **🎨 TUI Visual Redesign** - Modern "Conversational AI" aesthetic with rounded corners, redesigned agent tabs, polished modals
-- **💬 Human Input Queue** - Inject messages to agents mid-stream during execution
-- **🔧 AG2 Single-Agent Fix** - Single-agent AG2 setups now coordinate correctly
+**What's New in v0.1.43:**
+- **📦 Tool Call Batching** - Consecutive MCP tool calls grouped into collapsible trees with timing info
+- **📚 Interactive Case Studies** - Side-by-side SVG comparisons between MassGen and single-agent outputs
+- **📋 Plan Mode Enhancements** - New `PlanOptionsPopover` for plan browsing, depth selection, and broadcast settings
+- **📝 Quoted Path Support** - Use `@"/path/with spaces/file.txt"` for paths containing spaces
+- **🔧 Final Presentation Fixes** - Reasoning text now separated from actual answers in final display
 
-**Try v0.1.42 Features:**
+**Try v0.1.43 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Experience the redesigned TUI with interactive mode
+# Experience tool call batching - multiple file operations batch into collapsible trees
 uv run massgen --display textual \
-  --config massgen/configs/basic/multi/three_agents_default.yaml \
-  "Compare the pros and cons of React vs Vue for building a dashboard"
+  --config massgen/configs/providers/gemini/gemini_3_flash.yaml \
+  "Create a project structure with src/, tests/, and docs/ directories, then add README.md and requirements.txt"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1207,25 +1209,30 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.42)
+### Recent Achievements (v0.1.43)
 
-**🎉 Released: January 23, 2026**
+**🎉 Released: January 26, 2026**
 
-#### TUI Visual Redesign
-- **Modern Aesthetic**: "Conversational AI" design with rounded corners, professional desaturated colors
-- **Agent Tabs Redesign**: Dot indicators (◉ active, ○ waiting, ✓ done), two-line display showing name and model
-- **Tool Cards**: Adaptive density - collapsed by default, expandable for parameters and results
-- **Modal Polish**: Rounded containers, consistent headers, unified button styling
+#### Tool Call Batching
+- **Collapsible Tree Views**: Consecutive MCP tool calls grouped with "+N more" indicators, click to expand
+- **Timeline Chronology Rule**: Tools batch only when consecutive with no intervening content
+- **New Components**: `ToolBatchCard` widget and `ToolBatchTracker` state machine
 
-#### Human Input Queue
-- **Mid-Stream Injection**: Send messages to agents during execution via `HumanInputHook`
-- **Thread-Safe Queue**: Per-agent tracking with each message delivered once per agent
-- **TUI Integration**: Visual indicators for queued human input
+#### Interactive Case Studies
+- **Visual Comparisons**: Side-by-side SVG comparisons between MassGen multi-agent and single-agent outputs
+- **Documentation**: New `docs/source/case_studies/index.html` with collapsible sections and example visualizations
+
+#### Plan Mode & Path Enhancements
+- **PlanOptionsPopover**: Browse recent plans, select depth (thorough/balanced/quick), toggle broadcast mode
+- **Quoted Paths**: `@"/path/with spaces/file.txt"` syntax with tab completion and write permission suffix support
 
 #### Bug Fixes
-- **AG2 Single-Agent Coordination**: Single-agent AG2 setups now vote and coordinate correctly
+- **Final Presentation Display**: Fixed content filtering so complete answers display with reasoning separated from results
+- **TUI Polish**: Fixed bottom status bar, scrolling bar, mode buttons, task highlighting, and toast positioning
 
-### Previous Achievements (v0.0.3 - v0.1.41)
+### Previous Achievements (v0.0.3 - v0.1.42)
+
+✅ **TUI Visual Redesign & Human Input Queue (v0.1.42)**: Modern "Conversational AI" aesthetic with rounded corners, redesigned agent tabs with dot indicators, adaptive tool cards, polished modals. New `HumanInputHook` for injecting messages to agents mid-stream with thread-safe per-agent tracking. AG2 single-agent coordination fix.
 
 ✅ **Async Subagent Execution (v0.1.41)**: Background subagent execution with `async_=True` for non-blocking parallel work, poll for completion and retrieve results, per-round timeout control with `subagent_round_timeouts` config, extended subagent parameters for timeout and concurrency control
 
@@ -1453,9 +1460,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.43 Roadmap
+### v0.1.44 Roadmap
 
-Version 0.1.43 focuses on OpenAI Responses API improvements and log analysis model selection:
+Version 0.1.44 focuses on OpenAI Responses API improvements and log analysis model selection:
 
 #### Planned Features
 - **OpenAI Responses /compact Endpoint** (@ncrispino): Use OpenAI's native `/compact` endpoint for context compression instead of custom summarization
@@ -1465,7 +1472,7 @@ Key technical approach:
 - **Native Context Compression**: Leverage OpenAI's API-level compression for better token efficiency
 - **Flexible Log Analysis**: Allow users to balance cost vs quality by selecting analysis model
 
-For detailed milestones and technical specifications, see the [full v0.1.43 roadmap](ROADMAP_v0.1.43.md).
+For detailed milestones and technical specifications, see the [full v0.1.44 roadmap](ROADMAP_v0.1.44.md).
 
 ---
 

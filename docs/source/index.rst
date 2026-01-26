@@ -167,6 +167,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.43 (January 26, 2026)** - Tool Call Batching & Interactive Case Studies
+
+Consecutive MCP tool calls now grouped into collapsible tree views with timing info. New interactive case studies page with side-by-side SVG comparisons. Plan mode enhancements with ``PlanOptionsPopover`` for browsing plans and selecting depth. Quoted path support for paths with spaces. Final presentation display fixes.
+
 **v0.1.42 (January 23, 2026)** - TUI Visual Redesign
 
 Comprehensive visual overhaul with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, redesigned agent tabs with dot indicators, and polished modals. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
@@ -174,10 +178,6 @@ Comprehensive visual overhaul with modern "Conversational AI" aesthetic. Rounded
 **v0.1.41 (January 21, 2026)** - Async Subagent Execution
 
 Non-blocking subagent spawning with ``async_=True`` parameter on ``spawn_subagents`` tool. Parent agents continue working while subagents run in background, then poll for completion when ready. New subagent round timeouts (``subagent_round_timeouts``) for per-round timeout control.
-
-**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode
-
-Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, comprehensive modals for metrics/costs/votes/workspace browsing, answer browser with side-by-side comparisons, and context path ``@`` syntax UI.
 
 :doc:`Full changelog → <changelog>`
 

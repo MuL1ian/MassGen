@@ -9,16 +9,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.43 (January 26, 2026)** - TUI UX Polish & Interactive Case Studies
+Enhanced TUI with tool call batching, improved final presentation display, quoted path support, and plan mode enhancements. New interactive case studies page with visual comparisons between MassGen and single-agent solutions. Video tutorials section added to documentation.
+
 **v0.1.42 (January 23, 2026)** - TUI Visual Redesign
 Comprehensive visual redesign of the Textual TUI with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, edge-to-edge layouts, redesigned agent tabs and tool cards, polished modals, and scroll indicators. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
 
 **v0.1.41 (January 21, 2026)** - Async Subagent Execution
 Background subagent execution with `async_=True` parameter for non-blocking subagent spawning. Parent agents continue working while subagents run in background, then poll for results when ready. New subagent round timeouts for per-round timeout control. Extended subagent configuration parameters for fine-grained control over concurrency and timeouts.
 
-**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
-Interactive terminal UI with `--display textual` for interactive MassGen sessions. Real-time agent output streaming, context path injection, human feedback integration, keyboard-driven navigation, workspace file browser, answer browser with side-by-side comparisons, and comprehensive modals for metrics/costs/votes/timeline. Enhanced plan execution with mode selection UI and improved final answer presentation.
-
 ---
+
+## [0.1.43] - 2026-01-26
+
+### Added
+- **Tool Call Batching**: Consecutive MCP tool calls are now grouped into collapsible tree views ([#815](https://github.com/massgen/MassGen/pull/815))
+  - Shows 3 items by default, collapses rest with "+N more" indicator
+  - Click to expand full list
+  - Respects Timeline Chronology Rule: tools only batch when consecutive (no intervening content)
+  - New `ToolBatchCard` widget and `ToolBatchTracker` state machine
+
+- **Interactive Case Studies**: New documentation page with visual comparisons ([#812](https://github.com/massgen/MassGen/pull/812))
+  - Side-by-side SVG comparisons between MassGen and single-agent solutions
+  - Iterative refinement examples showing multi-round improvements
+  - Collapsible sections with baseline visualizations
+
+- **Video Tutorials Section**: New documentation with Getting Started and Development videos
+  - Prominent CTAs linking to YouTube tutorials
+  - Descriptive text for each video category
+
+- **Plan Mode Enhancements**: New `PlanOptionsPopover` widget for plan management
+  - Browse recent plans with quick access
+  - Plan depth selector (thorough/balanced/quick)
+  - Broadcast mode toggle (human/agents/none)
+  - Plan validation before execution
+
+- **Quoted Path Support**: Paths with spaces now work correctly using quotes
+  - `@"/path/with spaces/file.txt"` syntax for context injection
+  - Tab completion support for quoted paths
+  - Write permission suffix works with quotes: `@"/path/file.txt":w`
+
+### Fixed
+- **Final Presentation Display**: Fixed critical bug where final answers weren't displayed properly
+  - Reasoning text now separated from actual answer content
+  - Visual distinction: reasoning collapsed/smaller, answer prominent
+  - Fixed content filtering in `ContentNormalizer.should_display` logic
+
+- **Bottom Status Bar**: Fixed status bar not showing in certain scenarios
+- **Scrolling Bar**: Fixed scrolling bar on right side display issues
+- **Mode Buttons**: Fixed mode button interaction and alignment
+- **Task Highlighting**: Fixed task highlighting in task plan cards
+- **Toast Location**: Fixed toast notification positioning
+
+### Changed
+- **Reasoning/Content Display**: Enhanced formatting with vertical line indicators for thinking blocks
+- **Tool Presentation**: Improved tool card visual presentation
+- **Demo GIF**: Updated `docs/source/_static/images/readme.gif` with higher resolution
+
+### Documentation, Configurations and Resources
+- **Interactive Case Studies**: New `docs/source/case_studies/index.html` with SVG comparisons
+  - Example SVGs for Claude, GPT, Gemini, and MassGen outputs
+  - `docs/source/case_studies/example_svgs/` directory with visualization assets
+- **Homepage Updates**: Updated `docs/source/index.rst` with case studies CTA and video tutorials section
+- **OpenSpec Proposals**: Multiple TUI improvement specifications in `openspec/changes/`:
+  - `add-tui-tool-call-batching/` - Tool batching design and implementation
+  - `improve-tui-final-presentation-display/` - Final presentation fix specs
+  - `fix-tui-mode-bar-alignment/` - Mode bar alignment fix
+  - `fix-tui-tool-card-spacing/` - Tool card spacing improvements
+  - `add-tui-workflow-comprehension/` - Workflow comprehension enhancements
+
+### Technical Details
+- **Major Focus**: TUI UX polish, tool call batching, documentation enhancements
+- **Contributors**: @ncrispino (22 commits), @franklinnwren (8 commits), @HenryQi (3 commits) and the MassGen team
 
 ## [0.1.42] - 2026-01-23
 
