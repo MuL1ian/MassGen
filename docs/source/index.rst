@@ -202,7 +202,7 @@ Learn how to install, configure, and run your first multi-agent collaboration wi
 .. raw:: html
 
    <div style="text-align: center; margin: 20px 0;">
-     <a href="https://www.youtube.com/watch?v=Dfz3D460EDs" target="_blank" style="display: inline-block; color: #667eea; text-decoration: none; font-weight: 500;">
+     <a href="https://www.youtube.com/watch?v=Dfz3D460EDs" target="_blank" style="display: inline-block; padding: 10px 20px; background: #ff0000; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 1em; box-shadow: 0 2px 10px rgba(255, 0, 0, 0.3);">
        ▶️ Develop on MassGen
      </a>
    </div>
