@@ -549,7 +549,8 @@ class TextualInteractiveAdapter(UIAdapter):
         """Find and parse plan.json from agent workspace.
 
         Returns:
-            Tuple of (plan_path, plan_data) if found, None otherwise
+            Tuple of (plan_path, plan_data) if found, None otherwise.
+            On JSON parse errors, logs the error and continues searching.
         """
         import json
 
@@ -564,6 +565,9 @@ class TextualInteractiveAdapter(UIAdapter):
                 logger.debug(f"[PlanApproval] Final dir not found: {final_dir}")
                 return None
 
+            # Track JSON errors to report if no valid plan found
+            json_errors = []
+
             # Check agent workspaces for plan
             for agent_dir in final_dir.glob("agent_*/workspace"):
                 for plan_location in [
@@ -577,8 +581,23 @@ class TextualInteractiveAdapter(UIAdapter):
                             if "tasks" in plan_data:
                                 logger.info(f"[PlanApproval] Found plan at {plan_location}")
                                 return plan_location, plan_data
-                        except json.JSONDecodeError:
+                            else:
+                                logger.warning(
+                                    f"[PlanApproval] Plan file missing 'tasks' key: {plan_location}",
+                                )
+                        except json.JSONDecodeError as e:
+                            error_msg = f"{plan_location.name}: {e}"
+                            json_errors.append(error_msg)
+                            logger.warning(
+                                f"[PlanApproval] Corrupted plan file at {plan_location}: {e}",
+                            )
                             continue
+
+            # Log all JSON errors if we failed to find a valid plan
+            if json_errors:
+                logger.error(
+                    f"[PlanApproval] Found plan file(s) but all had JSON errors: {json_errors}",
+                )
 
             logger.debug("[PlanApproval] No valid plan found in any agent workspace")
             return None
@@ -754,6 +773,9 @@ class SlashCommandDispatcher:
             return self._handle_browser()
         elif cmd == "/vim":
             return self._handle_vim()
+        # TODO: Re-enable /theme command when additional themes are ready
+        # elif cmd == "/theme":
+        #     return self._handle_theme()
         else:
             return CommandResult(
                 handled=False,
@@ -1013,6 +1035,14 @@ class SlashCommandDispatcher:
             handled=True,
             ui_action="toggle_vim",
         )
+
+    # TODO: Re-enable when additional themes are ready
+    # def _handle_theme(self) -> CommandResult:
+    #     """Handle /theme command - toggle light/dark theme."""
+    #     return CommandResult(
+    #         handled=True,
+    #         ui_action="toggle_theme",
+    #     )
 
 
 # =============================================================================

@@ -13,7 +13,7 @@ Design Philosophy:
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Tuple
 
 # Content types recognized by the display system
 ContentType = Literal[
@@ -23,6 +23,7 @@ ContentType = Literal[
     "tool_failed",
     "tool_info",
     "thinking",
+    "content",  # Explicit content from backend (distinct from thinking)
     "status",
     "presentation",
     "injection",
@@ -95,7 +96,7 @@ TOOL_ARGS_PATTERNS = [
 
 TOOL_COMPLETE_PATTERNS = [
     r"Tool ['\"]?(\w+)['\"]? (?:completed|finished|succeeded)",
-    r"(\w+) completed",
+    r"^(\w+) completed",  # Tool name at start of line (not "Status changed to completed")
     r"Result from (\w+)",
     r"Results for Calling ([^\s:]+):\s*(.+)",  # MCP result pattern - capture tool name and result
 ]
@@ -169,34 +170,19 @@ COORDINATION_PATTERNS = [
 ]
 
 # Patterns for workspace state content that should be filtered from display
-# These are internal messages that leak through from agent responses
+# These are internal state messages (file operations, status changes, errors)
+# Note: JSON patterns are handled by is_workspace_tool_json() which checks if content STARTS with JSON
 WORKSPACE_STATE_PATTERNS = [
-    r'^Providing answer:\s*"',  # "Providing answer: "..." at start
-    r"Providing answer:\s*[\"']",  # "Providing answer: "..." anywhere in content
+    # File/workspace operations (internal MCP tool state messages)
     r"^- CWD:\s*",  # "- CWD: /path/..." workspace path
     r"^- File created:\s*",  # "- File created: filename" workspace state
     r"^- File modified:\s*",  # "- File modified: filename" workspace state
     r"^- File deleted:\s*",  # "- File deleted: filename" workspace state
+    # Error messages from coordination
     r'"Answer already provided by \w+',  # Duplicate answer error messages
     r"Provide different answer or vote for existing one",  # Error continuation
-    r"'''Providing answer:",  # Triple-quoted providing answer
-    r'"""Providing answer:',  # Double triple-quoted providing answer
-    r"\*\*File Path",  # File path markers
-    r"\*\*Poem Content",  # Poem content markers
-    # Fragment JSON patterns (when JSON appears mid-content without proper structure)
-    r'"content"\s*:\s*"[^"]*"\s*"vote_data"',  # "content": "...""vote_data" concatenation
-    r'"action"\s*:\s*"vote"',  # "action": "vote" anywhere
-    r'"agent_id"\s*:\s*"agent\d*"',  # "agent_id": "agent1" anywhere
-    r'"target_answer_id"\s*:\s*"',  # "target_answer_id": "..." anywhere
-    r'"vote_data"\s*:\s*\{',  # "vote_data": { anywhere
-    r'"action_type"\s*:\s*"',  # "action_type": "..." anywhere (this is coordination JSON)
-    r'"action_type"\s*:\s*""',  # "action_type": "" malformed
     # Status change messages (internal state updates)
-    r"Status changed to completed",  # Agent status change
     r"Status changed to \w+",  # Any status change message
-    # Mixed content fragments (text + JSON)
-    r"This fully addresses the original message",  # Boilerplate reasoning
-    r"no further improvement or additional information is necessary",  # Boilerplate reasoning
 ]
 
 COMPILED_WORKSPACE_STATE_PATTERNS = [re.compile(p, re.IGNORECASE | re.MULTILINE) for p in WORKSPACE_STATE_PATTERNS]
@@ -372,79 +358,137 @@ class ContentNormalizer:
         These are internal coordination structures (action_type, answer_data, etc.)
         that will be shown via proper tool cards instead of raw JSON.
 
-        Only returns True if:
-        1. Content starts with { or [ (after stripping whitespace/markdown)
-        2. AND contains workspace action patterns
+        Returns True if:
+        1. Content contains workspace JSON (action_type, answer_data, vote, etc.)
+        2. AND the content is PRIMARILY JSON (no significant text before it)
 
         This prevents filtering mixed content like "Here is my answer: {json}"
-        where the reasoning part should be preserved.
+        where the reasoning part should be preserved - use extract_workspace_json()
+        to handle those cases and get the text parts separately.
         """
-        stripped = content.strip()
-
-        # Remove markdown code fence if present
-        if stripped.startswith("```"):
-            # Find end of first line
-            first_newline = stripped.find("\n")
-            if first_newline > 0:
-                stripped = stripped[first_newline + 1 :]
-            # Remove closing fence
-            if stripped.rstrip().endswith("```"):
-                stripped = stripped.rstrip()[:-3].rstrip()
-            stripped = stripped.strip()
-
-        # Only consider it workspace JSON if it starts with JSON structure
-        if not (stripped.startswith("{") or stripped.startswith("[")):
+        result = ContentNormalizer.extract_workspace_json(content)
+        if result is None:
             return False
 
-        # Now check for workspace action patterns
-        for pattern in COMPILED_WORKSPACE_PATTERNS:
-            if pattern.search(content):
-                return True
-        return False
+        json_str, text_before, text_after = result
+
+        # Only return True if content is primarily JSON (no significant text before)
+        # Text after is OK (might be trailing whitespace or small artifacts)
+        return len(text_before) < 20  # Allow small prefixes like "Here:" but not full sentences
+
+    @staticmethod
+    def extract_workspace_json(content: str) -> Optional[Tuple[str, str, str]]:
+        """Extract workspace JSON from content, handling various formats.
+
+        Handles:
+        1. Pure JSON: {"action_type": ...}
+        2. Code fence at start: ```json\n{...}\n```
+        3. Code fence with text before: "Here's my vote:\n```json\n{...}\n```"
+        4. Embedded JSON without fence: "I'll vote for Agent 1. {"action_type": ...}"
+
+        Returns:
+            Tuple of (json_str, text_before, text_after) if workspace JSON found, None otherwise.
+            - json_str: The extracted JSON string
+            - text_before: Text before the JSON (may be empty)
+            - text_after: Text after the JSON (may be empty)
+        """
+        import re
+
+        stripped = content.strip()
+
+        # Case 1: Content starts with code fence
+        if stripped.startswith("```"):
+            # Find the JSON inside
+            fence_match = re.search(r"```(?:json)?\s*\n?(\{[\s\S]*?\})\s*\n?```", stripped)
+            if fence_match:
+                json_str = fence_match.group(1)
+                # Check if it's workspace JSON
+                for pattern in COMPILED_WORKSPACE_PATTERNS:
+                    if pattern.search(json_str):
+                        return (json_str, "", "")
+            return None
+
+        # Case 2: Content starts with JSON
+        if stripped.startswith("{") or stripped.startswith("["):
+            # Find the end of the JSON object
+            json_end = -1
+            brace_count = 0
+            for i, char in enumerate(stripped):
+                if char == "{":
+                    brace_count += 1
+                elif char == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_end = i + 1
+                        break
+
+            if json_end > 0:
+                json_str = stripped[:json_end]
+                for pattern in COMPILED_WORKSPACE_PATTERNS:
+                    if pattern.search(json_str):
+                        text_after = stripped[json_end:].strip()
+                        return (json_str, "", text_after)
+            return None
+
+        # Case 3: Code fence with text before it
+        fence_match = re.search(r"```(?:json)?\s*\n?(\{[\s\S]*?\})\s*\n?```", content)
+        if fence_match:
+            json_str = fence_match.group(1)
+            for pattern in COMPILED_WORKSPACE_PATTERNS:
+                if pattern.search(json_str):
+                    fence_start = content.find("```")
+                    fence_end = content.rfind("```") + 3
+                    text_before = content[:fence_start].strip() if fence_start > 0 else ""
+                    text_after = content[fence_end:].strip() if fence_end < len(content) else ""
+                    return (json_str, text_before, text_after)
+
+        # Case 4: Embedded JSON without fence (look for {"action_type" or similar)
+        # Use a more robust pattern that handles nested braces properly
+        if '{"action_type"' in content or '"action_type"' in content:
+            # Find the start of JSON (look for { before "action_type")
+            action_idx = content.find('"action_type"')
+            if action_idx > 0:
+                # Look backwards for the opening brace
+                json_start = content.rfind("{", 0, action_idx)
+                if json_start >= 0:
+                    # Now find the matching closing brace
+                    brace_count = 0
+                    json_end = -1
+                    for i in range(json_start, len(content)):
+                        if content[i] == "{":
+                            brace_count += 1
+                        elif content[i] == "}":
+                            brace_count -= 1
+                            if brace_count == 0:
+                                json_end = i + 1
+                                break
+
+                    if json_end > json_start:
+                        json_str = content[json_start:json_end]
+                        for pattern in COMPILED_WORKSPACE_PATTERNS:
+                            if pattern.search(json_str):
+                                text_before = content[:json_start].strip()
+                                text_after = content[json_end:].strip()
+                                return (json_str, text_before, text_after)
+
+        return None
 
     @staticmethod
     def is_workspace_state_content(content: str) -> bool:
         """Check if content is workspace state info that should be filtered.
 
-        This includes messages like:
-        - "Providing answer: ..."
-        - "- CWD: /path/..."
-        - "- File created: ..."
-        - "Answer already provided by agent_b..."
-        - Content with lots of escaped newlines (raw structured output)
-        - Content that is primarily JSON field fragments
+        This catches internal state messages like:
+        - "- CWD: /path/..." (workspace path)
+        - "- File created: filename" (file operation)
+        - "Answer already provided by agent_b..." (coordination errors)
+        - "Status changed to ..." (agent state changes)
 
-        These are internal coordination messages that leak through from agent responses.
+        Note: JSON coordination content is handled by is_workspace_tool_json()
+        which checks if content STARTS with JSON structure.
         """
         for pattern in COMPILED_WORKSPACE_STATE_PATTERNS:
             if pattern.search(content):
                 return True
-
-        # Check for content with lots of escaped newlines - sign of raw structured output
-        # If content has 3+ escaped \n and mentions workspace-related terms, filter it
-        escaped_newlines = content.count("\\n")
-        if escaped_newlines >= 3:
-            workspace_terms = ["Providing answer", "File Path", "content=", "answer_data"]
-            if any(term.lower() in content.lower() for term in workspace_terms):
-                return True
-
-        # Check for content that is primarily JSON-like fragments
-        # Count JSON-like indicators
-        json_indicators = [
-            '": "',  # JSON key-value separator
-            '": {',  # JSON nested object
-            '",',  # JSON string followed by comma
-            '"},',  # JSON end object with comma
-        ]
-        json_score = sum(content.count(ind) for ind in json_indicators)
-
-        # If content has significant JSON-like structure, it's probably coordination JSON
-        content_len = len(content)
-        if content_len > 0 and json_score >= 2:
-            # More aggressive filtering for short content with JSON
-            if content_len < 200 or json_score >= 3:
-                return True
-
         return False
 
     @staticmethod
@@ -502,6 +546,9 @@ class ContentNormalizer:
 
         if raw_type == "thinking":
             return "thinking"
+
+        if raw_type == "content":
+            return "content"
 
         # Auto-detect from content
         if "[INJECTION]" in content or "injection" in raw_type:
@@ -565,18 +612,24 @@ class ContentNormalizer:
         # Determine if should display
         should_display = True
 
-        # Filter pure JSON noise
-        if cls.is_json_noise(content):
-            should_display = False
+        # Presentation content (final answers) should always be displayed
+        # Skip all filtering for presentation content
+        if content_type == "presentation":
+            # Only filter if completely empty
+            pass
+        else:
+            # Filter pure JSON noise
+            if cls.is_json_noise(content):
+                should_display = False
 
-        # Filter workspace/action tool JSON (shown via tool cards instead)
-        if cls.is_workspace_tool_json(content):
-            should_display = False
+            # Filter workspace/action tool JSON (shown via tool cards instead)
+            if cls.is_workspace_tool_json(content):
+                should_display = False
 
-        # Filter workspace state content (internal messages)
-        # BUT: Don't filter tool content - tool args contain JSON that we need to display
-        if not content_type.startswith("tool_") and cls.is_workspace_state_content(content):
-            should_display = False
+            # Filter workspace state content (internal messages)
+            # BUT: Don't filter tool content - tool args contain JSON that we need to display
+            if not content_type.startswith("tool_") and cls.is_workspace_state_content(content):
+                should_display = False
 
         # Apply light cleaning
         if should_display:

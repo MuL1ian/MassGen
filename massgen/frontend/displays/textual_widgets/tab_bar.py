@@ -121,10 +121,35 @@ class AgentTab(Static):
     STATUS_ICONS = {
         "waiting": "○",  # Empty dot - idle/waiting
         "working": "◉",  # Filled dot - active
-        "streaming": "◉",  # Filled dot - streaming
-        "completed": "✓",  # Check mark - done
+        "voted": "✓",  # Green check - voted (waiting for consensus)
+        "done": "✓",  # Dim check - final presentation in progress
         "error": "✗",  # X mark - error
+        "cancelled": "✗",  # X mark - cancelled (yellow when rendered)
         "winner": "✓",  # Check mark - winner
+    }
+
+    # Map raw status strings to our icon states
+    # "voted" = green checkmark (waiting for consensus)
+    # "done" = dim checkmark (final presentation in progress)
+    STATUS_MAP = {
+        "working": "working",
+        "thinking": "working",
+        "streaming": "working",
+        "processing": "working",
+        "tool_call": "working",
+        "mcp_tool_called": "working",
+        "custom_tool_called": "working",
+        "mcp_tool_response": "working",
+        "custom_tool_response": "working",
+        "voting": "working",
+        "voted": "voted",  # Green checkmark - agent voted
+        "waiting": "voted",  # Waiting for others after voting
+        "complete": "voted",  # Finished, waiting for consensus
+        "completed": "voted",
+        "done": "done",  # Dim checkmark - final presentation happening
+        "error": "error",
+        "cancelled": "cancelled",
+        "idle": "waiting",
     }
 
     def __init__(
@@ -158,7 +183,9 @@ class AgentTab(Static):
 
     def render(self) -> str:
         """Render the tab content with two-line format: agent ID + model name."""
-        status_icon = self.STATUS_ICONS.get(self._status, "○")
+        # Map raw status to our icon states, default to working if unknown
+        mapped_status = self.STATUS_MAP.get(self._status, "working")
+        status_icon = self.STATUS_ICONS.get(mapped_status, "◉")
         # Two-line display: agent name with status on first line, model on second
         if self.model_name:
             short_model = self._shorten_model_name(self.model_name)
@@ -181,19 +208,22 @@ class AgentTab(Static):
         """Update the agent's status.
 
         Args:
-            status: One of "waiting", "working", "streaming", "completed", "error", "winner".
+            status: Raw status from orchestrator - gets mapped to display states.
         """
-        # Remove old status class
+        # Remove old status classes
         self.remove_class(
             "status-waiting",
             "status-working",
-            "status-streaming",
-            "status-completed",
+            "status-voted",
+            "status-done",
             "status-error",
+            "status-cancelled",
             "status-winner",
         )
         self._status = status
-        self.add_class(f"status-{status}")
+        # Map to display state for CSS class
+        mapped = self.STATUS_MAP.get(status, "working")
+        self.add_class(f"status-{mapped}")
         self.refresh()
 
     def set_active(self, active: bool) -> None:

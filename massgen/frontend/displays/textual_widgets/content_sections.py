@@ -17,12 +17,17 @@ from typing import Dict, Optional
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import ScrollableContainer, Vertical
-from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import RichLog, Static
 
-from ..content_handlers import ToolDisplayData
+from ..content_handlers import ToolDisplayData, get_mcp_tool_name
+from .collapsible_text_card import CollapsibleTextCard
+from .tool_batch_card import ToolBatchCard, ToolBatchItem
 from .tool_card import ToolCallCard
+
+# Thresholds for when to use collapsible text cards
+COLLAPSE_LINE_THRESHOLD = 3
+COLLAPSE_CHAR_THRESHOLD = 200
 
 logger = logging.getLogger(__name__)
 
@@ -425,176 +430,7 @@ class ReasoningSection(Vertical):
         self.add_class("hidden")
 
 
-class TimelineScrollContainer(ScrollableContainer):
-    """ScrollableContainer that detects scroll mode via scroll position changes.
-
-    This container monitors the scroll_y reactive property to detect when the user
-    scrolls away from the bottom (entering scroll mode) or returns to the bottom
-    (exiting scroll mode). It posts messages that parent widgets can handle.
-
-    The _auto_scrolling flag is used to distinguish programmatic scrolls (from
-    auto-scroll) from user-initiated scrolls.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._user_scrolled_up = False
-        self._auto_scrolling = False
-        self._scroll_pending = False
-        self._debug_scroll = True  # Debug flag
-
-    def _log(self, msg: str) -> None:
-        """Debug logging helper."""
-        if self._debug_scroll:
-            from datetime import datetime
-
-            with open("/tmp/scroll_debug.log", "a") as f:
-                f.write(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {msg}\n")
-
-    def on_mount(self) -> None:
-        """Log container info on mount."""
-        self._log(f"MOUNT: id={self.id} size={self.size} content_size={self.content_size}")
-        self._log(f"MOUNT: virtual_size={self.virtual_size} container_size={self.container_size}")
-        self._log(f"MOUNT: scrollbar_gutter={self.scrollbar_gutter} show_vertical_scrollbar={self.show_vertical_scrollbar}")
-        # Log parent chain and check for other scrollable containers
-        parent = self.parent
-        chain = []
-        while parent:
-            pinfo = f"{parent.__class__.__name__}(id={getattr(parent, 'id', None)})"
-            # Check if parent has scrolling
-            if hasattr(parent, "scroll_y"):
-                pinfo += f" scroll_y={parent.scroll_y}"
-            if hasattr(parent, "max_scroll_y"):
-                pinfo += f" max_scroll_y={parent.max_scroll_y}"
-            if hasattr(parent, "vertical_scrollbar"):
-                try:
-                    vs = parent.vertical_scrollbar
-                    if vs:
-                        pinfo += f" HAS_SCROLLBAR(pos={vs.position},display={vs.display})"
-                except Exception:
-                    pass
-            chain.append(pinfo)
-            parent = getattr(parent, "parent", None)
-        self._log(f"MOUNT: parent_chain={' -> '.join(chain)}")
-        # Log scrollbar info
-        try:
-            vscroll = self.vertical_scrollbar
-            self._log(f"MOUNT: vertical_scrollbar={vscroll} visible={vscroll.display if vscroll else 'N/A'}")
-        except Exception as e:
-            self._log(f"MOUNT: vertical_scrollbar error: {e}")
-
-    def on_resize(self, event) -> None:
-        """Log resize events to see size changes."""
-        self._log(f"RESIZE: size={self.size} content_size={self.content_size} max_scroll_y={self.max_scroll_y}")
-        try:
-            vscroll = self.vertical_scrollbar
-            if vscroll:
-                self._log(f"RESIZE: scrollbar size={vscroll.size} visible={vscroll.display}")
-        except Exception as e:
-            self._log(f"RESIZE: scrollbar error: {e}")
-
-    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
-        """Detect when user scrolls away from bottom."""
-        try:
-            vscroll = self.vertical_scrollbar
-            scrollbar_pos = vscroll.position if vscroll else "N/A"
-            window_size = vscroll.window_size if vscroll else "N/A"
-            window_virtual_size = vscroll.window_virtual_size if vscroll else "N/A"
-            self._log(f"watch_scroll_y: scroll_y={new_value:.1f} max={self.max_scroll_y:.1f} | scrollbar pos={scrollbar_pos} window_size={window_size} virtual={window_virtual_size}")
-            # Manually sync scrollbar position (Textual might not be doing this automatically)
-            if vscroll and self.max_scroll_y > 0:
-                # position is in units of the scrollbar, need to map scroll_y to position
-                # position should go from 0 to (virtual_size - window_size)
-                new_pos = int(new_value)
-                if vscroll.position != new_pos:
-                    vscroll.position = new_pos
-                    self._log(f"watch_scroll_y: SET scrollbar.position = {new_pos}")
-        except Exception as e:
-            self._log(f"watch_scroll_y: old={old_value:.1f} new={new_value:.1f} max={self.max_scroll_y:.1f} auto={self._auto_scrolling} (scrollbar error: {e})")
-
-        if self._auto_scrolling:
-            return  # Ignore programmatic scrolls
-
-        # Don't trigger scroll mode if there's no scrollable content yet
-        if self.max_scroll_y <= 0:
-            return
-
-        # Check if at top/bottom (with tolerance for float precision)
-        at_top = new_value <= 2
-        at_bottom = new_value >= self.max_scroll_y - 2
-
-        # Phase 11.2: Post scroll position for scroll indicators
-        self.post_message(self.ScrollPositionChanged(at_top=at_top, at_bottom=at_bottom))
-
-        if new_value < old_value and not at_bottom:
-            # User scrolled up - enter scroll mode
-            if not self._user_scrolled_up:
-                self._user_scrolled_up = True
-                self.post_message(self.ScrollModeEntered())
-        elif at_bottom and self._user_scrolled_up:
-            # User scrolled to bottom - exit scroll mode
-            self._user_scrolled_up = False
-            self.post_message(self.ScrollModeExited())
-
-    def scroll_end(self, animate: bool = False) -> None:
-        """Auto-scroll to end, marking it as programmatic."""
-        self._log(f"scroll_end called: pending={self._scroll_pending} max_scroll_y={self.max_scroll_y:.1f} current_scroll_y={self.scroll_y:.1f}")
-
-        # Debounce: if scroll is already pending, don't queue another
-        if self._scroll_pending:
-            self._log("scroll_end: SKIPPED (pending)")
-            return
-
-        self._scroll_pending = True
-
-        def do_scroll() -> None:
-            self._log(f"do_scroll executing: max_scroll_y={self.max_scroll_y:.1f} scroll_y before={self.scroll_y:.1f}")
-            self._scroll_pending = False
-            # Set flag BEFORE scroll - it stays set until reset_auto_scroll is called
-            self._auto_scrolling = True
-            super(TimelineScrollContainer, self).scroll_end(animate=animate)
-            self._log(f"do_scroll after super().scroll_end: scroll_y={self.scroll_y:.1f}")
-            # Force scrollbar refresh
-            try:
-                if self.vertical_scrollbar:
-                    self.vertical_scrollbar.refresh()
-                    self._log("do_scroll: forced scrollbar refresh")
-            except Exception as e:
-                self._log(f"do_scroll: scrollbar refresh error: {e}")
-            # Reset flag after a brief delay to allow scroll events to be processed
-            self.set_timer(0.1, self._reset_auto_scroll)
-
-        # Defer scroll until after layout is complete
-        self.call_after_refresh(do_scroll)
-
-    def _reset_auto_scroll(self) -> None:
-        """Reset auto-scrolling flag after scroll completes."""
-        self._log(f"_reset_auto_scroll: scroll_y={self.scroll_y:.1f}")
-        self._auto_scrolling = False
-
-    def reset_scroll_mode(self) -> None:
-        """Reset scroll mode tracking state."""
-        self._user_scrolled_up = False
-
-    class ScrollModeEntered(Message):
-        """Posted when user enters scroll mode by scrolling up."""
-
-    class ScrollModeExited(Message):
-        """Posted when user exits scroll mode by scrolling to bottom."""
-
-    class ScrollPositionChanged(Message):
-        """Posted when scroll position changes - for scroll indicators.
-
-        Phase 11.2: Scroll indicators support.
-        """
-
-        def __init__(self, at_top: bool, at_bottom: bool) -> None:
-            self.at_top = at_top
-            self.at_bottom = at_bottom
-            super().__init__()
-
-
-class TimelineSection(Vertical):
+class TimelineSection(ScrollableContainer):
     """Chronological timeline showing tools and text interleaved.
 
     This widget displays content in the order it arrives, preserving
@@ -603,6 +439,11 @@ class TimelineSection(Vertical):
 
     Coordination/reasoning content is grouped into a collapsible
     ReasoningSection at the top of the timeline.
+
+    Note: TimelineSection inherits from ScrollableContainer directly,
+    eliminating the nested container architecture that caused scrollbar
+    thumb position sync issues. All content is mounted directly into
+    this widget.
 
     Design:
     ```
@@ -625,20 +466,17 @@ class TimelineSection(Vertical):
     TimelineSection {
         width: 100%;
         height: 1fr;
-        padding: 0;
+        padding: 0 2 1 2;
         margin: 0;
-    }
-
-    TimelineSection #timeline_container {
-        width: 100%;
-        height: 1fr;
-        padding: 0 1;
         overflow-y: auto;
+        scrollbar-size: 1 3;
+        scrollbar-gutter: stable;
     }
 
     TimelineSection .timeline-text {
         width: 100%;
-        padding: 0 0 1 0;
+        padding: 1 1;
+        margin: 1 0;
     }
 
     TimelineSection .timeline-text.status {
@@ -646,7 +484,7 @@ class TimelineSection(Vertical):
     }
 
     TimelineSection .timeline-text.thinking {
-        color: #858585;
+        color: #9ca3af;
     }
 
     TimelineSection .timeline-text.response {
@@ -656,29 +494,14 @@ class TimelineSection(Vertical):
     TimelineSection .timeline-text.coordination {
         color: #858585;
         background: $surface-darken-1;
-        padding: 0 1;
+        /* Inherit base padding/margin for consistency */
     }
 
     TimelineSection .timeline-text.reasoning-inline {
         color: #8b949e;
         border-left: thick #484f58;
         padding-left: 1;
-        margin: 0 0 1 0;
-    }
-
-    TimelineSection .scroll-indicator {
-        width: 100%;
-        height: auto;
-        background: #21262d;
-        color: #7d8590;
-        text-align: center;
-        padding: 0 1;
-        text-style: bold;
-        border-bottom: solid #30363d;
-    }
-
-    TimelineSection .scroll-indicator.hidden {
-        display: none;
+        /* Inherit base margin (1 0) for consistent spacing */
     }
 
     /* Phase 11.2: Scroll arrow indicators */
@@ -701,6 +524,28 @@ class TimelineSection(Vertical):
     TimelineSection #scroll_bottom_indicator {
         dock: bottom;
     }
+
+    /* Phase 12: Generic hidden rule for round-based visibility */
+    TimelineSection .hidden {
+        display: none;
+    }
+
+    /* Answer lock mode: final card fills the space */
+    TimelineSection.answer-locked {
+        overflow-y: hidden;
+        padding: 0;
+    }
+
+    /* Hidden class for non-locked items */
+    TimelineSection .answer-lock-hidden {
+        display: none;
+    }
+
+    /* Locked final card fills available space */
+    TimelineSection .final-card-locked {
+        height: 1fr;
+        margin: 0;
+    }
     """
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
@@ -709,6 +554,8 @@ class TimelineSection(Vertical):
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
         self._tools: Dict[str, ToolCallCard] = {}
+        self._batches: Dict[str, ToolBatchCard] = {}  # batch_id -> ToolBatchCard
+        self._tool_to_batch: Dict[str, str] = {}  # tool_id -> batch_id mapping
         self._item_count = 0
         self._reasoning_section_id = f"reasoning_{id}" if id else "reasoning_section"
         # Scroll mode: when True, auto-scroll is paused (user is reading history)
@@ -717,62 +564,94 @@ class TimelineSection(Vertical):
         self._truncation_shown = False  # Track if we've shown truncation message
         # Phase 12: View-based round navigation
         self._viewed_round: int = 1  # Which round is currently being displayed
+        # Content batch: accumulates consecutive thinking/content into single card
+        self._current_reasoning_card: Optional[CollapsibleTextCard] = None
+        self._current_batch_label: Optional[str] = None  # Track label for batch switching
+        # Scroll detection flags (moved from TimelineScrollContainer)
+        self._user_scrolled_up = False
+        self._auto_scrolling = False
+        self._scroll_pending = False
+        self._debug_scroll = False  # Debug flag (disabled for performance)
+        # Answer lock mode: when True, timeline shows only the final answer card
+        self._answer_lock_mode = False
+        self._locked_card_id: Optional[str] = None
 
     def compose(self) -> ComposeResult:
-        # Phase 11.2: Top scroll indicator (hidden by default - shows ▲ when content above)
-        yield Static("▲ more above", id="scroll_top_indicator", classes="scroll-arrow-indicator hidden")
         # Scroll mode indicator (hidden by default)
         yield Static("", id="scroll_mode_indicator", classes="scroll-indicator hidden")
-        # Main timeline content with scroll detection
-        yield TimelineScrollContainer(id="timeline_container")
-        # Phase 11.2: Bottom scroll indicator (hidden by default - shows ▼ when content below)
-        yield Static("▼ more below", id="scroll_bottom_indicator", classes="scroll-arrow-indicator hidden")
+        # Content is mounted directly into TimelineSection (no nested container)
 
-    def on_timeline_scroll_container_scroll_mode_entered(
-        self,
-        event: TimelineScrollContainer.ScrollModeEntered,
-    ) -> None:
-        """Handle entering scroll mode when user scrolls up."""
-        if not self._scroll_mode:
-            self._scroll_mode = True
-            self._new_content_count = 0
-            self._update_scroll_indicator()
+    def on_mount(self) -> None:
+        """Add initial Round 1 banner when timeline is mounted."""
+        self.add_separator("Round 1", round_number=1)
 
-    def on_timeline_scroll_container_scroll_mode_exited(
-        self,
-        event: TimelineScrollContainer.ScrollModeExited,
-    ) -> None:
-        """Handle exiting scroll mode when user scrolls to bottom."""
-        if self._scroll_mode:
-            self._scroll_mode = False
-            self._new_content_count = 0
-            self._update_scroll_indicator()
+    def _log(self, msg: str) -> None:
+        """Debug logging helper."""
+        if self._debug_scroll:
+            from datetime import datetime
 
-    def on_timeline_scroll_container_scroll_position_changed(
-        self,
-        event: TimelineScrollContainer.ScrollPositionChanged,
-    ) -> None:
-        """Handle scroll position changes - show/hide scroll arrow indicators.
+            with open("/tmp/scroll_debug.log", "a") as f:
+                f.write(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {msg}\n")
 
-        Phase 11.2: Scroll indicators.
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        """Detect when user scrolls away from bottom.
+
+        IMPORTANT: Must call super() to update the scrollbar position!
+        """
+        # Call parent's watch_scroll_y to update scrollbar position
+        super().watch_scroll_y(old_value, new_value)
+
+        self._log(f"watch_scroll_y: scroll_y={new_value:.1f} max={self.max_scroll_y:.1f} auto={self._auto_scrolling}")
+
+        if self._auto_scrolling:
+            return  # Ignore programmatic scrolls
+
+        # Don't trigger scroll mode if there's no scrollable content yet
+        if self.max_scroll_y <= 0:
+            return
+
+        # Check if at bottom (with tolerance for float precision)
+        at_bottom = new_value >= self.max_scroll_y - 2
+
+        if new_value < old_value and not at_bottom:
+            # User scrolled up - enter scroll mode
+            if not self._user_scrolled_up:
+                self._user_scrolled_up = True
+                if not self._scroll_mode:
+                    self._scroll_mode = True
+                    self._new_content_count = 0
+                    self._update_scroll_indicator()
+        elif at_bottom and self._user_scrolled_up:
+            # User scrolled to bottom - exit scroll mode
+            self._user_scrolled_up = False
+            if self._scroll_mode:
+                self._scroll_mode = False
+                self._new_content_count = 0
+                self._update_scroll_indicator()
+
+    def refresh_scrollbar(self) -> None:
+        """Force refresh of the vertical scrollbar.
+
+        Call this after mounting content to ensure the scrollbar
+        position indicator reflects the new content size and scroll position.
+        Textual automatically syncs scrollbar position from scroll_y.
         """
         try:
-            top_indicator = self.query_one("#scroll_top_indicator", Static)
-            bottom_indicator = self.query_one("#scroll_bottom_indicator", Static)
+            vscroll = self.vertical_scrollbar
+            if vscroll:
+                vscroll.refresh()
+                self._log(f"refresh_scrollbar: scroll_y={self.scroll_y:.1f} max={self.max_scroll_y:.1f}")
+        except Exception as e:
+            self._log(f"refresh_scrollbar error: {e}")
 
-            # Show top indicator when NOT at top (content above)
-            if event.at_top:
-                top_indicator.add_class("hidden")
-            else:
-                top_indicator.remove_class("hidden")
+    def _reset_auto_scroll(self) -> None:
+        """Reset auto-scrolling flag after scroll completes."""
+        self._log(f"_reset_auto_scroll: scroll_y={self.scroll_y:.1f}")
+        self._auto_scrolling = False
 
-            # Show bottom indicator when NOT at bottom (content below)
-            if event.at_bottom:
-                bottom_indicator.add_class("hidden")
-            else:
-                bottom_indicator.remove_class("hidden")
-        except Exception:
-            pass
+    def reset_scroll_mode(self) -> None:
+        """Reset scroll mode tracking state."""
+        self._user_scrolled_up = False
 
     def _update_scroll_indicator(self) -> None:
         """Update the scroll mode indicator in the UI."""
@@ -797,23 +676,54 @@ class TimelineSection(Vertical):
             self._new_content_count += 1
             self._update_scroll_indicator()  # Update to show new content count
             return
-        try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-            # Use smooth animated scrolling for better UX
-            container.scroll_end(animate=True)
-        except Exception:
-            pass
+        # Use smooth animated scrolling for better UX
+        self._scroll_to_end(animate=True)
+
+    def _scroll_to_end(self, animate: bool = True, duration: float = 0.15) -> None:
+        """Auto-scroll to end with smooth animation.
+
+        Textual automatically syncs the scrollbar when scroll_y changes,
+        so we just need to call scroll_to/scroll_end and let Textual handle it.
+
+        Args:
+            animate: Whether to animate the scroll (default True for smooth UX)
+            duration: Animation duration in seconds (default 0.15s)
+        """
+        self._log(f"_scroll_to_end called: pending={self._scroll_pending} max_scroll_y={self.max_scroll_y:.1f} current_scroll_y={self.scroll_y:.1f}")
+
+        # Debounce: if scroll is already pending, don't queue another
+        if self._scroll_pending:
+            self._log("_scroll_to_end: SKIPPED (pending)")
+            return
+
+        self._scroll_pending = True
+
+        def do_scroll() -> None:
+            self._log(f"do_scroll executing: max_scroll_y={self.max_scroll_y:.1f} scroll_y before={self.scroll_y:.1f}")
+            self._scroll_pending = False
+            # Set flag BEFORE scroll - it stays set until reset_auto_scroll is called
+            self._auto_scrolling = True
+
+            # Use scroll_to with easing for smooth natural-feeling scroll
+            # Textual handles scrollbar sync automatically when scroll_y changes
+            if animate and self.max_scroll_y > 0:
+                self.scroll_to(y=self.max_scroll_y, animate=True, duration=duration, easing="out_cubic")
+            else:
+                self.scroll_end(animate=False)
+
+            self._log(f"do_scroll after scroll: scroll_y={self.scroll_y:.1f}")
+            # Reset flag after animation completes
+            self.set_timer(duration + 0.1 if animate else 0.1, self._reset_auto_scroll)
+
+        # Defer scroll until after layout is complete
+        self.call_after_refresh(do_scroll)
 
     def exit_scroll_mode(self) -> None:
         """Exit scroll mode and scroll to bottom."""
         self._scroll_mode = False
         self._new_content_count = 0
-        try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-            container.reset_scroll_mode()  # Reset container state
-            container.scroll_end(animate=False)
-        except Exception:
-            pass
+        self.reset_scroll_mode()  # Reset scroll state
+        self._scroll_to_end(animate=False)
         self._update_scroll_indicator()
 
     def scroll_to_widget(self, widget_id: str) -> None:
@@ -823,9 +733,8 @@ class TimelineSection(Vertical):
             widget_id: The ID of the widget to scroll to (without #)
         """
         try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-            # Find the widget by ID
-            target = container.query_one(f"#{widget_id}")
+            # Find the widget by ID (content is mounted directly in TimelineSection)
+            target = self.query_one(f"#{widget_id}")
             if target:
                 # Scroll so the widget is at the top
                 target.scroll_visible(top=True, animate=False)
@@ -842,11 +751,64 @@ class TimelineSection(Vertical):
         """Number of new items since entering scroll mode."""
         return self._new_content_count
 
+    @property
+    def is_answer_locked(self) -> bool:
+        """Whether the timeline is locked to show only the final answer."""
+        return self._answer_lock_mode
+
+    def lock_to_final_answer(self, card_id: str) -> None:
+        """Lock timeline to show only the final answer card.
+
+        Hides all other timeline content and makes the final card fill
+        the available space for better readability.
+
+        Args:
+            card_id: The ID of the FinalPresentationCard to lock to
+        """
+        if self._answer_lock_mode:
+            return  # Already locked
+
+        self._answer_lock_mode = True
+        self._locked_card_id = card_id
+
+        # Add lock mode class to timeline
+        self.add_class("answer-locked")
+
+        # Hide all children except the final card
+        for child in self.children:
+            child_id = getattr(child, "id", None)
+            if child_id != card_id:
+                child.add_class("answer-lock-hidden")
+            else:
+                child.add_class("final-card-locked")
+
+    def unlock_final_answer(self) -> None:
+        """Unlock timeline to show all content.
+
+        Restores normal timeline view with all tools and text visible.
+        """
+        if not self._answer_lock_mode:
+            return  # Already unlocked
+
+        self._answer_lock_mode = False
+
+        # Remove lock mode class from timeline
+        self.remove_class("answer-locked")
+
+        # Show all children again
+        for child in self.children:
+            child.remove_class("answer-lock-hidden")
+            child.remove_class("final-card-locked")
+
+        self._locked_card_id = None
+
+        # Scroll to show the final card
+        self._scroll_to_end(animate=False)
+
     def _trim_old_items(self) -> None:
         """Remove oldest items if we exceed MAX_TIMELINE_ITEMS."""
         try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-            children = list(container.children)
+            children = list(self.children)
 
             # Skip the scroll indicator and truncation notice if present
             content_children = [c for c in children if "scroll-indicator" not in c.classes and "truncation-notice" not in c.classes]
@@ -861,19 +823,20 @@ class TimelineSection(Vertical):
             if items_to_remove <= 0:
                 return
 
-            # Show truncation notice once at the top
-            if not self._truncation_shown:
-                self._truncation_shown = True
-                from textual.widgets import Static
+            # Track which rounds have truncation notices
+            if not hasattr(self, "_truncation_shown_rounds"):
+                self._truncation_shown_rounds = set()
 
-                truncation_notice = Static(
-                    f"[dim]⋯ Earlier output truncated (showing last {self.MAX_TIMELINE_ITEMS} items)[/]",
-                    classes="truncation-notice",
-                    markup=True,
-                )
-                # Insert at the beginning
-                if content_children:
-                    container.mount(truncation_notice, before=content_children[0])
+            # First, determine which rounds will have items removed
+            rounds_being_truncated = set()
+            for child in content_children[:items_to_remove]:
+                round_classes = [c for c in child.classes if c.startswith("round-")]
+                for rc in round_classes:
+                    try:
+                        round_num = int(rc.replace("round-", ""))
+                        rounds_being_truncated.add(round_num)
+                    except ValueError:
+                        pass
 
             # Remove the oldest items (from the beginning of the list)
             removed_count = 0
@@ -888,10 +851,29 @@ class TimelineSection(Vertical):
                 child.remove()
                 removed_count += 1
 
-            # NOTE: Don't decrement _item_count - it's used for unique widget IDs
-            # and must be monotonically increasing to avoid duplicate IDs
+            # Add truncation notices only for rounds that actually had items removed
             if removed_count > 0:
-                container.refresh(layout=True)
+                from textual.widgets import Static
+
+                for truncated_round in rounds_being_truncated:
+                    if truncated_round not in self._truncation_shown_rounds:
+                        self._truncation_shown_rounds.add(truncated_round)
+
+                        truncation_notice = Static(
+                            f"[dim]⋯ Earlier output truncated (showing last {self.MAX_TIMELINE_ITEMS} items)[/]",
+                            classes="truncation-notice",
+                            markup=True,
+                        )
+                        # Tag with the round whose items were truncated
+                        truncation_notice.add_class(f"round-{truncated_round}")
+
+                        # Find the first remaining item of this round to insert before
+                        remaining_children = list(self.children)
+                        round_items = [c for c in remaining_children if f"round-{truncated_round}" in c.classes and "truncation-notice" not in c.classes]
+                        if round_items:
+                            self.mount(truncation_notice, before=round_items[0])
+
+                self.refresh(layout=True)
 
         except Exception:
             pass
@@ -906,6 +888,9 @@ class TimelineSection(Vertical):
         Returns:
             The created ToolCallCard
         """
+        # Close any open reasoning batch when tool arrives
+        self._close_reasoning_batch()
+
         card = ToolCallCard(
             tool_name=tool_data.tool_name,
             tool_type=tool_data.tool_type,
@@ -916,18 +901,14 @@ class TimelineSection(Vertical):
         if tool_data.args_summary:
             card.set_params(tool_data.args_summary, tool_data.args_full)
 
-        # Phase 12: Tag with round class for CSS visibility switching
+        # Tag with round class for navigation (scroll-to behavior)
         card.add_class(f"round-{round_number}")
-        # Hide if viewing a different round
-        if round_number != self._viewed_round:
-            card.add_class("hidden")
 
         self._tools[tool_data.tool_id] = card
         self._item_count += 1
 
         try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-            container.mount(card)
+            self.mount(card)
             self._auto_scroll()
             self._trim_old_items()  # Keep timeline size bounded
         except Exception:
@@ -1002,6 +983,208 @@ class TimelineSection(Vertical):
                 )
         return bg_tools
 
+    # === Batch Card Methods ===
+
+    def add_batch(self, batch_id: str, server_name: str, round_number: int = 1) -> ToolBatchCard:
+        """Create a new batch card for grouping MCP tools from the same server.
+
+        Args:
+            batch_id: Unique ID for this batch
+            server_name: MCP server name (e.g., "filesystem")
+            round_number: Round number for CSS visibility
+
+        Returns:
+            The created ToolBatchCard
+        """
+        card = ToolBatchCard(
+            server_name=server_name,
+            id=f"batch_{batch_id}",
+        )
+
+        # Tag with round class for navigation (scroll-to behavior)
+        card.add_class(f"round-{round_number}")
+
+        self._batches[batch_id] = card
+        self._item_count += 1
+
+        try:
+            self.mount(card)
+            self._auto_scroll()
+            self._trim_old_items()
+        except Exception:
+            pass
+
+        return card
+
+    def add_tool_to_batch(
+        self,
+        batch_id: str,
+        tool_data: ToolDisplayData,
+    ) -> None:
+        """Add a tool to an existing batch card.
+
+        Args:
+            batch_id: ID of the batch to add to
+            tool_data: Tool display data
+        """
+        if batch_id not in self._batches:
+            return
+
+        batch_card = self._batches[batch_id]
+
+        # Create ToolBatchItem from ToolDisplayData
+        from datetime import datetime
+
+        mcp_tool_name = get_mcp_tool_name(tool_data.tool_name) or tool_data.tool_name
+        item = ToolBatchItem(
+            tool_id=tool_data.tool_id,
+            tool_name=tool_data.tool_name,
+            display_name=mcp_tool_name,
+            status=tool_data.status,
+            args_summary=tool_data.args_summary,
+            args_full=tool_data.args_full,
+            start_time=tool_data.start_time or datetime.now(),
+        )
+
+        batch_card.add_tool(item)
+        self._tool_to_batch[tool_data.tool_id] = batch_id
+        self._auto_scroll()
+
+    def update_tool_in_batch(self, tool_id: str, tool_data: ToolDisplayData) -> bool:
+        """Update a tool within a batch card.
+
+        Args:
+            tool_id: ID of the tool to update
+            tool_data: Updated tool data
+
+        Returns:
+            True if tool was found and updated, False otherwise
+        """
+        batch_id = self._tool_to_batch.get(tool_id)
+        if not batch_id or batch_id not in self._batches:
+            return False
+
+        batch_card = self._batches[batch_id]
+        mcp_tool_name = get_mcp_tool_name(tool_data.tool_name) or tool_data.tool_name
+
+        # Calculate elapsed time
+        elapsed_seconds = None
+        if tool_data.elapsed_seconds is not None:
+            elapsed_seconds = tool_data.elapsed_seconds
+        elif tool_data.start_time and tool_data.end_time:
+            elapsed_seconds = (tool_data.end_time - tool_data.start_time).total_seconds()
+
+        item = ToolBatchItem(
+            tool_id=tool_data.tool_id,
+            tool_name=tool_data.tool_name,
+            display_name=mcp_tool_name,
+            status=tool_data.status,
+            args_summary=tool_data.args_summary,
+            args_full=tool_data.args_full,
+            result_summary=tool_data.result_summary,
+            result_full=tool_data.result_full,
+            error=tool_data.error,
+            start_time=tool_data.start_time,
+            end_time=tool_data.end_time,
+            elapsed_seconds=elapsed_seconds,
+        )
+
+        batch_card.update_tool(tool_id, item)
+        self._auto_scroll()
+        return True
+
+    def get_batch(self, batch_id: str) -> Optional[ToolBatchCard]:
+        """Get a batch card by ID."""
+        return self._batches.get(batch_id)
+
+    def get_tool_batch(self, tool_id: str) -> Optional[str]:
+        """Get the batch ID for a tool, if it's in a batch."""
+        return self._tool_to_batch.get(tool_id)
+
+    def convert_tool_to_batch(
+        self,
+        pending_tool_id: str,
+        new_tool_data: ToolDisplayData,
+        batch_id: str,
+        server_name: str,
+        round_number: int = 1,
+    ) -> Optional[ToolBatchCard]:
+        """Convert a standalone tool card to a batch and add a second tool.
+
+        This is called when a second consecutive MCP tool from the same server arrives.
+        It removes the original standalone ToolCallCard and creates a ToolBatchCard
+        containing both tools.
+
+        Args:
+            pending_tool_id: ID of the existing standalone tool to convert
+            new_tool_data: The second tool's data
+            batch_id: ID for the new batch
+            server_name: MCP server name
+            round_number: Round number for CSS visibility
+
+        Returns:
+            The created ToolBatchCard, or None if conversion failed
+        """
+        from datetime import datetime
+
+        # Get the existing tool card
+        existing_card = self._tools.get(pending_tool_id)
+        if not existing_card:
+            return None
+
+        # Extract data from existing card to create batch item
+        first_item = ToolBatchItem(
+            tool_id=pending_tool_id,
+            tool_name=existing_card.tool_name,
+            display_name=get_mcp_tool_name(existing_card.tool_name) or existing_card._display_name,
+            status=existing_card.status,
+            args_summary=existing_card._params,
+            args_full=existing_card._params_full,
+            result_summary=existing_card._result,
+            result_full=existing_card._result_full,
+            start_time=existing_card._start_time,
+        )
+
+        # Create second item from new tool data
+        second_item = ToolBatchItem(
+            tool_id=new_tool_data.tool_id,
+            tool_name=new_tool_data.tool_name,
+            display_name=get_mcp_tool_name(new_tool_data.tool_name) or new_tool_data.tool_name,
+            status=new_tool_data.status,
+            args_summary=new_tool_data.args_summary,
+            args_full=new_tool_data.args_full,
+            start_time=new_tool_data.start_time or datetime.now(),
+        )
+
+        # Create batch card
+        batch_card = ToolBatchCard(
+            server_name=server_name,
+            id=f"batch_{batch_id}",
+        )
+
+        # Tag with round class for navigation (scroll-to behavior)
+        batch_card.add_class(f"round-{round_number}")
+
+        # Add both tools to batch
+        batch_card.add_tool(first_item)
+        batch_card.add_tool(second_item)
+
+        # Track in our dictionaries
+        self._batches[batch_id] = batch_card
+        self._tool_to_batch[pending_tool_id] = batch_id
+        self._tool_to_batch[new_tool_data.tool_id] = batch_id
+
+        # Mount batch card right after the existing tool card, then remove the old card
+        try:
+            self.mount(batch_card, after=existing_card)
+            existing_card.remove()
+            del self._tools[pending_tool_id]
+            self._auto_scroll()
+        except Exception:
+            pass
+
+        return batch_card
+
     def add_hook_to_tool(self, tool_call_id: Optional[str], hook_info: dict) -> None:
         """Add hook execution info to a tool card.
 
@@ -1067,57 +1250,71 @@ class TimelineSection(Vertical):
         Args:
             content: Text content
             style: Rich style string
-            text_class: CSS class (status, thinking, response)
+            text_class: CSS class (status, thinking-inline, content-inline, response)
             round_number: The round this content belongs to (for view switching)
         """
-        # Clean up excessive whitespace - collapse multiple newlines to single
+        # Clean up excessive newlines only - preserve all spacing
         import re
 
         content = re.sub(r"\n{3,}", "\n\n", content)  # Max 2 consecutive newlines
-        content = content.strip()
 
-        if not content:
+        if not content.strip():  # Check if effectively empty
             return
+
+        # Check if this is thinking or content - route to appropriate batching
+        is_thinking = "thinking" in text_class
+        is_content = "content" in text_class and "content-inline" in text_class
+
+        if is_thinking:
+            self.add_reasoning(content, round_number=round_number, label="Thinking")
+            return
+        elif is_content:
+            self.add_reasoning(content, round_number=round_number, label="Content")
+            return
+
+        # Other content - close any open batch
+        self._close_reasoning_batch()
 
         self._item_count += 1
         widget_id = f"tl_text_{self._item_count}"
 
         try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-
             classes = "timeline-text"
             if text_class:
                 classes += f" {text_class}"
 
             if style:
+                # Short content with explicit style
                 widget = Static(
                     Text(content, style=style),
                     id=widget_id,
                     classes=classes,
                 )
             else:
+                # Short content - simple inline display
                 widget = Static(content, id=widget_id, classes=classes)
 
-            # Phase 12: Tag with round class for CSS visibility switching
+            # Tag with round class for navigation (scroll-to behavior)
             widget.add_class(f"round-{round_number}")
-            # Hide if viewing a different round
-            if round_number != self._viewed_round:
-                widget.add_class("hidden")
 
-            container.mount(widget)
+            self.mount(widget)
             self._auto_scroll()
             self._trim_old_items()  # Keep timeline size bounded
         except Exception:
             pass
 
-    def add_separator(self, label: str = "", round_number: int = 1) -> None:
+    def add_separator(self, label: str = "", round_number: int = 1, subtitle: str = "") -> None:
         """Add a visual separator to the timeline.
 
         Args:
             label: Optional label for the separator
             round_number: The round this content belongs to (for view switching)
+            subtitle: Optional subtitle (e.g., "Restart • Context cleared")
         """
         from massgen.logger_config import logger
+
+        # Close any open reasoning batch
+        self._close_reasoning_batch()
 
         self._item_count += 1
         widget_id = f"tl_sep_{self._item_count}"
@@ -1127,16 +1324,15 @@ class TimelineSection(Vertical):
         )
 
         try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-
-            # Check if this is a round separator (should be prominent)
+            # Check if this is a round/restart/final separator (should be prominent)
             is_round = label.upper().startswith("ROUND") if label else False
             is_restart = "RESTART" in label.upper() if label else False
+            is_final = "FINAL" in label.upper() if label else False
 
-            if is_round or is_restart:
-                # Create prominent round/restart banner
-                widget = RestartBanner(label=label, id=widget_id)
-                logger.debug(f"TimelineSection.add_separator: Created RestartBanner for '{label}'")
+            if is_round or is_restart or is_final:
+                # Create prominent round/restart/final banner
+                widget = RestartBanner(label=label, subtitle=subtitle, id=widget_id)
+                logger.debug(f"TimelineSection.add_separator: Created RestartBanner for '{label}' subtitle='{subtitle}'")
             else:
                 # Regular separator
                 sep_text = Text()
@@ -1146,16 +1342,11 @@ class TimelineSection(Vertical):
                     sep_text.append("─" * 10, style="dim")
                 widget = Static(sep_text, id=widget_id)
 
-            # Phase 12: Tag with round class for CSS visibility switching
+            # Tag with round class for navigation (scroll-to behavior)
             widget.add_class(f"round-{round_number}")
-            # Hide if viewing a different round
-            if round_number != self._viewed_round:
-                widget.add_class("hidden")
-                logger.debug(f"TimelineSection.add_separator: Hiding widget (round {round_number} != viewed {self._viewed_round})")
-            else:
-                logger.debug(f"TimelineSection.add_separator: Widget visible (round {round_number} == viewed {self._viewed_round})")
+            logger.debug(f"TimelineSection.add_separator: Adding widget for round {round_number}")
 
-            container.mount(widget)
+            self.mount(widget)
             self._auto_scroll()
             self._trim_old_items()  # Keep timeline size bounded
             logger.debug(f"TimelineSection.add_separator: Successfully mounted {widget_id}")
@@ -1163,33 +1354,54 @@ class TimelineSection(Vertical):
             # Log the error but don't crash
             logger.error(f"TimelineSection.add_separator failed: {e}")
 
-    def add_reasoning(self, content: str, round_number: int = 1) -> None:
-        """Add coordination/reasoning content inline with subtle styling.
+    def _close_reasoning_batch(self) -> None:
+        """Close current reasoning batch when non-reasoning content arrives.
+
+        This ends the accumulation of content into a single card, so the next
+        content will start a new batch.
+        """
+        self._current_reasoning_card = None
+        self._current_batch_label = None
+
+    def add_reasoning(self, content: str, round_number: int = 1, label: str = "Thinking") -> None:
+        """Add thinking/content - accumulates into single collapsible card.
+
+        Consecutive statements with the same label are batched into ONE CollapsibleTextCard.
+        The batch closes when:
+        - Non-batched content (tools, separators) arrives
+        - The label changes (Thinking → Content or vice versa)
 
         Args:
-            content: Reasoning/voting/coordination text
+            content: Text content
             round_number: The round this content belongs to (for view switching)
+            label: Label for the card ("Thinking" or "Content")
         """
         if not content.strip():
             return
 
-        self._item_count += 1
-        widget_id = f"tl_reasoning_{self._item_count}"
-
         try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-            # Subtle inline styling - dim italic with thinking emoji
-            widget = Static(
-                Text(f"💭 {content}", style="dim italic #8b949e"),
-                id=widget_id,
-                classes="timeline-text thinking-inline",
-            )
-            # Phase 12: Tag with round class for CSS visibility switching
-            widget.add_class(f"round-{round_number}")
-            # Hide if viewing a different round
-            if round_number != self._viewed_round:
-                widget.add_class("hidden")
-            container.mount(widget)
+            # Close batch if label changed
+            if self._current_reasoning_card is not None and self._current_batch_label != label:
+                self._close_reasoning_batch()
+
+            if self._current_reasoning_card is not None:
+                # Append to existing batch
+                self._current_reasoning_card.append_content(content)
+            else:
+                # Start new batch
+                self._item_count += 1
+                widget_id = f"tl_reasoning_{self._item_count}"
+
+                self._current_reasoning_card = CollapsibleTextCard(
+                    content,
+                    label=label,
+                    id=widget_id,
+                    classes="timeline-text thinking-inline",
+                )
+                self._current_reasoning_card.add_class(f"round-{round_number}")
+                self._current_batch_label = label
+                self.mount(self._current_reasoning_card)
+
             self._auto_scroll()
         except Exception:
             pass
@@ -1203,38 +1415,50 @@ class TimelineSection(Vertical):
         """
         self._item_count += 1
 
-        # Phase 12: Tag with round class for CSS visibility switching
+        # Tag with round class for navigation (scroll-to behavior)
         widget.add_class(f"round-{round_number}")
-        # Hide if viewing a different round
-        if round_number != self._viewed_round:
-            widget.add_class("hidden")
 
         try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-            container.mount(widget)
+            self.mount(widget)
             self._auto_scroll()
-        except Exception as e:
-            import sys
-
-            print(f"[ERROR] add_widget failed: {e}", file=sys.stderr)
+        except Exception:
+            pass
 
     def clear(self) -> None:
         """Clear all timeline content."""
+        # Close any open reasoning batch
+        self._close_reasoning_batch()
+
         try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
-            container.remove_children()
+            # Keep the scroll indicator, remove everything else
+            indicator = None
+            try:
+                indicator = self.query_one("#scroll_mode_indicator", Static)
+            except Exception:
+                pass
+            self.remove_children()
+            if indicator:
+                self.mount(indicator)
         except Exception:
             pass
         self._tools.clear()
+        self._batches.clear()  # Also clear batch tracking
+        self._tool_to_batch.clear()  # Clear tool-to-batch mapping
         self._item_count = 0
+        # Reset truncation tracking to avoid stale state
+        if hasattr(self, "_truncation_shown_rounds"):
+            self._truncation_shown_rounds.clear()
 
     def clear_tools_tracking(self) -> None:
-        """Clear just the tools tracking dict without removing UI elements.
+        """Clear tools and batch tracking dicts without removing UI elements.
 
-        Used when a round completes to reset background tool counts while
-        keeping the visual timeline history intact.
+        Used when a new round starts to reset tool/batch ID tracking while
+        keeping the visual timeline history intact. This prevents tool_id
+        and batch_id collisions between rounds.
         """
         self._tools.clear()
+        self._batches.clear()
+        self._tool_to_batch.clear()
 
     def set_viewed_round(self, round_number: int) -> None:
         """Update which round is currently being viewed.
@@ -1248,32 +1472,41 @@ class TimelineSection(Vertical):
         self._viewed_round = round_number
 
     def switch_to_round(self, round_number: int) -> None:
-        """Switch visibility to show only the specified round.
+        """Scroll to the specified round's content.
 
-        Phase 12: CSS-based visibility switching. All round content stays in DOM,
-        we just toggle the 'hidden' class based on round tags.
+        All rounds stay visible in a unified timeline. Selecting a round
+        smoothly scrolls to that round's separator banner.
 
         Args:
-            round_number: The round number to display
+            round_number: The round number to scroll to
         """
+        from massgen.logger_config import logger
+
         self._viewed_round = round_number
 
-        try:
-            container = self.query_one("#timeline_container", TimelineScrollContainer)
+        logger.debug(f"TimelineSection.switch_to_round: scrolling to round {round_number}")
 
-            # Iterate through all children and toggle visibility based on round class
-            for widget in container.children:
-                # Check if widget has any round class
-                round_classes = [c for c in widget.classes if c.startswith("round-")]
-                if round_classes:
-                    # Widget is tagged with a round - show/hide based on match
-                    if f"round-{round_number}" in widget.classes:
-                        widget.remove_class("hidden")
-                    else:
-                        widget.add_class("hidden")
-                # Widgets without round tags (e.g., scroll indicators) stay visible
-        except Exception:
-            pass
+        try:
+            # Find the RestartBanner for this round and scroll to it
+            # RestartBanners are tagged with round-X class
+            found_separator = False
+            for widget in self.query(f".round-{round_number}"):
+                # Look for RestartBanner (has the round separator banner)
+                if isinstance(widget, RestartBanner):
+                    widget.scroll_visible(animate=True, top=True)
+                    found_separator = True
+                    break
+
+            # If no RestartBanner found (e.g., round 1 which may not have one),
+            # find the first widget for this round
+            if not found_separator:
+                for widget in self.query(f".round-{round_number}"):
+                    widget.scroll_visible(animate=True, top=True)
+                    break
+
+            logger.debug(f"TimelineSection.switch_to_round: done scrolling to round {round_number}")
+        except Exception as e:
+            logger.error(f"TimelineSection.switch_to_round error: {e}")
 
 
 class ThinkingSection(Vertical):
@@ -1763,22 +1996,26 @@ class CompletionFooter(Static):
 
 
 class RestartBanner(Static):
-    """Subtle, professional restart separator banner.
+    """Prominent round separator banner - single strong line spanning full width.
 
-    Design - understated gradient style:
+    Design:
     ```
-    ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-                        ⟳ Round 1 Complete
-    ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+    ━━━━━━━━━━ Round 2 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ Context reset ━━
+    ```
+
+    For Final Answer:
+    ```
+    ━━━━━━━━━━ ✓ Final Answer ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ A1.1 won (2) ━━━━━
     ```
     """
 
     DEFAULT_CSS = """
     RestartBanner {
         width: 100%;
-        height: auto;
+        height: 1;
         margin: 1 0;
         padding: 0;
+        background: transparent;
     }
 
     RestartBanner.hidden {
@@ -1786,51 +2023,86 @@ class RestartBanner(Static):
     }
     """
 
-    def __init__(self, label: str = "", id: Optional[str] = None) -> None:
+    def __init__(self, label: str = "", subtitle: str = "", id: Optional[str] = None) -> None:
         super().__init__(id=id)
         self._label = label
+        self._subtitle = subtitle
 
     def render(self) -> Text:
-        """Render a subtle, professional restart banner."""
+        """Render a single strong line separator with label and subtitle."""
         import re
 
-        text = Text()
+        # Use no_wrap to prevent line breaking
+        text = Text(no_wrap=True)
 
         # Clean up the label - extract meaningful info
         display_label = self._label
-        if "RESTART" in display_label.upper():
-            # Try to extract round number
+        is_final = "FINAL" in display_label.upper()
+
+        # Thin line character for minimalist look
+        line_char = "─"
+        # Get actual widget width dynamically
+        try:
+            total_width = self.size.width
+            if total_width < 40:
+                # Fallback if width not yet computed or too small
+                total_width = 200
+        except Exception:
+            total_width = 200  # Fallback
+
+        if is_final:
+            # Final Presentation - muted green styling
+            display_label = "✓ Final Answer"
+            line_color = "#4b5563"  # Neutral gray line
+            label_color = "#6b9e7a"  # Muted green for label
+            subtitle_color = "#9ca3af"  # Gray for subtitle
+        elif "RESTART" in display_label.upper():
+            # Extract round number for restart - neutral gray styling
             match = re.search(r"ROUND\s*(\d+)", display_label, re.IGNORECASE)
             if match:
                 round_num = match.group(1)
-                display_label = f"⟳ Round {round_num} Complete"
+                display_label = f"Round {round_num}"
             else:
-                display_label = "⟳ New Round Starting"
+                display_label = "New Round"
+            line_color = "#4b5563"  # Neutral gray line
+            label_color = "#9ca3af"  # Gray for label
+            subtitle_color = "#6b7280"  # Dim gray for subtitle
         elif display_label.upper().startswith("ROUND"):
-            # Simple "Round X" label - format as round start indicator
+            # Simple "Round X" label - neutral gray styling
             match = re.search(r"ROUND\s*(\d+)", display_label, re.IGNORECASE)
             if match:
                 round_num = match.group(1)
-                display_label = f"▶ Round {round_num}"
+                display_label = f"Round {round_num}"
+            line_color = "#4b5563"  # Neutral gray line
+            label_color = "#9ca3af"  # Gray for label
+            subtitle_color = "#6b7280"  # Dim gray for subtitle
+        else:
+            line_color = "#4b5563"  # Neutral gray
+            label_color = "#9ca3af"  # Gray
+            subtitle_color = "#6b7280"  # Dim gray
 
-        # Subtle dotted line style - professional and understated
-        line_char = "┄"
-        line_width = 68
+        # Build single line: ━━━━━ Label ━━━━━━━━━━━━━━━━━━━━━ Subtitle ━━━━━
+        left_line_len = 6
+        label_text = f" {display_label} "
 
-        # Top line - gradient fade effect using dim styling
-        text.append("  ", style="")
-        text.append(line_char * line_width, style="dim #5a6374")
-        text.append("\n")
+        # Start with left segment - use same color as label for visibility
+        text.append(line_char * left_line_len, style=line_color)
+        text.append(label_text, style=f"bold {label_color}")
 
-        # Center label with subtle amber/gold accent
-        label_centered = display_label.center(line_width)
-        text.append("  ", style="")
-        text.append(label_centered, style="#e2b340")
-        text.append("\n")
+        if self._subtitle:
+            subtitle_text = f" {self._subtitle} "
+            # Middle segment fills the space
+            middle_len = total_width - left_line_len - len(label_text) - len(subtitle_text) - 6
+            if middle_len < 4:
+                middle_len = 4
 
-        # Bottom line
-        text.append("  ", style="")
-        text.append(line_char * line_width, style="dim #5a6374")
+            text.append(line_char * middle_len, style=line_color)
+            text.append(subtitle_text, style=f"italic {subtitle_color}")
+            text.append(line_char * 6, style=line_color)
+        else:
+            # No subtitle - just fill with line
+            remaining = total_width - left_line_len - len(label_text)
+            text.append(line_char * remaining, style=line_color)
 
         return text
 
@@ -1864,61 +2136,69 @@ class FinalPresentationCard(Vertical):
         height: auto;
         margin: 1 0;
         padding: 0;
-        border: solid #ffd700;
-        background: #1a1a1a;
+        border: solid #fab387;
+        background: transparent;
     }
 
     FinalPresentationCard.streaming {
-        border: double #ffd700;
+        border: double #fab387;
     }
 
     FinalPresentationCard.completed {
-        border: solid #3fb950;
-        background: #0d1f14;
+        border: solid #a6e3a1;
+        background: transparent;
+    }
+
+    /* Hide post_eval and context_paths in completed mode when they have hidden class */
+    FinalPresentationCard.completed #final_card_post_eval.hidden,
+    FinalPresentationCard.completed #final_card_context_paths.hidden {
+        display: none;
+        height: 0;
+        padding: 0;
+        margin: 0;
     }
 
     FinalPresentationCard #final_card_header {
         width: 100%;
         height: auto;
         padding: 0 1;
-        background: #2d2510;
-        border-bottom: solid #ffd700 50%;
+        background: transparent;
     }
 
     FinalPresentationCard.completed #final_card_header {
-        background: #1a4d2e;
-        border-bottom: solid #3fb950 50%;
+        background: transparent;
     }
 
     FinalPresentationCard #final_card_title {
-        color: #ffd700;
+        color: #fab387;
         text-style: bold;
     }
 
     FinalPresentationCard.completed #final_card_title {
-        color: #3fb950;
+        color: #a6e3a1;
     }
 
     FinalPresentationCard #final_card_votes {
         color: #8b949e;
         height: 1;
+        border-bottom: solid #45475a;
+        padding-bottom: 1;
+        margin-bottom: 1;
     }
 
     FinalPresentationCard #final_card_content {
         width: 100%;
         height: auto;
-        min-height: 5;
-        max-height: 25;
-        padding: 1 2;
-        background: #1e1e1e;
+        max-height: 30;
+        padding: 1 2 0 2;
+        background: transparent;
         overflow-y: auto;
     }
 
     FinalPresentationCard #final_card_text {
         width: 100%;
         height: auto;
-        min-height: 3;
-        background: #1e1e1e;
+        background: transparent;
         color: #e6e6e6;
     }
 
@@ -1979,12 +2259,41 @@ class FinalPresentationCard(Vertical):
         height: auto;
     }
 
+    FinalPresentationCard #final_card_context_paths {
+        width: 100%;
+        height: auto;
+        padding: 1 2;
+        background: #161b22;
+        border-top: dashed #30363d;
+    }
+
+    FinalPresentationCard #final_card_context_paths.hidden {
+        display: none;
+    }
+
+    FinalPresentationCard #context_paths_header {
+        color: #58a6ff;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    FinalPresentationCard #context_paths_list {
+        height: auto;
+    }
+
+    FinalPresentationCard .context-path-new {
+        color: #3fb950;
+    }
+
+    FinalPresentationCard .context-path-modified {
+        color: #d29922;
+    }
+
     FinalPresentationCard #final_card_footer {
         width: 100%;
         height: auto;
         padding: 1 2;
-        background: #21262d;
-        border-top: solid #30363d;
+        background: transparent;
     }
 
     FinalPresentationCard #final_card_footer.hidden {
@@ -1993,28 +2302,102 @@ class FinalPresentationCard(Vertical):
 
     FinalPresentationCard #final_card_buttons {
         width: 100%;
-        height: 3;
+        height: 1;
     }
 
-    FinalPresentationCard #final_card_buttons Button {
-        margin-right: 1;
-        min-width: 12;
+    /* Footer links - consistent clickable link style */
+    FinalPresentationCard .footer-link {
+        width: auto;
+        height: 1;
+        color: #89b4fa;
+        text-style: underline;
+        padding: 0 1;
     }
 
-    FinalPresentationCard #final_card_copy_btn {
-        background: #238636;
-        color: #ffffff;
-    }
-
-    FinalPresentationCard #final_card_copy_btn:hover {
-        background: #2ea043;
+    FinalPresentationCard .footer-link:hover {
+        color: #b4befe;
+        text-style: bold underline;
     }
 
     FinalPresentationCard #continue_message {
-        color: #58a6ff;
-        text-style: italic;
+        display: none;
+    }
+
+    /* Full-width mode - fills available vertical space */
+    FinalPresentationCard.full-width-mode {
+        height: 1fr;
+        min-height: 20;
+    }
+
+    FinalPresentationCard.full-width-mode #final_card_content {
+        height: 1fr;
+        overflow-y: auto;
+    }
+
+    /* Enhanced prominence styling for full-width mode */
+    FinalPresentationCard.full-width-mode.streaming {
+        border: double #fab387;
+    }
+
+    FinalPresentationCard.full-width-mode.completed {
+        border: double #a6e3a1;
+        background: transparent;
+    }
+
+    FinalPresentationCard.full-width-mode #final_card_header {
+        background: transparent;
+        padding: 0 1;
+    }
+
+    FinalPresentationCard.full-width-mode #final_card_title {
+        color: #a6e3a1;
+    }
+
+    /* Completion-only mode - minimal footer bar */
+    /* Content already shown through normal pipeline, just show action buttons */
+    FinalPresentationCard.completion-only {
+        border: none;
+        background: transparent;
+        margin: 0;
+        padding: 0;
+    }
+
+    FinalPresentationCard.completion-only #final_card_header {
+        display: none;
+    }
+
+    FinalPresentationCard.completion-only #final_card_content {
+        display: none;
+    }
+
+    FinalPresentationCard.completion-only #final_card_post_eval {
+        display: none;
+    }
+
+    FinalPresentationCard.completion-only #final_card_context_paths {
+        display: none;
+    }
+
+    FinalPresentationCard.completion-only #final_card_footer {
+        display: block;
+        background: #161b22;
+        border: solid #30363d;
+        padding: 1 2;
+    }
+
+    /* Spacer to push unlock button to the right in footer */
+    FinalPresentationCard #final_card_button_spacer {
+        width: 1fr;
         height: 1;
-        margin-top: 1;
+    }
+
+    FinalPresentationCard.locked-mode #final_card_content {
+        height: 1fr;
+        max-height: 999;
+    }
+
+    FinalPresentationCard.locked-mode {
+        height: 1fr;
     }
     """
 
@@ -2023,31 +2406,41 @@ class FinalPresentationCard(Vertical):
         agent_id: str,
         model_name: str = "",
         vote_results: Optional[Dict] = None,
+        context_paths: Optional[Dict] = None,
+        completion_only: bool = False,
         id: Optional[str] = None,
     ) -> None:
         super().__init__(id=id or "final_presentation_card")
         self.agent_id = agent_id
         self.model_name = model_name
         self.vote_results = vote_results or {}
+        self.context_paths = context_paths or {}
         self._final_content: list = []
         self._post_eval_content: list = []
-        self._is_streaming = True
+        self._is_streaming = not completion_only
         self._post_eval_expanded = False
         self._post_eval_status = "none"  # none, evaluating, verified
-        self.add_class("streaming")
+        self._text_widget: Optional[Static] = None  # Direct reference to text widget
+        if completion_only:
+            self.add_class("completion-only")
+        else:
+            self.add_class("streaming")
 
     def compose(self) -> ComposeResult:
         from textual.containers import Horizontal, ScrollableContainer
-        from textual.widgets import Button, Label
+        from textual.widgets import Label
 
-        # Header section
+        # Header section - compact single line
         with Vertical(id="final_card_header"):
             yield Label(self._build_title(), id="final_card_title")
             yield Label(self._build_vote_summary(), id="final_card_votes")
 
         # Content section with Static text (scrollable)
+        # NOTE: markup=False to avoid Rich markup parsing issues with special characters
+        # Store direct reference for faster updates
+        self._text_widget = Static("", id="final_card_text", markup=False)
         with ScrollableContainer(id="final_card_content"):
-            yield Static("", id="final_card_text", markup=True)
+            yield self._text_widget
 
         # Post-evaluation section (hidden until post-eval content arrives)
         with Vertical(id="final_card_post_eval", classes="hidden"):
@@ -2057,11 +2450,30 @@ class FinalPresentationCard(Vertical):
             with ScrollableContainer(id="post_eval_details", classes="collapsed"):
                 yield Static("", id="post_eval_content")
 
-        # Footer with buttons and continue message (hidden until complete)
+        # Context paths section (hidden if no paths)
+        has_paths = bool(self.context_paths.get("new") or self.context_paths.get("modified"))
+        with Vertical(id="final_card_context_paths", classes="" if has_paths else "hidden"):
+            new_count = len(self.context_paths.get("new", []))
+            mod_count = len(self.context_paths.get("modified", []))
+            total = new_count + mod_count
+            yield Label(f"📂 Files Written ({total})", id="context_paths_header")
+            with Vertical(id="context_paths_list"):
+                for path in self.context_paths.get("new", []):
+                    yield Label(f"  ✚ {path}", classes="context-path-new")
+                for path in self.context_paths.get("modified", []):
+                    yield Label(f"  ✎ {path}", classes="context-path-modified")
+
+        # Footer with link-style actions and continue message (hidden until complete)
         with Vertical(id="final_card_footer", classes="hidden"):
             with Horizontal(id="final_card_buttons"):
-                yield Button("📋 Copy", id="final_card_copy_btn")
-                yield Button("📂 Workspace", id="final_card_workspace_btn")
+                yield Static("📋 Copy", id="final_card_copy_btn", classes="footer-link")
+                yield Static("📂 Workspace", id="final_card_workspace_btn", classes="footer-link")
+                # Spacer to push unlock button to the right
+                yield Static("", id="final_card_button_spacer")
+                # Unlock button - hidden initially, shown when locked
+                link = Static("↩ Previous Work", id="final_card_unlock_btn", classes="footer-link")
+                link.display = False
+                yield link
             yield Label("💬 Type below to continue the conversation", id="continue_message")
 
     def _build_title(self) -> str:
@@ -2080,12 +2492,11 @@ class FinalPresentationCard(Vertical):
         if not vote_counts:
             return ""
 
-        # Format: "Winner: agent_a (2v) | Votes: agent_a(2), agent_b(1)"
-        winner_count = vote_counts.get(winner, 0)
+        # Format: "Winner: agent_a | Votes: agent_a (2), agent_b (1)"
         tie_note = " (tie-breaker)" if is_tie else ""
-        counts_str = ", ".join(f"{aid}({count})" for aid, count in vote_counts.items())
+        counts_str = ", ".join(f"{aid} ({count})" for aid, count in vote_counts.items())
 
-        return f"Winner: {winner} ({winner_count}v){tie_note} | Votes: {counts_str}"
+        return f"Winner: {winner}{tie_note} | Votes: {counts_str}"
 
     def append_chunk(self, chunk: str) -> None:
         """Append streaming content to the card.
@@ -2096,25 +2507,80 @@ class FinalPresentationCard(Vertical):
         if not chunk:
             return
 
-        try:
-            text_widget = self.query_one("#final_card_text", Static)
+        # Always accumulate content first (even if widget not ready yet)
+        self._final_content.append(chunk)
 
-            # Accumulate content
-            self._final_content.append(chunk)
-
-            # Update the Static widget with all accumulated content
-            full_text = "".join(self._final_content)
-            text_widget.update(full_text)
-
-            # Auto-scroll to show latest content
+        # Try to update the widget directly
+        if not self._try_update_text():
+            # Widget not ready - compose might not have run yet
+            # Try to force recompose and schedule retry
             try:
-                content = self.query_one("#final_card_content", ScrollableContainer)
-                content.scroll_end(animate=False)
+                if self._text_widget is None:
+                    # Compose hasn't run - try to trigger it
+                    self.recompose()
+                self.set_timer(0.1, self._try_update_text)
+            except Exception:
+                pass  # Ignore if timer/recompose can't be set
+
+    def _try_update_text(self) -> bool:
+        """Try to update the text widget with accumulated content.
+
+        Called after each chunk arrives. Silently fails if widget not ready yet.
+
+        Returns:
+            True if update succeeded, False if widget not ready.
+        """
+        if not self._final_content:
+            return True  # Nothing to update
+
+        full_text = "".join(self._final_content)
+
+        # Use direct reference if available (set in compose)
+        if self._text_widget is not None:
+            try:
+                self._text_widget.update(full_text)
+                self._text_widget.refresh()
+                return True
             except Exception:
                 pass
 
-        except Exception as e:
-            logger.error(f"FinalPresentationCard.append_chunk error: {e}")
+        # Fallback to query
+        try:
+            text_widget = self.query_one("#final_card_text", Static)
+            text_widget.update(full_text)
+            text_widget.refresh()
+            return True
+        except Exception:
+            pass
+
+        # Last resort: manually create the text widget if compose didn't run
+        try:
+            # Check if we have any children at all
+            if not list(self.children):
+                # Create a simple Static widget directly
+                self._text_widget = Static(full_text, id="final_card_text_manual", markup=False)
+                self.mount(self._text_widget)
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    def on_mount(self) -> None:
+        """Flush any pending content when the widget is mounted."""
+        # Flush any buffered content that arrived before mount
+        self._try_update_text()
+
+        # In completion-only mode, show footer immediately and mark as completed
+        # (content has already been shown through the normal pipeline)
+        if self.has_class("completion-only"):
+            self.complete()
+
+    def _on_compose(self) -> None:
+        """Called after compose() completes - use this to flush content."""
+        # Try to update after compose completes
+        if self._final_content:
+            self._try_update_text()
 
     def complete(self) -> None:
         """Mark the presentation as complete and show action buttons."""
@@ -2124,7 +2590,10 @@ class FinalPresentationCard(Vertical):
 
         # Update styling
         self.remove_class("streaming")
-        self.add_class("completed")
+        # Only add completed class if not in completion-only mode
+        # (completion-only mode has its own styling via the class)
+        if not self.has_class("completion-only"):
+            self.add_class("completed")
 
         # Update title to show completed
         try:
@@ -2146,8 +2615,24 @@ class FinalPresentationCard(Vertical):
         return "".join(self._final_content)
 
     def on_click(self, event) -> None:
-        """Handle clicks on the post-eval toggle."""
+        """Handle clicks on footer links and post-eval toggle."""
         from textual.widgets import Label
+
+        widget_id = getattr(event.widget, "id", None) if hasattr(event, "widget") else None
+
+        # Handle footer link clicks
+        if widget_id == "final_card_unlock_btn":
+            self._toggle_lock()
+            event.stop()
+            return
+        elif widget_id == "final_card_copy_btn":
+            self._copy_to_clipboard()
+            event.stop()
+            return
+        elif widget_id == "final_card_workspace_btn":
+            self._open_workspace()
+            event.stop()
+            return
 
         # Check if click was on the toggle label
         try:
@@ -2177,17 +2662,61 @@ class FinalPresentationCard(Vertical):
         except Exception:
             pass
 
-    def on_button_pressed(self, event) -> None:
-        """Handle button presses."""
-        from textual.widgets import Button
+    def _toggle_lock(self) -> None:
+        """Toggle between locked (answer-only) and unlocked (full timeline) view."""
+        # Find parent TimelineSection
+        timeline = None
+        parent = self.parent
+        while parent:
+            if isinstance(parent, TimelineSection):
+                timeline = parent
+                break
+            parent = parent.parent
 
-        if not isinstance(event, Button.Pressed):
+        if not timeline:
             return
 
-        if event.button.id == "final_card_copy_btn":
-            self._copy_to_clipboard()
-        elif event.button.id == "final_card_workspace_btn":
-            self._open_workspace()
+        try:
+            link = self.query_one("#final_card_unlock_btn", Static)
+            link.display = True  # Always keep visible once shown
+
+            if timeline.is_answer_locked:
+                # Unlock: show full timeline
+                timeline.unlock_final_answer()
+                self.remove_class("locked-mode")
+                link.update("⎯ Answer Only")
+            else:
+                # Lock: show only final answer
+                timeline.lock_to_final_answer(self.id or "final_presentation_card")
+                self.add_class("locked-mode")
+                link.update("↩ Previous Work")
+        except Exception:
+            pass
+
+    def set_locked_mode(self, locked: bool) -> None:
+        """Set the locked mode state programmatically.
+
+        Called by textual_terminal_display when auto-locking after final answer.
+
+        Args:
+            locked: Whether to enable locked mode
+        """
+        if locked:
+            self.add_class("locked-mode")
+            try:
+                link = self.query_one("#final_card_unlock_btn", Static)
+                link.display = True
+                link.update("↩ Previous Work")
+            except Exception:
+                pass
+        else:
+            self.remove_class("locked-mode")
+            try:
+                link = self.query_one("#final_card_unlock_btn", Static)
+                link.display = False
+                link.update("⎯ Answer Only")
+            except Exception:
+                pass
 
     def _copy_to_clipboard(self) -> None:
         """Copy final answer to system clipboard."""

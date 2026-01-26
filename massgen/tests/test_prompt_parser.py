@@ -415,3 +415,133 @@ class TestParsedPromptDataclass:
         assert parsed.cleaned_prompt == "cleaned"
         assert len(parsed.context_paths) == 1
         assert len(parsed.suggestions) == 1
+
+
+class TestQuotedPaths:
+    """Test quoted path syntax for paths with spaces."""
+
+    def test_quoted_path_with_spaces(self, tmp_path: Path) -> None:
+        """Test @"path with spaces" syntax."""
+        # Create directory and file with spaces
+        dir_with_spaces = tmp_path / "path with spaces"
+        dir_with_spaces.mkdir()
+        test_file = dir_with_spaces / "file.txt"
+        test_file.write_text("test content")
+
+        prompt = f'Review @"{test_file}"'
+        result = parse_prompt_for_context(prompt)
+
+        assert len(result.context_paths) == 1
+        assert result.context_paths[0]["path"] == str(test_file)
+        assert result.context_paths[0]["permission"] == "read"
+        # Path should be in cleaned prompt without @ and quotes
+        assert str(test_file) in result.cleaned_prompt
+        assert f'@"{test_file}"' not in result.cleaned_prompt
+
+    def test_quoted_path_with_spaces_write_permission(self, tmp_path: Path) -> None:
+        """Test @"path with spaces":w syntax for write permission."""
+        dir_with_spaces = tmp_path / "output dir"
+        dir_with_spaces.mkdir()
+        test_file = dir_with_spaces / "output.txt"
+        test_file.write_text("")
+
+        prompt = f'Write to @"{test_file}":w'
+        result = parse_prompt_for_context(prompt)
+
+        assert len(result.context_paths) == 1
+        assert result.context_paths[0]["path"] == str(test_file)
+        assert result.context_paths[0]["permission"] == "write"
+
+    def test_mixed_quoted_and_unquoted_paths(self, tmp_path: Path) -> None:
+        """Test mixing @"quoted path" and @unquoted/path."""
+        # Create paths
+        dir_with_spaces = tmp_path / "spaced dir"
+        dir_with_spaces.mkdir()
+        file_with_spaces = dir_with_spaces / "my file.py"
+        file_with_spaces.write_text("")
+
+        normal_file = tmp_path / "normal.py"
+        normal_file.write_text("")
+
+        prompt = f'Compare @"{file_with_spaces}" with @{normal_file}'
+        result = parse_prompt_for_context(prompt)
+
+        assert len(result.context_paths) == 2
+        paths = {ctx["path"] for ctx in result.context_paths}
+        assert str(file_with_spaces) in paths
+        assert str(normal_file) in paths
+
+    def test_quoted_directory_with_spaces(self, tmp_path: Path) -> None:
+        """Test @"dir with spaces/" syntax for directories."""
+        dir_with_spaces = tmp_path / "my project"
+        dir_with_spaces.mkdir()
+
+        prompt = f'Review all files in @"{dir_with_spaces}/"'
+        result = parse_prompt_for_context(prompt)
+
+        assert len(result.context_paths) == 1
+        assert result.context_paths[0]["path"] == str(dir_with_spaces)
+        assert result.context_paths[0]["permission"] == "read"
+
+    def test_quoted_path_nonexistent_raises_error(self) -> None:
+        """Test that non-existent quoted paths raise an error."""
+        prompt = '@"/path/that does not/exist.txt"'
+
+        with pytest.raises(PromptParserError) as exc_info:
+            parse_prompt_for_context(prompt)
+
+        assert "not found" in str(exc_info.value).lower()
+
+    def test_empty_quoted_path_no_match(self) -> None:
+        """Test that @"" (empty quoted path) does not match."""
+        prompt = 'Review @"" some text'
+        # Empty quoted path should not match the pattern
+        result = parse_prompt_for_context(prompt)
+
+        # Pattern requires at least one character inside quotes
+        assert len(result.context_paths) == 0
+
+    def test_quoted_path_preserves_internal_quotes(self, tmp_path: Path) -> None:
+        """Test path without internal quotes works."""
+        # Can't easily test files with quotes in names on all systems,
+        # so just test that basic quoted paths work
+        test_file = tmp_path / "simple file.txt"
+        test_file.write_text("test")
+
+        prompt = f'@"{test_file}"'
+        result = parse_prompt_for_context(prompt)
+
+        assert len(result.context_paths) == 1
+        assert result.context_paths[0]["path"] == str(test_file)
+
+    def test_multiple_quoted_paths(self, tmp_path: Path) -> None:
+        """Test multiple quoted paths in one prompt."""
+        dir1 = tmp_path / "first dir"
+        dir2 = tmp_path / "second dir"
+        dir1.mkdir()
+        dir2.mkdir()
+        file1 = dir1 / "file.txt"
+        file2 = dir2 / "file.txt"
+        file1.write_text("1")
+        file2.write_text("2")
+
+        prompt = f'Compare @"{file1}" and @"{file2}":w'
+        result = parse_prompt_for_context(prompt)
+
+        assert len(result.context_paths) == 2
+        perms = {ctx["path"]: ctx["permission"] for ctx in result.context_paths}
+        assert perms[str(file1)] == "read"
+        assert perms[str(file2)] == "write"
+
+    def test_quoted_path_with_special_chars(self, tmp_path: Path) -> None:
+        """Test quoted paths with special characters (except quotes)."""
+        special_dir = tmp_path / "test (1) - copy"
+        special_dir.mkdir()
+        special_file = special_dir / "file [v2].txt"
+        special_file.write_text("content")
+
+        prompt = f'Review @"{special_file}"'
+        result = parse_prompt_for_context(prompt)
+
+        assert len(result.context_paths) == 1
+        assert result.context_paths[0]["path"] == str(special_file)

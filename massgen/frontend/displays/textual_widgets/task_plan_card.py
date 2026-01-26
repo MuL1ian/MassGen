@@ -47,15 +47,15 @@ class TaskPlanCard(Static):
     TaskPlanCard {
         width: 100%;
         height: auto;
-        min-height: 3;
-        padding: 0 1;
+        min-height: 1;
+        padding: 0 0 0 2;
         margin: 0 0 0 1;
-        background: #1a1f2e;
-        border-left: thick #a371f7;
+        background: transparent;
+        border-left: solid #6e7681 50%;
     }
 
     TaskPlanCard:hover {
-        background: #1e2436;
+        border-left: solid #8b949e 50%;
     }
 
     TaskPlanCard .task-header {
@@ -88,7 +88,7 @@ class TaskPlanCard(Static):
     }
 
     TaskPlanCard .task-focused {
-        background: #21262d;
+        background: rgba(33, 38, 45, 0.6);
     }
 
     TaskPlanCard .task-count {
@@ -97,7 +97,7 @@ class TaskPlanCard(Static):
     }
 
     TaskPlanCard .task-reminder {
-        background: #4a3d2d;
+        background: rgba(74, 61, 45, 0.7);
         color: #ffa657;
         padding: 0 1;
         margin-top: 1;
@@ -139,6 +139,7 @@ class TaskPlanCard(Static):
         self._focused_task_id = focused_task_id
         self._operation = operation
         self._reminder: Optional[str] = None
+        self._changed_task_ids: set = set()  # Track recently changed tasks for highlighting
 
     def render(self) -> Text:
         """Render the card content directly."""
@@ -150,6 +151,11 @@ class TaskPlanCard(Static):
 
     def _refresh_content(self) -> None:
         """Refresh the displayed content."""
+        self.refresh()
+
+    def _clear_highlights(self) -> None:
+        """Clear task change highlights."""
+        self._changed_task_ids = set()
         self.refresh()
 
     def set_reminder(self, content: str) -> None:
@@ -188,86 +194,73 @@ class TaskPlanCard(Static):
         return 60  # Default reasonable width
 
     def _build_content(self) -> Text:
-        """Build the card content as Rich Text - compact single-line tasks."""
+        """Build the card content as Rich Text - clean minimal style."""
         text = Text()
 
         if not self._tasks:
-            text.append("📋 No tasks", style="dim")
+            text.append("No tasks", style="dim #6e7681")
             return text
 
-        # Header (click opens modal for full view)
+        # Count tasks
         total = len(self._tasks)
         completed = sum(1 for t in self._tasks if t.get("status") == "completed")
-        in_progress = sum(1 for t in self._tasks if t.get("status") == "in_progress")
 
-        # Compact header: "▸ Tasks (3/5) • 1 active  ━━━━───"
-        header = f"▸ Tasks ({completed}/{total})"
-        if in_progress > 0:
-            header += f" • {in_progress} active"
-        text.append(header, style="bold #9070c0")
-
-        # Add mini progress bar inline (to the right)
-        if total > 0:
-            bar_width = 16
-            completed_chars = int((completed / total) * bar_width)
-            remaining_chars = bar_width - completed_chars
-            bar = "━" * completed_chars + "─" * remaining_chars
-            text.append(f"  {bar}", style="dim")
+        # Clean header: "Tasks 3/5" - minimal, no icons or progress bars
+        text.append(f"Tasks {completed}/{total}", style="#8b949e")
 
         # Get visible tasks (click card to see all in modal)
         visible_tasks, start_idx = self._get_visible_tasks()
         max_desc_len = self._get_max_description_length()
 
-        # Show "more above" indicator inline
+        # Show "more above" indicator
         if start_idx > 0:
-            text.append(f"  ↑{start_idx}", style="dim")
+            text.append(f" (+{start_idx} above)", style="dim #6e7681")
 
-        # Render each visible task
-        for i, task in enumerate(visible_tasks):
-            is_focused = task.get("id") == self._focused_task_id
+        # Render each visible task - clean minimal style
+        for task in visible_tasks:
+            task_id = task.get("id")
+            is_focused = task_id == self._focused_task_id
+            is_changed = task_id in self._changed_task_ids
             status = task.get("status", "pending")
-            icon = self.STATUS_ICONS.get(status, "○")
+
+            # Simple icons: ✓ done, → active, · pending
+            if status == "completed":
+                icon = "✓"
+                style = "dim #6e7681"
+            elif status == "in_progress":
+                icon = "→"
+                style = "#58a6ff"
+            else:
+                icon = "·"
+                style = "dim #8b949e"
+
+            # Focus highlight
+            if is_focused and status != "completed":
+                style = "#58a6ff"
+
+            # Changed task highlight (brief flash) - bright color
+            if is_changed:
+                style = "bold #7ee787"  # Bright green for changed tasks
 
             # Description (truncate based on terminal width)
             desc = task.get("description", "Untitled task")
             if len(desc) > max_desc_len:
                 desc = desc[: max_desc_len - 3] + "..."
 
-            # Style based on status
-            if status == "completed":
-                style = "dim #6e7681"
-            elif status == "in_progress":
-                style = "bold #58a6ff"
-            elif status == "blocked":
-                style = "italic #6e7681"
-            else:
-                style = "#8b949e"
-
-            # Add focus highlight
-            if is_focused:
-                icon = "▶" if status != "completed" else "✓"
-                if status == "completed":
-                    style = "bold #7ee787"
-
-            # Priority indicator
-            priority = task.get("priority", "medium")
-            priority_marker = " !" if priority == "high" else ""
-
-            # Always use newlines for readability
-            text.append(f"\n {icon} {desc}{priority_marker}", style=style)
+            text.append(f"\n{icon} {desc}", style=style)
 
         # Show "more below" indicator
         remaining = total - (start_idx + len(visible_tasks))
         if remaining > 0:
-            text.append(f"  ↓{remaining}", style="dim")
+            text.append(f" (+{remaining} more)", style="dim #6e7681")
 
-        # Render reminder if set
+        # Render reminder if set (keep this prominent)
         if self._reminder:
             reminder_text = self._reminder.replace("\n", " ").strip()
             max_len = self._get_max_description_length()
             if len(reminder_text) > max_len:
                 reminder_text = reminder_text[: max_len - 3] + "..."
-            text.append(f"\n 💡 {reminder_text}", style="bold #ffa657")
+            text.append(f"\n! {reminder_text}", style="#ffa657")
 
         return text
 
@@ -318,16 +311,29 @@ class TaskPlanCard(Static):
             focused_task_id: Task to focus on
             operation: Type of operation
         """
+        # Detect which tasks changed (status changed)
+        old_status_map = {t.get("id"): t.get("status") for t in self._tasks if t.get("id")}
+        self._changed_task_ids = set()
+
+        for task in tasks:
+            task_id = task.get("id")
+            if task_id:
+                old_status = old_status_map.get(task_id)
+                new_status = task.get("status")
+                # Highlight if status changed or it's a new task
+                if old_status is None or old_status != new_status:
+                    self._changed_task_ids.add(task_id)
+
         self._tasks = tasks
         self._focused_task_id = focused_task_id
         self._operation = operation
 
         # Update display
-        try:
-            content_widget = self.query_one(Static)
-            content_widget.update(self._build_content())
-        except Exception:
-            pass
+        self.refresh()
+
+        # Clear highlights after brief delay
+        if self._changed_task_ids and self.app:
+            self.app.set_timer(0.8, self._clear_highlights)
 
     @classmethod
     def from_mcp_result(cls, result: Dict[str, Any], operation: str = "create") -> "TaskPlanCard":

@@ -68,7 +68,7 @@ $agent-8-bg: #26100d;
  */
 
 Screen {
-    background: $bg-base;
+    background: initial;  /* Use terminal's native background */
     color: $fg-primary;
     layers: base overlay;
 }
@@ -82,7 +82,7 @@ Screen {
     width: 100%;
     height: 1fr;
     align: center middle;
-    background: $bg-base;
+    background: initial;  /* Use terminal's native background */
 }
 
 #welcome_screen Label, #welcome_screen Static {
@@ -131,19 +131,28 @@ Screen {
 
 #main_container {
     layout: vertical;
-    background: $bg-base;
+    background: initial;  /* Use terminal's native background */
     height: 1fr;
     padding: 0;
 }
 
 /* === Cancellation State === */
-/* Visual feedback when execution is cancelled */
+/* PERSISTENT visual feedback when execution is cancelled.
+ * Persists until user submits a new question to clearly indicate
+ * the system is waiting for input. */
 #main_container.cancelled-state {
     background: #1a0d0d;
 }
 
+/* Gray out agent panels in cancelled state */
 #main_container.cancelled-state AgentPanel {
     border-left: thick $accent-error;
+    opacity: 0.6;
+}
+
+/* Gray out timeline content in cancelled state */
+#main_container.cancelled-state TimelineSection {
+    opacity: 0.7;
 }
 
 .cancellation-banner {
@@ -295,6 +304,20 @@ AgentTab.status-completed {
     border-bottom: tall $accent-success;
 }
 
+AgentTab.status-voted {
+    border-bottom: tall $accent-success;
+}
+
+AgentTab.status-done {
+    border-bottom: tall $border-highlight;
+    color: $fg-muted;
+}
+
+AgentTab.status-cancelled {
+    border-bottom: tall $accent-warning;
+    color: $accent-warning;
+}
+
 AgentTab.status-error {
     border-bottom: tall $accent-error;
 }
@@ -313,6 +336,22 @@ AgentTab.active.status-streaming {
 AgentTab.active.status-completed {
     background: $agent-2-bg;
     border-bottom: tall $accent-success;
+}
+
+AgentTab.active.status-voted {
+    background: $agent-2-bg;
+    border-bottom: tall $accent-success;
+}
+
+AgentTab.active.status-done {
+    background: $bg-surface;
+    border-bottom: tall $border-highlight;
+    color: $fg-muted;
+}
+
+AgentTab.active.status-cancelled {
+    background: $agent-7-bg;
+    border-bottom: tall $accent-warning;
 }
 
 AgentTab.active.status-error {
@@ -376,8 +415,8 @@ AgentStatusRibbon {
     width: 100%;
     height: auto;
     min-height: 1;
-    background: $bg-surface-2;
-    border-bottom: solid $border-default;
+    background: transparent;
+    border-top: solid $border-default;
     padding: 0 1;
 }
 
@@ -399,13 +438,25 @@ AgentStatusRibbon .ribbon-divider {
     color: $fg-muted;
 }
 
-AgentStatusRibbon #round_selector {
+AgentStatusRibbon #round_nav_label {
     color: $fg-primary;
 }
 
-AgentStatusRibbon #round_selector:hover {
+AgentStatusRibbon #round_nav_label:hover {
+    color: $accent-primary;
+}
+
+AgentStatusRibbon #tasks_display {
+    color: $fg-muted;
+}
+
+AgentStatusRibbon #tasks_display:hover {
     color: $accent-primary;
     text-style: underline;
+}
+
+AgentStatusRibbon #tasks_display.has-tasks {
+    color: $accent-info;
 }
 
 AgentStatusRibbon #timeout_display.warning {
@@ -468,18 +519,19 @@ SessionInfoPanel #session_content {
 /* === Mode Bar (now inside input_header on the left) === */
 /* Override ModeBar widget's DEFAULT_CSS - keep width: auto so buttons fit content */
 ModeBar {
-    height: 1;
+    height: 2;
     width: auto;
     layout: horizontal;
     background: $bg-base;
     padding: 0;
+    margin-left: 1;  /* Align with input box left edge */
     align: left middle;
     border: none;
     border-bottom: none;
 }
 
 #mode_bar {
-    height: auto;
+    height: 2;
     width: auto;
     layout: horizontal;
     background: $bg-base;
@@ -493,59 +545,92 @@ ModeBar {
     display: none;
 }
 
-/* Mode Toggle buttons - compact pill style with radio indicators */
+/* Mode Toggle buttons - underline style */
 ModeToggle {
     width: auto;
-    height: 1;
+    height: 2;
     margin: 0 1 0 0;
     padding: 0 1;
-    background: $bg-surface-2;
-    color: $fg-muted;
+    background: transparent;
+    color: $fg-primary;
     border: none;
+    border-bottom: tall $border-default;
     outline: none;
 }
 
 ModeToggle:hover {
-    background: #3a424d;
+    background: transparent;
     color: $fg-primary;
+    border-bottom: tall $border-highlight;
 }
 
 ModeToggle:focus {
-    background: #3a424d;
+    background: transparent;
     color: $fg-primary;
-    text-style: bold;
-    border: solid $border-focus;
+    border-bottom: tall $border-highlight;
     outline: none;
 }
 
 ModeToggle.disabled {
-    background: $bg-surface;
-    color: $border-highlight;
+    background: transparent;
+    color: $fg-subtle;
+    border-bottom: tall $border-muted;
     text-style: italic;
 }
 
-/* Plan mode states - softer green tones */
+/* Plan mode states - green text + underline */
 ModeToggle.state-plan {
-    background: #1a3a2a;
-    color: #7ee787;
+    color: $accent-success;
+    border-bottom: tall $accent-success;
+}
+
+ModeToggle.state-plan:hover,
+ModeToggle.state-plan:focus {
+    color: $accent-success;
+    border-bottom: tall $accent-success;
 }
 
 ModeToggle.state-execute {
-    background: #1a3a2a;
-    color: #7ee787;
+    color: $accent-success;
+    border-bottom: tall $accent-success;
     text-style: bold;
 }
 
-/* Agent mode states - softer warning tones */
-ModeToggle.state-single {
-    background: #3d3520;
-    color: #e3b341;
+ModeToggle.state-execute:hover,
+ModeToggle.state-execute:focus {
+    color: $accent-success;
+    border-bottom: tall $accent-success;
+    text-style: bold;
 }
 
-/* Refinement mode states - softer muted tones */
+/* Agent mode states - single is muted (reduced mode) */
+ModeToggle.state-single {
+    color: $fg-muted;
+    border-bottom: tall $border-default;
+}
+
+/* Multi-agent (default) - normal text */
+ModeToggle.state-multi {
+    color: $fg-primary;
+    border-bottom: tall $border-default;
+}
+
+/* Refinement on - default state, not highlighted */
+ModeToggle.state-on {
+    color: $fg-primary;
+    border-bottom: tall $border-default;
+}
+
+/* Refinement off - muted gray (reduced mode) */
 ModeToggle.state-off {
-    background: #2d2d2d;
-    color: #8b949e;
+    color: $fg-muted;
+    border-bottom: tall $border-default;
+}
+
+/* Normal (inactive plan) - visible but subdued */
+ModeToggle.state-normal {
+    color: $fg-primary;
+    border-bottom: tall $border-default;
 }
 
 /* Override button in mode bar */
@@ -615,7 +700,7 @@ AgentPanel {
     padding: 0;
     width: 100%;
     height: 100%;
-    overflow: hidden;  /* Disable scrolling on AgentPanel - scrolling happens in TimelineScrollContainer */
+    overflow: hidden;  /* Disable scrolling on AgentPanel - scrolling happens in TimelineSection */
 }
 
 /* Vertical container inside AgentPanel - full width, full height */
@@ -624,7 +709,7 @@ AgentPanel > Vertical {
     height: 100%;
     padding: 0;
     margin: 0;
-    overflow: hidden;  /* Scrolling happens in TimelineScrollContainer, not here */
+    overflow: hidden;  /* Scrolling happens in TimelineSection, not here */
 }
 
 /* Agent panel header label - first line with agent name, backend, timer */
@@ -694,17 +779,9 @@ AgentPanel.agent-color-7 { border-left: thick $accent-warning; border-right: non
 AgentPanel.agent-color-8 { border-left: thick $accent-error; border-right: none; }
 
 /* === Agent Panel Pulsing Animation === */
-/* Visual indicator for active/working agents */
-AgentPanel.pulse-bright {
-    border-left: thick #79c0ff;
-    background: #0d1a26;
-}
-
-AgentPanel.pulse-normal {
-    border-left: thick $accent-primary;
-}
-
-/* Specific pulse colors per agent color */
+/* DISABLED: Was too distracting. Kept for reference. */
+/* AgentPanel.pulse-bright { border-left: thick #79c0ff; background: #0d1a26; }
+AgentPanel.pulse-normal { border-left: thick $accent-primary; }
 AgentPanel.agent-color-1.pulse-bright { border-left: thick #79c0ff; background: #0d1a26; }
 AgentPanel.agent-color-2.pulse-bright { border-left: thick #56d364; background: #0d1f14; }
 AgentPanel.agent-color-3.pulse-bright { border-left: thick #bc8cff; background: #1a0d26; }
@@ -712,7 +789,7 @@ AgentPanel.agent-color-4.pulse-bright { border-left: thick #ffa657; background: 
 AgentPanel.agent-color-5.pulse-bright { border-left: thick #56d7e5; background: #0d1f1f; }
 AgentPanel.agent-color-6.pulse-bright { border-left: thick #f778ba; background: #260d1a; }
 AgentPanel.agent-color-7.pulse-bright { border-left: thick #e3b341; background: #262010; }
-AgentPanel.agent-color-8.pulse-bright { border-left: thick #ff7b72; background: #26100d; }
+AgentPanel.agent-color-8.pulse-bright { border-left: thick #ff7b72; background: #26100d; } */
 
 /* Agent header row - horizontal layout for left/right content */
 .agent-header-row {
@@ -1024,13 +1101,12 @@ SuggestionRow.selected {
     background: $bg-base;
 }
 
-
 /* Input hint text - docked to right side */
 #input_hint {
     dock: right;
     height: 1;
     width: auto;
-    color: $fg-subtle;
+    color: #484f58;  /* Darker than $fg-subtle for shadow effect */
     text-style: italic;
     padding: 0 1;
     background: $bg-base;
@@ -2296,18 +2372,19 @@ Footer {
 ToolCallCard {
     width: 100%;
     height: auto;
-    min-height: 1;
-    max-height: 6;
-    padding: 0 0 0 2;
-    margin: 1 0 1 1;
+    min-height: 2;
+    max-height: 8;
+    padding: 0 1 0 2;
+    margin: 1 0 1 1;  /* Better visual separation between tool cards */
     background: transparent;
     border: none;
-    border-left: solid $border-default;
+    border-left: thick $border-default;
+    transition: opacity 300ms out_expo;
 }
 
-/* Tool card appearance animation - fade in effect */
+/* Tool card appearance animation - smooth fade in effect */
 ToolCallCard.appearing {
-    opacity: 0.3;
+    opacity: 0.0;
 }
 
 ToolCallCard.appeared {
@@ -2315,12 +2392,26 @@ ToolCallCard.appeared {
 }
 
 /* === General Animation Utility Classes === */
-/* Fade-in animation - apply .appearing then swap to .appeared */
+/* Fade-in animation - apply .appearing then swap to .appeared
+ * Transition property animates the change over 150ms with ease-out curve */
 .appearing {
-    opacity: 0.3;
+    opacity: 0.0;
 }
 
 .appeared {
+    opacity: 1.0;
+}
+
+/* Smooth opacity transitions for timeline content */
+TimelineSection .timeline-text {
+    transition: opacity 300ms out_expo;
+}
+
+TimelineSection .timeline-text.appearing {
+    opacity: 0.0;
+}
+
+TimelineSection .timeline-text.appeared {
     opacity: 1.0;
 }
 
@@ -2350,12 +2441,12 @@ ToolCallCard.has-injection {
 }
 
 ToolCallCard:hover {
-    background: $bg-surface;
+    background: transparent;
     border-left: solid $border-highlight;
 }
 
 ToolCallCard:focus {
-    background: $bg-surface;
+    background: transparent;
     border-left: solid $accent-primary;
     outline: none;
 }
@@ -2420,37 +2511,202 @@ ToolCallCard.type-workspace {
 /* === Subagent Tool Cards - Special styling for spawn_subagents === */
 ToolCallCard.type-subagent {
     border-left: solid $accent-special;
-    background: #1a1526;
+    background: transparent;
     max-height: 15;
     padding: 0 1;
 }
 
 ToolCallCard.type-subagent.status-running {
     border-left: solid $accent-special;
-    background: #1f1830;
+    background: transparent;
     border: solid $accent-special;
     border-left: solid $accent-special;
 }
 
 ToolCallCard.type-subagent.status-success {
     border-left: solid $accent-success;
-    background: $agent-2-bg;
+    background: transparent;
 }
 
 ToolCallCard.type-subagent.status-error {
     border-left: solid $accent-error;
-    background: #1f0d0f;
+    background: transparent;
 }
 
 ToolCallCard.type-subagent.status-background {
     border-left: solid $accent-warning;
-    background: #1f1a10;
+    background: transparent;
 }
 
 ToolCallCard.type-subagent.expanded {
     max-height: 100%;
     height: auto;
     min-height: 8;
+}
+
+/* === Terminal Tool Cards (new_answer, vote) === */
+/* Minimalist emphasis: left accent bar only, muted colors */
+ToolCallCard.terminal-tool {
+    border: none;
+    border-left: tall #64748b;
+    background: transparent;
+    min-height: 3;
+    max-height: 12;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+ToolCallCard.terminal-tool.status-running {
+    border: none;
+    border-left: tall #64748b;
+    background: transparent;
+}
+
+ToolCallCard.terminal-tool.status-success {
+    border: none;
+    border-left: tall #6b9e7a;
+    background: transparent;
+}
+
+ToolCallCard.terminal-tool.status-error {
+    border: none;
+    border-left: tall #b07070;
+    background: transparent;
+}
+
+ToolCallCard.terminal-tool:hover {
+    background: transparent;
+    border: none;
+    border-left: tall #8b9cb5;
+}
+
+ToolCallCard.terminal-tool:focus {
+    background: transparent;
+    border: none;
+    border-left: tall #94a3b8;
+    outline: none;
+}
+
+/* Terminal tool header styling - muted accent for tool name */
+ToolCallCard.terminal-tool #tool-main-content {
+    color: #94a3b8;
+}
+
+/* === Tool Batch Cards === */
+/* Tree view for batched MCP tool calls from the same server */
+
+ToolBatchCard {
+    width: 100%;
+    height: auto;
+    min-height: 3;
+    max-height: 20;
+    padding: 0 1;
+    margin: 1 0 1 1;  /* Match ToolCallCard spacing for consistency */
+    background: transparent;
+    border-left: thick $border-default;
+    transition: opacity 300ms out_expo;
+}
+
+/* Appearance animation - smooth fade in */
+ToolBatchCard.appearing {
+    opacity: 0.0;
+}
+
+ToolBatchCard.appeared {
+    opacity: 1.0;
+}
+
+ToolBatchCard:hover {
+    background: transparent;
+    border-left: solid $border-highlight;
+}
+
+ToolBatchCard:focus {
+    background: transparent;
+    border-left: solid $accent-primary;
+    outline: none;
+}
+
+/* Collapsed state */
+ToolBatchCard.collapsed {
+    max-height: 6;
+}
+
+/* Expanded state */
+ToolBatchCard.expanded {
+    max-height: 30;
+}
+
+/* Status-based styling */
+ToolBatchCard.status-running {
+    border-left: solid $accent-primary;
+}
+
+ToolBatchCard.status-success {
+    border-left: solid $accent-success;
+}
+
+ToolBatchCard.status-error {
+    border-left: solid $accent-error;
+    background: transparent;
+}
+
+/* Batch card content container */
+ToolBatchCard #batch-content {
+    height: auto;
+    width: 100%;
+    scrollbar-size: 1 1;
+    scrollbar-background: transparent;
+    scrollbar-color: $border-default;
+}
+
+/* === Collapsible Text Cards === */
+/* Collapsible blocks for long reasoning/content text */
+/* Static widget with border-left, matching ToolCallCard pattern */
+
+CollapsibleTextCard {
+    width: 100%;
+    height: auto;
+    padding: 0 1 0 2;
+    margin: 1 0 1 1;  /* Match ToolCallCard margin for alignment */
+    background: transparent;
+    border-left: thick $border-subtle;
+    transition: opacity 300ms out_expo;
+}
+
+/* Appearance animation - smooth fade in */
+CollapsibleTextCard.appearing {
+    opacity: 0.0;
+}
+
+CollapsibleTextCard.appeared {
+    opacity: 1.0;
+}
+
+CollapsibleTextCard:hover {
+    background: $bg-surface;
+    border-left: solid $border-highlight;
+}
+
+CollapsibleTextCard:focus {
+    background: $bg-surface;
+    border-left: solid $accent-primary;
+    outline: none;
+}
+
+CollapsibleTextCard.expanded {
+    max-height: 100%;
+    background: $bg-card;
+}
+
+/* Thinking cards - lighter muted gray vertical line */
+CollapsibleTextCard.label-thinking {
+    border-left: solid #7d8590;
+}
+
+/* Content cards - slightly different muted gray vertical line */
+CollapsibleTextCard.label-content {
+    border-left: solid #6e7681;
 }
 
 /* === Content Sections === */
@@ -2495,19 +2751,12 @@ ToolSection #tool_container {
 }
 
 /* Timeline Section - chronological view of all content */
+/* TimelineSection inherits from ScrollableContainer directly for proper scrollbar behavior */
 TimelineSection {
     width: 100%;
     height: 1fr;
-    padding: 0;
+    padding: 0 2 1 2;
     margin: 0;
-    overflow: hidden;  /* Scrolling happens in TimelineScrollContainer, not here */
-}
-
-TimelineSection #timeline_container,
-TimelineSection TimelineScrollContainer {
-    width: 100%;
-    height: 1fr;
-    padding: 0;
     background: $bg-base;
     overflow-y: auto;
     scrollbar-size: 2 2;
@@ -2537,7 +2786,7 @@ TimelineSection .timeline-text.status {
     color: $accent-primary;
     border-left: solid $accent-primary;
     padding-left: 2;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;
 }
 
 /* Thinking/reasoning blocks - continuous vertical line */
@@ -2552,7 +2801,6 @@ TimelineSection .timeline-text.thinking {
 TimelineSection .timeline-text.reasoning-inline,
 TimelineSection .timeline-text.thinking-inline {
     color: #6e7681;
-    border-left: none;
     padding: 0 0 0 2;
     margin: 0 0 0 1;
     text-style: italic;
@@ -2563,7 +2811,7 @@ TimelineSection .timeline-text.injection {
     background: #2d2d4a;
     border-left: solid $accent-special;
     padding-left: 2;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;
 }
 
 TimelineSection .timeline-text.reminder {
@@ -2571,28 +2819,28 @@ TimelineSection .timeline-text.reminder {
     background: #4a3d2d;
     border-left: solid $accent-warning;
     padding-left: 2;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;
 }
 
 TimelineSection .timeline-text.response {
     color: $accent-success;
     border-left: solid $accent-success;
     padding: 0 0 0 2;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;
 }
 
 TimelineSection .timeline-text.answer {
     color: $accent-warning;
     border-left: solid $accent-warning;
-    padding: 0 0 0 2;
-    margin: 1 0 1 1;
+    padding: 0 0 1 2;
+    margin: 0 0 1 1;
 }
 
 /* Final presentation content - clean, no background */
 TimelineSection .timeline-text.final-answer {
     color: #e6e6e6;
     padding: 0 0 0 2;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;
 }
 
 /* Post-evaluation content - subtle blue tint */
@@ -2600,7 +2848,7 @@ TimelineSection .timeline-text.post-eval {
     color: #a8c7fa;
     border-left: solid $accent-primary;
     padding: 0 0 0 2;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;
 }
 
 /* Pinned Task Plan Container - stays at top of agent panel */
@@ -2609,9 +2857,9 @@ TimelineSection .timeline-text.post-eval {
     height: auto;
     max-height: 12;
     margin: 0;
-    padding: 0;
-    background: $bg-surface;
-    border-bottom: solid $border-default;
+    padding: 0 0 1 0;
+    background: $bg-base;
+    border-bottom: solid #3d444d 50%;
 }
 
 .pinned-task-plan.hidden {
@@ -2619,7 +2867,7 @@ TimelineSection .timeline-text.post-eval {
 }
 
 .pinned-task-plan.collapsed {
-    max-height: 2;
+    max-height: 3;
     overflow: hidden;
 }
 
@@ -2629,14 +2877,14 @@ TaskPlanCard {
     height: auto;
     min-height: 1;
     padding: 0 0 0 2;
-    margin: 0;
+    margin: 0 0 0 1;
     background: transparent;
-    border-left: solid $accent-special;
+    border-left: solid #484f58;
 }
 
-/* Update animation - brief highlight */
+/* Update animation - subtle border pulse instead of full background */
 TaskPlanCard.updated {
-    background: #2d2d4a;
+    border-left: solid #58a6ff;
 }
 
 TaskPlanCard .task-header {
@@ -2676,7 +2924,7 @@ TimelineSection .timeline-text.vote {
     color: $accent-special;
     border-left: solid $accent-special;
     padding: 0 0 0 2;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;
 }
 
 TimelineSection .timeline-text.truncation-notice,
@@ -2695,7 +2943,7 @@ TimelineSection .scroll-indicator {
     dock: top;
     width: 100%;
     height: auto;
-    background: $bg-surface-2;
+    background: transparent;
     color: #7d8590;
     text-align: center;
     padding: 0;
@@ -2728,20 +2976,45 @@ TimelineSection #scroll_bottom_indicator {
     dock: bottom;
 }
 
-/* Restart Banner - prominent separator with color */
+/* Restart Banner - strong single-line separator spanning full width */
 RestartBanner {
     width: 100%;
-    height: auto;
+    height: 1;
     margin: 1 0;
-    padding: 1 0;
-    text-align: center;
-    background: #1a1526;
-    border-top: solid $accent-special;
-    border-bottom: solid $accent-special;
-    color: $accent-special;
+    padding: 0;
+    background: transparent;
 }
 
-/* FinalPresentationCard is styled via DEFAULT_CSS in content_sections.py */
+/* FinalPresentationCard - full-width mode overrides for dark theme */
+FinalPresentationCard.full-width-mode {
+    height: 1fr;
+    min-height: 20;
+    border: double $accent-success;
+}
+
+FinalPresentationCard.full-width-mode.streaming {
+    border: double $accent-warning;
+}
+
+FinalPresentationCard.full-width-mode #final_card_content {
+    height: 1fr;
+    max-height: 100%;
+    overflow-y: auto;
+    background: $bg-base;
+}
+
+FinalPresentationCard.full-width-mode #final_card_header {
+    background: transparent;
+    padding: 0 1;
+}
+
+FinalPresentationCard.full-width-mode #final_card_title {
+    color: $accent-success;
+}
+
+FinalPresentationCard.full-width-mode.completed #final_card_header {
+    background: transparent;
+}
 
 /* Thinking Section - auto height, shrinks to content */
 ThinkingSection {
@@ -2994,6 +3267,18 @@ StatusBar.consensus-reached #status_votes {
 }
 
 #status_cwd:hover {
+    color: $accent-primary;
+    text-style: underline;
+}
+
+/* StatusBar Theme toggle */
+#status_theme {
+    width: auto;
+    color: $fg-muted;
+    margin-left: 2;
+}
+
+#status_theme:hover {
     color: $accent-primary;
     text-style: underline;
 }
@@ -4466,7 +4751,7 @@ FinalAnswerView #final_header {
     width: 100%;
     height: auto;
     padding: 0 1;
-    background: #1a4d2e;
+    background: $bg-surface-2;
     border-bottom: solid $accent-success;
 }
 
@@ -4568,4 +4853,114 @@ AgentStatusRibbon #round_selector.final-answer-view {
 
 AgentStatusRibbon #round_selector.final-answer-view:hover {
     color: #56d364;
+}
+
+/* === Plan Options Popover === */
+/* Dropdown overlay for plan mode configuration */
+PlanOptionsPopover {
+    layer: overlay;
+    dock: bottom;
+    width: auto;
+    min-width: 35;
+    max-width: 50;
+    height: auto;
+    max-height: 25;
+    background: $bg-surface;
+    border: solid $accent-primary;
+    padding: 1;
+    margin-bottom: 3;
+    margin-left: 1;
+    display: none;
+}
+
+PlanOptionsPopover.visible {
+    display: block;
+}
+
+PlanOptionsPopover #popover_title {
+    text-style: bold;
+    color: $fg-primary;
+    margin-bottom: 1;
+}
+
+PlanOptionsPopover #popover_content {
+    width: 100%;
+    height: auto;
+}
+
+PlanOptionsPopover .section-label {
+    color: $fg-muted;
+    margin-top: 1;
+    margin-bottom: 0;
+    height: 1;
+}
+
+PlanOptionsPopover Select {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+PlanOptionsPopover #close_btn {
+    margin-top: 1;
+    width: 100%;
+    background: $bg-surface-2;
+}
+
+PlanOptionsPopover #close_btn:hover {
+    background: $bg-elevated;
+}
+
+/* Plan settings button in mode bar - matches ModeToggle style */
+#plan_settings_btn {
+    width: auto;
+    height: 2;
+    min-width: 3;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall $border-default;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+#plan_settings_btn:hover {
+    background: transparent;
+    color: $accent-primary;
+    border-bottom: tall $accent-primary;
+}
+
+#plan_settings_btn.hidden {
+    display: none;
+}
+
+/* Plan status label in mode bar */
+#plan_status {
+    color: $fg-muted;
+    text-style: italic;
+    padding: 0 1;
+}
+
+#plan_status.hidden {
+    display: none;
+}
+
+/* === Toast Notifications === */
+ToastRack {
+    margin-bottom: 8;  /* Push up above tab bar and input */
+}
+
+Toast.-information {
+    border-left: thick $accent-info;
+}
+
+Toast.-warning {
+    border-left: thick $accent-warning;
+}
+
+Toast.-error {
+    border-left: thick $accent-error;
+}
+
+Toast.-success {
+    border-left: thick $accent-success;
 }

@@ -202,17 +202,8 @@ class MultiLineInput(TextArea):
         line_count = normalized_text.count("\n") + 1
         char_count = len(pasted_text)
 
-        # DEBUG: Log paste event
-        with open("/tmp/paste_debug.log", "a") as f:
-            f.write(f"[PASTE] lines={line_count}, chars={char_count}, threshold_lines={self.PASTE_LINE_THRESHOLD}, threshold_chars={self.PASTE_CHAR_THRESHOLD}\n")
-            f.write(f"[PASTE] text preview: {repr(pasted_text[:100])}\n")
-            f.write(f"[PASTE] newline chars: \\n={pasted_text.count(chr(10))}, \\r={pasted_text.count(chr(13))}\n")
-
         # Check if paste exceeds thresholds
         is_large = line_count >= self.PASTE_LINE_THRESHOLD or char_count >= self.PASTE_CHAR_THRESHOLD
-
-        with open("/tmp/paste_debug.log", "a") as f:
-            f.write(f"[PASTE] is_large={is_large}\n")
 
         if is_large:
             # Store full text for later submission, along with the line count used in placeholder
@@ -223,15 +214,9 @@ class MultiLineInput(TextArea):
             # Create placeholder
             placeholder = f"[Pasted text #{paste_id} +{line_count} lines]"
 
-            with open("/tmp/paste_debug.log", "a") as f:
-                f.write(f"[PASTE] Creating placeholder: {placeholder}\n")
-                f.write(f"[PASTE] read_only={self.read_only}, selection={self.selection}\n")
-
             # Insert placeholder instead of full text
             if not self.read_only:
                 result = self._replace_via_keyboard(placeholder, *self.selection)
-                with open("/tmp/paste_debug.log", "a") as f:
-                    f.write(f"[PASTE] _replace_via_keyboard result={result}\n")
                 if result:
                     self.move_cursor(result.end_location)
                     self.focus()
@@ -239,8 +224,6 @@ class MultiLineInput(TextArea):
             # Stop event - don't let parent TextArea insert the full text
             event.stop()
             event.prevent_default()
-            with open("/tmp/paste_debug.log", "a") as f:
-                f.write("[PASTE] Event stopped and prevented\n")
         else:
             # Small paste - let TextArea handle normally
             await super()._on_paste(event)
@@ -776,13 +759,30 @@ class MultiLineInput(TextArea):
                 # Valid @ - extract prefix
                 prefix = text_before_cursor[pos + 1 :]
 
-                # Don't trigger if there's a space (path is complete)
-                if " " in prefix:
-                    return None
+                # Check if this is a quoted path (starts with ")
+                is_quoted = prefix.startswith('"')
 
-                # Don't trigger if already has :w suffix
-                if prefix.endswith(":w"):
-                    return None
+                if is_quoted:
+                    # For quoted paths, extract content after the opening quote
+                    # Allow spaces inside quotes
+                    prefix = prefix[1:]  # Remove opening quote
+
+                    # Check if the quote is closed (path is complete)
+                    if '"' in prefix:
+                        return None
+
+                    # Don't trigger if already has :w suffix (after closing quote)
+                    # This case shouldn't happen for open quotes, but check anyway
+                    if prefix.endswith(":w"):
+                        return None
+                else:
+                    # For unquoted paths, don't trigger if there's a space
+                    if " " in prefix:
+                        return None
+
+                    # Don't trigger if already has :w suffix
+                    if prefix.endswith(":w"):
+                        return None
 
                 return (pos, prefix)
 
@@ -834,15 +834,10 @@ class MultiLineInput(TextArea):
             return
 
         result = self._find_at_position()
-        # DEBUG: Log the result
-        with open("/tmp/at_debug.log", "a") as f:
-            f.write(f"[DEBUG MLI] _check_at_trigger: result={result}\n")
 
         if result:
             at_pos, prefix = result
             self._at_position = at_pos
-            with open("/tmp/at_debug.log", "a") as f:
-                f.write(f"[DEBUG MLI] Posting AtPrefixChanged: prefix={repr(prefix)}\n")
             self.post_message(self.AtPrefixChanged(self, prefix, at_pos))
         elif self._autocomplete_active:
             self._at_position = None
@@ -850,9 +845,6 @@ class MultiLineInput(TextArea):
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Handle text changes to detect @ triggers and cleanup deleted placeholders."""
-        # DEBUG: Log that this handler was called
-        with open("/tmp/at_debug.log", "a") as f:
-            f.write(f"[DEBUG MLI] on_text_area_changed called, text={repr(self.text[:50] if self.text else '')}\n")
         self._check_at_trigger()
 
         # Cleanup any paste placeholders that were deleted
@@ -883,7 +875,12 @@ class MultiLineInput(TextArea):
         before = text[: self._at_position]
         after = text[at_end:]
         suffix = ":w" if with_write else ""
-        new_reference = f"@{path}{suffix}"
+
+        # Auto-quote paths that contain spaces
+        if " " in path:
+            new_reference = f'@"{path}"{suffix}'
+        else:
+            new_reference = f"@{path}{suffix}"
 
         new_text = before + new_reference + after
         new_cursor_pos = len(before) + len(new_reference)
@@ -923,8 +920,15 @@ class MultiLineInput(TextArea):
         # Build new text
         before = text[: self._at_position]
         after = text[at_end:]
-        new_text = before + f"@{new_prefix}" + after
-        new_cursor_pos = len(before) + 1 + len(new_prefix)
+
+        # Auto-quote paths that contain spaces (keep quote open for continued browsing)
+        if " " in new_prefix:
+            new_reference = f'@"{new_prefix}'
+        else:
+            new_reference = f"@{new_prefix}"
+
+        new_text = before + new_reference + after
+        new_cursor_pos = len(before) + len(new_reference)
 
         # Update text
         self.load_text(new_text)

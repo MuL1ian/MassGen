@@ -564,6 +564,38 @@ class DockerManager:
 
         # Build environment variables
         env_vars = self._build_environment()
+
+        # Add XDG cache directories pointing to writable workspace
+        # This allows package managers (uv, pip, npm, cargo, etc.) to work
+        # even when context paths are mounted read-only
+        # Based on: https://wiki.archlinux.org/title/XDG_Base_Directory
+        workspace_cache = str(workspace_path / ".cache")
+        workspace_data = str(workspace_path / ".local" / "share")
+
+        # XDG Base Directories - catches most XDG-compliant tools
+        env_vars["XDG_CACHE_HOME"] = workspace_cache
+        env_vars["XDG_DATA_HOME"] = workspace_data
+
+        # Python tools
+        env_vars["PIP_CACHE_DIR"] = f"{workspace_cache}/pip"
+        env_vars["UV_CACHE_DIR"] = f"{workspace_cache}/uv"
+        env_vars["UV_LINK_MODE"] = "copy"  # Avoid hard link warnings across filesystems
+        env_vars["PYTHONPYCACHEPREFIX"] = f"{workspace_cache}/python"
+
+        # Node.js tools
+        env_vars["npm_config_cache"] = f"{workspace_cache}/npm"
+        env_vars["PNPM_HOME"] = f"{workspace_data}/pnpm"
+
+        # Rust tools
+        env_vars["CARGO_HOME"] = f"{workspace_data}/cargo"
+        env_vars["RUSTUP_HOME"] = f"{workspace_data}/rustup"
+
+        # Go tools
+        env_vars["GOMODCACHE"] = f"{workspace_cache}/go/mod"
+
+        # Other common tools
+        env_vars["GRADLE_USER_HOME"] = f"{workspace_data}/gradle"
+
         if env_vars:
             logger.info(f"    Environment variables: {len(env_vars)} variable(s)")
 

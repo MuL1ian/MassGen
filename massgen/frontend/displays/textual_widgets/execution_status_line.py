@@ -75,17 +75,13 @@ class ExecutionStatusLine(Widget):
         self._agent_states: Dict[str, str] = {aid: "idle" for aid in agent_ids}
         self._pulse_timer = None
 
-        # Hide if single agent (no need for multi-agent status)
-        if len(agent_ids) <= 1:
-            self.add_class("hidden")
-
     def on_mount(self) -> None:
         """Start the pulse animation timer."""
-        self._pulse_timer = self.set_interval(0.4, self._advance_pulse)
+        self._pulse_timer = self.set_interval(0.3, self._advance_pulse)
 
     def _advance_pulse(self) -> None:
         """Advance the pulse animation frame."""
-        self._pulse_frame = (self._pulse_frame + 1) % 4
+        self._pulse_frame = (self._pulse_frame + 1) % 12
 
     def watch__pulse_frame(self, frame: int) -> None:
         """Refresh display when pulse frame changes."""
@@ -107,7 +103,13 @@ class ExecutionStatusLine(Widget):
 
         Args:
             agent_id: Agent ID
-            state: State name (idle, streaming, thinking, tool_use, voted, done, error)
+            state: State name. Valid states:
+                - idle: Agent is idle (dim circle "○")
+                - working/streaming/thinking/tool_use: Agent is actively processing (pulsing dots)
+                - voted: Agent has voted, waiting for consensus (green "✓")
+                - done: Agent finished final presentation (dim "✓")
+                - cancelled: Agent was aborted/cancelled (yellow "✗")
+                - error: Agent encountered an error (red "✗")
             tool_name: Optional tool name when state is tool_use
         """
         if agent_id in self._agent_states:
@@ -146,8 +148,24 @@ class ExecutionStatusLine(Widget):
         """Render the status line showing all agents' states."""
         text = Text()
 
-        # Pulsing dots animation: .  ..  ...  ..
-        pulse_patterns = ["   ", ".  ", ".. ", "..."]
+        # Opening border
+        text.append("╭ ", style="dim")
+
+        # Organic 12-frame wave animation: breathing wave with bullet point
+        pulse_patterns = [
+            "   ",
+            ".  ",
+            ".. ",
+            "...",
+            "•..",
+            ".•.",
+            "..•",
+            "...",
+            ".. ",
+            ".  ",
+            "   ",
+            "   ",
+        ]
         pulse_dots = pulse_patterns[self._pulse_frame]
 
         for i, agent_id in enumerate(self._agent_ids):
@@ -175,14 +193,23 @@ class ExecutionStatusLine(Widget):
             if state in ("working", "streaming", "thinking", "tool_use"):
                 # Pulsing dots for working states - use agent color
                 text.append(pulse_dots, style=f"{agent_color} bold")
-            elif state in ("voted", "done"):
-                # Checkmark for completed
+            elif state == "voted":
+                # Green checkmark for voted (waiting for consensus)
                 text.append("✓  ", style="green")
+            elif state == "done":
+                # Dim checkmark for done (final presentation in progress)
+                text.append("✓  ", style="dim")
+            elif state == "cancelled":
+                # X for cancelled (yellow)
+                text.append("✗  ", style="yellow")
             elif state == "error":
-                # X for error
+                # X for error (red)
                 text.append("✗  ", style="red")
             else:
                 # Dim dot for idle
                 text.append("○  ", style="dim")
+
+        # Closing border (with space to avoid overlap with dots)
+        text.append(" ╮", style="dim")
 
         return text

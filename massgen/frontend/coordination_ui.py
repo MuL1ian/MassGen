@@ -363,7 +363,31 @@ class CoordinationUI:
                     # Signal that orchestration will restart - UI will be reinitialized
                     continue
 
-                # Reset reasoning prefix state when final presentation starts
+                # Handle per-agent restart (new round for specific agent)
+                elif chunk_type == "agent_restart":
+                    # Agent is starting a new round due to new context from other agents
+                    if self.display and hasattr(self.display, "show_agent_restart"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
+                        if agent_id:
+                            self.display.show_agent_restart(agent_id, round_num)
+                    continue
+
+                # Handle final presentation start (show fresh view for winning agent)
+                elif chunk_type == "final_presentation_start":
+                    if self.display and hasattr(self.display, "show_final_presentation_start"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
+                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
+                        if agent_id:
+                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
+                    # Reset reasoning prefix state
+                    for attr_name in list(vars(self).keys()):
+                        if attr_name.startswith("_summary_active_"):
+                            delattr(self, attr_name)
+                    continue
+
+                # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
                     # Clear all summary active flags for final presentation
                     for attr_name in list(vars(self).keys()):
@@ -377,6 +401,9 @@ class CoordinationUI:
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
+                            # Fix 3: Continue to next chunk to prevent double-processing
+                            # Content has been routed to post-eval panel, skip regular processing
+                            continue
 
                 # Track selected agent for post-evaluation
                 if content and "🏆 Selected Agent:" in content:
@@ -414,7 +441,7 @@ class CoordinationUI:
 
                     # Process content by source
                     # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
-                    await self._process_content(source, content)
+                    await self._process_content(source, content, chunk_type)
 
             # Flush agent content buffers BEFORE processing final answer
             # This ensures any streamed content reaches the display before we complete
@@ -984,7 +1011,31 @@ class CoordinationUI:
                     # Signal that orchestration will restart - UI will be reinitialized
                     continue
 
-                # Reset reasoning prefix state when final presentation starts
+                # Handle per-agent restart (new round for specific agent)
+                elif chunk_type == "agent_restart":
+                    # Agent is starting a new round due to new context from other agents
+                    if self.display and hasattr(self.display, "show_agent_restart"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
+                        if agent_id:
+                            self.display.show_agent_restart(agent_id, round_num)
+                    continue
+
+                # Handle final presentation start (show fresh view for winning agent)
+                elif chunk_type == "final_presentation_start":
+                    if self.display and hasattr(self.display, "show_final_presentation_start"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
+                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
+                        if agent_id:
+                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
+                    # Reset reasoning prefix state
+                    for attr_name in list(vars(self).keys()):
+                        if attr_name.startswith("_summary_active_"):
+                            delattr(self, attr_name)
+                    continue
+
+                # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
                     # Clear all summary active flags for final presentation
                     for attr_name in list(vars(self).keys()):
@@ -998,6 +1049,9 @@ class CoordinationUI:
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
+                            # Fix 3: Continue to next chunk to prevent double-processing
+                            # Content has been routed to post-eval panel, skip regular processing
+                            continue
 
                 # Track selected agent for post-evaluation
                 if content and "🏆 Selected Agent:" in content:
@@ -1035,7 +1089,7 @@ class CoordinationUI:
 
                     # Process content by source
                     # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
-                    await self._process_content(source, content)
+                    await self._process_content(source, content, chunk_type)
 
             # Flush agent content buffers BEFORE processing final answer
             # This ensures any streamed content reaches the display before we complete
@@ -1482,7 +1536,31 @@ class CoordinationUI:
                     # Signal that orchestration will restart - UI will be reinitialized
                     continue
 
-                # Reset reasoning prefix state when final presentation starts
+                # Handle per-agent restart (new round for specific agent)
+                elif chunk_type == "agent_restart":
+                    # Agent is starting a new round due to new context from other agents
+                    if self.display and hasattr(self.display, "show_agent_restart"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        round_num = content.get("round", 1) if isinstance(content, dict) else 1
+                        if agent_id:
+                            self.display.show_agent_restart(agent_id, round_num)
+                    continue
+
+                # Handle final presentation start (show fresh view for winning agent)
+                elif chunk_type == "final_presentation_start":
+                    if self.display and hasattr(self.display, "show_final_presentation_start"):
+                        agent_id = content.get("agent_id") if isinstance(content, dict) else None
+                        vote_counts = content.get("vote_counts") if isinstance(content, dict) else None
+                        answer_labels = content.get("answer_labels") if isinstance(content, dict) else None
+                        if agent_id:
+                            self.display.show_final_presentation_start(agent_id, vote_counts=vote_counts, answer_labels=answer_labels)
+                    # Reset reasoning prefix state
+                    for attr_name in list(vars(self).keys()):
+                        if attr_name.startswith("_summary_active_"):
+                            delattr(self, attr_name)
+                    continue
+
+                # Reset reasoning prefix state when final presentation starts (legacy fallback)
                 if chunk_type == "status" and "presenting final answer" in content:
                     # Clear all summary active flags for final presentation
                     for attr_name in list(vars(self).keys()):
@@ -1490,13 +1568,14 @@ class CoordinationUI:
                             delattr(self, attr_name)
 
                 # Handle post-evaluation content streaming
-                _routed_to_post_eval = False
                 if source and content and chunk_type == "content":
                     # Check if we're in post-evaluation by looking for the status message
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
-                            _routed_to_post_eval = True
+                            # Fix 3: Continue to next chunk to prevent double-processing
+                            # Content has been routed to post-eval panel, skip regular processing
+                            continue
 
                 # Track selected agent for post-evaluation
                 if content and "🏆 Selected Agent:" in content:
@@ -1534,7 +1613,7 @@ class CoordinationUI:
 
                     # Process content by source
                     # Bug 2 fix: Display-level flag prevents timeline routing, so no check needed here
-                    await self._process_content(source, content)
+                    await self._process_content(source, content, chunk_type)
 
             # Flush agent content buffers BEFORE processing final answer
             # This ensures any streamed content reaches the display before we complete
@@ -1729,11 +1808,11 @@ class CoordinationUI:
         print(f"\n📈 Summary: {agents_voted}/{total_votes} agents voted")
         print("=" * 50)
 
-    async def _process_content(self, source: Optional[str], content: str):
+    async def _process_content(self, source: Optional[str], content: str, chunk_type: str = "thinking"):
         """Process content from coordination stream."""
         # Handle agent content
         if source in self.agent_ids:
-            await self._process_agent_content(source, content)
+            await self._process_agent_content(source, content, chunk_type)
 
         # Handle orchestrator content
         elif source in ["coordination_hub", "orchestrator"] or source is None:
@@ -1756,12 +1835,21 @@ class CoordinationUI:
                 if self.logger:
                     self.logger.log_orchestrator_event(event)
 
-    async def _process_agent_content(self, agent_id: str, content: str):
+    async def _process_agent_content(self, agent_id: str, content: str, chunk_type: str = "thinking"):
         """Process content from a specific agent.
 
         Uses buffered filtering to handle streaming: small chunks are accumulated
         until we see a newline or have enough content to check for workspace JSON.
         """
+        # Store chunk_type for this agent's buffer
+        if not hasattr(self, "_agent_chunk_types"):
+            self._agent_chunk_types = {}
+        self._agent_chunk_types[agent_id] = chunk_type
+        # Filter coordination messages that duplicate tool cards/notifications
+        # These are yielded by orchestrator when processing workspace tool calls
+        if "Providing answer:" in content or "🗳️ Voting for" in content:
+            return
+
         # Update agent status - if agent is streaming content, they're working
         # But don't override "completed" status
         current_status = self.display.get_agent_status(agent_id)
@@ -1776,81 +1864,98 @@ class CoordinationUI:
         self._agent_content_buffers[agent_id] += content
 
         # Check if we should process the buffer:
-        # The goal is to accumulate enough content to reliably detect workspace JSON
-        # while not delaying display too much for normal content.
+        # Keep accumulating until we can reliably determine if there's workspace JSON
         buffer = self._agent_content_buffers[agent_id]
         buffer_len = len(buffer)
 
-        # First, check if this looks like a JSON block in progress
-        # If so, wait until we see the closing brace/bracket
-        looks_like_json = buffer.lstrip().startswith("{") or buffer.lstrip().startswith("[")
-        if looks_like_json:
-            # Count braces to detect if JSON is complete
+        # Check if buffer might contain workspace JSON (look at the WHOLE buffer)
+        # Also detect partial JSON patterns that indicate workspace action is starting
+        has_workspace_pattern = (
+            '"action_type"' in buffer
+            or '"answer_data"' in buffer
+            or '"action": "new_answer"' in buffer
+            or '"action": "vote"' in buffer
+            or '"action":' in buffer
+            or '"action"' in buffer  # Partial JSON key
+            or "```json" in buffer  # JSON key without colon yet
+        )
+
+        if has_workspace_pattern:
+            # Buffer has workspace JSON patterns - wait for it to complete
             open_braces = buffer.count("{") - buffer.count("}")
             open_brackets = buffer.count("[") - buffer.count("]")
-            json_complete = open_braces == 0 and open_brackets == 0 and buffer_len > 5
 
-            if not json_complete and buffer_len < 500:
-                # JSON still incomplete, keep buffering (up to 500 chars max)
+            # JSON is complete when braces are balanced AND we have closing braces
+            json_complete = open_braces == 0 and open_brackets == 0 and "}" in buffer
+
+            # For code fences, need both opening and closing
+            if "```json" in buffer:
+                fence_count = buffer.count("```")
+                json_complete = fence_count >= 2
+
+            if not json_complete and buffer_len < 2000:
+                # JSON still incomplete, keep buffering
                 return
 
-        # Flush conditions for non-JSON or complete JSON:
-        # 1. Buffer is large enough to reliably match patterns (100+ chars)
-        # 2. Buffer contains newline AND is at least 30 chars
-        # 3. Sentence-ending punctuation with substantial content (30+ chars)
-        # 4. Closing braces/brackets with substantial content (suggests JSON block end)
-        ends_with_sentence = buffer.rstrip().endswith((".", "!", "?"))
-        ends_with_json_close = buffer.rstrip().endswith(("}", "]"))
-        has_newline = "\n" in buffer
+        # No workspace patterns, or JSON is complete - check flush conditions
+        # For regular content (no JSON patterns), flush more aggressively for streaming UX
+        if not has_workspace_pattern:
+            ends_with_sentence = buffer.rstrip().endswith((".", "!", "?", ":", "\n"))
+            should_flush = buffer_len >= 80 or (ends_with_sentence and buffer_len >= 20)
 
-        should_flush = buffer_len >= 100 or (has_newline and buffer_len >= 30) or (ends_with_sentence and buffer_len >= 30) or (ends_with_json_close and buffer_len >= 30)
-
-        if not should_flush:
-            # Keep buffering
-            return
+            if not should_flush:
+                return
 
         # Process the buffered content
         self._agent_content_buffers[agent_id] = ""
 
-        # Check if this is workspace tool JSON (action_type, answer_data, etc.)
-        # If so, convert it to a tool card instead of filtering
-        if ContentNormalizer.is_workspace_tool_json(buffer):
-            workspace_action = self._parse_workspace_action(buffer)
+        # Use unified extraction to handle all workspace JSON formats:
+        # - Pure JSON: {"action_type": ...}
+        # - Code fence: ```json\n{...}\n```
+        # - Code fence with text: "Here's my vote:\n```json\n{...}\n```"
+        # - Embedded JSON: "I'll vote for Agent 1. {"action_type": ...}"
+        extraction_result = ContentNormalizer.extract_workspace_json(buffer)
+        if extraction_result:
+            json_str, text_before, text_after = extraction_result
+            workspace_action = self._parse_workspace_action(json_str)
+
             if workspace_action:
                 action_type, params = workspace_action
-                # Create a tool message that will be displayed as a tool card
+
+                # For new_answer and vote actions:
+                # - Don't emit text_before (content is in JSON, shown via answer card/vote notification)
+                # - Don't create tool card here (send_new_answer/vote display will create it)
+                # This prevents duplicate content and duplicate tool cards
+                if action_type in ("new_answer", "vote"):
+                    # Just log and return - orchestrator's send_new_answer/vote will handle display
+                    if self.logger:
+                        tool_msg = f"🔧 Calling workspace/{action_type}"
+                        if params:
+                            tool_msg += f" {params}"
+                        self.logger.log_agent_content(agent_id, tool_msg, "tool")
+                    return
+
+                # For other workspace actions, emit text_before and create tool card
+                if text_before and not ContentNormalizer.is_workspace_state_content(text_before):
+                    await self._emit_agent_content(agent_id, text_before, chunk_type)
+
+                # Create tool card for the workspace action
                 tool_msg = f"🔧 Calling workspace/{action_type}"
                 if params:
                     tool_msg += f" {params}"
                 self.display.update_agent_content(agent_id, tool_msg, "tool")
                 if self.logger:
                     self.logger.log_agent_content(agent_id, tool_msg, "tool")
+
+                # Emit any text after the JSON as content (rare but possible)
+                if text_after and not ContentNormalizer.is_workspace_state_content(text_after):
+                    await self._emit_agent_content(agent_id, text_after, chunk_type)
+                return
             else:
-                # Couldn't parse, just log and skip
+                # Couldn't parse the JSON, just log and skip
                 if self.logger:
                     self.logger.log_agent_content(agent_id, buffer, "filtered_workflow_json")
-            return
-
-        # Check if buffer contains embedded workspace JSON (mixed content)
-        # If so, try to extract and create tool card, then emit the non-JSON part
-        workspace_action = self._parse_workspace_action(buffer)
-        if workspace_action:
-            action_type, params = workspace_action
-            # Create tool card for the workspace action
-            tool_msg = f"🔧 Calling workspace/{action_type}"
-            if params:
-                tool_msg += f" {params}"
-            self.display.update_agent_content(agent_id, tool_msg, "tool")
-            if self.logger:
-                self.logger.log_agent_content(agent_id, tool_msg, "tool")
-
-            # Extract the non-JSON part (reasoning) to display
-            json_start = buffer.find("{")
-            if json_start > 0:
-                reasoning_part = buffer[:json_start].strip()
-                if reasoning_part and not ContentNormalizer.is_workspace_state_content(reasoning_part):
-                    await self._emit_agent_content(agent_id, reasoning_part)
-            return
+                return
 
         # Filter workspace state content (CWD, File created, etc.)
         # This is internal coordination info that shouldn't be shown to users
@@ -1860,10 +1965,14 @@ class CoordinationUI:
             return
 
         # Emit the buffered content
-        await self._emit_agent_content(agent_id, buffer)
+        await self._emit_agent_content(agent_id, buffer, chunk_type)
 
-    async def _emit_agent_content(self, agent_id: str, content: str):
+    async def _emit_agent_content(self, agent_id: str, content: str, chunk_type: str = None):
         """Emit agent content to the display after filtering."""
+        # Get chunk_type from stored value if not provided
+        if chunk_type is None:
+            chunk_type = getattr(self, "_agent_chunk_types", {}).get(agent_id, "thinking")
+
         # Determine content type and process
         # Check for tool-related content markers
         is_tool_content = "🔧" in content or "Arguments for Calling" in content or "Results for Calling" in content
@@ -1881,22 +1990,13 @@ class CoordinationUI:
                 self.logger.log_agent_content(agent_id, content, content_type)
 
         else:
-            # Thinking content
-            # For displays that support streaming final answer (textual_terminal and web),
-            # route content through stream_final_answer_chunk when the selected agent is streaming
-            if self.orchestrator and hasattr(self.display, "stream_final_answer_chunk"):
-                status = self.orchestrator.get_status()
-                if status:
-                    selected_agent = status.get("selected_agent")
-                    if selected_agent and selected_agent == agent_id:
-                        vote_results = status.get("vote_results", {})
-                        self.display.stream_final_answer_chunk(content, selected_agent, vote_results)
-                        if self.logger:
-                            self.logger.log_agent_content(agent_id, content, "thinking")
-                        return
-            self.display.update_agent_content(agent_id, content, "thinking")
+            # Thinking/content - use the original chunk_type
+            # Route all content through update_agent_content() so it goes through
+            # the normal content pipeline (ContentNormalizer, tool cards, thinking sections, etc.)
+            # Final presentation content is handled as a new round (N+1) with the same pipeline.
+            self.display.update_agent_content(agent_id, content, chunk_type)
             if self.logger:
-                self.logger.log_agent_content(agent_id, content, "thinking")
+                self.logger.log_agent_content(agent_id, content, chunk_type)
 
     def _parse_workspace_action(self, content: str) -> Optional[tuple]:
         """Parse workspace action from JSON content.
@@ -2002,13 +2102,15 @@ class CoordinationUI:
                     if json_start > 0:
                         reasoning_part = buffer[:json_start].strip()
                         if reasoning_part and not ContentNormalizer.is_workspace_state_content(reasoning_part):
-                            await self._emit_agent_content(agent_id, reasoning_part)
+                            stored_chunk_type = getattr(self, "_agent_chunk_types", {}).get(agent_id, "content")
+                            await self._emit_agent_content(agent_id, reasoning_part, stored_chunk_type)
                 # Filter workspace state content (CWD, File created, etc.)
                 elif ContentNormalizer.is_workspace_state_content(buffer):
                     if self.logger:
                         self.logger.log_agent_content(agent_id, buffer, "filtered_workspace_state")
                 else:
-                    await self._emit_agent_content(agent_id, buffer)
+                    stored_chunk_type = getattr(self, "_agent_chunk_types", {}).get(agent_id, "content")
+                    await self._emit_agent_content(agent_id, buffer, stored_chunk_type)
         self._agent_content_buffers = {}
 
     async def _flush_final_answer(self):
@@ -2052,6 +2154,11 @@ class CoordinationUI:
 
     async def _process_orchestrator_content(self, content: str):
         """Process content from orchestrator."""
+        # Filter coordination messages that duplicate tool cards/notifications
+        # These are yielded by orchestrator when processing workspace tool calls
+        if "Providing answer:" in content or "🗳️ Voting for" in content:
+            return
+
         # Handle final answer - merge with voting info
         if "Final Coordinated Answer" in content:
             # Don't create event yet - wait for actual answer content to merge

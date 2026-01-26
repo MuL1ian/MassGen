@@ -63,8 +63,12 @@ class PromptParser:
     # Regex pattern explanation:
     # (?<!\\)       - Negative lookbehind: not preceded by backslash (escaped)
     # @             - Literal @ symbol
-    # ([^\s@:]+?)   - Capture group 1: path (non-greedy, excludes whitespace, @, :)
-    # (:w)?         - Capture group 2: optional :w suffix
+    # (?:           - Non-capturing group for path alternatives
+    #   "([^"]+)"   - Capture group 1: quoted path (allows spaces)
+    #   |           - OR
+    #   ([^\s@:]+?) - Capture group 2: unquoted path (non-greedy, excludes whitespace, @, :)
+    # )
+    # (:w)?         - Capture group 3: optional :w suffix
     # (?=\s|$|[,;!?)}\]>:]|\.(?=\s|$))  - Lookahead for path termination
     #
     # The lookahead handles:
@@ -76,7 +80,17 @@ class PromptParser:
     # Note: The path character class excludes : so that :w is captured separately.
     # File extensions like .py, .md work because only sentence-ending periods
     # (followed by space or end) terminate the path.
-    PATTERN = re.compile(r"(?<!\\)@([^\s@:]+?)(:w)?(?=\s|$|[,;!?)}\]>:]|\.(?=\s|$))")
+    # Quoted paths allow spaces: @"path with spaces/file.txt"
+    PATTERN = re.compile(
+        r"(?<!\\)@"  # @ not preceded by backslash
+        r"(?:"
+        r'"([^"]+)"'  # Capture group 1: quoted path (spaces allowed)
+        r"|"
+        r'([^\s@:"]+?)'  # Capture group 2: unquoted path (no spaces, no quotes)
+        r")"
+        r"(:w)?"  # Capture group 3: optional :w suffix
+        r"(?=\s|$|[,;!?)}\]>:]|\.(?=\s|$))",  # Lookahead for termination
+    )
 
     # Pattern to detect email-like patterns (to avoid false positives)
     # Matches: word@word.word
@@ -125,8 +139,9 @@ class PromptParser:
             if is_email:
                 continue
 
-            path_str = match.group(1)
-            suffix = match.group(2) or ""
+            # Group 1 is quoted path, group 2 is unquoted path
+            path_str = match.group(1) or match.group(2)
+            suffix = match.group(3) or ""
             matches.append((path_str, suffix, match.start(), match.end()))
 
         if not matches:

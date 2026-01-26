@@ -97,6 +97,12 @@ base.py (abstract interface)
             └── grok.py (xAI)
 ```
 
+### TUI Design Principles
+
+**Timeline Chronology Rule**: Tool batching MUST respect chronological order. Tools should ONLY be batched when they arrive consecutively with no intervening content (thinking, text, status). When non-tool content arrives, any pending batch must be finalized before the content is added, and the next tool starts a fresh batch.
+
+This is enforced via `ToolBatchTracker.mark_content_arrived()` in `content_handlers.py`, which is called whenever non-tool content is added to the timeline.
+
 ## Configuration
 
 YAML configs in `massgen/configs/` define agent setups. Structure:

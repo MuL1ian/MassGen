@@ -364,6 +364,12 @@ class ToolCallCard(Static):
         self._subagent_tasks: list[dict] = []  # Parsed subagent task list
         self._workspace_content: Optional[str] = None  # Subagent workspace output
 
+        # Terminal tool detection - these are "hero" tools (new_answer, vote)
+        self._is_terminal = self._detect_terminal_tool(tool_name)
+        if self._is_terminal:
+            self._collapsed = False  # Force expanded for terminal tools
+            self.add_class("terminal-tool")
+
         # Injection toggle widget (managed separately for click handling)
         self._injection_toggle: Optional[InjectionToggle] = None
 
@@ -377,9 +383,24 @@ class ToolCallCard(Static):
         # Appearance animation state
         self.add_class("appearing")  # Start in appearing state
 
-        # Add collapsed class for non-subagent cards
-        if not self._is_subagent:
+        # Add collapsed class for non-subagent, non-terminal cards
+        if not self._is_subagent and not self._is_terminal:
             self.add_class("collapsed")
+
+    def _detect_terminal_tool(self, tool_name: str) -> bool:
+        """Check if this is a terminal coordination tool (hero tool).
+
+        Terminal tools like new_answer and vote are the culmination of an
+        agent's work and deserve prominent visual treatment.
+
+        Args:
+            tool_name: The tool name to check.
+
+        Returns:
+            True if this is a terminal tool, False otherwise.
+        """
+        name_lower = tool_name.lower()
+        return any(t in name_lower for t in ("new_answer", "vote"))
 
     def on_mount(self) -> None:
         """Start the elapsed time timer and complete appearance animation."""
@@ -387,7 +408,7 @@ class ToolCallCard(Static):
             self._start_elapsed_timer()
 
         # Complete the appearance animation after a brief delay
-        self.set_timer(0.15, self._complete_appearance)
+        self.set_timer(0.3, self._complete_appearance)
 
     def _complete_appearance(self) -> None:
         """Complete the appearance animation by transitioning to appeared state."""
@@ -401,8 +422,8 @@ class ToolCallCard(Static):
     def _start_elapsed_timer(self) -> None:
         """Start periodic refresh for elapsed time display."""
         if self._elapsed_timer is None:
-            # Update every 100ms for smooth display
-            self._elapsed_timer = self.set_interval(0.1, self._refresh_elapsed)
+            # Update every 500ms - sufficient granularity for elapsed time display
+            self._elapsed_timer = self.set_interval(0.5, self._refresh_elapsed)
 
     def _stop_elapsed_timer(self) -> None:
         """Stop the elapsed time timer."""
@@ -471,7 +492,123 @@ class ToolCallCard(Static):
         """Render the main card content (without injection)."""
         if self._is_subagent:
             return self._render_subagent()
+        if self._is_terminal:
+            return self._render_terminal_tool()
         return self._render_collapsed_without_injection()
+
+    def _render_terminal_tool(self) -> Text:
+        """Render terminal tool card (new_answer, vote) with hero styling.
+
+        Terminal tools are the culmination of agent work, so we show them
+        prominently with the key information (vote target, reason, answer preview).
+        """
+        import json
+        import re
+
+        text = Text()
+
+        # Status icon and tool name
+        status_icon = self.STATUS_ICONS.get(self._status, "◉")
+        elapsed = self._get_elapsed_str()
+
+        # Header line with gold/amber styling for terminal tools
+        if self._status == "running":
+            text.append("▶ ", style="bold #ffa500")
+            text.append(self._display_name, style="bold #ffa500")
+            text.append(" ")
+            text.append(status_icon, style="#ffa500")
+            text.append(" ...", style="dim italic")
+        else:
+            text.append("★ ", style="bold #ffa500")
+            text.append(self._display_name, style="bold #ffa500")
+            text.append(" ")
+            if self._status == "success":
+                text.append(status_icon, style="green")
+            elif self._status == "error":
+                text.append(status_icon, style="red")
+            else:
+                text.append(status_icon, style="dim")
+            if elapsed:
+                text.append(f" {elapsed}", style="dim")
+
+        # Parse params to extract meaningful info
+        voted_for = None
+        reason = None
+        answer_preview = None
+
+        # Try to get full params first, fall back to summary
+        params_str = self._params_full or self._params
+
+        if params_str:
+            # First try JSON parsing
+            try:
+                params = json.loads(params_str)
+                if isinstance(params, dict):
+                    voted_for = params.get("voted_for") or params.get("vote_for")
+                    reason = params.get("reason")
+                    # For new_answer, try to get a preview
+                    answer_preview = params.get("answer") or params.get("content")
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON - try to parse key="value" format
+                # e.g., voted_for="agent_a", reason="some reason here"
+                voted_for_match = re.search(r'voted_for="([^"]*)"', params_str)
+                if voted_for_match:
+                    voted_for = voted_for_match.group(1)
+
+                reason_match = re.search(r'reason="([^"]*)"', params_str)
+                if reason_match:
+                    reason = reason_match.group(1)
+
+                answer_match = re.search(r'answer="([^"]*)"', params_str)
+                if answer_match:
+                    answer_preview = answer_match.group(1)
+
+        # Display key info prominently
+        tool_lower = self.tool_name.lower()
+
+        if "vote" in tool_lower:
+            if voted_for:
+                text.append("\n  ")
+                text.append("Voted for: ", style="dim")
+                text.append(str(voted_for), style="bold green")
+
+            if reason:
+                text.append("\n  ")
+                text.append("Reason: ", style="dim")
+                # Wrap reason text nicely
+                reason_text = str(reason)
+                if len(reason_text) > 120:
+                    reason_text = reason_text[:117] + "..."
+                text.append(reason_text, style="italic #c9d1d9")
+            elif not voted_for and params_str:
+                # Fallback - show raw params if we couldn't parse anything
+                text.append("\n  ")
+                args_display = self._truncate_params_display(params_str, 100)
+                text.append(args_display, style="dim")
+
+        elif "new_answer" in tool_lower:
+            if answer_preview:
+                text.append("\n  ")
+                preview = str(answer_preview).replace("\n", " ")
+                if len(preview) > 100:
+                    preview = preview[:97] + "..."
+                text.append(preview, style="#c9d1d9")
+            elif params_str:
+                # Fallback to showing params
+                text.append("\n  ")
+                args_display = self._truncate_params_display(params_str, 100)
+                text.append(args_display, style="dim")
+
+        # Show error if any
+        if self._error:
+            text.append("\n  ")
+            text.append("✗ ", style="red")
+            error_preview = self._error.replace("\n", " ")
+            if len(error_preview) > 80:
+                error_preview = error_preview[:77] + "..."
+            text.append(error_preview, style="dim red")
+
+        return text
 
     def _toggle_injection(self) -> None:
         """Toggle injection expansion (called by InjectionToggle)."""
@@ -592,13 +729,29 @@ class ToolCallCard(Static):
                 args_display = self._truncate_params_display(self._params, 77)
                 text.append(args_display, style="dim")
 
-            # Result or error preview
+            # Result or error preview - preserve newlines for readability
             if self._result:
-                text.append("\n  → ")
-                result_preview = self._result.replace("\n", " ")
-                if len(result_preview) > 75:
-                    result_preview = result_preview[:72] + "..."
-                text.append(result_preview, style="dim green")
+                # Show first 2 meaningful lines of result
+                lines = [ln.strip() for ln in self._result.split("\n") if ln.strip()]
+                if not lines:
+                    lines = [self._result.strip()[:75]]
+
+                text.append("\n  → ", style="dim green")
+                if len(lines) > 2:
+                    # Show first 2 lines with continuation indicator
+                    first_line = lines[0][:72] + "..." if len(lines[0]) > 75 else lines[0]
+                    text.append(first_line, style="dim green")
+                    second_line = lines[1][:72] + "..." if len(lines[1]) > 75 else lines[1]
+                    text.append(f"\n  → {second_line}", style="dim green")
+                    text.append(f"\n  (+{len(lines) - 2} more lines)", style="dim italic #6e7681")
+                elif len(lines) == 2:
+                    first_line = lines[0][:72] + "..." if len(lines[0]) > 75 else lines[0]
+                    text.append(first_line, style="dim green")
+                    second_line = lines[1][:72] + "..." if len(lines[1]) > 75 else lines[1]
+                    text.append(f"\n  → {second_line}", style="dim green")
+                else:
+                    result_line = lines[0][:72] + "..." if len(lines[0]) > 75 else lines[0]
+                    text.append(result_line, style="dim green")
             elif self._error:
                 text.append("\n  ✗ ")
                 error_preview = self._error.replace("\n", " ")
@@ -973,12 +1126,18 @@ class ToolCallCard(Static):
         - Click on left edge (x < 3): collapse if expanded
         - Click when collapsed: expand
         - Click when expanded (not on left edge): open detail modal
+        - Terminal tools (new_answer, vote) cannot be collapsed
 
         Note: Injection content expansion is handled by the InjectionToggle widget,
         which intercepts clicks on the injection area.
         """
         if self._is_subagent:
             self.toggle_expanded()
+            return
+
+        # Terminal tools always stay expanded - clicking opens detail modal
+        if self._is_terminal:
+            self.post_message(self.ToolCardClicked(self))
             return
 
         # Check if click is on the left edge (collapse zone)
@@ -1340,3 +1499,8 @@ class ToolCallCard(Static):
     def elapsed_str(self) -> str:
         """Get elapsed time string for modal."""
         return self._get_elapsed_str()
+
+    @property
+    def is_terminal(self) -> bool:
+        """Check if this is a terminal coordination tool (new_answer, vote)."""
+        return self._is_terminal

@@ -7332,19 +7332,6 @@ async def main(args):
                 "medium",
             )
 
-            # Auto-add cwd to context_paths if not already present
-            if "context_paths" not in orchestrator_cfg_plan:
-                orchestrator_cfg_plan["context_paths"] = []
-
-            cwd_str = str(Path.cwd())
-            existing_paths = {p.get("path") if isinstance(p, dict) else p for p in orchestrator_cfg_plan["context_paths"]}
-            if cwd_str not in existing_paths:
-                # Use read-only permission - agents write to their workspace, not directly to cwd
-                orchestrator_cfg_plan["context_paths"].append(
-                    {"path": cwd_str, "permission": "read"},
-                )
-                logger.info(f"[Plan Mode] Auto-added cwd to context_paths (read-only): {cwd_str}")
-
             logger.info(
                 "[Plan Mode] Enabled with depth=%s, broadcast=%s",
                 args.plan_depth,

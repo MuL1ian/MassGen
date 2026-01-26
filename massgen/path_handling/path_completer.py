@@ -13,7 +13,7 @@ Example:
 
 import os
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Tuple
 
 from prompt_toolkit.completion import (
     CompleteEvent,
@@ -94,14 +94,20 @@ class AtPathCompleter(Completer):
         text = document.text_before_cursor
 
         # Find the last @ that's not escaped and not part of an email
-        at_pos = self._find_at_position(text)
+        at_result = self._find_at_position(text)
 
-        if at_pos is None:
+        if at_result is None:
             # No @ found or it's part of an email
             return
 
-        # Extract the partial path after @
-        path_text = text[at_pos + 1 :]
+        at_pos, is_quoted = at_result
+
+        # Extract the partial path after @ (and opening quote if quoted)
+        if is_quoted:
+            # Skip the opening quote
+            path_text = text[at_pos + 2 :]
+        else:
+            path_text = text[at_pos + 1 :]
 
         # Check if there's a :w suffix being typed
         has_write_suffix = False
@@ -112,8 +118,8 @@ class AtPathCompleter(Completer):
             # User is typing :w, show completion without the :
             path_text = path_text[:-1]
 
-        # Skip if the path contains spaces (likely not a path)
-        if " " in path_text:
+        # For unquoted paths, skip if the path contains spaces (likely not a path)
+        if not is_quoted and " " in path_text:
             return
 
         # Create a document for just the path portion
@@ -126,7 +132,8 @@ class AtPathCompleter(Completer):
         ):
             # Calculate the start position relative to the full text
             # We need to replace from the @ symbol onwards
-            start_position = -(len(path_text) + 1)  # +1 for @
+            # +1 for @, +1 for opening quote if quoted
+            start_position = -(len(path_text) + 1 + (1 if is_quoted else 0))
 
             # Build the completion text
             completed_path = path_text + completion.text
@@ -152,30 +159,43 @@ class AtPathCompleter(Completer):
             else:
                 display_meta = self._get_file_type(completed_path)
 
+            # Format path with quotes if needed (for paths with spaces or if already quoted)
+            needs_quotes = is_quoted or " " in completed_path
+            if needs_quotes:
+                formatted_path = f'@"{completed_path}"{suffix}'
+            else:
+                formatted_path = f"@{completed_path}{suffix}"
+
             yield Completion(
-                text=f"@{completed_path}{suffix}",
+                text=formatted_path,
                 start_position=start_position,
-                display=f"@{completed_path}{suffix}",
+                display=formatted_path,
                 display_meta=display_meta,
             )
 
             # Also offer :w variant for files (not directories already covered)
             if not is_dir and not has_write_suffix:
+                if needs_quotes:
+                    formatted_path_w = f'@"{completed_path}":w'
+                else:
+                    formatted_path_w = f"@{completed_path}:w"
+
                 yield Completion(
-                    text=f"@{completed_path}:w",
+                    text=formatted_path_w,
                     start_position=start_position,
-                    display=f"@{completed_path}:w",
+                    display=formatted_path_w,
                     display_meta=f"{display_meta} (write)",
                 )
 
-    def _find_at_position(self, text: str) -> Optional[int]:
+    def _find_at_position(self, text: str) -> Optional[Tuple[int, bool]]:
         """Find the position of the last @ that starts a path reference.
 
         Args:
             text: The text to search.
 
         Returns:
-            Position of @ or None if not found/not valid.
+            Tuple of (position of @, is_quoted) or None if not found/not valid.
+            is_quoted is True if the path starts with @" (quoted path syntax).
         """
         # Search backwards for @
         pos = len(text) - 1
@@ -192,11 +212,35 @@ class AtPathCompleter(Completer):
                     pos -= 1
                     continue
 
+                # Check if this is a quoted path (@ followed by ")
+                is_quoted = pos + 1 < len(text) and text[pos + 1] == '"'
+
                 # Valid @ for path
-                return pos
+                return (pos, is_quoted)
+
+            # For quoted paths, we need to track if we're inside quotes
+            # If we find a quote, check if there's @" before it
+            if text[pos] == '"':
+                # Look for @" pattern
+                if pos > 0 and text[pos - 1] == "@":
+                    # Check if the @ is escaped
+                    if pos > 1 and text[pos - 2] == "\\":
+                        pos -= 2
+                        continue
+                    # Found @" - this is a quoted path
+                    return (pos - 1, True)
 
             # Stop if we hit whitespace (@ must be at word boundary or start)
+            # But don't stop for quoted paths - spaces are allowed inside quotes
             if text[pos] == " ":
+                # Check if we might be inside a quoted path by looking for @" before this space
+                at_quote_pos = text.rfind('@"', 0, pos)
+                if at_quote_pos != -1:
+                    # Check if there's a closing quote after @" but before this space
+                    quote_after = text.find('"', at_quote_pos + 2, pos + 1)
+                    if quote_after == -1:
+                        # No closing quote yet, we're inside a quoted path
+                        return (at_quote_pos, True)
                 break
 
             pos -= 1

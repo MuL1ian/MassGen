@@ -15,7 +15,34 @@ Use this skill when you need to:
 - Fix styling or layout issues
 - Test the TUI visually in a browser
 
-## Setup
+## For MassGen Agents
+
+When running via MassGen, do NOT use `execute_command` for
+long-running servers like textual-serve. The `execute_command` tool blocks
+until completion and will timeout.
+
+Instead, use background shell tools:
+
+```python
+# Start the server in background
+result = start_background_shell("uv run massgen --textual-serve")
+shell_id = result["shell_id"]
+
+# Check if it's running
+status = get_background_shell_status(shell_id)
+
+# When done, kill it
+kill_background_shell(shell_id)
+```
+
+Available background shell tools:
+- `start_background_shell(command)` - Start a long-running command
+- `get_background_shell_status(shell_id)` - Check if still running
+- `get_background_shell_output(shell_id)` - Get stdout/stderr
+- `kill_background_shell(shell_id)` - Terminate the process
+- `list_background_shells()` - List all background shells
+
+## Setup (Claude Code)
 
 ### Step 1: Ensure textual-serve is available
 

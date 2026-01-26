@@ -41,7 +41,11 @@ try:
     from textual.widget import Widget
     from textual.widgets import Button, Footer, Input, Label, RichLog, Static, TextArea
 
-    from .content_handlers import ThinkingContentHandler, ToolContentHandler
+    from .content_handlers import (
+        ThinkingContentHandler,
+        ToolBatchTracker,
+        ToolContentHandler,
+    )
     from .content_normalizer import ContentNormalizer
 
     # Import extracted modals from the new textual/ package
@@ -71,6 +75,7 @@ try:
         AgentStatusRibbon,
         AgentTabBar,
         AgentTabChanged,
+        BroadcastModeChanged,
         CompletionFooter,
         ExecutionStatusLine,
         FinalPresentationCard,
@@ -79,12 +84,17 @@ try:
         MultiLineInput,
         OverrideRequested,
         PathSuggestionDropdown,
+        PlanDepthChanged,
+        PlanOptionsPopover,
+        PlanSelected,
+        PlanSettingsClicked,
         QueuedInputBanner,
         SessionInfoClicked,
         SubagentCard,
         SubagentModal,
         TaskPlanCard,
         TaskPlanModal,
+        TasksClicked,
         TimelineSection,
         ToolCallCard,
         ToolDetailModal,
@@ -934,6 +944,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         # Runtime toggle to ignore hotkeys/key handling when enabled
         self.safe_keyboard_mode = kwargs.get("safe_keyboard_mode", False)
         self.max_buffer_batch = kwargs.get("max_buffer_batch", 50)
+        self.max_buffer_size = kwargs.get("max_buffer_size", 200)  # Max items per agent buffer
         self._keyboard_interactive_mode = kwargs.get("keyboard_interactive_mode", True)
 
         # File output
@@ -985,11 +996,14 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         default_buffer_flush = kwargs.get("buffer_flush_interval")
         if default_buffer_flush is None:
+            # Faster flush for smoother streaming - 20 FPS (0.05s) provides
+            # good balance between smooth appearance and performance
             if self._terminal_type in ("vscode", "windows_terminal"):
-                default_buffer_flush = 0.3
+                default_buffer_flush = 0.1  # Faster than before (was 0.3s)
             else:
-                adaptive_flush = max(0.1, 1 / max(self.refresh_rate, 1))
-                default_buffer_flush = min(adaptive_flush, 0.15)
+                # 0.05s (20 FPS) for smooth streaming, capped at refresh rate
+                adaptive_flush = max(0.05, 1 / max(self.refresh_rate, 1))
+                default_buffer_flush = min(adaptive_flush, 0.05)
         self.buffer_flush_interval = default_buffer_flush
         self._buffers = {agent_id: [] for agent_id in self.agent_ids}
         self._buffer_lock = threading.Lock()
@@ -1215,17 +1229,20 @@ class TextualTerminalDisplay(TerminalDisplay):
             tool_call_id: Optional unique ID for tool calls (enables tracking across events)
         """
         # Bug 2 fix: Skip timeline updates if content is being routed to post-eval card
+        # But allow tool content through - tools should be displayed during post-evaluation
         if hasattr(self, "_routing_to_post_eval_card") and self._routing_to_post_eval_card:
-            return
-
-        # Skip timeline updates after final presentation card is complete
-        # (prevents "presenting final answer" messages from appearing below the card)
-        if hasattr(self, "_final_presentation_card") and self._final_presentation_card:
-            if hasattr(self._final_presentation_card, "_is_streaming") and not self._final_presentation_card._is_streaming:
+            if content_type != "tool":
                 return
 
         if not content:
             return
+
+        # Auto-set status to streaming when content arrives and agent is idle/waiting
+        # This ensures the status indicator updates immediately when streaming starts
+        current_status = self.agent_status.get(agent_id, "idle")
+        if current_status in ("idle", "waiting"):
+            self.agent_status[agent_id] = "streaming"  # Update local dict first
+            self._call_app_method("update_agent_status", agent_id, "streaming")
 
         display_type = "status" if content_type == "thinking" and self._is_critical_content(content, content_type) else content_type
 
@@ -1250,6 +1267,13 @@ class TextualTerminalDisplay(TerminalDisplay):
                 },
             )
             buffered_len = len(self._buffers[agent_id])
+            # Trim buffer if it exceeds max size to prevent memory issues
+            if buffered_len > self.max_buffer_size:
+                # Keep critical items and the most recent half
+                keep_count = self.max_buffer_size // 2
+                critical = [e for e in self._buffers[agent_id][:-keep_count] if self._is_critical_content(e.get("content", ""), e.get("type", ""))]
+                self._buffers[agent_id] = critical + self._buffers[agent_id][-keep_count:]
+                buffered_len = len(self._buffers[agent_id])
 
         if self._app and (is_critical or buffered_len >= self.max_buffer_batch):
             self._app.request_flush()
@@ -1571,35 +1595,22 @@ class TextualTerminalDisplay(TerminalDisplay):
             return ""
 
     def show_final_answer(self, answer: str, vote_results=None, selected_agent=None):
-        """Show final answer with flush effect."""
+        """Show final answer completion card.
+
+        Note: With the "final presentation as round N+1" approach, content has already
+        been displayed through the normal pipeline (thinking, tools, response).
+        This method adds the completion card and persists the final answer.
+        """
         if not selected_agent:
             return
 
-        stream_buffer = self._final_stream_buffer.strip() if hasattr(self, "_final_stream_buffer") else ""
-        display_answer = answer or stream_buffer
+        display_answer = answer or ""
 
         # Add context path writes footer if any files were written
         context_writes_footer = self._get_context_path_writes_footer()
         if context_writes_footer:
             display_answer = display_answer.rstrip() + "\n" + context_writes_footer
-            # Also update the stream buffer so the footer appears in the final display
-            if hasattr(self, "_final_stream_buffer") and self._final_stream_buffer:
-                self._final_stream_buffer = self._final_stream_buffer.rstrip() + "\n" + context_writes_footer
 
-        if self._final_stream_active:
-            # Update the stream with the footer before ending
-            if context_writes_footer and self._app:
-                self._call_app_method("update_final_stream", self._final_stream_buffer)
-            self._end_final_answer_stream()
-        elif not stream_buffer and self._app:
-            self._final_stream_active = True
-            self._final_stream_buffer = display_answer
-            self._call_app_method(
-                "begin_final_stream",
-                selected_agent,
-                vote_results or {},
-            )
-            self._call_app_method("update_final_stream", display_answer)
         self._final_answer_metadata = {
             "selected_agent": selected_agent,
             "vote_results": vote_results or {},
@@ -1614,6 +1625,7 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         self._write_to_system_file("Final presentation ready.")
 
+        # Add completion card (post-evaluation section + action buttons)
         if self._app:
             self._call_app_method(
                 "show_final_presentation",
@@ -1685,6 +1697,42 @@ class TextualTerminalDisplay(TerminalDisplay):
                 self._app.show_restart_context,
                 reason,
                 instructions,
+            )
+
+    def show_agent_restart(self, agent_id: str, round_num: int):
+        """Notify that a specific agent is starting a new round.
+
+        This is called when an agent restarts due to new context from other agents.
+        The TUI should show a fresh timeline for this agent.
+
+        Args:
+            agent_id: The agent that is restarting
+            round_num: The new round number for this agent
+        """
+        if self._app:
+            self._app.call_from_thread(
+                self._app.show_agent_restart,
+                agent_id,
+                round_num,
+            )
+
+    def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
+        """Notify that the final presentation phase is starting for the winning agent.
+
+        This shows a fresh view with a distinct "Final Presentation" banner
+        in green to indicate this is the winning agent presenting.
+
+        Args:
+            agent_id: The winning agent presenting the final answer
+            vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
+            answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
+        """
+        if self._app:
+            self._app.call_from_thread(
+                self._app.show_final_presentation_start,
+                agent_id,
+                vote_counts,
+                answer_labels,
             )
 
     def cleanup(self):
@@ -1928,58 +1976,13 @@ class TextualTerminalDisplay(TerminalDisplay):
             return None
 
     def stream_final_answer_chunk(self, chunk: str, selected_agent: Optional[str], vote_results: Optional[Dict[str, Any]] = None):
-        """Stream incoming final presentation content into the Textual UI."""
-        if not chunk:
-            return
+        """DEPRECATED: Final presentation content now flows through update_agent_content().
 
-        # Don't stream if no valid agent is selected
-        if not selected_agent:
-            return
-
-        if not self._final_stream_active:
-            if self._app:
-                self._app.buffer_flush_interval = min(self._app.buffer_flush_interval, 0.05)
-            self._final_stream_active = True
-            self._final_stream_buffer = ""
-            self._final_answer_metadata = {
-                "selected_agent": selected_agent,
-                "vote_results": vote_results or {},
-            }
-            self._final_presentation_agent = selected_agent
-            if self._app:
-                self._call_app_method(
-                    "begin_final_stream",
-                    selected_agent,
-                    vote_results or {},
-                )
-
-        # Preserve natural spacing; avoid forcing newlines between streamed chunks
-        spacer = ""
-        if self._final_stream_buffer:
-            prev = self._final_stream_buffer[-1]
-            next_char = chunk[0] if chunk else ""
-            if not prev.isspace() and next_char and not next_char.isspace():
-                spacer = " "
-        self._final_stream_buffer += f"{spacer}{chunk}"
-
-        if self._app:
-            self._call_app_method("update_final_stream", chunk)
-
-    def _end_final_answer_stream(self):
-        """Hide streaming panel when final presentation completes."""
-        if not self._final_stream_active:
-            return
-        self._final_stream_active = False
-        if self._app:
-            self._call_app_method("end_final_stream")
-        if self._final_stream_buffer and not self._final_answer_cache:
-            final_content = self._final_stream_buffer.strip()
-            self._persist_final_presentation(
-                final_content,
-                self._final_presentation_agent,
-                self._final_answer_metadata.get("vote_results"),
-            )
-            self._final_answer_cache = final_content
+        This method is kept for backwards compatibility but is no longer called.
+        Content routing in coordination_ui.py sends all content through the normal
+        pipeline, and final presentation is treated as round N+1.
+        """
+        # No-op - content now flows through update_agent_content()
 
     def _prepare_agent_content(self, agent_id: str, content: str, content_type: str) -> Optional[str]:
         """Normalize agent content, apply filters, and truncate noisy sections."""
@@ -2192,6 +2195,8 @@ class TextualTerminalDisplay(TerminalDisplay):
             mode_state: TuiModeState instance to update
         """
         if not self._app:
+            logger.warning("[PlanApproval] Cannot show modal - no app instance")
+            mode_state.reset_plan_state()
             return
 
         from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
@@ -2200,21 +2205,41 @@ class TextualTerminalDisplay(TerminalDisplay):
         )
 
         def show_modal():
-            modal = PlanApprovalModal(tasks, plan_path, plan_data)
+            try:
+                modal = PlanApprovalModal(tasks, plan_path, plan_data)
 
-            def handle_result(result: PlanApprovalResult) -> None:
-                if result and result.approved:
-                    self._execute_approved_plan(result, mode_state)
-                else:
-                    # Cancelled - reset to normal mode
-                    mode_state.reset_plan_state()
-                    self._app.notify("Plan cancelled", severity="information")
-                    if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
-                        self._app._mode_bar.set_plan_mode("normal")
+                def handle_result(result: PlanApprovalResult) -> None:
+                    try:
+                        if result and result.approved:
+                            self._execute_approved_plan(result, mode_state)
+                        else:
+                            # Cancelled - reset to normal mode
+                            mode_state.reset_plan_state()
+                            self._app.notify("Plan cancelled", severity="information")
+                            if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
+                                self._app._mode_bar.set_plan_mode("normal")
+                    except Exception as e:
+                        logger.exception(f"[PlanApproval] Error handling modal result: {e}")
+                        mode_state.reset_plan_state()
+                        self._app.notify(f"Plan error: {e}", severity="error")
+                        if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
+                            self._app._mode_bar.set_plan_mode("normal")
 
-            self._app.push_screen(modal, handle_result)
+                self._app.push_screen(modal, handle_result)
+            except Exception as e:
+                logger.exception(f"[PlanApproval] Error showing modal: {e}")
+                mode_state.reset_plan_state()
+                self._app.notify(f"Failed to show plan approval: {e}", severity="error")
+                if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
+                    self._app._mode_bar.set_plan_mode("normal")
 
-        self._app.call_from_thread(show_modal)
+        try:
+            self._app.call_from_thread(show_modal)
+        except Exception as e:
+            logger.exception(f"[PlanApproval] call_from_thread failed: {e}")
+            mode_state.reset_plan_state()
+            # Can't notify via app if call_from_thread failed
+            logger.error("[PlanApproval] Failed to dispatch modal to main thread")
 
     def _execute_approved_plan(
         self,
@@ -2231,12 +2256,30 @@ class TextualTerminalDisplay(TerminalDisplay):
         from massgen.plan_storage import PlanStorage
 
         try:
+            # Validate planning_started_turn is set
+            if mode_state.planning_started_turn is None:
+                # Recover by using current turn or defaulting to 0
+                current_turn = 0
+                if hasattr(self, "_current_turn"):
+                    current_turn = self._current_turn or 0
+                elif hasattr(self._app, "coordination_display"):
+                    current_turn = getattr(self._app.coordination_display, "current_turn", 0)
+                mode_state.planning_started_turn = current_turn
+                logger.warning(
+                    f"[PlanExecution] planning_started_turn was None, defaulting to {current_turn}",
+                )
+
             # Get log directory for plan session
             log_dir = get_log_session_root()
 
             # Create and finalize plan session
             storage = PlanStorage()
-            session = storage.create_plan(log_dir.name, str(log_dir))
+            session = storage.create_plan(
+                log_dir.name,
+                str(log_dir),
+                planning_prompt=mode_state.last_planning_question,
+                planning_turn=mode_state.planning_started_turn,
+            )
 
             # Copy workspace to frozen - use the parent of plan_path as workspace source
             workspace_source = approval.plan_path.parent
@@ -2261,11 +2304,26 @@ class TextualTerminalDisplay(TerminalDisplay):
 
             # Submit execution prompt directly using _submit_question
             if hasattr(self._app, "_submit_question"):
-                # Set the input value first
-                if hasattr(self._app, "question_input") and self._app.question_input:
-                    self._app.question_input.value = execution_prompt
-                # Submit as a new turn
-                self._app.call_later(lambda: self._app._submit_question(execution_prompt))
+                # Prevent duplicate submission by disabling input during auto-submit
+                question_input = getattr(self._app, "question_input", None)
+                if question_input:
+                    # Disable to prevent user accidentally triggering duplicate submit
+                    question_input.disabled = True
+                    question_input.value = execution_prompt
+
+                    def submit_and_reenable():
+                        try:
+                            self._app._submit_question(execution_prompt)
+                        finally:
+                            # Re-enable input after submission starts
+                            # (actual processing lock handled by set_input_enabled)
+                            if question_input:
+                                question_input.disabled = False
+
+                    self._app.call_later(submit_and_reenable)
+                else:
+                    # No input widget, just submit directly
+                    self._app.call_later(lambda: self._app._submit_question(execution_prompt))
             else:
                 logger.error("[PlanExecution] No _submit_question method found to execute plan")
                 mode_state.reset_plan_state()
@@ -2319,6 +2377,9 @@ if TEXTUAL_AVAILABLE:
             super().__init__()
             self.cwd = cwd
             self.mode = mode  # "off", "read", or "write"
+
+    class StatusBarThemeClicked(Message):
+        """Message emitted when the theme indicator in StatusBar is clicked."""
 
     class StatusBar(Widget):
         """Persistent status bar showing orchestration state at the bottom of the TUI."""
@@ -2377,6 +2438,8 @@ if TEXTUAL_AVAILABLE:
             yield Static("", id="status_spacer")
             # Right-aligned items
             yield Static("", id="status_mcp")
+            # Theme toggle indicator - clickable to toggle light/dark theme
+            yield Static("[dim]D[/]", id="status_theme", classes="clickable")
             # CWD display - clickable to toggle auto-include as context
             cwd = Path.cwd()
             cwd_short = f"~/{cwd.name}" if len(str(cwd)) > 30 else str(cwd)
@@ -2397,6 +2460,8 @@ if TEXTUAL_AVAILABLE:
                     self.post_message(StatusBarCancelClicked())
                 elif widget.id == "status_cwd":
                     self.toggle_cwd_auto_include()
+                elif widget.id == "status_theme":
+                    self.post_message(StatusBarThemeClicked())
 
         def toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode and update display."""
@@ -2865,6 +2930,8 @@ if TEXTUAL_AVAILABLE:
             Binding("ctrl+o", "trigger_override", "Override", priority=True, show=False),
             # Task plan toggle
             Binding("ctrl+t", "toggle_task_plan", "Toggle Tasks", priority=True, show=False),
+            # Theme toggle
+            Binding("ctrl+shift+t", "toggle_theme", "Theme", priority=True, show=False),
         ]
 
         def __init__(
@@ -2875,7 +2942,13 @@ if TEXTUAL_AVAILABLE:
             buffer_lock: threading.Lock,
             buffer_flush_interval: float,
         ):
-            css_path = self.THEMES_DIR / ("light.tcss" if display.theme == "light" else "dark.tcss")
+            # Determine CSS path based on theme (dark, light, or transparent)
+            if display.theme == "light":
+                css_path = self.THEMES_DIR / "light.tcss"
+            elif display.theme == "transparent":
+                css_path = self.THEMES_DIR / "transparent.tcss"
+            else:
+                css_path = self.THEMES_DIR / "dark.tcss"
             super().__init__(css_path=str(css_path))
             self.coordination_display = display
             self.question = question
@@ -2947,8 +3020,21 @@ if TEXTUAL_AVAILABLE:
                 self.BINDINGS = []
 
         def _keyboard_locked(self) -> bool:
-            """Return True when keyboard input should be ignored."""
-            return self.coordination_display.safe_keyboard_mode or not self._keyboard_interactive_mode
+            """Return True when keyboard input should be ignored.
+
+            Keyboard is locked when:
+            - safe_keyboard_mode is True (during sensitive operations)
+            - _keyboard_interactive_mode is False (non-interactive)
+            - execution is in progress (mode_state.is_locked())
+            """
+            if self.coordination_display.safe_keyboard_mode:
+                return True
+            if not self._keyboard_interactive_mode:
+                return True
+            # Block mode-changing keyboard shortcuts during execution
+            if hasattr(self, "_mode_state") and self._mode_state.is_locked():
+                return True
+            return False
 
         def compose(self) -> ComposeResult:
             """Compose the UI layout with adaptive agent arrangement."""
@@ -2972,13 +3058,13 @@ if TEXTUAL_AVAILABLE:
             # === BOTTOM DOCKED WIDGETS (yield order: last yielded = very bottom) ===
             # Input area container - dock: bottom
             with Container(id="input_area"):
-                # Input header with modes (left) and hint (right) on same line
+                # Input header with modes (left), plan status (right), vim indicator
                 with Horizontal(id="input_header"):
                     # Mode bar - toggles for plan/agent/refinement modes (left side)
                     self._mode_bar = ModeBar(id="mode_bar")
                     yield self._mode_bar
-                    # Hint for submission (right side) - uses width: 1fr to take remaining space
-                    self._input_hint = Static("Enter to submit • Shift+Enter for new line • Ctrl+G help", id="input_hint")
+                    # Input hint - hidden by default, used only for vim mode hints
+                    self._input_hint = Static("", id="input_hint", classes="hidden")
                     yield self._input_hint
                     # Vim mode indicator (hidden by default)
                     self._vim_indicator = Static("", id="vim_indicator")
@@ -3002,8 +3088,9 @@ if TEXTUAL_AVAILABLE:
 
                 # Multi-line input: Enter to submit, Shift+Enter for new line
                 # Type @ to trigger path autocomplete
+                # Hint text is now part of placeholder (frees up space on input header row)
                 self.question_input = MultiLineInput(
-                    placeholder="Type your question... (Enter to submit, Shift+Enter for newline, @ for files)",
+                    placeholder="Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help",
                     id="question_input",
                 )
                 yield self.question_input
@@ -3083,6 +3170,10 @@ if TEXTUAL_AVAILABLE:
             self._path_dropdown = PathSuggestionDropdown(id="path_dropdown")
             yield self._path_dropdown
 
+            # Plan options popover (hidden by default, shows when settings button clicked)
+            self._plan_options_popover = PlanOptionsPopover(id="plan_options_popover")
+            yield self._plan_options_popover
+
         def _get_layout_class(self, num_agents: int) -> str:
             """Return CSS class for adaptive layout based on agent count."""
             if num_agents == 1:
@@ -3105,6 +3196,7 @@ if TEXTUAL_AVAILABLE:
                     self.coordination_display.restart_instructions or "",
                 )
             self._update_safe_indicator()
+            self._update_theme_indicator()
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
@@ -3291,6 +3383,17 @@ if TEXTUAL_AVAILABLE:
             else:
                 self.safe_indicator.update("")
                 self.safe_indicator.styles.display = "none"
+
+        def _update_theme_indicator(self) -> None:
+            """Update theme icon in status bar."""
+            try:
+                theme_widget = self.query_one("#status_theme", Static)
+                theme = self.coordination_display.theme
+                icon_map = {"dark": "D", "light": "L", "transparent": "T"}
+                icon = f"[dim]{icon_map.get(theme, 'D')}[/]"
+                theme_widget.update(icon)
+            except Exception:
+                pass  # Widget not mounted yet
 
         def set_input_handler(self, handler: Callable[[str], None]) -> None:
             """Set the input handler callback for controller integration."""
@@ -3510,6 +3613,9 @@ if TEXTUAL_AVAILABLE:
                 tui_log("  Empty text, returning")
                 return
 
+            # Clear any persistent cancelled state when user starts a new turn
+            self._clear_cancelled_state()
+
             self.question_input.clear()
 
             # During execution, queue input for injection (except slash commands)
@@ -3552,9 +3658,14 @@ if TEXTUAL_AVAILABLE:
                 tui_log("  Calling _input_handler...")
 
                 # Store question for plan execution if in plan mode
+                # Only capture the FIRST user input - don't overwrite with subsequent/injected inputs
                 if not text.startswith("/") and self._mode_state.plan_mode == "plan":
-                    self._mode_state.last_planning_question = text
-                    tui_log(f"  Stored planning question: {text[:50]}...")
+                    if self._mode_state.last_planning_question is None:
+                        self._mode_state.last_planning_question = text
+                        self._mode_state.planning_started_turn = self.coordination_display.current_turn
+                        tui_log(f"  Stored planning question (turn {self._mode_state.planning_started_turn}): {text[:50]}...")
+                    else:
+                        tui_log(f"  Plan question already set, not overwriting with: {text[:50]}...")
 
                 self._input_handler(text)
                 if not text.startswith("/"):
@@ -3623,6 +3734,11 @@ if TEXTUAL_AVAILABLE:
                 self._toggle_vim_mode()
                 return True
 
+            # TODO: Re-enable /theme command when additional themes are ready
+            # if cmd == "/theme":
+            #     self.action_toggle_theme()
+            #     return True
+
             return False
 
         def _handle_slash_command(self, command: str) -> None:
@@ -3683,6 +3799,8 @@ if TEXTUAL_AVAILABLE:
                     self.action_open_unified_browser()
                 elif result.ui_action == "toggle_vim":
                     self._toggle_vim_mode()
+                elif result.ui_action == "toggle_theme":
+                    self.action_toggle_theme()
                 elif result.ui_action == "show_history":
                     self._show_history_modal()
                 elif result.message and not result.ui_action:
@@ -3754,26 +3872,29 @@ if TEXTUAL_AVAILABLE:
                 return
 
             if vim_normal is None:
-                # Vim mode off - hide indicator
+                # Vim mode off - hide indicator and input hint (hint is now in placeholder)
                 self._vim_indicator.update("")
                 self._vim_indicator.remove_class("vim-normal-indicator")
                 self._vim_indicator.remove_class("vim-insert-indicator")
                 if hasattr(self, "_input_hint"):
-                    self._input_hint.update("Enter to submit • Shift+Enter for new line • Ctrl+G help")
+                    self._input_hint.update("")
+                    self._input_hint.add_class("hidden")
             elif vim_normal:
-                # Normal mode
+                # Normal mode - show vim hints in input_hint
                 self._vim_indicator.update(" NORMAL ")
                 self._vim_indicator.remove_class("vim-insert-indicator")
                 self._vim_indicator.add_class("vim-normal-indicator")
                 if hasattr(self, "_input_hint"):
                     self._input_hint.update("VIM: i/a insert • hjkl move • /vim off")
+                    self._input_hint.remove_class("hidden")
             else:
-                # Insert mode
+                # Insert mode - show vim hints in input_hint
                 self._vim_indicator.update(" INSERT ")
                 self._vim_indicator.remove_class("vim-normal-indicator")
                 self._vim_indicator.add_class("vim-insert-indicator")
                 if hasattr(self, "_input_hint"):
                     self._input_hint.update("VIM: Esc normal • Enter submit • /vim off")
+                    self._input_hint.remove_class("hidden")
 
             # Force refresh to ensure visual update
             self._vim_indicator.refresh(layout=True)
@@ -3800,6 +3921,7 @@ KEYBOARD SHORTCUTS:
   Tab/←/→         - Navigate between agents
   Ctrl+G          - Show this help
   Ctrl+T          - Toggle task plan (collapse/expand)
+  Ctrl+Shift+T    - Toggle light/dark theme
   Ctrl+P          - Toggle CWD context auto-include
   Ctrl+U          - Show subagents panel
   Ctrl+C          - Cancel current turn (double to quit)
@@ -3835,18 +3957,26 @@ Type your question and press Enter to ask the agents.
                 widget._update_loading_text(message)
 
         async def _flush_buffers(self):
-            """Flush buffered content to widgets."""
+            """Flush buffered content to widgets.
+
+            Uses frame-aware batching to prevent UI blocking:
+            - Limits items processed per flush to max_buffer_batch (default 5)
+            - Remaining items stay in buffer for next flush cycle
+            """
             self._pending_flush = False
             all_updates = []
+            max_items_per_agent = 5  # Limit to prevent blocking
+
             for agent_id in self.coordination_display.agent_ids:
                 with self._buffer_lock:
                     if not self._buffers[agent_id]:
                         continue
-                    buffer_copy = self._buffers[agent_id].copy()
-                    self._buffers[agent_id].clear()
+                    # Take only max_items_per_agent items per flush
+                    items_to_process = self._buffers[agent_id][:max_items_per_agent]
+                    self._buffers[agent_id] = self._buffers[agent_id][max_items_per_agent:]
 
-                if buffer_copy and agent_id in self.agent_widgets:
-                    all_updates.append((agent_id, buffer_copy))
+                if items_to_process and agent_id in self.agent_widgets:
+                    all_updates.append((agent_id, items_to_process))
 
             if all_updates:
                 with self.batch_update():
@@ -3957,20 +4087,29 @@ Type your question and press Enter to ask the agents.
             # Phase 13.2: Update ExecutionStatusLine with agent state
             if self._execution_status_line:
                 # Map to ExecutionStatusLine states
+                # "voted" = green checkmark (waiting for consensus)
+                # "done" = dim checkmark (final presentation in progress)
                 STATE_MAP = {
                     "working": "working",
-                    "thinking": "thinking",
-                    "streaming": "streaming",
-                    "tool_call": "tool_use",
-                    "mcp_tool_called": "tool_use",
-                    "custom_tool_called": "tool_use",
-                    "voted": "voted",
-                    "completed": "done",
-                    "done": "done",
+                    "thinking": "working",
+                    "streaming": "working",
+                    "processing": "working",
+                    "tool_call": "working",
+                    "mcp_tool_called": "working",
+                    "custom_tool_called": "working",
+                    "mcp_tool_response": "working",
+                    "custom_tool_response": "working",
+                    "voting": "working",
+                    "voted": "voted",  # Green checkmark - agent voted
+                    "waiting": "voted",  # Waiting for others after voting
+                    "complete": "voted",  # Finished, waiting for consensus
+                    "completed": "voted",
+                    "done": "done",  # Dim checkmark - final presentation happening
                     "error": "error",
+                    "cancelled": "cancelled",
                     "idle": "idle",
                 }
-                mapped_state = STATE_MAP.get(status, "idle")
+                mapped_state = STATE_MAP.get(status, "working")
                 self._execution_status_line.set_agent_state(agent_id, mapped_state)
             # Update execution status bar with new agent icons
             self._update_execution_status()
@@ -3987,7 +4126,7 @@ Type your question and press Enter to ask the agents.
 
             # Also update the status ribbon timeout display
             if self._status_ribbon:
-                remaining = timeout_state.get("remaining_seconds")
+                remaining = timeout_state.get("remaining_soft")
                 self._status_ribbon.set_timeout(agent_id, remaining)
 
         def update_hook_execution(
@@ -4152,14 +4291,127 @@ Type your question and press Enter to ask the agents.
             # Celebrate the winner
             self._celebrate_winner(selected_agent, answer)
 
-            # Show final answer in winner's AgentPanel via FinalPresentationCard
-            # Check if stream was already started (begin_final_stream returns early if so)
-            already_streamed = hasattr(self, "_final_header_added") and self._final_header_added
-            self.begin_final_stream(selected_agent, vote_results or {})
-            # Only add content if this is a fresh stream (not already streamed via show_final_answer)
-            if answer and not already_streamed:
-                self.update_final_stream(answer)
-            self.end_final_stream()
+            # Add completion card with the final answer
+            self._add_final_completion_card(selected_agent, vote_results or {}, answer)
+
+        def _add_final_completion_card(self, agent_id: str, vote_results: Dict[str, Any], answer: str = ""):
+            """Add completion card with the final answer at the end of final presentation.
+
+            This card provides:
+            - Final answer content
+            - Vote summary
+            - Action buttons (Copy, Workspace)
+            - Continue conversation prompt
+            """
+            # Prevent duplicate cards
+            if hasattr(self, "_final_completion_added") and self._final_completion_added:
+                return
+            self._final_completion_added = True
+            self._final_header_added = True  # Compat flag for other code paths
+
+            # Track for post-evaluation routing
+            self._final_presentation_agent = agent_id
+
+            # 1. Auto-switch to winner's tab and mark with trophy
+            if self._tab_bar:
+                self._tab_bar.set_active(agent_id)
+                self._tab_bar.set_winner(agent_id)
+
+            # 2. Update ExecutionStatusLine: all agents to done
+            if self._execution_status_line:
+                for aid in self._execution_status_line._agent_ids:
+                    self._execution_status_line.set_agent_state(aid, "done")
+
+            # 3. Show the winner's panel (hide others)
+            if agent_id in self.agent_widgets:
+                if self._active_agent_id and self._active_agent_id in self.agent_widgets:
+                    self.agent_widgets[self._active_agent_id].add_class("hidden")
+                self.agent_widgets[agent_id].remove_class("hidden")
+                self._active_agent_id = agent_id
+
+            if agent_id not in self.agent_widgets:
+                return
+
+            panel = self.agent_widgets[agent_id]
+
+            try:
+                timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
+
+                # Get coordination_tracker for answer label lookup
+                tracker = None
+                if hasattr(self.coordination_display, "orchestrator") and self.coordination_display.orchestrator:
+                    tracker = getattr(self.coordination_display.orchestrator, "coordination_tracker", None)
+
+                # Build formatted vote results for the card
+                vote_counts = vote_results.get("vote_counts", {})
+                winner = vote_results.get("winner", agent_id)
+                is_tie = vote_results.get("is_tie", False)
+
+                def get_answer_label(aid):
+                    """Convert agent ID to answer label (e.g., 'A1.1')."""
+                    if tracker:
+                        label = tracker.get_latest_answer_label(aid)
+                        if label:
+                            return label.replace("agent", "A")
+                        num = tracker._get_agent_number(aid)
+                        return f"A{num}" if num else aid
+                    return aid
+
+                # Build formatted vote results for the card
+                formatted_vote_results = {
+                    "vote_counts": {get_answer_label(aid): cnt for aid, cnt in vote_counts.items()},
+                    "winner": get_answer_label(winner),
+                    "is_tie": is_tie,
+                }
+
+                # Get context paths from orchestrator
+                context_paths = {}
+                if hasattr(self.coordination_display, "orchestrator") and self.coordination_display.orchestrator:
+                    orch = self.coordination_display.orchestrator
+                    if hasattr(orch, "get_context_path_writes_categorized"):
+                        context_paths = orch.get_context_path_writes_categorized()
+
+                # Remove any existing completion card to avoid duplicate ID issues
+                try:
+                    existing_card = timeline.query_one("#final_presentation_card", FinalPresentationCard)
+                    existing_card.remove()
+                except Exception:
+                    pass  # No existing card, that's fine
+
+                # Create the final answer card with content
+                card = FinalPresentationCard(
+                    agent_id=agent_id,
+                    vote_results=formatted_vote_results,
+                    context_paths=context_paths,
+                    id="final_presentation_card",
+                )
+
+                # Tag with current round for CSS visibility switching
+                current_round = getattr(panel, "_current_round", 1)
+                card.add_class(f"round-{current_round}")
+
+                timeline.add_widget(card)
+                self._final_presentation_card = card
+
+                # Set the answer content and mark as complete
+                def set_content_and_complete():
+                    if answer:
+                        card.append_chunk(answer)
+                    card.complete()
+                    # Auto-lock timeline to show only final answer
+                    timeline.lock_to_final_answer("final_presentation_card")
+                    card.set_locked_mode(True)
+                    # Update input placeholder to encourage follow-up
+                    if hasattr(self, "question_input"):
+                        self.question_input.placeholder = "Type your follow-up question..."
+
+                self.set_timer(0.1, set_content_and_complete)
+
+                # Scroll to show the card
+                timeline.scroll_to_widget("final_presentation_card")
+
+            except Exception as e:
+                logger.debug(f"Failed to create final completion card: {e}")
 
         def show_post_evaluation(self, content: str, agent_id: str):
             """Show post-evaluation content in the FinalPresentationCard.
@@ -4254,6 +4506,19 @@ Type your question and press Enter to ask the agents.
                 # Mark the card as complete (shows footer with buttons)
                 self._final_presentation_card.complete()
 
+                # Auto-lock timeline to show only final answer
+                if agent_id in self.agent_widgets:
+                    panel = self.agent_widgets[agent_id]
+                    try:
+                        timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
+                        timeline.lock_to_final_answer("final_presentation_card")
+                        self._final_presentation_card.set_locked_mode(True)
+                        # Update input placeholder to encourage follow-up
+                        if hasattr(self, "question_input"):
+                            self.question_input.placeholder = "Type your follow-up question..."
+                    except Exception:
+                        pass
+
                 # Phase 12.4: Store final answer for view-based navigation
                 if agent_id in self.agent_widgets:
                     panel = self.agent_widgets[agent_id]
@@ -4284,12 +4549,13 @@ Type your question and press Enter to ask the agents.
                         pass
 
         def begin_final_stream(self, agent_id: str, vote_results: Dict[str, Any]):
-            """Start final presentation streaming using unified FinalPresentationCard.
+            """DEPRECATED: Start final presentation streaming.
 
-            This method:
-            1. Auto-switches to the winner's tab
-            2. Marks the winner tab with trophy styling
-            3. Creates a FinalPresentationCard in the winner's timeline for streaming
+            This method is kept for backwards compatibility but is no longer the
+            primary path. Use _add_final_completion_card() instead.
+
+            Final presentation content now flows through the normal pipeline
+            (update_agent_content), and a completion card is added at the end.
             """
             # Prevent duplicate cards - check if we've already started or if winner was quick-highlighted
             if hasattr(self, "_final_header_added") and self._final_header_added:
@@ -4320,6 +4586,16 @@ Type your question and press Enter to ask the agents.
                 self._tab_bar.set_active(agent_id)
                 self._tab_bar.set_winner(agent_id)
 
+            # 1.5. Update ExecutionStatusLine: dim checkmarks for non-presenting, dots for presenter
+            if self._execution_status_line:
+                for aid in self._execution_status_line._agent_ids:
+                    if aid == agent_id:
+                        # Presenting agent goes back to working dots
+                        self._execution_status_line.set_agent_state(aid, "working")
+                    else:
+                        # Non-presenting agents get dim checkmark
+                        self._execution_status_line.set_agent_state(aid, "done")
+
             # 2. Show the agent panel for the winner (remove hidden class)
             if agent_id in self.agent_widgets:
                 if self._active_agent_id and self._active_agent_id in self.agent_widgets:
@@ -4340,7 +4616,7 @@ Type your question and press Enter to ask the agents.
                     if hasattr(self.coordination_display, "orchestrator") and self.coordination_display.orchestrator:
                         tracker = getattr(self.coordination_display.orchestrator, "coordination_tracker", None)
 
-                    # Build vote summary with answer labels (A1.1 format)
+                    # Build formatted vote results for the card
                     vote_counts = vote_results.get("vote_counts", {})
                     winner = vote_results.get("winner", agent_id)
                     is_tie = vote_results.get("is_tie", False)
@@ -4369,6 +4645,11 @@ Type your question and press Enter to ask the agents.
                         vote_results=formatted_vote_results,
                         id="final_presentation_card",
                     )
+                    # Tag with current round for CSS visibility switching
+                    current_round = getattr(panel, "_current_round", 1)
+                    card.add_class(f"round-{current_round}")
+                    # Note: Removed full-width-mode to allow tool cards to be visible
+                    # during final presentation (was causing content cutoff issue)
                     timeline.add_widget(card)
                     self._final_presentation_card = card
 
@@ -4378,7 +4659,12 @@ Type your question and press Enter to ask the agents.
                     logger.debug(f"Failed to create final presentation card: {e}")
 
         def update_final_stream(self, chunk: str):
-            """Append streaming chunks to the FinalPresentationCard."""
+            """DEPRECATED: Append streaming chunks to the FinalPresentationCard.
+
+            This method is kept for backwards compatibility but is no longer the
+            primary path. Final presentation content now flows through the normal
+            pipeline (update_agent_content).
+            """
             if not chunk:
                 return
 
@@ -4405,9 +4691,11 @@ Type your question and press Enter to ask the agents.
                 logger.error(f"FinalPresentationCard.append_chunk failed: {e}")
 
         def end_final_stream(self):
-            """Mark the final presentation streaming as complete.
+            """DEPRECATED: Mark the final presentation streaming as complete.
 
-            Note: The footer with buttons is shown via the card after post-evaluation.
+            This method is kept for backwards compatibility but is no longer the
+            primary path. The completion card (with footer) is now added via
+            _add_final_completion_card().
             """
             # Only end if we actually started
             if not getattr(self, "_final_header_added", False):
@@ -4448,6 +4736,11 @@ Type your question and press Enter to ask the agents.
             if self._tab_bar:
                 self._tab_bar.set_active(winner_id)
                 self._tab_bar.set_winner(winner_id)
+
+            # 1.5. Update ExecutionStatusLine: all agents to done (no streaming in quick mode)
+            if self._execution_status_line:
+                for aid in self._execution_status_line._agent_ids:
+                    self._execution_status_line.set_agent_state(aid, "done")
 
             # 2. Show the winner's panel (hide others)
             if winner_id in self.agent_widgets:
@@ -4490,26 +4783,31 @@ Type your question and press Enter to ask the agents.
                         "is_tie": is_tie,
                     }
 
-                    # Create the unified card - content will be streamed via update_final_stream
+                    # Create the completion card (no streaming content - answer is already in timeline)
                     card = FinalPresentationCard(
                         agent_id=winner_id,
                         vote_results=formatted_vote_results,
                         id="winner_selected_card",
                     )
+                    # Tag with current round for CSS visibility switching
+                    card.add_class(f"round-{self._current_round}")
+                    # Use completion-only mode - content already in timeline via normal pipeline
+                    card.add_class("completion-only")
                     timeline.add_widget(card)
                     self._final_presentation_card = card
 
-                    # Flush any pending chunks that arrived before card was created (Bug 1 fix)
-                    if hasattr(self, "_pending_final_chunks") and self._pending_final_chunks:
-                        for pending_chunk in self._pending_final_chunks:
-                            try:
-                                card.append_chunk(pending_chunk)
-                            except Exception as e:
-                                self.log.error(f"Error flushing pending chunk: {e}")
-                        self._pending_final_chunks = []
+                    # Auto-lock timeline to show only final answer
+                    def auto_lock_after_add():
+                        try:
+                            timeline.lock_to_final_answer("winner_selected_card")
+                            card.set_locked_mode(True)
+                            # Update input placeholder to encourage follow-up
+                            if hasattr(self, "question_input"):
+                                self.question_input.placeholder = "Type your follow-up question..."
+                        except Exception:
+                            pass
 
-                    # Don't call complete() - streaming content will come via update_final_stream
-                    # and show_final_answer will call end_final_stream -> end_post_evaluation -> complete()
+                    self.set_timer(0.1, auto_lock_after_add)
 
                     # Scroll to show the card
                     timeline.scroll_to_widget("winner_selected_card")
@@ -4538,6 +4836,7 @@ Type your question and press Enter to ask the agents.
 
             # Reset final presentation tracking flags for the new turn
             self._final_header_added = False
+            self._final_completion_added = False  # Reset completion card flag
             self._post_eval_header_added = False
             self._post_eval_footer_added = False
             self._final_stream_content = ""
@@ -4704,6 +5003,36 @@ Type your question and press Enter to ask the agents.
             if self.header_widget:
                 self.header_widget.show_restart_context(reason, instructions)
 
+        def show_agent_restart(self, agent_id: str, round_num: int):
+            """Show that a specific agent is starting a new round.
+
+            This is called when an agent restarts due to new context from other agents.
+            Only affects the specified agent's panel.
+
+            Args:
+                agent_id: The agent that is restarting
+                round_num: The new round number for this agent
+            """
+            panel = self.agent_widgets.get(agent_id)
+            if panel:
+                # Use start_new_round which handles timeline visibility and ribbon update
+                panel.start_new_round(round_num, is_context_reset=False)
+
+        def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
+            """Show that the final presentation is starting for the winning agent.
+
+            This shows a fresh view with a distinct "Final Presentation" banner.
+
+            Args:
+                agent_id: The winning agent presenting the final answer
+                vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
+                answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
+            """
+            panel = self.agent_widgets.get(agent_id)
+            if panel:
+                # Use start_final_presentation which shows distinct green banner
+                panel.start_final_presentation(vote_counts=vote_counts, answer_labels=answer_labels)
+
         def display_vote_results(self, formatted_results: str):
             """Display vote results."""
             self.add_orchestrator_event("🗳️ Voting complete. Press 'v' to inspect details.")
@@ -4863,30 +5192,20 @@ Type your question and press Enter to ask the agents.
 
             Switches the agent panel to show either a specific round or the final answer.
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: App.on_view_selected type={event.view_type} round={event.round_number} agent={event.agent_id}\n")
-
             if event.agent_id not in self.agent_widgets:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: App.on_view_selected agent not found, returning\n")
                 return
 
             panel = self.agent_widgets[event.agent_id]
 
             if event.view_type == "final_answer":
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: App.on_view_selected calling switch_to_final_answer\n")
                 panel.switch_to_final_answer()
             elif event.view_type == "round" and event.round_number is not None:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG: App.on_view_selected calling switch_to_round({event.round_number})\n")
-                panel.switch_to_round(event.round_number)
-                # Also exit final answer view if currently showing it
-                if panel._current_view == "final_answer":
+                # Check if we're currently viewing final answer BEFORE changing state
+                was_viewing_final = panel._current_view == "final_answer"
+                if was_viewing_final:
                     panel.switch_from_final_answer()
+                panel.switch_to_round(event.round_number)
 
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: App.on_view_selected done\n")
             event.stop()
 
         def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
@@ -4909,6 +5228,24 @@ Type your question and press Enter to ask the agents.
             """Handle mode toggle changes from ModeBar."""
             tui_log(f"on_mode_changed: {event.mode_type}={event.value}")
 
+            # Block mode changes during execution
+            if self._mode_state.is_locked():
+                tui_log("  -> BLOCKED: execution in progress")
+                self.notify(
+                    "Cannot change modes during execution. Wait for completion or cancel first.",
+                    severity="warning",
+                    timeout=3,
+                )
+                # Revert the toggle to its previous state
+                if event.mode_type == "plan" and self._mode_bar:
+                    self._mode_bar.set_plan_mode(self._mode_state.plan_mode)
+                elif event.mode_type == "agent" and self._mode_bar:
+                    self._mode_bar.set_agent_mode(self._mode_state.agent_mode)
+                elif event.mode_type == "refinement" and self._mode_bar:
+                    self._mode_bar.set_refinement_mode(self._mode_state.refinement_enabled)
+                event.stop()
+                return
+
             if event.mode_type == "plan":
                 self._handle_plan_mode_change(event.value)
             elif event.mode_type == "agent":
@@ -4924,6 +5261,133 @@ Type your question and press Enter to ask the agents.
             self.action_trigger_override()
             event.stop()
 
+        def on_plan_settings_clicked(self, event: PlanSettingsClicked) -> None:
+            """Handle plan settings button click - show/hide plan options popover."""
+            tui_log("on_plan_settings_clicked - START")
+
+            # Block during execution
+            if self._mode_state.is_locked():
+                tui_log("  -> BLOCKED: execution in progress")
+                self.notify(
+                    "Cannot change plan settings during execution.",
+                    severity="warning",
+                    timeout=2,
+                )
+                event.stop()
+                return
+
+            if hasattr(self, "_plan_options_popover"):
+                popover = self._plan_options_popover
+                tui_log(f"  popover exists, visible={'visible' in popover.classes}, classes={list(popover.classes)}")
+                if "visible" in popover.classes:
+                    # Already visible - just hide it
+                    tui_log("  -> hiding popover")
+                    popover.hide()
+                else:
+                    # Not visible - update state and recompose to show plans, then show
+                    tui_log("  -> updating state and showing")
+                    self._update_plan_options_popover_state()
+                    tui_log(f"  -> after state update, plans count: {len(popover._available_plans)}")
+                    # Reset initialized flag before recompose to ignore spurious events
+                    popover._initialized = False
+                    tui_log("  -> set _initialized=False")
+                    popover.refresh(recompose=True)
+                    tui_log("  -> after refresh(recompose=True)")
+                    # Use call_later to show after recompose completes (show() sets _initialized=True)
+                    tui_log("  -> calling call_later(popover.show)")
+                    self.call_later(popover.show)
+            else:
+                tui_log("  popover does not exist!")
+            tui_log("on_plan_settings_clicked - END")
+            event.stop()
+
+        def on_plan_selected(self, event: PlanSelected) -> None:
+            """Handle plan selection from popover."""
+            tui_log(f"on_plan_selected: plan_id={event.plan_id}, is_new={event.is_new}")
+
+            # Block during execution
+            if self._mode_state.is_locked():
+                tui_log("  -> BLOCKED: execution in progress")
+                self.notify("Cannot change plan selection during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            if event.is_new:
+                # User wants to create a new plan
+                self._mode_state.selected_plan_id = None
+                self.notify("Will create new plan on next query", severity="information", timeout=2)
+            elif event.plan_id:
+                # Specific plan selected
+                self._mode_state.selected_plan_id = event.plan_id
+                self.notify(f"Selected plan: {event.plan_id[:15]}...", severity="information", timeout=2)
+            else:
+                # Latest plan (auto) - don't notify on initial load
+                self._mode_state.selected_plan_id = None
+                # Only notify if popover is visible (user actually selected)
+                if hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes:
+                    pass  # Don't notify for "latest" - it's the default
+
+            # Don't auto-hide - let user close with Close button or click settings again
+            event.stop()
+
+        def on_plan_depth_changed(self, event: PlanDepthChanged) -> None:
+            """Handle plan depth change from popover."""
+            tui_log(f"on_plan_depth_changed: depth={event.depth}")
+
+            # Block during execution
+            if self._mode_state.is_locked():
+                tui_log("  -> BLOCKED: execution in progress")
+                self.notify("Cannot change plan depth during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            self._mode_state.plan_config.depth = event.depth
+            self.notify(f"Plan depth: {event.depth}", severity="information", timeout=2)
+            event.stop()
+
+        def on_broadcast_mode_changed(self, event: BroadcastModeChanged) -> None:
+            """Handle broadcast mode change from popover."""
+            tui_log(f"on_broadcast_mode_changed: broadcast={event.broadcast}")
+
+            # Block during execution
+            if self._mode_state.is_locked():
+                tui_log("  -> BLOCKED: execution in progress")
+                self.notify("Cannot change broadcast mode during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            self._mode_state.plan_config.broadcast = event.broadcast
+
+            if event.broadcast == "human":
+                self.notify("Broadcast: Agents can ask human questions", severity="information", timeout=2)
+            elif event.broadcast == "agents":
+                self.notify("Broadcast: Agents debate without human", severity="information", timeout=2)
+            else:
+                self.notify("Broadcast: Fully autonomous (no questions)", severity="warning", timeout=2)
+            event.stop()
+
+        def _update_plan_options_popover_state(self) -> None:
+            """Update the plan options popover internal state (without recompose)."""
+            if not hasattr(self, "_plan_options_popover"):
+                return
+
+            try:
+                from massgen.plan_storage import PlanStorage
+
+                storage = PlanStorage()
+                plans = storage.get_all_plans(limit=5)
+
+                # Update popover internal state
+                popover = self._plan_options_popover
+                popover._plan_mode = self._mode_state.plan_mode
+                popover._available_plans = plans
+                popover._current_plan_id = self._mode_state.selected_plan_id
+                popover._current_depth = self._mode_state.plan_config.depth
+                popover._current_broadcast = self._mode_state.plan_config.broadcast
+                # Don't recompose - let the popover show with updated state
+            except Exception as e:
+                tui_log(f"_update_plan_options_popover_state error: {e}")
+
         def _handle_plan_mode_change(self, mode: str) -> None:
             """Handle plan mode toggle.
 
@@ -4932,6 +5396,10 @@ Type your question and press Enter to ask the agents.
             """
             tui_log(f"_handle_plan_mode_change: {mode}")
             self._mode_state.plan_mode = mode
+
+            # Sync mode bar state (ensures settings button visibility, etc.)
+            if self._mode_bar:
+                self._mode_bar.set_plan_mode(mode)
 
             if mode == "plan":
                 self.notify("Plan Mode: ON - Submit query to create plan", severity="information", timeout=3)
@@ -5007,6 +5475,16 @@ Type your question and press Enter to ask the agents.
             """Toggle plan mode on/off (F5 shortcut)."""
             tui_log("action_toggle_plan_mode")
 
+            # Block during execution (keyboard_action decorator handles this,
+            # but add explicit check with user message for clarity)
+            if self._mode_state.is_locked():
+                self.notify(
+                    "Cannot change plan mode during execution. Wait for completion or cancel first.",
+                    severity="warning",
+                    timeout=3,
+                )
+                return
+
             if self._mode_state.plan_mode == "normal":
                 self._mode_state.plan_mode = "plan"
                 if self._mode_bar:
@@ -5067,6 +5545,15 @@ Type your question and press Enter to ask the agents.
                 all_subagents=event.all_subagents,
             )
             self.push_screen(modal)
+            event.stop()
+
+        def on_tasks_clicked(self, event: TasksClicked) -> None:
+            """Handle tasks label click in ribbon - show task plan modal."""
+            if event.agent_id in self.agent_widgets:
+                panel = self.agent_widgets[event.agent_id]
+                if panel._active_task_plan_tasks:
+                    modal = TaskPlanModal(tasks=panel._active_task_plan_tasks)
+                    self.push_screen(modal)
             event.stop()
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -5144,6 +5631,53 @@ Type your question and press Enter to ask the agents.
             """Toggle task plan visibility (Ctrl+T binding)."""
             if self._active_agent_id and self._active_agent_id in self.agent_widgets:
                 self.agent_widgets[self._active_agent_id].toggle_task_plan()
+
+        def action_toggle_theme(self) -> None:
+            """Toggle between dark, light, and transparent themes (Ctrl+Shift+T binding)."""
+            from textual.css.stylesheet import Stylesheet
+
+            current = self.coordination_display.theme
+            # Cycle: dark -> light -> transparent -> dark
+            theme_cycle = {"dark": "light", "light": "transparent", "transparent": "dark"}
+            new_theme = theme_cycle.get(current, "dark")
+
+            # Load and apply new CSS
+            css_path = self.THEMES_DIR / f"{new_theme}.tcss"
+            if not css_path.exists():
+                self.notify(f"Theme file not found: {css_path}", severity="error")
+                return
+
+            try:
+                # Create a fresh stylesheet with the new CSS
+                new_stylesheet = Stylesheet(variables=self.get_css_variables())
+                new_stylesheet.read(css_path)
+                new_stylesheet.parse()
+
+                # Replace the app's stylesheet (this is what refresh_css uses)
+                self.stylesheet = new_stylesheet
+
+                # Update the theme state AFTER successfully loading CSS
+                self.coordination_display.theme = new_theme
+
+                # Now refresh_css will use the new stylesheet
+                # It calls: stylesheet.set_variables(), reparse(), update()
+                self.refresh_css(animate=False)
+
+                # Force full repaint of all widgets
+                self.refresh(repaint=True, layout=True)
+
+                # Also refresh the screen
+                if self.screen.is_mounted:
+                    self.screen.refresh(repaint=True, layout=True)
+
+            except Exception as e:
+                self.notify(f"Theme error: {e}", severity="error", timeout=3)
+                logger.exception(f"Failed to toggle theme: {e}")
+                return
+
+            # Update status bar indicator
+            self._update_theme_indicator()
+            self.notify(f"Theme: {new_theme.title()}", timeout=1.5)
 
         def action_show_help(self) -> None:
             """Show help modal (Ctrl+/ binding)."""
@@ -5468,6 +6002,10 @@ Type your question and press Enter to ask the agents.
             """Handle CWD mode change from status bar click."""
             self._cwd_context_mode = event.mode
             # No toast - the visual update in the hint/status bar is enough
+
+        def on_status_bar_theme_clicked(self, event: StatusBarThemeClicked) -> None:
+            """Handle theme toggle from status bar click."""
+            self.action_toggle_theme()
 
         def _toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode: off → read → write → off (Ctrl+P)."""
@@ -6001,20 +6539,33 @@ Type your question and press Enter to ask the agents.
                 pass
 
         def _show_cancelled_status(self) -> None:
-            """Stop execution status updates and show cancelled state with visual feedback."""
+            """Stop execution status updates and show cancelled state with PERSISTENT visual feedback.
+
+            The cancelled state persists until the user submits a new question, making it
+            clear that the system is waiting for input rather than auto-dismissing.
+            """
             try:
                 # Stop the execution status timer
                 if hasattr(self, "_execution_status_timer") and self._execution_status_timer:
                     self._execution_status_timer.stop()
                     self._execution_status_timer = None
 
-                # Set all agents to idle
+                # Set all agents to idle in status bar
                 if hasattr(self, "_status_bar") and self._status_bar:
                     for agent_id in self._status_bar._agent_order:
                         self._status_bar.set_agent_activity(agent_id, "idle")
 
+                # Update ExecutionStatusLine to show cancelled state
+                if hasattr(self, "_execution_status_line") and self._execution_status_line:
+                    for agent_id in self._execution_status_line._agent_ids:
+                        self._execution_status_line.set_agent_state(agent_id, "cancelled")
+
                 # Stop all pulsing animations
                 self._stop_all_pulses()
+
+                # Mark cancelled state in mode tracker (persists until new input)
+                if hasattr(self.coordination_display, "_mode_state"):
+                    self.coordination_display._mode_state.was_cancelled = True
 
                 # Update execution status to show cancelled
                 if hasattr(self, "_execution_status"):
@@ -6033,24 +6584,42 @@ Type your question and press Enter to ask the agents.
 
                     self._execution_status.update(f"❌ Cancelled{elapsed_text}")
 
-                # Add visual state change - red tint on main container
+                # Add PERSISTENT visual state change - red tint on main container
+                # This persists until user submits a new question
                 try:
                     main = self.query_one("#main_container")
                     main.add_class("cancelled-state")
 
-                    # Show notification
-                    self.notify("Execution cancelled", severity="warning", timeout=3)
+                    # Update placeholder to indicate waiting for input
+                    if hasattr(self, "question_input"):
+                        self.question_input.placeholder = "Type to continue • Previous turn was cancelled"
 
-                    # Auto-dismiss the cancelled state after 3 seconds
-                    def remove_cancelled_state():
-                        try:
-                            main.remove_class("cancelled-state")
-                        except Exception:
-                            pass
+                    # Show notification (brief)
+                    self.notify("Execution cancelled - type to continue", severity="warning", timeout=3)
 
-                    self.set_timer(3.0, remove_cancelled_state)
+                    # NO auto-dismiss timer - state persists until user provides new input
                 except Exception:
                     pass
+            except Exception:
+                pass
+
+        def _clear_cancelled_state(self) -> None:
+            """Clear the persistent cancelled state when user starts a new turn."""
+            try:
+                # Clear mode state flag
+                if hasattr(self.coordination_display, "_mode_state"):
+                    self.coordination_display._mode_state.reset_cancelled_state()
+
+                # Remove visual cancelled state
+                try:
+                    main = self.query_one("#main_container")
+                    main.remove_class("cancelled-state")
+                except Exception:
+                    pass
+
+                # Restore default placeholder
+                if hasattr(self, "question_input"):
+                    self.question_input.placeholder = "Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help"
             except Exception:
                 pass
 
@@ -6061,14 +6630,12 @@ Type your question and press Enter to ask the agents.
         _PULSE_FRAMES = ["pulse-bright", "pulse-bright", "pulse-normal", "pulse-normal"]
 
         def _start_agent_pulse(self, agent_id: str) -> None:
-            """Start pulsing animation for an active agent."""
-            from massgen.logger_config import logger
+            """Start pulsing animation for an active agent.
 
-            logger.info(f"[PULSE] _start_agent_pulse called for {agent_id}")
-
-            if agent_id in self._pulsing_agents:
-                logger.info(f"[PULSE] {agent_id} already pulsing, skipping")
-                return  # Already pulsing
+            NOTE: Pulsing animation disabled - was too distracting.
+            Left as no-op to avoid breaking callers.
+            """
+            return  # Pulsing disabled
 
             self._pulsing_agents.add(agent_id)
             logger.info(f"[PULSE] Added {agent_id} to pulsing_agents: {self._pulsing_agents}")
@@ -6493,7 +7060,7 @@ Type your question and press Enter to ask the agents.
         """Panel for individual agent output.
 
         Note: This is a Container, not ScrollableContainer. Scrolling happens
-        in the inner TimelineScrollContainer widget.
+        in the inner TimelineSection widget which inherits from ScrollableContainer.
         """
 
         def __init__(self, agent_id: str, display: TextualTerminalDisplay, key_index: int = 0):
@@ -6525,6 +7092,7 @@ Type your question and press Enter to ask the agents.
             # New section-based content handlers
             self._tool_handler = ToolContentHandler()
             self._thinking_handler = ThinkingContentHandler()
+            self._batch_tracker = ToolBatchTracker()
 
             # Section widget IDs - using timeline for chronological view
             self._timeline_section_id = f"timeline_section_{self._dom_safe_id}"
@@ -6544,8 +7112,9 @@ Type your question and press Enter to ask the agents.
             self._session_count = 1
             self._presentation_shown = False
 
-            # Context tracking
+            # Context tracking (per-round for view switching)
             self._context_sources: List[str] = []
+            self._context_by_round: Dict[int, List[str]] = {}  # round_num -> context_sources
             self._context_label_id = f"context_{self._dom_safe_id}"
 
             # Timer for updating elapsed time display
@@ -6570,6 +7139,17 @@ Type your question and press Enter to ask the agents.
             self._final_answer_content: Optional[str] = None
             self._final_answer_metadata: Optional[Dict[str, Any]] = None
 
+            # Terminal tool transition tracking (new_answer, vote)
+            # When a terminal tool completes, we delay round transitions so users can see the action
+            self._last_tool_was_terminal: bool = False
+            self._transition_pending: bool = False
+            self._transition_timer: Optional[Any] = None
+            self._pending_round_transition: Optional[Tuple[int, bool]] = None  # (round_num, is_context_reset)
+
+            # Final presentation tracking
+            # When True, content flows through the normal pipeline but is tagged as final presentation
+            self._is_final_presentation_round: bool = False
+
         def compose(self) -> ComposeResult:
             with Vertical():
                 # NOTE: Agent header row removed in Phase 8c/10 - redundant with tab bar + status ribbon
@@ -6582,6 +7162,7 @@ Type your question and press Enter to ask the agents.
                     id=self._context_label_id,
                     classes="context-label hidden",
                 )
+
                 # Loading indicator - centered, shown when waiting with no content
                 with Container(id=self._loading_id, classes="loading-container"):
                     yield ProgressIndicator(
@@ -6654,13 +7235,16 @@ Type your question and press Enter to ask the agents.
             """Start the loading spinner when the panel is mounted."""
             self._start_loading_spinner("Ready")
 
-            # Add initial "Round 1" banner
+            # Note: Round 1 banner is added by TimelineSection.on_mount
+
+            # Initialize ribbon with Round 1 so the dropdown shows it immediately
             try:
-                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                timeline.add_separator("Round 1", round_number=1)
-                logger.debug(f"AgentPanel.on_mount: Added Round 1 banner to timeline {self._timeline_section_id}")
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    app._status_ribbon.set_round(self.agent_id, 1, False)
+                    logger.debug(f"AgentPanel.on_mount: Initialized ribbon with Round 1 for {self.agent_id}")
             except Exception as e:
-                logger.debug(f"AgentPanel.on_mount: Failed to add Round 1 banner: {e}")
+                logger.debug(f"AgentPanel.on_mount: Failed to initialize ribbon: {e}")
 
         def set_in_use(self, in_use: bool) -> None:
             """Set whether this panel is in use (for single-agent mode).
@@ -6689,6 +7273,8 @@ Type your question and press Enter to ask the agents.
                 context_sources: List of answer labels this agent can see (e.g., ["agent1.1", "agent2.1"])
             """
             self._context_sources = context_sources.copy()
+            # Store context by current round for view switching
+            self._context_by_round[self._current_round] = context_sources.copy()
 
             try:
                 context_label = self.query_one(f"#{self._context_label_id}", Label)
@@ -6704,7 +7290,7 @@ Type your question and press Enter to ask the agents.
                         else:
                             short_labels.append(label)
 
-                    ctx_text = f"📥 Context: {', '.join(short_labels)}"
+                    ctx_text = f"Context: {', '.join(short_labels)}"
                     if len(context_sources) > 3:
                         ctx_text += f" +{len(context_sources) - 3}"
 
@@ -6734,6 +7320,14 @@ Type your question and press Enter to ask the agents.
                 verified = sum(1 for t in tasks if t.get("status") == "verified")
                 in_progress = sum(1 for t in tasks if t.get("status") == "in_progress")
                 tui_log(f"update_task_plan: {completed} completed, {verified} verified, {in_progress} in_progress (of {len(tasks)} total)")
+
+                # Update ribbon tasks display
+                try:
+                    ribbon = self.coordination_display._agent_status_ribbon
+                    if ribbon:
+                        ribbon.set_tasks(self.agent_id, completed, len(tasks))
+                except Exception:
+                    pass
 
         def _refresh_header(self) -> None:
             """Refresh the header display.
@@ -6788,11 +7382,8 @@ Type your question and press Enter to ask the agents.
                     pass
 
                 if existing_card:
-                    # Update existing card
+                    # Update existing card (per-task highlighting handled inside)
                     existing_card.update_tasks(tasks, focused_task_id=focused_task_id, operation=operation)
-                    # Brief highlight animation
-                    existing_card.add_class("updated")
-                    self.set_timer(0.5, lambda: existing_card.remove_class("updated"))
                 else:
                     # Create new card
                     card = TaskPlanCard(
@@ -6807,21 +7398,8 @@ Type your question and press Enter to ask the agents.
                 pinned_container.remove_class("hidden")
                 self._task_plan_visible = True
 
-                # Add a brief notification to timeline for updates (not creates)
-                if show_notification and operation != "create":
-                    try:
-                        timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                        completed = sum(1 for t in tasks if t.get("status") == "completed")
-                        total = len(tasks)
-                        # Phase 12: Pass round_number for CSS visibility
-                        timeline.add_text(
-                            f"📋 Task updated ({completed}/{total} done)",
-                            style="dim italic",
-                            text_class="status",
-                            round_number=self._current_round,
-                        )
-                    except Exception:
-                        pass
+                # NOTE: Task update notifications removed - pinned task card at top
+                # already shows current status, so inline notifications are redundant
 
             except Exception as e:
                 tui_log(f"_update_pinned_task_plan error: {e}")
@@ -7044,16 +7622,16 @@ Type your question and press Enter to ask the agents.
             users can switch to via the dropdown. This clears the timeline for fresh
             content and updates the round tracking.
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: show_restart_separator called! attempt={attempt}\n")
+            # Mark that non-tool content arrived (prevents future batching across this content)
+            self._batch_tracker.mark_content_arrived()
+            # Finalize any current batch when restart occurs
+            self._batch_tracker.finalize_current_batch()
 
             # Determine if this was a context reset
             is_context_reset = "context" in reason.lower() or "reset" in reason.lower()
 
             # Start the new round (clears timeline, updates ribbon, stores content)
             self.start_new_round(attempt, is_context_reset)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: show_restart_separator done, called start_new_round\n")
 
             # Reset per-attempt UI state
             self._tool_row_count = 0
@@ -7092,7 +7670,7 @@ Type your question and press Enter to ask the agents.
                 self._add_injection_content(normalized)
             elif normalized.content_type == "reminder":
                 self._add_reminder_content(normalized)
-            elif normalized.content_type in ("thinking", "text"):
+            elif normalized.content_type in ("thinking", "text", "content"):
                 self._add_thinking_content(normalized, content_type)
             else:
                 # Fallback: route to thinking section if displayable
@@ -7100,20 +7678,18 @@ Type your question and press Enter to ask the agents.
                     self._add_thinking_content(normalized, content_type)
 
         def _add_tool_content(self, normalized, raw_content: str, raw_type: str):
-            """Route tool content to TimelineSection (chronologically)."""
-            # Check for session restart indicator
-            is_session_start = ("Registered" in raw_content and "tools" in raw_content) or ("Connected to" in raw_content and "server" in raw_content)
+            """Route tool content to TimelineSection (chronologically).
 
-            if is_session_start and self._presentation_shown:
-                # New session starting after a presentation
-                self._session_count += 1
-                self._add_restart_content(f"attempt:{self._session_count} New attempt")
-                self._presentation_shown = False
-                self._session_completed = False
-                self._tool_handler.reset()
-                # Phase 12: Don't clear timeline - CSS visibility handles round separation
-                # Just reset per-round state (task plans, bg tools badge)
-                self._reset_round_state()
+            Note: Restart detection is handled solely via show_restart_separator()
+            called from the orchestrator. We removed the duplicate detection here
+            that used _session_count to avoid conflicting round transitions.
+
+            MCP tools from the same server are batched into ToolBatchCard when 2+
+            consecutive tools arrive. Single tools appear as normal ToolCallCard.
+            """
+            # Flush any pending line buffer content to timeline before processing tool
+            # This ensures thinking/reasoning content that didn't end with newline is preserved
+            self._flush_line_buffer_to_timeline()
 
             # Process through handler
             tool_data = self._tool_handler.process(normalized)
@@ -7131,26 +7707,72 @@ Type your question and press Enter to ask the agents.
                 # Check if this is a subagent tool - we'll show SubagentCard instead
                 is_subagent_tool = self._is_subagent_tool(tool_data.tool_name)
 
+                # Skip batching for special tool types (planning, subagent)
+                skip_batching = is_planning_tool or is_subagent_tool
+
+                # Debug: Log tool content (skip planning tools for cleaner trace)
+                # Only log new tools (running status) or completions, not args updates
+                if not is_planning_tool:
+                    # Check if this is an args update for existing tool
+                    existing_card = timeline.get_tool(tool_data.tool_id) if tool_data.status == "running" else None
+                    existing_batch = timeline.get_tool_batch(tool_data.tool_id) if tool_data.status == "running" and not skip_batching else None
+                    existing_card is not None or existing_batch is not None
+
                 if tool_data.status == "running":
                     # Check if this is an args update for existing tool
                     existing_card = timeline.get_tool(tool_data.tool_id)
+                    existing_batch = timeline.get_tool_batch(tool_data.tool_id) if not skip_batching else None
+
                     if existing_card:
-                        # Update existing card with args (both truncated and full)
+                        # Update existing standalone card with args
                         if tool_data.args_summary:
                             existing_card.set_params(tool_data.args_summary, tool_data.args_full)
+                    elif existing_batch:
+                        # Update existing tool in batch with args
+                        timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
                     elif is_subagent_tool:
                         # Subagent tool starting - show SubagentCard with pending tasks from args
                         self._show_subagent_card_from_args(tool_data, timeline)
-                    elif not is_planning_tool:
-                        # New tool started - add card to timeline (skip planning tools)
-                        # Phase 12: Pass round_number for CSS visibility
+                    elif is_planning_tool:
+                        # Planning tools are skipped - TaskPlanCard is shown on completion
+                        pass
+                    elif not skip_batching:
+                        # Check if this MCP tool should be batched
+                        action, server_name, batch_id, pending_id = self._batch_tracker.process_tool(tool_data)
+
+                        if action == "pending":
+                            # First MCP tool - show as normal card, track for potential batch
+                            timeline.add_tool(tool_data, round_number=self._current_round)
+                        elif action == "convert_to_batch" and server_name and batch_id and pending_id:
+                            # Second tool from same server - convert to batch
+                            timeline.convert_tool_to_batch(
+                                pending_id,
+                                tool_data,
+                                batch_id,
+                                server_name,
+                                round_number=self._current_round,
+                            )
+                        elif action == "add_to_batch" and batch_id:
+                            # Add to existing batch
+                            timeline.add_tool_to_batch(batch_id, tool_data)
+                        else:
+                            # Standalone non-MCP tool
+                            timeline.add_tool(tool_data, round_number=self._current_round)
+                    else:
+                        # Fallback for other special tools
                         timeline.add_tool(tool_data, round_number=self._current_round)
                 else:
                     # Tool completed/failed - update the card in timeline
                     # Phase 12: No storage needed - widgets stay in DOM with round tags
                     if not is_planning_tool and not is_subagent_tool:
-                        # Update tool card with result/error
-                        timeline.update_tool(tool_data.tool_id, tool_data)
+                        # Use batch tracker to determine if this is a batch or standalone update
+                        action, server_name, batch_id, _ = self._batch_tracker.process_tool(tool_data)
+
+                        if action == "update_batch" and timeline.get_tool_batch(tool_data.tool_id):
+                            timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
+                        else:
+                            # Update standalone tool card with result/error
+                            timeline.update_tool(tool_data.tool_id, tool_data)
 
                     # Check if this is a Planning MCP tool and display TaskPlanCard
                     tui_log(f"_add_tool_content: tool_status={tool_data.status}, tool_name={tool_data.tool_name}")
@@ -7159,6 +7781,12 @@ Type your question and press Enter to ask the agents.
                         # Check if this is a subagent tool - update existing card with results
                         if is_subagent_tool:
                             self._update_subagent_card_with_results(tool_data, timeline)
+
+                        # Check if this is a terminal tool (new_answer, vote) and mark for delayed transition
+                        tool_name_lower = tool_data.tool_name.lower()
+                        if "new_answer" in tool_name_lower or "vote" in tool_name_lower:
+                            self.mark_terminal_tool_complete()
+                            tui_log(f"Terminal tool completed: {tool_data.tool_name}")
 
                     # Refresh header if this is a background operation (to show bg badge)
                     if tool_data.status == "background":
@@ -7178,6 +7806,11 @@ Type your question and press Enter to ask the agents.
             """Route status content to TimelineSection with subtle display."""
             if not normalized.should_display:
                 return
+
+            # Mark that non-tool content arrived (prevents future batching across this content)
+            self._batch_tracker.mark_content_arrived()
+            # Finalize any current batch when non-tool content arrives
+            self._batch_tracker.finalize_current_batch()
 
             # Detect session completion for restart tracking
             if "completed" in normalized.cleaned_content.lower():
@@ -7212,6 +7845,11 @@ Type your question and press Enter to ask the agents.
             """Route presentation content to TimelineSection."""
             if not normalized.should_display:
                 return
+
+            # Mark that non-tool content arrived (prevents future batching across this content)
+            self._batch_tracker.mark_content_arrived()
+            # Finalize any current batch when non-tool content arrives
+            self._batch_tracker.finalize_current_batch()
 
             # Mark presentation shown for restart detection
             if "Providing answer" in normalized.original:
@@ -7260,6 +7898,34 @@ Type your question and press Enter to ask the agents.
             self._line_buffer = ""
             self.current_line_label.update(Text(""))
 
+        def _flush_line_buffer_to_timeline(self, text_class: str = None) -> None:
+            """Flush any remaining line buffer content to the timeline.
+
+            Called when content type changes (e.g., thinking -> tool) to ensure
+            all content is written, even if it didn't end with a newline.
+
+            Args:
+                text_class: CSS class for the content. If None, uses the last
+                    text_class that was used (tracked via _last_text_class).
+            """
+            if self._line_buffer.strip():
+                # Use stored text_class if not provided - this preserves the correct
+                # type when flushing buffered content on content type transitions
+                if text_class is None:
+                    text_class = getattr(self, "_last_text_class", "content-inline")
+                try:
+                    timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                    timeline.add_text(
+                        self._line_buffer,
+                        style="dim italic",
+                        text_class=text_class,
+                        round_number=self._current_round,
+                    )
+                except Exception:
+                    pass
+                self._line_buffer = ""
+                self.current_line_label.update(Text(""))
+
         def _add_thinking_content(self, normalized, raw_type: str):
             """Route thinking/text content to TimelineSection.
 
@@ -7272,12 +7938,17 @@ Type your question and press Enter to ask the agents.
             if not cleaned:
                 return
 
+            # Mark that non-tool content arrived (prevents future batching across this content)
+            self._batch_tracker.mark_content_arrived()
+            # Finalize any current batch when non-tool content arrives
+            self._batch_tracker.finalize_current_batch()
+
             # Check if this is coordination content
             is_coordination = getattr(normalized, "is_coordination", False)
 
-            # Phase 15.5: Only display thinking/reasoning content, skip plain text
-            if not is_coordination and raw_type != "thinking":
-                return  # Skip plain text content - tool cards show meaningful output
+            # Phase 15.5: Display thinking and content, skip other types
+            if not is_coordination and raw_type not in ("thinking", "content", "text"):
+                return  # Skip non-displayable content
 
             # Add to timeline
             # Phase 12: No storage needed - widgets stay in DOM with round tags
@@ -7288,9 +7959,26 @@ Type your question and press Enter to ask the agents.
                 # Capture current_round in closure for CSS visibility tagging
                 current_round = self._current_round
 
+                # Use different text_class for thinking vs content
+                # This affects how TimelineSection labels the CollapsibleTextCard
+                # NOTE: Use normalized.content_type instead of raw_type to ensure
+                # consistent labeling even if the backend sent a different content_type
+                text_class = "thinking-inline" if normalized.content_type == "thinking" else "content-inline"
+
+                # Flush line buffer if content type changed to prevent type mixing
+                # This ensures incomplete lines from previous type don't get labeled with new type
+                if not hasattr(self, "_last_text_class"):
+                    self._last_text_class = text_class
+                if self._last_text_class != text_class and self._line_buffer.strip():
+                    # Flush with the PREVIOUS text_class before switching
+                    prev_text_class = self._last_text_class
+                    timeline.add_text(self._line_buffer, style="dim italic", text_class=prev_text_class, round_number=current_round)
+                    self._line_buffer = ""
+                self._last_text_class = text_class
+
                 def write_line(line: str):
                     # Phase 12: Pass round_number for CSS visibility
-                    timeline.add_text(line, style="dim italic", text_class="thinking-inline", round_number=current_round)
+                    timeline.add_text(line, style="dim italic", text_class=text_class, round_number=current_round)
 
                 self._line_buffer = _process_line_buffer(
                     self._line_buffer,
@@ -7300,7 +7988,8 @@ Type your question and press Enter to ask the agents.
                 self.current_line_label.update(Text(self._line_buffer))
             except Exception:
                 # Fallback to legacy RichLog
-                if raw_type == "thinking":
+                # Use normalized.content_type for consistency
+                if normalized.content_type == "thinking":
                     self._line_buffer = _process_line_buffer(
                         self._line_buffer,
                         cleaned,
@@ -7322,6 +8011,11 @@ Type your question and press Enter to ask the agents.
             """
             if not normalized.should_display:
                 return
+
+            # Mark that non-tool content arrived (prevents future batching across this content)
+            self._batch_tracker.mark_content_arrived()
+            # Finalize any current batch when non-tool content arrives
+            self._batch_tracker.finalize_current_batch()
 
             content = normalized.cleaned_content
             # Truncate preview if very long
@@ -7350,6 +8044,11 @@ Type your question and press Enter to ask the agents.
             """
             if not normalized.should_display:
                 return
+
+            # Mark that non-tool content arrived (prevents future batching across this content)
+            self._batch_tracker.mark_content_arrived()
+            # Finalize any current batch when non-tool content arrives
+            self._batch_tracker.finalize_current_batch()
 
             content = normalized.cleaned_content
 
@@ -7929,33 +8628,178 @@ Type your question and press Enter to ask the agents.
             Phase 12: With CSS-based visibility, all round content stays in the DOM.
             We switch visibility to show the new round and hide old round content.
 
+            Terminal Tool Delay: When a terminal tool (new_answer, vote) just completed,
+            we delay the transition by 3 seconds so users can see the completed action
+            before the view switches to the new round.
+
+            IMPORTANT: This method is atomic - tracking is updated FIRST before any
+            visibility changes to ensure all new content gets tagged with the correct
+            round number.
+
             Args:
                 round_number: The new round number
                 is_context_reset: Whether this round started with a context reset
             """
-            # Update round tracking
+            from massgen.logger_config import logger
+
+            logger.debug(
+                f"AgentPanel.start_new_round: round={round_number}, " f"prev_round={self._current_round}, context_reset={is_context_reset}",
+            )
+
+            # Terminal tool transition delay - give users time to see completed action
+            if self._transition_pending:
+                # Already waiting for a transition - update the pending round
+                self._pending_round_transition = (round_number, is_context_reset)
+                return
+
+            if self._last_tool_was_terminal:
+                # Delay transition so users can see the completed terminal tool
+                self._transition_pending = True
+                self._pending_round_transition = (round_number, is_context_reset)
+                self._transition_timer = self.set_timer(5.0, self._execute_round_transition)
+                self._last_tool_was_terminal = False  # Reset for next round
+
+                # Show a subtle notification
+                try:
+                    self.notify("Round complete - transitioning in 5s", timeout=3)
+                except Exception:
+                    pass  # Notification is optional
+                return
+
+            # Execute the round transition immediately
+            self._execute_round_transition_impl(round_number, is_context_reset)
+
+        def _execute_round_transition(self) -> None:
+            """Execute a delayed round transition (called by timer)."""
+            self._transition_pending = False
+            self._transition_timer = None
+
+            if self._pending_round_transition:
+                round_number, is_context_reset = self._pending_round_transition
+                self._pending_round_transition = None
+                self._execute_round_transition_impl(round_number, is_context_reset)
+
+        def _execute_round_transition_impl(self, round_number: int, is_context_reset: bool = False) -> None:
+            """Execute the actual round transition logic."""
+            from massgen.logger_config import logger
+
+            # Step 1: Update round tracking FIRST (before any visibility changes)
+            # This ensures all subsequent content gets tagged with the new round number
             self._current_round = round_number
             self._viewed_round = round_number  # Auto-follow to new round
             self._current_view = "round"
 
-            # Switch timeline visibility to new round (hides old round content)
+            # Step 2: Switch timeline visibility to new round (hides old round content)
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
                 timeline.switch_to_round(round_number)
+                # Clear tools tracking so new round's tool_ids don't collide with old round's
+                timeline.clear_tools_tracking()
 
-                # Add "Round X" banner at the top of each new round
+                # Step 3: Add "Round X" banner at the top of each new round
                 if round_number > 1:
-                    timeline.add_separator(f"Round {round_number}", round_number=round_number)
+                    # Build subtitle based on restart context
+                    subtitle = "Restart"
+                    if is_context_reset:
+                        subtitle += " • Context cleared"
+                    timeline.add_separator(f"Round {round_number}", round_number=round_number, subtitle=subtitle)
+            except Exception as e:
+                logger.error(f"AgentPanel.start_new_round timeline error: {e}")
+
+            # Step 4: Reset per-round UI state
+            self._hide_completion_footer()
+            self._tool_handler.reset()
+            self._batch_tracker.reset()
+            self._reasoning_header_shown = False
+
+            # Step 5: Clear context display for new round (will be updated when context is injected)
+            self._restore_context_for_round(round_number)
+
+            # Step 6: Notify the status ribbon about the new round
+            self._update_ribbon_round(round_number, is_context_reset)
+
+            logger.debug(f"AgentPanel.start_new_round: completed round={round_number}")
+
+        def mark_terminal_tool_complete(self) -> None:
+            """Mark that a terminal tool (new_answer, vote) has just completed.
+
+            This triggers a delayed transition when start_new_round is called,
+            giving users time to see the completed action before the view switches.
+            """
+            self._last_tool_was_terminal = True
+
+        def start_final_presentation(self, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None) -> None:
+            """Start the final presentation phase - shows fresh view with distinct banner.
+
+            This is similar to start_new_round but uses a "Final Presentation" banner
+            with a distinct green color scheme to indicate the winning agent presenting.
+
+            Args:
+                vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
+                answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
+            """
+            from massgen.logger_config import logger
+
+            # Increment round for final presentation
+            new_round = self._current_round + 1
+
+            logger.debug(
+                f"AgentPanel.start_final_presentation: agent={self.agent_id}, " f"new_round={new_round}",
+            )
+
+            # Step 1: Update round tracking
+            self._current_round = new_round
+            self._viewed_round = new_round
+            self._current_view = "round"
+            self._is_final_presentation_round = True  # Mark as final presentation round
+
+            # Step 2: Build vote summary subtitle using answer labels (e.g., "A1.1")
+            subtitle = ""
+            if vote_counts:
+                # Format: "Votes: A1.1(2), A2.1(1)"
+                sorted_votes = sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)
+                vote_parts = []
+                for agent_id, count in sorted_votes:
+                    # Use answer label if available, otherwise fall back to shortened agent name
+                    if answer_labels and agent_id in answer_labels:
+                        label = answer_labels[agent_id]
+                    else:
+                        # Fallback: "agent_a" -> "Aa", "agent1" -> "A1"
+                        label = agent_id.replace("agent_", "A").replace("agent", "A")
+                    vote_parts.append(f"{label} ({count})")
+                subtitle = f"Votes: {', '.join(vote_parts)}"
+
+            # Step 3: Switch timeline visibility and add final presentation banner
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.switch_to_round(new_round)
+                # Clear tool tracking to prevent tool_id collisions with previous round
+                timeline.clear_tools_tracking()
+
+                # Add "Final Presentation" banner with distinct styling and vote summary
+                timeline.add_separator("FINAL PRESENTATION", round_number=new_round, subtitle=subtitle)
+            except Exception as e:
+                logger.error(f"AgentPanel.start_final_presentation timeline error: {e}")
+
+            # Step 4: Reset per-round UI state
+            self._hide_completion_footer()
+            self._tool_handler.reset()
+            self._batch_tracker.reset()
+            self._reasoning_header_shown = False
+
+            # Step 4: Clear context display for final presentation (will be updated if needed)
+            self._restore_context_for_round(new_round)
+
+            # Step 5: Update ribbon to show "F" for final presentation round
+            try:
+                app = self.app
+                if hasattr(app, "_status_ribbon") and app._status_ribbon:
+                    # Mark this as a final presentation round - shows "F" instead of "R{n}"
+                    app._status_ribbon.set_round(self.agent_id, new_round, is_final_presentation=True)
             except Exception:
                 pass
 
-            # Reset per-round UI state
-            self._hide_completion_footer()
-            self._tool_handler.reset()
-            self._reasoning_header_shown = False
-
-            # Notify the status ribbon about the new round
-            self._update_ribbon_round(round_number, is_context_reset)
+            logger.debug("AgentPanel.start_final_presentation: completed")
 
         def _update_ribbon_round(self, round_number: int, is_context_reset: bool = False) -> None:
             """Update the status ribbon with the current round info."""
@@ -7968,18 +8812,18 @@ Type your question and press Enter to ask the agents.
                 pass
 
         def switch_to_round(self, round_number: int) -> None:
-            """Switch view to a specific round using CSS visibility.
+            """Scroll to a specific round in the unified timeline.
 
-            Phase 12: CSS-based visibility switching. All round content stays in DOM,
-            we just toggle the 'hidden' class based on round tags.
+            All round content stays visible in a continuous timeline.
+            Selecting a round smoothly scrolls to that round's separator banner.
 
             Args:
-                round_number: The round number to display
+                round_number: The round number to scroll to
             """
             self._viewed_round = round_number
             self._current_view = "round"
 
-            # Use TimelineSection's CSS-based switching
+            # Use TimelineSection's scroll-to behavior
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
                 timeline.switch_to_round(round_number)
@@ -7991,6 +8835,42 @@ Type your question and press Enter to ask the agents.
                 app = self.app
                 if hasattr(app, "_status_ribbon") and app._status_ribbon:
                     app._status_ribbon.set_viewed_round(self.agent_id, round_number)
+            except Exception:
+                pass
+
+            # Restore context display for this round
+            self._restore_context_for_round(round_number)
+
+        def _restore_context_for_round(self, round_number: int) -> None:
+            """Restore the context display for a specific round.
+
+            When viewing historical rounds, show the context that was active during that round.
+            """
+            # Get context sources for this round (empty if not set)
+            context_sources = self._context_by_round.get(round_number, [])
+            self._context_sources = context_sources
+
+            try:
+                context_label = self.query_one(f"#{self._context_label_id}", Label)
+
+                if context_sources:
+                    # Format: "Context: A1.1, A2.1" (same as update_context_display)
+                    short_labels = []
+                    for label in context_sources[:3]:
+                        if label.startswith("agent"):
+                            short_labels.append("A" + label[5:])
+                        else:
+                            short_labels.append(label)
+
+                    ctx_text = f"Context: {', '.join(short_labels)}"
+                    if len(context_sources) > 3:
+                        ctx_text += f" +{len(context_sources) - 3}"
+
+                    context_label.update(ctx_text)
+                    context_label.remove_class("hidden")
+                else:
+                    context_label.update("")
+                    context_label.add_class("hidden")
             except Exception:
                 pass
 

@@ -79,7 +79,7 @@ $tool-default: #6b7d8f;      /* Default/other */
  */
 
 Screen {
-    background: $bg-base;
+    background: initial;  /* Use terminal's native background */
     color: $fg-primary;
     layers: base overlay;
 }
@@ -93,7 +93,7 @@ Screen {
     width: 100%;
     height: 1fr;
     align: center middle;
-    background: $bg-base;
+    background: initial;  /* Use terminal's native background */
 }
 
 #welcome_screen Label, #welcome_screen Static {
@@ -449,6 +449,10 @@ Static {
 }
 
 /* === Notifications === */
+ToastRack {
+    margin-bottom: 5;  /* Push up above mode bar and input */
+}
+
 Toast {
     background: $bg-surface-2;
     color: $fg-primary;

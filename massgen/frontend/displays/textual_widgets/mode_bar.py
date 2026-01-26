@@ -52,6 +52,10 @@ class OverrideRequested(Message):
     """Message emitted when user requests override."""
 
 
+class PlanSettingsClicked(Message):
+    """Message emitted when plan settings button is clicked."""
+
+
 def _mode_log(msg: str) -> None:
     """Log to TUI debug file."""
     try:
@@ -114,6 +118,10 @@ class ModeToggle(Static):
         self._states = states
         self._current_state = initial_state
         self._enabled = True
+
+    def on_mount(self) -> None:
+        """Apply initial style class on mount."""
+        self._update_style()
 
     def render(self) -> str:
         """Render the toggle button."""
@@ -197,10 +205,10 @@ class ModeBar(Widget):
     DEFAULT_CSS = """
     ModeBar {
         height: 2;
-        width: 100%;
+        width: auto;
         layout: horizontal;
-        background: $surface;
-        border-bottom: solid $primary-darken-2;
+        background: transparent;
+        border-bottom: none;
         padding: 0 1;
         align: left middle;
     }
@@ -209,36 +217,72 @@ class ModeBar(Widget):
         display: none;
     }
 
+    /* Base toggle - minimal, no background */
     ModeBar ModeToggle {
         margin: 0 1;
         padding: 0 1;
-        background: $surface-darken-1;
-        color: $text;
-    }
-
-    ModeBar ModeToggle:hover {
-        background: $primary-darken-1;
-    }
-
-    ModeBar ModeToggle.disabled {
-        background: $surface-darken-2;
+        background: transparent;
         color: $text-muted;
+        border: solid $surface-lighten-2;
     }
 
-    ModeBar ModeToggle.state-plan,
+    /* Hover - subtle border highlight */
+    ModeBar ModeToggle:hover {
+        border: solid $primary-lighten-1;
+        color: $text;
+    }
+
+    /* Focus - visible focus ring */
+    ModeBar ModeToggle:focus {
+        border: solid $primary;
+    }
+
+    /* Disabled - very muted */
+    ModeBar ModeToggle.disabled {
+        color: $text-disabled;
+        border: solid $surface;
+    }
+
+    /* Plan mode active - green text */
+    ModeBar ModeToggle.state-plan {
+        color: $success;
+        border: solid $success;
+    }
+
+    /* Execute mode - green text (same as plan) */
     ModeBar ModeToggle.state-execute {
-        background: $success-darken-1;
-        color: $text;
+        color: $success;
+        border: solid $success;
     }
 
+    /* Single agent - warning color */
     ModeBar ModeToggle.state-single {
-        background: $warning-darken-1;
-        color: $text;
+        color: $warning;
+        border: solid $warning;
     }
 
-    ModeBar ModeToggle.state-off {
-        background: $error-darken-2;
+    /* Multi-agent (default) - normal text */
+    ModeBar ModeToggle.state-multi {
         color: $text;
+        border: solid $surface-lighten-2;
+    }
+
+    /* Refinement on - green */
+    ModeBar ModeToggle.state-on {
+        color: $success;
+        border: solid $success;
+    }
+
+    /* Refinement off - muted */
+    ModeBar ModeToggle.state-off {
+        color: $text-muted;
+        border: solid $surface-lighten-2;
+    }
+
+    /* Normal (inactive plan) - muted */
+    ModeBar ModeToggle.state-normal {
+        color: $text-muted;
+        border: solid $surface-lighten-2;
     }
 
     ModeBar #mode_spacer {
@@ -264,6 +308,37 @@ class ModeBar(Widget):
         color: $success;
         margin-left: 1;
     }
+
+    /* Plan settings button - minimal style to match toggles */
+    ModeBar #plan_settings_btn {
+        width: auto;
+        height: 1;
+        min-width: 3;
+        background: transparent;
+        color: $text-muted;
+        border: solid $surface-lighten-2;
+        padding: 0 1;
+        margin-left: 1;
+    }
+
+    ModeBar #plan_settings_btn:hover {
+        border: solid $primary-lighten-1;
+        color: $text;
+    }
+
+    ModeBar #plan_settings_btn.hidden {
+        display: none;
+    }
+
+    ModeBar #plan_status {
+        color: $text-muted;
+        text-style: italic;
+        padding: 0 1;
+    }
+
+    ModeBar #plan_status.hidden {
+        display: none;
+    }
     """
 
     # Reactive for override button visibility
@@ -282,6 +357,8 @@ class ModeBar(Widget):
         self._refinement_toggle: Optional[ModeToggle] = None
         self._override_btn: Optional[Button] = None
         self._plan_info: Optional[Label] = None
+        self._plan_settings_btn: Optional[Button] = None
+        self._plan_status: Optional[Static] = None
 
     def compose(self) -> ComposeResult:
         """Create mode bar contents."""
@@ -312,12 +389,21 @@ class ModeBar(Widget):
         )
         yield self._refinement_toggle
 
+        # Plan settings button (hidden when plan mode is "normal")
+        self._plan_settings_btn = Button("⋮", id="plan_settings_btn", variant="default")
+        self._plan_settings_btn.add_class("hidden")
+        yield self._plan_settings_btn
+
         # Plan info (shown when executing plan)
         self._plan_info = Label("", id="plan_info")
         yield self._plan_info
 
-        # Spacer to push override button to the right
+        # Spacer to push status and override button to the right
         yield Static("", id="mode_spacer")
+
+        # Plan status text (right-aligned, shows plan being executed)
+        self._plan_status = Static("", id="plan_status", classes="hidden")
+        yield self._plan_status
 
         # Override button (hidden by default)
         self._override_btn = Button("Override [Ctrl+O]", id="override_btn", variant="warning")
@@ -346,6 +432,13 @@ class ModeBar(Widget):
                 self._plan_info.update(f"📂 {plan_info}")
             else:
                 self._plan_info.update("")
+
+        # Show/hide plan settings button based on mode
+        if self._plan_settings_btn:
+            if mode != "normal":
+                self._plan_settings_btn.remove_class("hidden")
+            else:
+                self._plan_settings_btn.add_class("hidden")
 
     def set_agent_mode(self, mode: str) -> None:
         """Set the agent mode state.
@@ -390,11 +483,28 @@ class ModeBar(Widget):
         """Get current refinement mode."""
         return self._refinement_toggle.get_state() == "on" if self._refinement_toggle else True
 
+    def set_plan_status(self, status: str) -> None:
+        """Set the plan status text shown on the right side.
+
+        Args:
+            status: Status text to display, or empty to hide.
+        """
+        if self._plan_status:
+            if status:
+                self._plan_status.update(status)
+                self._plan_status.remove_class("hidden")
+            else:
+                self._plan_status.update("")
+                self._plan_status.add_class("hidden")
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
         if event.button.id == "override_btn":
             _mode_log("ModeBar: Override button pressed")
             self.post_message(OverrideRequested())
+        elif event.button.id == "plan_settings_btn":
+            _mode_log("ModeBar: Plan settings button pressed")
+            self.post_message(PlanSettingsClicked())
 
     def on_mode_changed(self, event: ModeChanged) -> None:
         """Let mode change messages bubble to parent."""

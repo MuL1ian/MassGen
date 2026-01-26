@@ -354,6 +354,10 @@ async def create_server() -> fastmcp.FastMCP:
         """
         Execute a command line command.
 
+        WARNING: This tool BLOCKS until the command completes or times out (default: 60s).
+        For long-running commands (servers, training jobs, daemons), use
+        start_background_shell() instead to avoid blocking.
+
         This tool allows executing any command line program including:
         - Python: execute_command("python script.py")
         - Node.js: execute_command("node app.js")
@@ -524,26 +528,32 @@ async def create_server() -> fastmcp.FastMCP:
 
                     # Use ThreadPoolExecutor to implement timeout for Docker exec_run
                     # Docker SDK's exec_run doesn't have native timeout support
+                    # IMPORTANT: Don't use context manager - its __exit__ calls shutdown(wait=True)
+                    # which blocks until the thread completes, defeating the timeout
                     def run_docker_exec():
                         return container.exec_run(**exec_config)
 
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(run_docker_exec)
-                        try:
-                            exit_code, output = future.result(timeout=timeout)
-                        except concurrent.futures.TimeoutError:
-                            # Timeout occurred - try to find and kill the exec process
-                            execution_time = time.time() - start_time
-                            logger.warning(f"Docker command timed out after {timeout}s: {command[:100]}")
-                            return {
-                                "success": False,
-                                "exit_code": -1,
-                                "stdout": "",
-                                "stderr": f"Command timed out after {timeout} seconds",
-                                "execution_time": execution_time,
-                                "command": command,
-                                "work_dir": str(work_path),
-                            }
+                    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                    future = executor.submit(run_docker_exec)
+                    try:
+                        exit_code, output = future.result(timeout=timeout)
+                    except concurrent.futures.TimeoutError:
+                        # Timeout occurred - shutdown executor without waiting
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        execution_time = time.time() - start_time
+                        logger.warning(f"Docker command timed out after {timeout}s: {command[:100]}")
+                        return {
+                            "success": False,
+                            "exit_code": -1,
+                            "stdout": "",
+                            "stderr": f"Command timed out after {timeout} seconds",
+                            "execution_time": execution_time,
+                            "command": command,
+                            "work_dir": str(work_path),
+                        }
+                    finally:
+                        # Clean up executor (wait=False to not block if thread is still running)
+                        executor.shutdown(wait=False)
 
                     execution_time = time.time() - start_time
 

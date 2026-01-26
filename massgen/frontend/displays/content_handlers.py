@@ -15,6 +15,38 @@ from typing import Any, Dict, Optional
 from .content_normalizer import ContentNormalizer, NormalizedContent
 
 
+def get_mcp_server_name(tool_name: str) -> Optional[str]:
+    """Extract MCP server name from mcp__server__tool format.
+
+    Args:
+        tool_name: The full tool name (e.g., "mcp__filesystem__write_file").
+
+    Returns:
+        Server name if this is an MCP tool (e.g., "filesystem"), None otherwise.
+    """
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__")
+        if len(parts) >= 2:
+            return parts[1]
+    return None
+
+
+def get_mcp_tool_name(tool_name: str) -> Optional[str]:
+    """Extract the actual tool name from mcp__server__tool format.
+
+    Args:
+        tool_name: The full tool name (e.g., "mcp__filesystem__write_file").
+
+    Returns:
+        Tool name if this is an MCP tool (e.g., "write_file"), None otherwise.
+    """
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__")
+        if len(parts) >= 3:
+            return parts[2]
+    return None
+
+
 @dataclass
 class ToolDisplayData:
     """Data for displaying a tool call."""
@@ -785,8 +817,122 @@ class PresentationContentHandler(BaseContentHandler):
 
         content = normalized.cleaned_content
 
-        # Filter "Providing answer:" prefix
-        if content.startswith("Providing answer:"):
+        # Filter "Providing answer:" prefix (may have emoji like 💡)
+        if "Providing answer:" in content:
             return None
 
         return content
+
+
+class ToolBatchTracker:
+    """Tracks consecutive MCP tool calls for batching into tree views.
+
+    Only batches when 2+ consecutive tools from the same server arrive.
+    Single tools appear as normal ToolCallCard with fade-in animation.
+
+    Flow:
+    1. First MCP tool → show as normal ToolCallCard, track as "pending"
+    2. Second consecutive tool from same server → convert to batch
+    3. More tools from same server → add to batch
+    4. Different server or non-MCP → finalize, start fresh
+    """
+
+    def __init__(self):
+        self._current_server: Optional[str] = None
+        self._current_batch_id: Optional[str] = None
+        self._pending_tool_id: Optional[str] = None  # First tool, not yet batched
+        self._batch_counter = 0
+        self._batched_tool_ids: set = set()  # Track which tools are in batches
+        self._content_since_last_tool: bool = False  # True if non-tool content arrived
+
+    def mark_content_arrived(self) -> None:
+        """Mark that non-tool content (thinking, text, status) has arrived.
+
+        This is used to prevent batching tools that have content between them.
+        Called whenever non-tool content is added to the timeline.
+        """
+        self._content_since_last_tool = True
+
+    def process_tool(self, tool_data: ToolDisplayData) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
+        """Determine how to handle an incoming tool call.
+
+        Returns:
+            Tuple of (action, server_name, batch_id, pending_tool_id) where action is:
+            - "standalone": Non-MCP tool, use regular ToolCallCard
+            - "pending": First MCP tool, show as ToolCallCard but track for potential batch
+            - "convert_to_batch": Second tool arrived - convert pending to batch
+            - "add_to_batch": Add to existing batch
+            - "update_standalone": Update a standalone/pending tool
+            - "update_batch": Update existing tool in batch
+        """
+        # If content arrived since last tool, finalize batch and start fresh
+        # This ensures chronological order is respected in the timeline
+        if self._content_since_last_tool and tool_data.status == "running":
+            self._finalize_pending()
+            self._content_since_last_tool = False
+
+        server_name = get_mcp_server_name(tool_data.tool_name)
+
+        # Non-MCP tools get standalone treatment
+        if server_name is None:
+            self._finalize_pending()
+            return ("standalone", None, None, None)
+
+        # Check if this is an update (not "running")
+        if tool_data.status != "running":
+            if tool_data.tool_id in self._batched_tool_ids:
+                return ("update_batch", server_name, self._current_batch_id, None)
+            return ("update_standalone", server_name, None, None)
+
+        # New tool starting (status == "running")
+
+        # Already have an active batch for this server?
+        if self._current_batch_id and self._current_server == server_name:
+            self._batched_tool_ids.add(tool_data.tool_id)
+            return ("add_to_batch", server_name, self._current_batch_id, None)
+
+        # Have a pending tool from same server? → Convert to batch
+        if self._pending_tool_id and self._current_server == server_name:
+            self._batch_counter += 1
+            self._current_batch_id = f"batch_{self._batch_counter}"
+            pending_id = self._pending_tool_id
+            self._batched_tool_ids.add(pending_id)
+            self._batched_tool_ids.add(tool_data.tool_id)
+            self._pending_tool_id = None
+            return ("convert_to_batch", server_name, self._current_batch_id, pending_id)
+
+        # Different server or first tool → finalize and track as pending
+        self._finalize_pending()
+        self._current_server = server_name
+        self._pending_tool_id = tool_data.tool_id
+        return ("pending", server_name, None, None)
+
+    def _finalize_pending(self) -> None:
+        """Finalize any pending tool (it stays as standalone)."""
+        self._pending_tool_id = None
+        self._current_server = None
+        self._current_batch_id = None
+
+    def finalize_current_batch(self) -> Optional[str]:
+        """Called when non-tool content arrives to finalize tracking."""
+        finalized_id = self._current_batch_id
+        self._finalize_pending()
+        return finalized_id
+
+    def reset(self) -> None:
+        """Reset the tracker state (e.g., for new round)."""
+        self._current_server = None
+        self._current_batch_id = None
+        self._pending_tool_id = None
+        self._batched_tool_ids.clear()  # Clear accumulated tool IDs to prevent memory growth
+        self._content_since_last_tool = False
+
+    @property
+    def current_batch_id(self) -> Optional[str]:
+        """Get the current batch ID if any."""
+        return self._current_batch_id
+
+    @property
+    def current_server(self) -> Optional[str]:
+        """Get the current server name if batching."""
+        return self._current_server

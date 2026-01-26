@@ -106,6 +106,7 @@ class AgentState:
     paraphrase: Optional[str] = None
     answer_count: int = 0  # Track number of answers for memory archiving
     injection_count: int = 0  # Track injections received for mid-stream injection timing
+    restart_count: int = 0  # Track full restarts (TUI round = restart_count + 1)
     round_start_time: Optional[float] = None  # For per-round timeouts
     round_timeout_hooks: Optional[tuple] = None  # (post_hook, pre_hook) for resetting on new round
     round_timeout_state: Optional["RoundTimeoutState"] = None  # Shared timeout state
@@ -2851,8 +2852,8 @@ Your answer:"""
             # Use asyncio.timeout for timeout protection
             async with asyncio.timeout(timeout_seconds):
                 async for chunk in self._coordinate_agents(conversation_context):
-                    # Track tokens if this is a content chunk
-                    if hasattr(chunk, "content") and chunk.content:
+                    # Track tokens if this is a content chunk (only for string content)
+                    if hasattr(chunk, "content") and chunk.content and isinstance(chunk.content, str):
                         self.total_tokens += len(
                             chunk.content.split(),
                         )  # Rough token estimation
@@ -3639,6 +3640,16 @@ Your answer:"""
                         # chunk_data is already a StreamChunk with hook_info and tool_call_id
                         log_stream_chunk("orchestrator", "hook_execution", str(chunk_data.hook_info), agent_id)
                         yield chunk_data
+
+                    elif chunk_type == "agent_restart":
+                        # Agent is starting a new round - notify UI to show fresh timeline
+                        # chunk_data is a dict with agent_id and round
+                        log_stream_chunk("orchestrator", "agent_restart", str(chunk_data), agent_id)
+                        yield StreamChunk(
+                            type="agent_restart",
+                            content=chunk_data,
+                            source=agent_id,
+                        )
 
                     elif chunk_type == "done":
                         # Stream completed - this is just an end-of-stream marker
@@ -5672,6 +5683,9 @@ Your answer:"""
         self.agent_states[agent_id].is_killed = False
         self.agent_states[agent_id].timeout_reason = None
 
+        # Track whether we've notified TUI of new round (done once per real execution)
+        _notified_round = False
+
         # Set round start time for per-round timeout tracking
         self.agent_states[agent_id].round_start_time = time.time()
 
@@ -6006,11 +6020,32 @@ Your answer:"""
                         self.agent_states[agent_id].restart_pending = False
                         self.agent_states[agent_id].injection_count += 1
                         # Signal completion so coordination loop restarts agent with updated context
+                        # Note: agent_restart notification is yielded at the top of _stream_agent_execution
                         yield ("done", None)
                         return
                     # else: injection_count >= 1, mid-stream callback will handle via tool results
                     # Do NOT clear restart_pending here - the callback checks this flag
                     # and will clear it after injecting content (see get_injection_content)
+
+                # Track restarts for TUI round display - only when agent is about to do real work
+                # (not if it's exiting immediately due to restart_pending)
+                if not _notified_round:
+                    _notified_round = True
+                    self.agent_states[agent_id].restart_count += 1
+                    current_round = self.agent_states[agent_id].restart_count
+
+                    # If this is a restart (round > 1), notify the UI to show fresh timeline
+                    if current_round > 1:
+                        logger.info(
+                            f"[Orchestrator] Agent {agent_id} starting round {current_round} (restart)",
+                        )
+                        yield (
+                            "agent_restart",
+                            {
+                                "agent_id": agent_id,
+                                "round": current_round,
+                            },
+                        )
 
                 # TODO: Need to still log this redo enforcement msg in the context.txt, and this & others in the coordination tracker.
 
@@ -7783,6 +7818,26 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             content=f"🎤  [{selected_agent_id}] presenting final answer\n",
         )
 
+        # Notify TUI to show fresh final presentation view
+        # Build answer labels mapping for vote display (agent_id -> "A1.1" style label)
+        answer_labels = {}
+        if vote_counts:
+            for aid in vote_counts.keys():
+                label = self.coordination_tracker.get_latest_answer_label(aid)
+                if label:
+                    # Convert "agent1.1" to "A1.1"
+                    answer_labels[aid] = label.replace("agent", "A")
+
+        yield StreamChunk(
+            type="final_presentation_start",
+            content={
+                "agent_id": selected_agent_id,
+                "vote_counts": vote_counts,
+                "answer_labels": answer_labels,
+            },
+            source=selected_agent_id,
+        )
+
         # Start round token tracking for final presentation
         final_round = self.coordination_tracker.get_agent_round(selected_agent_id)
         if hasattr(agent.backend, "start_round_tracking"):
@@ -7898,18 +7953,39 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         source=selected_agent_id,
                     )
                 elif chunk_type == "mcp_status":
-                    # Handle MCP status messages in final presentation
+                    # MCP status - preserve type for TUI tool tracking
                     mcp_content = f"🔧 MCP: {chunk.content}"
+                    log_stream_chunk("orchestrator", "mcp_status", chunk.content, selected_agent_id)
+                    yield StreamChunk(
+                        type="mcp_status",
+                        content=mcp_content,
+                        source=selected_agent_id,
+                        tool_call_id=getattr(chunk, "tool_call_id", None),
+                    )
+                elif chunk_type == "custom_tool_status":
+                    # Custom tool status - preserve type for TUI tool tracking
+                    custom_content = f"🔧 Custom Tool: {chunk.content}"
+                    log_stream_chunk("orchestrator", "custom_tool_status", chunk.content, selected_agent_id)
+                    yield StreamChunk(
+                        type="custom_tool_status",
+                        content=custom_content,
+                        source=selected_agent_id,
+                        tool_call_id=getattr(chunk, "tool_call_id", None),
+                    )
+                elif chunk_type == "hook_execution":
+                    # Hook execution - pass through with source
                     log_stream_chunk(
                         "orchestrator",
-                        "content",
-                        mcp_content,
+                        "hook_execution",
+                        str(getattr(chunk, "hook_info", "")),
                         selected_agent_id,
                     )
                     yield StreamChunk(
-                        type="content",
-                        content=mcp_content,
+                        type="hook_execution",
+                        content=chunk.content,
                         source=selected_agent_id,
+                        hook_info=getattr(chunk, "hook_info", None),
+                        tool_call_id=getattr(chunk, "tool_call_id", None),
                     )
                 elif chunk_type == "done":
                     # Save the final workspace snapshot (from final workspace directory)
@@ -9205,6 +9281,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.timeout_reason = None
             state.answer_count = 0
             state.injection_count = 0
+            state.restart_count = 0
 
         # Reset orchestrator timeout tracking
         self.total_tokens = 0

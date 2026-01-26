@@ -281,5 +281,124 @@ class TestConstructorParameters:
             assert any("test.py" in c for c in completions)
 
 
+class TestQuotedPathCompletion:
+    """Tests for quoted path completion with spaces."""
+
+    def test_quoted_path_triggers_completion(self):
+        """Test that @" triggers quoted path completion."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.py"
+            test_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            completions = get_completions(completer, '@"t')
+            # Should have test.py completion with quotes
+            assert any("test.py" in c for c in completions)
+
+    def test_quoted_path_allows_spaces(self):
+        """Test that quoted paths allow spaces in completion."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a directory with spaces
+            spaced_dir = Path(tmpdir) / "my project"
+            spaced_dir.mkdir()
+            spaced_file = spaced_dir / "file.txt"
+            spaced_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            # Type @"my pro to get completions for "my project"
+            completions = get_completions(completer, '@"my ')
+
+            # Should get completions for the spaced directory
+            assert any("my project" in c for c in completions)
+
+    def test_quoted_path_completion_includes_quotes(self):
+        """Test that completions for quoted paths include closing quote."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spaced_dir = Path(tmpdir) / "test dir"
+            spaced_dir.mkdir()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            completions = get_completions(completer, '@"test ')
+
+            # Completions should have proper quote format
+            assert any(c.startswith('@"') and '"' in c[2:] for c in completions)
+
+    def test_quoted_path_with_write_suffix(self):
+        """Test @"path with space":w completion."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spaced_dir = Path(tmpdir) / "out dir"
+            spaced_dir.mkdir()
+            out_file = spaced_dir / "out.txt"
+            out_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            completions = get_completions(completer, '@"out dir/out:w')
+
+            # Should have :w suffix preserved
+            assert any(":w" in c for c in completions)
+
+    def test_space_in_unquoted_still_returns_no_completions(self):
+        """Test that unquoted paths with spaces still return no completions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.py"
+            test_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            # Without quotes, space should stop completion
+            completions = get_completions(completer, "@path with space")
+            assert completions == []
+
+    def test_files_with_spaces_auto_quoted(self):
+        """Test that files with spaces in names get quoted in completions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create file with space in name
+            spaced_file = Path(tmpdir) / "my file.txt"
+            spaced_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            # Type @"my to start completing in quoted mode
+            completions = get_completions(completer, '@"my')
+
+            # Should get quoted completion for spaced file
+            assert any("my file.txt" in c for c in completions)
+            # All completions should have quotes
+            assert all(c.startswith('@"') for c in completions if "my file" in c)
+
+    def test_unquoted_input_auto_quotes_for_spaced_files(self):
+        """Test that typing @prefix (unquoted) auto-quotes if file has spaces."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create file with space in name
+            spaced_file = Path(tmpdir) / "myfile with spaces.txt"
+            spaced_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            # Type @myf unquoted - completion should auto-quote since file has spaces
+            completions = get_completions(completer, "@myf")
+
+            # Should get quoted completion
+            assert any("myfile with spaces" in c for c in completions)
+            # Completions for spaced files should be auto-quoted
+            for c in completions:
+                if "myfile with spaces" in c:
+                    assert c.startswith('@"'), f"Expected quoted path but got: {c}"
+                    assert c.endswith('"') or c.endswith('":w'), f"Expected closing quote but got: {c}"
+
+    def test_nested_directory_with_spaces(self):
+        """Test completion for nested directories with spaces."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create nested structure with spaces
+            parent = Path(tmpdir) / "parent dir"
+            child = parent / "child dir"
+            child.mkdir(parents=True)
+            nested_file = child / "file.txt"
+            nested_file.touch()
+
+            completer = AtPathCompleter(base_path=Path(tmpdir))
+            completions = get_completions(completer, '@"parent dir/child')
+
+            # Should complete to child dir
+            assert any("child dir" in c for c in completions)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

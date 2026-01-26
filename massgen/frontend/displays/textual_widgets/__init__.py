@@ -29,11 +29,24 @@ from .content_sections import (
 from .execution_status_line import ExecutionStatusLine
 from .final_answer_view import FinalAnswerView
 from .injection_card import InjectionSubCard
-from .mode_bar import ModeBar, ModeChanged, ModeToggle, OverrideRequested
+from .mode_bar import (
+    ModeBar,
+    ModeChanged,
+    ModeToggle,
+    OverrideRequested,
+    PlanConfigChanged,
+    PlanSettingsClicked,
+)
 from .multi_line_input import MultiLineInput
 from .path_suggestion import PathSuggestion, PathSuggestionDropdown
 from .phase_indicator_bar import PhaseIndicatorBar
 from .plan_approval_modal import PlanApprovalModal, PlanApprovalResult
+from .plan_options import (
+    BroadcastModeChanged,
+    PlanDepthChanged,
+    PlanOptionsPopover,
+    PlanSelected,
+)
 from .queued_input_banner import QueuedInputBanner
 from .quickstart_wizard import QuickstartWizard
 from .session_info_panel import SessionInfoPanel
@@ -43,6 +56,7 @@ from .subagent_modal import SubagentModal
 from .tab_bar import AgentTab, AgentTabBar, AgentTabChanged, SessionInfoClicked
 from .task_plan_card import TaskPlanCard
 from .task_plan_modal import TaskPlanModal
+from .tool_batch_card import ToolBatchCard, ToolBatchItem
 from .tool_card import ToolCallCard, format_tool_display_name, get_tool_category
 from .tool_detail_modal import ToolDetailModal
 from .wizard_base import (
@@ -59,6 +73,13 @@ __all__ = [
     "ModeToggle",
     "ModeChanged",
     "OverrideRequested",
+    "PlanConfigChanged",
+    "PlanSettingsClicked",
+    # Plan options popover
+    "PlanOptionsPopover",
+    "PlanSelected",
+    "PlanDepthChanged",
+    "BroadcastModeChanged",
     # Tab bar
     "AgentTab",
     "AgentTabBar",
@@ -80,6 +101,8 @@ __all__ = [
     "SessionInfoPanel",
     # Tool cards and modal
     "ToolCallCard",
+    "ToolBatchCard",
+    "ToolBatchItem",
     "ToolDetailModal",
     "get_tool_category",
     "format_tool_display_name",
