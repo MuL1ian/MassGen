@@ -74,6 +74,8 @@ class SessionRegistry:
         config_path: Optional[str] = None,
         model: Optional[str] = None,
         description: Optional[str] = None,
+        subagent: bool = False,
+        parent_session_id: Optional[str] = None,
         **metadata: Any,
     ) -> None:
         """Register a new session or update existing session.
@@ -83,6 +85,8 @@ class SessionRegistry:
             config_path: Path to configuration file used
             model: Model name/ID used for the session
             description: Optional description of the session
+            subagent: Whether this session belongs to a subagent
+            parent_session_id: Parent session ID if this is a subagent session
             **metadata: Additional metadata to store
         """
         registry = self._load_registry()
@@ -101,6 +105,8 @@ class SessionRegistry:
                     "config_path": config_path,
                     "model": model,
                     "description": description,
+                    "subagent": subagent,
+                    "parent_session_id": parent_session_id,
                     **metadata,
                 },
             )
@@ -115,6 +121,8 @@ class SessionRegistry:
                 "config_path": config_path,
                 "model": model,
                 "description": description,
+                "subagent": subagent,
+                "parent_session_id": parent_session_id,
                 **metadata,
             }
             registry["sessions"].append(new_session)
@@ -199,12 +207,17 @@ class SessionRegistry:
         """Get the most recent session that can be continued (has saved turns).
 
         Skips empty sessions that have no turns saved yet.
+        Also skips subagent sessions (which have subagent=True flag).
 
         Returns:
             Session metadata dict for most recent non-empty session, or None if none found
         """
         sessions = self.list_sessions()  # Get all sessions, sorted by start_time desc
-        for session in sessions:
+
+        # Filter out subagent sessions (only return user-facing sessions)
+        user_sessions = [s for s in sessions if not s.get("subagent", False)]
+
+        for session in user_sessions:
             session_id = session.get("session_id")
             if session_id and self.session_has_turns(session_id):
                 return session

@@ -583,9 +583,10 @@ Enable agents to spawn parallel child processes for independent tasks:
 .. code-block:: yaml
 
    orchestrator:
-     enable_subagents: true
-     subagent_default_timeout: 300  # 5 minutes per subagent
-     subagent_max_concurrent: 3     # Max parallel subagents
+     coordination:
+       enable_subagents: true
+       subagent_default_timeout: 300  # 5 minutes per subagent
+       subagent_max_concurrent: 3     # Max parallel subagents
 
 **Example usage:**
 

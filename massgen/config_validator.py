@@ -782,6 +782,36 @@ class ConfigValidator:
                             "Use a value like 0, 1, 2, etc.",
                         )
 
+                # Validate async_subagents if present
+                if "async_subagents" in coordination:
+                    async_config = coordination["async_subagents"]
+                    if not isinstance(async_config, dict):
+                        result.add_error(
+                            f"'async_subagents' must be a dictionary, got {type(async_config).__name__}",
+                            f"{location}.coordination.async_subagents",
+                            "Use async_subagents: {enabled: true, injection_strategy: 'tool_result'}",
+                        )
+                    else:
+                        # Validate enabled field
+                        if "enabled" in async_config:
+                            enabled = async_config["enabled"]
+                            if not isinstance(enabled, bool):
+                                result.add_error(
+                                    f"'async_subagents.enabled' must be a boolean, got {type(enabled).__name__}",
+                                    f"{location}.coordination.async_subagents.enabled",
+                                    "Use 'true' or 'false'",
+                                )
+
+                        # Validate injection_strategy field
+                        if "injection_strategy" in async_config:
+                            strategy = async_config["injection_strategy"]
+                            valid_strategies = ["tool_result", "user_message"]
+                            if strategy not in valid_strategies:
+                                result.add_error(
+                                    f"Invalid async_subagents.injection_strategy: '{strategy}'",
+                                    f"{location}.coordination.async_subagents.injection_strategy",
+                                    f"Use one of: {', '.join(valid_strategies)}",
+                                )
                 # Validate plan_depth if present
                 if "plan_depth" in coordination:
                     value = coordination["plan_depth"]
@@ -792,6 +822,39 @@ class ConfigValidator:
                             f"{location}.coordination.plan_depth",
                             "Use 'shallow' (5-10 tasks), 'medium' (20-50 tasks), or 'deep' (100-200+ tasks)",
                         )
+
+                # Validate subagent_round_timeouts if present
+                if "subagent_round_timeouts" in coordination:
+                    round_timeouts = coordination["subagent_round_timeouts"]
+                    if not isinstance(round_timeouts, dict):
+                        result.add_error(
+                            f"'subagent_round_timeouts' must be a dictionary, got {type(round_timeouts).__name__}",
+                            f"{location}.coordination.subagent_round_timeouts",
+                            "Use keys like initial_round_timeout_seconds, subsequent_round_timeout_seconds, round_timeout_grace_seconds",
+                        )
+                    else:
+                        timeout_fields = [
+                            "initial_round_timeout_seconds",
+                            "subsequent_round_timeout_seconds",
+                            "round_timeout_grace_seconds",
+                        ]
+                        for field_name in timeout_fields:
+                            if field_name in round_timeouts:
+                                value = round_timeouts[field_name]
+                                if field_name == "round_timeout_grace_seconds":
+                                    if not isinstance(value, (int, float)) or value < 0:
+                                        result.add_error(
+                                            f"'{field_name}' must be a non-negative number",
+                                            f"{location}.coordination.subagent_round_timeouts.{field_name}",
+                                            "Use a value like 120 (seconds)",
+                                        )
+                                else:
+                                    if not isinstance(value, (int, float)) or value <= 0:
+                                        result.add_error(
+                                            f"'{field_name}' must be a positive number",
+                                            f"{location}.coordination.subagent_round_timeouts.{field_name}",
+                                            "Use a value like 300 (seconds)",
+                                        )
 
         # Validate voting_sensitivity if present
         if "voting_sensitivity" in orchestrator_config:

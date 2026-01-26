@@ -274,7 +274,8 @@ async def create_server() -> fastmcp.FastMCP:
     @mcp.tool()
     def spawn_subagents(
         tasks: List[Dict[str, Any]],
-        context: str,
+        async_: bool = False,
+        refine: bool = True,
         # NOTE: timeout_seconds parameter intentionally removed from MCP interface.
         # Allowing models to set custom timeouts could cause issues:
         # - Models might set very short timeouts and want to retry
@@ -287,9 +288,14 @@ async def create_server() -> fastmcp.FastMCP:
 
         CRITICAL RULES:
         1. Maximum {_max_concurrent} tasks per call (will error if exceeded)
-        2. `context` is REQUIRED - subagents need to know the project/goal
+        2. CONTEXT.md file MUST exist in workspace before calling this tool
         3. Tasks run SIMULTANEOUSLY - do NOT design tasks that depend on each other
         4. Each task dict MUST have a "task" field (not "description" or "id")
+
+        CONTEXT.MD REQUIREMENT:
+        Before spawning subagents, you MUST create a CONTEXT.md file in the workspace describing
+        the project/goal. This helps subagents understand what they're working on.
+        Example CONTEXT.md content: "Building a Bob Dylan tribute website with bio, discography, timeline"
 
         PARALLEL EXECUTION WARNING:
         All tasks start at the same time! Do NOT create tasks like:
@@ -301,17 +307,20 @@ async def create_server() -> fastmcp.FastMCP:
                    - "task": (REQUIRED) string describing what to do
                    - "subagent_id": (optional) custom identifier
                    - "context_files": (optional) files to share
-            context: (REQUIRED) Project/goal description so subagents understand the work.
-                     Example: "Building a Bob Dylan tribute website with bio, discography, timeline"
+            async_: (optional) If True, spawn subagents in the background and return immediately.
+                    Results will be automatically injected into your context when subagents complete.
+                    Default is False (blocking - waits for all subagents to complete).
+            refine: (optional) If True (default), allow multi-round coordination and refinement.
+                    If False, return the first answer without iterative refinement (faster).
 
-        TIMEOUT HANDLING:
+        TIMEOUT HANDLING (for blocking mode, async_=False):
         Subagents that timeout will attempt to recover any completed work:
         - "completed_but_timeout": Full answer recovered (success=True, use the answer)
         - "partial": Some work done but incomplete (check workspace for partial files)
         - "timeout": No recoverable work (check workspace anyway for any files)
         The "workspace" path is ALWAYS provided, even on timeout/error.
 
-        Returns:
+        Returns (async_=False, blocking mode):
             {{
                 "success": bool,
                 "results": [
@@ -328,15 +337,39 @@ async def create_server() -> fastmcp.FastMCP:
                 "summary": {{"total": N, "completed": N, "timeout": N}}
             }}
 
+        Returns (async_=True, background mode):
+            {{
+                "success": bool,
+                "mode": "async",
+                "subagents": [
+                    {{
+                        "subagent_id": "...",
+                        "status": "running",
+                        "workspace": "/path/to/subagent/workspace",
+                        "status_file": "/path/to/status.json"  # For manual polling if needed
+                    }}
+                ],
+                "note": "Results will be automatically injected when subagents complete."
+            }}
+
         Examples:
-            # CORRECT: Independent parallel tasks with context
+            # FIRST: Create CONTEXT.md (REQUIRED)
+            # write_file("CONTEXT.md", "Building a Bob Dylan tribute website with biography, discography, songs, and quotes pages")
+
+            # BLOCKING: Independent parallel tasks (waits for completion)
             spawn_subagents(
                 tasks=[
                     {{"task": "Research and write Bob Dylan biography to bio.md", "subagent_id": "bio"}},
                     {{"task": "Create discography table in discography.md", "subagent_id": "discog"}},
                     {{"task": "List 20 famous songs with years in songs.md", "subagent_id": "songs"}}
-                ],
-                context="Building a Bob Dylan tribute website with biography, discography, songs, and quotes pages"
+                ]
+            )
+
+            # ASYNC: Spawn background subagent and continue working
+            # FIRST: write_file("CONTEXT.md", "Building secure authentication system")
+            spawn_subagents(
+                tasks=[{{"task": "Research OAuth 2.0 best practices", "subagent_id": "oauth-research"}}],
+                async_=True  # Returns immediately, result injected later
             )
 
             # WRONG: Sequential dependency (task 2 needs task 1's output)
@@ -347,14 +380,6 @@ async def create_server() -> fastmcp.FastMCP:
         """
         try:
             manager = _get_manager()
-
-            # Validate context is provided
-            if not context or not context.strip():
-                return {
-                    "success": False,
-                    "operation": "spawn_subagents",
-                    "error": "Missing required 'context' parameter. Subagents need project context to understand " "what they're working on. Example: context='Building a Bob Dylan tribute website'",
-                }
 
             # Validate tasks
             if not tasks:
@@ -394,71 +419,99 @@ async def create_server() -> fastmcp.FastMCP:
             task_ids = [t["subagent_id"] for t in normalized_tasks]
             logger.info(f"[SubagentMCP] Spawning {len(normalized_tasks)} subagents: {task_ids}")
 
-            # Write spawning status to file for TUI polling (BEFORE starting)
-            if _workspace_path is not None:
-                subagents_dir = _workspace_path / "subagents"
-                subagents_dir.mkdir(exist_ok=True)
-                status_file = subagents_dir / "_spawn_status.json"
-                spawn_status = {
-                    "status": "spawning",
-                    "started_at": datetime.now().isoformat(),
-                    "subagents": [
-                        {
-                            "subagent_id": t["subagent_id"],
-                            "task": t.get("task", ""),
-                            "status": "running",
-                            "progress_percent": 0,
-                            "workspace": "",
-                            "log_path": "",
-                        }
-                        for t in normalized_tasks
-                    ],
+            # Branch based on async mode
+            if async_:
+                # ASYNC MODE: Spawn subagents in background and return immediately
+                # Results will be injected via SubagentCompleteHook when they complete
+                spawned = []
+                for task_config in normalized_tasks:
+                    # Task is passed as-is; context will be loaded from CONTEXT.md
+                    info = manager.spawn_subagent_background(
+                        task=task_config["task"],
+                        subagent_id=task_config.get("subagent_id"),
+                        context_files=task_config.get("context_files"),
+                        timeout_seconds=_default_timeout,
+                        refine=refine,
+                    )
+                    spawned.append(info)
+
+                # Save registry to filesystem
+                _save_subagents_to_filesystem()
+
+                return {
+                    "success": True,
+                    "operation": "spawn_subagents",
+                    "mode": "async",
+                    "subagents": spawned,
+                    "note": "Results will be automatically injected when subagents complete.",
                 }
-                status_file.write_text(json.dumps(spawn_status, indent=2))
-                logger.info(f"[SubagentMCP] Wrote spawn status to {status_file}")
 
-            # Run the async spawn (this blocks but status file is already written)
-            from massgen.utils import run_async_safely
+            else:
+                # BLOCKING MODE: Wait for all subagents to complete (existing behavior)
+                # Write spawning status to file for TUI polling (BEFORE starting)
+                if _workspace_path is not None:
+                    subagents_dir = _workspace_path / "subagents"
+                    subagents_dir.mkdir(exist_ok=True)
+                    status_file = subagents_dir / "_spawn_status.json"
+                    spawn_status = {
+                        "status": "spawning",
+                        "started_at": datetime.now().isoformat(),
+                        "subagents": [
+                            {
+                                "subagent_id": t["subagent_id"],
+                                "task": t.get("task", ""),
+                                "status": "running",
+                                "progress_percent": 0,
+                                "workspace": "",
+                                "log_path": "",
+                            }
+                            for t in normalized_tasks
+                        ],
+                    }
+                    status_file.write_text(json.dumps(spawn_status, indent=2))
+                    logger.info(f"[SubagentMCP] Wrote spawn status to {status_file}")
 
-            results = run_async_safely(
-                manager.spawn_parallel(
-                    tasks=normalized_tasks,
-                    context=context,
-                    timeout_seconds=_default_timeout,
-                ),
-            )
+                from massgen.utils import run_async_safely
 
-            # Update status file with completion
-            if _workspace_path is not None:
-                status_file = _workspace_path / "subagents" / "_spawn_status.json"
-                completed_status = {
-                    "status": "completed",
-                    "started_at": spawn_status.get("started_at", ""),
-                    "completed_at": datetime.now().isoformat(),
-                    "subagents": [r.to_dict() for r in results],
+                results = run_async_safely(
+                    manager.spawn_parallel(
+                        tasks=normalized_tasks,
+                        timeout_seconds=_default_timeout,  # Use configured default, not model-specified
+                        refine=refine,
+                    ),
+                )
+
+                # Update status file with completion
+                if _workspace_path is not None:
+                    status_file = _workspace_path / "subagents" / "_spawn_status.json"
+                    completed_status = {
+                        "status": "completed",
+                        "started_at": spawn_status.get("started_at", ""),
+                        "completed_at": datetime.now().isoformat(),
+                        "subagents": [r.to_dict() for r in results],
+                    }
+                    status_file.write_text(json.dumps(completed_status, indent=2))
+
+                # Save registry to filesystem
+                _save_subagents_to_filesystem()
+
+                # Compute summary
+                completed = sum(1 for r in results if r.status in ("completed", "completed_but_timeout", "partial"))
+                failed = sum(1 for r in results if r.status == "error")
+                timeout = sum(1 for r in results if r.status in ("timeout", "completed_but_timeout"))
+                all_success = all(r.success for r in results)
+
+                return {
+                    "success": all_success,
+                    "operation": "spawn_subagents",
+                    "results": [r.to_dict() for r in results],
+                    "summary": {
+                        "total": len(results),
+                        "completed": completed,
+                        "failed": failed,
+                        "timeout": timeout,
+                    },
                 }
-                status_file.write_text(json.dumps(completed_status, indent=2))
-
-            # Save registry to filesystem
-            _save_subagents_to_filesystem()
-
-            # Compute summary
-            completed = sum(1 for r in results if r.status == "completed")
-            failed = sum(1 for r in results if r.status == "error")
-            timeout = sum(1 for r in results if r.status == "timeout")
-            all_success = all(r.success for r in results)
-
-            return {
-                "success": all_success,
-                "operation": "spawn_subagents",
-                "results": [r.to_dict() for r in results],
-                "summary": {
-                    "total": len(results),
-                    "completed": completed,
-                    "failed": failed,
-                    "timeout": timeout,
-                },
-            }
 
         except Exception as e:
             logger.error(f"[SubagentMCP] Error spawning subagents: {e}")
@@ -473,17 +526,22 @@ async def create_server() -> fastmcp.FastMCP:
         """
         List all subagents spawned by this agent with their current status.
 
+        This includes subagents from the current turn and all previous turns
+        in the current parent session (tracked via the registry file).
+
         Returns:
             Dictionary with:
             - success: bool
             - operation: str - "list_subagents"
-            - subagents: list - List of subagent info with id, status, workspace, task
+            - subagents: list - List of subagent info with id, status, workspace, task, session_id, continuable
             - count: int - Total number of subagents
 
         Example:
             result = list_subagents()
             for sub in result['subagents']:
                 print(f"{sub['subagent_id']}: {sub['status']}")
+                if sub['continuable']:
+                    print(f"  Can continue with session_id: {sub['session_id']}")
         """
         try:
             manager = _get_manager()
@@ -635,6 +693,113 @@ async def create_server() -> fastmcp.FastMCP:
             return {
                 "success": False,
                 "operation": "get_subagent_result",
+                "error": str(e),
+            }
+
+    @mcp.tool()
+    def continue_subagent(
+        subagent_id: str,
+        message: str,
+        timeout_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Continue a previously spawned subagent with a new message.
+
+        This allows you to:
+        - Resume timed-out subagents with additional instructions
+        - Follow up on completed subagents with refinement requests
+        - Continue failed subagents after fixing issues
+        - Have multi-turn conversations with any subagent
+
+        The subagent's conversation history is automatically restored using
+        the existing --session-id mechanism. The new message is appended to
+        the conversation.
+
+        Args:
+            subagent_id: ID of the subagent to continue (from spawn_subagents or list_subagents)
+            message: New message to send to the subagent
+            timeout_seconds: Optional timeout override (uses default if not specified)
+
+        Returns:
+            Dictionary with subagent result (same format as spawn_subagents results):
+            {
+                "success": bool,
+                "subagent_id": "...",
+                "status": "completed" | "timeout" | "error",
+                "workspace": "/path/to/subagent/workspace",
+                "answer": "..." | null,
+                "execution_time_seconds": float,
+                "token_usage": {"input_tokens": N, "output_tokens": N}
+            }
+
+        Examples:
+            # Resume a timed-out subagent with more time
+            result = continue_subagent(
+                subagent_id="research_oauth",
+                message="Please continue where you left off and finish the research"
+            )
+
+            # Refine a completed subagent's answer
+            result = continue_subagent(
+                subagent_id="bio",
+                message="Please add more details about Bob Dylan's early life in the biography"
+            )
+
+            # Ask follow-up questions
+            result = continue_subagent(
+                subagent_id="discog",
+                message="What were the most commercially successful albums?"
+            )
+        """
+        try:
+            manager = _get_manager()
+
+            # Validate inputs
+            if not subagent_id or not subagent_id.strip():
+                return {
+                    "success": False,
+                    "operation": "continue_subagent",
+                    "error": "Missing required 'subagent_id' parameter",
+                }
+
+            if not message or not message.strip():
+                return {
+                    "success": False,
+                    "operation": "continue_subagent",
+                    "error": "Missing required 'message' parameter",
+                }
+
+            # Use asyncio.run to execute the async method
+            # This is safe because MCP tool handlers run in their own context
+            from massgen.utils import run_async_safely
+
+            result = run_async_safely(
+                manager.continue_subagent(
+                    subagent_id=subagent_id,
+                    new_message=message,
+                    timeout_seconds=timeout_seconds,
+                ),
+            )
+
+            if not result.success:
+                return {
+                    "success": False,
+                    "operation": "continue_subagent",
+                    "error": result.error,
+                    **result.to_dict(),
+                }
+
+            return {
+                "success": True,
+                "operation": "continue_subagent",
+                **result.to_dict(),
+            }
+
+        except Exception as e:
+            logger.error(f"[SubagentMCP] Error continuing subagent: {e}")
+            return {
+                "success": False,
+                "operation": "continue_subagent",
                 "error": str(e),
             }
 

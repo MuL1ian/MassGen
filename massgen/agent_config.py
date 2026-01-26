@@ -104,9 +104,17 @@ class CoordinationConfig:
         subagent_min_timeout: Minimum allowed timeout in seconds (default 60). Prevents too-short timeouts.
         subagent_max_timeout: Maximum allowed timeout in seconds (default 600). Prevents runaway subagents.
         subagent_max_concurrent: Maximum number of concurrent subagents an agent can spawn (default 3).
+        subagent_round_timeouts: Optional per-round timeout settings for subagents.
         subagent_orchestrator: Configuration for subagent orchestrator mode. When enabled, subagents
                               use a full Orchestrator with multiple agents. This enables multi-agent coordination within
                               subagent execution.
+        async_subagents: Configuration for async subagent execution. When enabled, agents can spawn
+                        subagents with async_=True to run in the background while continuing work.
+                        Results are automatically injected when subagents complete.
+                        - enabled: bool (default True) - Whether to allow async subagent execution
+                        - injection_strategy: str (default "tool_result") - How to inject results:
+                          - "tool_result": Append result to next tool call output
+                          - "user_message": Inject as separate user message
         use_two_tier_workspace: If True, agent workspaces are structured with two directories:
                                - scratch/: Working files, experiments, intermediate results, evaluation scripts
                                - deliverable/: Final outputs to showcase to voters
@@ -142,7 +150,10 @@ class CoordinationConfig:
     subagent_min_timeout: int = 60  # Minimum 1 minute
     subagent_max_timeout: int = 600  # Maximum 10 minutes
     subagent_max_concurrent: int = 3
+    subagent_round_timeouts: Optional[Dict[str, Any]] = None
     subagent_orchestrator: Optional["SubagentOrchestratorConfig"] = None
+    # Async subagent execution configuration
+    async_subagents: Optional[Dict[str, Any]] = None  # {enabled: bool, injection_strategy: str}
     use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
 
     def __post_init__(self):

@@ -1200,3 +1200,254 @@ class TestClaudeCodeNativeHookAdapter:
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
         # Error message format is "Hook {name} failed: {error}"
         assert "failed" in result["hookSpecificOutput"]["permissionDecisionReason"].lower()
+
+
+# =============================================================================
+# SubagentCompleteHook Tests
+# =============================================================================
+
+
+class TestSubagentCompleteHook:
+    """Tests for SubagentCompleteHook - injects async subagent results."""
+
+    @pytest.mark.asyncio
+    async def test_no_pending_results_returns_allow(self):
+        """Test hook returns allow when no pending results."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+
+        hook = SubagentCompleteHook()
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.allowed is True
+        assert result.inject is None
+
+    @pytest.mark.asyncio
+    async def test_no_getter_returns_allow(self):
+        """Test hook returns allow when no getter is set."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+
+        hook = SubagentCompleteHook()
+        # Don't set a getter
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.allowed is True
+        assert result.inject is None
+
+    @pytest.mark.asyncio
+    async def test_getter_returns_empty_list_returns_allow(self):
+        """Test hook returns allow when getter returns empty list."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+
+        hook = SubagentCompleteHook()
+        hook.set_pending_results_getter(lambda: [])
+
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.allowed is True
+        assert result.inject is None
+
+    @pytest.mark.asyncio
+    async def test_single_result_injection(self):
+        """Test hook injects a single completed subagent result."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+        from massgen.subagent.models import SubagentResult
+
+        hook = SubagentCompleteHook()
+
+        # Create a mock pending result
+        mock_result = SubagentResult.create_success(
+            subagent_id="research-task",
+            answer="Here is the research I found...",
+            workspace_path="/workspace/research-task",
+            execution_time_seconds=45.2,
+            token_usage={"input_tokens": 1000, "output_tokens": 500},
+        )
+
+        hook.set_pending_results_getter(lambda: [("research-task", mock_result)])
+
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.allowed is True
+        assert result.inject is not None
+        assert "research-task" in result.inject["content"]
+        assert "Here is the research I found" in result.inject["content"]
+        assert result.inject["strategy"] == "tool_result"
+
+    @pytest.mark.asyncio
+    async def test_multiple_results_batched(self):
+        """Test hook batches multiple results into single injection."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+        from massgen.subagent.models import SubagentResult
+
+        hook = SubagentCompleteHook()
+
+        result1 = SubagentResult.create_success(
+            subagent_id="task-1",
+            answer="First task completed",
+            workspace_path="/workspace/task-1",
+            execution_time_seconds=10.0,
+        )
+        result2 = SubagentResult.create_success(
+            subagent_id="task-2",
+            answer="Second task completed",
+            workspace_path="/workspace/task-2",
+            execution_time_seconds=15.0,
+        )
+
+        hook.set_pending_results_getter(
+            lambda: [("task-1", result1), ("task-2", result2)],
+        )
+
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.allowed is True
+        assert result.inject is not None
+        content = result.inject["content"]
+        assert "task-1" in content
+        assert "task-2" in content
+        assert "First task completed" in content
+        assert "Second task completed" in content
+
+    @pytest.mark.asyncio
+    async def test_injection_strategy_tool_result(self):
+        """Test hook uses tool_result injection strategy by default."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+        from massgen.subagent.models import SubagentResult
+
+        hook = SubagentCompleteHook(injection_strategy="tool_result")
+
+        mock_result = SubagentResult.create_success(
+            subagent_id="test",
+            answer="Test answer",
+            workspace_path="/workspace",
+            execution_time_seconds=1.0,
+        )
+        hook.set_pending_results_getter(lambda: [("test", mock_result)])
+
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.inject["strategy"] == "tool_result"
+
+    @pytest.mark.asyncio
+    async def test_injection_strategy_user_message(self):
+        """Test hook uses user_message injection strategy when configured."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+        from massgen.subagent.models import SubagentResult
+
+        hook = SubagentCompleteHook(injection_strategy="user_message")
+
+        mock_result = SubagentResult.create_success(
+            subagent_id="test",
+            answer="Test answer",
+            workspace_path="/workspace",
+            execution_time_seconds=1.0,
+        )
+        hook.set_pending_results_getter(lambda: [("test", mock_result)])
+
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.inject["strategy"] == "user_message"
+
+    @pytest.mark.asyncio
+    async def test_matches_all_tools(self):
+        """Test hook matches all tool names (wildcard pattern)."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+
+        hook = SubagentCompleteHook()
+
+        assert hook.matches("Read")
+        assert hook.matches("Write")
+        assert hook.matches("mcp__filesystem__read_file")
+        assert hook.matches("any_tool_name")
+
+    @pytest.mark.asyncio
+    async def test_timeout_result_injection(self):
+        """Test hook injects timeout result with appropriate status."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+        from massgen.subagent.models import SubagentResult
+
+        hook = SubagentCompleteHook()
+
+        mock_result = SubagentResult.create_timeout_with_recovery(
+            subagent_id="timeout-task",
+            workspace_path="/workspace/timeout-task",
+            timeout_seconds=300.0,
+            recovered_answer="Partial work recovered",
+            completion_percentage=75,
+        )
+
+        hook.set_pending_results_getter(lambda: [("timeout-task", mock_result)])
+
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.allowed is True
+        assert result.inject is not None
+        assert "timeout-task" in result.inject["content"]
+        assert "completed_but_timeout" in result.inject["content"]
+
+    @pytest.mark.asyncio
+    async def test_error_result_injection(self):
+        """Test hook injects error result."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+        from massgen.subagent.models import SubagentResult
+
+        hook = SubagentCompleteHook()
+
+        mock_result = SubagentResult.create_error(
+            subagent_id="error-task",
+            error="Something went wrong",
+            workspace_path="/workspace/error-task",
+        )
+
+        hook.set_pending_results_getter(lambda: [("error-task", mock_result)])
+
+        result = await hook.execute("some_tool", "{}")
+
+        assert result.allowed is True
+        assert result.inject is not None
+        assert "error-task" in result.inject["content"]
+        assert "error" in result.inject["content"].lower()
+
+    @pytest.mark.asyncio
+    async def test_getter_error_fails_open(self):
+        """Test hook fails open when getter raises exception."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+
+        hook = SubagentCompleteHook()
+
+        def failing_getter():
+            raise RuntimeError("Getter crashed!")
+
+        hook.set_pending_results_getter(failing_getter)
+
+        result = await hook.execute("some_tool", "{}")
+
+        # Should fail open (allow) but track the error
+        assert result.allowed is True
+        assert result.has_errors()
+
+    @pytest.mark.asyncio
+    async def test_result_includes_metadata(self):
+        """Test hook injection includes execution metadata."""
+        from massgen.mcp_tools.hooks import SubagentCompleteHook
+        from massgen.subagent.models import SubagentResult
+
+        hook = SubagentCompleteHook()
+
+        mock_result = SubagentResult.create_success(
+            subagent_id="meta-task",
+            answer="Task completed",
+            workspace_path="/workspace/meta-task",
+            execution_time_seconds=42.5,
+            token_usage={"input_tokens": 1500, "output_tokens": 750},
+        )
+
+        hook.set_pending_results_getter(lambda: [("meta-task", mock_result)])
+
+        result = await hook.execute("some_tool", "{}")
+
+        content = result.inject["content"]
+        # Should include execution time
+        assert "42.5" in content or "42" in content
+        # Should include workspace path
+        assert "/workspace/meta-task" in content

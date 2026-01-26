@@ -12,7 +12,7 @@ import shutil
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
@@ -64,6 +64,7 @@ class SubagentManager:
         log_directory: Optional[str] = None,
         parent_context_paths: Optional[List[Dict[str, str]]] = None,
         parent_coordination_config: Optional[Dict[str, Any]] = None,
+        agent_temporary_workspace: Optional[str] = None,
     ):
         """
         Initialize SubagentManager.
@@ -88,6 +89,9 @@ class SubagentManager:
                 access the same codebase/files as the parent agent.
             parent_coordination_config: Coordination config from the parent orchestrator.
                 Used to inherit settings like enable_agent_task_planning for subagents.
+            agent_temporary_workspace: Path to agent temporary workspace parent directory.
+                When provided, list_subagents() will scan all agent temp workspaces to
+                show subagents from all agents (following workspace visibility principles).
         """
         self.parent_workspace = Path(parent_workspace)
         self.parent_agent_id = parent_agent_id
@@ -100,6 +104,7 @@ class SubagentManager:
         self._subagent_orchestrator_config = subagent_orchestrator_config
         self._parent_context_paths = parent_context_paths or []
         self._parent_coordination_config = parent_coordination_config or {}
+        self._agent_temporary_workspace = Path(agent_temporary_workspace) if agent_temporary_workspace else None
 
         # Log directory for subagent logs (in main run's log dir)
         self._log_directory = Path(log_directory) if log_directory else None
@@ -119,7 +124,11 @@ class SubagentManager:
         self._background_tasks: Dict[str, asyncio.Task] = {}
         # Track active subprocess handles for graceful cancellation
         self._active_processes: Dict[str, asyncio.subprocess.Process] = {}
+        # Track session IDs for each subagent (for continuation support)
+        self._subagent_sessions: Dict[str, str] = {}  # subagent_id -> session_id
         self._semaphore = asyncio.Semaphore(max_concurrent)
+        # Callbacks to invoke when background subagents complete
+        self._completion_callbacks: List[Callable[[str, SubagentResult], None]] = []
 
         logger.info(
             f"[SubagentManager] Initialized for parent {parent_agent_id}, "
@@ -139,6 +148,56 @@ class SubagentManager:
         """
         effective_timeout = timeout if timeout is not None else self.default_timeout
         return max(self.min_timeout, min(self.max_timeout, effective_timeout))
+
+    def register_completion_callback(
+        self,
+        callback: Callable[[str, "SubagentResult"], None],
+    ) -> None:
+        """
+        Register a callback to be invoked when any background subagent completes.
+
+        The callback receives the subagent_id and SubagentResult when a background
+        subagent finishes execution (success, timeout, or error). This is used
+        to notify the Orchestrator about completed async subagents so results
+        can be injected into the parent agent's context.
+
+        Args:
+            callback: Function that takes (subagent_id: str, result: SubagentResult)
+
+        Example:
+            def on_complete(subagent_id: str, result: SubagentResult):
+                print(f"Subagent {subagent_id} completed: {result.status}")
+
+            manager.register_completion_callback(on_complete)
+        """
+        self._completion_callbacks.append(callback)
+        logger.debug(
+            f"[SubagentManager] Registered completion callback, " f"total callbacks: {len(self._completion_callbacks)}",
+        )
+
+    def _invoke_completion_callbacks(
+        self,
+        subagent_id: str,
+        result: "SubagentResult",
+    ) -> None:
+        """
+        Invoke all registered completion callbacks for a finished subagent.
+
+        Errors in individual callbacks are caught and logged but don't
+        prevent other callbacks from executing.
+
+        Args:
+            subagent_id: ID of the completed subagent
+            result: The subagent's execution result
+        """
+        for callback in self._completion_callbacks:
+            try:
+                callback(subagent_id, result)
+            except Exception as e:
+                logger.error(
+                    f"[SubagentManager] Completion callback error for {subagent_id}: {e}",
+                    exc_info=True,
+                )
 
     def _create_workspace(self, subagent_id: str) -> Path:
         """
@@ -264,6 +323,90 @@ class SubagentManager:
         conversation.append(message)
         conversation_file.write_text(json.dumps(conversation, indent=2))
 
+    def _save_subagent_to_registry(
+        self,
+        subagent_id: str,
+        session_id: str,
+        config: SubagentConfig,
+        result: SubagentResult,
+    ) -> None:
+        """Save subagent metadata to parent workspace registry.
+
+        This registry tracks all subagents spawned in the current parent session,
+        enabling continuation and discovery across turns.
+
+        Registry format matches MCP server's _save_subagents_to_filesystem() format:
+        {
+            "parent_agent_id": "...",
+            "orchestrator_id": "...",
+            "subagents": [{"subagent_id": "...", ...}, ...]
+        }
+
+        Args:
+            subagent_id: Unique subagent identifier
+            session_id: Session ID for continuation
+            config: Subagent configuration
+            result: Execution result
+        """
+        registry_file = self.subagents_base / "_registry.json"
+
+        # Load existing registry or create new one with list format
+        if registry_file.exists():
+            try:
+                registry = json.loads(registry_file.read_text())
+                # Ensure subagents is a list (handle old dict format)
+                if isinstance(registry.get("subagents"), dict):
+                    # Convert old dict format to list format
+                    old_dict = registry["subagents"]
+                    registry["subagents"] = [{"subagent_id": k, **v} for k, v in old_dict.items()]
+            except json.JSONDecodeError:
+                logger.warning("[SubagentManager] Failed to parse registry, creating new one")
+                registry = {
+                    "parent_agent_id": self.parent_agent_id,
+                    "orchestrator_id": self.orchestrator_id,
+                    "subagents": [],
+                }
+        else:
+            registry = {
+                "parent_agent_id": self.parent_agent_id,
+                "orchestrator_id": self.orchestrator_id,
+                "subagents": [],
+            }
+
+        # Ensure metadata fields exist
+        registry.setdefault("parent_agent_id", self.parent_agent_id)
+        registry.setdefault("orchestrator_id", self.orchestrator_id)
+
+        # Update or append subagent entry in list
+        subagent_data = {
+            "subagent_id": subagent_id,
+            "session_id": session_id,
+            "task": config.task[:200],  # Truncate for readability
+            "status": result.status,
+            "workspace": str(result.workspace_path),
+            "created_at": datetime.now().isoformat(),
+            "execution_time_seconds": result.execution_time_seconds,
+            "success": result.success,
+            "continuable": True,
+            "source_agent": self.parent_agent_id,
+        }
+
+        # Find and update existing entry, or append new one
+        subagents_list = registry["subagents"]
+        found = False
+        for i, entry in enumerate(subagents_list):
+            if entry.get("subagent_id") == subagent_id:
+                subagents_list[i] = subagent_data
+                found = True
+                break
+
+        if not found:
+            subagents_list.append(subagent_data)
+
+        # Write back to disk
+        registry_file.write_text(json.dumps(registry, indent=2))
+        logger.debug(f"[SubagentManager] Saved subagent {subagent_id} to registry")
+
     def _copy_context_files(
         self,
         subagent_id: str,
@@ -344,7 +487,7 @@ class SubagentManager:
         """
         base_prompt = config.system_prompt
 
-        # Build context section - prefer CONTEXT.md if available, fall back to config.context
+        # Load task context from CONTEXT.md (required)
         context_section = ""
         task_context = None
         context_warning = None
@@ -355,12 +498,19 @@ class SubagentManager:
 
             task_context, context_warning = load_task_context_with_warning(str(workspace))
 
-        # Use CONTEXT.md content if available, otherwise fall back to config.context
-        context_content = task_context or config.context
-        if context_content:
+        # CONTEXT.md is required for subagents
+        # Note: This should have been validated earlier in spawn_subagent/spawn_subagent_background
+        # If we reach here without task_context, something went wrong in the validation
+        if not task_context:
+            logger.warning(
+                "[SubagentManager] CONTEXT.md missing in system prompt builder " "(should have been validated earlier)",
+            )
+            # Use empty context rather than crashing
+            context_section = ""
+        else:
             context_section = f"""
 **Task Context:**
-{context_content}
+{task_context}
 
 """
 
@@ -503,7 +653,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         # Build command to run MassGen as subprocess
         # Use --automation for minimal output and --output-file to capture the answer
-        # Use --no-session-registry to avoid polluting global session list with internal runs
+        # DON'T use --session-id for initial spawn (that's for restoring existing sessions)
+        # We'll extract the auto-generated session ID from the subprocess status afterward
         answer_file = workspace / "answer.txt"
         cmd = [
             "uv",
@@ -512,7 +663,6 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             "--config",
             str(yaml_path),
             "--automation",  # Silent mode with minimal output
-            "--no-session-registry",  # Don't register in global session list
             "--output-file",
             str(answer_file),  # Write final answer to file
             full_task,
@@ -567,8 +717,13 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
                 execution_time = time.time() - start_time
 
-                # Get token usage and log path from subprocess's status.json
-                token_usage, subprocess_log_dir = self._parse_subprocess_status(workspace)
+                # Get token usage, log path, and session ID from subprocess's status.json
+                token_usage, subprocess_log_dir, session_id = self._parse_subprocess_status(workspace)
+
+                # Track session ID for continuation support
+                if session_id:
+                    self._subagent_sessions[config.id] = session_id
+                    logger.info(f"[SubagentManager] Tracked session ID for {config.id}: {session_id}")
 
                 # Write reference to subprocess log directory
                 self._write_subprocess_log_reference(config.id, subprocess_log_dir)
@@ -587,11 +742,20 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 )
             else:
                 stderr_text = stderr.decode() if stderr else ""
+                stdout_text = stdout.decode() if stdout else ""
                 error_msg = stderr_text.strip() or f"Subprocess exited with code {process.returncode}"
-                logger.error(f"[SubagentManager] Subagent {config.id} failed: {error_msg}")
+
+                # Log detailed error information for debugging
+                logger.error(
+                    f"[SubagentManager] Subagent {config.id} failed with exit code {process.returncode}\n"
+                    f"Command: {' '.join(cmd)}\n"
+                    f"Working directory: {workspace}\n"
+                    f"STDERR: {stderr_text[:1000]}\n"  # First 1000 chars of stderr
+                    f"STDOUT: {stdout_text[:500]}",  # First 500 chars of stdout
+                )
 
                 # Still try to get log path for debugging
-                _, subprocess_log_dir = self._parse_subprocess_status(workspace)
+                _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
                 self._write_subprocess_log_reference(config.id, subprocess_log_dir, error=error_msg)
                 log_dir = self._get_subagent_log_dir(config.id)
                 return SubagentResult.create_error(
@@ -606,7 +770,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         except asyncio.TimeoutError:
             logger.error(f"[SubagentManager] Subagent {config.id} timed out")
             # Still copy logs even on timeout - they contain useful debugging info
-            _, subprocess_log_dir = self._parse_subprocess_status(workspace)
+            _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
             self._write_subprocess_log_reference(config.id, subprocess_log_dir, error="Subagent timed out")
             log_dir = self._get_subagent_log_dir(config.id)
             # Attempt to recover completed work from workspace
@@ -628,7 +792,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                     process.kill()
             self._active_processes.pop(config.id, None)
             # Still copy logs even on cancellation - they contain useful debugging info
-            _, subprocess_log_dir = self._parse_subprocess_status(workspace)
+            _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
             self._write_subprocess_log_reference(config.id, subprocess_log_dir, error="Subagent cancelled")
             log_dir = self._get_subagent_log_dir(config.id)
             # Attempt to recover completed work from workspace
@@ -642,7 +806,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         except Exception as e:
             logger.error(f"[SubagentManager] Subagent {config.id} error: {e}")
             # Still copy logs even on error - they contain useful debugging info
-            _, subprocess_log_dir = self._parse_subprocess_status(workspace)
+            _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
             self._write_subprocess_log_reference(config.id, subprocess_log_dir, error=str(e))
             log_dir = self._get_subagent_log_dir(config.id)
             return SubagentResult.create_error(
@@ -675,6 +839,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             Dictionary suitable for YAML serialization
         """
         orch_config = self._subagent_orchestrator_config
+        refine = config.metadata.get("refine", True)
 
         # Determine agent configs to use:
         # 1. If subagent_orchestrator.agents is specified, use those
@@ -800,6 +965,16 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         if orch_config and orch_config.max_new_answers:
             orchestrator_config["max_new_answers_per_agent"] = orch_config.max_new_answers
 
+        # Apply refinement overrides for quick mode (matches TUI behavior)
+        if not refine:
+            orchestrator_config["max_new_answers_per_agent"] = 1
+            orchestrator_config["skip_final_presentation"] = True
+            if num_agents == 1:
+                orchestrator_config["skip_voting"] = True
+            else:
+                orchestrator_config["disable_injection"] = True
+                orchestrator_config["defer_voting_until_all_answered"] = True
+
         # Merge context paths: parent context paths + task-specific context paths
         # Parent context paths are always read-only (subagents can read the codebase)
         # Task-specific context paths from context_files are also read-only
@@ -834,22 +1009,43 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             "orchestrator": orchestrator_config,
         }
 
+        # Configure per-round timeouts for subagents, with parent inheritance
+        subagent_round_timeouts = self._parent_coordination_config.get("subagent_round_timeouts") or {}
+        parent_round_timeouts = self._parent_coordination_config.get("parent_round_timeouts") or {}
+        effective_round_timeouts = {}
+        if parent_round_timeouts:
+            effective_round_timeouts.update(parent_round_timeouts)
+        for key, value in subagent_round_timeouts.items():
+            if value is not None:
+                effective_round_timeouts[key] = value
+        if effective_round_timeouts:
+            timeout_settings = {}
+            for key in (
+                "initial_round_timeout_seconds",
+                "subsequent_round_timeout_seconds",
+                "round_timeout_grace_seconds",
+            ):
+                if key in effective_round_timeouts and effective_round_timeouts[key] is not None:
+                    timeout_settings[key] = effective_round_timeouts[key]
+            if timeout_settings:
+                yaml_config["timeout_settings"] = timeout_settings
+
         return yaml_config
 
-    def _parse_subprocess_status(self, workspace: Path) -> tuple[Dict[str, Any], Optional[str]]:
+    def _parse_subprocess_status(self, workspace: Path) -> tuple[Dict[str, Any], Optional[str], Optional[str]]:
         """
-        Parse token usage and log path from the subprocess's status.json.
+        Parse token usage, log path, and session ID from the subprocess's status.json.
 
         Args:
             workspace: Workspace path where status.json might be
 
         Returns:
-            Tuple of (token_usage dict, subprocess_log_dir path or None)
+            Tuple of (token_usage dict, subprocess_log_dir path or None, session_id or None)
         """
         # Look for status.json in the subprocess's .massgen logs
         massgen_logs = workspace / ".massgen" / "massgen_logs"
         if not massgen_logs.exists():
-            return {}, None
+            return {}, None, None
 
         # Find most recent log directory
         for log_dir in sorted(massgen_logs.glob("log_*"), reverse=True):
@@ -863,10 +1059,12 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                         "output_tokens": costs.get("total_output_tokens", 0),
                         "estimated_cost": costs.get("total_estimated_cost", 0.0),
                     }
-                    return token_usage, str(log_dir / "turn_1" / "attempt_1")
+                    # Extract session_id from meta section
+                    session_id = data.get("meta", {}).get("session_id")
+                    return token_usage, str(log_dir / "turn_1" / "attempt_1"), session_id
                 except Exception:
                     pass
-        return {}, None
+        return {}, None, None
 
     def _write_subprocess_log_reference(
         self,
@@ -959,10 +1157,12 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         timeout_seconds: Optional[int] = None,
         context_files: Optional[List[str]] = None,
         system_prompt: Optional[str] = None,
-        context: Optional[str] = None,
+        refine: bool = True,
     ) -> SubagentResult:
         """
         Spawn a single subagent to work on a task.
+
+        Context is loaded from CONTEXT.md in the workspace (required).
 
         Args:
             task: The task for the subagent
@@ -971,7 +1171,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             timeout_seconds: Optional timeout (uses default if not specified)
             context_files: Optional files to copy to subagent workspace
             system_prompt: Optional custom system prompt
-            context: Optional project/goal context to provide to the subagent
+            refine: If True (default), allow multi-round coordination and refinement.
+                    If False, return first answer without iteration (faster).
 
         Returns:
             SubagentResult with execution outcome
@@ -986,7 +1187,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             timeout_seconds=clamped_timeout,
             context_files=context_files or [],
             system_prompt=system_prompt,
-            context=context,
+            metadata={"refine": refine},
         )
 
         logger.info(f"[SubagentManager] Spawning subagent {config.id} for task: {task[:100]}...")
@@ -1007,6 +1208,17 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         # Copy context files (always called to auto-copy CONTEXT.md even if no explicit context_files)
         self._copy_context_files(config.id, config.context_files or [], workspace)
+
+        # Verify CONTEXT.md exists (required for subagents)
+        context_md = workspace / "CONTEXT.md"
+        if not context_md.exists():
+            error_msg = "CONTEXT.md not found in workspace. " "Before spawning subagents, create a CONTEXT.md file with task context. " "This helps subagents understand what they're working on."
+            logger.error(f"[SubagentManager] {error_msg}")
+            return SubagentResult.create_error(
+                subagent_id=config.id,
+                error=error_msg,
+                workspace_path=str(workspace),
+            )
 
         # Track state
         state = SubagentState(
@@ -1086,16 +1298,23 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             answer_preview=result.answer[:200] if result.answer else None,
         )
 
+        # Save to registry for continuation support
+        session_id = self._subagent_sessions.get(config.id)
+        if session_id:
+            self._save_subagent_to_registry(config.id, session_id, config, result)
+
         return result
 
     async def spawn_parallel(
         self,
         tasks: List[Dict[str, Any]],
-        context: Optional[str] = None,
         timeout_seconds: Optional[int] = None,
+        refine: bool = True,
     ) -> List[SubagentResult]:
         """
         Spawn multiple subagents to run in parallel.
+
+        Context is loaded from CONTEXT.md in the workspace (required).
 
         Args:
             tasks: List of task configurations, each with:
@@ -1103,8 +1322,9 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                    - subagent_id (optional): Custom ID
                    - model (optional): Model override
                    - context_files (optional): Files to copy
-            context: Optional project/goal context to provide to all subagents
             timeout_seconds: Optional timeout for all subagents
+            refine: If True (default), allow multi-round coordination and refinement.
+                    If False, return first answer without iteration (faster).
 
         Returns:
             List of SubagentResults in same order as input tasks
@@ -1121,7 +1341,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 timeout_seconds=timeout_seconds or task_config.get("timeout_seconds"),
                 context_files=task_config.get("context_files"),
                 system_prompt=task_config.get("system_prompt"),
-                context=context,
+                refine=refine,
             )
             coroutines.append(coro)
 
@@ -1152,14 +1372,14 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         timeout_seconds: Optional[int] = None,
         context_files: Optional[List[str]] = None,
         system_prompt: Optional[str] = None,
+        refine: bool = True,
     ) -> Dict[str, Any]:
         """
-        NOTE: Not supported yet, currently all subagents are blocking.
-
         Spawn a subagent in the background (non-blocking).
 
-        Returns immediately with subagent info. Use get_subagent_status() or
-        get_subagent_result() to check progress.
+        Returns immediately with subagent info. When the subagent completes,
+        registered completion callbacks are invoked to notify about results.
+        Use get_subagent_status() or get_subagent_result() to check progress.
 
         Args:
             task: The task for the subagent
@@ -1182,6 +1402,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             timeout_seconds=clamped_timeout,
             context_files=context_files or [],
             system_prompt=system_prompt,
+            metadata={"refine": refine},
         )
 
         logger.info(f"[SubagentManager] Spawning background subagent {config.id} for task: {task[:100]}...")
@@ -1202,6 +1423,28 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
 
         # Copy context files (always called to auto-copy CONTEXT.md even if no explicit context_files)
         self._copy_context_files(config.id, config.context_files or [], workspace)
+
+        # Verify CONTEXT.md exists (required for subagents)
+        context_md = workspace / "CONTEXT.md"
+        if not context_md.exists():
+            error_msg = "CONTEXT.md not found in workspace. " "Before spawning subagents, create a CONTEXT.md file with task context. " "This helps subagents understand what they're working on."
+            logger.error(f"[SubagentManager] {error_msg}")
+            # For background mode, we can't return SubagentResult directly
+            # Store the error state and return info dict
+            state = SubagentState(
+                config=config,
+                status="error",
+                workspace_path=str(workspace),
+                started_at=datetime.now(),
+            )
+            self._subagents[config.id] = state
+            # Return error info
+            return {
+                "subagent_id": config.id,
+                "status": "error",
+                "workspace": str(workspace),
+                "error": error_msg,
+            }
 
         # Track state
         state = SubagentState(
@@ -1263,6 +1506,9 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 state.status = "failed"
             state.result = result
 
+            # Invoke registered completion callbacks to notify about async completion
+            self._invoke_completion_callbacks(config.id, result)
+
             # Log conversation on success
             if result.success and result.answer:
                 self._append_conversation(config.id, "assistant", result.answer)
@@ -1282,6 +1528,11 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 error_message=result.error,
                 answer_preview=result.answer[:200] if result.answer else None,
             )
+
+            # Save to registry for continuation support
+            session_id = self._subagent_sessions.get(config.id)
+            if session_id:
+                self._save_subagent_to_registry(config.id, session_id, config, result)
 
             # Clean up task reference
             if config.id in self._background_tasks:
@@ -1304,6 +1555,229 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             "workspace": str(workspace),
             "status_file": status_file,
         }
+
+    async def continue_subagent(
+        self,
+        subagent_id: str,
+        new_message: str,
+        timeout_seconds: Optional[int] = None,
+    ) -> SubagentResult:
+        """Continue a previously spawned subagent with a new message.
+
+        Uses the existing --session-id mechanism to restore the conversation
+        and append the new message. This allows continuing timed-out, failed,
+        or even completed subagents for refinement or follow-up questions.
+
+        Args:
+            subagent_id: ID of the subagent to continue
+            new_message: New message to append to the conversation
+            timeout_seconds: Optional timeout override
+
+        Returns:
+            SubagentResult with execution outcome
+        """
+        start_time = time.time()
+
+        # Load registry to find the subagent
+        # First check our own registry
+        subagent_entry = None
+        registry_file = self.subagents_base / "_registry.json"
+
+        if registry_file.exists():
+            try:
+                registry = json.loads(registry_file.read_text())
+                # Registry format: {"subagents": [{"subagent_id": "...", ...}, ...]}
+                subagents_list = registry.get("subagents", [])
+                for entry in subagents_list:
+                    if entry.get("subagent_id") == subagent_id:
+                        subagent_entry = entry
+                        break
+            except json.JSONDecodeError:
+                logger.warning("[SubagentManager] Failed to parse own registry file")
+
+        # If not found in our registry and we have temp workspaces, search all agent registries
+        if not subagent_entry and self._agent_temporary_workspace and self._agent_temporary_workspace.exists():
+            for agent_dir in self._agent_temporary_workspace.iterdir():
+                if not agent_dir.is_dir():
+                    continue
+
+                agent_registry_file = agent_dir / "subagents" / "_registry.json"
+                if not agent_registry_file.exists():
+                    continue
+
+                try:
+                    agent_registry = json.loads(agent_registry_file.read_text())
+                    subagents_list = agent_registry.get("subagents", [])
+                    for entry in subagents_list:
+                        if entry.get("subagent_id") == subagent_id:
+                            subagent_entry = entry
+                            registry = agent_registry
+                            registry_file = agent_registry_file
+                            logger.info(
+                                f"[SubagentManager] Found subagent {subagent_id} in agent {agent_dir.name}'s registry",
+                            )
+                            break
+                    if subagent_entry:
+                        break
+                except json.JSONDecodeError:
+                    logger.warning(f"[SubagentManager] Failed to parse registry for agent {agent_dir.name}")
+
+        # If still not found, return error
+        if not subagent_entry:
+            return SubagentResult.create_error(
+                subagent_id=subagent_id,
+                error=f"Subagent {subagent_id} not found in any registry.",
+            )
+
+        session_id = subagent_entry.get("session_id")
+        if not session_id:
+            return SubagentResult.create_error(
+                subagent_id=subagent_id,
+                error=f"Subagent {subagent_id} has no session_id in registry. Cannot continue.",
+            )
+
+        # Get the existing workspace from the registry
+        workspace = Path(subagent_entry.get("workspace", ""))
+        if not workspace.exists():
+            return SubagentResult.create_error(
+                subagent_id=subagent_id,
+                error=f"Subagent workspace not found: {workspace}",
+            )
+
+        logger.info(
+            f"[SubagentManager] Continuing subagent {subagent_id} with session {session_id}, " f"message: {new_message[:100]}...",
+        )
+
+        # Use clamped timeout
+        timeout = self._clamp_timeout(timeout_seconds)
+
+        # Build command to continue the session
+        # Use --session-id to restore the conversation, then append new message
+        answer_file = workspace / "answer_continued.txt"
+        cmd = [
+            "uv",
+            "run",
+            "massgen",
+            "--session-id",
+            session_id,  # Restore existing session
+            "--automation",
+            "--output-file",
+            str(answer_file),
+            new_message,  # New message to append
+        ]
+
+        process: Optional[asyncio.subprocess.Process] = None
+        try:
+            # Use async subprocess for graceful cancellation support
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(workspace),
+            )
+
+            # Track the process for potential cancellation
+            # Use a continuation-specific ID to avoid conflicts
+            continuation_id = f"{subagent_id}_cont_{int(time.time())}"
+            self._active_processes[continuation_id] = process
+
+            # Wait with timeout
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                # Kill the process on timeout
+                logger.warning(f"[SubagentManager] Continuation of {subagent_id} timed out, terminating...")
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+
+                execution_time = time.time() - start_time
+                log_dir = self._get_subagent_log_dir(subagent_id)
+                return SubagentResult.create_error(
+                    subagent_id=subagent_id,
+                    error=f"Continuation timed out after {timeout}s",
+                    workspace_path=str(workspace),
+                    execution_time_seconds=execution_time,
+                    log_path=str(log_dir) if log_dir else None,
+                )
+            finally:
+                # Remove from active processes
+                self._active_processes.pop(continuation_id, None)
+
+            if process.returncode == 0:
+                # Read answer from the output file
+                if answer_file.exists():
+                    answer = answer_file.read_text().strip()
+                else:
+                    # Fallback to stdout if file wasn't created
+                    answer = stdout.decode() if stdout else ""
+
+                execution_time = time.time() - start_time
+
+                # Get token usage and log path from subprocess's status.json
+                token_usage, subprocess_log_dir, session_id = self._parse_subprocess_status(workspace)
+
+                # Write reference to subprocess log directory
+                self._write_subprocess_log_reference(subagent_id, subprocess_log_dir)
+
+                # Get log directory path for the result
+                log_dir = self._get_subagent_log_dir(subagent_id)
+
+                # Update registry with new status
+                subagent_entry["status"] = "completed"
+                subagent_entry["last_continued_at"] = datetime.now().isoformat()
+                registry_file.write_text(json.dumps(registry, indent=2))
+
+                return SubagentResult.create_success(
+                    subagent_id=subagent_id,
+                    answer=answer,
+                    workspace_path=str(workspace),
+                    execution_time_seconds=execution_time,
+                    token_usage=token_usage,
+                    log_path=str(log_dir) if log_dir else None,
+                )
+            else:
+                stderr_text = stderr.decode() if stderr else ""
+                stdout_text = stdout.decode() if stdout else ""
+                error_msg = stderr_text.strip() or f"Subprocess exited with code {process.returncode}"
+
+                # Log detailed error information for debugging
+                logger.error(
+                    f"[SubagentManager] Continuation of {subagent_id} failed with exit code {process.returncode}\n"
+                    f"Command: {' '.join(cmd)}\n"
+                    f"Working directory: {workspace}\n"
+                    f"STDERR: {stderr_text[:1000]}\n"  # First 1000 chars of stderr
+                    f"STDOUT: {stdout_text[:500]}",  # First 500 chars of stdout
+                )
+
+                # Still try to get log path for debugging
+                _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
+                self._write_subprocess_log_reference(subagent_id, subprocess_log_dir, error=error_msg)
+                log_dir = self._get_subagent_log_dir(subagent_id)
+
+                return SubagentResult.create_error(
+                    subagent_id=subagent_id,
+                    error=error_msg,
+                    workspace_path=str(workspace),
+                    execution_time_seconds=time.time() - start_time,
+                    log_path=str(log_dir) if log_dir else None,
+                )
+
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.error(f"[SubagentManager] Error continuing subagent {subagent_id}: {e}")
+            return SubagentResult.create_error(
+                subagent_id=subagent_id,
+                error=str(e),
+                workspace_path=str(workspace),
+                execution_time_seconds=execution_time,
+            )
 
     def get_subagent_status(self, subagent_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -1523,19 +1997,119 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         """
         List all subagents spawned by this manager.
 
+        When agent_temporary_workspace is provided, this will scan all agent temp workspaces
+        and merge their registries to show subagents from all agents (following workspace
+        visibility principles - agents can only see subagents from other agents after seeing
+        their answers via injection).
+
         Returns:
-            List of subagent info dictionaries
+            List of subagent info dictionaries, each containing:
+                - subagent_id: Unique identifier
+                - status: Current status (running, completed, timeout, failed)
+                - workspace: Path to subagent workspace
+                - task: Task description (truncated)
+                - session_id: Session ID for continuation
+                - continuable: Whether this subagent can be continued
+                - source_agent: Agent ID that spawned this subagent (when merging registries)
+                - created_at, execution_time_seconds, success, last_continued_at, etc.
         """
-        return [
-            {
-                "subagent_id": subagent_id,
-                "status": state.status,
-                "workspace": state.workspace_path,
-                "started_at": state.started_at.isoformat() if state.started_at else None,
-                "task": state.config.task[:100] + ("..." if len(state.config.task) > 100 else ""),
-            }
-            for subagent_id, state in self._subagents.items()
-        ]
+        subagents: Dict[str, Dict[str, Any]] = {}
+
+        # First, load this agent's own registry
+        registry_file = self.subagents_base / "_registry.json"
+        if registry_file.exists():
+            try:
+                registry = json.loads(registry_file.read_text())
+                # Registry format: {"subagents": [{"subagent_id": "...", ...}, ...]}
+                subagents_list = registry.get("subagents", [])
+                for entry in subagents_list:
+                    subagent_id = entry.get("subagent_id")
+                    if not subagent_id:
+                        continue
+                    subagents[subagent_id] = {
+                        "subagent_id": subagent_id,
+                        "status": entry.get("status"),
+                        "workspace": entry.get("workspace"),
+                        "task": entry.get("task"),
+                        "created_at": entry.get("created_at"),
+                        "execution_time_seconds": entry.get("execution_time_seconds"),
+                        "success": entry.get("success"),
+                        "session_id": entry.get("session_id"),
+                        "last_continued_at": entry.get("last_continued_at"),
+                        "continuable": bool(entry.get("session_id")),
+                        "source_agent": self.parent_agent_id,
+                    }
+            except json.JSONDecodeError:
+                logger.warning("[SubagentManager] Failed to parse registry for list_subagents")
+
+        # If agent_temporary_workspace is provided, scan all agent temp workspaces
+        # to merge registries from all agents
+        if self._agent_temporary_workspace and self._agent_temporary_workspace.exists():
+            for agent_dir in self._agent_temporary_workspace.iterdir():
+                if not agent_dir.is_dir():
+                    continue
+
+                agent_id = agent_dir.name
+                agent_registry_file = agent_dir / "subagents" / "_registry.json"
+
+                if not agent_registry_file.exists():
+                    continue
+
+                try:
+                    agent_registry = json.loads(agent_registry_file.read_text())
+                    # Registry format: {"subagents": [{"subagent_id": "...", ...}, ...]}
+                    subagents_list = agent_registry.get("subagents", [])
+                    for entry in subagents_list:
+                        subagent_id = entry.get("subagent_id")
+                        if not subagent_id:
+                            continue
+
+                        # Use a prefixed key to avoid collisions between agents
+                        # (each agent can have its own subagent with the same ID)
+                        prefixed_id = f"{agent_id}_{subagent_id}"
+
+                        # Skip if we already have this subagent from our own registry
+                        # (our own registry takes precedence)
+                        if subagent_id in subagents and agent_id == self.parent_agent_id:
+                            continue
+
+                        subagents[prefixed_id] = {
+                            "subagent_id": subagent_id,
+                            "status": entry.get("status"),
+                            "workspace": entry.get("workspace"),
+                            "task": entry.get("task"),
+                            "created_at": entry.get("created_at"),
+                            "execution_time_seconds": entry.get("execution_time_seconds"),
+                            "success": entry.get("success"),
+                            "session_id": entry.get("session_id"),
+                            "last_continued_at": entry.get("last_continued_at"),
+                            "continuable": bool(entry.get("session_id")),
+                            "source_agent": agent_id,
+                        }
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"[SubagentManager] Failed to parse registry for agent {agent_id}",
+                    )
+
+        # Update with currently tracked subagents (in-memory state takes precedence)
+        for subagent_id, state in self._subagents.items():
+            task_preview = state.config.task[:100] + ("..." if len(state.config.task) > 100 else "")
+            current_entry = subagents.get(subagent_id, {})
+            current_entry.update(
+                {
+                    "subagent_id": subagent_id,
+                    "status": state.status,
+                    "workspace": state.workspace_path,
+                    "started_at": state.started_at.isoformat() if state.started_at else None,
+                    "task": task_preview,
+                    "session_id": self._subagent_sessions.get(subagent_id, current_entry.get("session_id")),
+                    "continuable": bool(self._subagent_sessions.get(subagent_id, current_entry.get("session_id"))),
+                    "source_agent": self.parent_agent_id,
+                },
+            )
+            subagents[subagent_id] = current_entry
+
+        return list(subagents.values())
 
     def get_subagent_result(self, subagent_id: str) -> Optional[SubagentResult]:
         """

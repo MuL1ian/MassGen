@@ -971,6 +971,38 @@ Coordination Configuration
      - integer
      - No
      - Maximum number of orchestration restarts allowed (default: 0). When set > 0, enables post-evaluation where the winning agent reviews the final answer and can request a restart with specific improvement instructions. Recommended values: 1-2.
+   * - ``enable_subagents``
+     - boolean
+     - No
+     - Enable subagent tools for parallel task execution (default: false)
+   * - ``subagent_default_timeout``
+     - integer
+     - No
+     - Default timeout in seconds for subagent execution (default: 300)
+   * - ``subagent_min_timeout``
+     - integer
+     - No
+     - Minimum allowed subagent timeout in seconds (default: 60)
+   * - ``subagent_max_timeout``
+     - integer
+     - No
+     - Maximum allowed subagent timeout in seconds (default: 600)
+   * - ``subagent_max_concurrent``
+     - integer
+     - No
+     - Maximum number of concurrent subagents (default: 3)
+   * - ``subagent_round_timeouts``
+     - object
+     - No
+     - Optional per-round timeout settings for subagents. Uses the same keys as ``timeout_settings`` and inherits from parent if omitted.
+   * - ``subagent_orchestrator``
+     - object
+     - No
+     - Subagent orchestrator configuration (multi-agent subagents with custom models)
+   * - ``async_subagents``
+     - object
+     - No
+     - Async subagent configuration (``enabled``, ``injection_strategy``)
 
 .. note::
 
@@ -990,6 +1022,10 @@ Coordination Configuration
 
    1. **Coordination Phase** (with planning mode): Agents discuss and vote on approaches WITHOUT executing MCP tools
    2. **Final Presentation Phase**: The winning agent EXECUTES the planned actions
+
+.. note::
+
+   **Subagent Round Timeouts:** ``coordination.subagent_round_timeouts`` uses the same keys as ``timeout_settings`` (initial, subsequent, grace). If you omit it, subagents inherit the parent ``timeout_settings`` values.
 
 Voting and Answer Control
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

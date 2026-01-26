@@ -73,11 +73,18 @@ Enable subagents in your YAML config:
 .. code-block:: yaml
 
    orchestrator:
-     enable_subagents: true
-     subagent_default_timeout: 300  # 5 minutes per subagent (default)
-     subagent_min_timeout: 60       # Minimum 1 minute (prevents too-short timeouts)
-     subagent_max_timeout: 600      # Maximum 10 minutes (prevents runaway subagents)
-     subagent_max_concurrent: 3     # Max 3 subagents at once
+     coordination:
+       enable_subagents: true
+       subagent_default_timeout: 300  # 5 minutes per subagent (default)
+       subagent_min_timeout: 60       # Minimum 1 minute (prevents too-short timeouts)
+       subagent_max_timeout: 600      # Maximum 10 minutes (prevents runaway subagents)
+       subagent_max_concurrent: 3     # Max 3 subagents at once
+
+       # Optional: per-round timeouts for subagents (inherits parent if omitted)
+       subagent_round_timeouts:
+         initial_round_timeout_seconds: 600
+         subsequent_round_timeout_seconds: 300
+         round_timeout_grace_seconds: 120
 
 .. note::
 
@@ -100,10 +107,11 @@ Full Example
          parts, use spawn_subagents to parallelize the work.
 
    orchestrator:
-     enable_subagents: true
-     subagent_default_timeout: 300
-     subagent_max_concurrent: 3
-     enable_agent_task_planning: true  # Recommended for complex orchestration
+     coordination:
+       enable_subagents: true
+       subagent_default_timeout: 300
+       subagent_max_concurrent: 3
+       enable_agent_task_planning: true  # Recommended for complex orchestration
 
    ui:
      display_type: "rich_terminal"
@@ -117,18 +125,19 @@ By default, subagents inherit all parent agent configurations. To customize:
 .. code-block:: yaml
 
    orchestrator:
-     enable_subagents: true
-     subagent_orchestrator:
-       enabled: true
-       agents:
-         - id: "subagent_worker"
-           backend:
-             type: "openai"
-             model: "gpt-5-mini"  # Use cheaper model for subagents
-         - id: "subagent_worker_2"
-           backend:
-             type: "gemini"
-             model: "gemini-3-flash-preview"
+     coordination:
+       enable_subagents: true
+       subagent_orchestrator:
+         enabled: true
+         agents:
+           - id: "subagent_worker"
+             backend:
+               type: "openai"
+               model: "gpt-5-mini"  # Use cheaper model for subagents
+           - id: "subagent_worker_2"
+             backend:
+               type: "gemini"
+               model: "gemini-3-flash-preview"
 
 How Agents Use Subagents
 ------------------------
@@ -154,9 +163,9 @@ When subagents are enabled, agents have access to the ``spawn_subagents`` tool:
            "subagent_id": "songs"
          }
        ],
-       "context": "Building a Bob Dylan tribute website with biography, discography, and songs pages"
-     }
-   }
+      "refine": true
+    }
+  }
 
 Critical Rules for Calling Subagent Tool
 ~~~~~~~~~~~~~~
@@ -170,6 +179,7 @@ Critical Rules for Calling Subagent Tool
 4. **No nesting**: Subagents cannot spawn their own subagents.
 
 5. **Read-only context files**: Use ``context_files`` to share files, but subagents can only read them.
+6. **Refine mode**: Use ``refine: false`` to return the first answer without multi-round refinement.
 
 Result Structure
 ~~~~~~~~~~~~~~~~
@@ -204,6 +214,23 @@ The ``spawn_subagents`` tool returns:
        "completed": 3,
        "failed": 0,
        "timeout": 0
+     }
+   }
+
+Refinement Control
+~~~~~~~~~~~~~~~~~~
+
+Use ``refine: false`` to disable multi-round refinement for faster, single-pass answers:
+
+.. code-block:: json
+
+   {
+     "tool": "spawn_subagents",
+     "arguments": {
+       "tasks": [
+         {"task": "Summarize the repo structure in README.md", "subagent_id": "summary"}
+       ],
+       "refine": false
      }
    }
 
@@ -257,7 +284,6 @@ Pass files to subagents using ``context_files``:
          ]
        }
      ],
-     "context": "Improving code quality in the utils module"
    }
 
 .. warning::
@@ -498,6 +524,89 @@ Subagent costs are automatically aggregated in the parent's metrics:
        "total_estimated_cost": 0.037
      }
    }
+
+Async Subagent Execution
+------------------------
+
+By default, ``spawn_subagents`` blocks until all subagents complete. For long-running tasks,
+you can use async mode to spawn subagents in the background while the parent agent continues working.
+
+Enabling Async Mode
+~~~~~~~~~~~~~~~~~~~
+
+Pass ``async_=True`` to spawn subagents in the background:
+
+.. code-block:: json
+
+   {
+     "tool": "spawn_subagents",
+     "arguments": {
+       "tasks": [
+         {"task": "Research OAuth 2.0 best practices", "subagent_id": "oauth-research"}
+       ],
+       "async_": true
+     }
+   }
+
+The tool returns immediately with running status:
+
+.. code-block:: json
+
+   {
+     "success": true,
+     "mode": "async",
+     "subagents": [
+       {
+         "subagent_id": "oauth-research",
+         "status": "running",
+         "workspace": "/path/to/subagents/oauth-research/workspace",
+         "status_file": "/path/to/logs/oauth-research/full_logs/status.json"
+       }
+     ],
+    "note": "Poll for subagent completion to retrieve results when ready."
+   }
+
+
+Configuration
+~~~~~~~~~~~~~
+
+Configure async subagent behavior in your YAML config:
+
+.. code-block:: yaml
+
+   orchestrator:
+     coordination:
+       enable_subagents: true
+       async_subagents:
+         enabled: true  # Allow async spawning (default: true)
+
+
+When to Use Async Mode
+~~~~~~~~~~~~~~~~~~~~~~
+
+Use async mode when:
+
+* **Long-running research tasks**: Spawn research while continuing other work
+* **Independent background work**: Tasks that don't block the main workflow
+* **Parallel exploration**: Start multiple research directions simultaneously
+
+Do NOT use async mode when:
+
+* **Results needed immediately**: If you need the result before proceeding
+* **Sequential dependencies**: If subsequent work depends on the subagent output
+* **Critical path tasks**: If the subagent task is on the critical path
+
+Example: Async Research
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: text
+
+   Parent Agent Workflow:
+   1. Spawn async subagent for OAuth research
+   2. Continue working on database schema
+   3. (Subagent completes in background)
+   4. On next tool call, OAuth research results injected
+   5. Use research to inform authentication implementation
 
 Best Practices
 --------------

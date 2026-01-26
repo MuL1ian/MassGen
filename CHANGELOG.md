@@ -9,16 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.41 (January 21, 2026)** - Async Subagent Execution
+Background subagent execution with `async_=True` parameter for non-blocking subagent spawning. Parent agents continue working while subagents run in background, then poll for results when ready. New subagent round timeouts for per-round timeout control. Extended subagent configuration parameters for fine-grained control over concurrency and timeouts.
+
 **v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
 Interactive terminal UI with `--display textual` for interactive MassGen sessions. Real-time agent output streaming, context path injection, human feedback integration, keyboard-driven navigation, workspace file browser, answer browser with side-by-side comparisons, and comprehensive modals for metrics/costs/votes/timeline. Enhanced plan execution with mode selection UI and improved final answer presentation.
 
 **v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
 Complete plan-then-execute workflow with `--plan-and-execute` for autonomous planning and execution, `--execute-plan` to run existing plans. Task verification workflow with `verified` status and verification groups for batch validation. Plan storage system in `.massgen/plans/` with frozen snapshots and execution tracking. Response API function call message sanitization fixes.
 
-**v0.1.38 (January 15, 2026)** - Task Planning, Two-Tier Workspaces & Project Instructions
-Task planning mode with `--plan` flag creates structured plans for future workflows (plan-only, no auto-execution). Two-tier git-backed workspaces with scratch/deliverable separation and automatic snapshot commits. Project instruction auto-discovery (CLAUDE.md/AGENTS.md) following the agents.md standard. Batch image analysis with multi-image comparison support. Circuit breaker for timeout denial loops, soft→hard timeout race condition fix, and Docker health monitoring with log capture on MCP failures.
-
 ---
+
+## [0.1.41] - 2026-01-21
+
+### Added
+- **Async Subagent Execution**: Background subagent execution with `async_=True` parameter (MAS-214)
+  - Parent agents continue working while subagents run in background
+  - Non-blocking `spawn_subagents` returns immediately with running status
+  - Parent can poll for subagent completion and retrieve results
+  - Configurable injection strategies: `tool_result` (default) or `user_message`
+  - Batch injection when multiple subagents complete simultaneously
+
+- **Result Polling**: Check subagent completion status and retrieve results
+  - Poll for completed background subagents when ready
+  - Results returned in structured XML format with metadata
+  - Includes execution time, token usage, and workspace paths
+
+- **Subagent Round Timeouts**: Per-round timeout control for subagents
+  - New `subagent_round_timeouts` configuration section
+  - Supports `initial_round_timeout_seconds`, `subsequent_round_timeout_seconds`, `round_timeout_grace_seconds`
+  - Inherits from parent `timeout_settings` if omitted
+
+### Configuration
+- **New Subagent Parameters**: Extended YAML configuration options
+  - `enable_subagents`: Enable subagent tools for parallel task execution
+  - `subagent_default_timeout`: Default timeout in seconds (default: 300)
+  - `subagent_min_timeout`: Minimum allowed timeout (default: 60)
+  - `subagent_max_timeout`: Maximum allowed timeout (default: 600)
+  - `subagent_max_concurrent`: Maximum concurrent subagents (default: 3)
+  - `subagent_round_timeouts`: Per-round timeout settings for subagents
+  - `async_subagents`: Async execution settings (`enabled`, `injection_strategy`)
+
+### Documentation, Configurations and Resources
+- **Subagents Guide**: Updated `docs/source/user_guide/advanced/subagents.rst` with async execution section
+- **Async Example Config**: New `massgen/configs/features/async_subagent_example.yaml`
+- **OpenSpec Proposals**: Design documents in `openspec/changes/add-async-subagent-execution/`
+  - `proposal.md` - Feature proposal and impact analysis
+  - `design.md` - Architecture decisions and implementation details
+  - `specs/subagent/spec.md` - Detailed specification
+
+### Technical Details
+- **Major Focus**: Async subagent execution, subagent round timeouts, subagent configuration parameters
+- **Contributors**: @ncrispino, @HenryQi and the MassGen team
 
 ## [0.1.40] - 2026-01-19
 

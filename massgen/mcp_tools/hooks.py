@@ -842,6 +842,105 @@ class MidStreamInjectionHook(PatternHook):
         return HookResult.allow()
 
 
+class SubagentCompleteHook(PatternHook):
+    """PostToolUse hook that injects completed async subagent results.
+
+    This hook checks the pending results queue after each tool call
+    and injects any completed subagent results into the tool output.
+
+    Used for the async subagent execution feature (MAS-214) where subagents
+    run in the background and results are automatically injected when
+    the parent agent executes its next tool.
+    """
+
+    def __init__(
+        self,
+        name: str = "subagent_complete",
+        get_pending_results: Optional[Callable[[], List]] = None,
+        injection_strategy: str = "tool_result",
+    ):
+        """
+        Initialize the subagent complete hook.
+
+        Args:
+            name: Hook identifier
+            get_pending_results: Callable that returns list of (subagent_id, SubagentResult) tuples
+            injection_strategy: How to inject results - "tool_result" (append to output) or
+                              "user_message" (add as separate message)
+        """
+        super().__init__(name, matcher="*", timeout=5)
+        self._get_pending_results = get_pending_results
+        self._injection_strategy = injection_strategy
+
+    def set_pending_results_getter(
+        self,
+        getter: Callable[[], List],
+    ) -> None:
+        """Set the function to retrieve pending results.
+
+        The getter should return a list of (subagent_id, SubagentResult) tuples
+        representing completed async subagents that need their results injected.
+
+        Args:
+            getter: A callable that returns pending results and clears the queue
+        """
+        self._get_pending_results = getter
+
+    async def execute(
+        self,
+        function_name: str,
+        arguments: str,
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> HookResult:
+        """Execute the subagent complete hook.
+
+        Checks for pending async subagent results and injects them if available.
+
+        Args:
+            function_name (str): Name of the subagent function.
+            arguments (str): Serialized arguments passed to the function.
+            context (Optional[Dict[str, Any]]): Optional execution context.
+            **kwargs: Additional options for hook execution.
+
+        Returns:
+            HookResult: Indicates success or failure and includes any payload.
+        """
+        if not self._get_pending_results:
+            return HookResult.allow()
+
+        try:
+            # Get pending results (getter should also clear them)
+            pending = self._get_pending_results()
+            if not pending:
+                return HookResult.allow()
+
+            # Format results for injection
+            from massgen.subagent.result_formatter import format_batch_results
+
+            content = format_batch_results(pending)
+
+            logger.debug(
+                f"[SubagentCompleteHook] Injecting {len(pending)} completed subagent result(s)",
+            )
+
+            return HookResult(
+                allowed=True,
+                inject={
+                    "content": content,
+                    "strategy": self._injection_strategy,
+                },
+            )
+        except Exception as e:
+            # Fail open - don't block tool execution if injection fails
+            error_msg = f"Subagent result injection failed: {e}"
+            logger.error(f"[SubagentCompleteHook] {error_msg}", exc_info=True)
+            result = HookResult.allow()
+            result.add_error(error_msg)
+            result.metadata["injection_skipped"] = True
+            return result
+
+
 class HighPriorityTaskReminderHook(PatternHook):
     """PostToolUse hook that injects reminder when high-priority task is completed.
 

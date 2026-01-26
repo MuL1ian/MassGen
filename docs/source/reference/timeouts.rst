@@ -126,6 +126,22 @@ The threshold is ``round_timeout_grace_seconds`` - if remaining time before soft
 
    [Orchestrator] Skipping mid-stream injection for agent_a - only 45s until soft timeout (need 120s to think)
 
+Subagent Round Timeouts
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Subagents can use per-round timeouts too. Configure them under ``orchestrator.coordination.subagent_round_timeouts``.
+If omitted, subagents inherit the parent ``timeout_settings`` values.
+
+.. code-block:: yaml
+
+   orchestrator:
+     coordination:
+       enable_subagents: true
+       subagent_round_timeouts:
+         initial_round_timeout_seconds: 300
+         subsequent_round_timeout_seconds: 120
+         round_timeout_grace_seconds: 60
+
 Configuration Methods
 
 ---------------------

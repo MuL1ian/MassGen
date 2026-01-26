@@ -1990,7 +1990,7 @@ All subagents start at the same time and cannot see each other's output. Design 
 
 **REQUIREMENTS:**
 1. **Maximum {self.max_concurrent} tasks per call** - requests for more will error
-2. **`context` parameter is REQUIRED** - subagents need to know the project/goal
+2. **`CONTEXT.md` in workspace is REQUIRED** - subagents need to know the project/goal
 3. **Each task dict must have `"task"` field** (not "description" or "id")
 
 ```python
@@ -2001,7 +2001,8 @@ spawn_subagents(
         {{"task": "Create discography table in discography.md", "subagent_id": "discog"}},
         {{"task": "List 20 famous songs with years in songs.md", "subagent_id": "songs"}}
     ],
-    context="Building a Bob Dylan tribute website with biography, discography, songs, and quotes pages"
+    async_=False,  # True if run asynchronously (you check later), False to block until done
+    refine=False,  # True to allow subagents to refine their answers (more expensive and slower but better quality)
 )
 
 # WRONG - DO NOT DO THIS (task 2 depends on task 1's output):
@@ -2011,9 +2012,17 @@ spawn_subagents(
 # ])
 ```
 
+**async_ parameter:**
+- `async_=True`: Spawn in background, continue working, results injected later via broadcast. Use when you can do useful work while waiting or user requests background execution.
+- `async_=False` (default): Wait for results before proceeding. Use when you need outputs to complete any other work.
+
+**refine parameter:**
+- `refine=True` (default): Multi-round refinement with voting. Higher quality, slower, more expensive. Use for complex analysis.
+- `refine=False`: Single-pass execution. Faster, cheaper. Use for simple lookups/lists.
+
 ## Available Tools
 
-- `spawn_subagents(tasks, context, timeout_seconds?)` - `context` is REQUIRED! Max {self.max_concurrent} parallel tasks.
+- `spawn_subagents(tasks, async_?, refine?)` -- Max {self.max_concurrent} parallel tasks.
 - `list_subagents()` - List all spawned subagents with status
 - `get_subagent_result(subagent_id)` - Get result from a completed subagent
 - `check_subagent_status(subagent_id)` - Check status of a subagent
