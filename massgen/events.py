@@ -1,0 +1,656 @@
+# -*- coding: utf-8 -*-
+"""
+Unified Event System for MassGen.
+
+This module provides a structured event system that:
+1. Replaces streaming_debug.log with a machine-readable events.jsonl format
+2. Enables TUI reconstruction for subagent modals
+3. Provides debugging capabilities with explicit event types
+
+Event Schema:
+- All events are JSON objects with timestamp, event_type, and event-specific data
+- Events are appended atomically to events.jsonl
+- Events can be read/streamed for live display or post-hoc analysis
+
+Event Types:
+- tool_start: Tool invocation started
+- tool_complete: Tool invocation completed with result
+- thinking: Reasoning/thinking content
+- text: Response text content
+- status: Status update message
+- round_start: Coordination round started
+- final_answer: Final answer produced
+- stream_chunk: Raw StreamChunk for debugging (replaces streaming_debug.log)
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, Generator, List, Optional, Union
+
+# Type for event listeners
+EventListener = Callable[["MassGenEvent"], None]
+
+
+@dataclass
+class MassGenEvent:
+    """Structured event for TUI reconstruction and debugging.
+
+    Attributes:
+        timestamp: ISO format timestamp when event was created
+        event_type: Type of event (tool_start, tool_complete, thinking, text, etc.)
+        agent_id: Which agent emitted this event (None for orchestrator events)
+        round_number: Current coordination round (0 for non-orchestrated)
+        data: Event-specific payload
+    """
+
+    timestamp: str
+    event_type: str
+    agent_id: Optional[str] = None
+    round_number: int = 0
+    data: Dict[str, Any] = field(default_factory=dict)
+
+    def to_json(self) -> str:
+        """Serialize event to JSON string."""
+        return json.dumps(asdict(self), ensure_ascii=False, default=str)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "MassGenEvent":
+        """Deserialize event from JSON string."""
+        data = json.loads(json_str)
+        return cls(**data)
+
+    @classmethod
+    def create(
+        cls,
+        event_type: str,
+        agent_id: Optional[str] = None,
+        round_number: int = 0,
+        **kwargs: Any,
+    ) -> "MassGenEvent":
+        """Factory method to create an event with current timestamp.
+
+        Args:
+            event_type: Type of event
+            agent_id: Agent ID that emitted this event
+            round_number: Current round number
+            **kwargs: Event-specific data fields
+
+        Returns:
+            New MassGenEvent instance
+        """
+        return cls(
+            timestamp=datetime.now().isoformat(),
+            event_type=event_type,
+            agent_id=agent_id,
+            round_number=round_number,
+            data=kwargs,
+        )
+
+
+# Predefined event type constants
+class EventType:
+    """Event type constants for type safety and autocomplete."""
+
+    # Tool events
+    TOOL_START = "tool_start"
+    TOOL_COMPLETE = "tool_complete"
+
+    # Content events
+    THINKING = "thinking"
+    TEXT = "text"
+
+    # Status events
+    STATUS = "status"
+    BACKEND_STATUS = "backend_status"
+
+    # Coordination events
+    ROUND_START = "round_start"
+    ROUND_END = "round_end"
+    FINAL_ANSWER = "final_answer"
+
+    # Stream debugging (replaces streaming_debug.log)
+    STREAM_CHUNK = "stream_chunk"
+
+    # Error events
+    ERROR = "error"
+
+
+class EventEmitter:
+    """Writes structured events to events.jsonl.
+
+    Thread-safe, append-only event logging that replaces streaming_debug.log.
+    Events are written atomically to ensure file integrity.
+
+    Usage:
+        emitter = EventEmitter("/path/to/log/dir")
+        emitter.emit_tool_start("tool_123", "read_file", {"path": "/foo.txt"})
+        emitter.emit_tool_complete("tool_123", "read_file", "file contents", 0.5)
+    """
+
+    def __init__(self, log_dir: Optional[Union[str, Path]] = None):
+        """Initialize the event emitter.
+
+        Args:
+            log_dir: Directory to write events.jsonl. If None, events are
+                    not written to file (useful for testing or when
+                    log directory is not yet initialized).
+        """
+        self._log_dir = Path(log_dir) if log_dir else None
+        self._file_path: Optional[Path] = None
+        self._file_handle = None
+        self._lock = threading.Lock()
+        self._listeners: List[EventListener] = []
+        self._current_agent_id: Optional[str] = None
+        self._current_round_number: int = 0
+
+        # Initialize file if log_dir provided
+        if self._log_dir:
+            self._init_file()
+
+    def _init_file(self) -> None:
+        """Initialize the events.jsonl file."""
+        if self._log_dir:
+            self._log_dir.mkdir(parents=True, exist_ok=True)
+            self._file_path = self._log_dir / "events.jsonl"
+            # Open file in append mode with line buffering
+            self._file_handle = open(self._file_path, "a", encoding="utf-8", buffering=1)
+
+    def set_log_dir(self, log_dir: Union[str, Path]) -> None:
+        """Update the log directory (e.g., when attempt changes).
+
+        Args:
+            log_dir: New directory for events.jsonl
+        """
+        with self._lock:
+            # Close existing file handle
+            if self._file_handle:
+                self._file_handle.close()
+                self._file_handle = None
+
+            self._log_dir = Path(log_dir)
+            self._init_file()
+
+    def set_context(self, agent_id: Optional[str] = None, round_number: Optional[int] = None) -> None:
+        """Set the current context for events.
+
+        Args:
+            agent_id: Current agent ID (None to clear)
+            round_number: Current round number (None to keep existing)
+        """
+        if agent_id is not None:
+            self._current_agent_id = agent_id
+        if round_number is not None:
+            self._current_round_number = round_number
+
+    def add_listener(self, listener: EventListener) -> None:
+        """Add a listener to be notified of all events.
+
+        Args:
+            listener: Callback function that receives MassGenEvent
+        """
+        self._listeners.append(listener)
+
+    def remove_listener(self, listener: EventListener) -> None:
+        """Remove a previously added listener.
+
+        Args:
+            listener: Callback to remove
+        """
+        try:
+            self._listeners.remove(listener)
+        except ValueError:
+            pass
+
+    def emit(self, event: MassGenEvent) -> None:
+        """Emit an event.
+
+        Writes to file (if configured) and notifies listeners.
+
+        Args:
+            event: The event to emit
+        """
+        # Write to file
+        with self._lock:
+            if self._file_handle:
+                try:
+                    self._file_handle.write(event.to_json() + "\n")
+                    self._file_handle.flush()
+                except Exception:
+                    pass  # Don't fail main execution for logging issues
+
+        # Notify listeners
+        for listener in self._listeners:
+            try:
+                listener(event)
+            except Exception:
+                pass  # Don't fail for listener issues
+
+    def emit_raw(self, event_type: str, **kwargs: Any) -> None:
+        """Emit an event with automatic timestamp and context.
+
+        Args:
+            event_type: Type of event
+            **kwargs: Event-specific data
+        """
+        event = MassGenEvent.create(
+            event_type=event_type,
+            agent_id=kwargs.pop("agent_id", self._current_agent_id),
+            round_number=kwargs.pop("round_number", self._current_round_number),
+            **kwargs,
+        )
+        self.emit(event)
+
+    # Convenience methods for common event types
+
+    def emit_tool_start(
+        self,
+        tool_id: str,
+        tool_name: str,
+        args: Dict[str, Any],
+        server_name: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emit a tool start event.
+
+        Args:
+            tool_id: Unique ID for this tool call
+            tool_name: Name of the tool being called
+            args: Tool arguments
+            server_name: MCP server name if applicable
+            agent_id: Override agent ID (uses context if None)
+        """
+        self.emit_raw(
+            EventType.TOOL_START,
+            tool_id=tool_id,
+            tool_name=tool_name,
+            args=args,
+            server_name=server_name,
+            agent_id=agent_id,
+        )
+
+    def emit_tool_complete(
+        self,
+        tool_id: str,
+        tool_name: str,
+        result: Any,
+        elapsed_seconds: float,
+        status: str = "success",
+        is_error: bool = False,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emit a tool completion event.
+
+        Args:
+            tool_id: ID of the tool call
+            tool_name: Name of the tool
+            result: Tool result (will be truncated if too long)
+            elapsed_seconds: How long the tool took
+            status: Status string (success, error, etc.)
+            is_error: Whether this is an error result
+            agent_id: Override agent ID
+        """
+        # Truncate result if too long (preserve first/last parts)
+        result_str = str(result)
+        if len(result_str) > 2000:
+            result_str = result_str[:1000] + "\n...[truncated]...\n" + result_str[-500:]
+
+        self.emit_raw(
+            EventType.TOOL_COMPLETE,
+            tool_id=tool_id,
+            tool_name=tool_name,
+            result=result_str,
+            elapsed_seconds=elapsed_seconds,
+            status=status,
+            is_error=is_error,
+            agent_id=agent_id,
+        )
+
+    def emit_thinking(
+        self,
+        content: str,
+        is_redacted: bool = False,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emit a thinking/reasoning content event.
+
+        Args:
+            content: Thinking content
+            is_redacted: Whether content is redacted
+            agent_id: Override agent ID
+        """
+        self.emit_raw(
+            EventType.THINKING,
+            content=content,
+            is_redacted=is_redacted,
+            agent_id=agent_id,
+        )
+
+    def emit_text(self, content: str, agent_id: Optional[str] = None) -> None:
+        """Emit a text content event.
+
+        Args:
+            content: Text content
+            agent_id: Override agent ID
+        """
+        self.emit_raw(
+            EventType.TEXT,
+            content=content,
+            agent_id=agent_id,
+        )
+
+    def emit_status(
+        self,
+        message: str,
+        level: str = "info",
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emit a status update event.
+
+        Args:
+            message: Status message
+            level: Level (info, warning, error)
+            agent_id: Override agent ID
+        """
+        self.emit_raw(
+            EventType.STATUS,
+            message=message,
+            level=level,
+            agent_id=agent_id,
+        )
+
+    def emit_round_start(self, round_number: int, agent_id: Optional[str] = None) -> None:
+        """Emit a round start event.
+
+        Args:
+            round_number: The round number starting
+            agent_id: Agent starting this round
+        """
+        self._current_round_number = round_number
+        self.emit_raw(
+            EventType.ROUND_START,
+            round_number=round_number,
+            agent_id=agent_id,
+        )
+
+    def emit_final_answer(self, content: str, agent_id: Optional[str] = None) -> None:
+        """Emit a final answer event.
+
+        Args:
+            content: The final answer content
+            agent_id: Agent that produced the answer
+        """
+        self.emit_raw(
+            EventType.FINAL_ANSWER,
+            content=content,
+            agent_id=agent_id,
+        )
+
+    def emit_stream_chunk(self, chunk: Any, agent_id: Optional[str] = None) -> None:
+        """Emit a raw stream chunk for debugging (replaces streaming_debug.log).
+
+        Args:
+            chunk: The StreamChunk object
+            agent_id: Override agent ID
+        """
+        # Convert StreamChunk to dict if it has a dict representation
+        if hasattr(chunk, "__dict__"):
+            chunk_data = {k: v for k, v in chunk.__dict__.items() if v is not None}
+        else:
+            chunk_data = {"repr": repr(chunk)}
+
+        self.emit_raw(
+            EventType.STREAM_CHUNK,
+            chunk=chunk_data,
+            agent_id=agent_id,
+        )
+
+    def emit_error(self, error: str, agent_id: Optional[str] = None) -> None:
+        """Emit an error event.
+
+        Args:
+            error: Error message
+            agent_id: Override agent ID
+        """
+        self.emit_raw(
+            EventType.ERROR,
+            error=error,
+            agent_id=agent_id,
+        )
+
+    def close(self) -> None:
+        """Close the event file handle."""
+        with self._lock:
+            if self._file_handle:
+                try:
+                    self._file_handle.close()
+                except Exception:
+                    pass
+                self._file_handle = None
+
+    @property
+    def file_path(self) -> Optional[Path]:
+        """Get the path to the events.jsonl file."""
+        return self._file_path
+
+
+class EventReader:
+    """Reads events from events.jsonl file.
+
+    Supports both batch reading and live streaming of events.
+
+    Usage:
+        reader = EventReader("/path/to/events.jsonl")
+
+        # Read all events
+        for event in reader.read_all():
+            print(event)
+
+        # Stream new events (for live display)
+        for event in reader.stream():
+            update_display(event)
+    """
+
+    def __init__(self, file_path: Union[str, Path]):
+        """Initialize the event reader.
+
+        Args:
+            file_path: Path to events.jsonl file
+        """
+        self._file_path = Path(file_path)
+        self._last_position = 0
+
+    def exists(self) -> bool:
+        """Check if the events file exists."""
+        return self._file_path.exists()
+
+    def read_all(self) -> List[MassGenEvent]:
+        """Read all events from the file.
+
+        Returns:
+            List of all events in the file
+        """
+        events = []
+        if not self._file_path.exists():
+            return events
+
+        with open(self._file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        events.append(MassGenEvent.from_json(line))
+                    except json.JSONDecodeError:
+                        continue  # Skip malformed lines
+
+        return events
+
+    def read_since(self, position: int = 0) -> tuple[List[MassGenEvent], int]:
+        """Read events from a specific file position.
+
+        Args:
+            position: File position to start reading from
+
+        Returns:
+            Tuple of (events list, new position)
+        """
+        events = []
+        new_position = position
+
+        if not self._file_path.exists():
+            return events, new_position
+
+        with open(self._file_path, "r", encoding="utf-8") as f:
+            f.seek(position)
+            for line in f:
+                line_stripped = line.strip()
+                if line_stripped:
+                    try:
+                        events.append(MassGenEvent.from_json(line_stripped))
+                    except json.JSONDecodeError:
+                        continue
+            new_position = f.tell()
+
+        return events, new_position
+
+    def get_new_events(self) -> List[MassGenEvent]:
+        """Get events added since last read.
+
+        Returns:
+            List of new events
+        """
+        events, new_position = self.read_since(self._last_position)
+        self._last_position = new_position
+        return events
+
+    def stream(self, poll_interval: float = 0.5) -> Generator[MassGenEvent, None, None]:
+        """Stream events as they are written (blocking generator).
+
+        Args:
+            poll_interval: How often to check for new events (seconds)
+
+        Yields:
+            New events as they are written
+        """
+        while True:
+            events = self.get_new_events()
+            for event in events:
+                yield event
+
+            if not events:
+                time.sleep(poll_interval)
+
+    def filter_by_type(self, event_types: List[str]) -> List[MassGenEvent]:
+        """Read events filtered by type.
+
+        Args:
+            event_types: List of event types to include
+
+        Returns:
+            Filtered list of events
+        """
+        return [e for e in self.read_all() if e.event_type in event_types]
+
+    def filter_by_agent(self, agent_id: str) -> List[MassGenEvent]:
+        """Read events filtered by agent.
+
+        Args:
+            agent_id: Agent ID to filter by
+
+        Returns:
+            Events from the specified agent
+        """
+        return [e for e in self.read_all() if e.agent_id == agent_id]
+
+    def get_tools_summary(self) -> List[Dict[str, Any]]:
+        """Get a summary of all tool calls.
+
+        Returns:
+            List of tool call summaries with name, args, result, duration
+        """
+        all_events = self.read_all()
+        tool_starts: Dict[str, MassGenEvent] = {}
+        summaries = []
+
+        for event in all_events:
+            if event.event_type == EventType.TOOL_START:
+                tool_id = event.data.get("tool_id")
+                if tool_id:
+                    tool_starts[tool_id] = event
+            elif event.event_type == EventType.TOOL_COMPLETE:
+                tool_id = event.data.get("tool_id")
+                start_event = tool_starts.get(tool_id)
+                summaries.append(
+                    {
+                        "tool_id": tool_id,
+                        "tool_name": event.data.get("tool_name"),
+                        "args": start_event.data.get("args") if start_event else None,
+                        "result": event.data.get("result"),
+                        "elapsed_seconds": event.data.get("elapsed_seconds"),
+                        "status": event.data.get("status"),
+                        "is_error": event.data.get("is_error", False),
+                        "agent_id": event.agent_id,
+                    },
+                )
+
+        return summaries
+
+    def reset_position(self) -> None:
+        """Reset the read position to the beginning of the file."""
+        self._last_position = 0
+
+    def skip_to_end(self) -> None:
+        """Skip to the end of the file (ignore existing events)."""
+        if self._file_path.exists():
+            self._last_position = self._file_path.stat().st_size
+
+
+# Global event emitter instance (initialized by logger_config.py)
+_global_emitter: Optional[EventEmitter] = None
+
+
+def get_event_emitter() -> Optional[EventEmitter]:
+    """Get the global event emitter instance.
+
+    Returns:
+        The global EventEmitter, or None if not initialized
+    """
+    return _global_emitter
+
+
+def set_event_emitter(emitter: EventEmitter) -> None:
+    """Set the global event emitter instance.
+
+    Args:
+        emitter: The EventEmitter to use globally
+    """
+    global _global_emitter
+    _global_emitter = emitter
+
+
+def emit_event(event_type: str, **kwargs: Any) -> None:
+    """Convenience function to emit an event using the global emitter.
+
+    Args:
+        event_type: Type of event
+        **kwargs: Event data
+    """
+    if _global_emitter:
+        _global_emitter.emit_raw(event_type, **kwargs)
+
+
+# Export public API
+__all__ = [
+    "MassGenEvent",
+    "EventType",
+    "EventEmitter",
+    "EventReader",
+    "get_event_emitter",
+    "set_event_emitter",
+    "emit_event",
+]

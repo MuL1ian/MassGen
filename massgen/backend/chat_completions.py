@@ -638,6 +638,7 @@ class ChatCompletionsBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                     source=getattr(chunk, "source", None),
                     hook_info=getattr(chunk, "hook_info", None),
                     tool_call_id=getattr(chunk, "tool_call_id", None),
+                    display=getattr(chunk, "display", True),
                 )
 
             nlip_available = self._nlip_enabled and self._nlip_router

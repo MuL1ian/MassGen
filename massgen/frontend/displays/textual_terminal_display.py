@@ -41,6 +41,7 @@ try:
     from textual.widget import Widget
     from textual.widgets import Button, Footer, Input, Label, RichLog, Static, TextArea
 
+    from .base_tui_layout import BaseTUILayoutMixin
     from .content_handlers import (
         ThinkingContentHandler,
         ToolBatchTracker,
@@ -91,7 +92,7 @@ try:
         QueuedInputBanner,
         SessionInfoClicked,
         SubagentCard,
-        SubagentModal,
+        SubagentScreen,
         TaskPlanCard,
         TaskPlanModal,
         TasksClicked,
@@ -5183,10 +5184,10 @@ Type your question and press Enter to ask the agents.
                             # Find first running subagent
                             running = [sa for sa in card.subagents if sa.status == "running"]
                             if running:
-                                self.push_screen(SubagentModal(running[0], card.subagents))
+                                self.push_screen(SubagentScreen(running[0], card.subagents))
                                 return
                             # Fallback to first subagent
-                            self.push_screen(SubagentModal(card.subagents[0], card.subagents))
+                            self.push_screen(SubagentScreen(card.subagents[0], card.subagents))
                             return
                 except Exception:
                     continue
@@ -5639,12 +5640,13 @@ Type your question and press Enter to ask the agents.
             event.stop()
 
         def on_subagent_card_open_modal(self, event: SubagentCard.OpenModal) -> None:
-            """Handle subagent card click - show subagent modal with log streaming."""
-            modal = SubagentModal(
+            """Handle subagent card click - show full-screen subagent view."""
+            # Use SubagentScreen for full TUI experience from events.jsonl
+            screen = SubagentScreen(
                 subagent=event.subagent,
                 all_subagents=event.all_subagents,
             )
-            self.push_screen(modal)
+            self.push_screen(screen)
             event.stop()
 
         def on_tasks_clicked(self, event: TasksClicked) -> None:
@@ -7156,11 +7158,13 @@ Type your question and press Enter to ask the agents.
             """Show restart context - handled via status line."""
             pass  # Restart info shown via show_restart_banner  # Restart info shown via show_restart_banner
 
-    class AgentPanel(Container):
+    class AgentPanel(Container, BaseTUILayoutMixin):
         """Panel for individual agent output.
 
         Note: This is a Container, not ScrollableContainer. Scrolling happens
         in the inner TimelineSection widget which inherits from ScrollableContainer.
+
+        Inherits BaseTUILayoutMixin for shared content pipeline functionality.
         """
 
         def __init__(self, agent_id: str, display: TextualTerminalDisplay, key_index: int = 0):
@@ -7189,10 +7193,12 @@ Type your question and press Enter to ask the agents.
             self._not_in_use_id = f"not_in_use_{self._dom_safe_id}"
             self._is_in_use = True  # Track if panel is active in single-agent mode
 
-            # New section-based content handlers
+            # New section-based content handlers (used by BaseTUILayoutMixin)
             self._tool_handler = ToolContentHandler()
             self._thinking_handler = ThinkingContentHandler()
             self._batch_tracker = ToolBatchTracker()
+            self._last_text_class = "content-inline"  # For BaseTUILayoutMixin
+            self._timeline_event_counter = 0  # For BaseTUILayoutMixin
 
             # Section widget IDs - using timeline for chronological view
             self._timeline_section_id = f"timeline_section_{self._dom_safe_id}"
@@ -7345,6 +7351,24 @@ Type your question and press Enter to ask the agents.
                     logger.debug(f"AgentPanel.on_mount: Initialized ribbon with Round 1 for {self.agent_id}")
             except Exception as e:
                 logger.debug(f"AgentPanel.on_mount: Failed to initialize ribbon: {e}")
+
+        # -------------------------------------------------------------------------
+        # BaseTUILayoutMixin abstract method implementations
+        # -------------------------------------------------------------------------
+
+        def _get_timeline(self) -> Optional[TimelineSection]:
+            """Get the TimelineSection widget (implements BaseTUILayoutMixin)."""
+            try:
+                return self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+            except Exception:
+                return None
+
+        def _get_ribbon(self) -> Optional[AgentStatusRibbon]:
+            """Get the AgentStatusRibbon widget (implements BaseTUILayoutMixin)."""
+            try:
+                return self.coordination_display._agent_status_ribbon
+            except Exception:
+                return None
 
         def set_in_use(self, in_use: bool) -> None:
             """Set whether this panel is in use (for single-agent mode).

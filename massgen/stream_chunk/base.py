@@ -68,6 +68,7 @@ class BaseStreamChunk(ABC):
     source: Optional[str] = None
     timestamp: Optional[float] = None
     sequence_number: Optional[int] = None
+    display: bool = True  # Set to False for verbose diagnostic messages that shouldn't be shown in TUI
 
     @abstractmethod
     def to_dict(self) -> Dict[str, Any]:

@@ -308,6 +308,7 @@ class AgentTabBar(Widget):
         agent_models: Optional[Dict[str, str]] = None,
         turn: int = 1,
         question: str = "",
+        tab_id_prefix: str = "",
         *,
         id: Optional[str] = None,
         classes: Optional[str] = None,
@@ -319,6 +320,7 @@ class AgentTabBar(Widget):
             agent_models: Optional mapping of agent IDs to model names.
             turn: Current turn number.
             question: Current question text.
+            tab_id_prefix: Prefix for tab widget IDs to avoid conflicts.
             id: Optional DOM ID.
             classes: Optional CSS classes.
         """
@@ -328,6 +330,7 @@ class AgentTabBar(Widget):
         self._tabs: Dict[str, AgentTab] = {}
         self._turn = turn
         self._question = question
+        self._tab_id_prefix = tab_id_prefix
         self._session_info_widget: Optional[SessionInfoWidget] = None
 
     def compose(self) -> ComposeResult:
@@ -339,11 +342,12 @@ class AgentTabBar(Widget):
                 # Assign a color class based on agent index (cycles through 8 colors)
                 color_class = f"agent-color-{(idx % 8) + 1}"
                 model_name = self._agent_models.get(agent_id, "")
+                tab_id = f"{self._tab_id_prefix}tab_{agent_id.replace(' ', '_').replace('.', '_')}"
                 tab = AgentTab(
                     agent_id=agent_id,
                     key_index=key_index,
                     model_name=model_name,
-                    id=f"tab_{agent_id.replace(' ', '_').replace('.', '_')}",
+                    id=tab_id,
                     classes=f"inactive {color_class}",
                 )
                 self._tabs[agent_id] = tab
@@ -435,6 +439,58 @@ class AgentTabBar(Widget):
             # If the tab was a winner, set it to completed
             if tab._status == "winner":
                 tab.update_status("completed")
+
+    def update_agents(
+        self,
+        agent_ids: List[str],
+        agent_models: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Update the tabs with a new set of agents.
+
+        Dynamically replaces all tabs with new ones for the given agents.
+        This is useful for subagent screens that need to show inner agents.
+
+        Args:
+            agent_ids: New list of agent IDs to display.
+            agent_models: Optional mapping of agent IDs to model names.
+        """
+        # Skip if no change
+        if agent_ids == self._agent_ids:
+            return
+
+        self._agent_ids = agent_ids
+        self._agent_models = agent_models or {}
+
+        # Find the tab container
+        try:
+            container = self.query_one("#tab_container")
+        except Exception:
+            return
+
+        # Remove existing tabs
+        for tab in list(self._tabs.values()):
+            tab.remove()
+        self._tabs.clear()
+
+        # Create new tabs
+        for idx, agent_id in enumerate(agent_ids):
+            key_index = idx + 1 if idx < 9 else 0
+            color_class = f"agent-color-{(idx % 8) + 1}"
+            model_name = self._agent_models.get(agent_id, "")
+            tab_id = f"{self._tab_id_prefix}tab_{agent_id.replace(' ', '_').replace('.', '_')}"
+            tab = AgentTab(
+                agent_id=agent_id,
+                key_index=key_index,
+                model_name=model_name,
+                id=tab_id,
+                classes=f"inactive {color_class}",
+            )
+            self._tabs[agent_id] = tab
+            container.mount(tab)
+
+        # Set first agent as active
+        if agent_ids:
+            self.set_active(agent_ids[0])
 
     def get_next_agent(self) -> Optional[str]:
         """Get the next agent ID after the currently active one.

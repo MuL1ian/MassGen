@@ -517,19 +517,23 @@ class SubagentCard(Static, can_focus=True):
         subagents = []
 
         # Parse spawned subagents from result
-        spawned = result.get("spawned_subagents", result.get("subagents", []))
+        # Check both "results" (blocking mode) and "subagents" (async mode) keys
+        spawned = result.get("results", result.get("spawned_subagents", result.get("subagents", [])))
         for sa_data in spawned:
+            # Determine status - completed results have status, spawning has "running"
+            status = sa_data.get("status", "running")
             subagents.append(
                 SubagentDisplayData(
                     id=sa_data.get("id", sa_data.get("subagent_id", "unknown")),
                     task=sa_data.get("task", ""),
-                    status="running",  # Just spawned, assume running
-                    progress_percent=0,
-                    elapsed_seconds=0.0,
+                    status=status,
+                    progress_percent=100 if status == "completed" else 0,
+                    elapsed_seconds=sa_data.get("execution_time_seconds", 0.0),
                     timeout_seconds=sa_data.get("timeout_seconds", 300),
                     workspace_path=sa_data.get("workspace", ""),
                     workspace_file_count=0,
                     last_log_line="",
+                    log_path=sa_data.get("log_path"),  # Include log_path from result
                 ),
             )
 

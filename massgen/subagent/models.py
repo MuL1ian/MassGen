@@ -5,9 +5,11 @@ Subagent Data Models for MassGen
 Provides dataclasses for configuring, tracking, and returning results from subagents.
 """
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 # Subagent timeout defaults (in seconds)
@@ -238,6 +240,43 @@ class SubagentResult:
     completion_percentage: Optional[int] = None
     warning: Optional[str] = None  # Warning messages (e.g., context truncation)
 
+    @staticmethod
+    def resolve_events_path(base_log_dir: Path) -> Optional[str]:
+        """Resolve the path to events.jsonl from a base log directory.
+
+        This method finds the exact events.jsonl file path from a subagent's
+        base log directory, checking both completed and live subagent paths.
+
+        Priority:
+        1. full_logs/events.jsonl (completed subagents)
+        2. subprocess_logs.json reference (live subagents)
+
+        Args:
+            base_log_dir: Base log directory for the subagent (e.g., /logs/sub_abc123/)
+
+        Returns:
+            Full path to events.jsonl if found, None otherwise
+        """
+        # Check full_logs first (completed subagents)
+        full_logs_events = base_log_dir / "full_logs" / "events.jsonl"
+        if full_logs_events.exists():
+            return str(full_logs_events.resolve())
+
+        # Read subprocess_logs.json for live path
+        subprocess_ref = base_log_dir / "subprocess_logs.json"
+        if subprocess_ref.exists():
+            try:
+                ref_data = json.loads(subprocess_ref.read_text())
+                subprocess_log_dir = ref_data.get("subprocess_log_dir")
+                if subprocess_log_dir:
+                    live_events = Path(subprocess_log_dir) / "events.jsonl"
+                    if live_events.exists():
+                        return str(live_events.resolve())
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        return None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for tool return value."""
         result = {
@@ -251,8 +290,11 @@ class SubagentResult:
             "token_usage": self.token_usage.copy(),
         }
         # Include log_path if available (useful for debugging failed/timed out subagents)
+        # Resolve to the events.jsonl file path for TUI consumption
         if self.log_path:
-            result["log_path"] = self.log_path
+            log_dir = Path(self.log_path)
+            resolved = SubagentResult.resolve_events_path(log_dir)
+            result["log_path"] = resolved or self.log_path
         # Include completion_percentage if available (for timeout recovery)
         if self.completion_percentage is not None:
             result["completion_percentage"] = self.completion_percentage

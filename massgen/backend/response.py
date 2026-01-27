@@ -646,6 +646,7 @@ class ResponseBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                     status=getattr(chunk, "status", None),
                     content=getattr(chunk, "content", None),
                     source=getattr(chunk, "source", None),
+                    display=getattr(chunk, "display", True),
                 )
 
             nlip_available = self._nlip_enabled and self._nlip_router

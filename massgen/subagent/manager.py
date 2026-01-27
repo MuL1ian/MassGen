@@ -12,7 +12,10 @@ import shutil
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from massgen.events import MassGenEvent
 
 import yaml
 
@@ -808,6 +811,254 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             # Still copy logs even on error - they contain useful debugging info
             _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
             self._write_subprocess_log_reference(config.id, subprocess_log_dir, error=str(e))
+            log_dir = self._get_subagent_log_dir(config.id)
+            return SubagentResult.create_error(
+                subagent_id=config.id,
+                error=str(e),
+                workspace_path=str(workspace),
+                execution_time_seconds=time.time() - start_time,
+                log_path=str(log_dir) if log_dir else None,
+                warning=context_warning,
+            )
+
+    async def execute_with_streaming(
+        self,
+        config: SubagentConfig,
+        on_event: "Callable[[MassGenEvent], Awaitable[None]]",
+        refine: bool = True,
+    ) -> SubagentResult:
+        """Execute subagent with real-time event streaming.
+
+        This method spawns a subagent subprocess with --stream-events flag,
+        allowing real-time event streaming to a callback (typically the TUI
+        subagent modal). Events are parsed from stdout as JSON lines.
+
+        Args:
+            config: Subagent configuration
+            on_event: Async callback to receive each MassGenEvent
+            refine: If True (default), allow multi-round coordination.
+                    If False, return first answer without iteration.
+
+        Returns:
+            SubagentResult with execution outcome
+        """
+        from massgen.events import MassGenEvent
+
+        start_time = time.time()
+
+        # Create workspace
+        workspace = self._create_workspace(config.id)
+
+        # Copy context files
+        self._copy_context_files(config.id, config.context_files or [], workspace)
+
+        # Verify CONTEXT.md exists (required for subagents)
+        context_md = workspace / "CONTEXT.md"
+        if not context_md.exists():
+            error_msg = "CONTEXT.md not found in workspace. " "Before spawning subagents, create a CONTEXT.md file with task context."
+            logger.error(f"[SubagentManager] {error_msg}")
+            return SubagentResult.create_error(
+                subagent_id=config.id,
+                error=error_msg,
+                workspace_path=str(workspace),
+            )
+
+        # Load context warning for the result
+        from massgen.context.task_context import load_task_context_with_warning
+
+        _, context_warning = load_task_context_with_warning(str(workspace))
+
+        # Track state
+        state = SubagentState(
+            config=config,
+            status="running",
+            workspace_path=str(workspace),
+            started_at=datetime.now(),
+        )
+        self._subagents[config.id] = state
+
+        # Build context paths from config.context_files
+        context_paths: List[Dict[str, str]] = []
+        if config.context_files:
+            for ctx_file in config.context_files:
+                src_path = Path(ctx_file)
+                if src_path.exists():
+                    context_paths.append(
+                        {
+                            "path": str(src_path.resolve()),
+                            "permission": "read",
+                        },
+                    )
+
+        # Generate YAML config
+        config.metadata = config.metadata or {}
+        config.metadata["refine"] = refine
+        subagent_yaml = self._generate_subagent_yaml_config(config, workspace, context_paths)
+        yaml_path = workspace / f"subagent_config_{config.id}.yaml"
+        yaml_path.write_text(yaml.dump(subagent_yaml, default_flow_style=False))
+
+        # Build system prompt and task
+        system_prompt, _ = self._build_subagent_system_prompt(config, workspace)
+        full_task = system_prompt
+
+        # Build command with --stream-events for real-time event streaming
+        answer_file = workspace / "answer.txt"
+        cmd = [
+            "uv",
+            "run",
+            "massgen",
+            "--config",
+            str(yaml_path),
+            "--stream-events",  # Enable event streaming (implies --automation)
+            "--output-file",
+            str(answer_file),
+            full_task,
+        ]
+
+        logger.info(
+            f"[SubagentManager] Executing subagent {config.id} with streaming, " f"config: {yaml_path}",
+        )
+
+        process: Optional[asyncio.subprocess.Process] = None
+        try:
+            # Use async subprocess for real-time streaming
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(workspace),
+            )
+
+            # Track the process for potential cancellation
+            self._active_processes[config.id] = process
+
+            # Create symlink to live logs for TUI streaming
+            self._create_live_logs_symlink(config.id, workspace)
+
+            # Read stdout line by line, parse events, call callback
+            async def stream_events():
+                if process.stdout:
+                    async for line in process.stdout:
+                        try:
+                            line_str = line.decode().strip()
+                            if line_str:
+                                event = MassGenEvent.from_json(line_str)
+                                await on_event(event)
+                        except json.JSONDecodeError:
+                            # Skip non-JSON lines (e.g., startup messages)
+                            pass
+                        except Exception as e:
+                            logger.debug(f"[SubagentManager] Error processing event: {e}")
+
+            # Stream events with timeout
+            timeout = self._clamp_timeout(config.timeout_seconds)
+            try:
+                await asyncio.wait_for(stream_events(), timeout=timeout)
+                # Wait for process to complete after streaming is done
+                await process.wait()
+            except asyncio.TimeoutError:
+                logger.warning(f"[SubagentManager] Subagent {config.id} timed out, terminating...")
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                raise
+            finally:
+                # Remove from active processes
+                self._active_processes.pop(config.id, None)
+
+            if process.returncode == 0:
+                # Read answer from the output file
+                if answer_file.exists():
+                    answer = answer_file.read_text().strip()
+                else:
+                    answer = ""
+
+                execution_time = time.time() - start_time
+
+                # Get token usage and session ID from subprocess's status.json
+                token_usage, subprocess_log_dir, session_id = self._parse_subprocess_status(workspace)
+
+                # Track session ID for continuation support
+                if session_id:
+                    self._subagent_sessions[config.id] = session_id
+
+                # Write reference to subprocess log directory
+                self._write_subprocess_log_reference(config.id, subprocess_log_dir)
+
+                # Get log directory path for the result
+                log_dir = self._get_subagent_log_dir(config.id)
+
+                result = SubagentResult.create_success(
+                    subagent_id=config.id,
+                    answer=answer,
+                    workspace_path=str(workspace),
+                    execution_time_seconds=execution_time,
+                    token_usage=token_usage,
+                    log_path=str(log_dir) if log_dir else None,
+                    warning=context_warning,
+                )
+            else:
+                stderr = await process.stderr.read() if process.stderr else b""
+                stderr_text = stderr.decode() if stderr else ""
+                error_msg = stderr_text.strip() or f"Subprocess exited with code {process.returncode}"
+
+                logger.error(f"[SubagentManager] Subagent {config.id} failed: {error_msg}")
+
+                _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
+                self._write_subprocess_log_reference(config.id, subprocess_log_dir, error=error_msg)
+                log_dir = self._get_subagent_log_dir(config.id)
+
+                result = SubagentResult.create_error(
+                    subagent_id=config.id,
+                    error=error_msg,
+                    workspace_path=str(workspace),
+                    execution_time_seconds=time.time() - start_time,
+                    log_path=str(log_dir) if log_dir else None,
+                    warning=context_warning,
+                )
+
+            # Update state
+            if result.success:
+                state.status = "completed"
+            else:
+                state.status = "failed"
+            state.result = result
+
+            return result
+
+        except asyncio.TimeoutError:
+            log_dir = self._get_subagent_log_dir(config.id)
+            return self._create_timeout_result_with_recovery(
+                subagent_id=config.id,
+                workspace=workspace,
+                timeout_seconds=config.timeout_seconds or self.default_timeout,
+                log_path=str(log_dir) if log_dir else None,
+                warning=context_warning,
+            )
+
+        except asyncio.CancelledError:
+            logger.warning(f"[SubagentManager] Subagent {config.id} cancelled")
+            if process and process.returncode is None:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    process.kill()
+            self._active_processes.pop(config.id, None)
+            log_dir = self._get_subagent_log_dir(config.id)
+            return self._create_timeout_result_with_recovery(
+                subagent_id=config.id,
+                workspace=workspace,
+                timeout_seconds=time.time() - start_time,
+                log_path=str(log_dir) if log_dir else None,
+                warning=context_warning,
+            )
+
+        except Exception as e:
+            logger.error(f"[SubagentManager] Subagent {config.id} error: {e}")
             log_dir = self._get_subagent_log_dir(config.id)
             return SubagentResult.create_error(
                 subagent_id=config.id,
@@ -1890,6 +2141,13 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             if len(state.result.answer) > 200:
                 answer_preview += "..."
 
+        # Get exact path to events.jsonl for TUI
+        # Uses SubagentResult.resolve_events_path() for consistent path resolution
+        events_jsonl_path = None
+        if self._subagent_logs_base:
+            subagent_log_dir = self._subagent_logs_base / subagent_id
+            events_jsonl_path = SubagentResult.resolve_events_path(subagent_log_dir)
+
         return SubagentDisplayData(
             id=subagent_id,
             task=state.config.task,
@@ -1902,6 +2160,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             last_log_line=last_log_line,
             error=error,
             answer_preview=answer_preview,
+            log_path=events_jsonl_path,
         )
 
     def _transform_orchestrator_status(

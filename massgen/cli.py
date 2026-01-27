@@ -143,6 +143,29 @@ def _setup_logfire_observability() -> bool:
     return True
 
 
+def _setup_event_streaming() -> None:
+    """Configure event streaming to stdout for subprocess-based TUI display.
+
+    When --stream-events is passed, this adds a listener to the EventEmitter
+    that writes all events as JSON lines to stdout. This enables parent processes
+    (like the TUI subagent modal) to receive real-time updates by reading stdout.
+
+    Events are written in JSONL format (one JSON object per line), flushed
+    immediately for real-time streaming.
+    """
+    from .events import get_event_emitter
+
+    def stream_to_stdout(event):
+        """Write event as JSON line to stdout."""
+        sys.stdout.write(event.to_json() + "\n")
+        sys.stdout.flush()
+
+    # Get the event emitter (initialized by setup_logging)
+    emitter = get_event_emitter()
+    if emitter:
+        emitter.add_listener(stream_to_stdout)
+
+
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -7072,6 +7095,13 @@ async def main(args):
     # Setup logging (only for actual agent runs, not special commands)
     setup_logging(debug=args.debug)
 
+    # Configure event streaming to stdout if requested
+    # This enables parent processes (TUI subagent modal) to receive real-time updates
+    if getattr(args, "stream_events", False):
+        # --stream-events implies --automation
+        args.automation = True
+        _setup_event_streaming()
+
     # Configure Logfire observability if requested
     if getattr(args, "logfire", False):
         _setup_logfire_observability()
@@ -8297,6 +8327,11 @@ Environment Variables:
         action="store_true",
         help="Enable automation mode: silent output (~10 lines), status.json tracking, meaningful exit codes. "
         "REQUIRED for LLM agents and background execution. Automatically isolates workspaces for parallel runs.",
+    )
+    parser.add_argument(
+        "--stream-events",
+        action="store_true",
+        help="Stream events to stdout as JSON lines. Used by parent processes (e.g., TUI subagent modal) " "to receive real-time updates. Implies --automation.",
     )
     parser.add_argument(
         "--plan",

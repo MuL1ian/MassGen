@@ -113,6 +113,24 @@ TOOL_INFO_PATTERNS = [
     r"Tools initialized",
 ]
 
+# MCP status messages to filter out (noise - connection/tool count info)
+# These are informational and clutter the timeline
+MCP_NOISE_PATTERNS = [
+    r"Connected to \d+ servers?",
+    r"\d+ tools? available",
+    r"\[MCP\].*Connected",
+    r"\[MCP\].*\d+ tools",
+    r"MCP.*Connected to \d+",
+    r"MCP.*\d+ tools? available",
+    # Task planning noise (verbose internal coordination)
+    r"create_task_plan",
+    r"task_plan.*completed",
+    r"Arguments for Calling.*task_plan",
+    r"Results for Calling.*task_plan",
+    r"\[MCP Tool\].*task_plan",
+]
+COMPILED_MCP_NOISE = [re.compile(p, re.IGNORECASE) for p in MCP_NOISE_PATTERNS]
+
 # Minimal JSON noise patterns - just obvious fragments that are never useful
 JSON_NOISE_PATTERNS = [
     r"^\s*\{\s*\}\s*$",  # Empty object {}
@@ -342,6 +360,38 @@ class ContentNormalizer:
                 return True
 
         return False
+
+    @staticmethod
+    def is_mcp_noise(content: str) -> bool:
+        """Check if content is MCP connection noise that should be filtered.
+
+        This filters out informational messages like:
+        - "[MCP] Connected to 4 servers"
+        - "[MCP] 17 tools available"
+
+        These messages clutter the timeline without providing useful context.
+        """
+        return any(p.search(content) for p in COMPILED_MCP_NOISE)
+
+    @staticmethod
+    def is_filtered_tool(tool_name: str) -> bool:
+        """Check if a tool should be filtered from display.
+
+        Some tools are internal coordination tools that clutter the timeline:
+        - task_plan tools (create_task_plan, etc.)
+
+        Args:
+            tool_name: The tool name to check
+
+        Returns:
+            True if the tool should be filtered out
+        """
+        filtered_patterns = [
+            "task_plan",
+            "create_task_plan",
+        ]
+        tool_lower = tool_name.lower()
+        return any(pattern in tool_lower for pattern in filtered_patterns)
 
     @staticmethod
     def is_coordination_content(content: str) -> bool:
@@ -629,6 +679,11 @@ class ContentNormalizer:
             # Filter workspace state content (internal messages)
             # BUT: Don't filter tool content - tool args contain JSON that we need to display
             if not content_type.startswith("tool_") and cls.is_workspace_state_content(content):
+                should_display = False
+
+            # Filter MCP connection noise (single source of truth for both TUIs)
+            # This filters status messages like "[MCP] Connected to 4 servers"
+            if content_type == "status" and cls.is_mcp_noise(content):
                 should_display = False
 
         # Apply light cleaning

@@ -1567,6 +1567,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 content=f"Arguments for Calling {tool_name}: {arguments_str}",
                 source=f"{config.source_prefix}{tool_name}",
                 tool_call_id=call_id,
+                display=False,  # Verbose diagnostic - shown in tool card instead
             )
 
             # Special handling for subagent spawn - notify TUI immediately via callback
@@ -1873,6 +1874,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 content=f"Results for Calling {tool_name}: {display_result}",
                 source=f"{config.source_prefix}{tool_name}",
                 tool_call_id=call_id,
+                display=False,  # Verbose diagnostic - shown in tool card instead
             )
 
             # Yield injection chunk if there was mid-stream injection
@@ -1961,6 +1963,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                 content=f"Arguments for Calling {tool_name}: {arguments_str}",
                 source=f"{config.source_prefix}{tool_name}",
                 tool_call_id=call_id,
+                display=False,  # Verbose diagnostic - shown in tool card instead
             )
 
             # Yield error status chunk
@@ -2207,6 +2210,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             content=f"Arguments for Calling {tool_name}: {arguments_str}",
             source=f"{config.source_prefix}{tool_name}",
             tool_call_id=call_id,
+            display=False,  # Verbose diagnostic - shown in tool card instead
         )
 
         request = self._build_nlip_request(call)
@@ -2284,6 +2288,7 @@ class CustomToolAndMCPBackend(LLMBackend):
                         content=f"Results for Calling {tool_name}: {result_text}",
                         source=f"{config.source_prefix}{tool_name}",
                         tool_call_id=call_id,
+                        display=False,  # Verbose diagnostic - shown in tool card instead
                     )
 
                     yield StreamChunk(

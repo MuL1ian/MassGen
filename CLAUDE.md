@@ -286,6 +286,12 @@ Use `--verbose` flag to show detailed output (injection content, message formats
 - Config validation: `massgen/config_validator.py`
 - Model registry: `massgen/utils.py`
 
+## Module Documentation
+
+Detailed documentation for specific modules lives in `docs/modules/`. **Always check these before working on a module, and update them when making changes.**
+
+- `docs/modules/subagents.md` - Subagent spawning, logging architecture, TUI integration
+
 ## MassGen Skills
 
 MassGen includes specialized skills in `massgen/skills/` for common workflows (log analysis, running experiments, creating configs, etc.).

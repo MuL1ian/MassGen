@@ -53,6 +53,8 @@ from .session_info_panel import SessionInfoPanel
 from .setup_wizard import SetupWizard
 from .subagent_card import SubagentCard
 from .subagent_modal import SubagentModal
+from .subagent_screen import SubagentPanel, SubagentScreen
+from .subagent_tui_modal import SubagentTuiModal
 from .tab_bar import AgentTab, AgentTabBar, AgentTabChanged, SessionInfoClicked
 from .task_plan_card import TaskPlanCard
 from .task_plan_modal import TaskPlanModal
@@ -112,9 +114,12 @@ __all__ = [
     # Plan approval modal
     "PlanApprovalModal",
     "PlanApprovalResult",
-    # Subagent card and modal
+    # Subagent card, modal, and screen
     "SubagentCard",
     "SubagentModal",
+    "SubagentPanel",
+    "SubagentScreen",
+    "SubagentTuiModal",
     # Background tasks modal
     "BackgroundTasksModal",
     # Injection sub-card
