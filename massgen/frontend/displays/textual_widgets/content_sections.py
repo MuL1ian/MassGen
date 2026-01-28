@@ -551,8 +551,9 @@ class TimelineSection(ScrollableContainer):
     """
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
-    MAX_TIMELINE_ITEMS = 75
+    MAX_TIMELINE_ITEMS = 30  # Reduced from 75 - typical terminal shows ~10-15 items
     SCROLL_DEBOUNCE_MS = 25  # Minimum gap between scroll operations (reduced for responsiveness)
+    SCROLL_ANIMATION_THRESHOLD_MS = 300  # Threshold for animation vs instant scroll
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -579,6 +580,9 @@ class TimelineSection(ScrollableContainer):
         self._last_scroll_time: float = 0.0
         # Performance: Cancel previous timer before creating new one (QUICK-004)
         self._scroll_timer = None
+        # Deferred scroll pattern: ensures scroll happens even when debounced
+        self._scroll_requested = False
+        self._debounce_timer = None
         # Answer lock mode: when True, timeline shows only the final answer card
         self._answer_lock_mode = False
         self._locked_card_id: Optional[str] = None
@@ -690,40 +694,54 @@ class TimelineSection(ScrollableContainer):
         # Use smooth animated scrolling for better UX
         self._scroll_to_end(animate=True)
 
-    def _scroll_to_end(self, animate: bool = True, duration: float = 0.15) -> None:
+    def _scroll_to_end(self, animate: bool = True, duration: float = 0.15, force: bool = False) -> None:
         """Auto-scroll to end with smooth animation.
 
-        Textual automatically syncs the scrollbar when scroll_y changes,
-        so we just need to call scroll_to/scroll_end and let Textual handle it.
+        Uses a deferred scroll pattern: if called during debounce window,
+        marks that scroll is needed and ensures it happens after debounce.
 
         Args:
             animate: Whether to animate the scroll (default True for smooth UX)
             duration: Animation duration in seconds (default 0.15s)
+            force: If True, bypass debounce (e.g., when switching tabs)
         """
-        self._log(f"_scroll_to_end called: pending={self._scroll_pending} max_scroll_y={self.max_scroll_y:.1f} current_scroll_y={self.scroll_y:.1f}")
+        self._log(f"_scroll_to_end called: pending={self._scroll_pending} force={force} max_scroll_y={self.max_scroll_y:.1f} current_scroll_y={self.scroll_y:.1f}")
 
-        # QUICK-002: Time-based scroll debouncing (50ms minimum gap)
         current_time = time.monotonic()
         time_since_last = current_time - self._last_scroll_time
-        if time_since_last < (self.SCROLL_DEBOUNCE_MS / 1000.0):
-            self._log(f"_scroll_to_end: SKIPPED (time debounce: {time_since_last*1000:.1f}ms < {self.SCROLL_DEBOUNCE_MS}ms)")
-            return
 
-        # Debounce: if scroll is already pending, don't queue another
-        if self._scroll_pending:
-            self._log("_scroll_to_end: SKIPPED (pending)")
-            return
+        # Force mode bypasses debounce (e.g., explicit user actions like tab switching)
+        if not force:
+            # If scroll already pending, mark that we need another scroll after
+            if self._scroll_pending:
+                self._scroll_requested = True
+                self._log("_scroll_to_end: marked for deferred scroll (pending)")
+                return
+
+            # Time-based debouncing - but DON'T drop the request, defer it
+            if time_since_last < (self.SCROLL_DEBOUNCE_MS / 1000.0):
+                self._scroll_requested = True
+                self._log(f"_scroll_to_end: deferred (debounce: {time_since_last*1000:.1f}ms < {self.SCROLL_DEBOUNCE_MS}ms)")
+                # Schedule deferred scroll if not already scheduled
+                if self._debounce_timer is None:
+                    remaining_ms = self.SCROLL_DEBOUNCE_MS - (time_since_last * 1000)
+                    self._debounce_timer = self.set_timer(
+                        remaining_ms / 1000.0,
+                        self._execute_deferred_scroll,
+                    )
+                return
 
         self._scroll_pending = True
+        self._scroll_requested = False  # Clear any pending request
 
         def do_scroll() -> None:
             self._log(f"do_scroll executing: max_scroll_y={self.max_scroll_y:.1f} scroll_y before={self.scroll_y:.1f}")
             self._scroll_pending = False
-            self._last_scroll_time = time.monotonic()  # QUICK-002: Track scroll time
-            # Set flag BEFORE scroll - it stays set until reset_auto_scroll is called
-            self._auto_scrolling = True  # QUICK-001: Disable animation during high-velocity streaming
-            # If time since last scroll < 300ms, we\'re streaming - skip animation
-            use_animation = animate and self.max_scroll_y > 0 and time_since_last > 0.3
+            self._last_scroll_time = time.monotonic()
+            self._auto_scrolling = True
+
+            # Use named constant for animation threshold
+            use_animation = animate and self.max_scroll_y > 0 and time_since_last > (self.SCROLL_ANIMATION_THRESHOLD_MS / 1000.0)
 
             if use_animation:
                 self.scroll_to(y=self.max_scroll_y, animate=True, duration=duration, easing="out_cubic")
@@ -734,7 +752,6 @@ class TimelineSection(ScrollableContainer):
             self._log(f"do_scroll after scroll: scroll_y={self.scroll_y:.1f}")
 
             # QUICK-004: Cancel previous timer before creating new one
-            # This prevents timer accumulation during rapid updates
             if self._scroll_timer is not None:
                 try:
                     self._scroll_timer.stop()
@@ -745,15 +762,27 @@ class TimelineSection(ScrollableContainer):
                 self._reset_auto_scroll,
             )
 
+            # Check if another scroll was requested while we were pending
+            if self._scroll_requested:
+                self._scroll_requested = False
+                self.call_after_refresh(lambda: self._scroll_to_end(animate=False))
+
         # Defer scroll until after layout is complete
         self.call_after_refresh(do_scroll)
+
+    def _execute_deferred_scroll(self) -> None:
+        """Execute a deferred scroll after debounce period."""
+        self._debounce_timer = None
+        if self._scroll_requested:
+            self._scroll_requested = False
+            self._scroll_to_end(animate=False)
 
     def exit_scroll_mode(self) -> None:
         """Exit scroll mode and scroll to bottom."""
         self._scroll_mode = False
         self._new_content_count = 0
         self.reset_scroll_mode()  # Reset scroll state
-        self._scroll_to_end(animate=False)
+        self._scroll_to_end(animate=False, force=True)
         self._update_scroll_indicator()
 
     def scroll_to_widget(self, widget_id: str) -> None:
@@ -833,7 +862,7 @@ class TimelineSection(ScrollableContainer):
         self._locked_card_id = None
 
         # Scroll to show the final card
-        self._scroll_to_end(animate=False)
+        self._scroll_to_end(animate=False, force=True)
 
     def _trim_old_items(self) -> None:
         """ARCH-001: Cull items outside viewport using visibility toggling.
@@ -1440,7 +1469,9 @@ class TimelineSection(ScrollableContainer):
 
         try:
             self.mount(widget)
-            self._auto_scroll()
+            self._log(f"Timeline items: {len(list(self.children))}")
+            self._trim_old_items()  # Keep timeline size bounded (do before scroll)
+            self._auto_scroll()  # Scroll after trim to stay at bottom
         except Exception:
             pass
 

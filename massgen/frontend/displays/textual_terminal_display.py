@@ -1606,6 +1606,12 @@ class TextualTerminalDisplay(TerminalDisplay):
             return
 
         display_answer = answer or ""
+        try:
+            logger.info(
+                f"[FinalAnswer] show_final_answer: selected_agent={selected_agent} " f"answer_len={len(display_answer)} vote_keys={list((vote_results or {}).keys())}",
+            )
+        except Exception:
+            pass
 
         # Add context path writes footer if any files were written
         context_writes_footer = self._get_context_path_writes_footer()
@@ -3298,7 +3304,7 @@ if TEXTUAL_AVAILABLE:
                     },
                     "children": [],
                 }
-                if depth < 6:  # Limit depth to avoid huge dumps
+                if depth < 8:  # Limit depth to avoid huge dumps
                     for child in widget.children:
                         info["children"].append(get_widget_info(child, depth + 1))
                 return info
@@ -4320,6 +4326,13 @@ Type your question and press Enter to ask the agents.
             - Action buttons (Copy, Workspace)
             - Continue conversation prompt
             """
+            try:
+                logger.info(
+                    f"[FinalAnswer] _add_final_completion_card: agent_id={agent_id} " f"answer_len={len(answer)} vote_keys={list(vote_results.keys())}",
+                )
+            except Exception:
+                pass
+
             # Prevent duplicate cards
             if hasattr(self, "_final_completion_added") and self._final_completion_added:
                 return
@@ -4410,14 +4423,34 @@ Type your question and press Enter to ask the agents.
                 timeline.add_widget(card)
                 self._final_presentation_card = card
 
+                try:
+                    logger.info(
+                        f"[FinalAnswer] Timeline children after card add: {len(list(timeline.children))} " f"current_round={current_round}",
+                    )
+                except Exception:
+                    pass
+
                 # Set the answer content and mark as complete
                 def set_content_and_complete():
                     if answer:
                         card.append_chunk(answer)
                     card.complete()
+                    try:
+                        logger.info(
+                            "[FinalAnswer] Card completed and locked to timeline",
+                        )
+                    except Exception:
+                        pass
                     # Auto-lock timeline to show only final answer
                     timeline.lock_to_final_answer("final_presentation_card")
                     card.set_locked_mode(True)
+                    # Auto-collapse task plan when final presentation shows
+                    try:
+                        pinned_container = panel.query_one(f"#{panel._pinned_task_plan_id}", Container)
+                        pinned_container.add_class("collapsed")
+                        panel._task_plan_visible = False
+                    except Exception:
+                        pass
                     # Update input placeholder to encourage follow-up
                     if hasattr(self, "question_input"):
                         self.question_input.placeholder = "Type your follow-up question..."
@@ -5147,7 +5180,7 @@ Type your question and press Enter to ask the agents.
                     # Auto-scroll to bottom so user sees latest content
                     try:
                         timeline = new_panel.query_one("#timeline_container", ScrollableContainer)
-                        timeline.scroll_end(animate=False)
+                        timeline._scroll_to_end(animate=False, force=True)
                     except Exception:
                         pass  # Timeline may not exist yet
                 else:

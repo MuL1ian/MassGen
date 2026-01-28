@@ -2668,7 +2668,7 @@ CollapsibleTextCard {
     width: 100%;
     height: auto;
     padding: 0 1 0 2;
-    margin: 0 0 2 1;  /* 2-unit bottom margin for clear separation from tool cards */
+    margin: 0 0 1 1;  /* Reduced bottom margin for tighter spacing */
     background: transparent;
     border-left: thick $border-subtle;
     transition: opacity 300ms out_expo;
