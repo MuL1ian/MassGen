@@ -7,6 +7,7 @@ include requirements.txt
 recursive-include massgen/configs *.yaml *.yml
 include .env.example
 recursive-include assets *.png *.gif *.jpg *.jpeg *.ico
+recursive-include massgen/frontend/displays/textual_themes *.tcss
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
 exclude .gitignore
