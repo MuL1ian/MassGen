@@ -3,7 +3,7 @@
 Plan Options Popover Widget for MassGen TUI.
 
 Provides a dropdown popover for plan mode configuration:
-- Plan selection (choose existing plans or create new)
+- Plan selection (choose existing plans)
 - Plan details preview (tasks, status, created date)
 - Depth selector (shallow/medium/deep) - shown only in "plan" mode
 - Broadcast toggle (human/agents/off) - shown only in "plan" mode
@@ -235,8 +235,6 @@ class PlanOptionsPopover(Widget):
                         plan_options.append((label, plan.plan_id))
                     except Exception:
                         plan_options.append((plan.plan_id[:20], plan.plan_id))
-
-                plan_options.append(("Create new...", "new"))
 
                 yield Select(
                     plan_options,

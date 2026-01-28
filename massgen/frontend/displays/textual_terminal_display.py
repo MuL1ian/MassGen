@@ -1831,6 +1831,10 @@ class TextualTerminalDisplay(TerminalDisplay):
         """End the current turn"""
         if self._app:
             self._call_app_method("set_input_enabled", True)
+            mode_state = self.get_mode_state()
+            if mode_state and mode_state.plan_mode == "execute":
+                # Auto-exit execute mode after plan execution completes.
+                self._call_app_method("_handle_plan_mode_change", "normal")
 
         if was_cancelled:
             self._write_to_system_file(f"Turn {turn} cancelled by user.")
