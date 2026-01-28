@@ -5458,8 +5458,9 @@ async def run_textual_interactive_mode(
                         logger.info(f"[Textual] Single-agent mode: using {list(effective_agents.keys())}")
                         agents = effective_agents
 
-                # Prepend task planning prompt prefix when TUI plan mode is active
-                if mode_state.is_plan_active():
+                # Prepend task planning prompt prefix when TUI plan mode is "plan" (not "execute")
+                # Execute mode has its own execution prompt with plan context
+                if mode_state.plan_mode == "plan":
                     # Get subagents setting from coordination config
                     coord_cfg = orchestrator_cfg.get("coordination", {}) if orchestrator_cfg else {}
                     enable_subagents = coord_cfg.get("enable_subagents", False)
@@ -5478,6 +5479,15 @@ async def run_textual_interactive_mode(
                         f"(depth={mode_state.plan_config.depth}, subagents={enable_subagents}, "
                         f"broadcast={mode_state.plan_config.broadcast})",
                     )
+
+                    # Capture context paths for use during execution
+                    # These will be stored in plan metadata when plan is finalized
+                    if orchestrator_cfg:
+                        mode_state.planning_context_paths = orchestrator_cfg.get("context_paths", [])
+                        if mode_state.planning_context_paths:
+                            logger.info(
+                                f"[Textual] Plan mode: Captured {len(mode_state.planning_context_paths)} context paths for execution",
+                            )
 
             # Get generated personas from session info if persist_across_turns is enabled
             # (matching Rich terminal path setup)
@@ -7030,7 +7040,10 @@ async def run_plan_and_execute(
             logger.warning(f"[PlanAndExecute] No agent workspace found in {final_dir}, using full directory")
 
         # Copy only workspace artifacts to plan storage
-        storage.finalize_planning_phase(plan_session, workspace_source)
+        # Extract context paths from config to preserve for execution
+        orchestrator_cfg = config.get("orchestrator", {})
+        context_paths = orchestrator_cfg.get("context_paths", [])
+        storage.finalize_planning_phase(plan_session, workspace_source, context_paths=context_paths)
 
         # Verify a valid plan was created - if not, clean up and fail
         frozen_plan = plan_session.frozen_dir / "plan.json"

@@ -42,6 +42,7 @@ class InjectionToggle(Static):
 
     InjectionToggle.expanded {
         min-height: 5;
+        max-height: 20;  /* SPACE-005: Cap expansion to prevent layout thrashing */
     }
     """
 

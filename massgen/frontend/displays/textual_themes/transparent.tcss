@@ -1964,7 +1964,7 @@ ToolCallCard {
     min-height: 3;
     max-height: 15;
     padding: 0 1;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;  /* Bottom margin only - prevents double spacing */
     background: transparent;
     border-left: thick $border-default;
     transition: opacity 300ms out_expo;
@@ -2140,7 +2140,7 @@ ToolBatchCard {
     min-height: 3;
     max-height: 20;
     padding: 0 1;
-    margin: 1 0 1 1;
+    margin: 0 0 1 1;  /* Bottom margin only - prevents double spacing */
     background: transparent;
     border-left: thick $border-default;
     transition: opacity 300ms out_expo;
@@ -2336,7 +2336,7 @@ TimelineSection .timeline-text.thinking-inline {
     color: #6e7681;
     border-left: none;
     padding: 0 0 0 2;
-    margin: 0 0 0 1;
+    margin: 1 0 1 1;
     text-style: italic;
 }
 

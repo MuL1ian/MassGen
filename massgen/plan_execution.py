@@ -129,9 +129,22 @@ def prepare_plan_execution_config(
     """
     exec_config = copy.deepcopy(config)
 
-    # Add frozen plan as read-only context
+    # Set up context paths
     orchestrator_cfg = exec_config.setdefault("orchestrator", {})
     context_paths = orchestrator_cfg.setdefault("context_paths", [])
+
+    # Restore context paths from planning phase (if stored in metadata)
+    try:
+        metadata = plan_session.load_metadata()
+        if metadata.context_paths:
+            context_paths.extend(metadata.context_paths)
+            logger.info(
+                f"[PlanExecution] Restored {len(metadata.context_paths)} context paths from planning phase",
+            )
+    except Exception as e:
+        logger.warning(f"[PlanExecution] Could not load context paths from metadata: {e}")
+
+    # Add frozen plan as read-only context
     context_paths.append(
         {
             "path": str(plan_session.frozen_dir),

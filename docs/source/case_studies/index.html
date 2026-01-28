@@ -241,6 +241,7 @@
                         </div>
                     </div>
                 </div>
+                <p style="color: #666; margin-top: 15px; text-align: center; font-size: 16px;">Click the tab below to compare with existing single-agent baselines.</p>
             </div>
             <div class="subsection-header" onclick="toggleSection(this)">
                 <span>Answers from Single Agent Baselines (Running with Multiple Independent Attempts)</span>
@@ -386,6 +387,32 @@
                             <object data="example_svgs/massgen-answer.svg" type="image/svg+xml"></object>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Try it yourself button -->
+            <div class="subsection-header" onclick="toggleSection(this)" style="margin-top: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <span>✨ Try it yourself</span>
+            </div>
+            <div class="collapsible-content">
+                <div style="padding: 20px; background: #f8f9fa; border-radius: 8px; line-height: 1.8;">
+                    <ul style="list-style-type: none; padding: 0; color: #333;">
+                        <li style="margin-bottom: 15px;">
+                            <strong>📚 First time user?</strong> See the <a href="../index.html#video-tutorials" style="color: #667eea; text-decoration: none; font-weight: 600;">setup guide here</a>
+                        </li>
+                        <li style="margin-bottom: 15px;">
+                            <strong>▶️ Run:</strong> <code style="background: #2d3748; color: #f7fafc; padding: 8px 12px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 14px;">uv run massgen --web</code>
+                        </li>
+                        <li style="margin-bottom: 15px;">
+                            <strong>🚀 Quick start:</strong> Select <strong>Claude 4.5 Opus</strong>, <strong>Gemini 3 Pro</strong>, and <strong>GPT 5.2</strong> models
+                        </li>
+                        <li>
+                            <strong>⚙️ Terminal users:</strong> <a href="terminal_config.txt" target="_blank" style="color: #667eea; text-decoration: none; font-weight: 600;">View config settings</a>
+                        </li>
+                    </ul>
+                    <p style="margin-top: 15px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; font-size: 14px; border-radius: 4px;">
+                        <strong>Note:</strong> Performance comparisons reflect API behavior as of January 14 2026 and might differ if backend APIs change. E.g., it may be preferable now to use Gemini 3 Flash instead of Gemini 3 Pro for better compatibility with MassGen.
+                    </p>
                 </div>
             </div>
         </div>

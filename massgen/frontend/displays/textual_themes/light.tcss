@@ -2028,7 +2028,7 @@ ToolCallCard {
     min-height: 2;
     max-height: 8;
     padding: 0 1 0 2;
-    margin: 1 0 1 1;  /* Better visual separation between tool cards */
+    margin: 0 0 1 1;  /* Bottom margin only - prevents double spacing */
     background: transparent;
     border: none;
     border-left: thick #dee2e6;
@@ -2221,7 +2221,7 @@ ToolBatchCard {
     min-height: 3;
     max-height: 20;
     padding: 0 1;
-    margin: 1 0 1 1;  /* Match ToolCallCard spacing for consistency */
+    margin: 0 0 1 1;  /* Bottom margin only - prevents double spacing */
     background: transparent;
     border-left: thick #dddddd;
     transition: opacity 300ms out_expo;
@@ -2424,7 +2424,15 @@ TimelineSection .timeline-text.reasoning-inline {
     color: $fg-muted;
     border-left: solid #cccccc;
     padding: 0 0 0 2;
-    margin: 0 0 0 1;
+    margin: 1 0 1 1;
+}
+
+TimelineSection .timeline-text.thinking-inline {
+    color: $fg-muted;
+    border-left: none;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;
+    text-style: italic;
 }
 
 TimelineSection .timeline-text.injection {

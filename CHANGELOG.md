@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection
+New Execute mode allows cycling through Normal → Planning → Execute modes via Shift+Tab. Users can independently browse and select from existing plans for execution. Context paths preserved between planning and execution phases. Minor TUI performance improvements and enhanced case studies documentation.
+
 **v0.1.43 (January 26, 2026)** - TUI UX Polish & Interactive Case Studies
 Enhanced TUI with tool call batching, improved final presentation display, quoted path support, and plan mode enhancements. New interactive case studies page with visual comparisons between MassGen and single-agent solutions. Video tutorials section added to documentation.
 
@@ -19,6 +22,63 @@ Comprehensive visual redesign of the Textual TUI with modern "Conversational AI"
 Background subagent execution with `async_=True` parameter for non-blocking subagent spawning. Parent agents continue working while subagents run in background, then poll for results when ready. New subagent round timeouts for per-round timeout control. Extended subagent configuration parameters for fine-grained control over concurrency and timeouts.
 
 ---
+
+## [0.1.44] - 2026-01-28
+
+### Added
+- **Execute Mode**: Independent mode for browsing and executing existing plans ([#819](https://github.com/massgen/MassGen/pull/819))
+  - Cycle through modes: Normal → Planning → Execute via `Shift+Tab` or mode bar click
+  - Plan selector popover shows up to 10 recent plans with timestamps and prompts
+  - "View Full Plan" button opens modal with all plan tasks
+  - Empty submission (just pressing Enter) executes selected plan
+  - Context paths preserved from planning phase to execution phase
+  - Warning shown if no plans exist when trying to enter Execute mode
+
+- **Case Studies Setup Guide**: Interactive setup instructions on case studies page ([#818](https://github.com/massgen/MassGen/pull/818))
+  - "Try it yourself" collapsible sections with setup guide
+  - Quick start command: `uv run massgen --web`
+  - Model selection guidance (Claude 4.5 Opus, Gemini 3 Pro, GPT 5.2)
+  - Terminal config file example for CLI users
+  - Helper text prompting users to compare MassGen with single-agent baselines
+
+### Fixed
+- **Plan Mode Separation**: Fixed bug where planning instructions were injected during execute mode
+  - Planning prompt prepending now only occurs for `plan_mode == "plan"`
+  - Execute mode uses `build_execution_prompt()` without planning overhead
+
+- **Tool Call Spacing**: Fixed spacing issues in tool card display
+- **Timeline Performance**: Improved scrolling performance with viewport optimization and reduced timeline size limits
+
+### Changed
+- **Context Paths Storage**: `PlanMetadata` now includes `context_paths` field in `massgen/plan_storage.py`
+  - Context paths stored during `finalize_planning_phase`
+  - Restored automatically in `prepare_plan_execution_config` during execution
+  - Enables consistent file/directory access between planning and execution
+
+- **Empty Submission Support**: Input widget now allows empty submission in execute mode
+  - Placeholder text: "Press Enter to execute selected plan - or type instructions"
+  - Removed input text guard to enable plan execution without additional input
+
+- **Plan Options Widget**: Enhanced `PlanOptionsPopover` with "View Full Plan" functionality
+  - New `ViewPlanRequested` message for modal communication
+  - Better plan browsing experience
+
+### Documentation, Configurations and Resources
+- **Case Studies Enhancement**: `docs/source/case_studies/index.html` with setup guide
+  - New `docs/source/case_studies/terminal_config.txt` with example YAML configuration
+  - Video tutorial links moved higher for better discoverability
+  - Added contextual notes for baseline comparisons
+
+- **Shortcuts Documentation**: Updated `shortcuts_modal.py` with Shift+Tab mode cycling description
+
+### Technical Details
+- **Major Focus**: Execute mode for independent plan selection, TUI performance improvements, case studies UX
+- **Files Modified**:
+  - TUI: `textual_terminal_display.py`, `mode_bar.py`, `plan_options.py`, `multi_line_input.py`, `content_sections.py`
+  - Plan system: `plan_storage.py`, `plan_execution.py`, `tui_modes.py`
+  - Backend: `claude_code.py` (tool tracking improvements)
+  - Docs: `index.rst`, `case_studies/index.html`
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.43] - 2026-01-26
 

@@ -151,7 +151,7 @@ jobs:
       - name: Install Sphinx
         run: |
           python -m pip install --upgrade pip
-          pip install sphinx sphinx-rtd-theme
+          pip install -r docs/requirements-docs.txt
 
       - name: Build documentation
         run: |
@@ -187,4 +187,3 @@ jobs:
   #       run: |
   #         echo "✓ ReadTheDocs build triggered successfully"
   #         echo "Visit https://massgendoc.readthedocs.io to view the documentation"
-

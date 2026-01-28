@@ -73,6 +73,8 @@ class TuiModeState:
     last_planning_question: Optional[str] = None
     # Track which turn planning was initiated on
     planning_started_turn: Optional[int] = None
+    # Store context paths from planning phase for execution
+    planning_context_paths: Optional[List[Dict[str, Any]]] = None
 
     # Agent mode: "multi" | "single"
     agent_mode: str = "multi"
@@ -203,6 +205,7 @@ class TuiModeState:
         self.last_planning_question = None
         self.planning_started_turn = None
         self.selected_plan_id = None
+        self.planning_context_paths = None
 
     def reset_plan_state_with_error(self, error_msg: str) -> str:
         """Reset plan state due to an error.

@@ -227,7 +227,28 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.43 - Latest
+### v0.1.44 - Latest
+**New Features:** Execute Mode for Independent Plan Selection, Case Studies UX Enhancements
+
+**Key Features:**
+- **Execute Mode Cycling**: Navigate through Normal → Planning → Execute modes via `Shift+Tab`
+- **Plan Selector Popover**: Browse and select from up to 10 recent plans with timestamps
+- **Context Path Preservation**: Context paths automatically preserved between planning and execution
+- **Enhanced Case Studies**: Setup guides and quick start instructions on case studies page
+
+**Example Usage:**
+```bash
+# Use the TUI with plan mode cycling
+uv run massgen --display textual --config @examples/providers/gemini/gemini_3_flash.yaml
+
+# In the TUI:
+# 1. Press Shift+Tab to enter Planning mode
+# 2. Create a plan: "Create a Python web scraper for news articles"
+# 3. Press Shift+Tab twice to enter Execute mode
+# 4. Select your plan from the popover and press Enter to execute
+```
+
+### v0.1.43
 **New Features:** Tool Call Batching, Interactive Case Studies, Plan Mode Enhancements, Quoted Path Support
 
 **Key Features:**
@@ -243,9 +264,7 @@ Most configurations use environment variables for API keys:so
 pip install --upgrade massgen
 
 # Experience tool call batching - multiple file operations batch into collapsible trees
-uv run massgen --display textual \
-  --config massgen/configs/providers/gemini/gemini_3_flash.yaml \
-  "Create a project structure with src/, tests/, and docs/ directories, then add README.md and requirements.txt"
+uv run massgen --display textual --config @examples/providers/gemini/gemini_3_flash.yaml "Create a project structure with src/, tests/, and docs/ directories, then add README.md and requirements.txt"
 ```
 
 ### v0.1.42

@@ -254,9 +254,10 @@ class MultiLineInput(TextArea):
             return
 
         # Get full text with paste placeholders expanded
+        # Always post the message - let the handler decide if empty is allowed
+        # (e.g., execute mode allows empty submission to run the selected plan)
         text = self.get_full_text_for_submission().strip()
-        if text:
-            self.post_message(self.Submitted(self, text))
+        self.post_message(self.Submitted(self, text))
 
     def action_newline(self) -> None:
         """Insert a newline when Shift+Enter or Ctrl+J is pressed."""

@@ -12,6 +12,7 @@ Composable UI sections for displaying different content types:
 """
 
 import logging
+import time
 from typing import Dict, Optional
 
 from rich.text import Text
@@ -537,6 +538,11 @@ class TimelineSection(ScrollableContainer):
         display: none;
     }
 
+    /* ARCH-001: Viewport culling - hide items outside visible area */
+    TimelineSection .viewport-culled {
+        display: none;
+    }
+
     /* Locked final card fills available space */
     TimelineSection .final-card-locked {
         height: 1fr;
@@ -545,7 +551,9 @@ class TimelineSection(ScrollableContainer):
     """
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
-    MAX_TIMELINE_ITEMS = 75
+    MAX_TIMELINE_ITEMS = 30  # Reduced from 75 - typical terminal shows ~10-15 items
+    SCROLL_DEBOUNCE_MS = 25  # Minimum gap between scroll operations (reduced for responsiveness)
+    SCROLL_ANIMATION_THRESHOLD_MS = 300  # Threshold for animation vs instant scroll
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -568,6 +576,13 @@ class TimelineSection(ScrollableContainer):
         self._auto_scrolling = False
         self._scroll_pending = False
         self._debug_scroll = False  # Debug flag (disabled for performance)
+        # Performance: Time-based scroll debouncing (QUICK-002)
+        self._last_scroll_time: float = 0.0
+        # Performance: Cancel previous timer before creating new one (QUICK-004)
+        self._scroll_timer = None
+        # Deferred scroll pattern: ensures scroll happens even when debounced
+        self._scroll_requested = False
+        self._debounce_timer = None
         # Answer lock mode: when True, timeline shows only the final answer card
         self._answer_lock_mode = False
         self._locked_card_id: Optional[str] = None
@@ -679,51 +694,95 @@ class TimelineSection(ScrollableContainer):
         # Use smooth animated scrolling for better UX
         self._scroll_to_end(animate=True)
 
-    def _scroll_to_end(self, animate: bool = True, duration: float = 0.15) -> None:
+    def _scroll_to_end(self, animate: bool = True, duration: float = 0.15, force: bool = False) -> None:
         """Auto-scroll to end with smooth animation.
 
-        Textual automatically syncs the scrollbar when scroll_y changes,
-        so we just need to call scroll_to/scroll_end and let Textual handle it.
+        Uses a deferred scroll pattern: if called during debounce window,
+        marks that scroll is needed and ensures it happens after debounce.
 
         Args:
             animate: Whether to animate the scroll (default True for smooth UX)
             duration: Animation duration in seconds (default 0.15s)
+            force: If True, bypass debounce (e.g., when switching tabs)
         """
-        self._log(f"_scroll_to_end called: pending={self._scroll_pending} max_scroll_y={self.max_scroll_y:.1f} current_scroll_y={self.scroll_y:.1f}")
+        self._log(f"_scroll_to_end called: pending={self._scroll_pending} force={force} max_scroll_y={self.max_scroll_y:.1f} current_scroll_y={self.scroll_y:.1f}")
 
-        # Debounce: if scroll is already pending, don't queue another
-        if self._scroll_pending:
-            self._log("_scroll_to_end: SKIPPED (pending)")
-            return
+        current_time = time.monotonic()
+        time_since_last = current_time - self._last_scroll_time
+
+        # Force mode bypasses debounce (e.g., explicit user actions like tab switching)
+        if not force:
+            # If scroll already pending, mark that we need another scroll after
+            if self._scroll_pending:
+                self._scroll_requested = True
+                self._log("_scroll_to_end: marked for deferred scroll (pending)")
+                return
+
+            # Time-based debouncing - but DON'T drop the request, defer it
+            if time_since_last < (self.SCROLL_DEBOUNCE_MS / 1000.0):
+                self._scroll_requested = True
+                self._log(f"_scroll_to_end: deferred (debounce: {time_since_last*1000:.1f}ms < {self.SCROLL_DEBOUNCE_MS}ms)")
+                # Schedule deferred scroll if not already scheduled
+                if self._debounce_timer is None:
+                    remaining_ms = self.SCROLL_DEBOUNCE_MS - (time_since_last * 1000)
+                    self._debounce_timer = self.set_timer(
+                        remaining_ms / 1000.0,
+                        self._execute_deferred_scroll,
+                    )
+                return
 
         self._scroll_pending = True
+        self._scroll_requested = False  # Clear any pending request
 
         def do_scroll() -> None:
             self._log(f"do_scroll executing: max_scroll_y={self.max_scroll_y:.1f} scroll_y before={self.scroll_y:.1f}")
             self._scroll_pending = False
-            # Set flag BEFORE scroll - it stays set until reset_auto_scroll is called
+            self._last_scroll_time = time.monotonic()
             self._auto_scrolling = True
 
-            # Use scroll_to with easing for smooth natural-feeling scroll
-            # Textual handles scrollbar sync automatically when scroll_y changes
-            if animate and self.max_scroll_y > 0:
+            # Use named constant for animation threshold
+            use_animation = animate and self.max_scroll_y > 0 and time_since_last > (self.SCROLL_ANIMATION_THRESHOLD_MS / 1000.0)
+
+            if use_animation:
                 self.scroll_to(y=self.max_scroll_y, animate=True, duration=duration, easing="out_cubic")
             else:
+                # Fast path: no animation during streaming
                 self.scroll_end(animate=False)
 
             self._log(f"do_scroll after scroll: scroll_y={self.scroll_y:.1f}")
-            # Reset flag after animation completes
-            self.set_timer(duration + 0.1 if animate else 0.1, self._reset_auto_scroll)
+
+            # QUICK-004: Cancel previous timer before creating new one
+            if self._scroll_timer is not None:
+                try:
+                    self._scroll_timer.stop()
+                except Exception:
+                    pass  # Timer may have already completed
+            self._scroll_timer = self.set_timer(
+                duration + 0.1 if use_animation else 0.1,
+                self._reset_auto_scroll,
+            )
+
+            # Check if another scroll was requested while we were pending
+            if self._scroll_requested:
+                self._scroll_requested = False
+                self.call_after_refresh(lambda: self._scroll_to_end(animate=False))
 
         # Defer scroll until after layout is complete
         self.call_after_refresh(do_scroll)
+
+    def _execute_deferred_scroll(self) -> None:
+        """Execute a deferred scroll after debounce period."""
+        self._debounce_timer = None
+        if self._scroll_requested:
+            self._scroll_requested = False
+            self._scroll_to_end(animate=False)
 
     def exit_scroll_mode(self) -> None:
         """Exit scroll mode and scroll to bottom."""
         self._scroll_mode = False
         self._new_content_count = 0
         self.reset_scroll_mode()  # Reset scroll state
-        self._scroll_to_end(animate=False)
+        self._scroll_to_end(animate=False, force=True)
         self._update_scroll_indicator()
 
     def scroll_to_widget(self, widget_id: str) -> None:
@@ -803,77 +862,52 @@ class TimelineSection(ScrollableContainer):
         self._locked_card_id = None
 
         # Scroll to show the final card
-        self._scroll_to_end(animate=False)
+        self._scroll_to_end(animate=False, force=True)
 
     def _trim_old_items(self) -> None:
-        """Remove oldest items if we exceed MAX_TIMELINE_ITEMS."""
+        """ARCH-001: Cull items outside viewport using visibility toggling.
+
+        Instead of removing items from DOM, we hide them with CSS display:none.
+        This preserves scroll-back capability and tool state while maintaining
+        performance by not rendering hidden items.
+        """
         try:
             children = list(self.children)
 
-            # Skip the scroll indicator and truncation notice if present
+            # Skip special UI elements
             content_children = [c for c in children if "scroll-indicator" not in c.classes and "truncation-notice" not in c.classes]
 
-            # Check if we exceed the limit
-            if len(content_children) <= self.MAX_TIMELINE_ITEMS:
+            total_items = len(content_children)
+
+            # If under limit, ensure all items are visible
+            if total_items <= self.MAX_TIMELINE_ITEMS:
+                for child in content_children:
+                    if "viewport-culled" in child.classes:
+                        child.remove_class("viewport-culled")
                 return
 
-            # Calculate how many to remove
-            items_to_remove = len(content_children) - self.MAX_TIMELINE_ITEMS
+            # Calculate how many to hide
+            items_to_hide = total_items - self.MAX_TIMELINE_ITEMS
 
-            if items_to_remove <= 0:
+            if items_to_hide <= 0:
                 return
 
-            # Track which rounds have truncation notices
-            if not hasattr(self, "_truncation_shown_rounds"):
-                self._truncation_shown_rounds = set()
-
-            # First, determine which rounds will have items removed
-            rounds_being_truncated = set()
-            for child in content_children[:items_to_remove]:
-                round_classes = [c for c in child.classes if c.startswith("round-")]
-                for rc in round_classes:
-                    try:
-                        round_num = int(rc.replace("round-", ""))
-                        rounds_being_truncated.add(round_num)
-                    except ValueError:
-                        pass
-
-            # Remove the oldest items (from the beginning of the list)
-            removed_count = 0
-            for child in content_children[:items_to_remove]:
-                # Don't remove tool cards that might still be running
+            # Hide oldest items (from the beginning) with viewport-culled class
+            for child in content_children[:items_to_hide]:
+                # Don't hide tool cards that are still running
                 if hasattr(child, "tool_id") and child.tool_id in self._tools:
                     tool_card = self._tools.get(child.tool_id)
                     if tool_card and hasattr(tool_card, "_status") and tool_card._status == "running":
                         continue
-                    # Remove from tools dict
-                    self._tools.pop(child.tool_id, None)
-                child.remove()
-                removed_count += 1
 
-            # Add truncation notices only for rounds that actually had items removed
-            if removed_count > 0:
-                from textual.widgets import Static
+                # Add viewport-culled class to hide (display: none)
+                if "viewport-culled" not in child.classes:
+                    child.add_class("viewport-culled")
 
-                for truncated_round in rounds_being_truncated:
-                    if truncated_round not in self._truncation_shown_rounds:
-                        self._truncation_shown_rounds.add(truncated_round)
-
-                        truncation_notice = Static(
-                            f"[dim]⋯ Earlier output truncated (showing last {self.MAX_TIMELINE_ITEMS} items)[/]",
-                            classes="truncation-notice",
-                            markup=True,
-                        )
-                        # Tag with the round whose items were truncated
-                        truncation_notice.add_class(f"round-{truncated_round}")
-
-                        # Find the first remaining item of this round to insert before
-                        remaining_children = list(self.children)
-                        round_items = [c for c in remaining_children if f"round-{truncated_round}" in c.classes and "truncation-notice" not in c.classes]
-                        if round_items:
-                            self.mount(truncation_notice, before=round_items[0])
-
-                self.refresh(layout=True)
+            # Ensure remaining items are visible
+            for child in content_children[items_to_hide:]:
+                if "viewport-culled" in child.classes:
+                    child.remove_class("viewport-culled")
 
         except Exception:
             pass
@@ -1435,7 +1469,9 @@ class TimelineSection(ScrollableContainer):
 
         try:
             self.mount(widget)
-            self._auto_scroll()
+            self._log(f"Timeline items: {len(list(self.children))}")
+            self._trim_old_items()  # Keep timeline size bounded (do before scroll)
+            self._auto_scroll()  # Scroll after trim to stay at bottom
         except Exception:
             pass
 

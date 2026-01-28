@@ -52,7 +52,111 @@ Quick Start
    # Most recent plan
    uv run massgen --config my_agents.yaml --execute-plan latest
 
-Planning Phase
+TUI Plan and Execute Mode
+--------------------------
+
+.. versionadded:: 0.1.44
+   Interactive Plan and Execute modes in the Textual TUI.
+
+The TUI provides interactive modes for creating and executing plans without command-line flags.
+
+Mode Cycling
+^^^^^^^^^^^^
+
+Press ``Shift+Tab`` to cycle through three modes:
+
+1. **Normal Mode** - Standard chat with agents
+2. **Planning Mode** - Create new plans interactively
+3. **Execute Mode** - Browse and execute existing plans
+
+.. code-block:: text
+
+   Normal ──[Shift+Tab]──> Planning ──[Shift+Tab]──> Execute ──[Shift+Tab]──> Normal
+
+Or click the plan mode button in the mode bar to cycle through modes.
+
+Using Planning Mode
+^^^^^^^^^^^^^^^^^^^
+
+**Step 1: Enter Planning Mode**
+
+.. code-block:: bash
+
+   uv run massgen --display textual
+
+Press ``Shift+Tab`` once to enter Planning mode.
+
+**Step 2: Configure Plan Options** (Optional)
+
+Click the plan options button to set:
+
+* **Plan Depth**: shallow (5-10 tasks), medium (20-50 tasks), or deep (100-200+ tasks)
+* **Broadcast Mode**: agents (agent coordination), human (ask user), or false (autonomous)
+
+**Step 3: Create Plan**
+
+Type your planning request and press ``Enter``:
+
+.. code-block:: text
+
+   "Create a Python web scraper for news articles with error handling"
+
+Agents will collaborate to create a structured task plan without executing any code.
+
+**Step 4: Review Plan**
+
+After planning completes, the plan is saved to ``.massgen/plans/`` and can be:
+
+* Executed immediately (click execute button presented after planning)
+* Executed later via Execute Mode
+* Executed via CLI with ``--execute-plan latest``
+
+Using Execute Mode
+^^^^^^^^^^^^^^^^^^
+
+**Step 1: Enter Execute Mode**
+
+.. code-block:: bash
+
+   uv run massgen --display textual
+
+Press ``Shift+Tab`` twice to enter Execute mode.
+
+**Step 2: Browse Plans**
+
+A plan selector popover appears showing:
+
+* Up to 10 most recent plans
+* Timestamps when plans were created
+* Original prompts used to create each plan
+
+**Step 3: View Plan Details** (Optional)
+
+Click "View Full Plan" to see complete task breakdown in a modal.
+
+**Step 4: Execute**
+
+* Select a plan (or use the default latest plan)
+* Press ``Enter`` to execute the selected plan
+* Optionally type additional instructions before pressing Enter
+
+Context Path Preservation
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Context paths from the planning phase are automatically preserved:
+
+* If you created a plan with ``@/path/to/file`` context injection
+* Those same paths are restored when you execute the plan later
+* Ensures consistent file access between planning and execution
+
+.. note::
+   **TUI Plan Workflow Benefits:**
+
+   * **Planning Mode**: Create plans interactively with visual feedback
+   * **Execute Mode**: Browse saved plans and re-run without re-planning
+   * **Flexibility**: Switch modes on-the-fly without restarting MassGen
+
+Planning Phase (CLI)
 --------------
 
 In planning mode, agents create:

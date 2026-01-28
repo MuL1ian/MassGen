@@ -1,4 +1,4 @@
-# MassGen v0.1.43 Release Announcement
+# MassGen v0.1.44 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.43, featuring Tool Call Batching in the TUI! 🚀 Consecutive MCP tool calls are now grouped into collapsible tree views—see filesystem operations batched with timing info, expand to view details, and enjoy cleaner final answer presentation with reasoning separated from results. Experience it: massgen --display textual
+We're excited to release MassGen v0.1.44, featuring Execute Mode for independent plan selection! 🔄 Cycle through Normal → Planning → Execute modes via Shift+Tab, browse and select from existing plans, and automatically preserve context paths between planning and execution phases. Enhanced case studies page with setup guides for first-time users.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.43
+pip install massgen==0.1.44
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.43
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.44
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,32 +29,34 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.43, featuring Tool Call Batching in the TUI! 🚀
+We're excited to release MassGen v0.1.44, featuring Execute Mode for independent plan selection! 🔄
 
-**Tool Call Batching (TUI)**
-- Consecutive MCP tool calls grouped into collapsible tree views
-- Shows 3 items by default with "+N more" indicator
-- Click to expand full list of operations
-- Tree structure: server → operation → file path → status
+**Execute Mode**
+- Cycle through Normal → Planning → Execute modes via Shift+Tab
+- Plan selector popover shows up to 10 recent plans with timestamps
+- "View Full Plan" button displays complete task breakdown
+- Press Enter to execute selected plan without additional input
+- Context paths automatically preserved from planning to execution
 
-**Clean Final Answers**
-- Reasoning text now separated from actual answer content
-- Visual distinction: reasoning collapsed/smaller, answer prominent
-- Clear "FINAL ANSWER" display with winner and vote count
+**Case Studies UX Enhancements**
+- Interactive "Try it yourself" setup sections with quick start instructions
+- Quick start command: `uv run massgen --web`
+- Model selection guidance for best results
+- Terminal config examples for CLI users
+- Helper text for comparing MassGen with single-agent baselines
 
-**Plan Mode Enhancements**
-- New PlanOptionsPopover for browsing recent plans
-- Plan depth selector (thorough/balanced/quick)
-- Broadcast mode toggle for collaboration control
+**TUI Performance Improvements**
+- Optimized timeline rendering with viewport-based scrolling
+- Fixed tool card spacing issues
+- Enhanced tool tracking for better streaming visualization
 
 **Bug Fixes**
-- Fixed bottom status bar not showing
-- Fixed scrolling bar display issues
-- Fixed mode button interactions
+- Fixed planning instruction injection during execute mode
+- Improved plan mode separation logic
 
-Try the new TUI: `massgen --display textual "your question"`
+Try Execute Mode: `massgen --display textual` → Press Shift+Tab twice to enter Execute mode
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.43
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.44
 
 <!-- Paste feature-highlights.md content here -->
 

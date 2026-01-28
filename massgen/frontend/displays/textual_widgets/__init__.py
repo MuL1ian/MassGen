@@ -46,6 +46,7 @@ from .plan_options import (
     PlanDepthChanged,
     PlanOptionsPopover,
     PlanSelected,
+    ViewPlanRequested,
 )
 from .queued_input_banner import QueuedInputBanner
 from .quickstart_wizard import QuickstartWizard
@@ -80,6 +81,7 @@ __all__ = [
     "PlanSelected",
     "PlanDepthChanged",
     "BroadcastModeChanged",
+    "ViewPlanRequested",
     # Tab bar
     "AgentTab",
     "AgentTabBar",

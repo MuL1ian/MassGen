@@ -30,7 +30,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=Dp2oldJJImw">
+  <a href="https://www.youtube.com/watch?v=5JofXWf_Ok8">
     <img src="https://raw.githubusercontent.com/Leezekun/MassGen/main/docs/source/_static/images/thumbnail.png" alt="MassGen case study -- Berkeley Agentic AI Summit Question" width="800">
   </a>
 </p>
@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.43 Features](#-latest-features-v0143)
+- [v0.1.44 Features](#-latest-features-v0144)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.43)](#recent-achievements-v0143)
-- [Previous Achievements (v0.0.3 - v0.1.42)](#previous-achievements-v003---v0142)
+- [Recent Achievements (v0.1.44)](#recent-achievements-v0144)
+- [Previous Achievements (v0.0.3 - v0.1.43)](#previous-achievements-v003---v0143)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.44 Roadmap](#v0144-roadmap)
+- [v0.1.45 Roadmap](#v0145-roadmap)
 </details>
 
 <details open>
@@ -154,26 +154,30 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.43)
+## 🆕 Latest Features (v0.1.44)
 
-**🎉 Released: January 26, 2026**
+**🎉 Released: January 28, 2026**
 
-**What's New in v0.1.43:**
-- **📦 Tool Call Batching** - Consecutive MCP tool calls grouped into collapsible trees with timing info
-- **📚 Interactive Case Studies** - Side-by-side SVG comparisons between MassGen and single-agent outputs
-- **📋 Plan Mode Enhancements** - New `PlanOptionsPopover` for plan browsing, depth selection, and broadcast settings
-- **📝 Quoted Path Support** - Use `@"/path/with spaces/file.txt"` for paths containing spaces
-- **🔧 Final Presentation Fixes** - Reasoning text now separated from actual answers in final display
+**What's New in v0.1.44:**
+- **🔄 Execute Mode** - Cycle through Normal → Planning → Execute modes via `Shift+Tab` to independently browse and execute existing plans
+- **📋 Plan Selector** - Browse up to 10 recent plans with timestamps, view full task breakdowns, and execute with preserved context paths
+- **📚 Enhanced Case Studies** - Interactive setup guides and quick start instructions on case studies page
+- **⚡ TUI Performance** - Optimized timeline rendering with viewport-based scrolling for faster UI responsiveness
+- **🔧 Plan Mode Fixes** - Fixed planning instruction injection bug in execute mode, improved tool tracking
 
-**Try v0.1.43 Features:**
+**Try v0.1.44 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Experience tool call batching - multiple file operations batch into collapsible trees
-uv run massgen --display textual \
-  --config massgen/configs/providers/gemini/gemini_3_flash.yaml \
-  "Create a project structure with src/, tests/, and docs/ directories, then add README.md and requirements.txt"
+# Experience Execute mode with plan cycling
+uv run massgen --display textual
+
+# In the TUI:
+# 1. Press Shift+Tab to enter Planning mode
+# 2. Create a plan: "Build a Python web scraper"
+# 3. Press Shift+Tab twice to enter Execute mode
+# 4. Select your plan and press Enter to execute
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1208,28 +1212,37 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.43)
+### Recent Achievements (v0.1.44)
 
-**🎉 Released: January 26, 2026**
+**🎉 Released: January 28, 2026**
 
-#### Tool Call Batching
-- **Collapsible Tree Views**: Consecutive MCP tool calls grouped with "+N more" indicators, click to expand
-- **Timeline Chronology Rule**: Tools batch only when consecutive with no intervening content
-- **New Components**: `ToolBatchCard` widget and `ToolBatchTracker` state machine
+#### Execute Mode for Independent Plan Selection
+- **Mode Cycling**: Navigate through Normal → Planning → Execute modes via `Shift+Tab` or mode bar click
+- **Plan Selector Popover**: Browse up to 10 recent plans with timestamps and original prompts
+- **View Full Plan**: Modal displays complete task breakdown from selected plan
+- **Empty Submission**: Press Enter to execute selected plan without additional input
+- **Context Path Preservation**: Context paths (`@/path/to/file`) automatically restored from planning to execution phase
 
-#### Interactive Case Studies
-- **Visual Comparisons**: Side-by-side SVG comparisons between MassGen multi-agent and single-agent outputs
-- **Documentation**: New `docs/source/case_studies/index.html` with collapsible sections and example visualizations
+#### Case Studies UX Enhancements
+- **Setup Guide**: Interactive "Try it yourself" collapsible sections with quick start instructions
+- **Quick Start**: `uv run massgen --web` command with model selection guidance
+- **Terminal Config**: Example YAML configuration for CLI users in `docs/source/case_studies/terminal_config.txt`
+- **Baseline Comparison**: Helper text prompting users to compare MassGen with single-agent outputs
 
-#### Plan Mode & Path Enhancements
-- **PlanOptionsPopover**: Browse recent plans, select depth (thorough/balanced/quick), toggle broadcast mode
-- **Quoted Paths**: `@"/path/with spaces/file.txt"` syntax with tab completion and write permission suffix support
+#### TUI Performance Improvements
+- **Timeline Optimization**: Viewport-based rendering with reduced size limits for faster scrolling
+- **Tool Card Spacing**: Fixed spacing issues in tool display cards
+- **Tool Tracking**: Enhanced backend integration for better streaming tool visualization
 
-#### Bug Fixes
-- **Final Presentation Display**: Fixed content filtering so complete answers display with reasoning separated from results
-- **TUI Polish**: Fixed bottom status bar, scrolling bar, mode buttons, task highlighting, and toast positioning
+#### Technical Improvements
+- **Plan Mode Separation**: Fixed bug where planning instructions were incorrectly injected during execute mode
+- **Context Paths Storage**: New `context_paths` field in `PlanMetadata` (`massgen/plan_storage.py`)
+- **Plan Execution**: `prepare_plan_execution_config()` in `massgen/plan_execution.py` now restores context paths
+- **Empty Input Support**: Input widget allows empty submission for plan execution in execute mode
 
-### Previous Achievements (v0.0.3 - v0.1.42)
+### Previous Achievements (v0.0.3 - v0.1.43)
+
+✅ **Tool Call Batching & Interactive Case Studies (v0.1.43)**: Consecutive MCP tool calls grouped into collapsible tree views with "+N more" indicators and click-to-expand. New interactive case studies page with side-by-side SVG comparisons. `PlanOptionsPopover` for browsing plans and selecting depth. Quoted path support for paths with spaces. Final presentation display and TUI polish fixes.
 
 ✅ **TUI Visual Redesign & Human Input Queue (v0.1.42)**: Modern "Conversational AI" aesthetic with rounded corners, redesigned agent tabs with dot indicators, adaptive tool cards, polished modals. New `HumanInputHook` for injecting messages to agents mid-stream with thread-safe per-agent tracking. AG2 single-agent coordination fix.
 
@@ -1459,19 +1472,19 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.44 Roadmap
+### v0.1.45 Roadmap
 
-Version 0.1.44 focuses on OpenAI Responses API improvements and log analysis model selection:
+Version 0.1.45 focuses on improving subagent display in the TUI:
 
 #### Planned Features
-- **OpenAI Responses /compact Endpoint** (@ncrispino): Use OpenAI's native `/compact` endpoint for context compression instead of custom summarization
-- **Model Selector for Log Analysis**: Choose which model to use for `massgen logs analyze` self-analysis mode
+- **Subagent TUI Streaming** ([#821](https://github.com/Leezekun/MassGen/issues/821)): Stream and display subagents almost identically to main process in TUI
+- **Subagent Timeline View**: Click subagent preview card to view full timeline with identical parsing and tool displays
+- **Single Source of Truth**: Refactor TUI display creation to use shared components for main agents and subagents
 
 Key technical approach:
-- **Native Context Compression**: Leverage OpenAI's API-level compression for better token efficiency
-- **Flexible Log Analysis**: Allow users to balance cost vs quality by selecting analysis model
-
-For detailed milestones and technical specifications, see the [full v0.1.44 roadmap](ROADMAP_v0.1.44.md).
+- **Unified Display Components**: Create reusable TUI components that work for both main agents and subagents
+- **Event Streaming**: Pass events from subagents or main agents through same parsing pipeline
+- **Interactive Preview**: Collapsible subagent cards that expand to full timeline views
 
 ---
 

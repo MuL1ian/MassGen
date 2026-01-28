@@ -26,6 +26,7 @@ class PlanMetadata:
     execution_session_id: Optional[str] = None
     execution_log_dir: Optional[str] = None
     status: str = "planning"  # planning, ready, executing, completed, failed
+    context_paths: Optional[List[Dict[str, Any]]] = None  # Context paths from planning phase
 
 
 class PlanSession:
@@ -213,13 +214,24 @@ class PlanStorage:
             return session
         return None
 
-    def finalize_planning_phase(self, session: PlanSession, workspace_source: Path):
+    def finalize_planning_phase(
+        self,
+        session: PlanSession,
+        workspace_source: Path,
+        context_paths: Optional[List[Dict[str, Any]]] = None,
+    ):
         """Copy planning workspace to plan storage and freeze it.
 
         Uses atomic operations to prevent partial state on interruption:
         1. Copy to temp directory
         2. Perform transformations (rename files)
         3. Atomic rename to final location
+
+        Args:
+            session: PlanSession to finalize
+            workspace_source: Path to the workspace to copy
+            context_paths: Optional list of context paths used during planning
+                          (will be restored during execution)
         """
         # Use a temp directory for atomic operation
         temp_workspace = session.plan_dir / ".workspace_temp"
@@ -279,6 +291,10 @@ class PlanStorage:
             # Step 5: Update metadata (this is a small file, low risk of corruption)
             metadata = session.load_metadata()
             metadata.status = "ready"
+            # Store context paths for use during execution
+            # Empty list [] means "no new paths provided, retain existing value".
+            if context_paths:
+                metadata.context_paths = context_paths
             session.save_metadata(metadata)
             session.log_event(
                 "planning_finalized",

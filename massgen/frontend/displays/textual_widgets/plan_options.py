@@ -3,7 +3,7 @@
 Plan Options Popover Widget for MassGen TUI.
 
 Provides a dropdown popover for plan mode configuration:
-- Plan selection (choose existing plans or create new)
+- Plan selection (choose existing plans)
 - Plan details preview (tasks, status, created date)
 - Depth selector (shallow/medium/deep) - shown only in "plan" mode
 - Broadcast toggle (human/agents/off) - shown only in "plan" mode
@@ -62,6 +62,21 @@ class BroadcastModeChanged(Message):
             broadcast: The new broadcast value ("human", "agents", or False).
         """
         self.broadcast = broadcast
+        super().__init__()
+
+
+class ViewPlanRequested(Message):
+    """Message emitted when user wants to view the full plan."""
+
+    def __init__(self, plan_id: str, tasks: List[Any]) -> None:
+        """Initialize the message.
+
+        Args:
+            plan_id: The plan ID to view.
+            tasks: List of task dictionaries from the plan.
+        """
+        self.plan_id = plan_id
+        self.tasks = tasks
         super().__init__()
 
 
@@ -221,8 +236,6 @@ class PlanOptionsPopover(Widget):
                     except Exception:
                         plan_options.append((plan.plan_id[:20], plan.plan_id))
 
-                plan_options.append(("Create new...", "new"))
-
                 yield Select(
                     plan_options,
                     value=self._current_plan_id or "latest",
@@ -235,6 +248,9 @@ class PlanOptionsPopover(Widget):
 
                 # Load initial plan details
                 self._update_plan_details(self._current_plan_id or "latest")
+
+                # View Plan button - opens full task list modal
+                yield Button("View Full Plan", id="view_plan_btn", variant="primary")
 
             # Plan mode: Show depth and human feedback options
             if self._plan_mode == "plan":
@@ -506,3 +522,46 @@ class PlanOptionsPopover(Widget):
         if event.button.id == "close_btn":
             self.hide()
             event.stop()
+        elif event.button.id == "view_plan_btn":
+            self._handle_view_plan()
+            event.stop()
+
+    def _handle_view_plan(self) -> None:
+        """Handle View Plan button click - emit ViewPlanRequested message."""
+        _popover_log("_handle_view_plan called")
+
+        # Get the currently selected plan
+        plan_id = self._current_plan_id or "latest"
+
+        if plan_id == "new":
+            # Can't view a plan that doesn't exist yet
+            return
+
+        if plan_id == "latest" and self._available_plans:
+            plan = self._available_plans[0]
+        else:
+            plan = self._get_plan_by_id(plan_id)
+
+        if not plan:
+            _popover_log(f"  -> plan not found: {plan_id}")
+            return
+
+        # Load tasks from plan.json
+        plan_file = plan.workspace_dir / "plan.json"
+        if not plan_file.exists():
+            _popover_log(f"  -> plan file not found: {plan_file}")
+            return
+
+        try:
+            data = json.loads(plan_file.read_text())
+            tasks = data.get("tasks", [])
+            _popover_log(f"  -> loaded {len(tasks)} tasks from {plan.plan_id}")
+
+            # Emit message to open the modal
+            self.post_message(ViewPlanRequested(plan.plan_id, tasks))
+
+            # Hide the popover after opening the modal
+            self.hide()
+
+        except Exception as e:
+            _popover_log(f"  -> error loading plan: {e}")
