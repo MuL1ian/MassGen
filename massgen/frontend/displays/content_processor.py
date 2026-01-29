@@ -424,6 +424,7 @@ class ContentProcessor:
 
             # Mark that non-tool content arrived
             self._batch_tracker.mark_content_arrived()
+            self._batch_tracker.finalize_current_batch()
 
             text_class = "thinking-inline" if normalized.content_type == "thinking" else "content-inline"
 
@@ -915,6 +916,24 @@ class ContentProcessor:
                 )
             return None
 
+        # Handle tool status messages from MCP/custom tools (parse like main TUI)
+        if chunk_type in ("mcp_status", "custom_tool_status", "tool") and content:
+            return self.process(str(content), "tool", tool_call_id, round_number)
+
+        # Handle reasoning/thinking stream chunks
+        if (
+            chunk_type
+            in (
+                "reasoning",
+                "reasoning_done",
+                "reasoning_summary",
+                "reasoning_summary_done",
+                "thinking",
+            )
+            and content
+        ):
+            return self.process(str(content), "thinking", tool_call_id, round_number)
+
         # Handle MCP status messages
         if chunk_type in ("mcp_status", "ChunkType.MCP_STATUS") and content:
             # Skip function_call_output (handled above) and tool call status
@@ -934,8 +953,12 @@ class ContentProcessor:
                 text_class="status",
             )
 
+        # Handle generic status chunks
+        if chunk_type in ("status", "backend_status", "system_status") and content:
+            return self.process(str(content), "status", tool_call_id, round_number)
+
         # Handle regular content
-        if chunk_type == "content" and content:
+        if chunk_type in ("content", "text") and content:
             # Apply same filtering as main TUI for parity
             normalized = ContentNormalizer.normalize(content, "text")
             if not normalized.should_display:

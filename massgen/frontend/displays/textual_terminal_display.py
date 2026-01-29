@@ -102,6 +102,7 @@ try:
         ToolSection,
         ViewSelected,
     )
+    from .tui_event_pipeline import TimelineEventAdapter
     from .tui_modes import TuiModeState
 
     TEXTUAL_AVAILABLE = True
@@ -1009,6 +1010,15 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._buffers = {agent_id: [] for agent_id in self.agent_ids}
         self._buffer_lock = threading.Lock()
         self._recent_web_chunks: Dict[str, Deque[str]] = {agent_id: deque(maxlen=self.max_web_search_lines) for agent_id in self.agent_ids}
+
+        # Event-driven TUI pipeline (single source of truth)
+        env_flag = os.getenv("MASSGEN_TUI_EVENT_PIPELINE")
+        if "use_event_pipeline" in kwargs:
+            self.use_event_pipeline = bool(kwargs.get("use_event_pipeline"))
+        elif env_flag is not None:
+            self.use_event_pipeline = env_flag.strip().lower() not in ("0", "false", "off", "no")
+        else:
+            self.use_event_pipeline = True
 
     def _validate_agent_ids(self):
         """Validate agent IDs for security and robustness."""
@@ -3001,6 +3011,11 @@ if TEXTUAL_AVAILABLE:
             self._orchestrator_events: List[str] = []
             self._input_handler: Optional[Callable[[str], None]] = None
 
+            # Event-driven pipeline state
+            self._event_pipeline_enabled = bool(display.use_event_pipeline)
+            self._event_pipeline_failed = False
+            self._event_adapters: Dict[str, TimelineEventAdapter] = {}
+
             # Answer tracking for browser modal
             self._answers: List[Dict[str, Any]] = []  # All answers with metadata
             self._votes: List[Dict[str, Any]] = []  # All votes with metadata
@@ -3967,6 +3982,11 @@ Type your question and press Enter to ask the agents.
                 widget.update_status("waiting")
                 widget._line_buffer = ""
                 widget.current_line_label.update("")
+                if agent_id in self._event_adapters:
+                    try:
+                        self._event_adapters[agent_id].reset()
+                    except Exception:
+                        pass
             self.notify("Agent panels reset", severity="information")
 
         def _update_all_loading_text(self, message: str) -> None:
@@ -4040,8 +4060,35 @@ Type your question and press Enter to ask the agents.
             tool_call_id: Optional[str] = None,
         ):
             """Update agent widget with content."""
-            if agent_id in self.agent_widgets:
-                self.agent_widgets[agent_id].add_content(content, content_type, tool_call_id)
+            if agent_id not in self.agent_widgets:
+                return
+
+            panel = self.agent_widgets[agent_id]
+
+            # Event-driven pipeline (preferred)
+            if self._event_pipeline_enabled and not self._event_pipeline_failed:
+                adapter = self._event_adapters.get(agent_id)
+                if adapter is None:
+                    adapter = TimelineEventAdapter(panel, agent_id=agent_id)
+                    self._event_adapters[agent_id] = adapter
+                try:
+                    adapter.handle_stream_content(
+                        content,
+                        content_type,
+                        tool_call_id=tool_call_id,
+                        source=agent_id,
+                    )
+                    return
+                except Exception as e:
+                    # Fallback to legacy parser on any failure
+                    try:
+                        logger.warning(f"[TUI] Event pipeline failed for {agent_id}: {e}")
+                    except Exception:
+                        pass
+                    self._event_pipeline_failed = True
+
+            # Legacy pipeline fallback
+            panel.add_content(content, content_type, tool_call_id)
 
         def update_agent_status(self, agent_id: str, status: str):
             """Update agent status."""
@@ -4219,11 +4266,23 @@ Type your question and press Enter to ask the agents.
 
             tui_log(f"show_subagent_card_from_spawn: creating card for {len(tasks)} tasks")
 
+            # Resolve base log directory for subagents in this session
+            subagent_logs_base = None
+            try:
+                from massgen.logger_config import get_log_session_dir
+
+                log_dir = get_log_session_dir()
+                if log_dir:
+                    subagent_logs_base = log_dir / "subagents"
+            except Exception:
+                pass
+
             # Create SubagentDisplayData for each task (all pending/running)
             subagents = []
             for i, task_data in enumerate(tasks):
                 subagent_id = task_data.get("subagent_id", task_data.get("id", f"subagent_{i}"))
                 task_desc = task_data.get("task", "")
+                log_path = str(subagent_logs_base / subagent_id) if subagent_logs_base else None
 
                 subagents.append(
                     SubagentDisplayData(
@@ -4238,7 +4297,7 @@ Type your question and press Enter to ask the agents.
                         last_log_line="Starting...",
                         error=None,
                         answer_preview=None,
-                        log_path=None,
+                        log_path=log_path,
                     ),
                 )
 
@@ -5077,6 +5136,13 @@ Type your question and press Enter to ask the agents.
             # Also show prominent restart separator in ALL agent panels
             for agent_id, panel in self.agent_widgets.items():
                 panel.show_restart_separator(attempt, reason)
+                adapter = self._event_adapters.get(agent_id)
+                if adapter:
+                    try:
+                        adapter.set_round_number(attempt)
+                        adapter.flush()
+                    except Exception:
+                        pass
 
         def show_restart_context(self, reason: str, instructions: str):
             """Show restart context."""
@@ -5102,6 +5168,13 @@ Type your question and press Enter to ask the agents.
                 panel.start_new_round(round_num, is_context_reset=False)
                 with open("/tmp/tui_debug.log", "a") as f:
                     f.write("DEBUG: MassGenApp.show_agent_restart called panel.start_new_round\n")
+                adapter = self._event_adapters.get(agent_id)
+                if adapter:
+                    try:
+                        adapter.set_round_number(round_num)
+                        adapter.flush()
+                    except Exception:
+                        pass
 
         def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
             """Show that the final presentation is starting for the winning agent.
@@ -8347,11 +8420,23 @@ Type your question and press Enter to ask the agents.
 
             tui_log(f"_show_subagent_card_from_args: found {len(tasks)} tasks to spawn")
 
+            # Resolve base log directory for subagents in this session
+            subagent_logs_base = None
+            try:
+                from massgen.logger_config import get_log_session_dir
+
+                log_dir = get_log_session_dir()
+                if log_dir:
+                    subagent_logs_base = log_dir / "subagents"
+            except Exception:
+                pass
+
             # Create SubagentDisplayData for each task (all pending/running)
             subagents = []
             for task_data in tasks:
                 subagent_id = task_data.get("subagent_id", task_data.get("id", f"subagent_{len(subagents)}"))
                 task_desc = task_data.get("task", "")
+                log_path = str(subagent_logs_base / subagent_id) if subagent_logs_base else None
 
                 subagents.append(
                     SubagentDisplayData(
@@ -8366,7 +8451,7 @@ Type your question and press Enter to ask the agents.
                         last_log_line="Starting...",
                         error=None,
                         answer_preview=None,
-                        log_path=None,
+                        log_path=log_path,
                     ),
                 )
 

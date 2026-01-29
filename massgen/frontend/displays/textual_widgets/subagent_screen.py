@@ -33,6 +33,7 @@ Features:
 """
 
 import logging
+from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from rich.text import Text
@@ -46,7 +47,7 @@ from massgen.events import EventReader, MassGenEvent
 from massgen.subagent.models import SubagentDisplayData, SubagentResult
 
 from ..base_tui_layout import BaseTUILayoutMixin
-from ..content_processor import ContentOutput, ContentProcessor
+from ..tui_event_pipeline import TimelineEventAdapter
 from .agent_status_ribbon import AgentStatusRibbon
 from .content_sections import TimelineSection
 from .tab_bar import AgentTabBar, AgentTabChanged
@@ -318,8 +319,7 @@ class SubagentScreen(Screen):
         self._status_callback = status_callback
         self._poll_timer: Optional[Timer] = None
         self._event_reader: Optional[EventReader] = None
-        self._content_processor: Optional[ContentProcessor] = None
-        self._tool_count = 0
+        self._event_adapter: Optional[TimelineEventAdapter] = None
         self._round_number = 1
         self._final_answer: Optional[str] = None
 
@@ -497,6 +497,8 @@ class SubagentScreen(Screen):
                     seen_ids.add(event.agent_id)
                 # Also check data.source for backwards compatibility
                 source = event.data.get("source")
+                if not source:
+                    source = (event.data.get("chunk") or {}).get("source")
                 if source and source not in seen_ids:
                     seen_ids.add(source)
             agent_ids = sorted(seen_ids)
@@ -515,192 +517,90 @@ class SubagentScreen(Screen):
 
     def _init_event_reader(self) -> None:
         """Initialize the event reader for the current subagent."""
-        from pathlib import Path
-
-        if not self._subagent.log_path:
+        events_file = self._resolve_events_file()
+        if not events_file:
             logger.warning(
-                f"[SubagentScreen] No log_path for subagent {self._subagent.id}",
+                f"[SubagentScreen] No events.jsonl found for subagent {self._subagent.id}",
             )
             return
-
-        log_path = Path(self._subagent.log_path)
-
-        # Handle both file path and directory path (safety net for inconsistent sources)
-        if log_path.is_dir():
-            # Base directory - resolve to events.jsonl using shared method
-            resolved = SubagentResult.resolve_events_path(log_path)
-            if resolved:
-                events_file = Path(resolved)
-            else:
-                logger.warning(
-                    f"[SubagentScreen] Could not resolve events.jsonl from directory: {log_path}",
-                )
-                return
-        else:
-            # Already a file path
-            events_file = log_path
 
         if events_file.exists():
             logger.info(f"[SubagentScreen] Using events file: {events_file}")
             self._event_reader = EventReader(events_file)
-            self._content_processor = ContentProcessor()
+            if self._panel:
+                self._event_adapter = TimelineEventAdapter(
+                    self._panel,
+                    agent_id=self._subagent.id,
+                )
         else:
             logger.warning(
                 f"[SubagentScreen] Events file does not exist: {events_file}",
             )
 
+    def _resolve_events_file(self) -> Optional[Path]:
+        """Resolve the events.jsonl file for the current subagent."""
+        # 1) Use explicit log_path if provided (file or directory)
+        if self._subagent.log_path:
+            log_path = Path(self._subagent.log_path)
+            if not log_path.is_absolute():
+                log_path = (Path.cwd() / log_path).resolve()
+
+            if log_path.is_dir():
+                resolved = SubagentResult.resolve_events_path(log_path)
+                if resolved:
+                    return Path(resolved)
+            else:
+                return log_path
+
+        # 2) Fall back to current session log dir
+        try:
+            from massgen.logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir().resolve()
+            subagent_logs = log_dir / "subagents" / self._subagent.id
+            resolved = SubagentResult.resolve_events_path(subagent_logs)
+            if resolved:
+                return Path(resolved)
+        except Exception:
+            pass
+
+        return None
+
     def _load_initial_events(self) -> None:
         """Load all existing events and build timeline."""
-        if not self._event_reader or not self._content_processor:
+        if not self._event_reader or not self._event_adapter:
             return
 
         events = self._event_reader.read_all()
         self._process_events(events)
 
+        # Advance reader to end so polling only reads new events
+        try:
+            self._event_reader._last_position = self._event_reader._file_path.stat().st_size  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
     def _process_events(self, events: List[MassGenEvent]) -> None:
         """Process events and add to timeline."""
-        if not self._content_processor or not self._panel:
+        if not self._event_adapter or not self._panel:
             logger.warning(
-                f"[SubagentScreen] Cannot process events: processor={self._content_processor is not None}, panel={self._panel is not None}",
+                f"[SubagentScreen] Cannot process events: adapter={self._event_adapter is not None}, panel={self._panel is not None}",
             )
             return
 
         logger.info(f"[SubagentScreen] Processing {len(events)} events")
-        output_count = 0
         for event in events:
-            output = self._content_processor.process_event(event, self._round_number)
-            if output:
-                output_count += 1
-                logger.debug(f"[SubagentScreen] Got output: {output.output_type}")
-                # Update round number from round_start events
-                if output.output_type == "separator" and output.round_number:
-                    self._round_number = output.round_number
-
-                self._apply_output_to_panel(output)
-        logger.info(f"[SubagentScreen] Generated {output_count} outputs from {len(events)} events")
-
-        # Flush any remaining batch
-        final_output = self._content_processor.flush_pending_batch(self._round_number)
-        if final_output:
-            self._apply_output_to_panel(final_output)
-
-    def _apply_output_to_panel(self, output: ContentOutput) -> None:
-        """Apply a ContentOutput to the panel using BaseTUILayoutMixin methods."""
-        if not self._panel:
-            return
-
-        round_number = output.round_number or self._round_number
-
-        try:
-            timeline = self._panel._get_timeline()
-            if timeline is None:
-                return
-
-            if output.output_type == "tool" and output.tool_data:
-                self._tool_count += 1
-                tool_data = output.tool_data
-                batch_action = output.batch_action
-
-                if batch_action in ("pending", "standalone"):
-                    timeline.add_tool(tool_data, round_number=round_number)
-                elif batch_action == "convert_to_batch" and output.batch_id and output.pending_tool_id:
-                    timeline.convert_tool_to_batch(
-                        output.pending_tool_id,
-                        tool_data,
-                        output.batch_id,
-                        output.server_name or "tools",
-                        round_number=round_number,
-                    )
-                elif batch_action == "add_to_batch" and output.batch_id:
-                    timeline.add_tool_to_batch(output.batch_id, tool_data)
-                elif batch_action == "update_batch":
-                    timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
-                elif batch_action == "update_standalone":
-                    timeline.update_tool(tool_data.tool_id, tool_data)
-                else:
-                    timeline.add_tool(tool_data, round_number=round_number)
-
-            elif output.output_type == "tool_batch" and output.batch_tools:
-                self._tool_count += len(output.batch_tools)
-                batch_id = output.batch_id or f"batch_{self._tool_count}"
-                server_name = output.server_name or "tools"
-
-                timeline.add_batch(batch_id, server_name, round_number=round_number)
-                for tool_data in output.batch_tools:
-                    timeline.add_tool_to_batch(batch_id, tool_data)
-                    if tool_data.status in ("success", "error"):
-                        timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
-
-            elif output.output_type == "thinking" and output.text_content:
-                timeline.add_text(
-                    output.text_content,
-                    style=output.text_style,
-                    text_class=output.text_class or "thinking-inline",
-                    round_number=round_number,
-                )
-
-            elif output.output_type == "text" and output.text_content:
-                timeline.add_text(
-                    output.text_content,
-                    style=output.text_style,
-                    text_class=output.text_class or "content-inline",
-                    round_number=round_number,
-                )
-
-            elif output.output_type == "status" and output.text_content:
-                timeline.add_text(
-                    output.text_content,
-                    style=output.text_style,
-                    text_class=output.text_class or "status",
-                    round_number=round_number,
-                )
-
-            elif output.output_type == "presentation" and output.text_content:
-                timeline.add_text(
-                    output.text_content,
-                    style=output.text_style,
-                    text_class=output.text_class or "response",
-                    round_number=round_number,
-                )
-
-            elif output.output_type == "injection" and output.text_content:
-                timeline.add_text(
-                    output.text_content,
-                    style=output.text_style,
-                    text_class=output.text_class or "injection",
-                    round_number=round_number,
-                )
-
-            elif output.output_type == "reminder" and output.text_content:
-                timeline.add_text(
-                    output.text_content,
-                    style=output.text_style,
-                    text_class=output.text_class or "reminder",
-                    round_number=round_number,
-                )
-
-            elif output.output_type == "separator":
-                self._round_number = output.round_number
-                timeline.add_separator(
-                    output.separator_label,
-                    round_number=output.round_number,
-                    subtitle=output.separator_subtitle,
-                )
-
-            elif output.output_type == "final_answer" and output.text_content:
-                self._final_answer = output.text_content
-                timeline.add_text(
-                    f"✓ FINAL ANSWER\n{output.text_content}",
-                    style="bold green",
-                    text_class="final-answer",
-                    round_number=round_number,
-                )
-
-        except Exception:
-            pass
-
-        # Update ribbon
+            self._event_adapter.handle_event(event)
+        self._event_adapter.flush()
+        self._sync_adapter_state()
         self._update_status_display()
+
+    def _sync_adapter_state(self) -> None:
+        """Sync round/final answer state from the event adapter."""
+        if not self._event_adapter:
+            return
+        self._round_number = self._event_adapter.round_number
+        self._final_answer = self._event_adapter.final_answer
 
     def _poll_updates(self) -> None:
         """Poll for status and event updates."""
@@ -711,8 +611,14 @@ class SubagentScreen(Screen):
                 self._subagent = new_data
                 self._update_status_display()
 
+        # Attempt to initialize event reader if it wasn't ready at mount time
+        if self._event_reader is None:
+            self._init_event_reader()
+            if self._event_reader and self._event_adapter:
+                self._load_initial_events()
+
         # Read new events
-        if self._event_reader and self._content_processor:
+        if self._event_reader and self._event_adapter:
             new_events = self._event_reader.get_new_events()
             if new_events:
                 self._process_events(new_events)
@@ -726,6 +632,8 @@ class SubagentScreen(Screen):
     def _update_status_display(self) -> None:
         """Update status displays."""
         # Update status line
+        current_round = self._event_adapter.round_number if self._event_adapter else self._round_number
+
         if self._status_line:
             self._status_line.update_status(
                 self._subagent.status,
@@ -734,7 +642,7 @@ class SubagentScreen(Screen):
 
         # Update ribbon
         if self._ribbon:
-            self._ribbon.set_round(self._subagent.id, self._round_number, False)
+            self._ribbon.set_round(self._subagent.id, current_round, False)
 
         # Update tab bar status
         if self._tab_bar:
@@ -747,10 +655,9 @@ class SubagentScreen(Screen):
             self._subagent = self._all_subagents[index]
 
             # Reset state
-            self._tool_count = 0
             self._round_number = 1
             self._final_answer = None
-            self._content_processor = ContentProcessor()
+            self._event_adapter = None
 
             # Re-initialize event reader
             self._init_event_reader()
@@ -807,9 +714,9 @@ class SubagentScreen(Screen):
         self._current_inner_agent = agent_id
 
         # Reset content processor and reload events filtered by agent
-        self._tool_count = 0
         self._round_number = 1
-        self._content_processor = ContentProcessor()
+        if self._event_adapter:
+            self._event_adapter.reset()
 
         # Clear and reload timeline with filtered events
         try:
@@ -835,14 +742,24 @@ class SubagentScreen(Screen):
         Args:
             agent_id: The agent ID to filter by, or None for all events
         """
-        if not self._event_reader or not self._content_processor:
+        if not self._event_reader or not self._event_adapter:
             return
 
         events = self._event_reader.read_all()
 
         # Filter by agent if specified
         if agent_id:
-            events = [e for e in events if e.agent_id == agent_id or e.data.get("source") == agent_id]
+            filtered = []
+            for e in events:
+                if e.agent_id == agent_id:
+                    filtered.append(e)
+                    continue
+                source = e.data.get("source")
+                if not source:
+                    source = (e.data.get("chunk") or {}).get("source")
+                if source == agent_id:
+                    filtered.append(e)
+            events = filtered
 
         self._process_events(events)
 

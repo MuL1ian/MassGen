@@ -249,7 +249,9 @@ class SubagentResult:
 
         Priority:
         1. full_logs/events.jsonl (completed subagents)
-        2. subprocess_logs.json reference (live subagents)
+        2. full_logs/turn_1/attempt_1/events.jsonl (legacy completed layout)
+        3. live_logs/log_*/turn_1/attempt_1/events.jsonl (running subagents)
+        4. subprocess_logs.json reference (fallback)
 
         Args:
             base_log_dir: Base log directory for the subagent (e.g., /logs/sub_abc123/)
@@ -257,10 +259,30 @@ class SubagentResult:
         Returns:
             Full path to events.jsonl if found, None otherwise
         """
-        # Check full_logs first (completed subagents)
+        # Check full_logs (completed subagents)
         full_logs_events = base_log_dir / "full_logs" / "events.jsonl"
         if full_logs_events.exists():
             return str(full_logs_events.resolve())
+
+        # Legacy layout: full_logs/turn_1/attempt_1/events.jsonl
+        legacy_full_logs = base_log_dir / "full_logs" / "turn_1" / "attempt_1" / "events.jsonl"
+        if legacy_full_logs.exists():
+            return str(legacy_full_logs.resolve())
+
+        # Check live_logs (running subagents)
+        live_logs = base_log_dir / "live_logs"
+        if live_logs.exists():
+            try:
+                for subdir in sorted(live_logs.glob("log_*"), reverse=True):
+                    candidate = subdir / "turn_1" / "attempt_1" / "events.jsonl"
+                    if candidate.exists():
+                        return str(candidate.resolve())
+                    # Fallback if events.jsonl lives at root of log_* (older layout)
+                    candidate = subdir / "events.jsonl"
+                    if candidate.exists():
+                        return str(candidate.resolve())
+            except Exception:
+                pass
 
         # Read subprocess_logs.json for live path
         subprocess_ref = base_log_dir / "subprocess_logs.json"
