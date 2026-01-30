@@ -1692,11 +1692,7 @@ class TextualTerminalDisplay(TerminalDisplay):
                 self._post_evaluation_lines.append(clean)
 
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_post_evaluation,
-                content,
-                agent_id,
-            )
+            self._call_app_method("show_post_evaluation", content, agent_id)
 
     def end_post_evaluation_content(self, agent_id: str):
         """Called when post-evaluation is complete to show footer with buttons."""
@@ -1709,12 +1705,7 @@ class TextualTerminalDisplay(TerminalDisplay):
     def show_post_evaluation_tool_content(self, tool_name: str, args: dict, agent_id: str):
         """Called when a post-evaluation tool call (submit/restart) is detected."""
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_post_evaluation_tool,
-                tool_name,
-                args,
-                agent_id,
-            )
+            self._call_app_method("show_post_evaluation_tool", tool_name, args, agent_id)
 
     def show_restart_banner(self, reason: str, instructions: str, attempt: int, max_attempts: int):
         """Display restart decision banner."""
@@ -1723,13 +1714,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._write_to_system_file(banner_msg)
 
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_restart_banner,
-                reason,
-                instructions,
-                attempt,
-                max_attempts,
-            )
+            self._call_app_method("show_restart_banner", reason, instructions, attempt, max_attempts)
 
     def show_restart_context_panel(self, reason: str, instructions: str):
         """Display restart context panel at top of UI (for attempt 2+)."""
@@ -1737,11 +1722,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self.restart_instructions = instructions
 
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_restart_context,
-                reason,
-                instructions,
-            )
+            self._call_app_method("show_restart_context", reason, instructions)
 
     def show_agent_restart(self, agent_id: str, round_num: int):
         """Notify that a specific agent is starting a new round.
@@ -1754,11 +1735,7 @@ class TextualTerminalDisplay(TerminalDisplay):
             round_num: The new round number for this agent
         """
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_agent_restart,
-                agent_id,
-                round_num,
-            )
+            self._call_app_method("show_agent_restart", agent_id, round_num)
 
     def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
         """Notify that the final presentation phase is starting for the winning agent.
@@ -1772,12 +1749,7 @@ class TextualTerminalDisplay(TerminalDisplay):
             answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
         """
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_final_presentation_start,
-                agent_id,
-                vote_counts,
-                answer_labels,
-            )
+            self._call_app_method("show_final_presentation_start", agent_id, vote_counts, answer_labels)
 
     def cleanup(self):
         """Cleanup and exit Textual app."""

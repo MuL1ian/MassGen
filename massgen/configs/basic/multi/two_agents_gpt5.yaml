@@ -41,7 +41,7 @@ agents:
       - Ensuring clarity and completeness
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # Simple two-agent settings

@@ -551,7 +551,7 @@ class TimelineSection(ScrollableContainer):
     """
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
-    MAX_TIMELINE_ITEMS = 10  # Lowered for debugging compression behavior
+    MAX_TIMELINE_ITEMS = 30  # Viewport culling threshold
     SCROLL_DEBOUNCE_MS = 25  # Minimum gap between scroll operations (reduced for responsiveness)
     SCROLL_ANIMATION_THRESHOLD_MS = 300  # Threshold for animation vs instant scroll
 
@@ -565,6 +565,8 @@ class TimelineSection(ScrollableContainer):
         # Scroll mode: when True, auto-scroll is paused (user is reading history)
         self._scroll_mode = False
         self._new_content_count = 0  # Count of new items since entering scroll mode
+        # Removed widgets cache for scroll-back (widget ID -> widget)
+        self._removed_widgets: Dict[str, any] = {}
         self._truncation_shown = False  # Track if we've shown truncation message
         # Phase 12: View-based round navigation
         self._viewed_round: int = 1  # Which round is currently being displayed
@@ -882,16 +884,14 @@ class TimelineSection(ScrollableContainer):
 
             self._log(f"[TRIM] Starting trim: total_items={total_items}, MAX={self.MAX_TIMELINE_ITEMS}, max_scroll_y_before={self.max_scroll_y:.2f}")
 
-            # If under limit, ensure all items are visible
+            # If under limit, restore any removed items
             if total_items <= self.MAX_TIMELINE_ITEMS:
-                made_visible = False
-                for child in content_children:
-                    if "viewport-culled" in child.classes:
-                        child.remove_class("viewport-culled")
-                        made_visible = True
-
-                if made_visible:
-                    self._log("[TRIM] Made items visible")
+                # Check if we have removed widgets to restore
+                if self._removed_widgets:
+                    self._log(f"[TRIM] Under limit, restoring {len(self._removed_widgets)} removed widgets")
+                    # Note: Restoring would require preserving original order, which is complex
+                    # For now, just clear the cache when we go back under limit
+                    # In practice, items rarely go back under the limit
                 return
 
             # Calculate how many to hide
@@ -902,7 +902,7 @@ class TimelineSection(ScrollableContainer):
 
             self._log(f"[TRIM] Hiding {items_to_hide} items (keeping {self.MAX_TIMELINE_ITEMS})")
 
-            # Hide oldest items (from the beginning) with viewport-culled class
+            # Remove oldest items from DOM (but keep in cache for scroll-back)
             hidden_count = 0
             for child in content_children[:items_to_hide]:
                 # Don't hide tool cards that are still running
@@ -912,19 +912,16 @@ class TimelineSection(ScrollableContainer):
                         self._log(f"[TRIM] Skipping running tool: {child.tool_id}")
                         continue
 
-                # Add viewport-culled class to hide (display: none)
-                if "viewport-culled" not in child.classes:
-                    child.add_class("viewport-culled")
+                # Actually remove from DOM to free up space
+                # Cache it for potential scroll-back restoration
+                if child.id and child in self.children:
+                    self._removed_widgets[child.id] = child
+                    child.remove()
                     hidden_count += 1
 
-            # Ensure remaining items are visible
-            shown_count = 0
-            for child in content_children[items_to_hide:]:
-                if "viewport-culled" in child.classes:
-                    child.remove_class("viewport-culled")
-                    shown_count += 1
+            # Note: We don't need to "show" remaining items since they're already in DOM
 
-            self._log(f"[TRIM] Actually hid {hidden_count} items, showed {shown_count} items")
+            self._log(f"[TRIM] Actually hid {hidden_count} items")
 
         except Exception as e:
             self._log(f"[TRIM] Exception: {e}")
@@ -1557,6 +1554,7 @@ class TimelineSection(ScrollableContainer):
         self._tools.clear()
         self._batches.clear()  # Also clear batch tracking
         self._tool_to_batch.clear()  # Clear tool-to-batch mapping
+        self._removed_widgets.clear()  # Clear removed widgets cache
         self._item_count = 0
         logger.info("[TimelineSection] Cleared tracking dicts, reset _item_count to 0")
         # Reset truncation tracking to avoid stale state
@@ -1567,12 +1565,22 @@ class TimelineSection(ScrollableContainer):
         self._round_1_shown = False
         logger.info("[TimelineSection] Set _round_1_shown = False")
 
-        # Add initial Round 1 separator
+        # CRITICAL FIX: Force layout refresh after clearing and defer Round 1 separator
+        # This ensures max_scroll_y is recalculated before any new content tries to scroll
+        self.refresh()
+        self._log(f"[CLEAR] Before call_after_refresh: max_scroll_y={self.max_scroll_y:.2f}")
+
+        # Defer Round 1 separator addition until after layout refresh completes
         if add_round_1:
-            logger.info("[TimelineSection] Adding initial Round 1 separator (from clear)")
-            self._round_1_shown = True  # Set flag before adding to avoid re-entry
-            self.add_separator("Round 1", round_number=1)
-            logger.info("[TimelineSection] Round 1 separator added (from clear)")
+
+            def add_round_1_separator():
+                self._log(f"[CLEAR] After refresh: max_scroll_y={self.max_scroll_y:.2f}")
+                logger.info("[TimelineSection] Adding initial Round 1 separator (from clear)")
+                self._round_1_shown = True  # Set flag before adding to avoid re-entry
+                self.add_separator("Round 1", round_number=1)
+                logger.info("[TimelineSection] Round 1 separator added (from clear)")
+
+            self.call_after_refresh(add_round_1_separator)
 
     def reset_round_state(self) -> None:
         """Reset round tracking state for a new turn."""

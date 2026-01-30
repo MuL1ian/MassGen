@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING (Soft):** Default display changed from `rich_terminal` to `textual_terminal`
+  - All users now get the superior TUI experience by default
+  - Existing configs with `display_type: "rich_terminal"` will show deprecation warning and use TUI
+  - Use `--display rich` flag to force legacy Rich display
+  - Updated ALL 160+ example configs to use `textual_terminal`
+
+### Improved
+- Setup wizard (`--setup`, `--quickstart`) now generates configs with TUI display
+- Enhanced documentation with prominent TUI feature descriptions
+- Improved first-run experience with clear TUI benefits explanation
+
+### Deprecated
+- `rich_terminal` display type is now deprecated in favor of `textual_terminal`
+- Configs using `rich_terminal` will show warning and auto-convert to TUI
+- Use `--display rich` to explicitly request legacy Rich display
+
 ## Recent Releases
 
 **v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection

@@ -91,4 +91,4 @@ agents:
       If running with visible browser, you can monitor the automation in real-time.
 
 display:
-  type: "rich_terminal"
+  type: "textual_terminal"

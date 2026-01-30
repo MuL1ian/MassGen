@@ -253,7 +253,7 @@ class ConfigBuilder:
         self.config = {
             "agents": [],
             "ui": {
-                "display_type": "rich_terminal",
+                "display_type": "textual_terminal",
                 "logging_enabled": True,
             },
         }
@@ -4914,7 +4914,7 @@ class ConfigBuilder:
                 "round_timeout_grace_seconds": 120,  # 2 min grace before hard block
             },
             "ui": {
-                "type": "rich_terminal",
+                "display_type": "textual_terminal",
                 "logging_enabled": True,
             },
         }

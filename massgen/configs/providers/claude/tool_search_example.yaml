@@ -61,5 +61,5 @@ agents:
       If you need a tool that isn't visible, use tool_search to discover it.
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

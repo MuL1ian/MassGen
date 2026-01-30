@@ -28,5 +28,5 @@ agent:
       # MCP tools will be auto-discovered from the server
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

@@ -105,5 +105,5 @@ agents:
     backend: {type: "gemini", model: "gemini-2.5-pro", enable_code_execution: true, temperature: 1.0}
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

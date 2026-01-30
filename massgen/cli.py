@@ -3042,7 +3042,7 @@ async def run_single_question(
         ui = _build_coordination_ui(ui_config)
 
         # Only print status if not in quiet mode
-        display_type = ui_config.get("display_type", "rich_terminal")
+        display_type = ui_config.get("display_type", "textual_terminal")
         if display_type not in ("none", "silent"):
             print(f"\n🤖 {BRIGHT_CYAN}Multi-Agent Mode{RESET}", flush=True)
             print(f"Agents: {', '.join(agents.keys())}", flush=True)
@@ -5776,7 +5776,7 @@ async def run_interactive_mode(
 
     # Textual-first mode: Launch TUI immediately without Rich terminal output
     # The TUI will handle ASCII art, session config, input, and multi-turn loop
-    display_type = ui_config.get("display_type", "rich_terminal")
+    display_type = ui_config.get("display_type", "textual_terminal")
     if display_type == "textual_terminal":
         return await run_textual_interactive_mode(
             agents=agents,
@@ -7285,6 +7285,9 @@ async def main(args):
 
         # Apply command-line overrides
         ui_config = config.get("ui", {})
+        # Set default display type to textual_terminal if not specified
+        if "display_type" not in ui_config:
+            ui_config["display_type"] = "textual_terminal"
         if args.automation:
             # Automation mode: silent display, keep logging enabled for status.json
             ui_config["display_type"] = "silent"
@@ -8638,6 +8641,115 @@ Environment Variables:
         logger.info("Debug mode enabled")
         logger.debug(f"Command line arguments: {vars(args)}")
 
+    def _run_quickstart_wizard_tui():
+        """Launch quickstart wizard TUI. Returns result dict or None."""
+        try:
+            from textual.app import App as _QApp
+
+            from .frontend.displays.textual_widgets import (
+                QuickstartWizard,
+                WizardCancelled,
+                WizardCompleted,
+            )
+
+            class _QuickstartWizardApp(_QApp):
+                CSS_PATH = Path(__file__).parent / "frontend" / "displays" / "textual_themes" / "dark.tcss"
+                SCREENS = {"wizard": QuickstartWizard}
+                BINDINGS = [("ctrl+c", "quit", "Quit")]
+
+                def __init__(self):
+                    super().__init__(css_path=str(self.CSS_PATH))
+                    self._wizard_result = None
+
+                def on_mount(self):
+                    self.push_screen("wizard")
+
+                def on_wizard_completed(self, message: WizardCompleted) -> None:
+                    self._wizard_result = message.result
+                    self.exit(message.result)
+
+                def on_wizard_cancelled(self, message: WizardCancelled) -> None:
+                    self.exit(None)
+
+                def action_quit(self) -> None:
+                    self.exit(None)
+
+                def on_key(self, event) -> None:
+                    if event.key == "escape" and len(self.screen_stack) <= 1:
+                        self.exit(None)
+
+            app = _QuickstartWizardApp()
+            return app.run()
+        except ImportError as e:
+            logger.warning(f"TUI not available for quickstart wizard: {e}")
+            return None
+
+    def _handle_quickstart_result(result):
+        """Handle quickstart wizard result - launch web/terminal or save only. Returns True if handled."""
+        if not result:
+            print(f"\n{BRIGHT_YELLOW}⚠️  Quickstart cancelled{RESET}")
+            return True
+
+        config_path = result.get("config_path")
+        question = result.get("question", "")
+        launch_option = result.get("launch_option", "save_only")
+
+        if config_path and launch_option == "web":
+            try:
+                from .frontend.web import run_server
+
+                prompt_question = question if question else None
+                print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
+                print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
+                print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
+
+                auto_url = None
+                if prompt_question:
+                    import urllib.parse
+
+                    prompt_encoded = urllib.parse.quote(prompt_question)
+                    auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                    config_encoded = urllib.parse.quote(config_path)
+                    auto_url += f"&config={config_encoded}"
+                    print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
+
+                print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+
+                def open_browser():
+                    import time
+
+                    time.sleep(0.5)
+                    webbrowser.open(browser_url)
+
+                threading.Thread(target=open_browser, daemon=True).start()
+                run_server(
+                    host=args.web_host,
+                    port=args.web_port,
+                    config_path=config_path,
+                    automation_mode=False,
+                )
+            except ImportError as e:
+                print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
+                print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+                logger.debug(f"Import error: {e}")
+                sys.exit(1)
+            return True
+        elif config_path and launch_option == "terminal":
+            args.config = config_path
+            args.display = "textual"
+            if question:
+                args.interactive_with_initial_question = question
+            args.question = None
+            return False  # Continue with normal flow
+        elif config_path:
+            print(f"\n{BRIGHT_GREEN}✅ Configuration saved to: {config_path}{RESET}")
+            print(f'{BRIGHT_CYAN}Run with: massgen --config {config_path} "Your question"{RESET}')
+            return True
+        else:
+            return True
+
     # Launch interactive API key setup if requested
     # Skip terminal setup if --web is also provided (web UI will handle setup)
     if args.setup and not args.web:
@@ -8645,7 +8757,11 @@ Environment Variables:
         try:
             from textual.app import App
 
-            from .frontend.displays.textual_widgets import SetupWizard, WizardCompleted
+            from .frontend.displays.textual_widgets import (
+                SetupWizard,
+                WizardCancelled,
+                WizardCompleted,
+            )
 
             class SetupWizardApp(App):
                 """Standalone app for setup wizard."""
@@ -8659,7 +8775,6 @@ Environment Variables:
                     self._wizard_result = None
 
                 def on_mount(self):
-                    # Push the wizard screen as the initial screen
                     self.push_screen("wizard")
 
                 def on_wizard_completed(self, message: WizardCompleted) -> None:
@@ -8667,12 +8782,14 @@ Environment Variables:
                     self._wizard_result = message.result
                     self.exit(message.result)
 
+                def on_wizard_cancelled(self, message: WizardCancelled) -> None:
+                    """Handle wizard cancellation - exit immediately."""
+                    self.exit(None)
+
                 def action_quit(self) -> None:
-                    """Handle Ctrl+C to exit."""
                     self.exit(None)
 
                 def on_key(self, event) -> None:
-                    """Handle escape key to cancel."""
                     if event.key == "escape" and len(self.screen_stack) <= 1:
                         self.exit(None)
 
@@ -8684,7 +8801,15 @@ Environment Variables:
                 configured = result.get("configured_providers", [])
                 if configured:
                     print(f"{BRIGHT_CYAN}💡 Configured providers: {', '.join(configured)}{RESET}")
-                print(f"{BRIGHT_CYAN}💡 Run 'massgen --quickstart' to create a config and start.{RESET}\n")
+
+                if result.get("launch_quickstart"):
+                    qs_result = _run_quickstart_wizard_tui()
+                    if not _handle_quickstart_result(qs_result):
+                        pass  # Terminal launch - fall through to normal flow
+                    else:
+                        return
+                else:
+                    print(f"{BRIGHT_CYAN}💡 Run 'massgen --quickstart' to create a config and start.{RESET}\n")
             else:
                 print(f"\n{BRIGHT_YELLOW}⚠️  Setup cancelled or no changes made{RESET}")
                 print(f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to configure API keys{RESET}\n")
@@ -8882,114 +9007,12 @@ Environment Variables:
     if args.quickstart and not args.web:
         # Launch TUI Quickstart Wizard
         try:
-            from textual.app import App
-
-            from .frontend.displays.textual_widgets import (
-                QuickstartWizard,
-                WizardCompleted,
-            )
-
-            class QuickstartWizardApp(App):
-                """Standalone app for quickstart wizard."""
-
-                CSS_PATH = Path(__file__).parent / "frontend" / "displays" / "textual_themes" / "dark.tcss"
-                SCREENS = {"wizard": QuickstartWizard}
-                BINDINGS = [("ctrl+c", "quit", "Quit")]
-
-                def __init__(self):
-                    super().__init__(css_path=str(self.CSS_PATH))
-                    self._wizard_result = None
-
-                def on_mount(self):
-                    # Push the wizard screen as the initial screen
-                    self.push_screen("wizard")
-
-                def on_wizard_completed(self, message: WizardCompleted) -> None:
-                    """Handle wizard completion."""
-                    self._wizard_result = message.result
-                    self.exit(message.result)
-
-                def action_quit(self) -> None:
-                    """Handle Ctrl+C to exit."""
-                    self.exit(None)
-
-                def on_key(self, event) -> None:
-                    """Handle escape key to cancel."""
-                    if event.key == "escape" and len(self.screen_stack) <= 1:
-                        self.exit(None)
-
-            app = QuickstartWizardApp()
-            result = app.run()
-
-            if result:
-                config_path = result.get("config_path")
-                question = result.get("question", "")
-                launch_option = result.get("launch_option", "save_only")
-
-                if config_path and launch_option == "web":
-                    # Launch web UI
-                    try:
-                        from .frontend.web import run_server
-
-                        prompt_question = question if question else None
-
-                        print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
-                        print(f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}")
-                        print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
-
-                        auto_url = None
-                        if prompt_question:
-                            import urllib.parse
-
-                            prompt_encoded = urllib.parse.quote(prompt_question)
-                            auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
-                            config_encoded = urllib.parse.quote(config_path)
-                            auto_url += f"&config={config_encoded}"
-                            print(f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}")
-
-                        print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
-
-                        browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
-
-                        def open_browser():
-                            import time
-
-                            time.sleep(0.5)
-                            webbrowser.open(browser_url)
-
-                        threading.Thread(target=open_browser, daemon=True).start()
-                        run_server(
-                            host=args.web_host,
-                            port=args.web_port,
-                            config_path=config_path,
-                            automation_mode=False,
-                        )
-                    except ImportError as e:
-                        print(f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}")
-                        print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
-                        logger.debug(f"Import error: {e}")
-                        sys.exit(1)
-                    return
-                elif config_path and launch_option == "terminal":
-                    # Launch terminal TUI - update args to continue with normal flow
-                    args.config = config_path
-                    if question:
-                        args.interactive_with_initial_question = question
-                    args.question = None  # Trigger interactive mode
-                elif config_path:
-                    # Save only
-                    print(f"\n{BRIGHT_GREEN}✅ Configuration saved to: {config_path}{RESET}")
-                    print(f'{BRIGHT_CYAN}Run with: massgen --config {config_path} "Your question"{RESET}')
-                    return
-                else:
-                    # User cancelled
-                    return
-            else:
-                # Wizard was cancelled
-                print(f"\n{BRIGHT_YELLOW}⚠️  Quickstart cancelled{RESET}")
+            result = _run_quickstart_wizard_tui()
+            if _handle_quickstart_result(result):
                 return
+            # Terminal launch - fall through to normal flow
 
-        except ImportError as e:
+        except Exception as e:
             logger.warning(f"TUI not available, falling back to CLI quickstart: {e}")
             # Fallback to CLI-based quickstart
             builder = ConfigBuilder()
@@ -9087,242 +9110,170 @@ Environment Variables:
             # Builder returned None (cancelled or error)
             return
 
-    # First-run detection: auto-trigger setup wizard and config builder if no config specified
+    # First-run detection: auto-trigger setup wizard → quickstart wizard via TUI
     # Note: If config has a 'prompt' key, it will be used (set above), so args.question will be set
     if not args.question and not args.config and not args.model and not args.backend:
         if should_run_builder():
-            print()
-            print()
-            print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
-            print(f"{BRIGHT_CYAN}  👋  Welcome to MassGen!{RESET}")
-            print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
-            print()
+            # Launch TUI Setup Wizard for first-run experience
+            try:
+                from textual.app import App as _FirstRunApp
 
-            # Check if API keys already exist
-            builder = ConfigBuilder(default_mode=True)
-            existing_api_keys = builder.detect_api_keys()
+                from .frontend.displays.textual_widgets import (
+                    SetupWizard,
+                    WizardCancelled,
+                    WizardCompleted,
+                )
 
-            # Only check for cloud provider API keys (exclude local models and Claude Code)
-            cloud_providers = ["openai", "anthropic", "gemini", "grok", "azure_openai"]
-            has_api_keys = any(existing_api_keys.get(provider, False) for provider in cloud_providers)
+                class _FirstRunSetupApp(_FirstRunApp):
+                    CSS_PATH = Path(__file__).parent / "frontend" / "displays" / "textual_themes" / "dark.tcss"
+                    SCREENS = {"wizard": SetupWizard}
+                    BINDINGS = [("ctrl+c", "quit", "Quit")]
 
-            # Step 1: API key setup (only if no keys found)
-            if not has_api_keys:
-                print("  Let's first set up your API keys...")
-                print()
+                    def __init__(self):
+                        super().__init__(css_path=str(self.CSS_PATH))
+                        self._wizard_result = None
 
-                api_keys = builder.interactive_api_key_setup()
+                    def on_mount(self):
+                        self.push_screen("wizard")
 
-                if any(api_keys.values()):
+                    def on_wizard_completed(self, message: WizardCompleted) -> None:
+                        self._wizard_result = message.result
+                        self.exit(message.result)
+
+                    def on_wizard_cancelled(self, message: WizardCancelled) -> None:
+                        self.exit(None)
+
+                    def action_quit(self) -> None:
+                        self.exit(None)
+
+                    def on_key(self, event) -> None:
+                        if event.key == "escape" and len(self.screen_stack) <= 1:
+                            self.exit(None)
+
+                setup_app = _FirstRunSetupApp()
+                setup_result = setup_app.run()
+
+                if setup_result and setup_result.get("success"):
                     print(f"\n{BRIGHT_GREEN}✅ API key setup complete!{RESET}")
-                    print(
-                        f"{BRIGHT_CYAN}💡 You can now use MassGen with these providers{RESET}\n",
-                    )
+                    configured = setup_result.get("configured_providers", [])
+                    if configured:
+                        print(f"{BRIGHT_CYAN}💡 Configured providers: {', '.join(configured)}{RESET}")
+
+                    # Chain into quickstart wizard (auto-launch or if user clicked the button)
+                    launch_qs = setup_result.get("launch_quickstart", False)
+                    if launch_qs:
+                        qs_result = _run_quickstart_wizard_tui()
+                        if not _handle_quickstart_result(qs_result):
+                            pass  # Terminal launch - fall through to normal flow
+                        else:
+                            return
+                    else:
+                        print(f"{BRIGHT_CYAN}💡 Run 'massgen --quickstart' to create a config and start.{RESET}\n")
+                        return
                 else:
-                    print(f"\n{BRIGHT_YELLOW}⚠️  No API keys configured{RESET}")
-                    print(
-                        f"{BRIGHT_CYAN}💡 You can use local models (vLLM, Ollama) without API keys{RESET}\n",
-                    )
-            else:
-                print(f"{BRIGHT_GREEN}✅ API keys detected{RESET}")
+                    print(f"\n{BRIGHT_YELLOW}⚠️  Setup cancelled{RESET}")
+                    print(f"{BRIGHT_CYAN}💡 You can run 'massgen --setup' anytime to configure API keys{RESET}\n")
+                    return
+
+            except ImportError:
+                # Fallback to CLI-based first-run flow
+                builder = ConfigBuilder(default_mode=True)
+                existing_api_keys = builder.detect_api_keys()
+                cloud_providers = ["openai", "anthropic", "gemini", "grok", "azure_openai"]
+                has_api_keys = any(existing_api_keys.get(provider, False) for provider in cloud_providers)
+
+                print()
+                print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
+                print(f"{BRIGHT_CYAN}  Welcome to MassGen!{RESET}")
+                print(f"{BRIGHT_CYAN}{'=' * 60}{RESET}")
                 print()
 
-            # Step 2: Optional Docker and skills setup
-            # Offer to set up Docker
-            try:
-                docker_choice = (
-                    input(
-                        f"  {BRIGHT_CYAN}Set up Docker images for code execution? [Y/n]: {RESET}",
-                    )
-                    .strip()
-                    .lower()
-                )
-                if docker_choice in ["y", "yes", ""]:
-                    setup_docker()
+                if not has_api_keys:
+                    print("  Let's first set up your API keys...")
                     print()
-            except (KeyboardInterrupt, EOFError):
-                print()
+                    api_keys = builder.interactive_api_key_setup()
+                    if any(api_keys.values()):
+                        print(f"\n{BRIGHT_GREEN}✅ API key setup complete!{RESET}\n")
+                    else:
+                        print(f"\n{BRIGHT_YELLOW}⚠️  No API keys configured{RESET}\n")
+                else:
+                    print(f"{BRIGHT_GREEN}✅ API keys detected{RESET}\n")
 
-            # Offer to install skills
-            try:
-                skills_choice = (
-                    input(
-                        f"  {BRIGHT_CYAN}Install skills (openskills, Anthropic collection)? [Y/n]: {RESET}",
-                    )
-                    .strip()
-                    .lower()
-                )
-                if skills_choice in ["y", "yes", ""]:
-                    from .utils.skills_installer import install_skills
-
-                    install_skills()
-                    print()
-            except (KeyboardInterrupt, EOFError):
-                print()
-
-            # Step 3: Choose setup method
-            print("  Let's set up your default configuration...")
-            print()
-
-            import questionary
-
-            setup_choice = questionary.select(
-                "Choose setup method:",
-                choices=[
-                    questionary.Choice(
-                        title="Quickstart - Fast setup with smart defaults (recommended)",
-                        value="quickstart",
-                    ),
-                    questionary.Choice(
-                        title="Full - Advanced configuration with all options",
-                        value="full",
-                    ),
-                ],
-                default="quickstart",
-            ).ask()
-
-            if not setup_choice:
-                # User cancelled
-                print(f"\n{BRIGHT_YELLOW}Setup cancelled{RESET}\n")
-                return
-
-            if setup_choice == "quickstart":
                 print()
                 result = builder.run_quickstart()
-            else:
-                print()
-                result = builder.run()
 
-            if result and len(result) >= 2:
-                # Handle both 2-tuple (full builder) and 3-tuple (quickstart with interface choice)
-                filepath = result[0]
-                question = result[1]
-                interface_choice = result[2] if len(result) >= 3 else "terminal"
+                if result and len(result) >= 2:
+                    filepath = result[0]
+                    question = result[1]
+                    interface_choice = result[2] if len(result) >= 3 else "terminal"
 
-                if filepath:
-                    # Set the config path
-                    args.config = filepath
+                    if filepath:
+                        # Set the config path
+                        args.config = filepath
 
-                    # Check if user chose web interface
-                    if interface_choice == "web":
-                        # Launch web UI directly (web launch code above has already been evaluated)
-                        try:
-                            from .frontend.web import run_server
-
-                            config_path = filepath
-                            prompt_question = question if question else None
-
-                            print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
-                            print(
-                                f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}",
-                            )
-                            print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
-
-                            # Build auto-launch URL if question is provided
-                            auto_url = None
-                            if prompt_question:
-                                import urllib.parse
-
-                                prompt_encoded = urllib.parse.quote(prompt_question)
-                                auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
-                                config_encoded = urllib.parse.quote(config_path)
-                                auto_url += f"&config={config_encoded}"
-                                print(
-                                    f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}",
-                                )
-
-                            print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
-
-                            # Auto-open browser
-                            browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
-
-                            def open_browser():
-                                import time
-
-                                time.sleep(0.5)
-                                webbrowser.open(browser_url)
-
-                            threading.Thread(target=open_browser, daemon=True).start()
-                            run_server(
-                                host=args.web_host,
-                                port=args.web_port,
-                                config_path=config_path,
-                                automation_mode=False,
-                            )
-                        except ImportError as e:
-                            print(
-                                f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}",
-                            )
-                            print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
-                            logger.debug(f"Import error: {e}")
-                            sys.exit(1)
-                        return
-                    elif question:
-                        # If user provided a question, set it
-                        args.question = question
-                        # Will run single question mode
-                    else:
-                        # No question - will launch interactive mode
-                        # Check if this is NOT already the default config
-                        default_config = Path.home() / ".config/massgen/config.yaml"
-                        is_default = Path(filepath).resolve() == default_config.resolve()
-
-                        if not is_default:
-                            # Ask if they want to save as default (for any non-default config)
-                            # Determine what type of config this is for messaging
-                            is_example = False
+                        # Check if user chose web interface
+                        if interface_choice == "web":
                             try:
-                                from importlib.resources import files
+                                from .frontend.web import run_server
 
-                                package_configs = files("massgen").joinpath("configs")
-                                filepath_path = Path(filepath).resolve()
-                                package_path = Path(str(package_configs)).resolve()
-                                is_example = str(filepath_path).startswith(
-                                    str(package_path),
-                                )
-                            except Exception:
-                                pass
+                                config_path = filepath
+                                prompt_question = question if question else None
 
-                            if is_example:
+                                print(f"{BRIGHT_CYAN}🌐 Starting MassGen Web UI...{RESET}")
                                 print(
-                                    f"\n{BRIGHT_CYAN}📦 You selected a package example{RESET}",
+                                    f"{BRIGHT_GREEN}   Server: http://{args.web_host}:{args.web_port}{RESET}",
                                 )
-                            else:
-                                print(f"\n{BRIGHT_CYAN}📄 You selected a config{RESET}")
-                            print(f"   {filepath}")
+                                print(f"{BRIGHT_GREEN}   Config: {config_path}{RESET}")
 
-                            from rich.prompt import Confirm
+                                auto_url = None
+                                if prompt_question:
+                                    import urllib.parse
 
-                            save_as_default = Confirm.ask(
-                                "\n[prompt]Save this as your default config?[/prompt]",
-                                default=False,
+                                    prompt_encoded = urllib.parse.quote(prompt_question)
+                                    auto_url = f"http://{args.web_host}:{args.web_port}/?prompt={prompt_encoded}"
+                                    config_encoded = urllib.parse.quote(config_path)
+                                    auto_url += f"&config={config_encoded}"
+                                    print(
+                                        f"{BRIGHT_GREEN}   Auto-launch URL: {auto_url}{RESET}",
+                                    )
+
+                                print(f"{BRIGHT_YELLOW}   Press Ctrl+C to stop{RESET}\n")
+
+                                browser_url = auto_url if auto_url else f"http://{args.web_host}:{args.web_port}"
+
+                                def open_browser():
+                                    import time
+
+                                    time.sleep(0.5)
+                                    webbrowser.open(browser_url)
+
+                                threading.Thread(target=open_browser, daemon=True).start()
+                                run_server(
+                                    host=args.web_host,
+                                    port=args.web_port,
+                                    config_path=config_path,
+                                    automation_mode=False,
+                                )
+                            except ImportError as e:
+                                print(
+                                    f"{BRIGHT_RED}❌ Web UI dependencies not installed.{RESET}",
+                                )
+                                print(f"{BRIGHT_CYAN}   Run: pip install massgen{RESET}")
+                                logger.debug(f"Import error: {e}")
+                                sys.exit(1)
+                            return
+                        elif question:
+                            args.question = question
+                        else:
+                            print(
+                                f"\n{BRIGHT_GREEN}🚀 Launching interactive mode...{RESET}\n",
                             )
-
-                            if save_as_default:
-                                # Copy to default location
-                                default_config.parent.mkdir(parents=True, exist_ok=True)
-                                shutil.copy(filepath, default_config)
-                                print(
-                                    f"\n{BRIGHT_GREEN}✅ Config saved to: {default_config}{RESET}",
-                                )
-                                args.config = str(default_config)
-                            else:
-                                # Just use for this session
-                                print(
-                                    f"\n{BRIGHT_CYAN}💡 Using for this session only{RESET}",
-                                )
-
-                        # Launch into interactive mode
-                        print(
-                            f"\n{BRIGHT_GREEN}🚀 Launching interactive mode...{RESET}\n",
-                        )
-                        # Don't return - continue to main() below
+                    else:
+                        # No filepath - user cancelled
+                        return
                 else:
-                    # No filepath - user cancelled
+                    # Builder returned None - user cancelled
                     return
-            else:
-                # Builder returned None - user cancelled
-                return
 
     # Now call the async main with the parsed arguments
     try:

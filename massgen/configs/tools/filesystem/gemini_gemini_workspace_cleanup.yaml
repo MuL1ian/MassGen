@@ -36,7 +36,7 @@ orchestrator:
       # Agents can read the messy directory and delete redundant files
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # What happens:

@@ -192,4 +192,4 @@ agents:
       Work efficiently - provide clear task descriptions to gemini_computer_use tool.
 
 display:
-  type: "rich_terminal"
+  type: "textual_terminal"

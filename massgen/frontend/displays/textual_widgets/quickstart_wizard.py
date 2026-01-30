@@ -11,8 +11,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 from textual.app import ComposeResult
-from textual.containers import Container, ScrollableContainer
-from textual.widgets import Input, Label, Select, TextArea
+from textual.containers import Container
+from textual.widgets import Input, Label, OptionList, Select, TextArea
+from textual.widgets.option_list import Option
 
 from .wizard_base import StepComponent, WizardModal, WizardState, WizardStep
 from .wizard_steps import LaunchOptionsStep, WelcomeStep
@@ -54,11 +55,11 @@ class QuickstartWelcomeStep(WelcomeStep):
 
 
 class AgentCountStep(StepComponent):
-    """Step for selecting number of agents."""
+    """Step for selecting number of agents using native OptionList."""
 
     COUNTS = [
-        ("1", "1 Agent", "Single agent mode - no voting, fast execution"),
-        ("2", "2 Agents", "Two agents collaborate with voting"),
+        ("1", "1 Agent", "Single agent mode"),
+        ("2", "2 Agents", "Two agents collaborating"),
         ("3", "3 Agents (Recommended)", "Three agents for robust consensus"),
         ("4", "4 Agents", "Four agents for complex tasks"),
         ("5", "5 Agents", "Maximum agents for diverse perspectives"),
@@ -73,40 +74,33 @@ class AgentCountStep(StepComponent):
     ) -> None:
         super().__init__(wizard_state, id=id, classes=classes)
         self._selected_count: str = "3"
-        self._option_widgets: Dict[str, Container] = {}
+        self._option_list: Optional[OptionList] = None
 
     def compose(self) -> ComposeResult:
         yield Label("How many agents should work on your tasks?", classes="text-input-label")
 
-        with ScrollableContainer(classes="option-list"):
-            for value, label, description in self.COUNTS:
-                option_classes = "option-item"
-                if value == self._selected_count:
-                    option_classes += " selected"
+        # Build native options
+        textual_options = []
+        for value, label, description in self.COUNTS:
+            option_text = f"[bold]{label}[/bold]\n[dim]{description}[/dim]"
+            textual_options.append(Option(option_text, id=value))
 
-                with Container(classes=option_classes, id=f"count_{value}") as container:
-                    yield Label(label, classes="option-label")
-                    yield Label(description, classes="option-description")
-                    self._option_widgets[value] = container
+        self._option_list = OptionList(
+            *textual_options,
+            id="count_list",
+            classes="step-option-list",
+        )
+        yield self._option_list
 
-    async def on_click(self, event) -> None:
-        """Handle clicks on count items."""
-        target = event.target
-        while target and not (hasattr(target, "id") and target.id and target.id.startswith("count_")):
-            target = target.parent
+        # Set default selection (3 agents - index 2)
+        if self._option_list:
+            self._option_list.highlighted = 2
 
-        if target and hasattr(target, "id") and target.id:
-            value = target.id.replace("count_", "")
-            await self._select_count(value)
-
-    async def _select_count(self, value: str) -> None:
-        """Select a count."""
-        for opt_value, widget in self._option_widgets.items():
-            if opt_value == value:
-                widget.add_class("selected")
-            else:
-                widget.remove_class("selected")
-        self._selected_count = value
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Native event handler for option selection."""
+        if event.option and event.option.id:
+            self._selected_count = str(event.option.id)
+            _quickstart_log(f"AgentCountStep: Selected {self._selected_count}")
 
     def get_value(self) -> int:
         return int(self._selected_count)
@@ -114,15 +108,17 @@ class AgentCountStep(StepComponent):
     def set_value(self, value: Any) -> None:
         if isinstance(value, int):
             self._selected_count = str(value)
-            for opt_value, widget in self._option_widgets.items():
-                if opt_value == str(value):
-                    widget.add_class("selected")
-                else:
-                    widget.remove_class("selected")
+            # Highlight option in OptionList
+            idx = next(
+                (i for i, (v, _, _) in enumerate(self.COUNTS) if v == str(value)),
+                None,
+            )
+            if idx is not None and self._option_list:
+                self._option_list.highlighted = idx
 
 
 class SetupModeStep(StepComponent):
-    """Step for choosing same or different backends per agent."""
+    """Step for choosing same or different backends per agent using native OptionList."""
 
     OPTIONS = [
         ("same", "Same Backend for All", "Use the same provider and model for all agents"),
@@ -138,38 +134,33 @@ class SetupModeStep(StepComponent):
     ) -> None:
         super().__init__(wizard_state, id=id, classes=classes)
         self._selected_mode: str = "same"
-        self._option_widgets: Dict[str, Container] = {}
+        self._option_list: Optional[OptionList] = None
 
     def compose(self) -> ComposeResult:
         yield Label("How do you want to configure your agents?", classes="text-input-label")
 
-        with ScrollableContainer(classes="option-list"):
-            for value, label, description in self.OPTIONS:
-                option_classes = "option-item"
-                if value == self._selected_mode:
-                    option_classes += " selected"
+        # Build native options
+        textual_options = []
+        for value, label, description in self.OPTIONS:
+            option_text = f"[bold]{label}[/bold]\n[dim]{description}[/dim]"
+            textual_options.append(Option(option_text, id=value))
 
-                with Container(classes=option_classes, id=f"mode_{value}") as container:
-                    yield Label(label, classes="option-label")
-                    yield Label(description, classes="option-description")
-                    self._option_widgets[value] = container
+        self._option_list = OptionList(
+            *textual_options,
+            id="mode_list",
+            classes="step-option-list",
+        )
+        yield self._option_list
 
-    async def on_click(self, event) -> None:
-        target = event.target
-        while target and not (hasattr(target, "id") and target.id and target.id.startswith("mode_")):
-            target = target.parent
+        # Set default selection (same - first item)
+        if self._option_list:
+            self._option_list.highlighted = 0
 
-        if target and hasattr(target, "id") and target.id:
-            value = target.id.replace("mode_", "")
-            await self._select_mode(value)
-
-    async def _select_mode(self, value: str) -> None:
-        for opt_value, widget in self._option_widgets.items():
-            if opt_value == value:
-                widget.add_class("selected")
-            else:
-                widget.remove_class("selected")
-        self._selected_mode = value
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Native event handler for option selection."""
+        if event.option and event.option.id:
+            self._selected_mode = str(event.option.id)
+            _quickstart_log(f"SetupModeStep: Selected {self._selected_mode}")
 
     def get_value(self) -> str:
         return self._selected_mode
@@ -177,11 +168,13 @@ class SetupModeStep(StepComponent):
     def set_value(self, value: Any) -> None:
         if isinstance(value, str):
             self._selected_mode = value
-            for opt_value, widget in self._option_widgets.items():
-                if opt_value == value:
-                    widget.add_class("selected")
-                else:
-                    widget.remove_class("selected")
+            # Highlight option in OptionList
+            idx = next(
+                (i for i, (v, _, _) in enumerate(self.OPTIONS) if v == value),
+                None,
+            )
+            if idx is not None and self._option_list:
+                self._option_list.highlighted = idx
 
 
 class ProviderModelStep(StepComponent):
@@ -242,7 +235,8 @@ class ProviderModelStep(StepComponent):
 
         # Provider selection
         yield Label("Provider:", classes="text-input-label")
-        provider_options = [(pid, name) for pid, name in self._providers]
+        # Select expects (label, value) tuples, so swap to (name, pid)
+        provider_options = [(name, pid) for pid, name in self._providers]
         self._provider_select = Select(
             provider_options,
             value=self._current_provider,
@@ -303,7 +297,7 @@ class ProviderModelStep(StepComponent):
 
 
 class ExecutionModeStep(StepComponent):
-    """Step for selecting Docker or local execution mode."""
+    """Step for selecting Docker or local execution mode using native OptionList."""
 
     OPTIONS = [
         ("docker", "Docker Mode (Recommended)", "Full code execution in isolated containers - most powerful"),
@@ -319,38 +313,33 @@ class ExecutionModeStep(StepComponent):
     ) -> None:
         super().__init__(wizard_state, id=id, classes=classes)
         self._selected_mode: str = "docker"
-        self._option_widgets: Dict[str, Container] = {}
+        self._option_list: Optional[OptionList] = None
 
     def compose(self) -> ComposeResult:
         yield Label("Select execution mode:", classes="text-input-label")
 
-        with ScrollableContainer(classes="option-list"):
-            for value, label, description in self.OPTIONS:
-                option_classes = "option-item"
-                if value == self._selected_mode:
-                    option_classes += " selected"
+        # Build native options
+        textual_options = []
+        for value, label, description in self.OPTIONS:
+            option_text = f"[bold]{label}[/bold]\n[dim]{description}[/dim]"
+            textual_options.append(Option(option_text, id=value))
 
-                with Container(classes=option_classes, id=f"exec_{value}") as container:
-                    yield Label(label, classes="option-label")
-                    yield Label(description, classes="option-description")
-                    self._option_widgets[value] = container
+        self._option_list = OptionList(
+            *textual_options,
+            id="exec_list",
+            classes="step-option-list",
+        )
+        yield self._option_list
 
-    async def on_click(self, event) -> None:
-        target = event.target
-        while target and not (hasattr(target, "id") and target.id and target.id.startswith("exec_")):
-            target = target.parent
+        # Set default selection (docker - first item)
+        if self._option_list:
+            self._option_list.highlighted = 0
 
-        if target and hasattr(target, "id") and target.id:
-            value = target.id.replace("exec_", "")
-            await self._select_mode(value)
-
-    async def _select_mode(self, value: str) -> None:
-        for opt_value, widget in self._option_widgets.items():
-            if opt_value == value:
-                widget.add_class("selected")
-            else:
-                widget.remove_class("selected")
-        self._selected_mode = value
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Native event handler for option selection."""
+        if event.option and event.option.id:
+            self._selected_mode = str(event.option.id)
+            _quickstart_log(f"ExecutionModeStep: Selected {self._selected_mode}")
 
     def get_value(self) -> bool:
         return self._selected_mode == "docker"
@@ -358,11 +347,10 @@ class ExecutionModeStep(StepComponent):
     def set_value(self, value: Any) -> None:
         if isinstance(value, bool):
             self._selected_mode = "docker" if value else "local"
-            for opt_value, widget in self._option_widgets.items():
-                if opt_value == self._selected_mode:
-                    widget.add_class("selected")
-                else:
-                    widget.remove_class("selected")
+            # Highlight option in OptionList
+            idx = 0 if self._selected_mode == "docker" else 1
+            if self._option_list:
+                self._option_list.highlighted = idx
 
 
 class ContextPathStep(StepComponent):
@@ -587,7 +575,9 @@ class QuickstartWizard(WizardModal):
                 title="Provider & Model",
                 description="Choose your AI provider and model",
                 component_class=ProviderModelStep,
+                skip_condition=lambda state: state.get("setup_mode") == "different",
             ),
+            # Dynamic per-agent steps are inserted here when setup_mode == "different"
             WizardStep(
                 id="execution_mode",
                 title="Execution Mode",
@@ -613,6 +603,75 @@ class QuickstartWizard(WizardModal):
                 component_class=LaunchOptionsStep,
             ),
         ]
+
+    async def action_next_step(self) -> None:
+        """Override to insert per-agent model steps when setup_mode is 'different'."""
+        if not self._current_component:
+            return
+
+        step = self._steps[self.state.current_step_idx]
+
+        # Validate current step
+        error = self._current_component.validate()
+        if error:
+            self._show_error(error)
+            self.state.set_error(step.id, error)
+            return
+
+        # Save current step data
+        value = self._current_component.get_value()
+        self.state.step_data[step.id] = value
+        self.state.clear_error(step.id)
+
+        # After setup_mode selection, insert per-agent steps if "different"
+        if step.id == "setup_mode" and not self._dynamic_steps_added:
+            setup_mode = value if isinstance(value, str) else "same"
+            agent_count = self.state.get("agent_count", 3)
+
+            if setup_mode == "different" and agent_count > 1:
+                # Find insertion point (after provider_model step)
+                insert_idx = next(
+                    (i for i, s in enumerate(self._steps) if s.id == "provider_model"),
+                    None,
+                )
+                if insert_idx is not None:
+                    # Insert after the (skipped) provider_model step
+                    insert_idx += 1
+                    for i in range(agent_count):
+                        agent_num = i + 1
+                        agent_label = f"Agent {agent_num}"
+
+                        def make_agent_step(label, num):
+                            class PerAgentProviderModelStep(ProviderModelStep):
+                                def __init__(self, wizard_state, **kwargs):
+                                    super().__init__(wizard_state, agent_label=label, **kwargs)
+
+                                def get_value(self):
+                                    val = super().get_value()
+                                    # Also store in wizard state for on_wizard_complete
+                                    self.wizard_state.set(f"agent_{num}_config", val)
+                                    return val
+
+                            return PerAgentProviderModelStep
+
+                        self._steps.insert(
+                            insert_idx + i,
+                            WizardStep(
+                                id=f"agent_{agent_num}_model",
+                                title=f"Agent {agent_num} Model",
+                                description=f"Choose provider and model for Agent {agent_num}",
+                                component_class=make_agent_step(agent_label, agent_num),
+                            ),
+                        )
+
+            self._dynamic_steps_added = True
+
+        # Find next step
+        next_idx = self._find_next_step(self.state.current_step_idx + 1)
+        if next_idx >= len(self._steps):
+            await self._complete_wizard()
+        else:
+            await self._show_step(next_idx)
 
     async def on_wizard_complete(self) -> Any:
         """Save the configuration and return launch options."""

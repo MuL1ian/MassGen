@@ -35,7 +35,7 @@ orchestrator:
       # Only styles.css is accessible - index.html in the same directory is NOT accessible
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # Result:

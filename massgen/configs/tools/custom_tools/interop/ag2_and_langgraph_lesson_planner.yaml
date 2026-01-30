@@ -61,5 +61,5 @@ agents:
       present it clearly and mention that this was generated using the LangGraph framework.
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

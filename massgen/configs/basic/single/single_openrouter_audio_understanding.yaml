@@ -11,5 +11,5 @@ agent:
   system_message: "You are a helpful assistant"
 # Display configuration
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

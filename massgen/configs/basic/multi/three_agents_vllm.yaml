@@ -16,5 +16,5 @@ agents:
       model: "glm-4.5"
       base_url: "https://api.z.ai/api/paas/v4"
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

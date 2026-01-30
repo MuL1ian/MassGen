@@ -151,7 +151,7 @@ orchestrator:
 # UI CONFIGURATION
 # ====================
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # ====================

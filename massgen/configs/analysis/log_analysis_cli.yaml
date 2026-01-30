@@ -111,5 +111,5 @@ timeout_settings:
   orchestrator_timeout_seconds: 1800
 
 ui:
-  display_type: rich_terminal
+  display_type: textual_terminal
   logging_enabled: true

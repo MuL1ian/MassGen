@@ -78,7 +78,7 @@ orchestrator:
   #   enable_planning_mode: false  # If true, agents plan without executing during coordination
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # What happens:

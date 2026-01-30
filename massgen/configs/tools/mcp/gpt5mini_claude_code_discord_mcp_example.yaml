@@ -34,5 +34,5 @@ agents:
     system_message: "You are a helpful AI assistant with web search and code execution capabilities. You should always complete tasks that you can do. If you cannot complete a task, just omit it."
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

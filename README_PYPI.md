@@ -150,7 +150,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 | **⚡ Parallel Processing** | Multiple agents tackle problems simultaneously |
 | **👥 Intelligence Sharing** | Agents share and learn from each other's work |
 | **🔄 Consensus Building** | Natural convergence through collaborative refinement |
-| **📊 Live Visualization** | See agents' working processes in real-time |
+| **🖥️ Live Visualization** | Interactive Textual TUI with timeline, agent cards, and vote tracking (default). Also available: Web UI, Rich display. |
 
 ---
 
@@ -269,7 +269,21 @@ The `--quickstart` command will:
 - Ask how many agents you want (1-5, default 3)
 - Ask which backend/model for each agent
 - Auto-detect Docker availability and configure execution mode
-- Create a ready-to-use config and launch into interactive mode
+- Create a ready-to-use config and launch into interactive TUI mode
+
+**🖥️ Textual TUI (Default Display Mode):**
+
+MassGen launches with an interactive Terminal User Interface (TUI) by default, providing:
+- 📊 **Real-time timeline** of all agent activities
+- 🎯 **Individual agent status cards** for each team member
+- 🗳️ **Vote visualization** and consensus tracking
+- 💬 **Multi-turn conversation** management
+- ⌨️ **Keyboard controls** for navigation (↑/↓ to scroll, 'q' to cancel)
+
+**Legacy Rich display:**
+```bash
+massgen --display rich "Your question"
+```
 
 **Alternative: Full Setup Wizard**
 

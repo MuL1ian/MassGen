@@ -4528,3 +4528,113 @@ Toast.-error {
 Toast.-success {
     border-left: thick #2e7d4a;
 }
+
+/* ============================================
+   Enhanced Focus Styles for Wizards (Light Theme)
+   ============================================ */
+
+/* Strong focus ring for all interactive elements */
+WizardModal Input:focus,
+WizardModal Select:focus,
+WizardModal TextArea:focus,
+WizardModal OptionList:focus,
+WizardModal Checkbox:focus {
+    border: solid $accent-primary;
+}
+
+/* OptionList specific focus and selection */
+WizardModal OptionList:focus > .option-list--option-highlighted {
+    background: #dce9f7;
+    border-left: thick $accent-primary;
+    color: #0a3069;
+    text-style: bold;
+}
+
+WizardModal OptionList > .option-list--option-highlighted {
+    background: #dce9f7;
+    border-left: thick $accent-primary;
+    color: #0a3069;
+    text-style: bold;
+}
+
+/* Hover state for OptionList items */
+WizardModal OptionList > .option-list--option:hover {
+    background: $bg-surface-3;
+    border-left: thick $border-highlight;
+}
+
+/* Selected item in OptionList */
+WizardModal .step-option-list {
+    border: solid $border-default;
+    background: $bg-surface;
+    padding: 0;
+}
+
+/* Checkbox focus and states */
+WizardModal Checkbox:focus {
+    background: $bg-surface-2;
+    border: solid $accent-primary;
+}
+
+WizardModal Checkbox:hover {
+    background: $bg-surface-3;
+}
+
+WizardModal .multi-select-checkbox,
+WizardModal .provider-checkbox {
+    margin: 0 1 1 1;
+    padding: 1;
+}
+
+/* Checkbox list container */
+WizardModal .checkbox-list,
+WizardModal .provider-checkbox-list {
+    padding: 1;
+    background: $bg-surface;
+    border: solid $border-default;
+}
+
+/* Configured provider label */
+WizardModal .configured-label {
+    color: $accent-success;
+    text-style: italic;
+    padding: 0 1;
+    margin: 0 0 1 0;
+}
+
+/* Input and TextArea enhanced focus */
+WizardModal Input:focus {
+    border: solid $accent-primary;
+    background: $bg-surface-2;
+}
+
+WizardModal TextArea:focus {
+    border: solid $accent-primary;
+    background: $bg-surface-2;
+}
+
+/* Select widget focus */
+WizardModal Select:focus {
+    border: solid $accent-primary;
+    background: $bg-surface-2;
+}
+
+/* Wizard modal focus enhancement */
+WizardModal {
+    border: solid $accent-primary 50%;
+}
+
+WizardModal:focus-within {
+    border: solid $accent-primary;
+}
+
+/* Progress bar more prominent */
+#wizard_progress_bar {
+    height: 3;
+    background: $bg-surface;
+    border: solid $border-default;
+}
+
+#wizard_progress_bar > Bar {
+    background: $accent-primary;
+}

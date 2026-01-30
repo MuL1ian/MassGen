@@ -18,5 +18,5 @@ agents:
   # Removed agent_7 to avoid hitting 2 RPM limit for gemini-2.5-pro
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

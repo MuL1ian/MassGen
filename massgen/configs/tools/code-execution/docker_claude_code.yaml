@@ -28,5 +28,5 @@ timeout_settings:
   orchestrator_timeout_seconds: 300  # Docker startup adds ~5-10s overhead
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

@@ -73,5 +73,5 @@ agents:
       - Consider screen resolution (1280x800)
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

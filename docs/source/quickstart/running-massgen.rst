@@ -45,7 +45,7 @@ Quick Start Examples
          # Interactive mode (multi-turn)
          uv run massgen
 
-      Rich terminal UI with real-time streaming, multi-turn conversations, and YAML configuration.
+      Textual TUI (default) with timeline view, agent cards, vote visualization, and multi-turn conversations.
 
    .. tab:: WebUI
 

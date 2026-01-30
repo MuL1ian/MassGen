@@ -91,7 +91,14 @@ On first run, MassGen guides you through setup. Choose your preferred interface:
 
       1. **Configure API keys** (OpenRouter recommended, or individual providers)
       2. **Create your agent team** (choose from templates or examples)
-      3. **Launch interactive mode** immediately
+      3. **Launch interactive TUI mode** immediately
+
+      The Textual TUI (default) provides real-time visualization with:
+
+      - 📊 Timeline view of all agent activities
+      - 🎯 Individual agent status cards
+      - 🗳️ Vote visualization and consensus tracking
+      - 💬 Multi-turn conversation management
 
 Your configuration is saved to ``~/.config/massgen/config.yaml``.
 

@@ -68,7 +68,7 @@ timeout_settings:
   orchestrator_timeout_seconds: 600  # 10 minutes - compression takes time
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # What happens:
