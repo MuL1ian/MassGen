@@ -22,7 +22,7 @@ Target: ~2000 chars to leave room for per-release intro (~1000 chars) within Lin
 
 🐳Code execution — Each agent can run commands (with Docker support, if installed) and use code mode for efficient filesystem-discoverable tools with large token reduction. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/tools/code_execution.html
 
-🖥️Real-Time Web UI & Terminal Dashboards — Watch agents collaborate live through a browser-based React UI or interactive terminal dashboards, complete with coordination event visualizations. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/webui.html
+🖥️Interactive TUI (Default) & Web UI — Watch agents collaborate in real-time through an interactive Textual Terminal UI with mode cycling (Normal/Planning/Execute via Shift+Tab), collapsible tool batching, timeline streaming, and keyboard shortcuts. Also available: browser-based Web UI with React frontend for visual workflows. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/webui.html
 
 🪪Trace workflows — Orchestration logs, workspace history, cost tracking, and optional Logfire integration make agent behavior easy to understand and debug. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/logging.html#logging-directory-structure
 

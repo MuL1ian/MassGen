@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.44 Features](#-latest-features-v0144)
+- [v0.1.45 Features](#-latest-features-v0145)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.44)](#recent-achievements-v0144)
-- [Previous Achievements (v0.0.3 - v0.1.43)](#previous-achievements-v003---v0143)
+- [Recent Achievements (v0.1.45)](#recent-achievements-v0145)
+- [Previous Achievements (v0.0.3 - v0.1.44)](#previous-achievements-v003---v0144)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.45 Roadmap](#v0145-roadmap)
+- [v0.1.46 Roadmap](#v0146-roadmap)
 </details>
 
 <details open>
@@ -154,30 +154,31 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.44)
+## 🆕 Latest Features (v0.1.45)
 
-**🎉 Released: January 28, 2026**
+**🎉 Released: January 30, 2026**
 
-**What's New in v0.1.44:**
-- **🔄 Execute Mode** - Cycle through Normal → Planning → Execute modes via `Shift+Tab` to independently browse and execute existing plans
-- **📋 Plan Selector** - Browse up to 10 recent plans with timestamps, view full task breakdowns, and execute with preserved context paths
-- **📚 Enhanced Case Studies** - Interactive setup guides and quick start instructions on case studies page
-- **⚡ TUI Performance** - Optimized timeline rendering with viewport-based scrolling for faster UI responsiveness
-- **🔧 Plan Mode Fixes** - Fixed planning instruction injection bug in execute mode, improved tool tracking
+**What's New in v0.1.45:**
+- **🖥️ TUI as Default** - Superior Textual Terminal UI now launches by default for all users with automatic config migration
+- **⚙️ Config Migration** - Example configs updated to use `textual_terminal` display mode
+- **🚀 Enhanced Setup** - Setup wizard (`--setup`, `--quickstart`) generates TUI configs by default
+- **📚 Documentation Polish** - Enhanced first-run experience and prominent TUI feature descriptions
+- **🔧 Bug Fixes** - Fixed case study page paths, PyPI packaging, and ReadTheDocs configuration
 
-**Try v0.1.44 Features:**
+**Try v0.1.45 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Experience Execute mode with plan cycling
-uv run massgen --display textual
+# Experience TUI by default (no --display flag needed)
+uv run massgen --config @examples/basic/multi/three_agents_default \
+  "Compare the benefits of solar, wind, and hydro energy"
 
-# In the TUI:
-# 1. Press Shift+Tab to enter Planning mode
-# 2. Create a plan: "Build a Python web scraper"
-# 3. Press Shift+Tab twice to enter Execute mode
-# 4. Select your plan and press Enter to execute
+# Use legacy Rich display if needed
+uv run massgen --display rich "Your question"
+
+# Setup wizard generates TUI configs automatically
+uv run massgen --quickstart
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1226,35 +1227,29 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.44)
+### Recent Achievements (v0.1.45)
 
-**🎉 Released: January 28, 2026**
+**🎉 Released: January 30, 2026**
 
-#### Execute Mode for Independent Plan Selection
-- **Mode Cycling**: Navigate through Normal → Planning → Execute modes via `Shift+Tab` or mode bar click
-- **Plan Selector Popover**: Browse up to 10 recent plans with timestamps and original prompts
-- **View Full Plan**: Modal displays complete task breakdown from selected plan
-- **Empty Submission**: Press Enter to execute selected plan without additional input
-- **Context Path Preservation**: Context paths (`@/path/to/file`) automatically restored from planning to execution phase
+#### TUI as Default Display Mode
+- **Default Experience**: Textual Terminal UI now launches by default for all new installations
+- **Automatic Migration**: Existing configs with `rich_terminal` automatically migrate with deprecation warning
+- **Config Updates**: Example Configs updated to use `textual_terminal` display mode
+- **Legacy Access**: Use `--display rich` flag to explicitly request legacy Rich display
 
-#### Case Studies UX Enhancements
-- **Setup Guide**: Interactive "Try it yourself" collapsible sections with quick start instructions
-- **Quick Start**: `uv run massgen --web` command with model selection guidance
-- **Terminal Config**: Example YAML configuration for CLI users in `docs/source/case_studies/terminal_config.txt`
-- **Baseline Comparison**: Helper text prompting users to compare MassGen with single-agent outputs
+#### Enhanced Setup & First-Run Experience
+- **Setup Wizard**: `--setup` and `--quickstart` commands now generate TUI configs by default
+- **Documentation**: Clear TUI benefits highlighted throughout documentation
+- **User Experience**: Improved first-run experience with prominent TUI feature descriptions
 
-#### TUI Performance Improvements
-- **Timeline Optimization**: Viewport-based rendering with reduced size limits for faster scrolling
-- **Tool Card Spacing**: Fixed spacing issues in tool display cards
-- **Tool Tracking**: Enhanced backend integration for better streaming tool visualization
+#### Bug Fixes & Infrastructure
+- **Case Study Paths**: Fixed documentation rendering for case study pages
+- **PyPI Packaging**: Added missing files to `MANIFEST.in` for complete package distribution
+- **ReadTheDocs**: Updated configuration with Python 3.12 for documentation builds
 
-#### Technical Improvements
-- **Plan Mode Separation**: Fixed bug where planning instructions were incorrectly injected during execute mode
-- **Context Paths Storage**: New `context_paths` field in `PlanMetadata` (`massgen/plan_storage.py`)
-- **Plan Execution**: `prepare_plan_execution_config()` in `massgen/plan_execution.py` now restores context paths
-- **Empty Input Support**: Input widget allows empty submission for plan execution in execute mode
+### Previous Achievements (v0.0.3 - v0.1.44)
 
-### Previous Achievements (v0.0.3 - v0.1.43)
+✅ **Execute Mode for Independent Plan Selection (v0.1.44)**: Mode cycling through Normal → Planning → Execute via `Shift+Tab` or mode bar, plan selector browsing up to 10 recent plans with timestamps, view full plan modal with complete task breakdown, empty submission for plan execution, context path preservation between planning and execution phases, enhanced case studies with interactive setup guides, TUI performance optimizations with viewport-based rendering
 
 ✅ **Tool Call Batching & Interactive Case Studies (v0.1.43)**: Consecutive MCP tool calls grouped into collapsible tree views with "+N more" indicators and click-to-expand. New interactive case studies page with side-by-side SVG comparisons. `PlanOptionsPopover` for browsing plans and selecting depth. Quoted path support for paths with spaces. Final presentation display and TUI polish fixes.
 
@@ -1486,19 +1481,19 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.45 Roadmap
+### v0.1.46 Roadmap
 
-Version 0.1.45 focuses on improving subagent display in the TUI:
+Version 0.1.46 focuses on fixing TUI scrolling and timeline management issues:
 
 #### Planned Features
-- **Subagent TUI Streaming** ([#821](https://github.com/Leezekun/MassGen/issues/821)): Stream and display subagents almost identically to main process in TUI
-- **Subagent Timeline View**: Click subagent preview card to view full timeline with identical parsing and tool displays
-- **Single Source of Truth**: Refactor TUI display creation to use shared components for main agents and subagents
+- **Fix TUI Scrolling Problem** ([#824](https://github.com/Leezekun/MassGen/issues/824)): Fix blank space issues when TUI truncates older items after reaching item limit
+- **Timeline Truncation Fix**: Ensure proper rendering of final presentation box without being pushed down
+- **Container Height Management**: Fix container height calculations for proper reflow when content is truncated
 
 Key technical approach:
-- **Unified Display Components**: Create reusable TUI components that work for both main agents and subagents
-- **Event Streaming**: Pass events from subagents or main agents through same parsing pipeline
-- **Interactive Preview**: Collapsible subagent cards that expand to full timeline views
+- **Item Removal Logic**: Fix timeline item removal to properly reclaim space with smooth transitions
+- **Final Presentation Positioning**: Ensure final answer box displays correctly without empty space
+- **Edge Case Handling**: Test with long-running sessions and various terminal sizes
 
 ---
 

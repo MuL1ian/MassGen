@@ -1,4 +1,4 @@
-# MassGen v0.1.44 Release Announcement
+# MassGen v0.1.45 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.44, featuring Execute Mode for independent plan selection! 🔄 Cycle through Normal → Planning → Execute modes via Shift+Tab, browse and select from existing plans, and automatically preserve context paths between planning and execution phases. Enhanced case studies page with setup guides for first-time users.
+We're excited to release MassGen v0.1.45, featuring TUI (Textual Terminal) as the default display mode! 🚀 All users now get the superior interactive terminal UI by default, with automatic migration for existing configs. Setup wizards generate TUI configs out of the box, and documentation has been enhanced to highlight the TUI experience.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.44
+pip install massgen==0.1.45
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.44
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.45
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,34 +29,37 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.44, featuring Execute Mode for independent plan selection! 🔄
+We're excited to release MassGen v0.1.45, featuring TUI (Textual Terminal) as the default display mode! 🚀
 
-**Execute Mode**
-- Cycle through Normal → Planning → Execute modes via Shift+Tab
-- Plan selector popover shows up to 10 recent plans with timestamps
-- "View Full Plan" button displays complete task breakdown
-- Press Enter to execute selected plan without additional input
-- Context paths automatically preserved from planning to execution
+**TUI as Default Display**
+- All new MassGen installations use the superior TUI experience by default
+- Existing configs with `rich_terminal` automatically migrate with deprecation warning
+- 160+ example configs updated to use `textual_terminal`
+- Use `--display rich` flag to explicitly request legacy Rich display
 
-**Case Studies UX Enhancements**
-- Interactive "Try it yourself" setup sections with quick start instructions
-- Quick start command: `uv run massgen --web`
-- Model selection guidance for best results
-- Terminal config examples for CLI users
-- Helper text for comparing MassGen with single-agent baselines
+**Enhanced Setup & First-Run Experience**
+- Setup wizard (`--setup`, `--quickstart`) generates TUI configs by default
+- Clear documentation highlighting TUI benefits for new users
+- Prominent TUI feature descriptions throughout docs
+- Smooth migration path for existing users
 
-**TUI Performance Improvements**
-- Optimized timeline rendering with viewport-based scrolling
-- Fixed tool card spacing issues
-- Enhanced tool tracking for better streaming visualization
+**Bug Fixes & Packaging**
+- Fixed case study page paths for proper documentation rendering
+- Added missing files to MANIFEST.in for complete PyPI package distribution
+- Updated ReadTheDocs configuration with Python 3.12
 
-**Bug Fixes**
-- Fixed planning instruction injection during execute mode
-- Improved plan mode separation logic
+**What is the TUI?**
+The Textual Terminal UI provides:
+- Interactive mode cycling (Normal → Planning → Execute) via Shift+Tab
+- Real-time agent progress with collapsible tool calls
+- Plan browsing and execution from a visual selector
+- Human input queue for mid-stream message injection
+- Organized timeline with tool batching and rounded cards
+- Professional "Conversational AI" aesthetic with desaturated colors
 
-Try Execute Mode: `massgen --display textual` → Press Shift+Tab twice to enter Execute mode
+Try the TUI: `massgen --display textual` (now the default!)
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.44
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.45
 
 <!-- Paste feature-highlights.md content here -->
 

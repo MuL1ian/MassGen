@@ -190,6 +190,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.45 (January 30, 2026)** - TUI as Default & Config Migration
+
+Textual Terminal UI now launches by default for all users with automatic config migration. All 160+ example configs updated to use ``textual_terminal`` display mode. Setup wizard (``--setup``, ``--quickstart``) generates TUI configs by default. Enhanced first-run experience with prominent TUI feature descriptions. Bug fixes for case study paths, PyPI packaging, and ReadTheDocs configuration.
+
 **v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection
 
 New Execute mode for cycling through Normal → Planning → Execute modes via ``Shift+Tab``. Users can browse and select from existing plans with a plan selector popover. Context paths preserved between planning and execution phases. Enhanced case studies page with setup guides and quick start instructions.
@@ -197,10 +201,6 @@ New Execute mode for cycling through Normal → Planning → Execute modes via `
 **v0.1.43 (January 26, 2026)** - Tool Call Batching & Interactive Case Studies
 
 Consecutive MCP tool calls now grouped into collapsible tree views with timing info. New interactive case studies page with side-by-side SVG comparisons. Plan mode enhancements with ``PlanOptionsPopover`` for browsing plans and selecting depth. Quoted path support for paths with spaces. Final presentation display fixes.
-
-**v0.1.42 (January 23, 2026)** - TUI Visual Redesign
-
-Comprehensive visual overhaul with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, redesigned agent tabs with dot indicators, and polished modals. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
 
 :doc:`Full changelog → <changelog>`
 
