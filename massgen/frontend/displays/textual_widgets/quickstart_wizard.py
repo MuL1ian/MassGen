@@ -203,13 +203,17 @@ class ProviderModelStep(StepComponent):
         self._agent_label = agent_label
         self._provider_select: Optional[Select] = None
         self._model_select: Optional[Select] = None
+        self._key_input: Optional[Input] = None
+        self._key_label: Optional[Label] = None
         self._providers: List[Tuple[str, str]] = []  # (provider_id, display_name)
         self._models_by_provider: Dict[str, List[str]] = {}
+        self._provider_has_key: Dict[str, bool] = {}
+        self._provider_env_var: Dict[str, str] = {}
         self._current_provider: Optional[str] = None
         self._current_model: Optional[str] = None
 
     def _load_providers(self) -> None:
-        """Load available providers from ConfigBuilder."""
+        """Load all providers from ConfigBuilder, tracking which have keys."""
         try:
             from massgen.config_builder import ConfigBuilder
 
@@ -217,24 +221,70 @@ class ProviderModelStep(StepComponent):
             api_keys = builder.detect_api_keys()
 
             for provider_id, provider_info in builder.PROVIDERS.items():
-                # Only show providers with configured API keys
-                if not api_keys.get(provider_id, False):
-                    continue
-
                 name = provider_info.get("name", provider_id)
                 models = provider_info.get("models", [])
+                has_key = api_keys.get(provider_id, False)
+                env_var = provider_info.get("env_var", "")
 
                 self._providers.append((provider_id, name))
                 self._models_by_provider[provider_id] = models
+                self._provider_has_key[provider_id] = has_key
+                self._provider_env_var[provider_id] = env_var
 
-            # Set default provider and model
-            if self._providers:
-                self._current_provider = self._providers[0][0]
-                if self._models_by_provider.get(self._current_provider):
-                    self._current_model = self._models_by_provider[self._current_provider][0]
+            # Default to first provider that has a key, else first overall
+            configured = [pid for pid, _ in self._providers if self._provider_has_key.get(pid)]
+            first = configured[0] if configured else (self._providers[0][0] if self._providers else None)
+            if first:
+                self._current_provider = first
+                if self._models_by_provider.get(first):
+                    self._current_model = self._models_by_provider[first][0]
 
         except Exception as e:
             _quickstart_log(f"ProviderModelStep._load_providers error: {e}")
+
+    def _provider_options(self) -> list:
+        """Build provider select options, marking unconfigured ones."""
+        options = []
+        for pid, name in self._providers:
+            if self._provider_has_key.get(pid):
+                options.append((name, pid))
+            else:
+                options.append((f"{name} (no API key)", pid))
+        return options
+
+    def _update_key_input(self) -> None:
+        """Show/hide API key input based on current provider."""
+        if not self._key_input or not self._key_label:
+            return
+        pid = self._current_provider
+        if pid and not self._provider_has_key.get(pid):
+            env_var = self._provider_env_var.get(pid, "")
+            self._key_label.update(f"Enter API key ({env_var}):")
+            self._key_label.display = True
+            self._key_input.display = True
+            self._key_input.placeholder = f"Paste your {env_var} here..."
+            self._key_input.value = ""
+        else:
+            self._key_label.display = False
+            self._key_input.display = False
+
+    @staticmethod
+    def _save_api_key(env_var: str, key: str) -> None:
+        """Save API key to .env file."""
+        env_path = Path(".env")
+        lines = []
+        if env_path.exists():
+            lines = env_path.read_text().splitlines()
+        # Replace or append
+        found = False
+        for i, line in enumerate(lines):
+            if line.startswith(f"{env_var}="):
+                lines[i] = f"{env_var}={key}"
+                found = True
+                break
+        if not found:
+            lines.append(f"{env_var}={key}")
+        env_path.write_text("\n".join(lines) + "\n")
 
     def compose(self) -> ComposeResult:
         self._load_providers()
@@ -243,14 +293,26 @@ class ProviderModelStep(StepComponent):
 
         # Provider selection
         yield Label("Provider:", classes="text-input-label")
-        # Select expects (label, value) tuples, so swap to (name, pid)
-        provider_options = [(name, pid) for pid, name in self._providers]
+        provider_options = self._provider_options()
         self._provider_select = Select(
             provider_options,
             value=self._current_provider,
             id="provider_select",
         )
         yield self._provider_select
+
+        # Inline API key input (hidden by default)
+        self._key_label = Label("", classes="text-input-label")
+        self._key_label.display = False
+        yield self._key_label
+        self._key_input = Input(
+            placeholder="",
+            password=True,
+            classes="text-input",
+            id="api_key_input",
+        )
+        self._key_input.display = False
+        yield self._key_input
 
         # Model selection
         yield Label("Model:", classes="text-input-label")
@@ -263,11 +325,15 @@ class ProviderModelStep(StepComponent):
         )
         yield self._model_select
 
+        self._update_key_input()
+
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle provider selection change to update model list."""
         if event.select.id == "provider_select" and event.value != Select.BLANK:
             self._current_provider = str(event.value)
             _quickstart_log(f"ProviderModelStep: Provider changed to {self._current_provider}")
+
+            self._update_key_input()
 
             # Update model select
             if self._model_select:
@@ -299,6 +365,17 @@ class ProviderModelStep(StepComponent):
     def validate(self) -> Optional[str]:
         if not self._current_provider:
             return "Please select a provider"
+        pid = self._current_provider
+        if not self._provider_has_key.get(pid):
+            # Check if user entered a key
+            if self._key_input and self._key_input.value.strip():
+                env_var = self._provider_env_var.get(pid, "")
+                if env_var:
+                    self._save_api_key(env_var, self._key_input.value.strip())
+                    self._provider_has_key[pid] = True
+            else:
+                env_var = self._provider_env_var.get(pid, "")
+                return f"Please enter your API key for {pid} ({env_var})"
         if not self._current_model:
             return "Please select a model"
         return None
@@ -319,12 +396,16 @@ class TabbedProviderModelStep(StepComponent):
         self._agent_count = agent_count
         self._providers: List[Tuple[str, str]] = []
         self._models_by_provider: Dict[str, List[str]] = {}
+        self._provider_has_key: Dict[str, bool] = {}
+        self._provider_env_var: Dict[str, str] = {}
         self._tab_selections: Dict[int, Dict[str, Optional[str]]] = {}
         self._provider_selects: Dict[int, Select] = {}
         self._model_selects: Dict[int, Select] = {}
+        self._key_inputs: Dict[int, Input] = {}
+        self._key_labels: Dict[int, Label] = {}
 
     def _load_providers(self) -> None:
-        """Load available providers from ConfigBuilder."""
+        """Load all providers from ConfigBuilder, tracking which have keys."""
         try:
             from massgen.config_builder import ConfigBuilder
 
@@ -332,28 +413,59 @@ class TabbedProviderModelStep(StepComponent):
             api_keys = builder.detect_api_keys()
 
             for provider_id, provider_info in builder.PROVIDERS.items():
-                if not api_keys.get(provider_id, False):
-                    continue
                 name = provider_info.get("name", provider_id)
                 models = provider_info.get("models", [])
+                has_key = api_keys.get(provider_id, False)
+                env_var = provider_info.get("env_var", "")
+
                 self._providers.append((provider_id, name))
                 self._models_by_provider[provider_id] = models
+                self._provider_has_key[provider_id] = has_key
+                self._provider_env_var[provider_id] = env_var
 
         except Exception as e:
             _quickstart_log(f"TabbedProviderModelStep._load_providers error: {e}")
 
+    def _provider_options(self) -> list:
+        options = []
+        for pid, name in self._providers:
+            if self._provider_has_key.get(pid):
+                options.append((name, pid))
+            else:
+                options.append((f"{name} (no API key)", pid))
+        return options
+
+    def _update_key_input(self, agent_num: int, provider_id: str) -> None:
+        key_label = self._key_labels.get(agent_num)
+        key_input = self._key_inputs.get(agent_num)
+        if not key_label or not key_input:
+            return
+        if not self._provider_has_key.get(provider_id):
+            env_var = self._provider_env_var.get(provider_id, "")
+            key_label.update(f"Enter API key ({env_var}):")
+            key_label.display = True
+            key_input.display = True
+            key_input.placeholder = f"Paste your {env_var} here..."
+            key_input.value = ""
+        else:
+            key_label.display = False
+            key_input.display = False
+
     def compose(self) -> ComposeResult:
         self._load_providers()
 
-        default_provider = self._providers[0][0] if self._providers else None
+        # Default to first configured provider
+        configured = [pid for pid, _ in self._providers if self._provider_has_key.get(pid)]
+        default_provider = configured[0] if configured else (self._providers[0][0] if self._providers else None)
         default_model = self._models_by_provider.get(default_provider, [""])[0] if default_provider else None
 
         yield Label("Configure provider and model for each agent:", classes="text-input-label")
 
+        provider_options = self._provider_options()
+
         with TabbedContent():
             for i in range(self._agent_count):
                 agent_num = i + 1
-                # Initialize selections
                 self._tab_selections[agent_num] = {
                     "provider": default_provider,
                     "model": default_model,
@@ -362,7 +474,6 @@ class TabbedProviderModelStep(StepComponent):
                 with TabPane(f"Agent {agent_num}", id=f"tab_agent_{agent_num}"):
                     with VerticalScroll():
                         yield Label("Provider:", classes="text-input-label")
-                        provider_options = [(name, pid) for pid, name in self._providers]
                         p_select = Select(
                             provider_options,
                             value=default_provider,
@@ -370,6 +481,21 @@ class TabbedProviderModelStep(StepComponent):
                         )
                         self._provider_selects[agent_num] = p_select
                         yield p_select
+
+                        # Inline API key input (hidden by default)
+                        k_label = Label("", classes="text-input-label")
+                        k_label.display = False
+                        self._key_labels[agent_num] = k_label
+                        yield k_label
+                        k_input = Input(
+                            placeholder="",
+                            password=True,
+                            classes="text-input",
+                            id=f"apikey_{agent_num}",
+                        )
+                        k_input.display = False
+                        self._key_inputs[agent_num] = k_input
+                        yield k_input
 
                         yield Label("Model:", classes="text-input-label")
                         models = self._models_by_provider.get(default_provider, [])
@@ -397,6 +523,7 @@ class TabbedProviderModelStep(StepComponent):
         if kind == "provider":
             provider = str(event.value)
             self._tab_selections[agent_num]["provider"] = provider
+            self._update_key_input(agent_num, provider)
             # Update model select for this agent
             m_select = self._model_selects.get(agent_num)
             if m_select:
@@ -484,8 +611,19 @@ class TabbedProviderModelStep(StepComponent):
     def validate(self) -> Optional[str]:
         for agent_num in range(1, self._agent_count + 1):
             sel = self._tab_selections.get(agent_num, {})
-            if not sel.get("provider"):
+            pid = sel.get("provider")
+            if not pid:
                 return f"Please select a provider for Agent {agent_num}"
+            if not self._provider_has_key.get(pid):
+                key_input = self._key_inputs.get(agent_num)
+                if key_input and key_input.value.strip():
+                    env_var = self._provider_env_var.get(pid, "")
+                    if env_var:
+                        ProviderModelStep._save_api_key(env_var, key_input.value.strip())
+                        self._provider_has_key[pid] = True
+                else:
+                    env_var = self._provider_env_var.get(pid, "")
+                    return f"Please enter your API key for Agent {agent_num} ({env_var})"
             if not sel.get("model"):
                 return f"Please select a model for Agent {agent_num}"
         return None

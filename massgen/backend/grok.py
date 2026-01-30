@@ -53,7 +53,8 @@ class GrokBackend(ChatCompletionsBackend):
 
         This hook is called by the parent class before making the API call.
         """
-        enable_web_search = all_params.get("enable_web_search", False)
+        enable_web_search = False  # all_params.get("enable_web_search", False)
+        logger.debug(f"GrokBackend: Live search is currently deprecated, enable_web_search={enable_web_search} for now")
 
         if enable_web_search:
             # Check for conflict with manually specified search_parameters
