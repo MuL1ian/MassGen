@@ -61,5 +61,5 @@ agents:
       present it clearly and mention that this was generated using the OpenAI Assistant framework.
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

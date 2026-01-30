@@ -227,7 +227,31 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.44 - Latest
+### v0.1.45 - Latest
+**New Features:** TUI as Default Display Mode, Config Migration, Enhanced Setup
+
+**Key Features:**
+- **TUI as Default**: Textual Terminal UI now launches by default for all users
+- **Automatic Migration**: Existing configs with `rich_terminal` auto-migrate with deprecation warning
+- **Config Updates**: All 160+ example configs updated to `textual_terminal` display mode
+- **Enhanced Setup**: Setup wizard generates TUI configs by default
+- **Legacy Access**: Use `--display rich` to explicitly request legacy Rich display
+
+**Example Usage:**
+```bash
+# TUI launches by default (no --display flag needed)
+uv run massgen --config @examples/basic/multi/three_agents_default \
+  "Compare the benefits of solar, wind, and hydro energy"
+
+# Use legacy Rich display if needed
+uv run massgen --display rich --config @examples/basic/multi/three_agents_default \
+  "Your question"
+
+# Setup wizard generates TUI configs automatically
+uv run massgen --quickstart
+```
+
+### v0.1.44
 **New Features:** Execute Mode for Independent Plan Selection, Case Studies UX Enhancements
 
 **Key Features:**
@@ -236,10 +260,10 @@ Most configurations use environment variables for API keys:so
 - **Context Path Preservation**: Context paths automatically preserved between planning and execution
 - **Enhanced Case Studies**: Setup guides and quick start instructions on case studies page
 
-**Example Usage:**
+**Try It:**
 ```bash
 # Use the TUI with plan mode cycling
-uv run massgen --display textual --config @examples/providers/gemini/gemini_3_flash.yaml
+massgen --display textual --config @examples/providers/gemini/gemini_3_flash.yaml
 
 # In the TUI:
 # 1. Press Shift+Tab to enter Planning mode

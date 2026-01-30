@@ -63,7 +63,7 @@ agents:
       reasoning for each step. If VNC is enabled, you can watch the automation in real-time.
 
 display:
-  type: "rich_terminal"
+  type: "textual_terminal"
 
 # Setup Instructions:
 # ====================

@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from textual.app import ComposeResult
-from textual.containers import Container, ScrollableContainer, Vertical
-from textual.widgets import Checkbox, Input, Label, Static
+from textual.containers import Container, Vertical
+from textual.widgets import Button, Checkbox, Input, Label, Static
 
 from .wizard_base import StepComponent, WizardModal, WizardState, WizardStep
 from .wizard_steps import SaveLocationStep, WelcomeStep
@@ -115,21 +115,22 @@ class ProviderSelectionStep(StepComponent):
         self._load_providers()
 
         yield Label("Select providers to configure:", classes="text-input-label")
-        yield Label("(Already configured providers are shown with [green]|[/green])", classes="password-hint")
+        yield Label("(Already configured providers are shown below)", classes="password-hint")
 
-        with ScrollableContainer(classes="provider-list"):
+        with Vertical(classes="provider-list"):
             for provider_id, name, is_configured, env_var in self._providers:
-                status = "[green]|[/green]" if is_configured else "[dim]|[/dim]"
-                status_text = "(configured)" if is_configured else "(needs setup)"
-
-                checkbox = Checkbox(
-                    f"{status} {name} {status_text}",
-                    value=False,  # Start unchecked, user selects what to configure
-                    id=f"provider_cb_{provider_id}",
-                    disabled=is_configured,  # Can't re-configure already set up providers here
-                )
-                self._checkboxes[provider_id] = checkbox
-                yield checkbox
+                if not is_configured:
+                    # Only show checkboxes for unconfigured providers
+                    checkbox = Checkbox(
+                        f"{name} (needs setup)",
+                        value=False,  # Start unchecked, user selects what to configure
+                        id=f"provider_cb_{provider_id}",
+                    )
+                    self._checkboxes[provider_id] = checkbox
+                    yield checkbox
+                else:
+                    # Show status label for configured providers
+                    yield Label(f"✓ {name} (configured)", classes="configured-label")
 
     def get_value(self) -> List[str]:
         """Return list of selected provider IDs."""
@@ -226,14 +227,14 @@ class DockerSetupStep(StepComponent):
         color: $primary;
         text-style: bold;
         width: 100%;
-        margin-top: 1;
-        margin-bottom: 1;
+        margin-top: 0;
+        margin-bottom: 0;
     }
 
     DockerSetupStep .status-group {
         width: 100%;
         padding: 0 1;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
 
     DockerSetupStep .resolution-list {
@@ -304,7 +305,7 @@ class DockerSetupStep(StepComponent):
     def compose(self) -> ComposeResult:
         self._load_diagnostics()
 
-        with ScrollableContainer(classes="docker-container"):
+        with Vertical(classes="docker-container"):
             # Status section with StatusIndicator widgets
             yield Label("System Status", classes="section-title")
 
@@ -332,9 +333,8 @@ class DockerSetupStep(StepComponent):
 
             # If Docker not available, show resolution steps
             if not self._diagnostics.is_available:
-                yield Static("")
                 yield Label(self._diagnostics.error_message, classes="error-message")
-                yield Static("")
+
                 yield Label("Resolution Steps:", classes="section-title")
                 with Vertical(classes="resolution-list"):
                     for step in self._diagnostics.resolution_steps:
@@ -342,7 +342,7 @@ class DockerSetupStep(StepComponent):
                 return
 
             # Images section
-            yield Static("")
+
             yield Label("Docker Images", classes="section-title")
 
             missing_images = []
@@ -357,12 +357,11 @@ class DockerSetupStep(StepComponent):
 
             # If all images installed, show success
             if not missing_images:
-                yield Static("")
                 yield Label("All Docker images are ready!", classes="success-message")
                 return
 
             # Offer to pull missing images
-            yield Static("")
+
             yield Label("Select images to pull:", classes="section-title")
 
             with Vertical(classes="image-select"):
@@ -426,15 +425,15 @@ class SkillsSetupStep(StepComponent):
         color: $primary;
         text-style: bold;
         width: 100%;
-        margin-top: 1;
-        margin-bottom: 1;
+        margin-top: 0;
+        margin-bottom: 0;
     }
 
     SkillsSetupStep .summary-box {
         width: 100%;
-        padding: 1 2;
-        margin-bottom: 1;
-        background: $surface-darken-1;
+        padding: 0 1;
+        margin-bottom: 0;
+        background: transparent;
     }
 
     SkillsSetupStep .summary-stat {
@@ -452,7 +451,7 @@ class SkillsSetupStep(StepComponent):
     }
 
     SkillsSetupStep .package-item {
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
 
     SkillsSetupStep .package-desc {
@@ -504,7 +503,7 @@ class SkillsSetupStep(StepComponent):
     def compose(self) -> ComposeResult:
         self._load_skills_status()
 
-        with ScrollableContainer(classes="skills-container"):
+        with Vertical(classes="skills-container"):
             # Summary section
             yield Label("Skills Overview", classes="section-title")
 
@@ -518,12 +517,10 @@ class SkillsSetupStep(StepComponent):
             installed_count = len(user) + len(project)
             total = len(builtin) + installed_count
 
-            with Vertical(classes="summary-box"):
-                yield Label(f"{total} Skills Available", classes="summary-stat")
-                yield Label(f"{len(builtin)} built-in, {installed_count} user-installed", classes="summary-detail")
+            yield Label(f"  {total} skills available ({len(builtin)} built-in, {installed_count} user-installed)", classes="summary-detail")
 
             # Packages section
-            yield Static("")
+
             yield Label("Skill Packages", classes="section-title")
 
             if self._packages_status is None:
@@ -547,12 +544,11 @@ class SkillsSetupStep(StepComponent):
 
             # If all packages installed, show success
             if not packages_to_install:
-                yield Static("")
                 yield Label("All skill packages are ready!", classes="success-message")
                 return
 
             # Offer to install missing packages
-            yield Static("")
+
             yield Label("Select packages to install:", classes="section-title")
 
             with Vertical(classes="package-select"):
@@ -602,7 +598,7 @@ class SetupCompleteStep(StepComponent):
         width: 100%;
         height: auto;
         align: center middle;
-        padding: 2 4;
+        padding: 1 2;
     }
 
     SetupCompleteStep .complete-icon {
@@ -618,20 +614,20 @@ class SetupCompleteStep(StepComponent):
         width: 100%;
         text-style: bold;
         color: $primary;
-        margin-bottom: 2;
+        margin-bottom: 0;
     }
 
     SetupCompleteStep .summary-list {
         width: 100%;
-        padding: 1 2;
+        padding: 0 2;
     }
 
     SetupCompleteStep .next-steps-title {
         text-align: center;
         width: 100%;
         color: $text-muted;
-        margin-top: 2;
-        margin-bottom: 1;
+        margin-top: 1;
+        margin-bottom: 0;
     }
 
     SetupCompleteStep .next-step-item {
@@ -639,16 +635,15 @@ class SetupCompleteStep(StepComponent):
         color: $text-muted;
         text-align: center;
     }
+
+    SetupCompleteStep #launch_quickstart {
+        margin-top: 1;
+        width: auto;
+        min-width: 30;
+    }
     """
 
-    # Large checkmark ASCII art
-    SUCCESS_ICON = """
-       ██╗
-      ██╔╝
-     ██╔╝
-    ██╔╝
-    ╚═╝
-    """.strip()
+    SUCCESS_ICON = "[bold green]✓[/bold green]"
 
     def __init__(
         self,
@@ -662,7 +657,6 @@ class SetupCompleteStep(StepComponent):
     def compose(self) -> ComposeResult:
         with Vertical(classes="complete-container"):
             yield Static(self.SUCCESS_ICON, classes="complete-icon")
-            yield Label("Setup Complete!", classes="complete-title")
 
             # Show what was configured using StatusIndicator
             configured = self.wizard_state.get("configured_providers", [])
@@ -684,8 +678,14 @@ class SetupCompleteStep(StepComponent):
                     yield StatusIndicator(f"Installed {len(skills_installed)} skill package(s)", "success")
 
             yield Label("What's Next?", classes="next-steps-title")
-            yield Label("Run 'massgen --quickstart' to create a config", classes="next-step-item")
+            yield Button("Launch Quickstart →", id="launch_quickstart", variant="success")
             yield Label("Or 'massgen --config your_config.yaml' to start", classes="next-step-item")
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "launch_quickstart":
+            self.wizard_state.set("launch_quickstart", True)
+            # Trigger wizard finish by posting action to the parent wizard
+            await self.screen.action_next_step()
 
     def get_value(self) -> bool:
         return True
@@ -981,4 +981,5 @@ class SetupWizard(WizardModal):
             "save_location": str(env_path.absolute()),
             "docker_images_pulled": pulled_images,
             "skills_installed": installed_packages,
+            "launch_quickstart": self.state.get("launch_quickstart", False),
         }

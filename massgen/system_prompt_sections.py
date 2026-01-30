@@ -312,7 +312,7 @@ class SkillsSection(SystemPromptSection):
         content_parts.append("When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively.")
         content_parts.append("")
         content_parts.append("How to use skills:")
-        content_parts.append('- Invoke: execute_command("openskills read <skill-name>")')
+        content_parts.append("- Invoke: run the command `openskills read <skill-name>`")
         content_parts.append("- The skill content will load with detailed instructions")
         content_parts.append("- Base directory provided in output for resolving bundled resources")
         content_parts.append("")
@@ -350,7 +350,7 @@ class FileSearchSection(SystemPromptSection):
     Lightweight file search guidance for ripgrep and ast-grep.
 
     This provides essential usage patterns for the pre-installed search tools.
-    For comprehensive guidance, agents can invoke: execute_command("openskills read file-search")
+    For comprehensive guidance, agents can run: `openskills read file-search`
 
     MEDIUM priority - useful but not critical for all tasks.
     """
@@ -392,7 +392,7 @@ sg --pattern 'class $NAME { $$$ }' --lang python
 - Limit output: Pipe to `head -N` if results are large
 - Use rg for text, sg for code structure
 
-For detailed guidance including targeting strategies and examples, invoke: `execute_command("openskills read file-search")`"""
+For detailed guidance including targeting strategies and examples, run: `openskills read file-search`"""
 
 
 class CodeBasedToolsSection(SystemPromptSection):
@@ -605,7 +605,7 @@ Then execute: `python utils/daily_weather_report.py`
 - **Tool composition**: Chain multiple tools together in single script
 
 **Key Principles:**
-1. **Batch discovery operations**: Combine `ls`, `rg`, `sg` in single `execute_command()` calls
+1. **Batch discovery operations**: Combine `ls`, `rg`, `sg` in a single command execution call
 2. **Search then extract**: Use `rg -l` to find candidates, then `head`/`sg` for targeted reads
 3. **Minimize context**: Extract only signatures/docstrings with `sg` or `head -n 25` (not full `cat`)
 4. **Import only needed tools**: Don't import everything upfront (reduces context)
@@ -859,45 +859,43 @@ class MemorySection(SystemPromptSection):
         # Examples - emphasize short-term for most uses
         content_parts.append(
             "\n### Examples\n\n"
-            "```python\n"
-            "# SHORT-TERM: Quick tactical observation (PREFERRED for most things)\n"
-            "write_file(\n"
-            '    "memory/short_term/quick_notes.md",\n'
-            '    "---\\n"\n'
-            '    "name: quick_notes\\n"\n'
-            '    "description: Tactical observations from current work\\n"\n'
-            '    "created: 2025-11-23T20:00:00\\n"\n'
-            '    "updated: 2025-11-23T20:00:00\\n"\n'
-            '    "---\\n\\n"\n'
-            '    "## Web Development\\n"\n'
-            '    "- create_directory fails on nested paths - create parent first\\n"\n'
-            '    "- CSS variables work well for theming\\n"\n'
-            '    "- Always test with `printf` for CLI stdin validation"\n'
-            ")\n\n"
-            "# SHORT-TERM: User preferences\n"
-            "write_file(\n"
-            '    "memory/short_term/user_prefs.md",\n'
-            '    "---\\n"\n'
-            '    "name: user_prefs\\n"\n'
-            '    "description: User workflow and style preferences\\n"\n'
-            '    "created: 2025-11-23T20:00:00\\n"\n'
-            '    "updated: 2025-11-23T20:00:00\\n"\n'
-            '    "---\\n\\n"\n'
-            '    "## Preferences\\n"\n'
-            '    "- Prefers clean, minimal code\\n"\n'
-            '    "- Wants explanations with examples"\n'
-            ")\n\n"
-            "# LONG-TERM: Only for detailed analysis (>100 lines)\n"
-            "write_file(\n"
-            '    "memory/long_term/comprehensive_analysis.md",\n'
-            '    "---\\n"\n'
-            '    "name: comprehensive_analysis\\n"\n'
-            '    "description: Detailed multi-task skill effectiveness analysis\\n"\n'
-            '    "created: 2025-11-23T20:00:00\\n"\n'
-            '    "updated: 2025-11-23T20:00:00\\n"\n'
-            '    "---\\n\\n"\n'
-            '    "[100+ lines of detailed analysis comparing approaches across multiple tasks...]"\n'
-            ")\n"
+            "**SHORT-TERM: Quick tactical observation** (PREFERRED for most things)\n"
+            "Use the file write tool to save to `memory/short_term/quick_notes.md`:\n"
+            "```markdown\n"
+            "---\n"
+            "name: quick_notes\n"
+            "description: Tactical observations from current work\n"
+            "created: 2025-11-23T20:00:00\n"
+            "updated: 2025-11-23T20:00:00\n"
+            "---\n\n"
+            "## Web Development\n"
+            "- create_directory fails on nested paths - create parent first\n"
+            "- CSS variables work well for theming\n"
+            "- Always test with `printf` for CLI stdin validation\n"
+            "```\n\n"
+            "**SHORT-TERM: User preferences**\n"
+            "Save to `memory/short_term/user_prefs.md`:\n"
+            "```markdown\n"
+            "---\n"
+            "name: user_prefs\n"
+            "description: User workflow and style preferences\n"
+            "created: 2025-11-23T20:00:00\n"
+            "updated: 2025-11-23T20:00:00\n"
+            "---\n\n"
+            "## Preferences\n"
+            "- Prefers clean, minimal code\n"
+            "- Wants explanations with examples\n"
+            "```\n\n"
+            "**LONG-TERM: Only for detailed analysis** (>100 lines)\n"
+            "Save to `memory/long_term/comprehensive_analysis.md`:\n"
+            "```markdown\n"
+            "---\n"
+            "name: comprehensive_analysis\n"
+            "description: Detailed multi-task skill effectiveness analysis\n"
+            "created: 2025-11-23T20:00:00\n"
+            "updated: 2025-11-23T20:00:00\n"
+            "---\n\n"
+            "[100+ lines of detailed analysis comparing approaches across multiple tasks...]\n"
             "```\n",
         )
 
@@ -1174,8 +1172,8 @@ class CommandExecutionSection(SystemPromptSection):
             parts.append("**PARALLEL TOOL EXECUTION ENABLED**")
             parts.append("- Multiple tool calls in your response will execute SIMULTANEOUSLY, not sequentially")
             parts.append("- Do NOT call dependent tools together in the same response:")
-            parts.append("  - BAD: `mkdir foo` + `write_file foo/bar.txt` (directory may not exist yet)")
-            parts.append("  - BAD: `execute_command 'python server.py'` + `execute_command 'curl localhost'` (server not ready)")
+            parts.append("  - BAD: creating a directory + writing a file into it (directory may not exist yet)")
+            parts.append("  - BAD: starting a server + curling it in the same response (server not ready)")
             parts.append("- Each tool call should be independent and not rely on another tool's output")
             parts.append("- If you need sequential execution, make separate responses for each step")
             parts.append("")
@@ -1547,10 +1545,10 @@ You have access to task planning tools to organize complex work.
 
 When working on multi-step tasks:
 1. **Think first** - Understand the requirements (some initial research/analysis is fine)
-2. **Create your task plan EARLY** - Use `create_task_plan()` BEFORE executing file operations or major
+2. **Create your task plan EARLY** - Use the task plan tool BEFORE executing file operations or major
    actions
 3. **Execute tasks** - Work through your plan systematically
-4. **Update as you go** - Use `add_task()` to capture new requirements you discover
+4. **Update as you go** - Use the **add_task** tool to capture new requirements you discover
 
 **DO NOT:**
 - ❌ Jump straight into creating files without planning first
@@ -1575,55 +1573,32 @@ When working on multi-step tasks:
 - Quick one-off operations
 
 **Tools available:**
-- `create_task_plan(tasks)` - Create a plan with tasks and dependencies
-- `get_ready_tasks()` - Get tasks ready to start (dependencies satisfied)
-- `get_blocked_tasks()` - See what's waiting on dependencies
-- `update_task_status(task_id, status)` - Mark progress (pending/in_progress/completed)
-- `add_task(description, depends_on, priority)` - Add new tasks (priority: low/medium/high)
-- `get_task_plan()` - View your complete task plan
-- `edit_task(task_id, description)` - Update task descriptions
-- `delete_task(task_id)` - Remove tasks no longer needed
+- **create_task_plan** - Create a plan with tasks and dependencies
+- **get_ready_tasks** - Get tasks ready to start (dependencies satisfied)
+- **get_blocked_tasks** - See what's waiting on dependencies
+- **update_task_status** - Mark progress (pending/in_progress/completed)
+- **add_task** - Add new tasks (priority: low/medium/high)
+- **get_task_plan** - View your complete task plan
+- **edit_task** - Update task descriptions
+- **delete_task** - Remove tasks no longer needed
 
 **Reading Tool Responses:**
 Tool responses may include important reminders and guidance (e.g., when completing high-priority tasks,
 you'll receive reminders to save learnings to memory). Always read tool response messages carefully.
 
 **Recommended workflow:**
-```python
-# 1. Create plan FIRST (before major execution)
-plan = create_task_plan([
-    {"id": "research", "description": "Research OAuth providers"},
-    {"id": "design", "description": "Design auth flow", "depends_on": ["research"]},
-    {"id": "implement", "description": "Implement endpoints", "depends_on": ["design"]}
-])
-
-# 2. Work through tasks systematically
-update_task_status("research", "in_progress")
-# ... do research work ...
-update_task_status("research", "completed")
-
-# 3. Add tasks as you discover new requirements
-add_task("Write integration tests", depends_on=["implement"])
-
-# 4. Continue working
-ready = get_ready_tasks()  # ["design"]
-update_task_status("design", "in_progress")
-```
+1. **Create your task plan** with tasks like:
+   - `{"id": "research", "description": "Research OAuth providers"}`
+   - `{"id": "design", "description": "Design auth flow", "depends_on": ["research"]}`
+   - `{"id": "implement", "description": "Implement endpoints", "depends_on": ["design"]}`
+2. **Update task status** as you work: set task_id="research", status="in_progress", then "completed"
+3. **Add tasks** as you discover new requirements: description="Write integration tests", depends_on=["implement"]
+4. **Check ready tasks** to see what's unblocked next
 
 **Dependency formats:**
-```python
-# By index (0-based)
-create_task_plan([
-    "Task 1",
-    {"description": "Task 2", "depends_on": [0]}  # Depends on Task 1
-])
-
-# By ID (recommended for clarity)
-create_task_plan([
-    {"id": "auth", "description": "Setup auth"},
-    {"id": "api", "description": "Build API", "depends_on": ["auth"]}
-])
-```
+Tasks support two dependency styles:
+- **By index** (0-based): `{"description": "Task 2", "depends_on": [0]}` — depends on the first task
+- **By ID** (recommended): `{"id": "api", "description": "Build API", "depends_on": ["auth"]}` — depends on task with id "auth"
 
 **IMPORTANT - Including Task Plan in Your Answer:**
 If you created a task plan, include a summary at the end of your `new_answer` showing:

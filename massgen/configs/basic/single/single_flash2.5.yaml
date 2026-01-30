@@ -39,5 +39,5 @@ agent:
 
 # Display configuration
 display:
-  type: "rich_terminal"
+  type: "textual_terminal"
   logging_enabled: true

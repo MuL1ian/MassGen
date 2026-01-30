@@ -90,4 +90,4 @@ agents:
       The tool will autonomously complete the task and return the results.
 
 display:
-  type: "rich_terminal"
+  type: "textual_terminal"

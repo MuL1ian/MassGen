@@ -130,4 +130,4 @@ agents:
       and prompt injection protection.
 
 display:
-  type: "rich_terminal"
+  type: "textual_terminal"

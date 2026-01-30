@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING (Soft):** Default display changed from `rich_terminal` to `textual_terminal`
+  - All users now get the superior TUI experience by default
+  - Existing configs with `display_type: "rich_terminal"` will show deprecation warning and use TUI
+  - Use `--display rich` flag to force legacy Rich display
+  - Updated ALL 160+ example configs to use `textual_terminal`
+
+### Improved
+- Setup wizard (`--setup`, `--quickstart`) now generates configs with TUI display
+- Enhanced documentation with prominent TUI feature descriptions
+- Improved first-run experience with clear TUI benefits explanation
+
+### Deprecated
+- `rich_terminal` display type is now deprecated in favor of `textual_terminal`
+- Configs using `rich_terminal` will show warning and auto-convert to TUI
+- Use `--display rich` to explicitly request legacy Rich display
+
 ## Recent Releases
+
+**v0.1.45 (January 31, 2026)** - TUI Default & Config Migration
+TUI (Textual Terminal) is now the default display mode for all users. Existing configs with `rich_terminal` auto-migrate with deprecation warning. Setup wizard generates TUI configs. Enhanced documentation and first-run experience highlight TUI benefits. Minor documentation and packaging fixes.
 
 **v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection
 New Execute mode allows cycling through Normal → Planning → Execute modes via Shift+Tab. Users can independently browse and select from existing plans for execution. Context paths preserved between planning and execution phases. Minor TUI performance improvements and enhanced case studies documentation.
@@ -15,13 +35,44 @@ New Execute mode allows cycling through Normal → Planning → Execute modes vi
 **v0.1.43 (January 26, 2026)** - TUI UX Polish & Interactive Case Studies
 Enhanced TUI with tool call batching, improved final presentation display, quoted path support, and plan mode enhancements. New interactive case studies page with visual comparisons between MassGen and single-agent solutions. Video tutorials section added to documentation.
 
-**v0.1.42 (January 23, 2026)** - TUI Visual Redesign
-Comprehensive visual redesign of the Textual TUI with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, edge-to-edge layouts, redesigned agent tabs and tool cards, polished modals, and scroll indicators. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
-
-**v0.1.41 (January 21, 2026)** - Async Subagent Execution
-Background subagent execution with `async_=True` parameter for non-blocking subagent spawning. Parent agents continue working while subagents run in background, then poll for results when ready. New subagent round timeouts for per-round timeout control. Extended subagent configuration parameters for fine-grained control over concurrency and timeouts.
-
 ---
+
+## [0.1.45] - 2026-01-31
+
+### Changed
+- **BREAKING (Soft):** Default display changed from `rich_terminal` to `textual_terminal`
+  - All users now get the superior TUI experience by default
+  - Existing configs with `display_type: "rich_terminal"` will show deprecation warning and use TUI
+  - Use `--display rich` flag to force legacy Rich display
+  - Updated ALL 160+ example configs to use `textual_terminal`
+
+### Improved
+- **Setup Wizard**: `--setup` and `--quickstart` now generate configs with TUI display by default
+- **Documentation**: Enhanced with prominent TUI feature descriptions and benefits
+- **First-Run Experience**: Clear explanation of TUI benefits for new users
+
+### Deprecated
+- **Rich Terminal Display**: `rich_terminal` display type is now deprecated in favor of `textual_terminal`
+  - Configs using `rich_terminal` will show warning and auto-convert to TUI
+  - Use `--display rich` to explicitly request legacy Rich display
+
+### Fixed
+- **Documentation Paths**: Fixed case study page paths for proper rendering
+- **PyPI Packaging**: Added missing files to MANIFEST.in for complete package distribution
+- **ReadTheDocs Config**: Updated Python version to 3.12 for documentation builds
+
+### Documentation, Configurations and Resources
+- **Updated Documentation**: `docs/quickstart/installation.rst` and `docs/quickstart/running-massgen.rst` with TUI as default
+- **Config Migration**: Example configs in `massgen/configs/` updated to use `textual_terminal`
+- **ReadTheDocs**: Updated `.readthedocs.yaml` with Python 3.12
+
+### Technical Details
+- **Major Focus**: TUI default transition, config migration, documentation improvements
+- **Files Modified**:
+  - Configs: All YAML files in `massgen/configs/`
+  - Docs: `docs/source/quickstart/*.rst`, `.readthedocs.yaml`
+  - Packaging: `MANIFEST.in`, `pyproject.toml`
+- **Contributors**: @ncrispino, @HenryQi, and the MassGen team
 
 ## [0.1.44] - 2026-01-28
 

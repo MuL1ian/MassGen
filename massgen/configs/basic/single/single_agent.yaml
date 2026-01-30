@@ -14,5 +14,6 @@ agent:
 
 # Display configuration
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"  # Interactive TUI with timeline, agent cards, vote visualization (default)
   logging_enabled: true
+  # Use --display rich to force legacy Rich display

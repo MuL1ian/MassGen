@@ -25,5 +25,5 @@ agents:
 
       Use these tools to answer questions. Do not speculate or invent tool capabilities.
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

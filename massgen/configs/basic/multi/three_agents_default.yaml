@@ -12,7 +12,7 @@ agents:
   - id: "agent_b"
     backend:
       type: "openai"
-      model: "gpt-5"
+      model: "gpt-5.2"
       text:
         verbosity: "low"
       reasoning:
@@ -29,8 +29,9 @@ agents:
       cwd: "workspace"
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"  # Interactive TUI with timeline, agent cards, vote visualization (default)
   logging_enabled: true
+  # Use --display rich to force legacy Rich display
 
 # Orchestrator settings
 orchestrator:

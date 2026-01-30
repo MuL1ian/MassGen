@@ -61,7 +61,7 @@ agents:
       The tool will complete the task and return results with reasoning for each step.
 
 display:
-  type: "rich_terminal"
+  type: "textual_terminal"
 
 # Setup Instructions:
 # ====================

@@ -7,7 +7,7 @@ activity indicator, timeout display, tasks progress, and token/cost tracking.
 """
 
 import logging
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -424,8 +424,12 @@ class AgentStatusRibbon(Widget):
         self._tokens: Dict[str, int] = {}
         self._cost: Dict[str, float] = {}
         self._timeout_remaining: Dict[str, Optional[int]] = {}
+        self._timeout_state: Dict[str, Dict[str, Any]] = {}  # agent_id -> full timeout state from orchestrator
         self._start_time: Optional[float] = None
         self._timer_handle = None
+        self._agent_start_times: Dict[str, float] = {}  # agent_id -> start timestamp for total elapsed time
+        self._round_start_times: Dict[str, float] = {}  # agent_id -> start timestamp for current round
+        self._frozen_round_elapsed: Dict[str, int] = {}  # agent_id -> frozen elapsed seconds (when stopped)
 
         # View state tracking
         self._has_final_answer: Dict[str, bool] = {}  # agent_id -> has final answer
@@ -465,10 +469,53 @@ class AgentStatusRibbon(Widget):
             self.elapsed_seconds += 1
             self._update_activity_display()
 
+        # Also update timeout display to refresh elapsed time
+        self._update_timeout_display()
+
     def set_agent(self, agent_id: str) -> None:
         """Switch to displaying status for a different agent."""
         self.current_agent = agent_id
         self._refresh_all_displays()
+
+    def reset_round_state_for_agent(self, agent_id: str) -> None:
+        """Reset round tracking state for an agent at the start of a new turn."""
+        from massgen.logger_config import logger
+
+        logger.info(f"[AgentStatusRibbon] reset_round_state_for_agent() called for {agent_id}")
+        logger.info(f"[AgentStatusRibbon] Before reset: _rounds={self._rounds.get(agent_id, [])}, _current_round={self._current_round.get(agent_id)}, _viewed_round={self._viewed_round.get(agent_id)}")
+
+        self._rounds[agent_id] = []
+        self._current_round[agent_id] = 1
+        self._viewed_round[agent_id] = 1
+
+        # Clear elapsed time tracking so it restarts on the new turn
+        if agent_id in self._agent_start_times:
+            del self._agent_start_times[agent_id]
+        if agent_id in self._round_start_times:
+            del self._round_start_times[agent_id]
+        if agent_id in self._frozen_round_elapsed:
+            del self._frozen_round_elapsed[agent_id]
+
+        logger.info(f"[AgentStatusRibbon] After reset: _rounds={self._rounds[agent_id]}, _current_round={self._current_round[agent_id]}, _viewed_round={self._viewed_round[agent_id]}")
+
+        # Clear final answer state
+        if agent_id in self._has_final_answer:
+            self._has_final_answer[agent_id] = False
+        if agent_id in self._viewing_final_answer:
+            self._viewing_final_answer[agent_id] = False
+        if agent_id in self._final_presentation_rounds:
+            self._final_presentation_rounds[agent_id].clear()
+
+        # Update display if this is the current agent
+        if agent_id == self.current_agent:
+            logger.info(f"[AgentStatusRibbon] Updating round display for current agent {agent_id}")
+            self._update_round_display()
+            logger.info("[AgentStatusRibbon] Round display updated")
+
+    def reset_round_state_all_agents(self) -> None:
+        """Reset round tracking state for all agents at the start of a new turn."""
+        for agent_id in list(self._rounds.keys()):
+            self.reset_round_state_for_agent(agent_id)
 
     def set_activity(self, agent_id: str, status: str) -> None:
         """Set the activity status for an agent.
@@ -515,13 +562,32 @@ class AgentStatusRibbon(Widget):
             is_context_reset: Whether this round started with a context reset
             is_final_presentation: Whether this is the final presentation round
         """
+        from massgen.logger_config import logger
+
+        logger.info(f"[AgentStatusRibbon] set_round() called: agent={agent_id}, round={round_number}, is_context_reset={is_context_reset}, is_final_presentation={is_final_presentation}")
+
+        import time
+
+        # Start total elapsed timer on first round for this agent
+        if agent_id not in self._agent_start_times:
+            self._agent_start_times[agent_id] = time.time()
+
+        # Reset round timer on every new round (including final presentation)
+        self._round_start_times[agent_id] = time.time()
+        # Clear any frozen state from previous round
+        if agent_id in self._frozen_round_elapsed:
+            del self._frozen_round_elapsed[agent_id]
+
         if agent_id not in self._rounds:
             self._rounds[agent_id] = []
 
         # Add round if new
         existing_rounds = [r[0] for r in self._rounds[agent_id]]
         if round_number not in existing_rounds:
+            logger.info(f"[AgentStatusRibbon] Adding new round {round_number} to {agent_id}")
             self._rounds[agent_id].append((round_number, is_context_reset))
+        else:
+            logger.info(f"[AgentStatusRibbon] Round {round_number} already exists for {agent_id}")
 
         # Track final presentation rounds
         if is_final_presentation:
@@ -686,7 +752,7 @@ class AgentStatusRibbon(Widget):
             pass
 
     def set_timeout(self, agent_id: str, remaining_seconds: Optional[int]) -> None:
-        """Set the timeout remaining for an agent.
+        """Set the timeout remaining for an agent (legacy, called from update_agent_timeout).
 
         Args:
             agent_id: The agent ID
@@ -697,26 +763,107 @@ class AgentStatusRibbon(Widget):
         if agent_id == self.current_agent:
             self._update_timeout_display()
 
+    def stop_round_timer(self, agent_id: str) -> None:
+        """Freeze the round timer at its current value.
+
+        Called when final presentation starts or execution is cancelled.
+        Stores the frozen elapsed value so the display keeps showing it.
+        """
+        import time
+
+        start = self._round_start_times.get(agent_id)
+        if start is not None:
+            self._frozen_round_elapsed[agent_id] = int(time.time() - start)
+            del self._round_start_times[agent_id]
+        if agent_id == self.current_agent:
+            self._update_timeout_display()
+
+    def stop_all_round_timers(self) -> None:
+        """Freeze round timers for all agents."""
+        for agent_id in list(self._round_start_times.keys()):
+            self.stop_round_timer(agent_id)
+
+    def set_timeout_state(self, agent_id: str, timeout_state: Dict[str, Any]) -> None:
+        """Set the full timeout state for an agent.
+
+        Args:
+            agent_id: The agent ID
+            timeout_state: Full timeout state dict from orchestrator containing
+                elapsed, active_timeout, remaining_soft, remaining_hard,
+                soft_timeout_fired, is_hard_blocked, etc.
+        """
+        self._timeout_state[agent_id] = timeout_state
+
+        if agent_id == self.current_agent:
+            self._update_timeout_display()
+
+    def _get_total_elapsed(self, agent_id: str) -> Optional[int]:
+        """Get total elapsed time in seconds since agent first started."""
+        if agent_id not in self._agent_start_times:
+            return None
+        import time
+
+        return int(time.time() - self._agent_start_times[agent_id])
+
+    @staticmethod
+    def _fmt_time(seconds: int) -> str:
+        """Format seconds as M:SS."""
+        return f"{seconds // 60}:{seconds % 60:02d}"
+
     def _update_timeout_display(self) -> None:
-        """Update the timeout display."""
+        """Update the timeout display with round timer.
+
+        Round elapsed is recalculated from _round_start_times each tick for smooth updates.
+        Total elapsed timer is shown in ExecutionStatusLine instead.
+
+        Display format:
+            Not started:              "⏱ --:--"
+            No timeout, running:      "⏱ 2:15"               (round elapsed only)
+            With timeout, normal:     "⏱ 2:15 / 5:00"
+            With timeout, soft:       "⏱ 2:15 / 5:00 ⚠"     (yellow)
+            With timeout, hard:       "⏱ 2:15 / 5:00 ✋"     (red)
+        """
         try:
+            import time
+
             timeout_label = self.query_one("#timeout_display", Label)
-            remaining = self._timeout_remaining.get(self.current_agent)
+            now = time.time()
+            timeout_label.remove_class("warning", "critical")
 
-            if remaining is None:
-                timeout_label.update("⏱ --:--")
-                timeout_label.remove_class("warning", "critical")
+            # Round elapsed: use live timer if running, frozen value if stopped
+            round_start = self._round_start_times.get(self.current_agent)
+            frozen = self._frozen_round_elapsed.get(self.current_agent)
+            if round_start is not None:
+                round_elapsed = int(now - round_start)
+            elif frozen is not None:
+                round_elapsed = frozen
             else:
-                mins = remaining // 60
-                secs = remaining % 60
-                timeout_label.update(f"⏱ {mins}:{secs:02d}")
+                timeout_label.update("⏱ --:--")
+                return
+            round_str = self._fmt_time(round_elapsed)
 
-                # Color coding based on time remaining
-                timeout_label.remove_class("warning", "critical")
-                if remaining <= 30:
+            # Check if timeout is configured
+            ts = self._timeout_state.get(self.current_agent)
+            if ts and ts.get("active_timeout"):
+                limit = int(ts["active_timeout"])
+                soft_fired = ts.get("soft_timeout_fired", False)
+                hard_blocked = ts.get("is_hard_blocked", False)
+                limit_str = self._fmt_time(limit)
+
+                # Stage indicator
+                if hard_blocked:
+                    stage = " ✋"
                     timeout_label.add_class("critical")
-                elif remaining <= 60:
+                elif soft_fired:
+                    stage = " ⚠"
                     timeout_label.add_class("warning")
+                else:
+                    stage = ""
+
+                timeout_label.update(f"⏱ {round_str} / {limit_str}{stage}")
+            else:
+                # No timeout configured - just show round elapsed
+                timeout_label.update(f"⏱ {round_str}")
         except Exception:
             pass
 

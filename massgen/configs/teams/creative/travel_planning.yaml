@@ -55,7 +55,7 @@ agents:
       - Balancing must-see attractions with local experiences
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # Travel planning settings

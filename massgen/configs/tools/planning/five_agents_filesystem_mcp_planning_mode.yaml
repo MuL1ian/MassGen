@@ -129,7 +129,7 @@ agents:
       - File analysis and management capabilities
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # Orchestrator Settings with Coordination Configuration

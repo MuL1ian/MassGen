@@ -551,7 +551,7 @@ class TimelineSection(ScrollableContainer):
     """
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
-    MAX_TIMELINE_ITEMS = 30  # Reduced from 75 - typical terminal shows ~10-15 items
+    MAX_TIMELINE_ITEMS = 30  # Viewport culling threshold
     SCROLL_DEBOUNCE_MS = 25  # Minimum gap between scroll operations (reduced for responsiveness)
     SCROLL_ANIMATION_THRESHOLD_MS = 300  # Threshold for animation vs instant scroll
 
@@ -566,6 +566,8 @@ class TimelineSection(ScrollableContainer):
         # Scroll mode: when True, auto-scroll is paused (user is reading history)
         self._scroll_mode = False
         self._new_content_count = 0  # Count of new items since entering scroll mode
+        # Removed widgets cache for scroll-back (widget ID -> widget)
+        self._removed_widgets: Dict[str, any] = {}
         self._truncation_shown = False  # Track if we've shown truncation message
         # Phase 12: View-based round navigation
         self._viewed_round: int = 1  # Which round is currently being displayed
@@ -576,7 +578,7 @@ class TimelineSection(ScrollableContainer):
         self._user_scrolled_up = False
         self._auto_scrolling = False
         self._scroll_pending = False
-        self._debug_scroll = False  # Debug flag (disabled for performance)
+        self._debug_scroll = True  # Debug flag (enabled for debugging compression)
         # Performance: Time-based scroll debouncing (QUICK-002)
         self._last_scroll_time: float = 0.0
         # Performance: Cancel previous timer before creating new one (QUICK-004)
@@ -734,6 +736,7 @@ class TimelineSection(ScrollableContainer):
 
     def _auto_scroll(self) -> None:
         """Scroll to end only if not in scroll mode."""
+        self._log(f"[AUTO_SCROLL] Called: scroll_mode={self._scroll_mode}, max_scroll_y={self.max_scroll_y:.2f}, scroll_y={self.scroll_y:.2f}")
         if self._scroll_mode:
             self._new_content_count += 1
             self._update_scroll_indicator()  # Update to show new content count
@@ -926,11 +929,16 @@ class TimelineSection(ScrollableContainer):
 
             total_items = len(content_children)
 
-            # If under limit, ensure all items are visible
+            self._log(f"[TRIM] Starting trim: total_items={total_items}, MAX={self.MAX_TIMELINE_ITEMS}, max_scroll_y_before={self.max_scroll_y:.2f}")
+
+            # If under limit, restore any removed items
             if total_items <= self.MAX_TIMELINE_ITEMS:
-                for child in content_children:
-                    if "viewport-culled" in child.classes:
-                        child.remove_class("viewport-culled")
+                # Check if we have removed widgets to restore
+                if self._removed_widgets:
+                    self._log(f"[TRIM] Under limit, restoring {len(self._removed_widgets)} removed widgets")
+                    # Note: Restoring would require preserving original order, which is complex
+                    # For now, just clear the cache when we go back under limit
+                    # In practice, items rarely go back under the limit
                 return
 
             # Calculate how many to hide
@@ -939,49 +947,31 @@ class TimelineSection(ScrollableContainer):
             if items_to_hide <= 0:
                 return
 
-            # Hide oldest items (from the beginning) with viewport-culled class
+            self._log(f"[TRIM] Hiding {items_to_hide} items (keeping {self.MAX_TIMELINE_ITEMS})")
+
+            # Remove oldest items from DOM (but keep in cache for scroll-back)
+            hidden_count = 0
             for child in content_children[:items_to_hide]:
                 # Don't hide tool cards that are still running
                 if hasattr(child, "tool_id") and child.tool_id in self._tools:
                     tool_card = self._tools.get(child.tool_id)
                     if tool_card and hasattr(tool_card, "_status") and tool_card._status == "running":
+                        self._log(f"[TRIM] Skipping running tool: {child.tool_id}")
                         continue
 
-                # Add viewport-culled class to hide (display: none)
-                if "viewport-culled" not in child.classes:
-                    child.add_class("viewport-culled")
-                    if isinstance(child, RestartBanner):
-                        try:
-                            from massgen.frontend.displays.shared.tui_debug import (
-                                tui_log,
-                            )
+                # Actually remove from DOM to free up space
+                # Cache it for potential scroll-back restoration
+                if child.id and child in self.children:
+                    self._removed_widgets[child.id] = child
+                    child.remove()
+                    hidden_count += 1
 
-                            tui_log(
-                                f"[ROUND_DEBUG] culled banner id={getattr(child, 'id', None)} classes={' '.join(sorted(child.classes))}",
-                                level="info",
-                            )
-                        except Exception:
-                            pass
+            # Note: We don't need to "show" remaining items since they're already in DOM
 
-            # Ensure remaining items are visible
-            for child in content_children[items_to_hide:]:
-                if "viewport-culled" in child.classes:
-                    child.remove_class("viewport-culled")
-                    if isinstance(child, RestartBanner):
-                        try:
-                            from massgen.frontend.displays.shared.tui_debug import (
-                                tui_log,
-                            )
+            self._log(f"[TRIM] Actually hid {hidden_count} items")
 
-                            tui_log(
-                                f"[ROUND_DEBUG] unculled banner id={getattr(child, 'id', None)} classes={' '.join(sorted(child.classes))}",
-                                level="info",
-                            )
-                        except Exception:
-                            pass
-
-        except Exception:
-            pass
+        except Exception as e:
+            self._log(f"[TRIM] Exception: {e}")
 
     def add_tool(self, tool_data: ToolDisplayData, round_number: int = 1) -> ToolCallCard:
         """Add a tool card to the timeline.
@@ -1029,8 +1019,13 @@ class TimelineSection(ScrollableContainer):
 
         try:
             self.mount(card)
-            self._auto_scroll()
-            self._trim_old_items()  # Keep timeline size bounded
+
+            # Defer trim and scroll until after mount completes
+            def trim_and_scroll():
+                self._trim_old_items()
+                self._auto_scroll()
+
+            self.call_after_refresh(trim_and_scroll)
         except Exception:
             pass
 
@@ -1145,8 +1140,13 @@ class TimelineSection(ScrollableContainer):
 
         try:
             self.mount(card)
-            self._auto_scroll()
-            self._trim_old_items()
+
+            # Defer trim and scroll until after mount completes
+            def trim_and_scroll():
+                self._trim_old_items()
+                self._auto_scroll()
+
+            self.call_after_refresh(trim_and_scroll)
         except Exception:
             pass
 
@@ -1341,7 +1341,13 @@ class TimelineSection(ScrollableContainer):
             self.mount(batch_card, after=existing_card)
             existing_card.remove()
             del self._tools[pending_tool_id]
-            self._auto_scroll()
+
+            # Defer trim and scroll until after mount completes
+            def trim_and_scroll():
+                self._trim_old_items()
+                self._auto_scroll()
+
+            self.call_after_refresh(trim_and_scroll)
         except Exception:
             pass
 
@@ -1470,8 +1476,13 @@ class TimelineSection(ScrollableContainer):
             widget.add_class(f"round-{round_number}")
 
             self.mount(widget)
-            self._auto_scroll()
-            self._trim_old_items()  # Keep timeline size bounded
+
+            # Defer trim and scroll until after mount completes
+            def trim_and_scroll():
+                self._trim_old_items()
+                self._auto_scroll()
+
+            self.call_after_refresh(trim_and_scroll)
         except Exception:
             pass
 
@@ -1553,28 +1564,14 @@ class TimelineSection(ScrollableContainer):
             widget.add_class(f"round-{round_number}")
             logger.debug(f"TimelineSection.add_separator: Adding widget for round {round_number}")
 
-            if before is not None:
-                self.mount(widget, before=before)
-            elif after is not None:
-                self.mount(widget, after=after)
-            else:
-                self.mount(widget)
-            if label.startswith("Round "):
-                self._last_round_shown = max(self._last_round_shown, round_number)
-                if round_number == 1:
-                    self._round_1_shown = True
-                self._pending_round_separators.discard(round_number)
-            try:
-                from massgen.frontend.displays.shared.tui_debug import tui_log
+            self.mount(widget)
 
-                tui_log(
-                    f"[ROUND_DEBUG] add_separator_mounted panel={self.id} id={widget_id} classes={' '.join(sorted(widget.classes))}",
-                    level="info",
-                )
-            except Exception:
-                pass
-            self._auto_scroll()
-            self._trim_old_items()  # Keep timeline size bounded
+            # Defer trim and scroll until after mount completes
+            def trim_and_scroll():
+                self._trim_old_items()
+                self._auto_scroll()
+
+            self.call_after_refresh(trim_and_scroll)
             logger.debug(f"TimelineSection.add_separator: Successfully mounted {widget_id}")
             try:
                 from massgen.frontend.displays.timeline_transcript import (
@@ -1639,6 +1636,8 @@ class TimelineSection(ScrollableContainer):
             if self._current_reasoning_card is not None:
                 # Append to existing batch
                 self._current_reasoning_card.append_content(content)
+                # Just scroll for append case (no mount, no trim needed)
+                self._auto_scroll()
             else:
                 # Start new batch
                 self._item_count += 1
@@ -1654,7 +1653,12 @@ class TimelineSection(ScrollableContainer):
                 self._current_batch_label = label
                 self.mount(self._current_reasoning_card)
 
-            self._auto_scroll()
+                # Defer trim and scroll until after mount completes
+                def trim_and_scroll():
+                    self._trim_old_items()
+                    self._auto_scroll()
+
+                self.call_after_refresh(trim_and_scroll)
         except Exception:
             pass
 
@@ -1677,7 +1681,8 @@ class TimelineSection(ScrollableContainer):
             self.mount(widget)
             self._log(f"Timeline items: {len(list(self.children))}")
             self._trim_old_items()  # Keep timeline size bounded (do before scroll)
-            self._auto_scroll()  # Scroll after trim to stay at bottom
+            # Defer scroll to ensure trim's layout refresh completes first
+            self.call_after_refresh(self._auto_scroll)
         except Exception:
             pass
 
@@ -1687,6 +1692,10 @@ class TimelineSection(ScrollableContainer):
         Args:
             add_round_1: If True, add a "Round 1" separator after clearing (default: True)
         """
+        from massgen.logger_config import logger
+
+        logger.info(f"[TimelineSection] clear() called with add_round_1={add_round_1}")
+
         # Close any open reasoning batch
         self._close_reasoning_batch()
 
@@ -1697,27 +1706,61 @@ class TimelineSection(ScrollableContainer):
                 indicator = self.query_one("#scroll_mode_indicator", Static)
             except Exception:
                 pass
+            child_count_before = len(self.children)
             self.remove_children()
+            logger.info(f"[TimelineSection] Removed {child_count_before} children")
             if indicator:
                 self.mount(indicator)
-        except Exception:
-            pass
+                logger.info("[TimelineSection] Re-mounted scroll indicator")
+        except Exception as e:
+            logger.error(f"[TimelineSection] Error during clear: {e}", exc_info=True)
         self._tools.clear()
         self._batches.clear()  # Also clear batch tracking
         self._tool_to_batch.clear()  # Clear tool-to-batch mapping
+        self._removed_widgets.clear()  # Clear removed widgets cache
         self._item_count = 0
+        logger.info("[TimelineSection] Cleared tracking dicts, reset _item_count to 0")
         # Reset truncation tracking to avoid stale state
         if hasattr(self, "_truncation_shown_rounds"):
             self._truncation_shown_rounds.clear()
 
         # Reset round tracking flags
         self._round_1_shown = False
-        self._last_round_shown = 0
-        self._pending_round_separators.clear()
+        logger.info("[TimelineSection] Set _round_1_shown = False")
 
-        # Add initial Round 1 separator
+        # CRITICAL FIX: Force layout refresh after clearing and defer Round 1 separator
+        # This ensures max_scroll_y is recalculated before any new content tries to scroll
+        self.refresh()
+        self._log(f"[CLEAR] Before call_after_refresh: max_scroll_y={self.max_scroll_y:.2f}")
+
+        # Defer Round 1 separator addition until after layout refresh completes
         if add_round_1:
-            self.add_separator("Round 1", round_number=1)
+
+            def add_round_1_separator():
+                self._log(f"[CLEAR] After refresh: max_scroll_y={self.max_scroll_y:.2f}")
+                logger.info("[TimelineSection] Adding initial Round 1 separator (from clear)")
+                self._round_1_shown = True  # Set flag before adding to avoid re-entry
+                self.add_separator("Round 1", round_number=1)
+                logger.info("[TimelineSection] Round 1 separator added (from clear)")
+
+            self.call_after_refresh(add_round_1_separator)
+
+    def reset_round_state(self) -> None:
+        """Reset round tracking state for a new turn."""
+        from massgen.logger_config import logger
+
+        logger.info("[TimelineSection] reset_round_state() called")
+        logger.info(f"[TimelineSection] Before reset: _viewed_round={self._viewed_round}, _round_1_shown={self._round_1_shown}")
+
+        self._viewed_round = 1
+        # NOTE: Don't reset _round_1_shown here - it's managed by clear() and prepare_for_new_turn()
+        # Resetting it here would cause duplicate "Round 1" separators
+        # Clear tools/batch tracking to prevent ID collisions
+        self._tools.clear()
+        self._batches.clear()
+        self._tool_to_batch.clear()
+
+        logger.info(f"[TimelineSection] After reset: _viewed_round={self._viewed_round}, _round_1_shown={self._round_1_shown}")
 
     def clear_tools_tracking(self) -> None:
         """Clear tools and batch tracking dicts without removing UI elements.

@@ -53,7 +53,7 @@ class CoordinationUI:
         self,
         display: Optional[BaseDisplay] = None,
         logger: Optional[Any] = None,
-        display_type: str = "terminal",
+        display_type: str = "textual_terminal",
         enable_final_presentation: bool = False,
         preserve_display: bool = False,
         interactive_mode: bool = False,
@@ -291,7 +291,8 @@ class CoordinationUI:
 
                 content = getattr(chunk, "content", "") or ""
                 source = getattr(chunk, "source", None)
-                chunk_type = getattr(chunk, "type", "")
+                chunk_type_raw = getattr(chunk, "type", "")
+                chunk_type = chunk_type_raw.value if hasattr(chunk_type_raw, "value") else str(chunk_type_raw) if chunk_type_raw else ""
 
                 # Check for phase changes and notify status bar
                 if hasattr(orchestrator, "workflow_phase"):
@@ -885,7 +886,8 @@ class CoordinationUI:
 
                 content = getattr(chunk, "content", "") or ""
                 source = getattr(chunk, "source", None)
-                chunk_type = getattr(chunk, "type", "")
+                chunk_type_raw = getattr(chunk, "type", "")
+                chunk_type = chunk_type_raw.value if hasattr(chunk_type_raw, "value") else str(chunk_type_raw) if chunk_type_raw else ""
 
                 # Debug: Log all chunk types to trace hook_execution flow
                 if chunk_type == "hook_execution":
@@ -1416,7 +1418,8 @@ class CoordinationUI:
 
                 content = getattr(chunk, "content", "") or ""
                 source = getattr(chunk, "source", None)
-                chunk_type = getattr(chunk, "type", "")
+                chunk_type_raw = getattr(chunk, "type", "")
+                chunk_type = chunk_type_raw.value if hasattr(chunk_type_raw, "value") else str(chunk_type_raw) if chunk_type_raw else ""
 
                 # Handle agent status updates
                 if chunk_type == "agent_status":

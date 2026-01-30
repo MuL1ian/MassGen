@@ -134,7 +134,7 @@ agents:
       IMPORTANT: During coordination phase, you are in PLANNING MODE - describe your intended actions without executing them. Only execute tools during final presentation phase.
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true
 
 # Orchestrator Settings with Coordination Configuration

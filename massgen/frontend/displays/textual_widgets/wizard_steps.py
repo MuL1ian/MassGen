@@ -18,8 +18,9 @@ Provides pre-built step components for common wizard interactions:
 from typing import Any, Dict, List, Optional, Tuple
 
 from textual.app import ComposeResult
-from textual.containers import Container, ScrollableContainer, Vertical
-from textual.widgets import Checkbox, Input, Label, Select, Switch, TextArea
+from textual.containers import Container, Vertical
+from textual.widgets import Checkbox, Input, Label, OptionList, Select, Switch, TextArea
+from textual.widgets.option_list import Option
 
 from .wizard_base import StepComponent, WizardState
 
@@ -57,7 +58,7 @@ class WelcomeStep(StepComponent):
     WelcomeStep {
         width: 100%;
         height: auto;
-        padding: 1 2;
+        padding: 0 2;
     }
 
     WelcomeStep .wizard-welcome {
@@ -69,20 +70,22 @@ class WelcomeStep(StepComponent):
     WelcomeStep .wizard-welcome-intro {
         color: #8b949e;
         width: 100%;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
 
     WelcomeStep .wizard-welcome-feature {
         color: #3fb950;
         width: 100%;
         margin-bottom: 0;
+        padding-left: 2;
     }
 
     WelcomeStep .wizard-welcome-hint {
         color: #6e7681;
         text-style: italic;
         width: 100%;
-        margin-top: 2;
+        margin-top: 1;
+        text-align: center;
     }
     """
 
@@ -107,16 +110,16 @@ class WelcomeStep(StepComponent):
                 yield Label("This wizard will help you:", classes="wizard-welcome-intro")
                 for feature in self._features:
                     yield Label(f"  ✓ {feature}", classes="wizard-welcome-feature")
-            yield Label("Press [Next] to continue or [Escape] to cancel", classes="wizard-welcome-hint")
 
     def get_value(self) -> Any:
         return True  # Welcome step always "completes"
 
 
 class SingleSelectStep(StepComponent):
-    """Single selection step with radio-button style options.
+    """Single selection step using native OptionList widget.
 
     Displays a list of options, only one can be selected at a time.
+    Uses Textual's built-in OptionList for better keyboard navigation and accessibility.
     """
 
     def __init__(
@@ -139,57 +142,54 @@ class SingleSelectStep(StepComponent):
         self._options = options
         self._default_value = default_value
         self._selected_value: Optional[str] = default_value
-        self._option_widgets: Dict[str, Container] = {}
+        self._option_list: Optional[OptionList] = None
 
     def compose(self) -> ComposeResult:
-        with ScrollableContainer(classes="option-list"):
-            for value, label, description in self._options:
-                option_classes = "option-item"
-                if value == self._selected_value:
-                    option_classes += " selected"
-
-                with Container(classes=option_classes, id=f"option_{value}") as container:
-                    yield Label(label, classes="option-label")
-                    if description:
-                        yield Label(description, classes="option-description")
-                    self._option_widgets[value] = container
-
-    async def on_click(self, event) -> None:
-        """Handle clicks on option items."""
-        # Find which option was clicked
-        target = event.target
-        while target and not (hasattr(target, "id") and target.id and target.id.startswith("option_")):
-            target = target.parent
-
-        if target and hasattr(target, "id") and target.id:
-            value = target.id.replace("option_", "")
-            await self._select_option(value)
-
-    async def _select_option(self, value: str) -> None:
-        """Select an option."""
-        _step_log(f"SingleSelectStep._select_option: {value}")
-
-        # Update UI
-        for opt_value, widget in self._option_widgets.items():
-            if opt_value == value:
-                widget.add_class("selected")
+        # Build native options with rich text formatting
+        textual_options = []
+        for value, label, description in self._options:
+            # Format option with bold label and dimmed description
+            if description:
+                option_text = f"[bold]{label}[/bold]\n[dim]{description}[/dim]"
             else:
-                widget.remove_class("selected")
+                option_text = f"[bold]{label}[/bold]"
+            textual_options.append(Option(option_text, id=value))
 
-        self._selected_value = value
+        self._option_list = OptionList(
+            *textual_options,
+            id="option_list",
+            classes="step-option-list",
+        )
+        yield self._option_list
+
+        # Set default selection
+        if self._default_value:
+            idx = next(
+                (i for i, (v, _, _) in enumerate(self._options) if v == self._default_value),
+                None,
+            )
+            if idx is not None and self._option_list:
+                self._option_list.highlighted = idx
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Native event handler - no DOM walking needed."""
+        if event.option and event.option.id:
+            self._selected_value = str(event.option.id)
+            _step_log(f"SingleSelectStep: Selected {self._selected_value}")
 
     def get_value(self) -> Any:
         return self._selected_value
 
     def set_value(self, value: Any) -> None:
-        if value:
+        if isinstance(value, str):
             self._selected_value = value
-            # Update UI if mounted
-            for opt_value, widget in self._option_widgets.items():
-                if opt_value == value:
-                    widget.add_class("selected")
-                else:
-                    widget.remove_class("selected")
+            # Highlight option in OptionList
+            idx = next(
+                (i for i, (v, _, _) in enumerate(self._options) if v == value),
+                None,
+            )
+            if idx is not None and self._option_list:
+                self._option_list.highlighted = idx
 
     def validate(self) -> Optional[str]:
         if not self._selected_value:
@@ -200,7 +200,8 @@ class SingleSelectStep(StepComponent):
 class MultiSelectStep(StepComponent):
     """Multi-selection step with checkbox-style options.
 
-    Displays a list of options, multiple can be selected.
+    Displays a list of options with checkboxes, multiple can be selected.
+    Uses native Checkbox widgets for better accessibility.
     """
 
     def __init__(
@@ -231,12 +232,20 @@ class MultiSelectStep(StepComponent):
         self._checkboxes: Dict[str, Checkbox] = {}
 
     def compose(self) -> ComposeResult:
-        with ScrollableContainer(classes="provider-list"):
+        # Use Vertical for better layout control
+        with Vertical(classes="checkbox-list"):
             for value, label, description in self._options:
+                # Format checkbox label with description
+                if description:
+                    checkbox_label = f"{label}\n  [dim]{description}[/dim]"
+                else:
+                    checkbox_label = label
+
                 checkbox = Checkbox(
-                    f"{label} - {description}" if description else label,
+                    checkbox_label,
                     value=value in self._default_values,
                     id=f"checkbox_{value}",
+                    classes="multi-select-checkbox",
                 )
                 self._checkboxes[value] = checkbox
                 yield checkbox
@@ -262,6 +271,7 @@ class ProviderSelectStep(StepComponent):
     """Provider selection step with API key status indicators.
 
     Shows providers with visual indicators for configured/unconfigured status.
+    Uses OptionList for single selection or Checkboxes for multiple selection.
     """
 
     def __init__(
@@ -278,71 +288,84 @@ class ProviderSelectStep(StepComponent):
         Args:
             wizard_state: The wizard state.
             providers: List of (provider_id, display_name, is_configured) tuples.
-            allow_multiple: If True, allow multiple selections.
+            allow_multiple: If True, allow multiple selections (uses checkboxes).
         """
         super().__init__(wizard_state, id=id, classes=classes)
         self._providers = providers
         self._allow_multiple = allow_multiple
         self._selected: List[str] = []
-        self._provider_widgets: Dict[str, Container] = {}
+        self._option_list: Optional[OptionList] = None
+        self._checkboxes: Dict[str, Checkbox] = {}
 
     def compose(self) -> ComposeResult:
-        with ScrollableContainer(classes="provider-list"):
-            for provider_id, display_name, is_configured in self._providers:
-                status_icon = "[green]|[/green]" if is_configured else "[dim]|[/dim]"
-                status_text = "(configured)" if is_configured else "(not configured)"
+        if self._allow_multiple:
+            # Use checkboxes for multiple selection
+            with Vertical(classes="provider-checkbox-list"):
+                for provider_id, display_name, is_configured in self._providers:
+                    status = "✓" if is_configured else "○"
+                    status_text = "configured" if is_configured else "not configured"
+                    checkbox_label = f"{status} {display_name} ({status_text})"
 
-                item_classes = "provider-item"
-                if is_configured:
-                    item_classes += " configured"
-                else:
-                    item_classes += " unconfigured"
-
-                with Container(classes=item_classes, id=f"provider_{provider_id}") as container:
-                    yield Label(f"{status_icon} {display_name} {status_text}")
-                    self._provider_widgets[provider_id] = container
-
-    async def on_click(self, event) -> None:
-        """Handle clicks on provider items."""
-        target = event.target
-        while target and not (hasattr(target, "id") and target.id and target.id.startswith("provider_")):
-            target = target.parent
-
-        if target and hasattr(target, "id") and target.id:
-            provider_id = target.id.replace("provider_", "")
-            await self._toggle_provider(provider_id)
-
-    async def _toggle_provider(self, provider_id: str) -> None:
-        """Toggle provider selection."""
-        _step_log(f"ProviderSelectStep._toggle_provider: {provider_id}")
-
-        if provider_id in self._selected:
-            self._selected.remove(provider_id)
-            self._provider_widgets[provider_id].remove_class("selected")
+                    checkbox = Checkbox(
+                        checkbox_label,
+                        value=False,
+                        id=f"provider_cb_{provider_id}",
+                        classes="provider-checkbox",
+                    )
+                    self._checkboxes[provider_id] = checkbox
+                    yield checkbox
         else:
-            if not self._allow_multiple:
-                # Clear other selections
-                for pid in self._selected:
-                    self._provider_widgets[pid].remove_class("selected")
-                self._selected.clear()
+            # Use OptionList for single selection
+            textual_options = []
+            for provider_id, display_name, is_configured in self._providers:
+                status = "✓" if is_configured else "○"
+                status_text = "configured" if is_configured else "not configured"
+                option_text = f"[bold]{status} {display_name}[/bold]\n[dim]({status_text})[/dim]"
+                textual_options.append(Option(option_text, id=provider_id))
 
-            self._selected.append(provider_id)
-            self._provider_widgets[provider_id].add_class("selected")
+            self._option_list = OptionList(
+                *textual_options,
+                id="provider_list",
+                classes="step-option-list",
+            )
+            yield self._option_list
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Handle OptionList selection (single selection mode)."""
+        if event.option and event.option.id:
+            self._selected = [str(event.option.id)]
+            _step_log(f"ProviderSelectStep: Selected {self._selected}")
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Handle Checkbox changes (multiple selection mode)."""
+        # Update selected list based on checkbox states
+        self._selected = [pid for pid, checkbox in self._checkboxes.items() if checkbox.value]
+        _step_log(f"ProviderSelectStep: Selected {self._selected}")
 
     def get_value(self) -> List[str]:
+        if self._allow_multiple:
+            return [pid for pid, cb in self._checkboxes.items() if cb.value]
         return self._selected.copy()
 
     def set_value(self, value: Any) -> None:
         if isinstance(value, list):
             self._selected = value.copy()
-            for pid, widget in self._provider_widgets.items():
-                if pid in self._selected:
-                    widget.add_class("selected")
-                else:
-                    widget.remove_class("selected")
+            if self._allow_multiple:
+                # Update checkboxes
+                for pid, checkbox in self._checkboxes.items():
+                    checkbox.value = pid in value
+            else:
+                # Highlight option in OptionList
+                if value and self._option_list:
+                    idx = next(
+                        (i for i, (pid, _, _) in enumerate(self._providers) if pid == value[0]),
+                        None,
+                    )
+                    if idx is not None:
+                        self._option_list.highlighted = idx
 
     def validate(self) -> Optional[str]:
-        if not self._selected:
+        if not self.get_value():
             return "Please select at least one provider"
         return None
 
@@ -738,7 +761,7 @@ class CompleteStep(StepComponent):
 class SaveLocationStep(StepComponent):
     """Step for selecting where to save configuration files.
 
-    Shows options for .env file locations.
+    Shows options for .env file locations using native OptionList.
     """
 
     LOCATIONS = [
@@ -756,58 +779,32 @@ class SaveLocationStep(StepComponent):
         classes: Optional[str] = None,
     ) -> None:
         super().__init__(wizard_state, id=id, classes=classes)
-        self._selected_location: Optional[str] = ".env"
-        self._location_widgets: Dict[str, Container] = {}
-
-    def _sanitize_id(self, value: str) -> str:
-        """Sanitize a value to be a valid DOM ID."""
-        import re
-
-        # Replace invalid characters with underscores
-        sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", value)
-        # Ensure it doesn't start with a number
-        if sanitized and sanitized[0].isdigit():
-            sanitized = f"loc_{sanitized}"
-        return sanitized
+        self._selected_location: str = ".env"
+        self._option_list: Optional[OptionList] = None
 
     def compose(self) -> ComposeResult:
-        with ScrollableContainer(classes="option-list"):
-            for value, label, description in self.LOCATIONS:
-                option_classes = "option-item"
-                if value == self._selected_location:
-                    option_classes += " selected"
+        # Build native options
+        textual_options = []
+        for value, label, description in self.LOCATIONS:
+            option_text = f"[bold]{label}[/bold]\n[dim]{description}[/dim]"
+            textual_options.append(Option(option_text, id=value))
 
-                safe_id = f"location_{self._sanitize_id(value)}"
-                with Container(classes=option_classes, id=safe_id) as container:
-                    yield Label(label, classes="option-label")
-                    yield Label(description, classes="option-description")
-                    self._location_widgets[value] = container
+        self._option_list = OptionList(
+            *textual_options,
+            id="location_list",
+            classes="step-option-list",
+        )
+        yield self._option_list
 
-    async def on_click(self, event) -> None:
-        """Handle clicks on location items."""
-        target = event.target
-        while target and not (hasattr(target, "id") and target.id and target.id.startswith("location_")):
-            target = target.parent
+        # Set default selection (first item)
+        if self._option_list:
+            self._option_list.highlighted = 0
 
-        if target and hasattr(target, "id") and target.id:
-            # Reverse the ID transformation to get the original value
-            location_id = target.id.replace("location_", "")
-            for value, _, _ in self.LOCATIONS:
-                if self._sanitize_id(value) == location_id:
-                    await self._select_location(value)
-                    break
-
-    async def _select_location(self, value: str) -> None:
-        """Select a location."""
-        _step_log(f"SaveLocationStep._select_location: {value}")
-
-        for loc_value, widget in self._location_widgets.items():
-            if loc_value == value:
-                widget.add_class("selected")
-            else:
-                widget.remove_class("selected")
-
-        self._selected_location = value
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Native event handler for option selection."""
+        if event.option and event.option.id:
+            self._selected_location = str(event.option.id)
+            _step_log(f"SaveLocationStep: Selected {self._selected_location}")
 
     def get_value(self) -> str:
         return self._selected_location or ".env"
@@ -815,17 +812,20 @@ class SaveLocationStep(StepComponent):
     def set_value(self, value: Any) -> None:
         if isinstance(value, str):
             self._selected_location = value
-            for loc_value, widget in self._location_widgets.items():
-                if loc_value == value:
-                    widget.add_class("selected")
-                else:
-                    widget.remove_class("selected")
+            # Highlight option in OptionList
+            idx = next(
+                (i for i, (v, _, _) in enumerate(self.LOCATIONS) if v == value),
+                None,
+            )
+            if idx is not None and self._option_list:
+                self._option_list.highlighted = idx
 
 
 class LaunchOptionsStep(StepComponent):
     """Step for selecting launch options after quickstart.
 
     Options: Terminal TUI, Web UI, Save only.
+    Uses native OptionList for better keyboard navigation.
     """
 
     OPTIONS = [
@@ -843,39 +843,31 @@ class LaunchOptionsStep(StepComponent):
     ) -> None:
         super().__init__(wizard_state, id=id, classes=classes)
         self._selected_option: str = "terminal"
-        self._option_widgets: Dict[str, Container] = {}
+        self._option_list: Optional[OptionList] = None
 
     def compose(self) -> ComposeResult:
-        with ScrollableContainer(classes="option-list"):
-            for value, label, description in self.OPTIONS:
-                option_classes = "option-item"
-                if value == self._selected_option:
-                    option_classes += " selected"
+        # Build native options
+        textual_options = []
+        for value, label, description in self.OPTIONS:
+            option_text = f"[bold]{label}[/bold]\n[dim]{description}[/dim]"
+            textual_options.append(Option(option_text, id=value))
 
-                with Container(classes=option_classes, id=f"launch_{value}") as container:
-                    yield Label(label, classes="option-label")
-                    yield Label(description, classes="option-description")
-                    self._option_widgets[value] = container
+        self._option_list = OptionList(
+            *textual_options,
+            id="launch_list",
+            classes="step-option-list",
+        )
+        yield self._option_list
 
-    async def on_click(self, event) -> None:
-        """Handle clicks on option items."""
-        target = event.target
-        while target and not (hasattr(target, "id") and target.id and target.id.startswith("launch_")):
-            target = target.parent
+        # Set default selection (terminal - first item)
+        if self._option_list:
+            self._option_list.highlighted = 0
 
-        if target and hasattr(target, "id") and target.id:
-            value = target.id.replace("launch_", "")
-            await self._select_option(value)
-
-    async def _select_option(self, value: str) -> None:
-        """Select an option."""
-        for opt_value, widget in self._option_widgets.items():
-            if opt_value == value:
-                widget.add_class("selected")
-            else:
-                widget.remove_class("selected")
-
-        self._selected_option = value
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Native event handler for option selection."""
+        if event.option and event.option.id:
+            self._selected_option = str(event.option.id)
+            _step_log(f"LaunchOptionsStep: Selected {self._selected_option}")
 
     def get_value(self) -> str:
         return self._selected_option
@@ -883,8 +875,10 @@ class LaunchOptionsStep(StepComponent):
     def set_value(self, value: Any) -> None:
         if isinstance(value, str) and value in [o[0] for o in self.OPTIONS]:
             self._selected_option = value
-            for opt_value, widget in self._option_widgets.items():
-                if opt_value == value:
-                    widget.add_class("selected")
-                else:
-                    widget.remove_class("selected")
+            # Highlight option in OptionList
+            idx = next(
+                (i for i, (v, _, _) in enumerate(self.OPTIONS) if v == value),
+                None,
+            )
+            if idx is not None and self._option_list:
+                self._option_list.highlighted = idx

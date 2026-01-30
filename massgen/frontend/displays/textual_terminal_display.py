@@ -558,6 +558,39 @@ class TextualTerminalDisplay(TerminalDisplay):
         if len(self.agent_ids) != len(set(self.agent_ids)):
             raise ValueError("Duplicate agent IDs detected")
 
+    def reset_turn_state(self) -> None:
+        """Reset turn-level state in the display for a new turn.
+
+        Clears final answer state, content buffers, and other state
+        that should not persist between turns.
+        """
+        # Final answer/presentation state - clear for new turn
+        self._final_answer_cache = None
+        self._final_answer_metadata.clear()
+        self._final_stream_buffer = ""
+        self._final_presentation_agent = None
+        self._final_stream_active = False
+        self._routing_to_post_eval_card = False
+
+        # Post-evaluation content - clear for new turn
+        self._post_evaluation_lines.clear()
+
+        # Content buffers - clear for new turn
+        with self._buffer_lock:
+            for agent_id in self._buffers:
+                self._buffers[agent_id].clear()
+
+        # Web search chunks - reset for new turn
+        for agent_id in self._recent_web_chunks:
+            self._recent_web_chunks[agent_id].clear()
+
+        # Reset app state if app exists
+        if self._app:
+            try:
+                self._app.reset_turn_state()
+            except Exception:
+                pass
+
     def _detect_emoji_support(self) -> bool:
         """Detect if terminal supports emoji."""
         import locale
@@ -676,10 +709,14 @@ class TextualTerminalDisplay(TerminalDisplay):
             return
 
         app_thread_id = getattr(self._app, "_thread_id", None)
-        if app_thread_id is not None and app_thread_id == threading.get_ident():
-            callback(*args, **kwargs)
-        else:
-            self._app.call_from_thread(callback, *args, **kwargs)
+        try:
+            if app_thread_id is not None and app_thread_id == threading.get_ident():
+                callback(*args, **kwargs)
+            else:
+                self._app.call_from_thread(callback, *args, **kwargs)
+        except RuntimeError:
+            # App is no longer running (e.g., early cancellation)
+            pass
 
     def set_input_handler(self, handler: Callable[[str], None]) -> None:
         """Set the callback for user-submitted input (questions or commands)"""
@@ -1185,11 +1222,7 @@ class TextualTerminalDisplay(TerminalDisplay):
                 self._post_evaluation_lines.append(clean)
 
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_post_evaluation,
-                content,
-                agent_id,
-            )
+            self._call_app_method("show_post_evaluation", content, agent_id)
 
     def end_post_evaluation_content(self, agent_id: str):
         """Called when post-evaluation is complete to show footer with buttons."""
@@ -1202,12 +1235,7 @@ class TextualTerminalDisplay(TerminalDisplay):
     def show_post_evaluation_tool_content(self, tool_name: str, args: dict, agent_id: str):
         """Called when a post-evaluation tool call (submit/restart) is detected."""
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_post_evaluation_tool,
-                tool_name,
-                args,
-                agent_id,
-            )
+            self._call_app_method("show_post_evaluation_tool", tool_name, args, agent_id)
 
     def show_restart_banner(self, reason: str, instructions: str, attempt: int, max_attempts: int):
         """Display restart decision banner."""
@@ -1216,13 +1244,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._write_to_system_file(banner_msg)
 
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_restart_banner,
-                reason,
-                instructions,
-                attempt,
-                max_attempts,
-            )
+            self._call_app_method("show_restart_banner", reason, instructions, attempt, max_attempts)
 
     def show_restart_context_panel(self, reason: str, instructions: str):
         """Display restart context panel at top of UI (for attempt 2+)."""
@@ -1230,11 +1252,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self.restart_instructions = instructions
 
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_restart_context,
-                reason,
-                instructions,
-            )
+            self._call_app_method("show_restart_context", reason, instructions)
 
     def show_agent_restart(self, agent_id: str, round_num: int):
         """Notify that a specific agent is starting a new round.
@@ -1247,11 +1265,7 @@ class TextualTerminalDisplay(TerminalDisplay):
             round_num: The new round number for this agent
         """
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_agent_restart,
-                agent_id,
-                round_num,
-            )
+            self._call_app_method("show_agent_restart", agent_id, round_num)
 
     def show_final_presentation_start(self, agent_id: str, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None):
         """Notify that the final presentation phase is starting for the winning agent.
@@ -1265,12 +1279,7 @@ class TextualTerminalDisplay(TerminalDisplay):
             answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
         """
         if self._app:
-            self._app.call_from_thread(
-                self._app.show_final_presentation_start,
-                agent_id,
-                vote_counts,
-                answer_labels,
-            )
+            self._call_app_method("show_final_presentation_start", agent_id, vote_counts, answer_labels)
 
     def cleanup(self):
         """Cleanup and exit Textual app."""
@@ -1342,8 +1351,13 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         # Fully reset UI for new turn (clears timelines, adds turn separator)
         if self._app:
+            from massgen.logger_config import logger
+
+            logger.info(f"[TUI] Calling prepare_for_new_turn(turn={turn})")
             self._call_app_method("prepare_for_new_turn", turn, previous_answer)
+            logger.info("[TUI] prepare_for_new_turn complete, now calling update_turn_header")
             self._call_app_method("update_turn_header", turn, question)
+            logger.info("[TUI] update_turn_header complete")
 
         for agent_id in self.agent_ids:
             separator = f"\n{'='*60}\n=== TURN {turn} ===\n{'='*60}\n"
@@ -2587,6 +2601,43 @@ if TEXTUAL_AVAILABLE:
                 return True
             return False
 
+        def reset_turn_state(self) -> None:
+            """Reset turn-level state for a new turn.
+
+            Clears answer/vote tracking, winner state, context tracking,
+            and UI state that should not persist between turns.
+            """
+            # Answer/voting state - clear for new turn
+            self._answers.clear()
+            self._votes.clear()
+            self._winner_agent_id = None
+            self._current_question = ""
+
+            # Restart tracking - keep history but clear current
+            self._current_restart = {}
+
+            # Context tracking - agents start fresh for new turn
+            self._context_per_agent.clear()
+
+            # Orchestrator events - clear event log for new turn
+            self._orchestrator_events.clear()
+
+            # Human input queue - clear any stale queued input
+            self._queued_human_input = None
+            if self._queued_input_banner:
+                try:
+                    self._queued_input_banner.remove()
+                    self._queued_input_banner = None
+                except Exception:
+                    pass
+
+            # Agent pulsing - stop all pulse animations
+            self._pulsing_agents.clear()
+
+            # Final presentation state - clear winner's presentation
+            self._final_presentation_agent = None
+            self._final_presentation_card = None
+
         def compose(self) -> ComposeResult:
             """Compose the UI layout with adaptive agent arrangement."""
             len(self.coordination_display.agent_ids)
@@ -3001,6 +3052,9 @@ if TEXTUAL_AVAILABLE:
                     self.set_focus(None)
                     self.notify("Press any shortcut key (h for help)", severity="information", timeout=2)
                     event.stop()
+                    return
+                # Stop event propagation when input is focused to prevent shortcuts from triggering
+                event.stop()
                 # Note: Tab key when dropdown is showing is handled above
                 return
 
@@ -3176,20 +3230,12 @@ if TEXTUAL_AVAILABLE:
             if hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes:
                 self._plan_options_popover.hide()
 
-            # In execute mode, set up plan execution
-            if is_execute_mode:
-                text = self._setup_plan_execution(text)
-                if text is None:
-                    # Setup failed, error already shown
-                    return
-
             # Clear any persistent cancelled state when user starts a new turn
             self._clear_cancelled_state()
 
-            self.question_input.clear()
-
-            # During execution, queue input for injection (except slash commands)
-            # User must cancel (Ctrl+C) first if they want to start a new turn
+            # CRITICAL: Check execution status FIRST before execute mode
+            # During active execution, queue input (don't trigger new plan execution)
+            # Execute mode is auto-cleared by end_turn() after execution completes
             is_executing = self._is_execution_in_progress()
             has_hook = self._human_input_hook is not None
             phase = self._status_bar._current_phase if self._status_bar else "unknown"
@@ -3199,6 +3245,16 @@ if TEXTUAL_AVAILABLE:
                 tui_log("  -> Queueing input for injection")
                 self._queue_human_input(text)
                 return
+
+            # In execute mode (and NOT currently executing), set up plan execution
+            if is_execute_mode:
+                text = self._setup_plan_execution(text)
+                if text is None:
+                    # Setup failed, error already shown
+                    return
+
+            # Clear input after determining routing (queued input was already cleared)
+            self.question_input.clear()
 
             tui_log("  -> Submitting as new turn")
 
@@ -3524,6 +3580,9 @@ Type your question and press Enter to ask the agents.
                         self._event_adapters[agent_id].reset()
                     except Exception:
                         pass
+                # Reset round state when doing full reset
+                if hasattr(widget, "reset_round_state"):
+                    widget.reset_round_state()
             self.notify("Agent panels reset", severity="information")
 
         def _update_all_loading_text(self, message: str) -> None:
@@ -3730,6 +3789,7 @@ Type your question and press Enter to ask the agents.
             if self._status_ribbon:
                 remaining = timeout_state.get("remaining_soft")
                 self._status_ribbon.set_timeout(agent_id, remaining)
+                self._status_ribbon.set_timeout_state(agent_id, timeout_state)
 
         def update_hook_execution(
             self,
@@ -4019,6 +4079,10 @@ Type your question and press Enter to ask the agents.
 
                 timeline.add_widget(card)
                 self._final_presentation_card = card
+
+                # Stop the round timer - final presentation is the end state
+                if self._status_ribbon:
+                    self._status_ribbon.stop_all_round_timers()
 
                 try:
                     logger.info(
@@ -4498,21 +4562,35 @@ Type your question and press Enter to ask the agents.
                 turn: The new turn number (1-indexed)
                 previous_answer: Optional summary of the previous turn's answer
             """
+            from massgen.logger_config import logger
+
+            logger.info(f"[TUI-App] prepare_for_new_turn() called: turn={turn}, has_previous_answer={previous_answer is not None}")
             # Clear winner state and flags
             self.clear_winner_state()
+            logger.info("[TUI-App] Winner state cleared")
 
             # Clear timeline content from all agent panels
+            logger.info(f"[TUI-App] Clearing timelines for {len(self.agent_widgets)} agent panels")
             for agent_id, panel in self.agent_widgets.items():
                 try:
+                    logger.info(f"[TUI-App] Processing agent {agent_id}")
                     timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
+                    logger.info(f"[TUI-App] Found timeline widget for {agent_id}")
                     # Clear the timeline content (add Round 1 only for turn 1)
                     timeline.clear(add_round_1=(turn == 1))
+                    logger.info(f"[TUI-App] Timeline cleared for {agent_id}, add_round_1={turn == 1}")
 
                     # Add a turn separator banner if this is turn 2+
                     if turn > 1:
+                        logger.info(f"[TUI-App] Adding turn {turn} banner for {agent_id}")
                         from massgen.frontend.displays.textual_widgets.content_sections import (
                             RestartBanner,
                         )
+
+                        # CRITICAL: Suppress auto Round 1 insertion before adding turn banner.
+                        # add_widget() calls _ensure_round_1_shown() which would add Round 1
+                        # ABOVE the turn banner. We add Round 1 explicitly BELOW it instead.
+                        timeline._round_1_shown = True
 
                         # Create a turn separator that shows context from previous turn
                         separator_label = f"══════ Turn {turn} ══════"
@@ -4521,9 +4599,11 @@ Type your question and press Enter to ask the agents.
                             id=f"turn_{turn}_separator",
                         )
                         timeline.add_widget(turn_banner)
+                        logger.info(f"[TUI-App] Turn banner added to timeline for {agent_id}")
 
                         # If we have a previous answer summary, show it collapsed
                         if previous_answer:
+                            logger.info(f"[TUI-App] Adding previous answer context for {agent_id}")
                             from textual.widgets import Static
 
                             summary = previous_answer[:200] + "..." if len(previous_answer) > 200 else previous_answer
@@ -4534,19 +4614,37 @@ Type your question and press Enter to ask the agents.
                             )
                             timeline.add_widget(context_widget)
 
+                        # CRITICAL: Add Round 1 separator BELOW the turn banner (and optional context)
+                        # This ensures proper order: Turn X → [Context] → Round 1 → Content
+                        logger.info(f"[TUI-App] Adding Round 1 separator for {agent_id}")
+                        timeline.add_separator("Round 1", round_number=1)
+                        timeline._round_1_shown = True  # Prevent _ensure_round_1_shown() from adding it again
+                        logger.info("[TUI-App] Round 1 separator added, _round_1_shown set to True")
+
+                        # Scroll to the turn banner to show the new turn at the top
+                        try:
+                            turn_banner.scroll_visible()
+                            logger.info(f"[TUI-App] Scrolled to turn banner for {agent_id}")
+                        except Exception as e:
+                            logger.warning(f"[TUI-App] Failed to scroll to turn banner for {agent_id}: {e}")
+
                 except Exception as e:
-                    logger.debug(f"Failed to clear timeline for {agent_id}: {e}")
+                    logger.error(f"[TUI-App] Failed to prepare timeline for {agent_id}: {e}", exc_info=True)
 
             # Reset any modal state
             # (modals should auto-dismiss but just in case)
 
-            # Scroll to top of timelines
-            for panel in self.agent_widgets.values():
-                try:
-                    timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
-                    timeline.scroll_home()
-                except Exception:
-                    pass
+            # Scroll to top of timelines (only for turn 1, turn 2+ scrolls to turn banner)
+            if turn == 1:
+                logger.info("[TUI-App] Scrolling to top for turn 1")
+                for panel in self.agent_widgets.values():
+                    try:
+                        timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
+                        timeline.scroll_home()
+                    except Exception:
+                        pass
+
+            logger.info(f"[TUI-App] prepare_for_new_turn() complete for turn {turn}")
 
         # =====================================================================
         # Multi-turn Lifecycle Methods
@@ -4569,10 +4667,34 @@ Type your question and press Enter to ask the agents.
                 self._tab_bar.update_turn(turn)
                 self._tab_bar.update_question(question)
             if turn > 1:
+                from massgen.logger_config import logger
+
+                logger.info(f"[TUI] update_turn_header called for turn {turn}")
+
                 separator = f"\n{'='*50}\n   TURN {turn}\n{'='*50}\n"
                 for agent_id, widget in self.agent_widgets.items():
                     if hasattr(widget, "content_log"):
                         widget.content_log.write(separator)
+
+                # CRITICAL: Reset round state for all agents at the start of each new turn
+                # This ensures rounds restart at R1 for the new turn
+                logger.info(f"[TUI] Resetting round state for {len(self.agent_widgets)} agent panels")
+                for agent_id, widget in self.agent_widgets.items():
+                    if hasattr(widget, "reset_round_state"):
+                        logger.info(f"[TUI] Calling reset_round_state() on panel for agent {agent_id}")
+                        widget.reset_round_state()
+                        logger.info(f"[TUI] After reset: panel._current_round={widget._current_round}, panel._viewed_round={widget._viewed_round}")
+
+                # CRITICAL: Reset status ribbon for all agents
+                # The ribbon is at app level, not inside panels, so reset it directly
+                if self._status_ribbon:
+                    logger.info("[TUI] Resetting status ribbon for all agents")
+                    self._status_ribbon.reset_round_state_all_agents()
+                    logger.info("[TUI] Status ribbon reset complete")
+
+                # CRITICAL: Reset turn-level state (answers, votes, buffers, etc.)
+                # This ensures clean state for each new turn
+                self.coordination_display.reset_turn_state()
 
         def set_input_enabled(self, enabled: bool):
             """Enable or disable mode controls during execution.
@@ -4588,10 +4710,20 @@ Type your question and press Enter to ask the agents.
             # The _submit_question method handles this queueing logic.
 
             # Lock/unlock mode controls during execution
-            if enabled:
-                self._mode_state.unlock()
-            else:
-                self._mode_state.lock()
+            # Defensive: ensure lock is released even if error occurs
+            try:
+                if enabled:
+                    self._mode_state.unlock()
+                else:
+                    self._mode_state.lock()
+            except Exception as e:
+                # Ensure lock is released even if error occurs
+                logger.error(f"Error in set_input_enabled: {e}")
+                try:
+                    self._mode_state.unlock()
+                except Exception:
+                    pass  # Best effort to recover
+                raise
 
             # Update mode bar enabled state
             if self._mode_bar:
@@ -4721,7 +4853,6 @@ Type your question and press Enter to ask the agents.
             )
             self.push_screen(modal)
 
-        @keyboard_action
         def action_next_agent(self):
             """Switch to next agent tab, or select in dropdown if showing."""
             # If dropdown is showing, Tab selects the current item
@@ -4733,7 +4864,6 @@ Type your question and press Enter to ask the agents.
                 if next_agent:
                     self._switch_to_agent(next_agent)
 
-        @keyboard_action
         def action_prev_agent(self):
             """Switch to previous agent tab."""
             if self._tab_bar:
@@ -4741,7 +4871,6 @@ Type your question and press Enter to ask the agents.
                 if prev_agent:
                     self._switch_to_agent(prev_agent)
 
-        @keyboard_action
         def action_show_subagents(self):
             """Show subagent screen for first running subagent.
 
@@ -5459,17 +5588,14 @@ Type your question and press Enter to ask the agents.
             self.add_orchestrator_event(f"Keyboard safe mode {status}")
             self._update_safe_indicator()
 
-        @keyboard_action
         def action_agent_selector(self):
             """Show agent selector."""
             self.show_agent_selector()
 
-        @keyboard_action
         def action_coordination_table(self):
             """Show coordination table."""
             self._show_coordination_table_modal()
 
-        @keyboard_action
         def action_quit(self):
             """Quit the application."""
             self.exit()
@@ -5560,7 +5686,6 @@ Type your question and press Enter to ask the agents.
             """Show help modal (Ctrl+/ binding)."""
             self._show_help_modal()
 
-        @keyboard_action
         def action_open_vote_results(self):
             """Open vote results modal."""
             text = getattr(self, "_latest_vote_results_text", "")
@@ -5577,17 +5702,14 @@ Type your question and press Enter to ask the agents.
                 ),
             )
 
-        @keyboard_action
         def action_open_system_status(self):
             """Open system status log."""
             self._show_system_status_modal()
 
-        @keyboard_action
         def action_open_orchestrator(self):
             """Open orchestrator events modal."""
             self._show_orchestrator_modal()
 
-        @keyboard_action
         def action_open_agent_output(self):
             """Open full agent output modal for currently active agent."""
             agent_id = self._active_agent_id
@@ -5599,22 +5721,18 @@ Type your question and press Enter to ask the agents.
             else:
                 self.notify("No agent selected", severity="warning")
 
-        @keyboard_action
         def action_open_cost_breakdown(self):
             """Open cost breakdown modal."""
             self._show_cost_breakdown_modal()
 
-        @keyboard_action
         def action_open_metrics(self):
             """Open metrics modal."""
             self._show_metrics_modal()
 
-        @keyboard_action
         def action_show_shortcuts(self):
             """Show keyboard shortcuts modal."""
             self._show_modal_async(KeyboardShortcutsModal())
 
-        @keyboard_action
         def action_open_mcp_status(self):
             """Open MCP server status modal."""
             mcp_status = self._get_mcp_status()
@@ -5623,7 +5741,6 @@ Type your question and press Enter to ask the agents.
                 return
             self._show_modal_async(MCPStatusModal(mcp_status))
 
-        @keyboard_action
         def action_open_answer_browser(self):
             """Open answer browser modal."""
             if not self._answers:
@@ -5638,7 +5755,6 @@ Type your question and press Enter to ask the agents.
                 ),
             )
 
-        @keyboard_action
         def action_open_timeline(self):
             """Open timeline visualization modal."""
             if not self._answers and not self._votes:
@@ -5654,7 +5770,6 @@ Type your question and press Enter to ask the agents.
                 ),
             )
 
-        @keyboard_action
         def action_open_workspace_browser(self):
             """Open workspace browser modal to view answer snapshots."""
             from pathlib import Path
@@ -5800,7 +5915,6 @@ Type your question and press Enter to ask the agents.
                 ),
             )
 
-        @keyboard_action
         def action_open_unified_browser(self):
             """Open unified browser modal with tabs for Answers, Votes, Workspace, Timeline."""
             if not self._answers and not self._votes:
@@ -6440,6 +6554,10 @@ Type your question and press Enter to ask the agents.
                 # Stop all pulsing animations
                 self._stop_all_pulses()
 
+                # Stop round timers in ribbon
+                if hasattr(self, "_status_ribbon") and self._status_ribbon:
+                    self._status_ribbon.stop_all_round_timers()
+
                 # Mark cancelled state in mode tracker (persists until new input)
                 if hasattr(self.coordination_display, "_mode_state"):
                     self.coordination_display._mode_state.was_cancelled = True
@@ -6590,10 +6708,10 @@ Type your question and press Enter to ask the agents.
             - a: Answer browser
             - t: Timeline
             - h or ?: Help/shortcuts
-            """
-            if self._keyboard_locked():
-                return False
 
+            Note: Info shortcuts always work - they're read-only views.
+            No need to check keyboard lock since none of these change modes.
+            """
             key = event.character
             if not key:
                 return False
@@ -7035,6 +7153,35 @@ Type your question and press Enter to ask the agents.
             # Final presentation tracking
             # When True, content flows through the normal pipeline but is tagged as final presentation
             self._is_final_presentation_round: bool = False
+
+        def reset_round_state(self) -> None:
+            """Reset round tracking state for a new turn."""
+            from massgen.logger_config import logger
+
+            logger.info(f"[AgentPanel] reset_round_state() called for agent {self.agent_id}")
+            logger.info(f"[AgentPanel] Before reset: _current_round={self._current_round}, _viewed_round={self._viewed_round}")
+
+            self._current_round = 1
+            self._viewed_round = 1
+            self._context_by_round.clear()
+            self._is_final_presentation_round = False
+            self._final_answer_content = None
+            self._final_answer_metadata = None
+
+            logger.info(f"[AgentPanel] After reset: _current_round={self._current_round}, _viewed_round={self._viewed_round}")
+
+            # Reset round state in child widgets
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                logger.info("[AgentPanel] Found timeline widget, calling timeline.reset_round_state()")
+                timeline.reset_round_state()
+                logger.info(f"[AgentPanel] Timeline reset complete: _viewed_round={timeline._viewed_round}, _round_1_shown={timeline._round_1_shown}")
+            except Exception as e:
+                logger.warning(f"Failed to reset timeline round state for {self.agent_id}: {e}")
+
+            # NOTE: Don't reset ribbon here - it's at app level, not inside panel
+            # The ribbon is reset directly in update_turn_header() via self._status_ribbon.reset_round_state_all_agents()
+            logger.info("[AgentPanel] Skipping ribbon reset (handled at app level)")
 
         def compose(self) -> ComposeResult:
             with Vertical():
@@ -7834,9 +7981,14 @@ Type your question and press Enter to ask the agents.
                     # Phase 12: Pass round_number for CSS visibility
                     timeline.add_text(line, style="dim italic", text_class=text_class, round_number=current_round)
 
+                # Use original content for line buffer to preserve inter-token
+                # whitespace (e.g. " CSS") that strip_prefixes/clean_content
+                # would remove. The handler check above already validated the
+                # content is displayable.
+                buffer_content = normalized.original if normalized.original else cleaned
                 self._line_buffer = _process_line_buffer(
                     self._line_buffer,
-                    cleaned,
+                    buffer_content,
                     write_line,
                 )
                 self.current_line_label.update(Text(self._line_buffer))

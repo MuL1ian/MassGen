@@ -51,5 +51,5 @@ orchestrator:
     max_orchestration_restarts: 2  # Default: 0 (allows 3 total attempts: initial + 2 restarts)
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

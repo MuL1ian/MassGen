@@ -105,10 +105,13 @@ class StepComponent(Container):
     - on_mount(): Initialize the component with wizard state
     """
 
+    # Base component should not take focus (children manage it)
+    can_focus = False
+
     DEFAULT_CSS = """
     StepComponent {
         width: 100%;
-        height: 1fr;
+        height: auto;
         padding: 1 2;
     }
     """
@@ -191,6 +194,7 @@ class WizardModal(ModalScreen):
 
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
+        ("ctrl+c", "cancel", "Cancel"),
         ("left", "previous_step", "Previous"),
         ("right", "next_step", "Next"),
         ("enter", "confirm", "Confirm"),
@@ -204,63 +208,31 @@ class WizardModal(ModalScreen):
     #wizard_container {
         width: 90%;
         max-width: 100;
-        height: 85%;
-        background: $surface;
-        border: solid $primary;
+        height: auto;
+        max-height: 90%;
         padding: 1 2;
+        layout: vertical;
+        overflow: hidden;
     }
 
     #wizard_header {
         height: auto;
         width: 100%;
-        padding: 0 0 1 0;
-        border-bottom: solid $primary-darken-2;
+        padding: 0;
+        margin-bottom: 1;
     }
 
-    #wizard_progress_bar {
+    #wizard_header > Horizontal {
         height: 1;
         width: 100%;
-        margin-bottom: 1;
-    }
-
-    #wizard_progress_bar Bar {
-        color: $primary;
-    }
-
-    #wizard_step_counter {
-        text-align: right;
-        color: $text-muted;
-        width: 100%;
-    }
-
-    #wizard_title {
-        text-style: bold;
-        color: $primary;
-        text-align: center;
-        width: 100%;
-        margin-top: 1;
-    }
-
-    #wizard_description {
-        color: $text-muted;
-        text-align: center;
-        width: 100%;
-        margin-bottom: 1;
+        align: left middle;
     }
 
     #wizard_content {
-        height: 1fr;
+        height: auto;
         width: 100%;
         overflow-y: auto;
-        margin: 1 0;
-        padding: 1 2;
-    }
-
-    #wizard_error {
-        color: $error;
-        text-align: center;
-        width: 100%;
-        height: auto;
+        margin: 0;
         padding: 0 1;
     }
 
@@ -272,29 +244,21 @@ class WizardModal(ModalScreen):
         height: 3;
         width: 100%;
         align: center middle;
-        padding-top: 1;
+        margin-top: 1;
     }
 
     #wizard_nav Button {
         margin: 0 1;
-        min-width: 12;
+        min-width: 14;
+        height: 3;
     }
 
-    #wizard_back {
-        background: $surface-darken-1;
-    }
-
-    #wizard_back.disabled {
-        background: $surface-darken-2;
+    #wizard_hints {
+        height: 1;
+        width: 100%;
+        text-align: center;
         color: $text-muted;
-    }
-
-    #wizard_next {
-        background: $success;
-    }
-
-    #wizard_cancel {
-        background: $error-darken-1;
+        padding: 0 1;
     }
     """
 
@@ -334,16 +298,18 @@ class WizardModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         """Create the wizard layout."""
-        with Container(id="wizard_container"):
+        with Vertical(id="wizard_container"):
             # Header section
             with Vertical(id="wizard_header"):
-                yield ProgressBar(id="wizard_progress_bar", total=100, show_eta=False)
-                yield Label("", id="wizard_step_counter")
+                # Progress bar and step counter on same line
+                with Horizontal():
+                    yield ProgressBar(id="wizard_progress_bar", total=100, show_eta=False)
+                    yield Label("", id="wizard_step_counter")
                 yield Label("", id="wizard_title")
                 yield Label("", id="wizard_description")
 
             # Content area for step component
-            yield Container(id="wizard_content")
+            yield Vertical(id="wizard_content")
 
             # Error message (hidden by default)
             error_label = Label("", id="wizard_error")
@@ -475,6 +441,22 @@ class WizardModal(ModalScreen):
         except Exception:
             pass
 
+    def _focus_first_widget(self) -> None:
+        """Focus the first interactive widget in current step."""
+        if not self._current_component:
+            return
+
+        # Query for focusable widgets in priority order
+        for widget_type in ["Input", "Select", "OptionList", "Button", "Checkbox"]:
+            widgets = self._current_component.query(widget_type)
+            if widgets:
+                try:
+                    widgets.first().focus()
+                    _wizard_log(f"WizardModal._focus_first_widget: Focused {widget_type}")
+                    break
+                except Exception as e:
+                    _wizard_log(f"WizardModal._focus_first_widget: Failed to focus {widget_type}: {e}")
+
     def _show_error(self, message: str) -> None:
         """Show an error message.
 
@@ -523,7 +505,7 @@ class WizardModal(ModalScreen):
             pass
 
         # Clear and mount the step component
-        content_container = self.query_one("#wizard_content", Container)
+        content_container = self.query_one("#wizard_content", Vertical)
         await content_container.remove_children()
 
         # Create the step component
@@ -541,6 +523,9 @@ class WizardModal(ModalScreen):
         # Update progress and navigation
         self._update_progress()
         self._update_navigation()
+
+        # Auto-focus first interactive widget
+        self.call_after_refresh(self._focus_first_widget)
 
     async def action_next_step(self) -> None:
         """Move to the next step."""

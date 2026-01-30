@@ -2220,6 +2220,19 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                 if "cwd" in message.data and message.data["cwd"]:
                     self._cwd = message.data["cwd"]
 
+    async def interrupt(self):
+        """Send interrupt signal to gracefully stop the current operation.
+
+        This tells the Claude Code CLI to stop its current work cleanly,
+        avoiding noisy stream-closed errors that occur when the process
+        is killed abruptly.
+        """
+        if self._client is not None:
+            try:
+                await self._client.interrupt()
+            except Exception:
+                pass  # Ignore errors during interrupt
+
     async def disconnect(self):
         """Disconnect the ClaudeSDKClient and clean up resources.
 

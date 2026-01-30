@@ -31,5 +31,5 @@ agent:
     Please test these MCP tools to verify the integration is working.
 
 ui:
-  display_type: "rich_terminal"
+  display_type: "textual_terminal"
   logging_enabled: true

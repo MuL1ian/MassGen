@@ -65,6 +65,7 @@ from .tool_card import ToolCallCard, format_tool_display_name, get_tool_category
 from .tool_detail_modal import ToolDetailModal
 from .wizard_base import (
     StepComponent,
+    WizardCancelled,
     WizardCompleted,
     WizardModal,
     WizardState,
@@ -151,6 +152,7 @@ __all__ = [
     "WizardModal",
     "WizardState",
     "WizardStep",
+    "WizardCancelled",
     "WizardCompleted",
     "StepComponent",
     "SetupWizard",

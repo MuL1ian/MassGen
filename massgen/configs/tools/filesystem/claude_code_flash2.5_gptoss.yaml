@@ -45,5 +45,5 @@ agents:
 
 # UI Configuration
 ui:
-  type: "rich_terminal"
+  type: "textual_terminal"
   logging_enabled: true
