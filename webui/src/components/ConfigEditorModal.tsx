@@ -77,7 +77,7 @@ export function ConfigEditorModal({
   const hasChanges = content !== originalContent;
 
   // Check if this is a user config (editable)
-  const isUserConfig = editingPath?.includes('.config/massgen') ?? false;
+  const isUserConfig = (editingPath?.includes('.config/massgen') || editingPath?.includes('.massgen/')) ?? false;
 
   // Fetch user configs list
   const fetchUserConfigs = useCallback(async () => {
@@ -504,7 +504,7 @@ orchestrator:
                       <div className="bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2 mb-4">
                         <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 text-sm">
                           <AlertCircle className="w-4 h-4" />
-                          This config is read-only. Only configs in ~/.config/massgen/ can be edited.
+                          This config is read-only. Only configs in ~/.config/massgen/ or ./.massgen/ can be edited.
                         </div>
                       </div>
                     )}

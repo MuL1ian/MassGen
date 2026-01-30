@@ -484,6 +484,7 @@ def create_app(
             config_path = config_path.resolve()
             allowed_paths = [
                 Path.home() / ".config" / "massgen",
+                Path.cwd() / ".massgen",
             ]
             try:
                 import massgen
@@ -514,16 +515,34 @@ def create_app(
         configs = []
         quickstart_config = None
 
-        # Check for user's default config at ~/.config/massgen/config.yaml
-        user_config_path = Path.home() / ".config" / "massgen" / "config.yaml"
-        if user_config_path.exists():
-            quickstart_config = {
-                "name": "Default Config",
-                "path": str(user_config_path),
-                "category": "user",
-                "relative": "config.yaml",
-            }
-            configs.append(quickstart_config)
+        # Check for project-local config at ./.massgen/ (prioritized)
+        project_config_dir = Path.cwd() / ".massgen"
+        if project_config_dir.exists():
+            for yaml_file in sorted(project_config_dir.glob("*.yaml")) + sorted(project_config_dir.glob("*.yml")):
+                entry = {
+                    "name": f"{yaml_file.stem} (project)",
+                    "path": str(yaml_file),
+                    "category": "project",
+                    "relative": yaml_file.name,
+                }
+                configs.append(entry)
+                if quickstart_config is None:
+                    quickstart_config = entry
+
+        # Check for user's global config at ~/.config/massgen/
+        user_config_dir = Path.home() / ".config" / "massgen"
+        if user_config_dir.exists():
+            user_yamls = sorted(user_config_dir.glob("*.yaml")) + sorted(user_config_dir.glob("*.yml"))
+            for yaml_file in user_yamls:
+                entry = {
+                    "name": yaml_file.stem if len(user_yamls) > 1 else "Default Config",
+                    "path": str(yaml_file),
+                    "category": "user",
+                    "relative": yaml_file.name,
+                }
+                configs.append(entry)
+                if quickstart_config is None:
+                    quickstart_config = entry
 
         # Get configs from massgen package
         try:
@@ -547,22 +566,21 @@ def create_app(
         except Exception:
             pass
 
-        # Sort by category then name (user configs first)
+        # Sort: project first, then user, then package configs
+        category_order = {"project": 0, "user": 1}
+
         def sort_key(x):
-            # Put 'user' category first, then sort alphabetically
-            if x["category"] == "user":
-                return ("0", x["name"])
-            return (x["category"], x["name"])
+            return (category_order.get(x["category"], 2), x["name"])
 
         configs.sort(key=sort_key)
 
-        # Use quickstart config as default if it exists, otherwise CLI default
-        default = str(user_config_path) if user_config_path.exists() else get_default_config()
+        # Default: project config > user config > CLI default
+        default = quickstart_config["path"] if quickstart_config else get_default_config()
 
         return {
             "configs": configs,
             "default": default,
-            "quickstart_config": str(user_config_path) if user_config_path.exists() else None,
+            "quickstart_config": quickstart_config["path"] if quickstart_config else None,
         }
 
     # =========================================================================
@@ -1284,42 +1302,47 @@ def create_app(
 
     @app.get("/api/config/user-configs")
     async def list_user_configs():
-        """List all user config files in ~/.config/massgen/.
+        """List all user config files from ~/.config/massgen/ and ./.massgen/.
 
         Returns:
-            {"configs": [{"name": "config.yaml", "path": "...", "modified": timestamp}, ...]}
+            {"configs": [{"name": "config.yaml", "path": "...", "modified": timestamp, "source": "global"|"project"}, ...],
+             "config_dir": "...", "project_config_dir": "..."|null}
         """
         from pathlib import Path
 
-        config_dir = Path.home() / ".config" / "massgen"
+        global_config_dir = Path.home() / ".config" / "massgen"
+        project_config_dir = Path.cwd() / ".massgen"
         configs = []
+        seen_paths = set()
 
-        if config_dir.exists():
-            for yaml_file in config_dir.glob("*.yaml"):
-                stat = yaml_file.stat()
-                configs.append(
-                    {
-                        "name": yaml_file.name,
-                        "path": str(yaml_file),
-                        "modified": stat.st_mtime,
-                        "size": stat.st_size,
-                    },
-                )
-            for yml_file in config_dir.glob("*.yml"):
-                stat = yml_file.stat()
-                configs.append(
-                    {
-                        "name": yml_file.name,
-                        "path": str(yml_file),
-                        "modified": stat.st_mtime,
-                        "size": stat.st_size,
-                    },
-                )
+        for config_dir, source in [(global_config_dir, "global"), (project_config_dir, "project")]:
+            if not config_dir.exists():
+                continue
+            for pattern in ("*.yaml", "*.yml"):
+                for yaml_file in config_dir.glob(pattern):
+                    resolved = str(yaml_file.resolve())
+                    if resolved in seen_paths:
+                        continue
+                    seen_paths.add(resolved)
+                    stat = yaml_file.stat()
+                    configs.append(
+                        {
+                            "name": yaml_file.name,
+                            "path": str(yaml_file),
+                            "modified": stat.st_mtime,
+                            "size": stat.st_size,
+                            "source": source,
+                        },
+                    )
 
-        # Sort by modification time (newest first)
-        configs.sort(key=lambda x: x["modified"], reverse=True)
+        # Sort: project configs first, then by modification time (newest first)
+        configs.sort(key=lambda x: (x["source"] != "project", -x["modified"]))
 
-        return {"configs": configs, "config_dir": str(config_dir)}
+        return {
+            "configs": configs,
+            "config_dir": str(global_config_dir),
+            "project_config_dir": str(project_config_dir) if project_config_dir.exists() else None,
+        }
 
     @app.put("/api/config/update")
     async def update_config(request_data: dict):
@@ -1498,12 +1521,13 @@ def create_app(
         # Security: ensure path is within allowed locations
         allowed_paths = [
             Path.home() / ".config" / "massgen",
+            Path.cwd() / ".massgen",
         ]
         is_allowed = any(str(config_path).startswith(str(allowed.resolve())) for allowed in allowed_paths)
         if not is_allowed:
             return JSONResponse(
                 {
-                    "error": "Access denied: can only delete configs in ~/.config/massgen/",
+                    "error": "Access denied: can only delete configs in ~/.config/massgen/ or ./.massgen/",
                 },
                 status_code=403,
             )
@@ -1514,10 +1538,12 @@ def create_app(
                 status_code=404,
             )
 
-        # Don't allow deleting the last config
-        config_dir = Path.home() / ".config" / "massgen"
-        yaml_files = list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
-        if len(yaml_files) <= 1:
+        # Don't allow deleting the last config (count across both dirs)
+        total_configs = 0
+        for d in allowed_paths:
+            if d.exists():
+                total_configs += len(list(d.glob("*.yaml"))) + len(list(d.glob("*.yml")))
+        if total_configs <= 1:
             return JSONResponse(
                 {"error": "Cannot delete the last config file"},
                 status_code=400,

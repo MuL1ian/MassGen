@@ -107,6 +107,7 @@ class AgentState:
     answer_count: int = 0  # Track number of answers for memory archiving
     injection_count: int = 0  # Track injections received for mid-stream injection timing
     restart_count: int = 0  # Track full restarts (TUI round = restart_count + 1)
+    known_answer_ids: set = field(default_factory=set)  # Agent IDs whose answers this agent has seen
     round_start_time: Optional[float] = None  # For per-round timeouts
     round_timeout_hooks: Optional[tuple] = None  # (post_hook, pre_hook) for resetting on new round
     round_timeout_state: Optional["RoundTimeoutState"] = None  # Shared timeout state
@@ -3152,6 +3153,9 @@ Your answer:"""
                     # Each agent needs its own baseline to detect new answers independently
                     per_agent_answers = dict(current_answers)
 
+                    # Track which answers this agent knows about (for vote validation)
+                    self.agent_states[agent_id].known_answer_ids = set(current_answers.keys())
+
                     active_streams[agent_id] = self._stream_agent_execution(
                         agent_id,
                         self.current_task,
@@ -3423,8 +3427,12 @@ Your answer:"""
                                 f"VOTE BLOCK ENTERED for {agent_id}, result_data={result_data}",
                             )
                             # Ignore votes from agents with restart pending (votes are about current state)
-                            # EXCEPTION: For single agent, if it's voting for itself after producing
+                            # EXCEPTION 1: For single agent, if it's voting for itself after producing
                             # its first answer, accept the vote (no other agents to wait for)
+                            # EXCEPTION 2: If restart_pending is stale (agent has already seen all
+                            # current answers), clear it and accept the vote. This prevents infinite
+                            # restart loops for fast agents that vote without tool calls (so the
+                            # mid-stream injection callback never fires to clear restart_pending).
                             restart_pending = self._check_restart_pending(agent_id)
                             is_single_agent = len(self.agents) == 1
                             agent_has_answer = self.agent_states[agent_id].answer is not None
@@ -3433,6 +3441,18 @@ Your answer:"""
                                 self.agent_states[agent_id].restart_pending = False
                                 restart_pending = False
                                 logger.info(f"[Orchestrator] Single agent {agent_id} vote accepted (has own answer)")
+                            if restart_pending:
+                                # Check if there are genuinely unseen answers
+                                current_answer_ids = {aid for aid, state in self.agent_states.items() if state.answer}
+                                known = self.agent_states[agent_id].known_answer_ids
+                                unseen = current_answer_ids - known
+                                if not unseen:
+                                    # No new answers the agent hasn't seen - stale restart_pending
+                                    self.agent_states[agent_id].restart_pending = False
+                                    restart_pending = False
+                                    logger.info(
+                                        f"[Orchestrator] Agent {agent_id} vote accepted (no unseen answers, clearing stale restart_pending)",
+                                    )
                             if restart_pending:
                                 voted_for = result_data.get("agent_id", "<unknown>")
                                 reason = result_data.get("reason", "No reason provided")
@@ -4570,6 +4590,9 @@ Your answer:"""
             # This mutates the captured closure variable so future callbacks see updated state
             answers.update(new_answers)
 
+            # Update known_answer_ids so vote validation knows this agent has seen these
+            self.agent_states[agent_id].known_answer_ids.update(new_answers.keys())
+
             # Track the injection
             logger.info(
                 f"[Orchestrator] Mid-stream injection for {agent_id}: {len(new_answers)} new answer(s)",
@@ -4842,6 +4865,9 @@ Your answer:"""
             # Update answers to include newly injected answers (prevents re-injection)
             # This mutates the captured closure variable so future callbacks see updated state
             answers.update(new_answers)
+
+            # Update known_answer_ids so vote validation knows this agent has seen these
+            self.agent_states[agent_id].known_answer_ids.update(new_answers.keys())
 
             # Track the injection
             logger.info(
@@ -9296,6 +9322,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.answer_count = 0
             state.injection_count = 0
             state.restart_count = 0
+            state.known_answer_ids = set()
 
         # Reset orchestrator timeout tracking
         self.total_tokens = 0
