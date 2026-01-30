@@ -240,15 +240,15 @@ Most configurations use environment variables for API keys:so
 **Example Usage:**
 ```bash
 # TUI launches by default (no --display flag needed)
-massgen --config @examples/basic/multi/three_agents_default \
+uv run massgen --config @examples/basic/multi/three_agents_default \
   "Compare the benefits of solar, wind, and hydro energy"
 
 # Use legacy Rich display if needed
-massgen --display rich --config @examples/basic/multi/three_agents_default \
+uv run massgen --display rich --config @examples/basic/multi/three_agents_default \
   "Your question"
 
 # Setup wizard generates TUI configs automatically
-massgen --quickstart
+uv run massgen --quickstart
 ```
 
 ### v0.1.44

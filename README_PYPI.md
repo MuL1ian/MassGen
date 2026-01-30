@@ -171,14 +171,14 @@ This project started with the "threads of thought" and "iterative refinement" id
 pip install --upgrade massgen
 
 # Experience TUI by default (no --display flag needed)
-massgen --config @examples/basic/multi/three_agents_default \
+uv run massgen --config @examples/basic/multi/three_agents_default \
   "Compare the benefits of solar, wind, and hydro energy"
 
 # Use legacy Rich display if needed
-massgen --display rich "Your question"
+uv run massgen --display rich "Your question"
 
 # Setup wizard generates TUI configs automatically
-massgen --quickstart
+uv run massgen --quickstart
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
