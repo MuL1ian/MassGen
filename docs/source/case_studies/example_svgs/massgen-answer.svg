@@ -1,0 +1,477 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Fourier decomposition demo (animated)
+- Left: composite wave over two periods (0 → 4π)
+- Middle: 7 harmonic components stacked (f…7f)
+- Right: phase (top) + magnitude (bottom) spectra
+Animation: CSS custom propert drives an inline JS re-sampling of all sine paths.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800" role="img" aria-label="Fourier decomposition of a complex periodic waveform">
+  <defs>
+    <!-- light scientific grid -->
+    <pattern id="gridFine" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#dfe6ef" stroke-width="1"/>
+    </pattern>
+    <pattern id="gridCoarse" width="100" height="100" patternUnits="userSpaceOnUse">
+      <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#c7d2e2" stroke-width="1.5"/>
+    </pattern>
+
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#243041" flood-opacity="0.15"/>
+    </filter>
+
+    <clipPath id="clipLeftPlot"><rect x="50" y="120" width="380" height="580" rx="6"/></clipPath>
+    <clipPath id="clipMid1"><rect x="510" y="120" width="380" height="74" rx="6"/></clipPath>
+    <clipPath id="clipMid2"><rect x="510" y="204" width="380" height="74" rx="6"/></clipPath>
+    <clipPath id="clipMid3"><rect x="510" y="288" width="380" height="74" rx="6"/></clipPath>
+    <clipPath id="clipMid4"><rect x="510" y="372" width="380" height="74" rx="6"/></clipPath>
+    <clipPath id="clipMid5"><rect x="510" y="456" width="380" height="74" rx="6"/></clipPath>
+    <clipPath id="clipMid6"><rect x="510" y="540" width="380" height="74" rx="6"/></clipPath>
+    <clipPath id="clipMid7"><rect x="510" y="624" width="380" height="74" rx="6"/></clipPath>
+
+    <style><![CDATA[
+      @property --t {
+        syntax: '<number>';
+        inherits: true;
+        initial-value: 0;
+      }
+      svg { --t: 0; animation: tcycle 8s linear infinite; }
+      @keyframes tcycle { from { --t: 0; } to { --t: 1; } }
+
+      .bg { fill: #f7fbff; }
+      .panel { fill: rgba(255,255,255,0.92); stroke: #cfd8e6; stroke-width: 1.2; filter: url(#softShadow); }
+      .title { font: 700 18px/1.1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; fill: #223046; letter-spacing: 0.2px; }
+      .subtitle { font: 500 12px/1.1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; fill: #52647c; }
+      .label { font: 600 12px/1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; fill: #33465d; }
+      .mono { font: 600 12px/1.1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; fill: #32475f; }
+      .axis { stroke: #70849a; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+      .tick { stroke: #9aacbf; stroke-width: 1; vector-effect: non-scaling-stroke; }
+      .gridFine { fill: url(#gridFine); }
+      .gridCoarse { fill: url(#gridCoarse); opacity: 0.7; }
+
+      .waveComplex { fill: none; stroke: #0f2d4a; stroke-width: 3.2; vector-effect: non-scaling-stroke; }
+      .waveComp { fill: none; stroke-width: 2.2; vector-effect: non-scaling-stroke; }
+
+      .probe { stroke: #6b7f99; stroke-width: 1.2; stroke-dasharray: 6 6; opacity: 0.65; vector-effect: non-scaling-stroke; }
+      .conn { fill: none; stroke-width: 1.2; stroke-dasharray: 4 6; opacity: 0.35; vector-effect: non-scaling-stroke; }
+
+      .dot { fill: #0f2d4a; stroke: #ffffff; stroke-width: 1.2; }
+      .dotComp { stroke: #ffffff; stroke-width: 1.2; }
+      .dotSum { fill: #0f2d4a; opacity: 0.75; stroke: #ffffff; stroke-width: 1.1; }
+
+      .formula { font: 600 14px/1.25 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; fill: #26364a; }
+      .legendSmall { font: 500 11px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; fill: #5d728a; }
+
+      .bar { opacity: 0.85; }
+      .barLabel { font: 600 11px/1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; fill: #2b3e54; }
+      .axisLabel { font: 600 12px/1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; fill: #486079; }
+
+      .phaseCircle { fill: rgba(39,111,191,0.08); stroke: #93a6bf; stroke-width: 1.2; }
+      .phaseHand { stroke-width: 2.2; stroke-linecap: round; }
+
+      /* Distinct Harmonic Colors */
+      .c1-stroke { stroke: #dc2626; } .c1-fill { fill: #dc2626; }
+      .c2-stroke { stroke: #ea580c; } .c2-fill { fill: #ea580c; }
+      .c3-stroke { stroke: #ca8a04; } .c3-fill { fill: #ca8a04; }
+      .c4-stroke { stroke: #16a34a; } .c4-fill { fill: #16a34a; }
+      .c5-stroke { stroke: #2563eb; } .c5-fill { fill: #2563eb; }
+      .c6-stroke { stroke: #7c3aed; } .c6-fill { fill: #7c3aed; }
+      .c7-stroke { stroke: #db2777; } .c7-fill { fill: #db2777; }
+    ]]></style>
+  </defs>
+
+  <!-- Background (grid across whole canvas) -->
+  <rect class="bg" x="0" y="0" width="1400" height="800"/>
+  <rect class="gridFine" x="0" y="0" width="1400" height="800"/>
+  <rect class="gridCoarse" x="0" y="0" width="1400" height="800"/>
+
+  <!-- Panels -->
+  <rect class="panel" x="20" y="20" width="440" height="760" rx="14"/>
+  <rect class="panel" x="480" y="20" width="440" height="760" rx="14"/>
+  <rect class="panel" x="940" y="20" width="440" height="760" rx="14"/>
+
+  <!-- LEFT: composite waveform -->
+  <g id="left" transform="translate(0,0)">
+    <text class="title" x="50" y="58">Composite wave</text>
+    <text class="subtitle" x="50" y="78">Sum of 7 harmonics over two periods (0 → 4π)</text>
+
+    <!-- plot background -->
+    <rect x="50" y="120" width="380" height="580" rx="6" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+
+    <!-- axes + ticks (θ axis) -->
+    <g>
+      <line class="axis" x1="50" y1="410" x2="430" y2="410"/>
+      <line class="axis" x1="50" y1="120" x2="50" y2="700"/>
+
+      <!-- θ ticks: 0, π, 2π, 3π, 4π -->
+      <g class="mono" text-anchor="middle">
+        <line class="tick" x1="50" y1="410" x2="50" y2="418"/><text x="50" y="438">0</text>
+        <line class="tick" x1="145" y1="410" x2="145" y2="418"/><text x="145" y="438">π</text>
+        <line class="tick" x1="240" y1="410" x2="240" y2="418"/><text x="240" y="438">2π</text>
+        <line class="tick" x1="335" y1="410" x2="335" y2="418"/><text x="335" y="438">3π</text>
+        <line class="tick" x1="430" y1="410" x2="430" y2="418"/><text x="430" y="438">4π</text>
+      </g>
+
+      <text class="axisLabel" x="425" y="395" text-anchor="end">θ</text>
+      <text class="axisLabel" x="62" y="132">amplitude</text>
+    </g>
+
+    <!-- probe line at θ=2π (midpoint) -->
+    <line id="probeLeft" class="probe" x1="240" y1="120" x2="240" y2="700"/>
+    <text class="legendSmall" x="248" y="140">probe θ = 2π</text>
+
+    <!-- paths (clipped) -->
+    <g clip-path="url(#clipLeftPlot)">
+      <path id="waveComplex" class="waveComplex" d=""/>
+    </g>
+
+    <!-- partial-sum dots + total dot (positions updated in JS) -->
+    <g>
+      <circle id="dotTotal" class="dot" cx="240" cy="410" r="5.5"/>
+      <circle id="dotSum1" class="dotSum" cx="240" cy="410" r="4.2"/>
+      <circle id="dotSum2" class="dotSum" cx="240" cy="410" r="4.2"/>
+      <circle id="dotSum3" class="dotSum" cx="240" cy="410" r="4.2"/>
+      <circle id="dotSum4" class="dotSum" cx="240" cy="410" r="4.2"/>
+      <circle id="dotSum5" class="dotSum" cx="240" cy="410" r="4.2"/>
+      <circle id="dotSum6" class="dotSum" cx="240" cy="410" r="4.2"/>
+      <circle id="dotSum7" class="dotSum" cx="240" cy="410" r="4.2"/>
+    </g>
+  </g>
+
+  <!-- MIDDLE: component waves stacked -->
+  <g id="middle">
+    <text class="title" x="510" y="58">Decomposition</text>
+    <text class="subtitle" x="510" y="78">Individual sine components (f…7f), stacked with shared θ-axis</text>
+
+    <!-- component rows -->
+    <g id="rows">
+      <!-- Row helper: each has mini-axis, probe line, and wave path -->
+      <g id="row1">
+        <rect x="510" y="120" width="380" height="74" rx="6" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+        <line class="axis" x1="510" y1="157" x2="890" y2="157"/>
+        <line class="probe" x1="700" y1="120" x2="700" y2="194"/>
+        <g clip-path="url(#clipMid1)"><path id="waveN1" class="waveComp c1-stroke" d=""/></g>
+        <circle id="dotComp1" class="dotComp c1-fill" cx="700" cy="157" r="4.8"/>
+        <text class="label" x="518" y="140">f</text>
+        <text class="mono" x="548" y="140">A₁ = 1.00</text>
+      </g>
+
+      <g id="row2">
+        <rect x="510" y="204" width="380" height="74" rx="6" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+        <line class="axis" x1="510" y1="241" x2="890" y2="241"/>
+        <line class="probe" x1="700" y1="204" x2="700" y2="278"/>
+        <g clip-path="url(#clipMid2)"><path id="waveN2" class="waveComp c2-stroke" d=""/></g>
+        <circle id="dotComp2" class="dotComp c2-fill" cx="700" cy="241" r="4.8"/>
+        <text class="label" x="518" y="224">2f</text>
+        <text class="mono" x="548" y="224">A₂ = 0.62</text>
+      </g>
+
+      <g id="row3">
+        <rect x="510" y="288" width="380" height="74" rx="6" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+        <line class="axis" x1="510" y1="325" x2="890" y2="325"/>
+        <line class="probe" x1="700" y1="288" x2="700" y2="362"/>
+        <g clip-path="url(#clipMid3)"><path id="waveN3" class="waveComp c3-stroke" d=""/></g>
+        <circle id="dotComp3" class="dotComp c3-fill" cx="700" cy="325" r="4.8"/>
+        <text class="label" x="518" y="308">3f</text>
+        <text class="mono" x="548" y="308">A₃ = 0.35</text>
+      </g>
+
+      <g id="row4">
+        <rect x="510" y="372" width="380" height="74" rx="6" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+        <line class="axis" x1="510" y1="409" x2="890" y2="409"/>
+        <line class="probe" x1="700" y1="372" x2="700" y2="446"/>
+        <g clip-path="url(#clipMid4)"><path id="waveN4" class="waveComp c4-stroke" d=""/></g>
+        <circle id="dotComp4" class="dotComp c4-fill" cx="700" cy="409" r="4.8"/>
+        <text class="label" x="518" y="392">4f</text>
+        <text class="mono" x="548" y="392">A₄ = 0.27</text>
+      </g>
+
+      <g id="row5">
+        <rect x="510" y="456" width="380" height="74" rx="6" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+        <line class="axis" x1="510" y1="493" x2="890" y2="493"/>
+        <line class="probe" x1="700" y1="456" x2="700" y2="530"/>
+        <g clip-path="url(#clipMid5)"><path id="waveN5" class="waveComp c5-stroke" d=""/></g>
+        <circle id="dotComp5" class="dotComp c5-fill" cx="700" cy="493" r="4.8"/>
+        <text class="label" x="518" y="476">5f</text>
+        <text class="mono" x="548" y="476">A₅ = 0.20</text>
+      </g>
+
+      <g id="row6">
+        <rect x="510" y="540" width="380" height="74" rx="6" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+        <line class="axis" x1="510" y1="577" x2="890" y2="577"/>
+        <line class="probe" x1="700" y1="540" x2="700" y2="614"/>
+        <g clip-path="url(#clipMid6)"><path id="waveN6" class="waveComp c6-stroke" d=""/></g>
+        <circle id="dotComp6" class="dotComp c6-fill" cx="700" cy="577" r="4.8"/>
+        <text class="label" x="518" y="560">6f</text>
+        <text class="mono" x="548" y="560">A₆ = 0.14</text>
+      </g>
+
+      <g id="row7">
+        <rect x="510" y="624" width="380" height="74" rx="6" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+        <line class="axis" x1="510" y1="661" x2="890" y2="661"/>
+        <line class="probe" x1="700" y1="624" x2="700" y2="698"/>
+        <g clip-path="url(#clipMid7)"><path id="waveN7" class="waveComp c7-stroke" d=""/></g>
+        <circle id="dotComp7" class="dotComp c7-fill" cx="700" cy="661" r="4.8"/>
+        <text class="label" x="518" y="644">7f</text>
+        <text class="mono" x="548" y="644">A₇ = 0.10</text>
+      </g>
+    </g>
+
+    <text class="legendSmall" x="510" y="732">Faint curves show each component’s contribution at the probe θ=2π.</text>
+  </g>
+
+  <!-- Connection curves (updated by JS) -->
+  <g id="connectors">
+    <path id="conn1" class="conn c1-stroke" d=""/>
+    <path id="conn2" class="conn c2-stroke" d=""/>
+    <path id="conn3" class="conn c3-stroke" d=""/>
+    <path id="conn4" class="conn c4-stroke" d=""/>
+    <path id="conn5" class="conn c5-stroke" d=""/>
+    <path id="conn6" class="conn c6-stroke" d=""/>
+    <path id="conn7" class="conn c7-stroke" d=""/>
+  </g>
+
+  <!-- RIGHT: spectra + formula -->
+  <g id="right">
+    <text class="title" x="970" y="58">Spectra</text>
+    <text class="subtitle" x="970" y="78">Magnitude and phase for the 7 harmonics</text>
+
+    <!-- Formula -->
+    <text class="formula" x="970" y="110">f(θ,t) = Σₙ₌₁⁷ Aₙ · sin(nθ + φₙ + nωt)</text>
+    <text class="legendSmall" x="970" y="130">(ωt comes from the animation; φₙ sets the phase offset.)</text>
+
+    <!-- Phase spectrum -->
+    <text class="label" x="970" y="162">Phase (φₙ)</text>
+    <rect x="970" y="175" width="380" height="240" rx="8" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+
+    <!-- circles: 4 on top row, 3 on bottom row -->
+    <g id="phaseIndicators">
+      <!-- centers chosen for clean spacing -->
+      <!-- n=1..4 -->
+      <g transform="translate(1020,235)">
+        <circle class="phaseCircle" r="28"/>
+        <line class="phaseHand c1-stroke" x1="0" y1="0" x2="22" y2="0" transform="rotate(0)"/>
+        <circle class="phaseDot c1-fill" r="3.2" cx="22" cy="0" transform="rotate(0)"/>
+        <text class="barLabel" y="48" text-anchor="middle">f</text>
+      </g>
+      <g transform="translate(1110,235)">
+        <circle class="phaseCircle" r="28"/>
+        <line class="phaseHand c2-stroke" x1="0" y1="0" x2="22" y2="0" transform="rotate(66)"/>
+        <circle class="phaseDot c2-fill" r="3.2" cx="22" cy="0" transform="rotate(66)"/>
+        <text class="barLabel" y="48" text-anchor="middle">2f</text>
+      </g>
+      <g transform="translate(1200,235)">
+        <circle class="phaseCircle" r="28"/>
+        <line class="phaseHand c3-stroke" x1="0" y1="0" x2="22" y2="0" transform="rotate(-43)"/>
+        <circle class="phaseDot c3-fill" r="3.2" cx="22" cy="0" transform="rotate(-43)"/>
+        <text class="barLabel" y="48" text-anchor="middle">3f</text>
+      </g>
+      <g transform="translate(1290,235)">
+        <circle class="phaseCircle" r="28"/>
+        <line class="phaseHand c4-stroke" x1="0" y1="0" x2="22" y2="0" transform="rotate(120)"/>
+        <circle class="phaseDot c4-fill" r="3.2" cx="22" cy="0" transform="rotate(120)"/>
+        <text class="barLabel" y="48" text-anchor="middle">4f</text>
+      </g>
+
+      <!-- n=5..7 -->
+      <g transform="translate(1065,345)">
+        <circle class="phaseCircle" r="28"/>
+        <line class="phaseHand c5-stroke" x1="0" y1="0" x2="22" y2="0" transform="rotate(-92)"/>
+        <circle class="phaseDot c5-fill" r="3.2" cx="22" cy="0" transform="rotate(-92)"/>
+        <text class="barLabel" y="48" text-anchor="middle">5f</text>
+      </g>
+      <g transform="translate(1200,345)">
+        <circle class="phaseCircle" r="28"/>
+        <line class="phaseHand c6-stroke" x1="0" y1="0" x2="22" y2="0" transform="rotate(26)"/>
+        <circle class="phaseDot c6-fill" r="3.2" cx="22" cy="0" transform="rotate(26)"/>
+        <text class="barLabel" y="48" text-anchor="middle">6f</text>
+      </g>
+      <g transform="translate(1335,345)">
+        <circle class="phaseCircle" r="28"/>
+        <line class="phaseHand c7-stroke" x1="0" y1="0" x2="22" y2="0" transform="rotate(75)"/>
+        <circle class="phaseDot c7-fill" r="3.2" cx="22" cy="0" transform="rotate(75)"/>
+        <text class="barLabel" y="48" text-anchor="middle">7f</text>
+      </g>
+    </g>
+
+    <!-- Magnitude spectrum -->
+    <text class="label" x="970" y="452">Magnitude |Aₙ|</text>
+    <rect x="970" y="465" width="380" height="295" rx="8" fill="rgba(255,255,255,0.55)" stroke="#d7e0ec"/>
+
+    <!-- axes for bar chart -->
+    <g>
+      <line class="axis" x1="990" y1="725" x2="1330" y2="725"/>
+      <line class="axis" x1="990" y1="500" x2="990" y2="725"/>
+      <text class="axisLabel" x="1330" y="680" text-anchor="end">frequency</text>
+      <text class="axisLabel" x="1002" y="513">|A|</text>
+    </g>
+
+    <!-- bars (scaled to max=1.0 within chart height ~200) -->
+    <g id="bars">
+      <rect class="bar c1-fill" x="1005" y="525" width="34" height="200" rx="4"/>
+      <rect class="bar c2-fill" x="1056" y="601" width="34" height="124" rx="4"/>
+      <rect class="bar c3-fill" x="1107" y="655" width="34" height="70" rx="4"/>
+      <rect class="bar c4-fill" x="1158" y="671" width="34" height="54" rx="4"/>
+      <rect class="bar c5-fill" x="1209" y="685" width="34" height="40" rx="4"/>
+      <rect class="bar c6-fill" x="1260" y="697" width="34" height="28" rx="4"/>
+      <rect class="bar c7-fill" x="1311" y="705" width="34" height="20" rx="4"/>
+
+      <g class="barLabel" text-anchor="middle">
+        <text x="1022" y="746">f</text>
+        <text x="1073" y="746">2f</text>
+        <text x="1124" y="746">3f</text>
+        <text x="1175" y="746">4f</text>
+        <text x="1226" y="746">5f</text>
+        <text x="1277" y="746">6f</text>
+        <text x="1328" y="746">7f</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Inline script updates all sine-wave paths/dots/connectors each frame -->
+  <script><![CDATA[
+    (function(){
+      const svg = document.documentElement;
+
+      // Harmonics (amplitudes + phases). Frequencies are integer multiples of base f.
+      const A = [1.00, 0.62, 0.35, 0.27, 0.20, 0.14, 0.10];
+      const Phi = [0.00, 1.15, -0.75, 2.10, -1.60, 0.45, 1.30];
+      const N = A.length;
+
+      // Geometry
+      const thetaMin = 0;
+      const thetaMax = 4 * Math.PI; // two periods
+      const thetaProbe = 2 * Math.PI;
+
+      const leftPlot = { x: 50, y: 120, w: 380, h: 580, cy: 120 + 580/2, sy: 90.6 };
+      const midPlots = [
+        { x: 510, y: 120, w: 380, h: 74 },
+        { x: 510, y: 204, w: 380, h: 74 },
+        { x: 510, y: 288, w: 380, h: 74 },
+        { x: 510, y: 372, w: 380, h: 74 },
+        { x: 510, y: 456, w: 380, h: 74 },
+        { x: 510, y: 540, w: 380, h: 74 },
+        { x: 510, y: 624, w: 380, h: 74 },
+      ].map(p => ({...p, cy: p.y + p.h/2, sy: 30.0}));
+
+      const xProbeLeft = leftPlot.x + leftPlot.w * 0.5;
+      const xProbeMid  = midPlots[0].x + midPlots[0].w * 0.5;
+
+      // Elements
+      const el = {
+        complex: document.getElementById('waveComplex'),
+        waveN: Array.from({length:N}, (_,i) => document.getElementById('waveN'+(i+1))),
+        dotComp: Array.from({length:N}, (_,i) => document.getElementById('dotComp'+(i+1))),
+        dotSum: Array.from({length:N}, (_,i) => document.getElementById('dotSum'+(i+1))),
+        dotTotal: document.getElementById('dotTotal'),
+        conn: Array.from({length:N}, (_,i) => document.getElementById('conn'+(i+1))),
+      };
+
+      // Get phase indicator elements
+      const phaseIndicators = document.getElementById('phaseIndicators');
+      const phaseGroups = phaseIndicators.querySelectorAll('g[transform^="translate"]');
+      const phaseHands = Array.from(phaseGroups).map(g => g.querySelector('.phaseHand'));
+      const phaseDots = Array.from(phaseGroups).map(g => g.querySelector('.phaseDot'));
+
+      function cssTime01(){
+        const v = parseFloat(getComputedStyle(svg).getPropertyValue('--t'));
+        return Number.isFinite(v) ? v : 0;
+      }
+
+      function comp(n, theta, omega){
+        // n is 1-indexed harmonic
+        return A[n-1] * Math.sin(n*theta + Phi[n-1] + n*omega);
+      }
+
+      function composite(theta, omega){
+        let s = 0;
+        for(let n=1;n<=N;n++) s += comp(n, theta, omega);
+        return s;
+      }
+
+      function buildPath(plot, fn){
+        const samples = 700;
+        let d = '';
+        for(let i=0;i<=samples;i++){
+          const u = i / samples;
+          const theta = thetaMin + (thetaMax-thetaMin) * u;
+          const x = plot.x + plot.w * u;
+          const y = plot.cy - fn(theta) * plot.sy;
+          d += (i===0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2);
+        }
+        return d;
+      }
+
+      function setCircleY(circle, y){
+        circle.setAttribute('cy', y.toFixed(2));
+      }
+
+      function setConnector(path, sx, sy, ex, ey){
+        const dir = Math.sign(ex - sx) || 1;
+        const c1x = sx + dir * 120;
+        const c2x = ex - dir * 120;
+        const d = `M ${sx.toFixed(2)} ${sy.toFixed(2)} C ${c1x.toFixed(2)} ${sy.toFixed(2)}, ${c2x.toFixed(2)} ${ey.toFixed(2)}, ${ex.toFixed(2)} ${ey.toFixed(2)}`;
+        path.setAttribute('d', d);
+      }
+
+      function render(){
+        const t01 = cssTime01();
+        const omega = t01 * 2 * Math.PI; // base angular progression for animation
+
+        // Complex wave (left)
+        el.complex.setAttribute('d', buildPath(leftPlot, (th) => composite(th, omega)));
+
+        // Component waves (middle)
+        for(let i=0;i<N;i++){
+          const n = i+1;
+          const plot = midPlots[i];
+          el.waveN[i].setAttribute('d', buildPath(plot, (th) => comp(n, th, omega)));
+
+          // component dot at probe
+          const yComp = plot.cy - comp(n, thetaProbe, omega) * plot.sy;
+          setCircleY(el.dotComp[i], yComp);
+        }
+
+        // Partial sums on left + connectors
+        let partial = 0;
+        for(let i=0;i<N;i++){
+          const n = i+1;
+          partial += comp(n, thetaProbe, omega);
+          const ySum = leftPlot.cy - partial * leftPlot.sy;
+          setCircleY(el.dotSum[i], ySum);
+
+          // connector from component dot -> partial-sum dot
+          const sx = xProbeMid;
+          const sy = parseFloat(el.dotComp[i].getAttribute('cy'));
+          const ex = xProbeLeft;
+          const ey = ySum;
+          setConnector(el.conn[i], sx, sy, ex, ey);
+        }
+
+        // Total dot on left
+        const yTotal = leftPlot.cy - composite(thetaProbe, omega) * leftPlot.sy;
+        setCircleY(el.dotTotal, yTotal);
+
+        // Rotate phase wheels based on their frequency and animation time
+        for(let i=0;i<N;i++){
+          const n = i+1;
+          // Calculate rotation angle: static phase offset + animated rotation
+          const staticPhase = (Phi[i] * 180 / Math.PI); // Convert to degrees
+          const animatedRotation = (n * omega * 180 / Math.PI); // Each harmonic rotates at n times the base frequency
+          const totalRotation = staticPhase + animatedRotation;
+
+          if(phaseHands[i]){
+            phaseHands[i].setAttribute('transform', `rotate(${totalRotation.toFixed(2)})`);
+          }
+          if(phaseDots[i]){
+            phaseDots[i].setAttribute('transform', `rotate(${totalRotation.toFixed(2)})`);
+          }
+        }
+
+        requestAnimationFrame(render);
+      }
+
+      requestAnimationFrame(render);
+    })();
+  ]]></script>
+</svg>

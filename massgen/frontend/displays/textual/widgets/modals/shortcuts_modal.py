@@ -53,7 +53,7 @@ class KeyboardShortcutsModal(BaseModal):
                         "  [yellow]Shift+Enter[/] New line\n"
                         "  [yellow]Ctrl+P[/]      File access (off→read→write)\n"
                         "  [yellow]Tab[/]         Next agent\n"
-                        "  [yellow]Shift+Tab[/]   Previous agent\n"
+                        "  [yellow]Shift+Tab[/]   Cycle plan mode (normal→plan→execute)\n"
                         "\n"
                         "[bold cyan]Quit[/]\n"
                         "  [yellow]Ctrl+C[/]      Exit MassGen\n"

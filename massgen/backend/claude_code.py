@@ -167,6 +167,10 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
 
         self._pending_system_prompt: Optional[str] = None  # Windows-only workaround
 
+        # Track tool_use_id -> tool_name for matching ToolResultBlock to its ToolUseBlock
+        # (ToolResultBlock only has tool_use_id, not the tool name)
+        self._tool_id_to_name: Dict[str, str] = {}
+
         # Custom tools support - initialize ToolManager if custom_tools are provided
         self._custom_tool_manager: Optional[ToolManager] = None
         custom_tools = kwargs.get("custom_tools", [])
@@ -525,6 +529,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                 pass  # Ignore cleanup errors
         self._client = None
         self._current_session_id = None
+        self._tool_id_to_name.clear()
 
     def update_token_usage_from_result_message(self, result_message) -> None:
         """Update token usage from Claude Code ResultMessage.
@@ -1975,37 +1980,69 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                                 {"name": block.name, "input": block.input},
                                 agent_id,
                             )
+
+                            # Track tool_id -> tool_name for ToolResultBlock matching
+                            self._tool_id_to_name[block.id] = block.name
+
+                            # Emit tool start event in standard format (matches ContentNormalizer patterns)
                             yield StreamChunk(
                                 type="content",
-                                content=f"🔧 {block.name}({block.input})",
+                                content=f"🔧 Calling {block.name}...",
                                 source="claude_code",
+                                tool_call_id=block.id,
                             )
+
+                            # Emit tool arguments in standard format
+                            args_str = json.dumps(block.input) if isinstance(block.input, dict) else str(block.input)
+                            yield StreamChunk(
+                                type="content",
+                                content=f"Arguments for Calling {block.name}: {args_str}",
+                                source="claude_code",
+                                tool_call_id=block.id,
+                            )
+
                             # Add to streaming buffer for compression recovery
                             tool_args = block.input if isinstance(block.input, dict) else {"input": block.input}
                             self._append_tool_call_to_buffer([{"name": block.name, "arguments": tool_args}])
 
                         elif isinstance(block, ToolResultBlock):
-                            # Tool result from Claude Code - use simple content format
-                            # Note: ToolResultBlock.tool_use_id references
-                            # the original ToolUseBlock.id
-                            status = "❌ Error" if block.is_error else "✅ Result"
+                            # Tool result from Claude Code
+                            # Look up tool name from our tracking map
+                            tool_name = self._tool_id_to_name.pop(block.tool_use_id, "unknown")
+
+                            is_error = block.is_error
+                            result_str = str(block.content) if block.content else ""
+
                             log_stream_chunk(
                                 "backend.claude_code",
                                 "tool_result",
-                                {"is_error": block.is_error, "content": block.content},
+                                {"tool_name": tool_name, "is_error": is_error, "content": result_str[:200]},
                                 agent_id,
                             )
+
+                            # Emit tool result in standard format (matches ContentNormalizer patterns)
                             yield StreamChunk(
                                 type="content",
-                                content=f"🔧 Tool {status}: {block.content}",
+                                content=f"Results for Calling {tool_name}: {result_str}",
                                 source="claude_code",
+                                tool_call_id=block.tool_use_id,
                             )
+
+                            # Emit tool completion in standard format
+                            completion_emoji = "❌" if is_error else "✅"
+                            completion_status = "failed" if is_error else "completed"
+                            yield StreamChunk(
+                                type="content",
+                                content=f"{completion_emoji} {tool_name} {completion_status}",
+                                source="claude_code",
+                                tool_call_id=block.tool_use_id,
+                            )
+
                             # Add to streaming buffer for compression recovery
-                            result_str = str(block.content) if block.content else ""
                             self._append_tool_to_buffer(
-                                tool_name="tool",  # Claude Code SDK doesn't include tool name in result block
+                                tool_name=tool_name,
                                 result_text=result_str,
-                                is_error=block.is_error,
+                                is_error=is_error,
                             )
 
                     # Parse workflow tool calls from accumulated content

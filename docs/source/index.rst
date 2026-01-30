@@ -40,7 +40,7 @@ MassGen: Multi-Agent Scaling System for GenAI
 
 .. raw:: html
 
-   <a href="https://www.youtube.com/watch?v=Dp2oldJJImw" style="display: block; text-align: center;">
+   <a href="https://www.youtube.com/watch?v=5JofXWf_Ok8" style="display: block; text-align: center;">
      <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-light">
      <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-dark">
    </a>
@@ -59,6 +59,16 @@ MassGen is a cutting-edge multi-agent system that leverages the power of collabo
 * **Natural Consensus** - Coordination continues until all agents vote, then the agent with most votes presents the final answer
 
 Think of it as a "parallel study group" for AI - inspired by advanced systems like **xAI's Grok Heavy** and **Google DeepMind's Gemini Deep Think**. Agents learn from each other to produce better results than any single agent could achieve alone.
+
+.. raw:: html
+
+   <div style="text-align: center; margin: 20px 0;">
+     <a href="case_studies/index.html" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 1.1em; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: transform 0.2s, box-shadow 0.2s;">
+       🎨 View Interactive Case Studies →
+     </a>
+   </div>
+
+See visual comparisons between MassGen and single-agent solutions, highlighting how MassGen unifies different agentic approaches for better outcomes.
 
 
 How Does MassGen Compare?
@@ -116,6 +126,29 @@ Quick Start
 
 :doc:`quickstart/installation` · :doc:`quickstart/running-massgen` · :doc:`quickstart/configuration`
 
+Video Tutorials
+---------------
+
+.. raw:: html
+
+   <div style="text-align: center; margin: 20px 0;">
+     <a href="https://www.youtube.com/watch?v=JMCnQL615Ek" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #ff0000; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 1em; box-shadow: 0 2px 10px rgba(255, 0, 0, 0.3);">
+       ▶️ Getting Started
+     </a>
+   </div>
+
+Learn how to install, configure, and run your first multi-agent collaboration with MassGen.
+
+.. raw:: html
+
+   <div style="text-align: center; margin: 20px 0;">
+     <a href="https://www.youtube.com/watch?v=Dfz3D460EDs" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #ff0000; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 1em; box-shadow: 0 2px 10px rgba(255, 0, 0, 0.3);">
+       ▶️ Develop on MassGen
+     </a>
+   </div>
+
+Explore how to build custom agents and tools with MassGen.
+
 Key Features
 ------------
 
@@ -157,17 +190,17 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.41 (January 21, 2026)** - Async Subagent Execution
+**v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection
 
-Non-blocking subagent spawning with ``async_=True`` parameter on ``spawn_subagents`` tool. Parent agents continue working while subagents run in background, then poll for completion when ready. New subagent round timeouts (``subagent_round_timeouts``) for per-round timeout control. Extended subagent configuration parameters for fine-grained control over timeouts and concurrency.
+New Execute mode for cycling through Normal → Planning → Execute modes via ``Shift+Tab``. Users can browse and select from existing plans with a plan selector popover. Context paths preserved between planning and execution phases. Enhanced case studies page with setup guides and quick start instructions.
 
-**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
+**v0.1.43 (January 26, 2026)** - Tool Call Batching & Interactive Case Studies
 
-Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, comprehensive modals for metrics/costs/votes/workspace browsing (``?``, ``c``, ``v``, ``w``, etc.), answer browser with side-by-side comparisons, and context path ``@`` syntax UI. Context path autocomplete and plan execution mode selection.
+Consecutive MCP tool calls now grouped into collapsible tree views with timing info. New interactive case studies page with side-by-side SVG comparisons. Plan mode enhancements with ``PlanOptionsPopover`` for browsing plans and selecting depth. Quoted path support for paths with spaces. Final presentation display fixes.
 
-**v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
+**v0.1.42 (January 23, 2026)** - TUI Visual Redesign
 
-Complete plan-then-execute workflow with ``--plan-and-execute`` for autonomous planning and execution, ``--execute-plan`` to run existing plans. Task verification workflow with ``verified`` status and verification groups for batch validation. Plan storage system in ``.massgen/plans/`` with frozen snapshots and execution tracking.
+Comprehensive visual overhaul with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, redesigned agent tabs with dot indicators, and polished modals. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
 
 :doc:`Full changelog → <changelog>`
 

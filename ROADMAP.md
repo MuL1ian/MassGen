@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.41
+**Current Version:** v0.1.44
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** January 21, 2026
+**Last Updated:** January 28, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,38 +42,87 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.42** | 01/24/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization |
+| **v0.1.45** | 01/30/26 | Improve Subagent Display in TUI | @ncrispino | Stream and view subagents with full timeline in TUI ([#821](https://github.com/Leezekun/MassGen/issues/821)) |
+| **v0.1.46** | 02/02/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization |
 | | | Add Model Selector for Log Analysis | @ncrispino | Choose model for `massgen logs analyze` self-analysis mode |
-| **v0.1.43** | 01/27/26 | Improve Log Sharing and Analysis | @ncrispino | Enhanced log sharing workflows and analysis tools |
-| | | Claude Code Plugin for MassGen Agents | @ncrispino | Spawn MassGen agents from Claude Code interface |
+| **v0.1.47** | 02/04/26 | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## ✅ v0.1.41 - Async Subagent Execution (COMPLETED)
+## ✅ v0.1.44 - Execute Mode & Case Studies Enhancement (COMPLETED)
 
-**Released: January 21, 2026**
+**Released: January 28, 2026**
 
 ### Features
 
-- **Async Subagent Execution**: Background subagent execution with `async_=True` parameter (MAS-214)
-  - Parent agents continue working while subagents run in background
-  - Non-blocking `spawn_subagents` returns immediately with running status
-  - Parent can poll for subagent completion and retrieve results
-  - Configurable injection strategies: `tool_result` (default) or `user_message`
-  - Batch injection when multiple subagents complete simultaneously
+- **Execute Mode**: Independent mode for browsing and executing existing plans ([#819](https://github.com/massgen/MassGen/pull/819))
+  - Cycle through Normal → Planning → Execute modes via `Shift+Tab`
+  - Plan selector popover shows up to 10 recent plans with timestamps
+  - "View Full Plan" button opens modal with all tasks
+  - Empty submission executes selected plan
+  - Context paths preserved from planning to execution phase
 
-- **Result Polling**: Check subagent completion status and retrieve results
-  - Poll for completed background subagents when ready
-  - Results returned in structured XML format with metadata
-  - Includes execution time, token usage, and workspace paths
+- **Case Studies UX Enhancements**: Interactive setup instructions ([#818](https://github.com/massgen/MassGen/pull/818))
+  - "Try it yourself" collapsible sections with setup guide
+  - Quick start command and model selection guidance
+  - Terminal config file example for CLI users
+  - Helper text for baseline comparisons
+
+### Bug Fixes
+- Fixed planning instruction injection during execute mode
+- Improved tool call spacing in TUI
+- Enhanced timeline performance with viewport optimization
 
 *See [Ongoing Work](#-ongoing-work--continuous-releases) section for detailed track information.*
 
 ---
 
-## 📋 v0.1.42 - OpenAI Compact Endpoint & Log Analysis Model Selector
+## ✅ v0.1.43 - TUI UX Polish & Interactive Case Studies (COMPLETED)
+
+**Released: January 26, 2026**
+
+### Features
+
+- **Tool Call Batching**: Consecutive MCP tool calls grouped into collapsible tree views ([#815](https://github.com/massgen/MassGen/pull/815))
+- **Interactive Case Studies**: Side-by-side SVG comparisons between MassGen and single-agent solutions ([#812](https://github.com/massgen/MassGen/pull/812))
+- **Plan Mode Enhancements**: New `PlanOptionsPopover` widget for plan management
+- **Quoted Path Support**: Paths with spaces now work correctly using quotes
+
+### Bug Fixes
+- Fixed final presentation display (reasoning vs answer separation)
+- Fixed bottom status bar, scrolling, and mode button issues
+
+*See [Ongoing Work](#-ongoing-work--continuous-releases) section for detailed track information.*
+
+---
+
+## 📋 v0.1.45 - Improve Subagent Display in TUI
+
+### Features
+
+**1. Subagent TUI Streaming** (@ncrispino)
+- Issue: [#821](https://github.com/Leezekun/MassGen/issues/821)
+- Stream and display subagents almost identically to main process in TUI
+- Show preview of subagents in main card
+- Click card to launch into full timeline view
+- **Use Case**: Better visibility into subagent execution and debugging
+
+**2. Single Source of Truth for TUI Display**
+- Refactor TUI display creation to use shared components
+- Unified event parsing for both main agents and subagents
+- Identical tool displays and formatting across all agent types
+- **Use Case**: Code reusability and consistent user experience
+
+### Success Criteria
+- ✅ Subagents stream to TUI in real-time
+- ✅ Subagent preview cards clickable to show full timeline
+- ✅ TUI components reused for both main and subagents
+
+---
+
+## 📋 v0.1.46 - OpenAI Compact Endpoint & Log Analysis Model Selector
 
 ### Features
 
@@ -95,25 +144,21 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.43 - Log Sharing and Claude Code Integration
+## 📋 v0.1.47 - Targeted Agent Queries
 
 ### Features
 
-**1. Improve Log Sharing and Analysis**
-- Issue: [#722](https://github.com/massgen/MassGen/issues/722)
-- Enhanced log sharing workflows
-- Improved analysis tools and visualizations
-- **Use Case**: Better collaboration and debugging workflows
-
-**2. Claude Code Plugin for MassGen Agents**
-- Issue: [#773](https://github.com/massgen/MassGen/issues/773)
-- Plugin/extension for spawning MassGen agents directly from Claude Code interface
-- Seamless integration with Claude Code workflows
-- **Use Case**: Spawn multi-agent MassGen sessions from within Claude Code for complex tasks
+**1. Refactor ask_others for Targeted Agent Queries** (@ncrispino)
+- Issue: [#809](https://github.com/massgen/MassGen/issues/809)
+- Support targeted queries to specific agents via subagent spawning
+- Three modes: broadcast to all, selective broadcast with per-agent prompts, targeted ask about past answer
+- Pass full `_streaming_buffer` to shadow agents for improved context
+- **Use Case**: More efficient coordination by querying specific agents rather than broadcasting to all
 
 ### Success Criteria
-- ✅ Log sharing improvements deployed
-- ✅ Claude Code plugin functional and published
+- ✅ Targeted `ask_others(target_agent_id="Agent-1", question="...")` working
+- ✅ Selective broadcast with `agent_prompts` dict functional
+- ✅ Improved context passing via streaming buffer
 
 ---
 
@@ -495,6 +540,42 @@ These features are being actively developed on **separate parallel tracks** and 
 - Poll for subagent completion and retrieve results
 - **Status:** ✅ Completed in v0.1.41
 
+### Track: TUI Visual Redesign (@ncrispino, @praneeth999, nickcrispino, ram2561)
+- PR: [#806](https://github.com/massgen/MassGen/pull/806)
+- Comprehensive visual overhaul with modern "Conversational AI" aesthetic
+- Rounded corners, desaturated colors, edge-to-edge layouts, polished modals
+- Human Input Queue for injecting messages to agents mid-stream
+- **Status:** ✅ Completed in v0.1.42
+
+### Track: AG2 Single-Agent Coordination Fix (@db-ol)
+- PR: [#804](https://github.com/massgen/MassGen/pull/804)
+- Fixed coordination issues for single-agent AG2 setups
+- Single agent can now vote for itself after producing its first answer
+- **Status:** ✅ Completed in v0.1.42
+
+### Track: Tool Call Batching (@ncrispino, nickcrispino)
+- PR: [#815](https://github.com/massgen/MassGen/pull/815)
+- Consecutive MCP tool calls grouped into collapsible tree views
+- Shows 3 items by default with "+N more" indicator, click to expand
+- Respects Timeline Chronology Rule: tools only batch when consecutive
+- New `ToolBatchCard` widget and `ToolBatchTracker` state machine
+- **Status:** ✅ Completed in v0.1.43
+
+### Track: Interactive Case Studies & Documentation (@franklinnwren, zhichengren)
+- PR: [#812](https://github.com/massgen/MassGen/pull/812)
+- New documentation page with visual SVG comparisons (MassGen vs single-agent)
+- Video tutorials section with Getting Started and Development videos
+- Iterative refinement examples showing multi-round improvements
+- **Status:** ✅ Completed in v0.1.43
+
+### Track: TUI UX Polish (@ncrispino, nickcrispino)
+- PR: [#815](https://github.com/massgen/MassGen/pull/815)
+- Final presentation display fix (reasoning vs answer separation)
+- Plan mode enhancements with PlanOptionsPopover
+- Quoted path support for paths with spaces
+- Various bug fixes (status bar, scrolling, mode buttons)
+- **Status:** ✅ Completed in v0.1.43
+
 ### Track: Tool Metrics Distribution Statistics (@ncrispino, nickcrispino)
 - Commit: 30aca047
 - Enhanced `get_tool_metrics_summary()` with per-call averages
@@ -622,7 +703,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#739](https://github.com/massgen/MassGen/issues/739)
 - Use OpenAI's native `/compact` endpoint instead of custom summarization
 - Leverage API-level context compression for better efficiency
-- **Target:** v0.1.42
+- **Target:** v0.1.44
 
 ### Track: Improve Logging (@ncrispino, nickcrispino)
 - Issue: [#683](https://github.com/massgen/MassGen/issues/683)
@@ -635,7 +716,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#766](https://github.com/massgen/MassGen/issues/766)
 - Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - Configurable model selection for different analysis requirements
-- **Target:** v0.1.42
+- **Target:** v0.1.44
 
 ### Track: General Hook Framework (@ncrispino, nickcrispino)
 - Issue: [#745](https://github.com/massgen/MassGen/issues/745)
@@ -656,13 +737,20 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#722](https://github.com/massgen/MassGen/issues/722)
 - Enhanced log sharing workflows
 - Improved analysis tools and visualizations
-- **Target:** v0.1.43
+- **Target:** v0.1.45
 
 ### Track: Claude Code Plugin for MassGen Agents (@ncrispino, nickcrispino)
 - Issue: [#773](https://github.com/massgen/MassGen/issues/773)
 - Plugin/extension for spawning MassGen agents directly from Claude Code interface
 - Seamless integration with Claude Code workflows
-- **Target:** v0.1.43
+- **Target:** v0.1.45
+
+### Track: Refactor ask_others for Targeted Agent Queries (@ncrispino, nickcrispino)
+- Issue: [#809](https://github.com/massgen/MassGen/issues/809)
+- Support targeted queries to specific agents via subagent spawning
+- Three modes: broadcast to all, selective broadcast, targeted ask
+- Pass full `_streaming_buffer` to shadow agents for improved context
+- **Target:** v0.1.46
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -745,5 +833,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** January 21, 2026
+**Last Updated:** January 26, 2026
 **Maintained By:** MassGen Team

@@ -1,0 +1,411 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800">
+  <defs>
+    <!-- Grid patterns for scientific look -->
+    <pattern id="gridSmall" width="10" height="10" patternUnits="userSpaceOnUse">
+      <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#e8eef4" stroke-width="0.5"/>
+    </pattern>
+    <pattern id="gridLarge" width="50" height="50" patternUnits="userSpaceOnUse">
+      <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#d0dde8" stroke-width="0.8"/>
+    </pattern>
+
+    <!-- Gradient for spectrum bars -->
+    <linearGradient id="barGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#5a9fd4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2d5a87;stop-opacity:1" />
+    </linearGradient>
+
+    <style>
+      /* Color scheme for 7 harmonics */
+      .c1 { stroke: #dc2626; fill: none; stroke-width: 2; }
+      .c2 { stroke: #ea580c; fill: none; stroke-width: 2; }
+      .c3 { stroke: #ca8a04; fill: none; stroke-width: 2; }
+      .c4 { stroke: #16a34a; fill: none; stroke-width: 2; }
+      .c5 { stroke: #2563eb; fill: none; stroke-width: 2; }
+      .c6 { stroke: #7c3aed; fill: none; stroke-width: 2; }
+      .c7 { stroke: #db2777; fill: none; stroke-width: 2; }
+
+      .complex { stroke: #1e293b; fill: none; stroke-width: 2.5; }
+      .axis { stroke: #475569; stroke-width: 1.5; }
+      .axis-minor { stroke: #94a3b8; stroke-width: 0.8; }
+      .grid-line { stroke: #cbd5e1; stroke-width: 0.5; }
+
+      .label { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; fill: #334155; }
+      .title { font-family: 'Georgia', serif; font-size: 15px; fill: #1e293b; font-weight: 600; }
+      .main-title { font-family: 'Georgia', serif; font-size: 22px; fill: #0f172a; font-weight: bold; }
+      .formula { font-family: 'Times New Roman', serif; font-size: 14px; fill: #334155; }
+      .freq-label { font-family: 'Courier New', monospace; font-size: 10px; font-weight: bold; }
+      .connection { stroke-width: 1; stroke-dasharray: 4,3; opacity: 0.5; }
+
+      /* Smooth wave animations at respective frequencies */
+      @keyframes wave1 { 0%,100% { transform: translateX(0); } 50% { transform: translateX(8px); } }
+      @keyframes wave2 { 0%,100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+      @keyframes wave3 { 0%,100% { transform: translateX(0); } 50% { transform: translateX(2.67px); } }
+      @keyframes wave4 { 0%,100% { transform: translateX(0); } 50% { transform: translateX(2px); } }
+      @keyframes wave5 { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.6px); } }
+      @keyframes wave6 { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.33px); } }
+      @keyframes wave7 { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.14px); } }
+
+      .anim1 { animation: wave1 4s ease-in-out infinite; }
+      .anim2 { animation: wave2 2s ease-in-out infinite; }
+      .anim3 { animation: wave3 1.333s ease-in-out infinite; }
+      .anim4 { animation: wave4 1s ease-in-out infinite; }
+      .anim5 { animation: wave5 0.8s ease-in-out infinite; }
+      .anim6 { animation: wave6 0.667s ease-in-out infinite; }
+      .anim7 { animation: wave7 0.571s ease-in-out infinite; }
+
+      /* Bar pulsing animation */
+      @keyframes pulse1 { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+      @keyframes pulse2 { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+      .bar-anim1 { animation: pulse1 4s ease-in-out infinite; }
+      .bar-anim2 { animation: pulse1 2s ease-in-out infinite; }
+      .bar-anim3 { animation: pulse1 1.333s ease-in-out infinite; }
+      .bar-anim4 { animation: pulse1 1s ease-in-out infinite; }
+      .bar-anim5 { animation: pulse1 0.8s ease-in-out infinite; }
+      .bar-anim6 { animation: pulse1 0.667s ease-in-out infinite; }
+      .bar-anim7 { animation: pulse1 0.571s ease-in-out infinite; }
+    </style>
+  </defs>
+
+  <!-- Background with grid -->
+  <rect width="1400" height="800" fill="#f8fafc"/>
+  <rect width="1400" height="800" fill="url(#gridSmall)"/>
+  <rect width="1400" height="800" fill="url(#gridLarge)"/>
+
+  <!-- Main Title -->
+  <text x="700" y="35" text-anchor="middle" class="main-title">Fourier Decomposition of a Complex Periodic Wave</text>
+
+  <!-- Section Separators -->
+  <line x1="460" y1="50" x2="460" y2="720" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="5,5"/>
+  <line x1="900" y1="50" x2="900" y2="720" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="5,5"/>
+
+  <!-- ========== LEFT THIRD: Complex Waveform ========== -->
+  <g id="complex-wave-section">
+    <text x="230" y="70" text-anchor="middle" class="title">Complex Waveform</text>
+    <text x="230" y="88" text-anchor="middle" class="label" style="font-size:10px; font-style:italic;">f(t) = Sum of 7 harmonics</text>
+
+    <!-- Complex wave chart area -->
+    <g transform="translate(50, 380)">
+      <!-- Y-axis -->
+      <line x1="30" y1="-260" x2="30" y2="260" class="axis"/>
+      <polygon points="30,-265 25,-252 35,-252" fill="#475569"/>
+      <text x="15" y="-250" class="label" style="font-size:10px;">f(t)</text>
+
+      <!-- X-axis -->
+      <line x1="30" y1="0" x2="390" y2="0" class="axis"/>
+      <polygon points="395,0 382,-5 382,5" fill="#475569"/>
+      <text x="400" y="4" class="label" style="font-size:10px;">t</text>
+
+      <!-- Y gridlines and labels -->
+      <line x1="30" y1="-200" x2="390" y2="-200" class="grid-line"/>
+      <line x1="25" y1="-200" x2="35" y2="-200" class="axis-minor"/>
+      <text x="18" y="-196" class="label" style="font-size:9px; text-anchor:end;">3</text>
+
+      <line x1="30" y1="-133" x2="390" y2="-133" class="grid-line"/>
+      <line x1="25" y1="-133" x2="35" y2="-133" class="axis-minor"/>
+      <text x="18" y="-129" class="label" style="font-size:9px; text-anchor:end;">2</text>
+
+      <line x1="30" y1="-67" x2="390" y2="-67" class="grid-line"/>
+      <line x1="25" y1="-67" x2="35" y2="-67" class="axis-minor"/>
+      <text x="18" y="-63" class="label" style="font-size:9px; text-anchor:end;">1</text>
+
+      <line x1="30" y1="67" x2="390" y2="67" class="grid-line"/>
+      <line x1="25" y1="67" x2="35" y2="67" class="axis-minor"/>
+      <text x="18" y="71" class="label" style="font-size:9px; text-anchor:end;">-1</text>
+
+      <line x1="30" y1="133" x2="390" y2="133" class="grid-line"/>
+      <line x1="25" y1="133" x2="35" y2="133" class="axis-minor"/>
+      <text x="18" y="137" class="label" style="font-size:9px; text-anchor:end;">-2</text>
+
+      <line x1="30" y1="200" x2="390" y2="200" class="grid-line"/>
+      <line x1="25" y1="200" x2="35" y2="200" class="axis-minor"/>
+      <text x="18" y="204" class="label" style="font-size:9px; text-anchor:end;">-3</text>
+
+      <!-- X period markers -->
+      <line x1="120" y1="-5" x2="120" y2="5" class="axis-minor"/>
+      <text x="120" y="18" class="label" style="font-size:9px; text-anchor:middle;">T/2</text>
+
+      <line x1="210" y1="-5" x2="210" y2="5" class="axis-minor"/>
+      <text x="210" y="18" class="label" style="font-size:9px; text-anchor:middle;">T</text>
+
+      <line x1="300" y1="-5" x2="300" y2="5" class="axis-minor"/>
+      <text x="300" y="18" class="label" style="font-size:9px; text-anchor:middle;">3T/2</text>
+
+      <line x1="390" y1="-5" x2="390" y2="5" class="axis-minor"/>
+      <text x="380" y="18" class="label" style="font-size:9px; text-anchor:middle;">2T</text>
+
+      <!-- Complex waveform: sum of 7 sinusoids -->
+      <!-- A=[1.0, 0.5, 0.33, 0.25, 0.6, 0.15, 0.4], φ=[0, π/6, π/4, π/3, π/2, 2π/3, π/5] -->
+      <!-- Computed mathematically: y = -67 * sum(A_n * sin(n*x*2π/180 + φ_n)) -->
+      <g class="anim1">
+        <path class="complex" d="
+          M 30,0
+          L 35,-42 L 40,-82 L 45,-118 L 50,-148 L 55,-170 L 60,-183 L 65,-186 L 70,-180
+          L 75,-165 L 80,-143 L 85,-116 L 90,-86 L 95,-55 L 100,-26 L 105,0
+          L 110,22 L 115,40 L 120,52 L 125,59 L 130,60 L 135,56 L 140,48 L 145,37
+          L 150,25 L 155,13 L 160,2 L 165,-6 L 170,-11 L 175,-12 L 180,-9 L 185,-3
+          L 190,6 L 195,17 L 200,30 L 205,44 L 210,58
+          L 215,72 L 220,84 L 225,95 L 230,103 L 235,109 L 240,112 L 245,113 L 250,112
+          L 255,109 L 260,106 L 265,102 L 270,98 L 275,95 L 280,93 L 285,93 L 290,95
+          L 295,99 L 300,105 L 305,113 L 310,122 L 315,131 L 320,139 L 325,145 L 330,148
+          L 335,147 L 340,141 L 345,130 L 350,114 L 355,93 L 360,68 L 365,40 L 370,10
+          L 375,-20 L 380,-50 L 385,-77 L 390,-100
+        "/>
+      </g>
+    </g>
+
+    <text x="230" y="680" text-anchor="middle" class="label" style="font-size:10px;">Two complete periods (0 to 2T)</text>
+  </g>
+
+  <!-- ========== MIDDLE THIRD: Component Waves ========== -->
+  <g id="components-section" transform="translate(460, 0)">
+    <text x="220" y="70" text-anchor="middle" class="title">Harmonic Components</text>
+
+    <!-- Component 1: f, A=1.0, φ=0 -->
+    <g transform="translate(10, 105)">
+      <rect x="0" y="-20" width="420" height="40" fill="#fef2f2" opacity="0.6" rx="4"/>
+      <line x1="40" y1="0" x2="400" y2="0" class="axis-minor"/>
+      <text x="10" y="4" class="freq-label" fill="#dc2626">1f</text>
+      <text x="415" y="4" class="label" style="font-size:9px;">A₁=1.0</text>
+      <g class="anim1">
+        <path class="c1" d="M40,0 Q85,-35 130,0 T220,0 T310,0 T400,0"/>
+      </g>
+    </g>
+
+    <!-- Component 2: 2f, A=0.5, φ=π/6 -->
+    <g transform="translate(10, 175)">
+      <rect x="0" y="-20" width="420" height="40" fill="#fff7ed" opacity="0.6" rx="4"/>
+      <line x1="40" y1="0" x2="400" y2="0" class="axis-minor"/>
+      <text x="10" y="4" class="freq-label" fill="#ea580c">2f</text>
+      <text x="415" y="4" class="label" style="font-size:9px;">A₂=0.5</text>
+      <g class="anim2">
+        <path class="c2" d="M40,-8 Q62,-18 85,0 T130,0 T175,0 T220,0 T265,0 T310,0 T355,0 T400,8"/>
+      </g>
+    </g>
+
+    <!-- Component 3: 3f, A=0.33, φ=π/4 -->
+    <g transform="translate(10, 245)">
+      <rect x="0" y="-20" width="420" height="40" fill="#fefce8" opacity="0.6" rx="4"/>
+      <line x1="40" y1="0" x2="400" y2="0" class="axis-minor"/>
+      <text x="10" y="4" class="freq-label" fill="#ca8a04">3f</text>
+      <text x="415" y="4" class="label" style="font-size:9px;">A₃=0.33</text>
+      <g class="anim3">
+        <path class="c3" d="M40,-8 Q55,-11 70,0 T100,0 T130,0 T160,0 T190,0 T220,0 T250,0 T280,0 T310,0 T340,0 T370,0 T400,8"/>
+      </g>
+    </g>
+
+    <!-- Component 4: 4f, A=0.25, φ=π/3 -->
+    <g transform="translate(10, 315)">
+      <rect x="0" y="-20" width="420" height="40" fill="#f0fdf4" opacity="0.6" rx="4"/>
+      <line x1="40" y1="0" x2="400" y2="0" class="axis-minor"/>
+      <text x="10" y="4" class="freq-label" fill="#16a34a">4f</text>
+      <text x="415" y="4" class="label" style="font-size:9px;">A₄=0.25</text>
+      <g class="anim4">
+        <path class="c4" d="M40,-6 Q52,-8 62,0 T85,0 T107,0 T130,0 T152,0 T175,0 T197,0 T220,0 T242,0 T265,0 T287,0 T310,0 T332,0 T355,0 T377,0 T400,6"/>
+      </g>
+    </g>
+
+    <!-- Component 5: 5f, A=0.6, φ=π/2 -->
+    <g transform="translate(10, 385)">
+      <rect x="0" y="-20" width="420" height="40" fill="#eff6ff" opacity="0.6" rx="4"/>
+      <line x1="40" y1="0" x2="400" y2="0" class="axis-minor"/>
+      <text x="10" y="4" class="freq-label" fill="#2563eb">5f</text>
+      <text x="415" y="4" class="label" style="font-size:9px;">A₅=0.6</text>
+      <g class="anim5">
+        <path class="c5" d="M40,18 Q49,18 58,0 T76,0 T94,0 T112,0 T130,0 T148,0 T166,0 T184,0 T202,0 T220,0 T238,0 T256,0 T274,0 T292,0 T310,0 T328,0 T346,0 T364,0 T382,0 T400,-18"/>
+      </g>
+    </g>
+
+    <!-- Component 6: 6f, A=0.15, φ=2π/3 -->
+    <g transform="translate(10, 455)">
+      <rect x="0" y="-20" width="420" height="40" fill="#f5f3ff" opacity="0.6" rx="4"/>
+      <line x1="40" y1="0" x2="400" y2="0" class="axis-minor"/>
+      <text x="10" y="4" class="freq-label" fill="#7c3aed">6f</text>
+      <text x="415" y="4" class="label" style="font-size:9px;">A₆=0.15</text>
+      <g class="anim6">
+        <path class="c6" d="M40,4 Q47,5 55,0 T70,0 T85,0 T100,0 T115,0 T130,0 T145,0 T160,0 T175,0 T190,0 T205,0 T220,0 T235,0 T250,0 T265,0 T280,0 T295,0 T310,0 T325,0 T340,0 T355,0 T370,0 T385,0 T400,-4"/>
+      </g>
+    </g>
+
+    <!-- Component 7: 7f, A=0.4, φ=π/5 -->
+    <g transform="translate(10, 525)">
+      <rect x="0" y="-20" width="420" height="40" fill="#fdf2f8" opacity="0.6" rx="4"/>
+      <line x1="40" y1="0" x2="400" y2="0" class="axis-minor"/>
+      <text x="10" y="4" class="freq-label" fill="#db2777">7f</text>
+      <text x="415" y="4" class="label" style="font-size:9px;">A₇=0.4</text>
+      <g class="anim7">
+        <path class="c7" d="M40,-10 Q46,-10 52,0 T65,0 T78,0 T91,0 T104,0 T117,0 T130,0 T143,0 T156,0 T169,0 T182,0 T195,0 T208,0 T221,0 T234,0 T247,0 T260,0 T273,0 T286,0 T299,0 T312,0 T325,0 T338,0 T351,0 T364,0 T377,0 T390,0 T400,10"/>
+      </g>
+    </g>
+
+    <!-- Sum indicator -->
+    <text x="220" y="580" text-anchor="middle" class="label" style="font-size:12px;">
+      <tspan style="font-size:20px;">Σ</tspan> = Complex Wave
+    </text>
+
+    <!-- Connection lines to complex wave area -->
+    <g opacity="0.4">
+      <path d="M 0 105 Q -60 180 -180 250" class="connection" stroke="#dc2626"/>
+      <path d="M 0 175 Q -60 210 -180 280" class="connection" stroke="#ea580c"/>
+      <path d="M 0 245 Q -60 260 -180 310" class="connection" stroke="#ca8a04"/>
+      <path d="M 0 315 Q -60 320 -180 340" class="connection" stroke="#16a34a"/>
+      <path d="M 0 385 Q -60 380 -180 370" class="connection" stroke="#2563eb"/>
+      <path d="M 0 455 Q -60 430 -180 400" class="connection" stroke="#7c3aed"/>
+      <path d="M 0 525 Q -60 480 -180 430" class="connection" stroke="#db2777"/>
+    </g>
+  </g>
+
+  <!-- ========== RIGHT THIRD: Spectra ========== -->
+  <g id="spectra-section" transform="translate(900, 0)">
+    <text x="250" y="70" text-anchor="middle" class="title">Frequency Spectra</text>
+
+    <!-- Phase Spectrum (top section) -->
+    <g transform="translate(30, 100)">
+      <text x="220" y="0" text-anchor="middle" class="label" style="font-size:12px; font-weight:600;">Phase Spectrum φₙ</text>
+
+      <!-- 7 phase indicators -->
+      <!-- 1f: φ=0° -->
+      <g transform="translate(40, 70)">
+        <circle cx="0" cy="0" r="22" fill="none" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="0" y1="0" x2="22" y2="0" stroke="#dc2626" stroke-width="2.5"/>
+        <circle cx="22" cy="0" r="4" fill="#dc2626"/>
+        <text x="0" y="38" class="label" style="text-anchor:middle; font-size:10px;">1f</text>
+        <text x="0" y="50" class="label" style="text-anchor:middle; font-size:8px; fill:#64748b;">0°</text>
+      </g>
+
+      <!-- 2f: φ=π/6=30° -->
+      <g transform="translate(110, 70)">
+        <circle cx="0" cy="0" r="22" fill="none" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="0" y1="0" x2="19.05" y2="-11" stroke="#ea580c" stroke-width="2.5"/>
+        <circle cx="19.05" cy="-11" r="4" fill="#ea580c"/>
+        <text x="0" y="38" class="label" style="text-anchor:middle; font-size:10px;">2f</text>
+        <text x="0" y="50" class="label" style="text-anchor:middle; font-size:8px; fill:#64748b;">30°</text>
+      </g>
+
+      <!-- 3f: φ=π/4=45° -->
+      <g transform="translate(180, 70)">
+        <circle cx="0" cy="0" r="22" fill="none" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="0" y1="0" x2="15.56" y2="-15.56" stroke="#ca8a04" stroke-width="2.5"/>
+        <circle cx="15.56" cy="-15.56" r="4" fill="#ca8a04"/>
+        <text x="0" y="38" class="label" style="text-anchor:middle; font-size:10px;">3f</text>
+        <text x="0" y="50" class="label" style="text-anchor:middle; font-size:8px; fill:#64748b;">45°</text>
+      </g>
+
+      <!-- 4f: φ=π/3=60° -->
+      <g transform="translate(250, 70)">
+        <circle cx="0" cy="0" r="22" fill="none" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="0" y1="0" x2="11" y2="-19.05" stroke="#16a34a" stroke-width="2.5"/>
+        <circle cx="11" cy="-19.05" r="4" fill="#16a34a"/>
+        <text x="0" y="38" class="label" style="text-anchor:middle; font-size:10px;">4f</text>
+        <text x="0" y="50" class="label" style="text-anchor:middle; font-size:8px; fill:#64748b;">60°</text>
+      </g>
+
+      <!-- 5f: φ=π/2=90° -->
+      <g transform="translate(320, 70)">
+        <circle cx="0" cy="0" r="22" fill="none" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="0" y1="0" x2="0" y2="-22" stroke="#2563eb" stroke-width="2.5"/>
+        <circle cx="0" cy="-22" r="4" fill="#2563eb"/>
+        <text x="0" y="38" class="label" style="text-anchor:middle; font-size:10px;">5f</text>
+        <text x="0" y="50" class="label" style="text-anchor:middle; font-size:8px; fill:#64748b;">90°</text>
+      </g>
+
+      <!-- 6f: φ=2π/3=120° -->
+      <g transform="translate(390, 70)">
+        <circle cx="0" cy="0" r="22" fill="none" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="0" y1="0" x2="-11" y2="-19.05" stroke="#7c3aed" stroke-width="2.5"/>
+        <circle cx="-11" cy="-19.05" r="4" fill="#7c3aed"/>
+        <text x="0" y="38" class="label" style="text-anchor:middle; font-size:10px;">6f</text>
+        <text x="0" y="50" class="label" style="text-anchor:middle; font-size:8px; fill:#64748b;">120°</text>
+      </g>
+
+      <!-- 7f: φ=π/5=36° -->
+      <g transform="translate(460, 70)">
+        <circle cx="0" cy="0" r="22" fill="none" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="0" y1="0" x2="17.8" y2="-12.93" stroke="#db2777" stroke-width="2.5"/>
+        <circle cx="17.8" cy="-12.93" r="4" fill="#db2777"/>
+        <text x="0" y="38" class="label" style="text-anchor:middle; font-size:10px;">7f</text>
+        <text x="0" y="50" class="label" style="text-anchor:middle; font-size:8px; fill:#64748b;">36°</text>
+      </g>
+    </g>
+
+    <!-- Magnitude Spectrum (bottom section) -->
+    <g transform="translate(30, 310)">
+      <text x="250" y="0" text-anchor="middle" class="label" style="font-size:12px; font-weight:600;">Magnitude Spectrum |Aₙ|</text>
+
+      <!-- Axes -->
+      <line x1="40" y1="280" x2="470" y2="280" class="axis"/>
+      <line x1="40" y1="280" x2="40" y2="30" class="axis"/>
+      <polygon points="40,25 35,35 45,35" fill="#475569"/>
+      <text x="25" y="35" class="label" style="font-size:10px;">|A|</text>
+      <text x="480" y="285" class="label" style="font-size:10px;">n·f</text>
+
+      <!-- Y gridlines -->
+      <line x1="40" y1="80" x2="470" y2="80" class="grid-line"/>
+      <text x="30" y="84" class="label" style="font-size:9px; text-anchor:end;">1.0</text>
+
+      <line x1="40" y1="130" x2="470" y2="130" class="grid-line"/>
+      <text x="30" y="134" class="label" style="font-size:9px; text-anchor:end;">0.75</text>
+
+      <line x1="40" y1="180" x2="470" y2="180" class="grid-line"/>
+      <text x="30" y="184" class="label" style="font-size:9px; text-anchor:end;">0.5</text>
+
+      <line x1="40" y1="230" x2="470" y2="230" class="grid-line"/>
+      <text x="30" y="234" class="label" style="font-size:9px; text-anchor:end;">0.25</text>
+
+      <!-- Bars: height = amplitude * 200 -->
+      <!-- 1f: A=1.0 → h=200 -->
+      <rect x="55" y="80" width="45" height="200" fill="url(#barGrad)" rx="3" class="bar-anim1"/>
+      <rect x="55" y="80" width="45" height="200" fill="none" stroke="#dc2626" stroke-width="2" rx="3"/>
+      <text x="77.5" y="298" class="label" style="text-anchor:middle; font-size:10px;">1f</text>
+      <text x="77.5" y="70" class="label" style="text-anchor:middle; font-size:9px; font-weight:bold;">1.0</text>
+
+      <!-- 2f: A=0.5 → h=100 -->
+      <rect x="115" y="180" width="45" height="100" fill="url(#barGrad)" rx="3" class="bar-anim2"/>
+      <rect x="115" y="180" width="45" height="100" fill="none" stroke="#ea580c" stroke-width="2" rx="3"/>
+      <text x="137.5" y="298" class="label" style="text-anchor:middle; font-size:10px;">2f</text>
+      <text x="137.5" y="170" class="label" style="text-anchor:middle; font-size:9px; font-weight:bold;">0.5</text>
+
+      <!-- 3f: A=0.33 → h=66 -->
+      <rect x="175" y="214" width="45" height="66" fill="url(#barGrad)" rx="3" class="bar-anim3"/>
+      <rect x="175" y="214" width="45" height="66" fill="none" stroke="#ca8a04" stroke-width="2" rx="3"/>
+      <text x="197.5" y="298" class="label" style="text-anchor:middle; font-size:10px;">3f</text>
+      <text x="197.5" y="204" class="label" style="text-anchor:middle; font-size:9px; font-weight:bold;">0.33</text>
+
+      <!-- 4f: A=0.25 → h=50 -->
+      <rect x="235" y="230" width="45" height="50" fill="url(#barGrad)" rx="3" class="bar-anim4"/>
+      <rect x="235" y="230" width="45" height="50" fill="none" stroke="#16a34a" stroke-width="2" rx="3"/>
+      <text x="257.5" y="298" class="label" style="text-anchor:middle; font-size:10px;">4f</text>
+      <text x="257.5" y="220" class="label" style="text-anchor:middle; font-size:9px; font-weight:bold;">0.25</text>
+
+      <!-- 5f: A=0.6 → h=120 -->
+      <rect x="295" y="160" width="45" height="120" fill="url(#barGrad)" rx="3" class="bar-anim5"/>
+      <rect x="295" y="160" width="45" height="120" fill="none" stroke="#2563eb" stroke-width="2" rx="3"/>
+      <text x="317.5" y="298" class="label" style="text-anchor:middle; font-size:10px;">5f</text>
+      <text x="317.5" y="150" class="label" style="text-anchor:middle; font-size:9px; font-weight:bold;">0.6</text>
+
+      <!-- 6f: A=0.15 → h=30 -->
+      <rect x="355" y="250" width="45" height="30" fill="url(#barGrad)" rx="3" class="bar-anim6"/>
+      <rect x="355" y="250" width="45" height="30" fill="none" stroke="#7c3aed" stroke-width="2" rx="3"/>
+      <text x="377.5" y="298" class="label" style="text-anchor:middle; font-size:10px;">6f</text>
+      <text x="377.5" y="240" class="label" style="text-anchor:middle; font-size:9px; font-weight:bold;">0.15</text>
+
+      <!-- 7f: A=0.4 → h=80 -->
+      <rect x="415" y="200" width="45" height="80" fill="url(#barGrad)" rx="3" class="bar-anim7"/>
+      <rect x="415" y="200" width="45" height="80" fill="none" stroke="#db2777" stroke-width="2" rx="3"/>
+      <text x="437.5" y="298" class="label" style="text-anchor:middle; font-size:10px;">7f</text>
+      <text x="437.5" y="190" class="label" style="text-anchor:middle; font-size:9px; font-weight:bold;">0.4</text>
+    </g>
+  </g>
+
+  <!-- Fourier Series Formula Box -->
+  <g transform="translate(150, 730)">
+    <rect x="0" y="-25" width="1100" height="55" fill="#f1f5f9" rx="8" stroke="#cbd5e1" stroke-width="1"/>
+
+    <text x="550" y="0" text-anchor="middle" class="formula" style="font-size:17px;">
+      <tspan style="font-weight:bold;">Fourier Series:</tspan>  f(t) = A₀ + Σₙ₌₁∞ [ Aₙ · sin(n·ω·t + φₙ) ]  where  ω = 2πf
+    </text>
+    <text x="550" y="22" text-anchor="middle" class="label" style="font-size:11px; fill:#64748b;">
+      Amplitudes: A = [1.0, 0.5, 0.33, 0.25, 0.6, 0.15, 0.4]  |  Phases: φ = [0°, 30°, 45°, 60°, 90°, 120°, 36°]  |  n = [1, 2, 3, 4, 5, 6, 7]
+    </text>
+  </g>
+
+</svg>

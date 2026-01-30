@@ -1,0 +1,538 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800" role="img" aria-label="Fourier decomposition of a complex periodic wave">
+  <defs>
+    <!-- ====== Styles ====== -->
+    <style>
+      :root{
+        --bg:#fbfcff;
+        --grid:#e7ecf5;
+        --axis:#2f3a4a;
+        --text:#2b3542;
+        --muted:#6b7788;
+        --accent:#2c7be5;
+        --sum:#1f2d3d;
+        --conn:#97a6ba;
+      }
+
+      /* Background + grid */
+      .bg { fill: var(--bg); }
+      .grid line { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+      .grid .major { stroke-width: 1.5; opacity: .75; }
+
+      /* Axes */
+      .axis line, .axis path { stroke: var(--axis); stroke-width: 2; fill: none; }
+      .axis .tick { stroke: var(--axis); stroke-width: 1; opacity: .6; }
+      .axis text { fill: var(--muted); font: 12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+
+      /* Labels */
+      .title { fill: var(--text); font: 18px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-weight: 700; }
+      .subtitle { fill: var(--muted); font: 12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      .label { fill: var(--text); font: 12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      .small { fill: var(--muted); font: 11px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      .mono { font: 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; fill: var(--text); }
+
+      /* Waves */
+      .wave { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .wave.sum { stroke: var(--sum); }
+      .wave.comp { stroke-width: 2.5; opacity: .95; }
+
+      /* Component colors (scientific palette-ish) */
+      .c1{ stroke:#2c7be5; }
+      .c2{ stroke:#00a3ad; }
+      .c3{ stroke:#e83e8c; }
+      .c4{ stroke:#6f42c1; }
+      .c5{ stroke:#fd7e14; }
+      .c6{ stroke:#20c997; }
+      .c7{ stroke:#d63384; }
+
+      /* Connection lines */
+      .conn { stroke: var(--conn); stroke-width: 1.2; opacity: .28; fill:none; }
+
+      /* Spectra */
+      .bar { fill: var(--accent); opacity: .85; }
+      .barLabel { fill: var(--muted); font: 11px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      .specAxis { stroke: var(--axis); stroke-width: 1.8; fill:none; opacity:.9; }
+      .specGrid { stroke: var(--grid); stroke-width: 1; opacity:.9; }
+
+      .phaseCircle { fill: none; stroke: var(--axis); stroke-width: 1.5; opacity:.7; }
+      .phaseNeedle { stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; }
+
+      /* Smooth animation: each wave "rolls" via changing stroke-dashoffset, with different duration = frequency */
+      .anim {
+        stroke-dasharray: 10 10;
+        animation-name: roll;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+      }
+      @keyframes roll {
+        from { stroke-dashoffset: 0; }
+        to   { stroke-dashoffset: -200; }
+      }
+
+      /* Glow for readability */
+      .glow { filter: drop-shadow(0 1px 0 rgba(255,255,255,.7)) drop-shadow(0 2px 6px rgba(30,40,60,.08)); }
+
+      /* Keep text crisp */
+      text { paint-order: stroke; stroke: rgba(255,255,255,.85); stroke-width: 2px; }
+
+      /* Tooltip-ish on hover */
+      .hoverable:hover { opacity: 1 !important; }
+    </style>
+
+    <!-- ====== Light grid pattern ====== -->
+    <pattern id="gridSmall" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--grid)" stroke-width="1"></path>
+    </pattern>
+    <pattern id="gridMajor" width="100" height="100" patternUnits="userSpaceOnUse">
+      <path d="M 100 0 L 0 0 0 100" fill="none" stroke="var(--grid)" stroke-width="1.6" opacity=".75"></path>
+    </pattern>
+
+    <!-- ====== Clip regions for the three columns ====== -->
+    <clipPath id="clipLeft"><rect x="40" y="90" width="440" height="620" rx="10"></rect></clipPath>
+    <clipPath id="clipMid"><rect x="490" y="90" width="470" height="620" rx="10"></rect></clipPath>
+    <clipPath id="clipRightTop"><rect x="970" y="90" width="390" height="340" rx="10"></rect></clipPath>
+    <clipPath id="clipRightBot"><rect x="970" y="440" width="390" height="270" rx="10"></rect></clipPath>
+
+    <!-- ====== Helper: axis arrows ====== -->
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--axis)" opacity=".9"></path>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect class="bg" x="0" y="0" width="1400" height="800"></rect>
+  <rect x="0" y="0" width="1400" height="800" fill="url(#gridSmall)" opacity=".75"></rect>
+  <rect x="0" y="0" width="1400" height="800" fill="url(#gridMajor)" opacity=".5"></rect>
+
+  <!-- Header -->
+  <text class="title" x="40" y="48">Fourier Decomposition of a Complex Periodic Wave</text>
+  <text class="subtitle" x="40" y="72">Left: composite signal over two periods • Middle: 7 harmonic components • Right: magnitude &amp; phase spectra</text>
+
+  <!-- Column frames -->
+  <g opacity=".9">
+    <rect x="40" y="90" width="440" height="620" rx="12" fill="rgba(255,255,255,.72)" stroke="var(--grid)"></rect>
+    <rect x="490" y="90" width="470" height="620" rx="12" fill="rgba(255,255,255,.72)" stroke="var(--grid)"></rect>
+    <rect x="970" y="90" width="390" height="340" rx="12" fill="rgba(255,255,255,.72)" stroke="var(--grid)"></rect>
+    <rect x="970" y="440" width="390" height="270" rx="12" fill="rgba(255,255,255,.72)" stroke="var(--grid)"></rect>
+  </g>
+
+  <!-- ====== LEFT: Composite Wave ====== -->
+  <g class="glow">
+    <text class="label" x="58" y="118">Composite Wave (2 periods)</text>
+    <text class="small" x="58" y="138">y(x) = Σ Aₙ·sin(n·ωx + φₙ), n=1..7 (chosen to create sharp peaks &amp; flat regions)</text>
+
+    <!-- Axes for left plot -->
+    <g class="axis">
+      <!-- plotting rect: x=60..460, y=170..680 -->
+      <line x1="60" y1="680" x2="460" y2="680" marker-end="url(#arrow)"></line>
+      <line x1="60" y1="680" x2="60" y2="170" marker-end="url(#arrow)"></line>
+
+      <!-- ticks x -->
+      <g>
+        <line class="tick" x1="160" y1="680" x2="160" y2="674"></line>
+        <line class="tick" x1="260" y1="680" x2="260" y2="674"></line>
+        <line class="tick" x1="360" y1="680" x2="360" y2="674"></line>
+        <line class="tick" x1="460" y1="680" x2="460" y2="674"></line>
+        <text x="60" y="700">0</text>
+        <text x="152" y="700">π</text>
+        <text x="246" y="700">2π</text>
+        <text x="346" y="700">3π</text>
+        <text x="440" y="700">4π</text>
+        <text x="448" y="666">x</text>
+      </g>
+
+      <!-- ticks y -->
+      <g>
+        <line class="tick" x1="60" y1="425" x2="66" y2="425"></line>
+        <line class="tick" x1="60" y1="255" x2="66" y2="255"></line>
+        <line class="tick" x1="60" y1="595" x2="66" y2="595"></line>
+        <text x="40" y="429">0</text>
+        <text x="33" y="259">+1</text>
+        <text x="33" y="599">-1</text>
+        <text x="48" y="176">y</text>
+      </g>
+    </g>
+
+    <!-- faint horizontal guides -->
+    <g clip-path="url(#clipLeft)">
+      <g class="grid">
+        <line x1="60" y1="425" x2="460" y2="425" class="major" opacity=".7"></line>
+        <line x1="60" y1="255" x2="460" y2="255" opacity=".55"></line>
+        <line x1="60" y1="595" x2="460" y2="595" opacity=".55"></line>
+      </g>
+    </g>
+
+    <!-- Composite curve (precomputed path) -->
+    <g clip-path="url(#clipLeft)">
+      <!-- sum -->
+      <path class="wave sum" d="M 60 425
+        L 64 372.3 L 68 339.6 L 72 320.2 L 76 308.2 L 80 299.0 L 84 287.7 L 88 271.0 L 92 247.8 L 96 219.6
+        L 100 189.5 L 104 163.9 L 108 149.8 L 112 150.1 L 116 166.1 L 120 197.4 L 124 241.6 L 128 294.5
+        L 132 350.9 L 136 406.1 L 140 456.2 L 144 498.4 L 148 531.3 L 152 554.4 L 156 568.2 L 160 573.9
+        L 164 573.1 L 168 567.6 L 172 559.6 L 176 550.9 L 180 542.8 L 184 535.6 L 188 528.8 L 192 521.5
+        L 196 512.5 L 200 500.4 L 204 483.9 L 208 462.0 L 212 434.2 L 216 400.7 L 220 362.7 L 224 322.4
+        L 228 283.3 L 232 249.1 L 236 223.1 L 240 207.7 L 244 203.7 L 248 210.5 L 252 226.5 L 256 249.4
+        L 260 276.5 L 264 304.9 L 268 332.5 L 272 357.5 L 276 378.7 L 280 395.8 L 284 409.0 L 288 419.5
+        L 292 429.2 L 296 440.2 L 300 453.7 L 304 470.5 L 308 490.6 L 312 512.7 L 316 534.7 L 320 553.9
+        L 324 568.2 L 328 575.0 L 332 574.1 L 336 564.3 L 340 545.5 L 344 518.8 L 348 486.0 L 352 449.8
+        L 356 413.2 L 360 379.0 L 364 349.7 L 368 327.0 L 372 312.0 L 376 304.8 L 380 304.3 L 384 308.7
+        L 388 315.7 L 392 323.0 L 396 328.7 L 400 331.9 L 404 332.3 L 408 330.7 L 412 328.2 L 416 325.9
+        L 420 324.7 L 424 325.2 L 428 327.4 L 432 330.8 L 436 334.8 L 440 339.2 L 444 344.3 L 448 351.2
+        L 452 361.0 L 456 374.3 L 460 391.1"></path>
+
+      <!-- animated component overlays (optional thin) -->
+      <path class="wave comp c1 anim hoverable" style="animation-duration: 3.2s;" d="M 60 425
+        L 64 393.8 L 68 366.2 L 72 345.0 L 76 332.6 L 80 330.4 L 84 337.6 L 88 352.1 L 92 371.0 L 96 390.7
+        L 100 407.2 L 104 416.2 L 108 416.1 L 112 407.1 L 116 390.3 L 120 368.0 L 124 343.2 L 128 319.7
+        L 132 301.4 L 136 292.3 L 140 294.2 L 144 307.0 L 148 327.5 L 152 351.4 L 156 374.5 L 160 392.8
+        L 164 403.1 L 168 403.4 L 172 393.7 L 176 376.2 L 180 354.2 L 184 332.1 L 188 314.3 L 192 304.2
+        L 196 303.8 L 200 313.1 L 204 330.0 L 208 351.5 L 212 373.4 L 216 391.0 L 220 400.9 L 224 401.0
+        L 228 391.1 L 232 373.5 L 236 351.4 L 240 329.2 L 244 311.7 L 248 302.0 L 252 302.3 L 256 312.6
+        L 260 331.0 L 264 354.1 L 268 378.1 L 272 398.7 L 276 412.0 L 280 414.5 L 284 404.9 L 288 384.1
+        L 292 355.0 L 296 322.5 L 300 292.0 L 304 268.2 L 308 253.0 L 312 246.5 L 316 247.7 L 320 254.5
+        L 324 264.8 L 328 276.3 L 332 286.8 L 336 294.8 L 340 299.5 L 344 300.3 L 348 297.2 L 352 290.8
+        L 356 281.9 L 360 271.8 L 364 262.0 L 368 254.4 L 372 250.7 L 376 252.0 L 380 258.5 L 384 269.6
+        L 388 283.8 L 392 299.3 L 396 314.1 L 400 326.4 L 404 334.7 L 408 337.9 L 412 335.7 L 416 328.9
+        L 420 319.2 L 424 308.6 L 428 299.1 L 432 292.8 L 436 291.2 L 440 295.4 L 444 305.4 L 448 320.1
+        L 452 337.4 L 456 354.7 L 460 369.6"></path>
+
+      <!-- sum animated dash (visual verification) -->
+      <path class="wave sum anim" style="animation-duration: 3.2s; stroke-dasharray: 14 12; opacity:.22;" d="M 60 425
+        L 64 372.3 L 68 339.6 L 72 320.2 L 76 308.2 L 80 299.0 L 84 287.7 L 88 271.0 L 92 247.8 L 96 219.6
+        L 100 189.5 L 104 163.9 L 108 149.8 L 112 150.1 L 116 166.1 L 120 197.4 L 124 241.6 L 128 294.5
+        L 132 350.9 L 136 406.1 L 140 456.2 L 144 498.4 L 148 531.3 L 152 554.4 L 156 568.2 L 160 573.9
+        L 164 573.1 L 168 567.6 L 172 559.6 L 176 550.9 L 180 542.8 L 184 535.6 L 188 528.8 L 192 521.5
+        L 196 512.5 L 200 500.4 L 204 483.9 L 208 462.0 L 212 434.2 L 216 400.7 L 220 362.7 L 224 322.4
+        L 228 283.3 L 232 249.1 L 236 223.1 L 240 207.7 L 244 203.7 L 248 210.5 L 252 226.5 L 256 249.4
+        L 260 276.5 L 264 304.9 L 268 332.5 L 272 357.5 L 276 378.7 L 280 395.8 L 284 409.0 L 288 419.5
+        L 292 429.2 L 296 440.2 L 300 453.7 L 304 470.5 L 308 490.6 L 312 512.7 L 316 534.7 L 320 553.9
+        L 324 568.2 L 328 575.0 L 332 574.1 L 336 564.3 L 340 545.5 L 344 518.8 L 348 486.0 L 352 449.8
+        L 356 413.2 L 360 379.0 L 364 349.7 L 368 327.0 L 372 312.0 L 376 304.8 L 380 304.3 L 384 308.7
+        L 388 315.7 L 392 323.0 L 396 328.7 L 400 331.9 L 404 332.3 L 408 330.7 L 412 328.2 L 416 325.9
+        L 420 324.7 L 424 325.2 L 428 327.4 L 432 330.8 L 436 334.8 L 440 339.2 L 444 344.3 L 448 351.2
+        L 452 361.0 L 456 374.3 L 460 391.1"></path>
+    </g>
+  </g>
+
+  <!-- ====== MIDDLE: Components stacked ====== -->
+  <g class="glow">
+    <text class="label" x="510" y="118">Harmonic Components (stacked)</text>
+    <text class="small" x="510" y="138">Each component: Aₙ·sin(n·ωx + φₙ), aligned in x to show contribution</text>
+
+    <!-- Layout constants for middle plot area -->
+    <!-- middle plot rect: x=510..940, y=160..690 -->
+    <!-- 7 mini-axes each height ~70, with padding -->
+    <g clip-path="url(#clipMid)">
+      <!-- Component axes + waves -->
+      <!-- Components are drawn with dashed-rolling animation; duration scales with harmonic n -->
+      <!-- Frequencies / amplitudes / phases (chosen):
+           A1=0.90, φ1=0.30π
+           A2=0.55, φ2=-0.55π
+           A3=0.42, φ3=0.80π
+           A4=0.30, φ4=-0.15π
+           A5=0.24, φ5=0.62π
+           A6=0.18, φ6=-0.90π
+           A7=0.14, φ7=0.25π
+      -->
+
+      <!-- helper: function-like: each mini axis spans x=520..930, centerline y = y0 -->
+      <!-- n=1 -->
+      <g transform="translate(0,0)">
+        <line class="specGrid" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="165" x2="520" y2="225"></line>
+        <text class="label" x="520" y="158">f</text>
+        <text class="small" x="548" y="158">A₁=0.90, φ₁=0.30π</text>
+        <path class="wave comp c1 anim" style="animation-duration: 3.2s; stroke-dasharray: 12 10;" d="M 520 195
+             C 550 160, 590 160, 620 195
+             S 690 230, 720 195
+             S 790 160, 820 195
+             S 890 230, 930 195"></path>
+      </g>
+
+      <!-- n=2 -->
+      <g transform="translate(0,75)">
+        <line class="specGrid" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="165" x2="520" y2="225"></line>
+        <text class="label" x="520" y="158">2f</text>
+        <text class="small" x="548" y="158">A₂=0.55, φ₂=-0.55π</text>
+        <path class="wave comp c2 anim" style="animation-duration: 1.6s; stroke-dasharray: 12 10;" d="M 520 195
+             C 540 230, 565 230, 585 195
+             S 630 160, 650 195
+             S 695 230, 715 195
+             S 760 160, 780 195
+             S 825 230, 845 195
+             S 890 160, 910 195
+             S 925 220, 930 195"></path>
+      </g>
+
+      <!-- n=3 -->
+      <g transform="translate(0,150)">
+        <line class="specGrid" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="165" x2="520" y2="225"></line>
+        <text class="label" x="520" y="158">3f</text>
+        <text class="small" x="548" y="158">A₃=0.42, φ₃=0.80π</text>
+        <path class="wave comp c3 anim" style="animation-duration: 1.0667s; stroke-dasharray: 12 10;" d="M 520 195
+             C 535 175, 548 175, 563 195
+             S 590 215, 605 195
+             S 632 175, 647 195
+             S 674 215, 689 195
+             S 716 175, 731 195
+             S 758 215, 773 195
+             S 800 175, 815 195
+             S 842 215, 857 195
+             S 884 175, 899 195
+             S 924 210, 930 195"></path>
+      </g>
+
+      <!-- n=4 -->
+      <g transform="translate(0,225)">
+        <line class="specGrid" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="165" x2="520" y2="225"></line>
+        <text class="label" x="520" y="158">4f</text>
+        <text class="small" x="548" y="158">A₄=0.30, φ₄=-0.15π</text>
+        <path class="wave comp c4 anim" style="animation-duration: 0.8s; stroke-dasharray: 12 10;" d="M 520 195
+             C 532 210, 544 210, 556 195
+             S 580 180, 592 195
+             S 616 210, 628 195
+             S 652 180, 664 195
+             S 688 210, 700 195
+             S 724 180, 736 195
+             S 760 210, 772 195
+             S 796 180, 808 195
+             S 832 210, 844 195
+             S 868 180, 880 195
+             S 904 210, 916 195
+             S 926 202, 930 195"></path>
+      </g>
+
+      <!-- n=5 -->
+      <g transform="translate(0,300)">
+        <line class="specGrid" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="165" x2="520" y2="225"></line>
+        <text class="label" x="520" y="158">5f</text>
+        <text class="small" x="548" y="158">A₅=0.24, φ₅=0.62π</text>
+        <path class="wave comp c5 anim" style="animation-duration: 0.64s; stroke-dasharray: 12 10;" d="M 520 195
+             C 530 183, 540 183, 550 195
+             S 570 207, 580 195
+             S 600 183, 610 195
+             S 630 207, 640 195
+             S 660 183, 670 195
+             S 690 207, 700 195
+             S 720 183, 730 195
+             S 750 207, 760 195
+             S 780 183, 790 195
+             S 810 207, 820 195
+             S 840 183, 850 195
+             S 870 207, 880 195
+             S 900 183, 910 195
+             S 926 202, 930 195"></path>
+      </g>
+
+      <!-- n=6 -->
+      <g transform="translate(0,375)">
+        <line class="specGrid" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="165" x2="520" y2="225"></line>
+        <text class="label" x="520" y="158">6f</text>
+        <text class="small" x="548" y="158">A₆=0.18, φ₆=-0.90π</text>
+        <path class="wave comp c6 anim" style="animation-duration: 0.5333s; stroke-dasharray: 12 10;" d="M 520 195
+             C 528 206, 536 206, 544 195
+             S 560 184, 568 195
+             S 584 206, 592 195
+             S 608 184, 616 195
+             S 632 206, 640 195
+             S 656 184, 664 195
+             S 680 206, 688 195
+             S 704 184, 712 195
+             S 728 206, 736 195
+             S 752 184, 760 195
+             S 776 206, 784 195
+             S 800 184, 808 195
+             S 824 206, 832 195
+             S 848 184, 856 195
+             S 872 206, 880 195
+             S 896 184, 904 195
+             S 920 202, 930 195"></path>
+      </g>
+
+      <!-- n=7 -->
+      <g transform="translate(0,450)">
+        <line class="specGrid" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="195" x2="930" y2="195"></line>
+        <line class="specAxis" x1="520" y1="165" x2="520" y2="225"></line>
+        <text class="label" x="520" y="158">7f</text>
+        <text class="small" x="548" y="158">A₇=0.14, φ₇=0.25π</text>
+        <path class="wave comp c7 anim" style="animation-duration: 0.4571s; stroke-dasharray: 12 10;" d="M 520 195
+             C 526 187, 532 187, 538 195
+             S 550 203, 556 195
+             S 568 187, 574 195
+             S 586 203, 592 195
+             S 604 187, 610 195
+             S 622 203, 628 195
+             S 640 187, 646 195
+             S 658 203, 664 195
+             S 676 187, 682 195
+             S 694 203, 700 195
+             S 712 187, 718 195
+             S 730 203, 736 195
+             S 748 187, 754 195
+             S 766 203, 772 195
+             S 784 187, 790 195
+             S 802 203, 808 195
+             S 820 187, 826 195
+             S 838 203, 844 195
+             S 856 187, 862 195
+             S 874 203, 880 195
+             S 892 187, 898 195
+             S 910 203, 916 195
+             S 926 200, 930 195"></path>
+      </g>
+    </g>
+
+    <!-- Connection lines from each component "centerline" to approximate contribution areas on composite -->
+    <!-- Left composite x-range 60..460 maps to mid x-range 520..930 (linear). We'll connect to notable composite features. -->
+    <g class="conn">
+      <!-- pick some x positions: around sharp peak ~ x≈160..180 on left; valley ~ x≈330..350; flat-ish ~ x≈390..420 -->
+      <!-- from each component axis midpoint at x=725 to those points -->
+      <path d="M 725 195 L 260 276"></path>
+      <path d="M 725 270 L 160 554"></path>
+      <path d="M 725 345 L 340 545"></path>
+      <path d="M 725 420 L 368 327"></path>
+      <path d="M 725 495 L 420 324"></path>
+      <path d="M 725 570 L 112 150"></path>
+      <path d="M 725 645 L 456 374"></path>
+    </g>
+  </g>
+
+  <!-- ====== RIGHT TOP: Phase spectrum + formula ====== -->
+  <g class="glow">
+    <text class="label" x="990" y="118">Phase Spectrum &amp; Fourier Series</text>
+    <text class="small" x="990" y="138">Phase shown as angle of the needle; magnitude bars shown below</text>
+
+    <!-- Formula -->
+    <text class="mono" x="990" y="170">y(x) = Σₙ₌₁⁷ Aₙ · sin(n·ωx + φₙ),  ω = 2π/T</text>
+
+    <!-- Phase indicators (7 circles) -->
+    <g clip-path="url(#clipRightTop)">
+      <!-- axes label -->
+      <text class="small" x="990" y="205">Phase (φₙ)</text>
+
+      <!-- circles row -->
+      <!-- circle centers -->
+      <!-- x: 1015, 1070, 1125, 1180, 1235, 1290, 1345 ; y=265; r=18 -->
+      <g>
+        <circle class="phaseCircle" cx="1015" cy="265" r="18"></circle>
+        <circle class="phaseCircle" cx="1070" cy="265" r="18"></circle>
+        <circle class="phaseCircle" cx="1125" cy="265" r="18"></circle>
+        <circle class="phaseCircle" cx="1180" cy="265" r="18"></circle>
+        <circle class="phaseCircle" cx="1235" cy="265" r="18"></circle>
+        <circle class="phaseCircle" cx="1290" cy="265" r="18"></circle>
+        <circle class="phaseCircle" cx="1345" cy="265" r="18"></circle>
+
+        <!-- needles with animation (rotate around center at different rates) -->
+        <!-- Using transform-box + transform-origin with CSS animations in-line -->
+        <g class="phaseNeedle">
+          <line x1="1015" y1="265" x2="1031" y2="256" class="anim" style="stroke-dasharray:none; animation-duration: 3.2s; transform-box: fill-box; transform-origin: 1015px 265px; animation-name: spin1;"></line>
+          <line x1="1070" y1="265" x2="1082" y2="281" class="anim" style="stroke-dasharray:none; animation-duration: 1.6s; transform-box: fill-box; transform-origin: 1070px 265px; animation-name: spin2;"></line>
+          <line x1="1125" y1="265" x2="1109" y2="277" class="anim" style="stroke-dasharray:none; animation-duration: 1.0667s; transform-box: fill-box; transform-origin: 1125px 265px; animation-name: spin3;"></line>
+          <line x1="1180" y1="265" x2="1196" y2="262" class="anim" style="stroke-dasharray:none; animation-duration: 0.8s; transform-box: fill-box; transform-origin: 1180px 265px; animation-name: spin4;"></line>
+          <line x1="1235" y1="265" x2="1220" y2="252" class="anim" style="stroke-dasharray:none; animation-duration: 0.64s; transform-box: fill-box; transform-origin: 1235px 265px; animation-name: spin5;"></line>
+          <line x1="1290" y1="265" x2="1295" y2="283" class="anim" style="stroke-dasharray:none; animation-duration: 0.5333s; transform-box: fill-box; transform-origin: 1290px 265px; animation-name: spin6;"></line>
+          <line x1="1345" y1="265" x2="1362" y2="259" class="anim" style="stroke-dasharray:none; animation-duration: 0.4571s; transform-box: fill-box; transform-origin: 1345px 265px; animation-name: spin7;"></line>
+        </g>
+
+        <!-- labels -->
+        <g class="barLabel">
+          <text x="1008" y="302">φ₁</text>
+          <text x="1063" y="302">φ₂</text>
+          <text x="1118" y="302">φ₃</text>
+          <text x="1173" y="302">φ₄</text>
+          <text x="1228" y="302">φ₅</text>
+          <text x="1283" y="302">φ₆</text>
+          <text x="1338" y="302">φ₇</text>
+        </g>
+      </g>
+
+      <!-- Legend-ish -->
+      <text class="small" x="990" y="340">Needles rotate in sync with wave animations (n·f). Base period matches the left plot.</text>
+    </g>
+
+    <!-- phase needle spin keyframes injected (kept in SVG for portability) -->
+    <style>
+      @keyframes spin1 { from { transform: rotate(0deg); } to { transform: rotate(360deg);} }
+      @keyframes spin2 { from { transform: rotate(0deg); } to { transform: rotate(720deg);} }
+      @keyframes spin3 { from { transform: rotate(0deg); } to { transform: rotate(1080deg);} }
+      @keyframes spin4 { from { transform: rotate(0deg); } to { transform: rotate(1440deg);} }
+      @keyframes spin5 { from { transform: rotate(0deg); } to { transform: rotate(1800deg);} }
+      @keyframes spin6 { from { transform: rotate(0deg); } to { transform: rotate(2160deg);} }
+      @keyframes spin7 { from { transform: rotate(0deg); } to { transform: rotate(2520deg);} }
+    </style>
+  </g>
+
+  <!-- ====== RIGHT BOTTOM: Magnitude Spectrum (bars) ====== -->
+  <g class="glow">
+    <text class="label" x="990" y="468">Magnitude Spectrum</text>
+    <text class="small" x="990" y="488">Bars correspond to harmonic magnitudes |Aₙ|</text>
+
+    <!-- Spectrum plot area: x=990..1350, y=520..690 -->
+    <g clip-path="url(#clipRightBot)">
+      <!-- axes -->
+      <line class="specAxis" x1="1000" y1="690" x2="1350" y2="690" marker-end="url(#arrow)"></line>
+      <line class="specAxis" x1="1000" y1="690" x2="1000" y2="520" marker-end="url(#arrow)"></line>
+
+      <!-- grid -->
+      <line class="specGrid" x1="1000" y1="650" x2="1350" y2="650"></line>
+      <line class="specGrid" x1="1000" y1="610" x2="1350" y2="610"></line>
+      <line class="specGrid" x1="1000" y1="570" x2="1350" y2="570"></line>
+
+      <text class="barLabel" x="980" y="694">0</text>
+      <text class="barLabel" x="972" y="654">0.3</text>
+      <text class="barLabel" x="972" y="614">0.6</text>
+      <text class="barLabel" x="972" y="574">0.9</text>
+      <text class="barLabel" x="1340" y="706">f</text>
+      <text class="barLabel" x="986" y="524">|A|</text>
+
+      <!-- bars: using amplitudes [0.90,0.55,0.42,0.30,0.24,0.18,0.14] mapped to height max=160 -->
+      <!-- bar baseline y=690 -->
+      <!-- scale: h = A*160/0.90 => A*177.777...; (approx) -->
+      <!-- positions -->
+      <g>
+        <rect class="bar" x="1040" y="530" width="28" height="160" rx="4"></rect>
+        <rect class="bar" x="1090" y="592" width="28" height="98" rx="4" opacity=".82"></rect>
+        <rect class="bar" x="1140" y="615" width="28" height="75" rx="4" opacity=".78"></rect>
+        <rect class="bar" x="1190" y="637" width="28" height="53" rx="4" opacity=".74"></rect>
+        <rect class="bar" x="1240" y="647" width="28" height="43" rx="4" opacity=".70"></rect>
+        <rect class="bar" x="1290" y="658" width="28" height="32" rx="4" opacity=".66"></rect>
+        <rect class="bar" x="1340" y="665" width="28" height="25" rx="4" opacity=".62"></rect>
+
+        <!-- bar labels -->
+        <text class="barLabel" x="1044" y="712">1</text>
+        <text class="barLabel" x="1094" y="712">2</text>
+        <text class="barLabel" x="1144" y="712">3</text>
+        <text class="barLabel" x="1194" y="712">4</text>
+        <text class="barLabel" x="1244" y="712">5</text>
+        <text class="barLabel" x="1294" y="712">6</text>
+        <text class="barLabel" x="1344" y="712">7</text>
+
+        <!-- numeric magnitude annotations -->
+        <text class="small" x="1034" y="522">0.90</text>
+        <text class="small" x="1084" y="584">0.55</text>
+        <text class="small" x="1134" y="607">0.42</text>
+        <text class="small" x="1184" y="629">0.30</text>
+        <text class="small" x="1234" y="639">0.24</text>
+        <text class="small" x="1284" y="650">0.18</text>
+        <text class="small" x="1334" y="657">0.14</text>
+      </g>
+
+      <!-- subtle animated shimmer (optional) -->
+      <rect x="1000" y="520" width="370" height="170" fill="none" stroke="rgba(44,123,229,.15)" stroke-width="2" stroke-dasharray="6 10" class="anim" style="animation-duration: 3.2s;"></rect>
+    </g>
+  </g>
+
+  <!-- Footer note -->
+  <text class="small" x="40" y="770">Animation note: each harmonic rolls at n× the base rate; the composite is the sum—watch recurring alignment at the same x positions across components.</text>
+</svg>

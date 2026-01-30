@@ -103,7 +103,13 @@ class ExecutionStatusLine(Widget):
 
         Args:
             agent_id: Agent ID
-            state: State name (idle, streaming, thinking, tool_use, voted, done, error)
+            state: State name. Valid states:
+                - idle: Agent is idle (dim circle "○")
+                - working/streaming/thinking/tool_use: Agent is actively processing (pulsing dots)
+                - voted: Agent has voted, waiting for consensus (green "✓")
+                - done: Agent finished final presentation (dim "✓")
+                - cancelled: Agent was aborted/cancelled (yellow "✗")
+                - error: Agent encountered an error (red "✗")
             tool_name: Optional tool name when state is tool_use
         """
         if agent_id in self._agent_states:

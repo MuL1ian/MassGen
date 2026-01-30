@@ -9,17 +9,189 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection
+New Execute mode allows cycling through Normal → Planning → Execute modes via Shift+Tab. Users can independently browse and select from existing plans for execution. Context paths preserved between planning and execution phases. Minor TUI performance improvements and enhanced case studies documentation.
+
+**v0.1.43 (January 26, 2026)** - TUI UX Polish & Interactive Case Studies
+Enhanced TUI with tool call batching, improved final presentation display, quoted path support, and plan mode enhancements. New interactive case studies page with visual comparisons between MassGen and single-agent solutions. Video tutorials section added to documentation.
+
+**v0.1.42 (January 23, 2026)** - TUI Visual Redesign
+Comprehensive visual redesign of the Textual TUI with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, edge-to-edge layouts, redesigned agent tabs and tool cards, polished modals, and scroll indicators. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
+
 **v0.1.41 (January 21, 2026)** - Async Subagent Execution
 Background subagent execution with `async_=True` parameter for non-blocking subagent spawning. Parent agents continue working while subagents run in background, then poll for results when ready. New subagent round timeouts for per-round timeout control. Extended subagent configuration parameters for fine-grained control over concurrency and timeouts.
 
-**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode (Experimental)
-Interactive terminal UI with `--display textual` for interactive MassGen sessions. Real-time agent output streaming, context path injection, human feedback integration, keyboard-driven navigation, workspace file browser, answer browser with side-by-side comparisons, and comprehensive modals for metrics/costs/votes/timeline. Enhanced plan execution with mode selection UI and improved final answer presentation.
-
-**v0.1.39 (January 16, 2026)** - Plan and Execute Workflow
-Complete plan-then-execute workflow with `--plan-and-execute` for autonomous planning and execution, `--execute-plan` to run existing plans. Task verification workflow with `verified` status and verification groups for batch validation. Plan storage system in `.massgen/plans/` with frozen snapshots and execution tracking. Response API function call message sanitization fixes.
-
 ---
 
+## [0.1.44] - 2026-01-28
+
+### Added
+- **Execute Mode**: Independent mode for browsing and executing existing plans ([#819](https://github.com/massgen/MassGen/pull/819))
+  - Cycle through modes: Normal → Planning → Execute via `Shift+Tab` or mode bar click
+  - Plan selector popover shows up to 10 recent plans with timestamps and prompts
+  - "View Full Plan" button opens modal with all plan tasks
+  - Empty submission (just pressing Enter) executes selected plan
+  - Context paths preserved from planning phase to execution phase
+  - Warning shown if no plans exist when trying to enter Execute mode
+
+- **Case Studies Setup Guide**: Interactive setup instructions on case studies page ([#818](https://github.com/massgen/MassGen/pull/818))
+  - "Try it yourself" collapsible sections with setup guide
+  - Quick start command: `uv run massgen --web`
+  - Model selection guidance (Claude 4.5 Opus, Gemini 3 Pro, GPT 5.2)
+  - Terminal config file example for CLI users
+  - Helper text prompting users to compare MassGen with single-agent baselines
+
+### Fixed
+- **Plan Mode Separation**: Fixed bug where planning instructions were injected during execute mode
+  - Planning prompt prepending now only occurs for `plan_mode == "plan"`
+  - Execute mode uses `build_execution_prompt()` without planning overhead
+
+- **Tool Call Spacing**: Fixed spacing issues in tool card display
+- **Timeline Performance**: Improved scrolling performance with viewport optimization and reduced timeline size limits
+
+### Changed
+- **Context Paths Storage**: `PlanMetadata` now includes `context_paths` field in `massgen/plan_storage.py`
+  - Context paths stored during `finalize_planning_phase`
+  - Restored automatically in `prepare_plan_execution_config` during execution
+  - Enables consistent file/directory access between planning and execution
+
+- **Empty Submission Support**: Input widget now allows empty submission in execute mode
+  - Placeholder text: "Press Enter to execute selected plan - or type instructions"
+  - Removed input text guard to enable plan execution without additional input
+
+- **Plan Options Widget**: Enhanced `PlanOptionsPopover` with "View Full Plan" functionality
+  - New `ViewPlanRequested` message for modal communication
+  - Better plan browsing experience
+
+### Documentation, Configurations and Resources
+- **Case Studies Enhancement**: `docs/source/case_studies/index.html` with setup guide
+  - New `docs/source/case_studies/terminal_config.txt` with example YAML configuration
+  - Video tutorial links moved higher for better discoverability
+  - Added contextual notes for baseline comparisons
+
+- **Shortcuts Documentation**: Updated `shortcuts_modal.py` with Shift+Tab mode cycling description
+
+### Technical Details
+- **Major Focus**: Execute mode for independent plan selection, TUI performance improvements, case studies UX
+- **Files Modified**:
+  - TUI: `textual_terminal_display.py`, `mode_bar.py`, `plan_options.py`, `multi_line_input.py`, `content_sections.py`
+  - Plan system: `plan_storage.py`, `plan_execution.py`, `tui_modes.py`
+  - Backend: `claude_code.py` (tool tracking improvements)
+  - Docs: `index.rst`, `case_studies/index.html`
+- **Contributors**: @ncrispino and the MassGen team
+
+## [0.1.43] - 2026-01-26
+
+### Added
+- **Tool Call Batching**: Consecutive MCP tool calls are now grouped into collapsible tree views ([#815](https://github.com/massgen/MassGen/pull/815))
+  - Shows 3 items by default, collapses rest with "+N more" indicator
+  - Click to expand full list
+  - Respects Timeline Chronology Rule: tools only batch when consecutive (no intervening content)
+  - New `ToolBatchCard` widget and `ToolBatchTracker` state machine
+
+- **Interactive Case Studies**: New documentation page with visual comparisons ([#812](https://github.com/massgen/MassGen/pull/812))
+  - Side-by-side SVG comparisons between MassGen and single-agent solutions
+  - Iterative refinement examples showing multi-round improvements
+  - Collapsible sections with baseline visualizations
+
+- **Video Tutorials Section**: New documentation with Getting Started and Development videos
+  - Prominent CTAs linking to YouTube tutorials
+  - Descriptive text for each video category
+
+- **Plan Mode Enhancements**: New `PlanOptionsPopover` widget for plan management
+  - Browse recent plans with quick access
+  - Plan depth selector (thorough/balanced/quick)
+  - Broadcast mode toggle (human/agents/none)
+  - Plan validation before execution
+
+- **Quoted Path Support**: Paths with spaces now work correctly using quotes
+  - `@"/path/with spaces/file.txt"` syntax for context injection
+  - Tab completion support for quoted paths
+  - Write permission suffix works with quotes: `@"/path/file.txt":w`
+
+### Fixed
+- **Final Presentation Display**: Fixed critical bug where final answers weren't displayed properly
+  - Reasoning text now separated from actual answer content
+  - Visual distinction: reasoning collapsed/smaller, answer prominent
+  - Fixed content filtering in `ContentNormalizer.should_display` logic
+
+- **Bottom Status Bar**: Fixed status bar not showing in certain scenarios
+- **Scrolling Bar**: Fixed scrolling bar on right side display issues
+- **Mode Buttons**: Fixed mode button interaction and alignment
+- **Task Highlighting**: Fixed task highlighting in task plan cards
+- **Toast Location**: Fixed toast notification positioning
+
+### Changed
+- **Reasoning/Content Display**: Enhanced formatting with vertical line indicators for thinking blocks
+- **Tool Presentation**: Improved tool card visual presentation
+- **Demo GIF**: Updated `docs/source/_static/images/readme.gif` with higher resolution
+
+### Documentation, Configurations and Resources
+- **Interactive Case Studies**: New `docs/source/case_studies/index.html` with SVG comparisons
+  - Example SVGs for Claude, GPT, Gemini, and MassGen outputs
+  - `docs/source/case_studies/example_svgs/` directory with visualization assets
+- **Homepage Updates**: Updated `docs/source/index.rst` with case studies CTA and video tutorials section
+- **OpenSpec Proposals**: Multiple TUI improvement specifications in `openspec/changes/`:
+  - `add-tui-tool-call-batching/` - Tool batching design and implementation
+  - `improve-tui-final-presentation-display/` - Final presentation fix specs
+  - `fix-tui-mode-bar-alignment/` - Mode bar alignment fix
+  - `fix-tui-tool-card-spacing/` - Tool card spacing improvements
+  - `add-tui-workflow-comprehension/` - Workflow comprehension enhancements
+
+### Technical Details
+- **Major Focus**: TUI UX polish, tool call batching, documentation enhancements
+- **Contributors**: @ncrispino (22 commits), @franklinnwren (8 commits), @HenryQi (3 commits) and the MassGen team
+
+## [0.1.42] - 2026-01-23
+
+### Added
+- **TUI Visual Redesign**: Comprehensive visual overhaul with modern "Conversational AI" aesthetic ([#806](https://github.com/massgen/MassGen/pull/806))
+  - **Phase 1**: Unified input card with integrated mode toggles, rounded corners (╭╮╰╯), simplified radio-style indicators
+  - **Phase 2**: Agent tabs redesign with dot indicators (◉ active, ○ waiting, ✓ done), two-line display (name + model)
+  - **Phase 3**: Tool cards with adaptive density - collapsed by default, click to expand parameters/results
+  - **Phase 4**: Welcome screen improvements with centered input and muted help hints
+  - **Phase 5**: Task lists with visual progress bars, "X of Y" counts, and "← current" markers
+  - **Phase 6**: Modal polish with rounded containers, consistent headers, softer borders, unified button styling
+  - **Phase 7**: Header polish with bullet separators, desaturated color palette, warmer tones
+  - **Phase 8**: Professional visual polish throughout
+  - **Phase 9**: Edge-to-edge borderless container layout
+  - **Phase 11**: UX polish with collapsible reasoning blocks, scroll indicators
+  - **Phase 12**: CSS-based round navigation (partial)
+  - **Phase 13**: Backend integration with token usage updates for TUI status ribbon
+
+- **Human Input Queue**: Inject messages to agents mid-stream during execution
+  - `HumanInputHook` for queuing and injecting human input during agent execution
+  - Thread-safe queue with per-agent tracking (each message delivered once per agent)
+  - Callback support for TUI visual indicator updates
+  - Messages persist until turn ends, allowing injection to multiple agents
+
+### Fixed
+- **AG2 Single-Agent Coordination**: Fixed coordination issues for single-agent AG2 setups ([#804](https://github.com/massgen/MassGen/pull/804))
+  - Single agent can now vote for itself after producing its first answer
+  - Properly clears `restart_pending` flag for single-agent scenarios
+  - Fixes stuck coordination when using AG2 adapter with single agent
+
+- **Plan Execution in TUI**: Fixed plan-then-execute workflow in Textual TUI
+- **Planning Prompt Improvements**: Better subagent clarity and planning guidance
+
+### Changed
+- **Token Usage Updates**: Orchestrator now emits `token_usage_update` stream chunks for real-time TUI status updates
+- **Plan Session ID**: Orchestrator accepts optional `plan_session_id` to prevent workspace contamination during plan execution
+
+### Documentation, Configurations and Resources
+- **TUI Redesign Handoffs**: Design handoff documents for implementation phases
+  - New `docs/dev_notes/tui_redesign_phase6_handoff.md` for modal improvements
+  - New `docs/dev_notes/tui_redesign_phase9_11_13_handoff.md` for layout and UX polish
+- **OpenSpec Proposals**: Complete TUI redesign specification in `openspec/changes/update-tui-conversational-design/`
+  - `proposal.md` - Full 13-phase redesign proposal
+  - `design.md` - Visual design decisions and rationale
+  - `specs/tui/spec.md` - Detailed component specifications
+  - `tasks.md` - Implementation task breakdown
+  - `HANDOFF_PHASE12.md` - Phase 12 handoff for CSS round navigation
+
+### Technical Details
+- **Major Focus**: TUI visual redesign, human input injection, AG2 single-agent fixes
+- **Contributors**: @ncrispino, @HenryQi, @db-ol and the MassGen team
 ## [0.1.41] - 2026-01-21
 
 ### Added

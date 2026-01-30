@@ -422,7 +422,7 @@ class ContentNormalizer:
         if result is None:
             return False
 
-        json_str, text_before, text_after = result
+        _, text_before, _ = result
 
         # Only return True if content is primarily JSON (no significant text before)
         # Text after is OK (might be trailing whitespace or small artifacts)

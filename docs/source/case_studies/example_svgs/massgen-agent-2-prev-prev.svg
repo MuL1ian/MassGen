@@ -1,0 +1,227 @@
+<svg width="1400" height="800" viewBox="0 0 1400 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Grid pattern -->
+    <pattern id="gridPattern" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#f0f0f0" stroke-width="1"/>
+    </pattern>
+    <clipPath id="clipLeft">
+      <rect x="50" y="100" width="400" height="400" />
+    </clipPath>
+    <clipPath id="clipMid">
+      <rect x="0" y="-50" width="400" height="100" />
+    </clipPath>
+
+    <!-- Gradients -->
+    <linearGradient id="gradComplex" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e74c3c" />
+      <stop offset="100%" style="stop-color:#c0392b" />
+    </linearGradient>
+  </defs>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700family=Inter:wght@400;600display=swap');
+
+    text { font-family: 'Inter', sans-serif; fill: #2c3e50; }
+    .label { font-family: 'Roboto Mono', monospace; font-size: 12px; font-weight: 600; }
+    .title { font-size: 28px; font-weight: 700; fill: #2c3e50; }
+    .formula { font-size: 24px; font-family: 'Times New Roman', serif; font-style: italic; }
+    .axis { stroke: #34495e; stroke-width: 2; fill: none; }
+    .grid-bg { fill: url(#gridPattern); }
+
+    /* Animation: Traveling wave */
+    @keyframes moveWave {
+      from { transform: translateX(0); }
+      to { transform: translateX(-200px); }
+    }
+    .moving-wave { animation: moveWave 4s linear infinite; }
+
+    /* Phase indicator rotation */
+    @keyframes rotatePhase1 { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes rotatePhase2 { from { transform: rotate(0deg); } to { transform: rotate(720deg); } }
+    @keyframes rotatePhase3 { from { transform: rotate(0deg); } to { transform: rotate(1080deg); } }
+    @keyframes rotatePhase4 { from { transform: rotate(0deg); } to { transform: rotate(1440deg); } }
+    @keyframes rotatePhase5 { from { transform: rotate(0deg); } to { transform: rotate(1800deg); } }
+    @keyframes rotatePhase6 { from { transform: rotate(0deg); } to { transform: rotate(2160deg); } }
+    @keyframes rotatePhase7 { from { transform: rotate(0deg); } to { transform: rotate(2520deg); } }
+
+    .phase-h1 { animation: rotatePhase1 4s linear infinite; }
+    .phase-h2 { animation: rotatePhase2 4s linear infinite; }
+    .phase-h3 { animation: rotatePhase3 4s linear infinite; }
+    .phase-h4 { animation: rotatePhase4 4s linear infinite; }
+    .phase-h5 { animation: rotatePhase5 4s linear infinite; }
+    .phase-h6 { animation: rotatePhase6 4s linear infinite; }
+    .phase-h7 { animation: rotatePhase7 4s linear infinite; }
+
+    .harmonic-1 { stroke: #3498db; }
+    .harmonic-2 { stroke: #2ecc71; }
+    .harmonic-3 { stroke: #9b59b6; }
+    .harmonic-4 { stroke: #f1c40f; }
+    .harmonic-5 { stroke: #1abc9c; }
+    .harmonic-6 { stroke: #e67e22; }
+    .harmonic-7 { stroke: #34495e; }
+
+    .conn-line { stroke: #bdc3c7; stroke-width: 1; stroke-dasharray: 4,2; opacity: 0.4; }
+  </style>
+
+  <!-- Background Grid -->
+  <rect width="1400" height="800" class="grid-bg" />
+
+  <text x="700" y="50" class="title" text-anchor="middle">Fourier Series Decomposition: Spectral Analysis</text>
+
+  <!-- Formula Area -->
+  <g transform="translate(700, 750)">
+    <rect x="-400" y="-40" width="800" height="60" rx="10" fill="white" stroke="#bdc3c7" stroke-width="1" />
+    <text x="0" y="0" class="formula" text-anchor="middle">
+      f(t) = A₀ + Σ [Aₙ sin(2πnft + φₙ)]
+    </text>
+  </g>
+
+  <!-- LEFT THIRD: COMPLEX WAVEFORM -->
+  <g transform="translate(50, 350)">
+    <text x="200" y="-230" class="label" text-anchor="middle" font-size="16" fill="#c0392b">COMPLEX WAVEFORM (Σ)</text>
+    <path d="M 0,-200 V 200 M 0,0 H 400" class="axis" />
+    <!-- T Markers -->
+    <text x="100" y="20" class="label" text-anchor="middle">T/2</text>
+    <text x="200" y="20" class="label" text-anchor="middle">T</text>
+    <text x="300" y="20" class="label" text-anchor="middle">3T/2</text>
+    <text x="400" y="20" class="label" text-anchor="middle">2T</text>
+
+    <g clip-path="url(#clipLeft)">
+      <g class="moving-wave">
+        <!-- Mathematically calculated sum of 7 harmonics -->
+        <!-- Points calculated for x from 0 to 600, period 200 -->
+        <path d="M 0,41 L 10,76 L 20,93 L 30,83 L 40,60 L 50,67 L 60,111 L 70,147 L 80,132 L 90,69 L 100,0 L 110,-69 L 120,-132 L 130,-147 L 140,-111 L 150,-67 L 160,-60 L 170,-83 L 180,-93 L 190,-76 L 200,-41 L 210,41 L 220,76 L 230,93 L 240,83 L 250,60 L 260,67 L 270,111 L 280,147 L 290,132 L 300,69 L 310,0 L 320,-69 L 330,-132 L 340,-147 L 350,-111 L 360,-67 L 370,-60 L 380,-83 L 390,-93 L 400,-76 L 410,-41 L 420,41 L 430,76 L 440,93 L 450,83 L 460,60 L 470,67 L 480,111 L 490,147 L 500,132 L 510,69 L 520,0 L 530,-69 L 540,-132 L 550,-147 L 560,-111 L 570,-67 L 580,-60 L 590,-83 L 600,-93"
+              fill="none" stroke="url(#gradComplex)" stroke-width="4" stroke-linejoin="round" />
+      </g>
+    </g>
+  </g>
+
+  <!-- MIDDLE THIRD: COMPONENTS -->
+  <g transform="translate(520, 80)">
+    <text x="200" y="0" class="label" text-anchor="middle" font-size="16">HARMONIC COMPONENTS</text>
+
+    <!-- Component f -->
+    <g transform="translate(0, 60)">
+      <line x1="0" y1="0" x2="400" y2="0" class="axis" opacity="0.3" />
+      <text x="-10" y="5" class="label" text-anchor="end">f: A=100 φ=0°</text>
+      <g clip-path="url(#clipMid)"><g class="moving-wave">
+        <path d="M 0,0 L 20,59 L 40,95 L 60,95 L 80,59 L 100,0 L 120,-59 L 140,-95 L 160,-95 L 180,-59 L 200,0 L 220,59 L 240,95 L 260,95 L 280,59 L 300,0 L 320,-59 L 340,-95 L 360,-95 L 380,-59 L 400,0 L 420,59 L 440,95 L 460,95 L 480,59 L 500,0 L 520,-59 L 540,-95 L 560,-95 L 580,-59 L 600,0" fill="none" class="harmonic-1" stroke-width="2" />
+      </g></g>
+      <line x1="0" y1="0" x2="-70" y2="270" class="conn-line" />
+    </g>
+
+    <!-- Component 2f -->
+    <g transform="translate(0, 140)">
+      <line x1="0" y1="0" x2="400" y2="0" class="axis" opacity="0.3" />
+      <text x="-10" y="5" class="label" text-anchor="end">2f: A=50 φ=90°</text>
+      <g clip-path="url(#clipMid)"><g class="moving-wave">
+        <path d="M 0,50 L 20,48 L 40,30 L 60,-15 L 80,-48 L 100,-50 L 120,-15 L 140,30 L 160,48 L 180,31 L 200,50 L 220,48 L 240,30 L 260,-15 L 280,-48 L 300,-50 L 320,-15 L 340,30 L 360,48 L 380,31 L 400,50 L 420,48 L 440,30 L 460,-15 L 480,-48 L 500,-50 L 520,-15 L 540,30 L 560,48 L 580,31 L 600,50" fill="none" class="harmonic-2" stroke-width="2" />
+      </g></g>
+      <line x1="0" y1="0" x2="-70" y2="190" class="conn-line" />
+    </g>
+
+    <!-- Component 3f -->
+    <g transform="translate(0, 220)">
+      <line x1="0" y1="0" x2="400" y2="0" class="axis" opacity="0.3" />
+      <text x="-10" y="5" class="label" text-anchor="end">3f: A=25 φ=180°</text>
+      <g clip-path="url(#clipMid)"><g class="moving-wave">
+        <path d="M 0,0 L 20,-24 L 40,-15 L 60,14 L 80,24 L 100,0 L 120,-24 L 140,-14 L 160,15 L 180,24 L 200,0 L 220,-24 L 240,-15 L 260,14 L 280,24 L 300,0 L 320,-24 L 340,-14 L 360,15 L 380,24 L 400,0 L 420,-24 L 440,-15 L 460,14 L 480,24 L 500,0 L 520,-24 L 540,-14 L 560,15 L 580,24 L 600,0" fill="none" class="harmonic-3" stroke-width="2" />
+      </g></g>
+      <line x1="0" y1="0" x2="-70" y2="110" class="conn-line" />
+    </g>
+
+    <!-- Component 4f -->
+    <g transform="translate(0, 300)">
+      <line x1="0" y1="0" x2="400" y2="0" class="axis" opacity="0.3" />
+      <text x="-10" y="5" class="label" text-anchor="end">4f: A=12 φ=270°</text>
+      <g clip-path="url(#clipMid)"><g class="moving-wave">
+        <path d="M 0,-12 L 20,11 L 40,-11 L 60,12 L 80,-11 L 100,12 L 120,-11 L 140,12 L 160,-11 L 180,12 L 200,-12 L 220,11 L 240,-11 L 260,12 L 280,-11 L 300,12 L 320,-11 L 340,12 L 360,-11 L 380,12 L 400,-12 L 420,11 L 440,-11 L 460,12 L 480,-11 L 500,12 L 520,-11 L 540,12 L 560,-11 L 580,12 L 600,-12" fill="none" class="harmonic-4" stroke-width="2" />
+      </g></g>
+      <line x1="0" y1="0" x2="-70" y2="30" class="conn-line" />
+    </g>
+
+    <!-- Component 5f -->
+    <g transform="translate(0, 380)">
+      <line x1="0" y1="0" x2="400" y2="0" class="axis" opacity="0.3" />
+      <text x="-10" y="5" class="label" text-anchor="end">5f: A=6 φ=0°</text>
+      <g clip-path="url(#clipMid)"><g class="moving-wave">
+        <path d="M 0,0 L 20,0 L 40,0 L 60,0 L 80,0 L 100,0 L 120,0 L 140,0 L 160,0 L 180,0 L 200,0 L 220,0 L 240,0 L 260,0 L 280,0 L 300,0 L 320,0 L 340,0 L 360,0 L 380,0 L 400,0 L 420,0 L 440,0 L 460,0 L 480,0 L 500,0 L 520,0 L 540,0 L 560,0 L 580,0 L 600,0" fill="none" class="harmonic-5" stroke-width="2" />
+      </g></g>
+      <line x1="0" y1="0" x2="-70" y2="-50" class="conn-line" />
+    </g>
+    <!-- (Note: 5f, 6f, 7f are smaller, showing logic) -->
+    <g transform="translate(0, 460)">
+      <line x1="0" y1="0" x2="400" y2="0" class="axis" opacity="0.3" />
+      <text x="-10" y="5" class="label" text-anchor="end">6f: A=3 φ=90°</text>
+      <g clip-path="url(#clipMid)"><g class="moving-wave">
+        <rect width="400" height="1" y="0" fill="#e67e22" opacity="0.5" />
+      </g></g>
+      <line x1="0" y1="0" x2="-70" y2="-130" class="conn-line" />
+    </g>
+    <g transform="translate(0, 540)">
+      <line x1="0" y1="0" x2="400" y2="0" class="axis" opacity="0.3" />
+      <text x="-10" y="5" class="label" text-anchor="end">7f: A=1 φ=180°</text>
+      <g clip-path="url(#clipMid)"><g class="moving-wave">
+        <rect width="400" height="1" y="0" fill="#34495e" opacity="0.5" />
+      </g></g>
+      <line x1="0" y1="0" x2="-70" y2="-210" class="conn-line" />
+    </g>
+  </g>
+
+  <!-- RIGHT THIRD: SPECTRUM -->
+  <g transform="translate(980, 80)">
+    <!-- Phase Spectrum -->
+    <text x="200" y="0" class="label" text-anchor="middle" font-size="16">PHASE SPECTRUM (Indicator Circles)</text>
+    <g transform="translate(0, 40)">
+      <!-- 7 Phase indicators -->
+      <g transform="translate(40, 40)">
+        <circle r="30" fill="white" stroke="#bdc3c7" stroke-width="2" />
+        <g class="phase-h1"><line x1="0" y1="0" x2="30" y2="0" stroke="#3498db" stroke-width="3" stroke-linecap="round" /></g>
+        <text y="50" class="label" text-anchor="middle">f</text>
+      </g>
+      <g transform="translate(120, 40)">
+        <circle r="30" fill="white" stroke="#bdc3c7" stroke-width="2" />
+        <g class="phase-h2" transform="rotate(90)"><line x1="0" y1="0" x2="30" y2="0" stroke="#2ecc71" stroke-width="3" stroke-linecap="round" /></g>
+        <text y="50" class="label" text-anchor="middle">2f</text>
+      </g>
+      <g transform="translate(200, 40)">
+        <circle r="30" fill="white" stroke="#bdc3c7" stroke-width="2" />
+        <g class="phase-h3" transform="rotate(180)"><line x1="0" y1="0" x2="30" y2="0" stroke="#9b59b6" stroke-width="3" stroke-linecap="round" /></g>
+        <text y="50" class="label" text-anchor="middle">3f</text>
+      </g>
+      <g transform="translate(280, 40)">
+        <circle r="30" fill="white" stroke="#bdc3c7" stroke-width="2" />
+        <g class="phase-h4" transform="rotate(270)"><line x1="0" y1="0" x2="30" y2="0" stroke="#f1c40f" stroke-width="3" stroke-linecap="round" /></g>
+        <text y="50" class="label" text-anchor="middle">4f</text>
+      </g>
+      <g transform="translate(80, 140)">
+        <circle r="30" fill="white" stroke="#bdc3c7" stroke-width="2" />
+        <g class="phase-h5"><line x1="0" y1="0" x2="30" y2="0" stroke="#1abc9c" stroke-width="3" stroke-linecap="round" /></g>
+        <text y="50" class="label" text-anchor="middle">5f</text>
+      </g>
+      <g transform="translate(160, 140)">
+        <circle r="30" fill="white" stroke="#bdc3c7" stroke-width="2" />
+        <g class="phase-h6" transform="rotate(90)"><line x1="0" y1="0" x2="30" y2="0" stroke="#e67e22" stroke-width="3" stroke-linecap="round" /></g>
+        <text y="50" class="label" text-anchor="middle">6f</text>
+      </g>
+      <g transform="translate(240, 140)">
+        <circle r="30" fill="white" stroke="#bdc3c7" stroke-width="2" />
+        <g class="phase-h7" transform="rotate(180)"><line x1="0" y1="0" x2="30" y2="0" stroke="#34495e" stroke-width="3" stroke-linecap="round" /></g>
+        <text y="50" class="label" text-anchor="middle">7f</text>
+      </g>
+    </g>
+
+    <!-- Magnitude Spectrum -->
+    <g transform="translate(0, 320)">
+      <text x="200" y="0" class="label" text-anchor="middle" font-size="16">MAGNITUDE SPECTRUM (Bar Chart)</text>
+      <path d="M 40,40 V 240 H 360" class="axis" />
+      <rect x="60" y="40" width="30" height="200" fill="#3498db" rx="2" /> <text x="75" y="260" class="label" text-anchor="middle">f</text>
+      <rect x="100" y="140" width="30" height="100" fill="#2ecc71" rx="2" /> <text x="115" y="260" class="label" text-anchor="middle">2f</text>
+      <rect x="140" y="190" width="30" height="50" fill="#9b59b6" rx="2" /> <text x="155" y="260" class="label" text-anchor="middle">3f</text>
+      <rect x="180" y="215" width="30" height="25" fill="#f1c40f" rx="2" /> <text x="195" y="260" class="label" text-anchor="middle">4f</text>
+      <rect x="220" y="228" width="30" height="12" fill="#1abc9c" rx="2" /> <text x="235" y="260" class="label" text-anchor="middle">5f</text>
+      <rect x="260" y="234" width="30" height="6" fill="#e67e22" rx="2" /> <text x="275" y="260" class="label" text-anchor="middle">6f</text>
+      <rect x="300" y="238" width="30" height="2" fill="#34495e" rx="2" /> <text x="315" y="260" class="label" text-anchor="middle">7f</text>
+    </g>
+  </g>
+</svg>

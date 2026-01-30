@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MassGen Use Cases</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+
+        .section {
+            margin-bottom: 50px;
+        }
+
+        .section h2 {
+            color: #764ba2;
+            font-size: 1.8em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .svg-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .svg-grid-three {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .svg-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .svg-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .svg-item h3 {
+            color: #555;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .svg-container {
+            width: 100%;
+            background: white;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .svg-container object {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .back-link a {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .back-link a:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .collapsible-header {
+            cursor: pointer;
+            user-select: none;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .collapsible-header:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .collapsible-header::after {
+            content: '▼';
+            font-size: 1.2em;
+            transition: transform 0.3s ease;
+        }
+
+        .collapsible-header.active::after {
+            transform: rotate(180deg);
+        }
+
+        .collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .collapsible-content.active {
+            max-height: 10000px;
+        }
+
+        .subsection-header {
+            cursor: pointer;
+            user-select: none;
+            padding: 12px;
+            background: #764ba2;
+            color: white;
+            border-radius: 6px;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .subsection-header:hover {
+            background: #8b5db8;
+            transform: translateY(-2px);
+        }
+
+        .subsection-header::after {
+            content: '▼';
+            font-size: 1em;
+            transition: transform 0.3s ease;
+        }
+
+        .subsection-header.active::after {
+            transform: rotate(180deg);
+        }
+
+        @media (max-width: 768px) {
+            .svg-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .svg-grid-three {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+
+            .container {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 Live Interactive Visualizations for MassGen Use Cases</h1>
+        <p class="subtitle">You can compare the visual outputs generated by MassGen and other single agent counterparts below.</p>
+
+        <div class="section">
+            <h2>Scientific and Engineering Figure Generation</h2>
+            <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 15px; margin-bottom: 25px; border-radius: 4px;">
+                <div style="color: #555; font-size: 14px; font-family: 'Courier New', monospace; cursor: pointer;" onclick="togglePrompt(this)">
+                    <strong style="color: #764ba2;">Example Prompt:</strong> Create an SVG demonstrating Fourier decomposition of <strong>a complex periodic wave</strong>. Left third: A complex waveform (sum of at least 7 sine waves...
+                    <span style="color: #667eea; font-weight: 600; margin-left: 5px;">[Click to expand]</span>
+                </div>
+                <div style="display: none; color: #555; font-size: 14px; font-family: 'Courier New', monospace; margin-top: 10px; line-height: 1.8;">
+                    Create an SVG demonstrating Fourier decomposition of <strong>a complex periodic wave</strong>. Left third: A complex waveform (sum of at least 7 sine waves with different frequencies and amplitudes) plotted on an x-y axis spanning two full periods. The wave should have interesting features (sharp peaks, flat regions) showing it's not a simple sine. Middle third: Show the decomposition process with 7 individual sine wave components stacked vertically, each on its own mini-axis. Each component should be labeled with its frequency (f, 2f, 3f, etc.) and amplitude coefficient. Draw <strong>faint connection lines</strong> from each component to where it contributes to the complex wave. Right third: Bottom section shows the magnitude spectrum as a bar chart (frequency on x-axis, magnitude on y-axis) with 7 bars corresponding to the components. The top section shows the phase spectrum as circular indicators (small circles with a radius line showing phase angle). Include the Fourier series formula. Add smooth CSS animation that <strong>oscillates all waves in sync at their respective frequencies</strong> so the decomposition is visually verifiable. Scientific visualization style with a light grid background. 1400×800 viewBox. Every time you have a new answer, save the svg file to your workspace.
+                </div>
+            </div>
+            <div class="subsection-header" onclick="toggleSection(this)">
+                <span>MassGen Answer</span>
+            </div>
+            <div class="collapsible-content">
+                <div class="svg-grid">
+                    <div class="svg-item">
+                        <div class="svg-container">
+                            <object data="example_svgs/massgen-answer.svg" type="image/svg+xml"></object>
+                        </div>
+                    </div>
+                </div>
+                <p style="color: #666; margin-top: 15px; text-align: center; font-size: 16px;">Click the tab below to compare with existing single-agent baselines.</p>
+            </div>
+            <div class="subsection-header" onclick="toggleSection(this)">
+                <span>Answers from Single Agent Baselines (Running with Multiple Independent Attempts)</span>
+            </div>
+            <div class="collapsible-content">
+                <div class="svg-grid-three">
+                <div class="svg-item">
+                    <h3>Claude 4.5 Opus Run 1</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/claude-round-1.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>The wave is not moving</li>
+                    </ul>
+                </div>
+                <div class="svg-item">
+                    <h3>Gemini 3 Pro Run 1</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/gemini-3-pro-round-1.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>The decomposed wave colors are too light</li>
+                        <li>They are not connected to the complex wave</li>
+                    </ul>
+                </div>
+                <div class="svg-item">
+                    <h3>GPT 5.2 Thinking Run 1</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/gpt-round-1.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>The wave is not moving</li>
+                        <li>Circular indicators are covering each other</li>
+                    </ul>
+                </div>
+                <div class="svg-item">
+                    <h3>Claude 4.5 Opus Run 2</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/claude-round-2.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>The wave is not moving & not complex</li>
+                    </ul>
+                </div>
+                <div class="svg-item">
+                    <h3>Gemini 3 Pro Run 2</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/gemini-3-pro-round-2.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>The decomposed wave frequencies are wrong</li>
+                    </ul>
+                </div>
+                <div class="svg-item">
+                    <h3>GPT 5.2 Thinking Run 2</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/gpt-round-2.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>Circular indicators are not moving</li>
+                    </ul>
+                </div>
+                <div class="svg-item">
+                    <h3>Claude 4.5 Opus Run 3</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/claude-round-3.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>One extra wave</li>
+                        <li>Circular indicators are not moving</li>
+                    </ul>
+                </div>
+                <div class="svg-item">
+                    <h3>Gemini 3 Pro Run 3</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/gemini-3-pro-round-3.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>The decomposed waves are not in correct shape</li>
+                    </ul>
+                </div>
+                <div class="svg-item">
+                    <h3>GPT 5.2 Thinking Run 3</h3>
+                    <div class="svg-container">
+                        <object data="example_svgs/gpt-round-3.svg" type="image/svg+xml"></object>
+                    </div>
+                    <ul style="margin-top: 10px; font-size: 12px; color: #d9534f; line-height: 1.6;">
+                        <li>The wave movement is wrong</li>
+                        <li>Circular indicator movement is corrupted</li>
+                    </ul>
+                </div>
+                </div>
+            </div>
+            <div class="subsection-header" onclick="toggleSection(this)">
+                <span>Iterative Refinement Process within MassGen</span>
+            </div>
+            <div class="collapsible-content">
+                <p style="color: #666; margin-top: 15px; margin-bottom: 15px; font-size: 1em;">In MassGen, different agents are learning from each other and iteratively refining their answers. The following visualizations show the iterative refinement process, demonstrating how agents within MassGen progressively improve their solutions. An agent could also vote for other agents if it thinks they are better, instead of generating new answers.</p>
+                <h4 style="color: #764ba2; margin-top: 20px; margin-bottom: 15px; font-size: 1.2em;">Agent A</h4>
+                <div class="svg-grid-three">
+                    <div class="svg-item">
+                        <h3>Claude Answer 1</h3>
+                        <div class="svg-container">
+                            <object data="example_svgs/massgen-agent-1-answer.svg" type="image/svg+xml"></object>
+                        </div>
+                        <p style="margin-top: 10px; font-size: 12px; color: #5cb85c; line-height: 1.6;">Agent A is voting for the other agents in the following rounds</p>
+                    </div>
+                </div>
+
+                <h4 style="color: #764ba2; margin-top: 40px; margin-bottom: 15px; font-size: 1.2em;">Agent B</h4>
+                <div class="svg-grid-three">
+                    <div class="svg-item">
+                        <h3>GPT Answer 1</h3>
+                        <div class="svg-container">
+                            <object data="example_svgs/massgen-agent-2-prev-prev.svg" type="image/svg+xml"></object>
+                        </div>
+                    </div>
+                    <div class="svg-item">
+                        <h3>GPT Answer 2</h3>
+                        <div class="svg-container">
+                            <object data="example_svgs/massgen-agent-2-prev.svg" type="image/svg+xml"></object>
+                        </div>
+                    </div>
+                    <div class="svg-item">
+                        <h3>GPT Answer 3</h3>
+                        <div class="svg-container">
+                            <object data="example_svgs/massgen-agent-2-answer.svg" type="image/svg+xml"></object>
+                        </div>
+                    </div>
+                </div>
+
+                <h4 style="color: #764ba2; margin-top: 40px; margin-bottom: 15px; font-size: 1.2em;">Agent C</h4>
+                <div class="svg-grid-three">
+                    <div class="svg-item">
+                        <h3>Gemini Answer 1</h3>
+                        <div class="svg-container">
+                            <object data="example_svgs/massgen-prev-answer.svg" type="image/svg+xml"></object>
+                        </div>
+                    </div>
+                    <div class="svg-item">
+                        <h3>Gemini Answer 2</h3>
+                        <div class="svg-container">
+                            <object data="example_svgs/massgen-answer.svg" type="image/svg+xml"></object>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Try it yourself button -->
+            <div class="subsection-header" onclick="toggleSection(this)" style="margin-top: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <span>✨ Try it yourself</span>
+            </div>
+            <div class="collapsible-content">
+                <div style="padding: 20px; background: #f8f9fa; border-radius: 8px; line-height: 1.8;">
+                    <ul style="list-style-type: none; padding: 0; color: #333;">
+                        <li style="margin-bottom: 15px;">
+                            <strong>📚 First time user?</strong> See the <a href="../index.html#video-tutorials" style="color: #667eea; text-decoration: none; font-weight: 600;">setup guide here</a>
+                        </li>
+                        <li style="margin-bottom: 15px;">
+                            <strong>▶️ Run:</strong> <code style="background: #2d3748; color: #f7fafc; padding: 8px 12px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 14px;">uv run massgen --web</code>
+                        </li>
+                        <li style="margin-bottom: 15px;">
+                            <strong>🚀 Quick start:</strong> Select <strong>Claude 4.5 Opus</strong>, <strong>Gemini 3 Pro</strong>, and <strong>GPT 5.2</strong> models
+                        </li>
+                        <li>
+                            <strong>⚙️ Terminal users:</strong> <a href="terminal_config.txt" target="_blank" style="color: #667eea; text-decoration: none; font-weight: 600;">View config settings</a>
+                        </li>
+                    </ul>
+                    <p style="margin-top: 15px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; font-size: 14px; border-radius: 4px;">
+                        <strong>Note:</strong> Performance comparisons reflect API behavior as of January 14 2026 and might differ if backend APIs change. E.g., it may be preferable now to use Gemini 3 Flash instead of Gemini 3 Pro for better compatibility with MassGen.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Professional Presentation Slides</h2>
+            Coming soon...
+        </div>
+
+        <div class="section">
+            <h2>Website Design and Development</h2>
+            Coming soon...
+        </div>
+
+        <div class="section">
+            <h2>Computer Automation</h2>
+            Coming soon...
+        </div>
+    </div>
+    <script>
+        function toggleSection(header) {
+            header.classList.toggle('active');
+            const content = header.nextElementSibling;
+            content.classList.toggle('active');
+        }
+
+        function togglePrompt(element) {
+            const fullPrompt = element.nextElementSibling;
+            if (fullPrompt.style.display === 'none') {
+                fullPrompt.style.display = 'block';
+                element.innerHTML = '<strong style="color: #764ba2;">Example Prompt:</strong> Create an SVG demonstrating Fourier decomposition of <strong>a complex periodic wave</strong>. Left third: A complex waveform (sum of at least 7 sine waves... <span style="color: #667eea; font-weight: 600; margin-left: 5px;">[Click to collapse]</span>';
+            } else {
+                fullPrompt.style.display = 'none';
+                element.innerHTML = '<strong style="color: #764ba2;">Example Prompt:</strong> Create an SVG demonstrating Fourier decomposition of <strong>a complex periodic wave</strong>. Left third: A complex waveform (sum of at least 7 sine waves... <span style="color: #667eea; font-weight: 600; margin-left: 5px;">[Click to expand]</span>';
+            }
+        }
+    </script>
+</body>
+</html>

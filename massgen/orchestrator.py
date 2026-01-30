@@ -3416,7 +3416,17 @@ Your answer:"""
                                 f"VOTE BLOCK ENTERED for {agent_id}, result_data={result_data}",
                             )
                             # Ignore votes from agents with restart pending (votes are about current state)
-                            if self._check_restart_pending(agent_id):
+                            # EXCEPTION: For single agent, if it's voting for itself after producing
+                            # its first answer, accept the vote (no other agents to wait for)
+                            restart_pending = self._check_restart_pending(agent_id)
+                            is_single_agent = len(self.agents) == 1
+                            agent_has_answer = self.agent_states[agent_id].answer is not None
+                            if restart_pending and is_single_agent and agent_has_answer:
+                                # Single agent voting for itself - clear restart_pending and accept vote
+                                self.agent_states[agent_id].restart_pending = False
+                                restart_pending = False
+                                logger.info(f"[Orchestrator] Single agent {agent_id} vote accepted (has own answer)")
+                            if restart_pending:
                                 voted_for = result_data.get("agent_id", "<unknown>")
                                 reason = result_data.get("reason", "No reason provided")
                                 # Track the ignored vote action
@@ -6031,17 +6041,11 @@ Your answer:"""
                     self.agent_states[agent_id].restart_count += 1
                     current_round = self.agent_states[agent_id].restart_count
 
-                    # Debug logging
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write(f"DEBUG: _stream_agent_execution agent={agent_id} restart_count={current_round} (doing real work)\n")
-
                     # If this is a restart (round > 1), notify the UI to show fresh timeline
                     if current_round > 1:
                         logger.info(
                             f"[Orchestrator] Agent {agent_id} starting round {current_round} (restart)",
                         )
-                        with open("/tmp/tui_debug.log", "a") as f:
-                            f.write(f"DEBUG: _stream_agent_execution YIELDING agent_restart for {agent_id} round={current_round}\n")
                         yield (
                             "agent_restart",
                             {
@@ -7822,9 +7826,6 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         )
 
         # Notify TUI to show fresh final presentation view
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: get_final_presentation YIELDING final_presentation_start for {selected_agent_id}\n")
-
         # Build answer labels mapping for vote display (agent_id -> "A1.1" style label)
         answer_labels = {}
         if vote_counts:

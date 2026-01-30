@@ -5,6 +5,8 @@ AG2 (AutoGen) adapter for MassGen.
 Supports both single agents and GroupChat configurations.
 """
 # Suppress autogen deprecation warnings
+import json
+import uuid
 import warnings
 from typing import Any, AsyncGenerator, Dict, List
 
@@ -103,8 +105,8 @@ class AG2Adapter(AgentAdapter):
     def _setup_single_agent(self):
         """Set up a single AG2 agent."""
         self.agent = setup_agent_from_config(self.agent_config)
-
         self.is_group_chat = False
+        self._last_single_agent_answer: str | None = None
 
     def _setup_group_chat(self):
         """Set up AG2 GroupChat with multiple agents and pattern."""
@@ -301,6 +303,79 @@ class AG2Adapter(AgentAdapter):
         async for chunk in self.simulate_streaming(content, tool_calls):
             yield chunk
 
+    async def _execute_single_agent_with_coordination(
+        self,
+        messages: List[Dict[str, Any]],
+        _tools: List[Dict[str, Any]],
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """
+        Execute single AG2 agent with MassGen coordination stage handling.
+
+        During INITIAL_ANSWER: Run agent normally, store content
+        During ENFORCEMENT: Synthesize vote tool call for self
+        During PRESENTATION: Run agent normally
+
+        Args:
+            messages: Conversation messages
+            _tools: Available tools (unused, kept for interface compatibility)
+
+        Yields:
+            StreamChunk: Response chunks
+        """
+        log_backend_activity(
+            "ag2",
+            "Single agent coordination",
+            {"stage": str(self.coordination_stage), "has_stored_answer": self._last_single_agent_answer is not None},
+            agent_id=self.agent_id,
+        )
+
+        if self.coordination_stage == CoordinationStage.INITIAL_ANSWER:
+            # Run the agent and store the answer for enforcement phase
+            async for chunk in self._execute_single_agent(messages, self.agent):
+                # Store content for later use in enforcement
+                if chunk.type == "complete_message" and chunk.complete_message:
+                    self._last_single_agent_answer = chunk.complete_message.get("content", "")
+                yield chunk
+
+        elif self.coordination_stage == CoordinationStage.ENFORCEMENT:
+            # During enforcement, MassGen expects workflow tool calls
+            # For single agent, synthesize a vote for itself (agent1)
+            # This avoids the restart loop that new_answer would trigger
+            tool_call = {
+                "type": "function",
+                "id": f"call_{uuid.uuid4().hex[:24]}",
+                "function": {
+                    "name": "vote",
+                    "arguments": json.dumps(
+                        {
+                            "agent_id": "agent1",
+                            "reason": "Single agent - voting for own answer",
+                        },
+                    ),
+                },
+            }
+
+            log_backend_activity(
+                "ag2",
+                "Synthesizing vote tool call for enforcement (single agent)",
+                {"voting_for": "agent1"},
+                agent_id=self.agent_id,
+            )
+
+            # Use simulate_streaming to properly format the response
+            async for chunk in self.simulate_streaming("", [tool_call]):
+                yield chunk
+
+        elif self.coordination_stage == CoordinationStage.PRESENTATION:
+            # Run agent normally for final presentation
+            async for chunk in self._execute_single_agent(messages, self.agent):
+                yield chunk
+
+        else:
+            # Unknown stage, run agent normally
+            async for chunk in self._execute_single_agent(messages, self.agent):
+                yield chunk
+
     async def _execute_group_chat(self, messages: List[Dict[str, Any]]) -> AsyncGenerator[str, None]:
         """
         Execute AG2 group chat with pattern.
@@ -400,11 +475,14 @@ class AG2Adapter(AgentAdapter):
                 async for chunk in self._execute_group_chat_with_user_agent(messages):
                     yield chunk
             else:
-                async for chunk in self._execute_single_agent(messages, self.agent):
+                # Use coordination-aware execution for single agent
+                async for chunk in self._execute_single_agent_with_coordination(messages, tools):
                     yield chunk
 
             # unregister workflow tools after each chat to make sure they're not used in wrong time
-            unregister_tools_for_agent(self.workflow_tools, self.user_agent)
+            # Only for group chat mode where workflow_tools and user_agent exist
+            if self.is_group_chat:
+                unregister_tools_for_agent(self.workflow_tools, self.user_agent)
 
         except Exception as e:
             logger.error(f"[AG2Adapter] Error in execute_streaming: {e}", exc_info=True)

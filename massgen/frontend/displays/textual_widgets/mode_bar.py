@@ -171,14 +171,15 @@ class ModeToggle(Static):
 
         _mode_log(f"ModeToggle.on_click: {self.mode_type} current={self._current_state}")
 
-        # For plan mode, only allow toggling between normal and plan (not execute)
+        # For plan mode, cycle through: normal → plan → execute → normal
         if self.mode_type == "plan":
             if self._current_state == "normal":
                 new_state = "plan"
             elif self._current_state == "plan":
+                new_state = "execute"
+            elif self._current_state == "execute":
                 new_state = "normal"
             else:
-                # In execute mode, clicking does nothing
                 return
         else:
             # Cycle through states

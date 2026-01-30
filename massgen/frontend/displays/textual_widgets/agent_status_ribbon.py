@@ -96,11 +96,7 @@ class DropdownItem(Label):
 
     async def on_click(self) -> None:
         """Handle click."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: DropdownItem.on_click id={self.id}\n")
         self.post_message(self.Selected(self.id or ""))
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: DropdownItem.on_click message posted for id={self.id}\n")
 
 
 class ViewDropdown(Vertical):
@@ -240,30 +236,19 @@ class ViewDropdown(Vertical):
 
     def on_dropdown_item_selected(self, event: DropdownItem.Selected) -> None:
         """Handle dropdown item selection."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: on_dropdown_item_selected item_id={event.item_id}\n")
         event.stop()
         item_id = event.item_id
 
         if item_id == "view_final_answer":
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: posting ViewSelected for final_answer\n")
             self.post_message(ViewSelected("final_answer", self.agent_id))
             self.remove()
         elif item_id and item_id.startswith("view_round_"):
             try:
                 round_num = int(item_id.replace("view_round_", ""))
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG: posting ViewSelected for round {round_num}\n")
                 self.post_message(ViewSelected("round", self.agent_id, round_num))
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: removing dropdown\n")
                 self.remove()
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: dropdown removed\n")
             except ValueError:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG: ERROR failed to parse round from {item_id}\n")
+                pass
 
     def on_blur(self, event) -> None:
         """Close dropdown when focus is lost."""
@@ -281,73 +266,7 @@ class RoundSelector(Label):
 
     async def on_click(self) -> None:
         """Handle click on the round selector."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG: RoundSelector.on_click called!\n")
         self.post_message(self.Clicked())
-
-
-class RoundPill(Label):
-    """Minimal clickable round marker for navigation."""
-
-    can_focus = True
-
-    DEFAULT_CSS = """
-    RoundPill {
-        width: auto;
-        height: 1;
-        padding: 0;
-        margin: 0 1 0 0;
-        background: transparent;
-        color: $text-muted;
-    }
-
-    RoundPill:hover {
-        color: $text;
-        text-style: underline;
-    }
-
-    RoundPill.current {
-        color: $primary;
-        text-style: bold;
-    }
-
-    RoundPill.viewing {
-        color: $accent;
-        text-style: bold;
-    }
-
-    RoundPill.final {
-        color: $success;
-    }
-
-    RoundPill.final.current {
-        color: $success;
-        text-style: bold;
-    }
-    """
-
-    class Clicked(Message):
-        """Emitted when a round pill is clicked."""
-
-        def __init__(self, round_number: Optional[int], is_final: bool = False) -> None:
-            self.round_number = round_number
-            self.is_final = is_final
-            super().__init__()
-
-    def __init__(
-        self,
-        label: str,
-        round_number: Optional[int] = None,
-        is_final: bool = False,
-        **kwargs,
-    ) -> None:
-        super().__init__(label, **kwargs)
-        self._round_number = round_number
-        self._is_final = is_final
-
-    async def on_click(self) -> None:
-        """Handle click on the pill."""
-        self.post_message(self.Clicked(self._round_number, self._is_final))
 
 
 class AgentStatusRibbon(Widget):
@@ -516,8 +435,8 @@ class AgentStatusRibbon(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="ribbon-container"):
-            # Left: Round navigation (simple label)
-            yield Label("R1", id="round_nav_label", classes="ribbon-section")
+            # Left: Round navigation (clickable to open dropdown)
+            yield RoundSelector("R1", id="round_nav_label", classes="ribbon-section")
             # Spacer
             yield Static("", classes="spacer")
             # Right: Stats (anchored right)
@@ -720,9 +639,8 @@ class AgentStatusRibbon(Widget):
             # Update label with Rich markup
             nav_label.update(label_text)
 
-        except Exception as e:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: _update_round_display error: {e}\n")
+        except Exception:
+            pass
 
     def set_tasks(self, agent_id: str, complete: int, total: int) -> None:
         """Set the task progress for an agent.
@@ -863,20 +781,14 @@ class AgentStatusRibbon(Widget):
 
     def on_round_selector_clicked(self, event: RoundSelector.Clicked) -> None:
         """Handle click on the round selector - toggle dropdown."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG: on_round_selector_clicked received!\n")
         event.stop()
         self._toggle_dropdown()
 
     def _toggle_dropdown(self) -> None:
         """Toggle the view dropdown visibility."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG: _toggle_dropdown called\n")
         # Close any existing dropdown
         try:
             existing = self.query_one(ViewDropdown)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: _toggle_dropdown closing existing\n")
             existing.remove()
             self._dropdown_open = False
             return
@@ -891,9 +803,6 @@ class AgentStatusRibbon(Widget):
         has_final = self._has_final_answer.get(agent_id, False)
         viewing_final = self._viewing_final_answer.get(agent_id, False)
 
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: _toggle_dropdown creating dropdown for {agent_id}, rounds={rounds}\n")
-
         dropdown = ViewDropdown(
             agent_id=agent_id,
             rounds=rounds,
@@ -904,39 +813,14 @@ class AgentStatusRibbon(Widget):
             id="view_dropdown",
         )
 
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG: _toggle_dropdown mounting dropdown\n")
         self.mount(dropdown)
         logger.info("AgentStatusRibbon._toggle_dropdown: focusing dropdown")
         dropdown.focus()
         self._dropdown_open = True
         logger.info("AgentStatusRibbon._toggle_dropdown: done")
 
-    def on_round_pill_clicked(self, event: RoundPill.Clicked) -> None:
-        """Handle click on a round pill - emit ViewSelected to scroll to that round."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: on_round_pill_clicked round={event.round_number} is_final={event.is_final}\n")
-        event.stop()
-
-        agent_id = self.current_agent
-
-        if event.is_final:
-            # Clicking final answer pill
-            self._viewing_final_answer[agent_id] = True
-            self.post_message(ViewSelected("final_answer", agent_id))
-        else:
-            # Clicking a round pill
-            self._viewing_final_answer[agent_id] = False
-            if event.round_number is not None:
-                self._viewed_round[agent_id] = event.round_number
-            self.post_message(ViewSelected("round", agent_id, event.round_number))
-
-        self._update_round_display()
-
     def on_view_selected(self, event: ViewSelected) -> None:
         """Handle view selection - update local state, let event bubble."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: AgentStatusRibbon.on_view_selected type={event.view_type} round={event.round_number}\n")
         self._dropdown_open = False
 
         if event.view_type == "final_answer":
@@ -947,6 +831,4 @@ class AgentStatusRibbon(Widget):
                 self._viewed_round[event.agent_id] = event.round_number
 
         self._update_round_display()
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG: AgentStatusRibbon.on_view_selected done, letting event bubble\n")
         # Don't stop or re-post - let the event bubble up naturally to the App

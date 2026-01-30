@@ -103,6 +103,7 @@ try:
         ToolCallCard,
         ToolDetailModal,
         ToolSection,
+        ViewPlanRequested,
         ViewSelected,
     )
     from .tui_event_pipeline import TimelineEventAdapter
@@ -1135,6 +1136,12 @@ class TextualTerminalDisplay(TerminalDisplay):
             return
 
         display_answer = answer or ""
+        try:
+            logger.info(
+                f"[FinalAnswer] show_final_answer: selected_agent={selected_agent} " f"answer_len={len(display_answer)} vote_keys={list((vote_results or {}).keys())}",
+            )
+        except Exception:
+            pass
 
         # Add context path writes footer if any files were written
         context_writes_footer = self._get_context_path_writes_footer()
@@ -1204,17 +1211,11 @@ class TextualTerminalDisplay(TerminalDisplay):
 
     def show_restart_banner(self, reason: str, instructions: str, attempt: int, max_attempts: int):
         """Display restart decision banner."""
-        # Debug logging
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TextualTerminalDisplay.show_restart_banner called! attempt={attempt}\n")
-
         banner_msg = f"\n{'=' * 60}\n" f"RESTART TRIGGERED (Attempt {attempt}/{max_attempts})\n" f"Reason: {reason}\n" f"Instructions: {instructions}\n" f"{'=' * 60}\n"
 
         self._write_to_system_file(banner_msg)
 
         if self._app:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: TextualTerminalDisplay.show_restart_banner calling app.show_restart_banner\n")
             self._app.call_from_thread(
                 self._app.show_restart_banner,
                 reason,
@@ -1222,9 +1223,6 @@ class TextualTerminalDisplay(TerminalDisplay):
                 attempt,
                 max_attempts,
             )
-        else:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: TextualTerminalDisplay.show_restart_banner - NO APP!\n")
 
     def show_restart_context_panel(self, reason: str, instructions: str):
         """Display restart context panel at top of UI (for attempt 2+)."""
@@ -1248,9 +1246,6 @@ class TextualTerminalDisplay(TerminalDisplay):
             agent_id: The agent that is restarting
             round_num: The new round number for this agent
         """
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TextualTerminalDisplay.show_agent_restart agent={agent_id} round={round_num}\n")
-
         if self._app:
             self._app.call_from_thread(
                 self._app.show_agent_restart,
@@ -1269,9 +1264,6 @@ class TextualTerminalDisplay(TerminalDisplay):
             vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
             answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
         """
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TextualTerminalDisplay.show_final_presentation_start agent={agent_id} votes={vote_counts} labels={answer_labels}\n")
-
         if self._app:
             self._app.call_from_thread(
                 self._app.show_final_presentation_start,
@@ -1369,6 +1361,10 @@ class TextualTerminalDisplay(TerminalDisplay):
         """End the current turn"""
         if self._app:
             self._call_app_method("set_input_enabled", True)
+            mode_state = self.get_mode_state()
+            if mode_state and mode_state.plan_mode == "execute":
+                # Auto-exit execute mode after plan execution completes.
+                self._call_app_method("_handle_plan_mode_change", "normal")
 
         if was_cancelled:
             self._write_to_system_file(f"Turn {turn} cancelled by user.")
@@ -1527,9 +1523,6 @@ class TextualTerminalDisplay(TerminalDisplay):
         Content routing in coordination_ui.py sends all content through the normal
         pipeline, and final presentation is treated as round N+1.
         """
-        # Debug logging
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG stream_final_answer_chunk: DEPRECATED - called but no-op. agent={selected_agent}\n")
         # No-op - content now flows through update_agent_content()
 
     def _prepare_agent_content(self, agent_id: str, content: str, content_type: str) -> Optional[str]:
@@ -1831,7 +1824,9 @@ class TextualTerminalDisplay(TerminalDisplay):
 
             # Copy workspace to frozen - use the parent of plan_path as workspace source
             workspace_source = approval.plan_path.parent
-            storage.finalize_planning_phase(session, workspace_source)
+            # Use context paths captured during planning phase
+            context_paths = mode_state.planning_context_paths or []
+            storage.finalize_planning_phase(session, workspace_source, context_paths=context_paths)
 
             # Update mode state for execution
             mode_state.plan_mode = "execute"
@@ -2856,7 +2851,7 @@ if TEXTUAL_AVAILABLE:
                     },
                     "children": [],
                 }
-                if depth < 6:  # Limit depth to avoid huge dumps
+                if depth < 8:  # Limit depth to avoid huge dumps
                     for child in widget.children:
                         info["children"].append(get_widget_info(child, depth + 1))
                 return info
@@ -3170,9 +3165,23 @@ if TEXTUAL_AVAILABLE:
             """
             text = submitted_text.strip() if submitted_text else self.question_input.text.strip()
             tui_log(f"_submit_question called with text: '{text[:50]}...' (len={len(text)})")
-            if not text:
-                tui_log("  Empty text, returning")
+
+            # In execute mode, allow empty submission (just press Enter to run the plan)
+            is_execute_mode = self._mode_state.plan_mode == "execute"
+            if not text and not is_execute_mode:
+                tui_log("  Empty text and not execute mode, returning")
                 return
+
+            # Hide plan options popover on submission (especially for execute mode)
+            if hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes:
+                self._plan_options_popover.hide()
+
+            # In execute mode, set up plan execution
+            if is_execute_mode:
+                text = self._setup_plan_execution(text)
+                if text is None:
+                    # Setup failed, error already shown
+                    return
 
             # Clear any persistent cancelled state when user starts a new turn
             self._clear_cancelled_state()
@@ -3295,9 +3304,10 @@ if TEXTUAL_AVAILABLE:
                 self._toggle_vim_mode()
                 return True
 
-            if cmd == "/theme":
-                self.action_toggle_theme()
-                return True
+            # TODO: Re-enable /theme command when additional themes are ready
+            # if cmd == "/theme":
+            #     self.action_toggle_theme()
+            #     return True
 
             return False
 
@@ -3907,18 +3917,17 @@ Type your question and press Enter to ask the agents.
             - Action buttons (Copy, Workspace)
             - Continue conversation prompt
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                already_added = getattr(self, "_final_completion_added", False)
-                f.write(f"DEBUG _add_final_completion_card: agent={agent_id}, _final_completion_added={already_added}\n")
+            try:
+                logger.info(
+                    f"[FinalAnswer] _add_final_completion_card: agent_id={agent_id} " f"answer_len={len(answer)} vote_keys={list(vote_results.keys())}",
+                )
+            except Exception:
+                pass
 
             # Prevent duplicate cards
             if hasattr(self, "_final_completion_added") and self._final_completion_added:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG _add_final_completion_card: RETURNING EARLY - already added\n")
                 return
             self._final_completion_added = True
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG _add_final_completion_card: Set _final_completion_added=True\n")
             self._final_header_added = True  # Compat flag for other code paths
 
             # Track for post-evaluation routing
@@ -3983,15 +3992,10 @@ Type your question and press Enter to ask the agents.
                     if hasattr(orch, "get_context_path_writes_categorized"):
                         context_paths = orch.get_context_path_writes_categorized()
 
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG _add_final_completion_card: context_paths={context_paths}\n")
-
                 # Remove any existing completion card to avoid duplicate ID issues
                 try:
                     existing_card = timeline.query_one("#final_presentation_card", FinalPresentationCard)
                     existing_card.remove()
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG _add_final_completion_card: Removed existing card\n")
                 except Exception:
                     pass  # No existing card, that's fine
 
@@ -4007,37 +4011,47 @@ Type your question and press Enter to ask the agents.
                 current_round = getattr(panel, "_current_round", 1)
                 card.add_class(f"round-{current_round}")
 
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG _add_final_completion_card: Adding card with round-{current_round}, answer_len={len(answer) if answer else 0}\n")
-
                 timeline.add_widget(card)
                 self._final_presentation_card = card
+
+                try:
+                    logger.info(
+                        f"[FinalAnswer] Timeline children after card add: {len(list(timeline.children))} " f"current_round={current_round}",
+                    )
+                except Exception:
+                    pass
 
                 # Set the answer content and mark as complete
                 def set_content_and_complete():
                     if answer:
                         card.append_chunk(answer)
                     card.complete()
+                    try:
+                        logger.info(
+                            "[FinalAnswer] Card completed and locked to timeline",
+                        )
+                    except Exception:
+                        pass
                     # Auto-lock timeline to show only final answer
                     timeline.lock_to_final_answer("final_presentation_card")
                     card.set_locked_mode(True)
+                    # Auto-collapse task plan when final presentation shows
+                    try:
+                        pinned_container = panel.query_one(f"#{panel._pinned_task_plan_id}", Container)
+                        pinned_container.add_class("collapsed")
+                        panel._task_plan_visible = False
+                    except Exception:
+                        pass
                     # Update input placeholder to encourage follow-up
                     if hasattr(self, "question_input"):
                         self.question_input.placeholder = "Type your follow-up question..."
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG _add_final_completion_card: set_content_and_complete called, auto-locked\n")
 
                 self.set_timer(0.1, set_content_and_complete)
-
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG _add_final_completion_card: Card CREATED and added to timeline, card.display={card.display}, card.visible={card.visible}\n")
 
                 # Scroll to show the card
                 timeline.scroll_to_widget("final_presentation_card")
 
             except Exception as e:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG _add_final_completion_card: EXCEPTION: {e}\n")
                 logger.debug(f"Failed to create final completion card: {e}")
 
         def show_post_evaluation(self, content: str, agent_id: str):
@@ -4134,24 +4148,17 @@ Type your question and press Enter to ask the agents.
                 self._final_presentation_card.complete()
 
                 # Auto-lock timeline to show only final answer
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG end_post_evaluation: agent_id={agent_id}, in_widgets={agent_id in self.agent_widgets}\n")
                 if agent_id in self.agent_widgets:
                     panel = self.agent_widgets[agent_id]
                     try:
                         timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
-                        with open("/tmp/tui_debug.log", "a") as f:
-                            f.write("DEBUG end_post_evaluation: Found timeline, calling lock_to_final_answer\n")
                         timeline.lock_to_final_answer("final_presentation_card")
                         self._final_presentation_card.set_locked_mode(True)
                         # Update input placeholder to encourage follow-up
                         if hasattr(self, "question_input"):
                             self.question_input.placeholder = "Type your follow-up question..."
-                        with open("/tmp/tui_debug.log", "a") as f:
-                            f.write("DEBUG end_post_evaluation: set_locked_mode(True) called\n")
-                    except Exception as e:
-                        with open("/tmp/tui_debug.log", "a") as f:
-                            f.write(f"DEBUG end_post_evaluation: EXCEPTION: {e}\n")
+                    except Exception:
+                        pass
 
                 # Phase 12.4: Store final answer for view-based navigation
                 if agent_id in self.agent_widgets:
@@ -4191,17 +4198,8 @@ Type your question and press Enter to ask the agents.
             Final presentation content now flows through the normal pipeline
             (update_agent_content), and a completion card is added at the end.
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                final_added = getattr(self, "_final_header_added", False)
-                quick_highlighted = getattr(self, "_winner_quick_highlighted", False)
-                f.write(
-                    f"DEBUG begin_final_stream: agent={agent_id} _final_header_added={final_added} " f"_winner_quick_highlighted={quick_highlighted}\n",
-                )
-
             # Prevent duplicate cards - check if we've already started or if winner was quick-highlighted
             if hasattr(self, "_final_header_added") and self._final_header_added:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG begin_final_stream: RETURNING EARLY - _final_header_added is True\n")
                 return
             if hasattr(self, "_winner_quick_highlighted") and self._winner_quick_highlighted:
                 # Winner already shown via highlight_winner_quick, skip adding another card
@@ -4247,17 +4245,12 @@ Type your question and press Enter to ask the agents.
                 self._active_agent_id = agent_id
 
             # 3. Create FinalPresentationCard and add to timeline
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG begin_final_stream: Creating card, agent_id={agent_id} in widgets={agent_id in self.agent_widgets}\n")
-
             if agent_id in self.agent_widgets:
                 panel = self.agent_widgets[agent_id]
 
                 try:
                     timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
                     self._final_stream_timeline = timeline
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG begin_final_stream: Got timeline (no tool clearing - handled by round transitions)\n")
 
                     # Get coordination_tracker for answer label lookup
                     tracker = None
@@ -4300,14 +4293,10 @@ Type your question and press Enter to ask the agents.
                     # during final presentation (was causing content cutoff issue)
                     timeline.add_widget(card)
                     self._final_presentation_card = card
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG begin_final_stream: Card CREATED and assigned to _final_presentation_card\n")
 
                     # Scroll to show the card
                     timeline.scroll_to_widget("final_presentation_card")
                 except Exception as e:
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write(f"DEBUG begin_final_stream: EXCEPTION creating card: {e}\n")
                     logger.debug(f"Failed to create final presentation card: {e}")
 
         def update_final_stream(self, chunk: str):
@@ -4317,9 +4306,6 @@ Type your question and press Enter to ask the agents.
             primary path. Final presentation content now flows through the normal
             pipeline (update_agent_content).
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG update_final_stream: DEPRECATED - chunk_len={len(chunk) if chunk else 0}\n")
-
             if not chunk:
                 return
 
@@ -4328,14 +4314,10 @@ Type your question and press Enter to ask the agents.
                 if not hasattr(self, "_pending_final_chunks"):
                     self._pending_final_chunks = []
                 self._pending_final_chunks.append(chunk)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG update_final_stream: BUFFERED (no card yet)\n")
                 return
 
             # Flush any pending chunks first (from before card was created)
             if hasattr(self, "_pending_final_chunks") and self._pending_final_chunks:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG update_final_stream: FLUSHING {len(self._pending_final_chunks)} pending chunks\n")
                 for pending_chunk in self._pending_final_chunks:
                     try:
                         self._final_presentation_card.append_chunk(pending_chunk)
@@ -4346,8 +4328,6 @@ Type your question and press Enter to ask the agents.
             # Now append the current chunk
             try:
                 self._final_presentation_card.append_chunk(chunk)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG update_final_stream: APPENDED to card\n")
             except Exception as e:
                 logger.error(f"FinalPresentationCard.append_chunk failed: {e}")
 
@@ -4519,8 +4499,8 @@ Type your question and press Enter to ask the agents.
             for agent_id, panel in self.agent_widgets.items():
                 try:
                     timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
-                    # Clear the timeline content
-                    timeline.clear()
+                    # Clear the timeline content (add Round 1 only for turn 1)
+                    timeline.clear(add_round_1=(turn == 1))
 
                     # Add a turn separator banner if this is turn 2+
                     if turn > 1:
@@ -4621,11 +4601,6 @@ Type your question and press Enter to ask the agents.
             """Show restart banner in header and all agent panels."""
             import time
 
-            # Debug logging
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: MassGenApp.show_restart_banner called! attempt={attempt}\n")
-                f.write(f"DEBUG: MassGenApp.show_restart_banner agent_widgets={list(self.agent_widgets.keys())}\n")
-
             # Track the restart
             self._current_restart = {
                 "attempt": attempt,
@@ -4686,9 +4661,6 @@ Type your question and press Enter to ask the agents.
                 agent_id: The agent that is restarting
                 round_num: The new round number for this agent
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: MassGenApp.show_agent_restart agent={agent_id} round={round_num}\n")
-
             panel = self.agent_widgets.get(agent_id)
             if panel:
                 # Use start_new_round which handles timeline visibility and ribbon update
@@ -4713,15 +4685,10 @@ Type your question and press Enter to ask the agents.
                 vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
                 answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: MassGenApp.show_final_presentation_start agent={agent_id} votes={vote_counts} labels={answer_labels}\n")
-
             panel = self.agent_widgets.get(agent_id)
             if panel:
                 # Use start_final_presentation which shows distinct green banner
                 panel.start_final_presentation(vote_counts=vote_counts, answer_labels=answer_labels)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: MassGenApp.show_final_presentation_start called panel.start_final_presentation\n")
 
         def display_vote_results(self, formatted_results: str):
             """Display vote results."""
@@ -4841,7 +4808,7 @@ Type your question and press Enter to ask the agents.
                     # Auto-scroll to bottom so user sees latest content
                     try:
                         timeline = new_panel.query_one("#timeline_container", ScrollableContainer)
-                        timeline.scroll_end(animate=False)
+                        timeline._scroll_to_end(animate=False, force=True)
                     except Exception:
                         pass  # Timeline may not exist yet
                 else:
@@ -4903,31 +4870,20 @@ Type your question and press Enter to ask the agents.
 
             Switches the agent panel to show either a specific round or the final answer.
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: App.on_view_selected type={event.view_type} round={event.round_number} agent={event.agent_id}\n")
-
             if event.agent_id not in self.agent_widgets:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: App.on_view_selected agent not found, returning\n")
                 return
 
             panel = self.agent_widgets[event.agent_id]
 
             if event.view_type == "final_answer":
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: App.on_view_selected calling switch_to_final_answer\n")
                 panel.switch_to_final_answer()
             elif event.view_type == "round" and event.round_number is not None:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG: App.on_view_selected calling switch_to_round({event.round_number})\n")
                 # Check if we're currently viewing final answer BEFORE changing state
                 was_viewing_final = panel._current_view == "final_answer"
                 if was_viewing_final:
                     panel.switch_from_final_answer()
                 panel.switch_to_round(event.round_number)
 
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: App.on_view_selected done\n")
             event.stop()
 
         def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
@@ -5088,6 +5044,20 @@ Type your question and press Enter to ask the agents.
                 self.notify("Broadcast: Fully autonomous (no questions)", severity="warning", timeout=2)
             event.stop()
 
+        def on_view_plan_requested(self, event: ViewPlanRequested) -> None:
+            """Handle request to view full plan details in a modal."""
+            tui_log(f"on_view_plan_requested: plan_id={event.plan_id}, tasks={len(event.tasks)}")
+
+            if not event.tasks:
+                self.notify("No tasks in this plan", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            # Open TaskPlanModal with the plan's tasks
+            modal = TaskPlanModal(tasks=event.tasks)
+            self.push_screen(modal)
+            event.stop()
+
         def _update_plan_options_popover_state(self) -> None:
             """Update the plan options popover internal state (without recompose)."""
             if not hasattr(self, "_plan_options_popover"):
@@ -5110,6 +5080,158 @@ Type your question and press Enter to ask the agents.
             except Exception as e:
                 tui_log(f"_update_plan_options_popover_state error: {e}")
 
+        def _enter_execute_mode(self) -> None:
+            """Enter execute mode and show plan selector if plans exist.
+
+            Called from action_toggle_plan_mode when transitioning from plan → execute.
+            If no plans exist, stays in plan mode and shows a warning.
+            """
+            tui_log("_enter_execute_mode - START")
+
+            try:
+                from massgen.plan_storage import PlanStorage
+
+                storage = PlanStorage()
+                plans = storage.get_all_plans(limit=10)
+                tui_log(f"  -> found {len(plans)} plans")
+
+                if not plans:
+                    # No plans available - stay in plan mode
+                    # Revert mode bar if it was already set to "execute"
+                    if self._mode_bar:
+                        self._mode_bar.set_plan_mode("plan")
+                    self.notify(
+                        "No plans available. Create one first by submitting a query in Plan mode.",
+                        severity="warning",
+                        timeout=3,
+                    )
+                    tui_log("  -> no plans, staying in plan mode")
+                    return
+
+                # Set execute mode
+                self._mode_state.plan_mode = "execute"
+                if self._mode_bar:
+                    self._mode_bar.set_plan_mode("execute")
+
+                # Update input placeholder for execute mode
+                if hasattr(self, "question_input"):
+                    self.question_input.placeholder = "Press Enter to execute selected plan • or type instructions"
+
+                # Show the plan selector popover
+                self._show_plan_selector_popover(plans)
+
+                self.notify("Execute Mode: Select a plan to run", severity="information", timeout=3)
+                tui_log("_enter_execute_mode - END (success)")
+
+            except Exception as e:
+                tui_log(f"_enter_execute_mode error: {e}")
+                self.notify(f"Error loading plans: {e}", severity="error", timeout=3)
+
+        def _show_plan_selector_popover(self, plans: list) -> None:
+            """Show the plan options popover configured for execute mode.
+
+            Args:
+                plans: List of available PlanSession objects.
+            """
+            tui_log(f"_show_plan_selector_popover: {len(plans)} plans")
+
+            if not hasattr(self, "_plan_options_popover"):
+                tui_log("  -> popover does not exist!")
+                return
+
+            popover = self._plan_options_popover
+
+            # Update popover state for execute mode
+            popover._plan_mode = "execute"
+            popover._available_plans = plans
+            popover._current_plan_id = self._mode_state.selected_plan_id
+
+            # Reset initialized flag before recompose to ignore spurious events
+            popover._initialized = False
+            tui_log("  -> set _initialized=False, calling refresh(recompose=True)")
+
+            # Recompose to show execute mode UI (plan selector)
+            popover.refresh(recompose=True)
+
+            # Show popover after recompose completes
+            self.call_later(popover.show)
+            tui_log("  -> called call_later(popover.show)")
+
+        def _setup_plan_execution(self, user_text: str) -> Optional[str]:
+            """Set up plan execution and return the execution prompt.
+
+            Called from _submit_question when in execute mode.
+
+            Args:
+                user_text: User's input text (may be empty or contain instructions).
+
+            Returns:
+                The execution prompt to submit, or None if setup failed.
+            """
+            tui_log(f"_setup_plan_execution: user_text='{user_text[:50] if user_text else '(empty)'}'")
+
+            try:
+                from massgen.plan_execution import build_execution_prompt
+                from massgen.plan_storage import PlanStorage
+
+                # Get the selected plan
+                plan_id = self._mode_state.selected_plan_id
+                storage = PlanStorage()
+                plans = storage.get_all_plans(limit=10)
+
+                if not plans:
+                    self.notify("No plans available to execute", severity="error", timeout=3)
+                    tui_log("  -> no plans available")
+                    return None
+
+                # Find the plan to execute
+                if plan_id and plan_id != "latest":
+                    # Find specific plan
+                    plan = None
+                    for p in plans:
+                        if p.plan_id == plan_id:
+                            plan = p
+                            break
+                    if not plan:
+                        self.notify(f"Plan '{plan_id}' not found", severity="error", timeout=3)
+                        tui_log(f"  -> plan not found: {plan_id}")
+                        return None
+                else:
+                    # Use latest plan
+                    plan = plans[0]
+
+                tui_log(f"  -> using plan: {plan.plan_id}")
+
+                # Set the plan session on mode state (needed for workspace setup)
+                self._mode_state.plan_session = plan
+
+                # Load metadata to get the original planning prompt
+                try:
+                    metadata = plan.load_metadata()
+                    original_question = getattr(metadata, "planning_prompt", None) or user_text or "Execute the plan"
+                except Exception:
+                    original_question = user_text or "Execute the plan"
+
+                # If user provided additional instructions, append them
+                if user_text:
+                    execution_prompt = build_execution_prompt(f"{original_question}\n\nAdditional instructions: {user_text}")
+                else:
+                    execution_prompt = build_execution_prompt(original_question)
+
+                tui_log(f"  -> execution_prompt: {execution_prompt[:100]}...")
+
+                # Reset placeholder since we're leaving execute mode conceptually
+                if hasattr(self, "question_input"):
+                    self.question_input.placeholder = "Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help"
+
+                self.notify("Executing plan...", severity="information", timeout=3)
+                return execution_prompt
+
+            except Exception as e:
+                tui_log(f"_setup_plan_execution error: {e}")
+                self.notify(f"Failed to set up plan execution: {e}", severity="error", timeout=3)
+                return None
+
         def _handle_plan_mode_change(self, mode: str) -> None:
             """Handle plan mode toggle.
 
@@ -5117,18 +5239,28 @@ Type your question and press Enter to ask the agents.
                 mode: "normal", "plan", or "execute".
             """
             tui_log(f"_handle_plan_mode_change: {mode}")
-            self._mode_state.plan_mode = mode
-
-            # Sync mode bar state (ensures settings button visibility, etc.)
-            if self._mode_bar:
-                self._mode_bar.set_plan_mode(mode)
 
             if mode == "plan":
+                self._mode_state.plan_mode = mode
+                if self._mode_bar:
+                    self._mode_bar.set_plan_mode(mode)
                 self.notify("Plan Mode: ON - Submit query to create plan", severity="information", timeout=3)
+            elif mode == "execute":
+                # Entering execute mode - use helper which handles plan loading and popover
+                # Note: The mode bar already shows "execute", but _enter_execute_mode
+                # may revert to "plan" if no plans exist
+                self._enter_execute_mode()
             elif mode == "normal":
                 self._mode_state.reset_plan_state()
+                if self._mode_bar:
+                    self._mode_bar.set_plan_mode(mode)
+                # Hide popover if visible
+                if hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes:
+                    self._plan_options_popover.hide()
+                # Reset input placeholder
+                if hasattr(self, "question_input"):
+                    self.question_input.placeholder = "Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help"
                 self.notify("Plan Mode: OFF", severity="information", timeout=2)
-            # "execute" mode is set programmatically, not via toggle
 
         def _handle_agent_mode_change(self, mode: str) -> None:
             """Handle agent mode toggle.
@@ -5194,7 +5326,7 @@ Type your question and press Enter to ask the agents.
 
         @keyboard_action
         def action_toggle_plan_mode(self) -> None:
-            """Toggle plan mode on/off (F5 shortcut)."""
+            """Toggle plan mode: normal → plan → execute → normal (Shift+Tab shortcut)."""
             tui_log("action_toggle_plan_mode")
 
             # Block during execution (keyboard_action decorator handles this,
@@ -5208,16 +5340,26 @@ Type your question and press Enter to ask the agents.
                 return
 
             if self._mode_state.plan_mode == "normal":
+                # normal → plan
                 self._mode_state.plan_mode = "plan"
                 if self._mode_bar:
                     self._mode_bar.set_plan_mode("plan")
                 self.notify("Plan Mode: ON - Submit query to create plan", severity="information", timeout=3)
             elif self._mode_state.plan_mode == "plan":
-                self._mode_state.plan_mode = "normal"
+                # plan → execute (show plan selector if plans exist)
+                self._enter_execute_mode()
+            elif self._mode_state.plan_mode == "execute":
+                # execute → normal
+                self._mode_state.reset_plan_state()
                 if self._mode_bar:
                     self._mode_bar.set_plan_mode("normal")
+                # Hide popover if visible
+                if hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes:
+                    self._plan_options_popover.hide()
+                # Reset input placeholder
+                if hasattr(self, "question_input"):
+                    self.question_input.placeholder = "Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help"
                 self.notify("Plan Mode: OFF", severity="information", timeout=2)
-            # In execute mode, F5 does nothing
 
         @keyboard_action
         def action_trigger_override(self) -> None:
@@ -7328,9 +7470,6 @@ Type your question and press Enter to ask the agents.
             users can switch to via the dropdown. This clears the timeline for fresh
             content and updates the round tracking.
             """
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: show_restart_separator called! attempt={attempt}\n")
-
             # Mark that non-tool content arrived (prevents future batching across this content)
             self._batch_tracker.mark_content_arrived()
             # Finalize any current batch when restart occurs
@@ -7341,8 +7480,6 @@ Type your question and press Enter to ask the agents.
 
             # Start the new round (clears timeline, updates ribbon, stores content)
             self.start_new_round(attempt, is_context_reset)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG: show_restart_separator done, called start_new_round\n")
 
             # Reset per-attempt UI state
             self._tool_row_count = 0
@@ -7367,19 +7504,6 @@ Type your question and press Enter to ask the agents.
 
             # Normalize content first, passing tool_call_id
             normalized = ContentNormalizer.normalize(content, content_type, tool_call_id)
-
-            # Debug: Log timeline order to trace file (tool content logged in _add_tool_content to filter planning tools)
-            if not hasattr(self, "_timeline_event_counter"):
-                self._timeline_event_counter = 0
-                # Clear the trace file at start of session
-                with open("/tmp/tui_timeline_trace.log", "w") as f:
-                    f.write("=== TUI Timeline Trace ===\n")
-            # Only log non-tool content here; tool content is logged in _add_tool_content()
-            if not normalized.content_type.startswith("tool_"):
-                self._timeline_event_counter += 1
-                preview = content[:80].replace("\n", "\\n") if content else ""
-                with open("/tmp/tui_timeline_trace.log", "a") as f:
-                    f.write(f"[{self._timeline_event_counter:04d}] type={normalized.content_type} raw={content_type} preview={preview}\n")
 
             # Route based on detected content type
             if normalized.content_type.startswith("tool_"):
@@ -7440,12 +7564,7 @@ Type your question and press Enter to ask the agents.
                     # Check if this is an args update for existing tool
                     existing_card = timeline.get_tool(tool_data.tool_id) if tool_data.status == "running" else None
                     existing_batch = timeline.get_tool_batch(tool_data.tool_id) if tool_data.status == "running" and not skip_batching else None
-                    is_args_update = existing_card is not None or existing_batch is not None
-
-                    if not is_args_update:
-                        self._timeline_event_counter += 1
-                        with open("/tmp/tui_timeline_trace.log", "a") as f:
-                            f.write(f"[{self._timeline_event_counter:04d}] type=tool_{tool_data.status} tool={tool_data.display_name} tool_id={tool_data.tool_id}\n")
+                    existing_card is not None or existing_batch is not None
 
                 if tool_data.status == "running":
                     # Check if this is an args update for existing tool
@@ -7468,10 +7587,6 @@ Type your question and press Enter to ask the agents.
                     elif not skip_batching:
                         # Check if this MCP tool should be batched
                         action, server_name, batch_id, pending_id = self._batch_tracker.process_tool(tool_data)
-
-                        # Debug: Log batching decision
-                        with open("/tmp/tui_timeline_trace.log", "a") as f:
-                            f.write(f"       BATCH_DECISION: tool={tool_data.display_name} action={action} server={server_name} batch_id={batch_id} pending_id={pending_id}\n")
 
                         if action == "pending":
                             # First MCP tool - show as normal card, track for potential batch
@@ -8258,10 +8373,6 @@ Type your question and press Enter to ask the agents.
                 f"AgentPanel.start_new_round: round={round_number}, " f"prev_round={self._current_round}, context_reset={is_context_reset}",
             )
 
-            # Debug logging
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: AgentPanel.start_new_round agent={self.agent_id} new_round={round_number} prev_round={self._current_round}\n")
-
             # Terminal tool transition delay - give users time to see completed action
             if self._transition_pending:
                 # Already waiting for a transition - update the pending round
@@ -8343,8 +8454,6 @@ Type your question and press Enter to ask the agents.
             giving users time to see the completed action before the view switches.
             """
             self._last_tool_was_terminal = True
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: AgentPanel.mark_terminal_tool_complete agent={self.agent_id}\n")
 
         def start_final_presentation(self, vote_counts: Optional[Dict[str, int]] = None, answer_labels: Optional[Dict[str, str]] = None) -> None:
             """Start the final presentation phase - shows fresh view with distinct banner.
@@ -8364,10 +8473,6 @@ Type your question and press Enter to ask the agents.
             logger.debug(
                 f"AgentPanel.start_final_presentation: agent={self.agent_id}, " f"new_round={new_round}",
             )
-
-            # Debug logging
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: AgentPanel.start_final_presentation agent={self.agent_id} new_round={new_round} votes={vote_counts} labels={answer_labels}\n")
 
             # Step 1: Update round tracking
             self._current_round = new_round

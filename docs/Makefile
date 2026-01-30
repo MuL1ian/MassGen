@@ -18,6 +18,10 @@ help:
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 %: Makefile
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+	@if [ "$@" = "html" ] && [ -d "$(SOURCEDIR)/case_studies" ]; then \
+		echo "Copying case_studies to build output..."; \
+		cp -r "$(SOURCEDIR)/case_studies" "$(BUILDDIR)/html/"; \
+	fi
 
 # Custom targets
 .PHONY: clean

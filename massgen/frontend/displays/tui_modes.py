@@ -5,7 +5,6 @@ This module provides the TuiModeState dataclass that tracks mode configuration
 and generates orchestrator overrides based on current mode settings.
 """
 
-import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
@@ -74,6 +73,8 @@ class TuiModeState:
     last_planning_question: Optional[str] = None
     # Track which turn planning was initiated on
     planning_started_turn: Optional[int] = None
+    # Store context paths from planning phase for execution
+    planning_context_paths: Optional[List[Dict[str, Any]]] = None
 
     # Agent mode: "multi" | "single"
     agent_mode: str = "multi"
@@ -94,70 +95,18 @@ class TuiModeState:
 
     # Execution lock - prevents mode changes during agent execution
     execution_locked: bool = False
-    # Lock timestamp for watchdog timeout detection
-    lock_timestamp: Optional[float] = None
-    # Lock timeout in seconds (30 minutes default - long enough for complex tasks)
-    LOCK_TIMEOUT_SECONDS: float = 1800.0
 
     def is_locked(self) -> bool:
-        """Check if mode changes are locked (during execution).
-
-        Also checks for stale locks and auto-releases them.
-        """
-        # Auto-release stale locks
-        if self.execution_locked and self._is_lock_expired():
-            self._force_unlock_stale()
-            return False
+        """Check if mode changes are locked (during execution)."""
         return self.execution_locked
-
-    def _is_lock_expired(self) -> bool:
-        """Check if lock has exceeded timeout."""
-        if not self.execution_locked or self.lock_timestamp is None:
-            return False
-        return (time.time() - self.lock_timestamp) > self.LOCK_TIMEOUT_SECONDS
-
-    def _force_unlock_stale(self) -> None:
-        """Force unlock a stale lock (watchdog triggered)."""
-        import logging
-
-        logger = logging.getLogger("massgen.tui.modes")
-        elapsed = time.time() - self.lock_timestamp if self.lock_timestamp else 0
-        logger.warning(
-            f"[TuiModeState] Watchdog: Auto-releasing stale execution lock " f"(held for {elapsed:.1f}s, timeout={self.LOCK_TIMEOUT_SECONDS}s)",
-        )
-        self.execution_locked = False
-        self.lock_timestamp = None
 
     def lock(self) -> None:
         """Lock mode changes (call when execution starts)."""
         self.execution_locked = True
-        self.lock_timestamp = time.time()
 
     def unlock(self) -> None:
-        """Unlock mode changes (call when execution completes)."""
+        """Unlock mode changes (call when execution completes or is cancelled)."""
         self.execution_locked = False
-        self.lock_timestamp = None
-
-    def check_and_release_stale_lock(self) -> bool:
-        """Check for and release stale locks.
-
-        Returns:
-            True if a stale lock was released, False otherwise.
-        """
-        if self._is_lock_expired():
-            self._force_unlock_stale()
-            return True
-        return False
-
-    def get_lock_age_seconds(self) -> Optional[float]:
-        """Get the age of the current lock in seconds.
-
-        Returns:
-            Age in seconds if locked, None if not locked.
-        """
-        if not self.execution_locked or self.lock_timestamp is None:
-            return None
-        return time.time() - self.lock_timestamp
 
     def get_orchestrator_overrides(self) -> Dict[str, Any]:
         """Generate orchestrator config overrides based on current mode state.
@@ -256,6 +205,7 @@ class TuiModeState:
         self.last_planning_question = None
         self.planning_started_turn = None
         self.selected_plan_id = None
+        self.planning_context_paths = None
 
     def reset_plan_state_with_error(self, error_msg: str) -> str:
         """Reset plan state due to an error.

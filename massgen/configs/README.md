@@ -227,10 +227,64 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.41 - Latest
-**New Features:** Async Subagent Execution, Subagent Round Timeouts, Extended Subagent Configuration
+### v0.1.44 - Latest
+**New Features:** Execute Mode for Independent Plan Selection, Case Studies UX Enhancements
 
-⚠️ **Note**: These features are experimental and under active development.
+**Key Features:**
+- **Execute Mode Cycling**: Navigate through Normal → Planning → Execute modes via `Shift+Tab`
+- **Plan Selector Popover**: Browse and select from up to 10 recent plans with timestamps
+- **Context Path Preservation**: Context paths automatically preserved between planning and execution
+- **Enhanced Case Studies**: Setup guides and quick start instructions on case studies page
+
+**Example Usage:**
+```bash
+# Use the TUI with plan mode cycling
+uv run massgen --display textual --config @examples/providers/gemini/gemini_3_flash.yaml
+
+# In the TUI:
+# 1. Press Shift+Tab to enter Planning mode
+# 2. Create a plan: "Create a Python web scraper for news articles"
+# 3. Press Shift+Tab twice to enter Execute mode
+# 4. Select your plan from the popover and press Enter to execute
+```
+
+### v0.1.43
+**New Features:** Tool Call Batching, Interactive Case Studies, Plan Mode Enhancements, Quoted Path Support
+
+**Key Features:**
+- **Tool Call Batching**: Consecutive MCP tool calls grouped into collapsible tree views with timing info
+- **Interactive Case Studies**: Side-by-side SVG comparisons between MassGen and single-agent outputs
+- **Plan Mode Enhancements**: New `PlanOptionsPopover` for browsing plans, selecting depth, and toggling broadcast
+- **Quoted Path Support**: `@"/path/with spaces/file.txt"` syntax for paths containing spaces
+- **Final Presentation Fixes**: Reasoning text separated from actual answers in final display
+
+**Try It:**
+```bash
+# Install or upgrade
+pip install --upgrade massgen
+
+# Experience tool call batching - multiple file operations batch into collapsible trees
+uv run massgen --display textual --config @examples/providers/gemini/gemini_3_flash.yaml "Create a project structure with src/, tests/, and docs/ directories, then add README.md and requirements.txt"
+```
+
+### v0.1.42
+**New Features:** TUI Visual Redesign, Human Input Queue, AG2 Single-Agent Fix
+
+**Key Features:**
+- **TUI Visual Redesign**: Modern "Conversational AI" aesthetic with rounded corners, redesigned agent tabs, polished modals
+- **Human Input Queue**: Inject messages to agents mid-stream during execution with `HumanInputHook`
+- **AG2 Single-Agent Fix**: Single-agent AG2 setups now vote and coordinate correctly
+
+**Try It:**
+```bash
+# Experience the redesigned TUI with interactive mode
+uv run massgen --display textual \
+  --config massgen/configs/basic/multi/three_agents_default.yaml \
+  "Compare the pros and cons of React vs Vue for building a dashboard"
+```
+
+### v0.1.41
+**New Features:** Async Subagent Execution, Subagent Round Timeouts, Extended Subagent Configuration
 
 **Key Features:**
 - **Async Subagent Execution**: Spawn subagents with `async_=True` for non-blocking parallel work while parent continues
@@ -1173,7 +1227,7 @@ uv run massgen --config massgen/configs/tools/code-execution/background_shell_de
 **Try It:**
 ```bash
 # Use AG2 agents for lesson planning (supports streaming)
-# Requirements: pip install pyautogen, OPENAI_API_KEY must be set
+# Requirements: pip install pyAG2, OPENAI_API_KEY must be set
 massgen --config massgen/configs/tools/custom_tools/ag2_lesson_planner_example.yaml "Create a lesson plan for photosynthesis"
 
 # Use LangGraph workflows as tools
@@ -1193,7 +1247,7 @@ massgen --config massgen/configs/tools/custom_tools/openai_assistant_lesson_plan
 massgen --config massgen/configs/tools/custom_tools/smolagent_lesson_planner_example.yaml "Create a lesson plan for photosynthesis"
 
 # Combine multiple frameworks
-# Requirements: pip install pyautogen langgraph langchain-openai langchain-core, OPENAI_API_KEY must be set
+# Requirements: pip install pyAG2 langgraph langchain-openai langchain-core, OPENAI_API_KEY must be set
 massgen --config massgen/configs/tools/custom_tools/ag2_and_langgraph_lesson_planner.yaml "Create a lesson plan for photosynthesis"
 ```
 

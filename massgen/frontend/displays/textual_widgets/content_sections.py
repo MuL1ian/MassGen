@@ -12,6 +12,7 @@ Composable UI sections for displaying different content types:
 """
 
 import logging
+import time
 from typing import Dict, Optional
 
 from rich.text import Text
@@ -24,10 +25,6 @@ from ..content_handlers import ToolDisplayData, get_mcp_tool_name
 from .collapsible_text_card import CollapsibleTextCard
 from .tool_batch_card import ToolBatchCard, ToolBatchItem
 from .tool_card import ToolCallCard
-
-# Thresholds for when to use collapsible text cards
-COLLAPSE_LINE_THRESHOLD = 3
-COLLAPSE_CHAR_THRESHOLD = 200
 
 logger = logging.getLogger(__name__)
 
@@ -541,6 +538,11 @@ class TimelineSection(ScrollableContainer):
         display: none;
     }
 
+    /* ARCH-001: Viewport culling - hide items outside visible area */
+    TimelineSection .viewport-culled {
+        display: none;
+    }
+
     /* Locked final card fills available space */
     TimelineSection .final-card-locked {
         height: 1fr;
@@ -549,7 +551,9 @@ class TimelineSection(ScrollableContainer):
     """
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
-    MAX_TIMELINE_ITEMS = 75
+    MAX_TIMELINE_ITEMS = 30  # Reduced from 75 - typical terminal shows ~10-15 items
+    SCROLL_DEBOUNCE_MS = 25  # Minimum gap between scroll operations (reduced for responsiveness)
+    SCROLL_ANIMATION_THRESHOLD_MS = 300  # Threshold for animation vs instant scroll
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -573,18 +577,29 @@ class TimelineSection(ScrollableContainer):
         self._auto_scrolling = False
         self._scroll_pending = False
         self._debug_scroll = False  # Debug flag (disabled for performance)
+        # Performance: Time-based scroll debouncing (QUICK-002)
+        self._last_scroll_time: float = 0.0
+        # Performance: Cancel previous timer before creating new one (QUICK-004)
+        self._scroll_timer = None
+        # Deferred scroll pattern: ensures scroll happens even when debounced
+        self._scroll_requested = False
+        self._debounce_timer = None
         # Answer lock mode: when True, timeline shows only the final answer card
         self._answer_lock_mode = False
         self._locked_card_id: Optional[str] = None
+        # Track if Round 1 banner has been shown
+        self._round_1_shown = False
 
     def compose(self) -> ComposeResult:
         # Scroll mode indicator (hidden by default)
         yield Static("", id="scroll_mode_indicator", classes="scroll-indicator hidden")
         # Content is mounted directly into TimelineSection (no nested container)
 
-    def on_mount(self) -> None:
-        """Add initial Round 1 banner when timeline is mounted."""
-        self.add_separator("Round 1", round_number=1)
+    def _ensure_round_1_shown(self) -> None:
+        """Ensure Round 1 banner is shown before any content."""
+        if not self._round_1_shown:
+            self._round_1_shown = True
+            self.add_separator("Round 1", round_number=1)
 
     def _log(self, msg: str) -> None:
         """Debug logging helper."""
@@ -680,51 +695,95 @@ class TimelineSection(ScrollableContainer):
         # Use smooth animated scrolling for better UX
         self._scroll_to_end(animate=True)
 
-    def _scroll_to_end(self, animate: bool = True, duration: float = 0.15) -> None:
+    def _scroll_to_end(self, animate: bool = True, duration: float = 0.15, force: bool = False) -> None:
         """Auto-scroll to end with smooth animation.
 
-        Textual automatically syncs the scrollbar when scroll_y changes,
-        so we just need to call scroll_to/scroll_end and let Textual handle it.
+        Uses a deferred scroll pattern: if called during debounce window,
+        marks that scroll is needed and ensures it happens after debounce.
 
         Args:
             animate: Whether to animate the scroll (default True for smooth UX)
             duration: Animation duration in seconds (default 0.15s)
+            force: If True, bypass debounce (e.g., when switching tabs)
         """
-        self._log(f"_scroll_to_end called: pending={self._scroll_pending} max_scroll_y={self.max_scroll_y:.1f} current_scroll_y={self.scroll_y:.1f}")
+        self._log(f"_scroll_to_end called: pending={self._scroll_pending} force={force} max_scroll_y={self.max_scroll_y:.1f} current_scroll_y={self.scroll_y:.1f}")
 
-        # Debounce: if scroll is already pending, don't queue another
-        if self._scroll_pending:
-            self._log("_scroll_to_end: SKIPPED (pending)")
-            return
+        current_time = time.monotonic()
+        time_since_last = current_time - self._last_scroll_time
+
+        # Force mode bypasses debounce (e.g., explicit user actions like tab switching)
+        if not force:
+            # If scroll already pending, mark that we need another scroll after
+            if self._scroll_pending:
+                self._scroll_requested = True
+                self._log("_scroll_to_end: marked for deferred scroll (pending)")
+                return
+
+            # Time-based debouncing - but DON'T drop the request, defer it
+            if time_since_last < (self.SCROLL_DEBOUNCE_MS / 1000.0):
+                self._scroll_requested = True
+                self._log(f"_scroll_to_end: deferred (debounce: {time_since_last*1000:.1f}ms < {self.SCROLL_DEBOUNCE_MS}ms)")
+                # Schedule deferred scroll if not already scheduled
+                if self._debounce_timer is None:
+                    remaining_ms = self.SCROLL_DEBOUNCE_MS - (time_since_last * 1000)
+                    self._debounce_timer = self.set_timer(
+                        remaining_ms / 1000.0,
+                        self._execute_deferred_scroll,
+                    )
+                return
 
         self._scroll_pending = True
+        self._scroll_requested = False  # Clear any pending request
 
         def do_scroll() -> None:
             self._log(f"do_scroll executing: max_scroll_y={self.max_scroll_y:.1f} scroll_y before={self.scroll_y:.1f}")
             self._scroll_pending = False
-            # Set flag BEFORE scroll - it stays set until reset_auto_scroll is called
+            self._last_scroll_time = time.monotonic()
             self._auto_scrolling = True
 
-            # Use scroll_to with easing for smooth natural-feeling scroll
-            # Textual handles scrollbar sync automatically when scroll_y changes
-            if animate and self.max_scroll_y > 0:
+            # Use named constant for animation threshold
+            use_animation = animate and self.max_scroll_y > 0 and time_since_last > (self.SCROLL_ANIMATION_THRESHOLD_MS / 1000.0)
+
+            if use_animation:
                 self.scroll_to(y=self.max_scroll_y, animate=True, duration=duration, easing="out_cubic")
             else:
+                # Fast path: no animation during streaming
                 self.scroll_end(animate=False)
 
             self._log(f"do_scroll after scroll: scroll_y={self.scroll_y:.1f}")
-            # Reset flag after animation completes
-            self.set_timer(duration + 0.1 if animate else 0.1, self._reset_auto_scroll)
+
+            # QUICK-004: Cancel previous timer before creating new one
+            if self._scroll_timer is not None:
+                try:
+                    self._scroll_timer.stop()
+                except Exception:
+                    pass  # Timer may have already completed
+            self._scroll_timer = self.set_timer(
+                duration + 0.1 if use_animation else 0.1,
+                self._reset_auto_scroll,
+            )
+
+            # Check if another scroll was requested while we were pending
+            if self._scroll_requested:
+                self._scroll_requested = False
+                self.call_after_refresh(lambda: self._scroll_to_end(animate=False))
 
         # Defer scroll until after layout is complete
         self.call_after_refresh(do_scroll)
+
+    def _execute_deferred_scroll(self) -> None:
+        """Execute a deferred scroll after debounce period."""
+        self._debounce_timer = None
+        if self._scroll_requested:
+            self._scroll_requested = False
+            self._scroll_to_end(animate=False)
 
     def exit_scroll_mode(self) -> None:
         """Exit scroll mode and scroll to bottom."""
         self._scroll_mode = False
         self._new_content_count = 0
         self.reset_scroll_mode()  # Reset scroll state
-        self._scroll_to_end(animate=False)
+        self._scroll_to_end(animate=False, force=True)
         self._update_scroll_indicator()
 
     def scroll_to_widget(self, widget_id: str) -> None:
@@ -804,77 +863,52 @@ class TimelineSection(ScrollableContainer):
         self._locked_card_id = None
 
         # Scroll to show the final card
-        self._scroll_to_end(animate=False)
+        self._scroll_to_end(animate=False, force=True)
 
     def _trim_old_items(self) -> None:
-        """Remove oldest items if we exceed MAX_TIMELINE_ITEMS."""
+        """ARCH-001: Cull items outside viewport using visibility toggling.
+
+        Instead of removing items from DOM, we hide them with CSS display:none.
+        This preserves scroll-back capability and tool state while maintaining
+        performance by not rendering hidden items.
+        """
         try:
             children = list(self.children)
 
-            # Skip the scroll indicator and truncation notice if present
+            # Skip special UI elements
             content_children = [c for c in children if "scroll-indicator" not in c.classes and "truncation-notice" not in c.classes]
 
-            # Check if we exceed the limit
-            if len(content_children) <= self.MAX_TIMELINE_ITEMS:
+            total_items = len(content_children)
+
+            # If under limit, ensure all items are visible
+            if total_items <= self.MAX_TIMELINE_ITEMS:
+                for child in content_children:
+                    if "viewport-culled" in child.classes:
+                        child.remove_class("viewport-culled")
                 return
 
-            # Calculate how many to remove
-            items_to_remove = len(content_children) - self.MAX_TIMELINE_ITEMS
+            # Calculate how many to hide
+            items_to_hide = total_items - self.MAX_TIMELINE_ITEMS
 
-            if items_to_remove <= 0:
+            if items_to_hide <= 0:
                 return
 
-            # Track which rounds have truncation notices
-            if not hasattr(self, "_truncation_shown_rounds"):
-                self._truncation_shown_rounds = set()
-
-            # First, determine which rounds will have items removed
-            rounds_being_truncated = set()
-            for child in content_children[:items_to_remove]:
-                round_classes = [c for c in child.classes if c.startswith("round-")]
-                for rc in round_classes:
-                    try:
-                        round_num = int(rc.replace("round-", ""))
-                        rounds_being_truncated.add(round_num)
-                    except ValueError:
-                        pass
-
-            # Remove the oldest items (from the beginning of the list)
-            removed_count = 0
-            for child in content_children[:items_to_remove]:
-                # Don't remove tool cards that might still be running
+            # Hide oldest items (from the beginning) with viewport-culled class
+            for child in content_children[:items_to_hide]:
+                # Don't hide tool cards that are still running
                 if hasattr(child, "tool_id") and child.tool_id in self._tools:
                     tool_card = self._tools.get(child.tool_id)
                     if tool_card and hasattr(tool_card, "_status") and tool_card._status == "running":
                         continue
-                    # Remove from tools dict
-                    self._tools.pop(child.tool_id, None)
-                child.remove()
-                removed_count += 1
 
-            # Add truncation notices only for rounds that actually had items removed
-            if removed_count > 0:
-                from textual.widgets import Static
+                # Add viewport-culled class to hide (display: none)
+                if "viewport-culled" not in child.classes:
+                    child.add_class("viewport-culled")
 
-                for truncated_round in rounds_being_truncated:
-                    if truncated_round not in self._truncation_shown_rounds:
-                        self._truncation_shown_rounds.add(truncated_round)
-
-                        truncation_notice = Static(
-                            f"[dim]⋯ Earlier output truncated (showing last {self.MAX_TIMELINE_ITEMS} items)[/]",
-                            classes="truncation-notice",
-                            markup=True,
-                        )
-                        # Tag with the round whose items were truncated
-                        truncation_notice.add_class(f"round-{truncated_round}")
-
-                        # Find the first remaining item of this round to insert before
-                        remaining_children = list(self.children)
-                        round_items = [c for c in remaining_children if f"round-{truncated_round}" in c.classes and "truncation-notice" not in c.classes]
-                        if round_items:
-                            self.mount(truncation_notice, before=round_items[0])
-
-                self.refresh(layout=True)
+            # Ensure remaining items are visible
+            for child in content_children[items_to_hide:]:
+                if "viewport-culled" in child.classes:
+                    child.remove_class("viewport-culled")
 
         except Exception:
             pass
@@ -889,6 +923,9 @@ class TimelineSection(ScrollableContainer):
         Returns:
             The created ToolCallCard
         """
+        # Ensure Round 1 banner is shown before first content
+        self._ensure_round_1_shown()
+
         # Close any open reasoning batch when tool arrives
         self._close_reasoning_batch()
 
@@ -1016,6 +1053,9 @@ class TimelineSection(ScrollableContainer):
         Returns:
             The created ToolBatchCard
         """
+        # Ensure Round 1 banner is shown before first content
+        self._ensure_round_1_shown()
+
         card = ToolBatchCard(
             server_name=server_name,
             id=f"batch_{batch_id}",
@@ -1305,6 +1345,9 @@ class TimelineSection(ScrollableContainer):
             text_class: CSS class (status, thinking-inline, content-inline, response)
             round_number: The round this content belongs to (for view switching)
         """
+        # Ensure Round 1 banner is shown before first content
+        self._ensure_round_1_shown()
+
         # Clean up excessive newlines only - preserve all spacing
         import re
 
@@ -1316,13 +1359,6 @@ class TimelineSection(ScrollableContainer):
         # Check if this is thinking or content - route to appropriate batching
         is_thinking = "thinking" in text_class
         is_content = "content" in text_class and "content-inline" in text_class
-
-        # Debug logging for routing
-        content_preview = content[:50].replace("\n", "\\n")
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(
-                f"DEBUG add_text: text_class='{text_class}', is_thinking={is_thinking}, " f"is_content={is_content}, content_preview={content_preview}\n",
-            )
 
         if is_thinking:
             self.add_reasoning(content, round_number=round_number, label="Thinking")
@@ -1434,15 +1470,6 @@ class TimelineSection(ScrollableContainer):
         This ends the accumulation of content into a single card, so the next
         content will start a new batch.
         """
-        # Debug logging for reasoning batch closure
-        if self._current_reasoning_card is not None:
-            import traceback
-
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG _close_reasoning_batch: CLOSING card={self._current_reasoning_card.id}, label={self._current_batch_label}\n")
-                f.write("       Stack trace:\n")
-                for line in traceback.format_stack()[-5:-1]:
-                    f.write(f"       {line.strip()}\n")
         self._current_reasoning_card = None
         self._current_batch_label = None
 
@@ -1475,25 +1502,21 @@ class TimelineSection(ScrollableContainer):
         except Exception:
             pass
 
+        # Ensure Round 1 banner is shown before first content
+        self._ensure_round_1_shown()
+
         try:
             # Close batch if label changed
             if self._current_reasoning_card is not None and self._current_batch_label != label:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG add_reasoning: LABEL CHANGED from {self._current_batch_label} to {label}, closing batch\n")
                 self._close_reasoning_batch()
 
             if self._current_reasoning_card is not None:
                 # Append to existing batch
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG add_reasoning: APPENDING to existing card={self._current_reasoning_card.id}\n")
                 self._current_reasoning_card.append_content(content)
             else:
                 # Start new batch
                 self._item_count += 1
                 widget_id = f"tl_reasoning_{self._item_count}"
-
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG add_reasoning: CREATING NEW card={widget_id} with label={label}\n")
 
                 self._current_reasoning_card = CollapsibleTextCard(
                     content,
@@ -1506,9 +1529,8 @@ class TimelineSection(ScrollableContainer):
                 self.mount(self._current_reasoning_card)
 
             self._auto_scroll()
-        except Exception as e:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG add_reasoning: EXCEPTION {e}\n")
+        except Exception:
+            pass
 
     def add_widget(self, widget, round_number: int = 1) -> None:
         """Add a generic widget to the timeline.
@@ -1517,43 +1539,28 @@ class TimelineSection(ScrollableContainer):
             widget: Any Textual widget to add to the timeline
             round_number: The round this content belongs to (for view switching)
         """
+        # Ensure Round 1 banner is shown before first content
+        self._ensure_round_1_shown()
+
         self._item_count += 1
 
         # Tag with round class for navigation (scroll-to behavior)
         widget.add_class(f"round-{round_number}")
 
         try:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG TimelineSection.add_widget: mounting widget type={type(widget).__name__}, id={widget.id}\n")
             self.mount(widget)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG TimelineSection.add_widget: mounted, widget.is_mounted={widget.is_mounted}\n")
-            self._auto_scroll()
-        except Exception as e:
-            import sys
-            import traceback
+            self._log(f"Timeline items: {len(list(self.children))}")
+            self._trim_old_items()  # Keep timeline size bounded (do before scroll)
+            self._auto_scroll()  # Scroll after trim to stay at bottom
+        except Exception:
+            pass
 
-            print(f"[ERROR] add_widget failed: {e}", file=sys.stderr)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG TimelineSection.add_widget: ERROR: {e}\n")
-                f.write(f"DEBUG TimelineSection.add_widget: ERROR str: {str(e)}\n")
-                f.write(f"DEBUG TimelineSection.add_widget: ERROR repr: {repr(e)}\n")
-                # Try to get CSS error details
-                try:
-                    if hasattr(e, "errors"):
-                        f.write(f"DEBUG TimelineSection.add_widget: errors attr: {e.errors}\n")
-                        for err in e.errors:
-                            f.write(f"DEBUG TimelineSection.add_widget: CSS ERROR: {err}\n")
-                    if hasattr(e, "rules"):
-                        f.write(f"DEBUG TimelineSection.add_widget: rules: {e.rules}\n")
-                    # Try printing all attributes
-                    f.write(f"DEBUG TimelineSection.add_widget: dir(e): {[a for a in dir(e) if not a.startswith('_')]}\n")
-                except Exception as inner:
-                    f.write(f"DEBUG TimelineSection.add_widget: inner error: {inner}\n")
-                f.write(f"DEBUG TimelineSection.add_widget: Traceback:\n{traceback.format_exc()}\n")
+    def clear(self, add_round_1: bool = True) -> None:
+        """Clear all timeline content.
 
-    def clear(self) -> None:
-        """Clear all timeline content."""
+        Args:
+            add_round_1: If True, add a "Round 1" separator after clearing (default: True)
+        """
         # Close any open reasoning batch
         self._close_reasoning_batch()
 
@@ -1576,6 +1583,14 @@ class TimelineSection(ScrollableContainer):
         # Reset truncation tracking to avoid stale state
         if hasattr(self, "_truncation_shown_rounds"):
             self._truncation_shown_rounds.clear()
+
+        # Reset Round 1 shown flag
+        self._round_1_shown = False
+
+        # Add initial Round 1 separator
+        if add_round_1:
+            self._round_1_shown = True  # Set flag before adding to avoid re-entry
+            self.add_separator("Round 1", round_number=1)
 
     def clear_tools_tracking(self) -> None:
         """Clear tools and batch tracking dicts without removing UI elements.
@@ -1614,10 +1629,6 @@ class TimelineSection(ScrollableContainer):
 
         logger.debug(f"TimelineSection.switch_to_round: scrolling to round {round_number}")
 
-        widget_id = self.id or "unknown"
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG: TimelineSection.switch_to_round called! panel={widget_id}, round={round_number}\n")
-
         try:
             # Find the RestartBanner for this round and scroll to it
             # RestartBanners are tagged with round-X class
@@ -1627,8 +1638,6 @@ class TimelineSection(ScrollableContainer):
                 if isinstance(widget, RestartBanner):
                     widget.scroll_visible(animate=True, top=True)
                     found_separator = True
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG: TimelineSection.switch_to_round: Found RestartBanner, scrolling to it\n")
                     break
 
             # If no RestartBanner found (e.g., round 1 which may not have one),
@@ -1636,14 +1645,10 @@ class TimelineSection(ScrollableContainer):
             if not found_separator:
                 for widget in self.query(f".round-{round_number}"):
                     widget.scroll_visible(animate=True, top=True)
-                    with open("/tmp/tui_debug.log", "a") as f:
-                        f.write("DEBUG: TimelineSection.switch_to_round: No RestartBanner, scrolling to first widget\n")
                     break
 
             logger.debug(f"TimelineSection.switch_to_round: done scrolling to round {round_number}")
         except Exception as e:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG: TimelineSection.switch_to_round ERROR: {e}\n")
             logger.error(f"TimelineSection.switch_to_round error: {e}")
 
 
@@ -2568,9 +2573,6 @@ class FinalPresentationCard(Vertical):
         from textual.containers import Horizontal, ScrollableContainer
         from textual.widgets import Label
 
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG FinalPresentationCard.compose: STARTING\n")
-
         # Header section - compact single line
         with Vertical(id="final_card_header"):
             yield Label(self._build_title(), id="final_card_title")
@@ -2583,9 +2585,6 @@ class FinalPresentationCard(Vertical):
         with ScrollableContainer(id="final_card_content"):
             yield self._text_widget
 
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write("DEBUG FinalPresentationCard.compose: DONE, _text_widget set\n")
-
         # Post-evaluation section (hidden until post-eval content arrives)
         with Vertical(id="final_card_post_eval", classes="hidden"):
             with Horizontal(id="post_eval_header"):
@@ -2596,8 +2595,6 @@ class FinalPresentationCard(Vertical):
 
         # Context paths section (hidden if no paths)
         has_paths = bool(self.context_paths.get("new") or self.context_paths.get("modified"))
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG FinalPresentationCard.compose: context_paths={self.context_paths}, has_paths={has_paths}\n")
         with Vertical(id="final_card_context_paths", classes="" if has_paths else "hidden"):
             new_count = len(self.context_paths.get("new", []))
             mod_count = len(self.context_paths.get("modified", []))
@@ -2650,14 +2647,6 @@ class FinalPresentationCard(Vertical):
         Args:
             chunk: Text chunk to append
         """
-        # Debug logging
-        with open("/tmp/tui_debug.log", "a") as f:
-            chunk_preview = chunk[:50].replace("\n", "\\n") if chunk else "None"
-            f.write(
-                f"DEBUG FinalPresentationCard.append_chunk: chunk_len={len(chunk) if chunk else 0}, "
-                f"is_mounted={self.is_mounted}, accumulated={len(self._final_content)}, preview={chunk_preview}\n",
-            )
-
         if not chunk:
             return
 
@@ -2692,20 +2681,15 @@ class FinalPresentationCard(Vertical):
         # Use direct reference if available (set in compose)
         if self._text_widget is not None:
             try:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG FinalPresentationCard._try_update_text: SUCCESS (direct ref) updating with {len(full_text)} chars\n")
                 self._text_widget.update(full_text)
                 self._text_widget.refresh()
                 return True
-            except Exception as e:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG FinalPresentationCard._try_update_text: direct ref failed ({e})\n")
+            except Exception:
+                pass
 
         # Fallback to query
         try:
             text_widget = self.query_one("#final_card_text", Static)
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG FinalPresentationCard._try_update_text: SUCCESS (query) updating with {len(full_text)} chars\n")
             text_widget.update(full_text)
             text_widget.refresh()
             return True
@@ -2716,43 +2700,27 @@ class FinalPresentationCard(Vertical):
         try:
             # Check if we have any children at all
             if not list(self.children):
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG FinalPresentationCard._try_update_text: NO CHILDREN - compose didn't run, creating manually\n")
                 # Create a simple Static widget directly
                 self._text_widget = Static(full_text, id="final_card_text_manual", markup=False)
                 self.mount(self._text_widget)
                 return True
-            else:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG FinalPresentationCard._try_update_text: has {len(list(self.children))} children but can't find text widget\n")
-        except Exception as e:
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write(f"DEBUG FinalPresentationCard._try_update_text: manual creation failed ({e})\n")
+        except Exception:
+            pass
 
         return False
 
     def on_mount(self) -> None:
         """Flush any pending content when the widget is mounted."""
-        # Debug logging
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(
-                f"DEBUG FinalPresentationCard.on_mount: CALLED! pending={len(self._final_content)}, " f"chars={sum(len(c) for c in self._final_content)}\n",
-            )
-
         # Flush any buffered content that arrived before mount
         self._try_update_text()
 
         # In completion-only mode, show footer immediately and mark as completed
         # (content has already been shown through the normal pipeline)
         if self.has_class("completion-only"):
-            with open("/tmp/tui_debug.log", "a") as f:
-                f.write("DEBUG FinalPresentationCard.on_mount: completion-only mode, calling complete()\n")
             self.complete()
 
     def _on_compose(self) -> None:
         """Called after compose() completes - use this to flush content."""
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG FinalPresentationCard._on_compose: CALLED! pending={len(self._final_content)}\n")
         # Try to update after compose completes
         if self._final_content:
             self._try_update_text()
@@ -2760,9 +2728,6 @@ class FinalPresentationCard(Vertical):
     def complete(self) -> None:
         """Mark the presentation as complete and show action buttons."""
         from textual.widgets import Label
-
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG FinalPresentationCard.complete: CALLED, has_class completion-only={self.has_class('completion-only')}\n")
 
         self._is_streaming = False
 
@@ -2879,20 +2844,14 @@ class FinalPresentationCard(Vertical):
         Args:
             locked: Whether to enable locked mode
         """
-        with open("/tmp/tui_debug.log", "a") as f:
-            f.write(f"DEBUG FinalPresentationCard.set_locked_mode: locked={locked}, is_mounted={self.is_mounted}\n")
-
         if locked:
             self.add_class("locked-mode")
             try:
                 link = self.query_one("#final_card_unlock_btn", Static)
                 link.display = True
                 link.update("↩ Previous Work")
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG FinalPresentationCard.set_locked_mode: link found, set display=True\n")
-            except Exception as e:
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write(f"DEBUG FinalPresentationCard.set_locked_mode: link query failed: {e}\n")
+            except Exception:
+                pass
         else:
             self.remove_class("locked-mode")
             try:

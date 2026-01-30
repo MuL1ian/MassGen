@@ -31,7 +31,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=Dp2oldJJImw">
+  <a href="https://www.youtube.com/watch?v=5JofXWf_Ok8">
     <img src="docs/source/_static/images/readme.gif" alt="MassGen case study -- Berkeley Agentic AI Summit Question" width="800">
   </a>
 </p>
@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.41 Features](#-latest-features-v0141)
+- [v0.1.44 Features](#-latest-features-v0144)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.41)](#recent-achievements-v0141)
-- [Previous Achievements (v0.0.3 - v0.1.40)](#previous-achievements-v003---v0140)
+- [Recent Achievements (v0.1.44)](#recent-achievements-v0144)
+- [Previous Achievements (v0.0.3 - v0.1.43)](#previous-achievements-v003---v0143)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.42 Roadmap](#v0142-roadmap)
+- [v0.1.45 Roadmap](#v0145-roadmap)
 </details>
 
 <details open>
@@ -155,26 +155,30 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.41)
+## 🆕 Latest Features (v0.1.44)
 
-**🎉 Released: January 21, 2026** | **Next Update: January 24, 2026**
+**🎉 Released: January 28, 2026**
 
-⚠️ **Note**: v0.1.41 features are experimental and under active development.
+**What's New in v0.1.44:**
+- **🔄 Execute Mode** - Cycle through Normal → Planning → Execute modes via `Shift+Tab` to independently browse and execute existing plans
+- **📋 Plan Selector** - Browse up to 10 recent plans with timestamps, view full task breakdowns, and execute with preserved context paths
+- **📚 Enhanced Case Studies** - Interactive setup guides and quick start instructions on case studies page
+- **⚡ TUI Performance** - Optimized timeline rendering with viewport-based scrolling for faster UI responsiveness
+- **🔧 Plan Mode Fixes** - Fixed planning instruction injection bug in execute mode, improved tool tracking
 
-**What's New in v0.1.41:**
-- **⚡ Async Subagent Execution** - Spawn subagents with `async_=True` for non-blocking parallel work
-- **🔄 Poll for Completion** - Check subagent status and retrieve results when ready
-- **⏱️ Subagent Round Timeouts** - Per-round timeout control with `subagent_round_timeouts` config
-- **⚙️ Extended Subagent Config** - Fine-grained control over timeouts, concurrency limits
-
-**Try v0.1.41 Features:**
+**Try v0.1.44 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Async subagent execution - parent continues while subagent works in background
-uv run massgen --display textual --config massgen/configs/features/async_subagent_example.yaml \
-  "Use one subagent to research the band Geese in the background while you create a creative website about them, including similar bands."
+# Experience Execute mode with plan cycling
+uv run massgen --display textual
+
+# In the TUI:
+# 1. Press Shift+Tab to enter Planning mode
+# 2. Create a plan: "Build a Python web scraper"
+# 3. Press Shift+Tab twice to enter Execute mode
+# 4. Select your plan and press Enter to execute
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1209,23 +1213,41 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.41)
+### Recent Achievements (v0.1.44)
 
-**🎉 Released: January 21, 2026**
+**🎉 Released: January 28, 2026**
 
-#### Async Subagent Execution
-- **Non-Blocking Subagent Spawning**: Use `async_=True` parameter on `spawn_subagents` tool to run subagents in background while parent continues working
-- **Poll for Completion**: Check subagent status and retrieve results when ready
-- **Configurable Injection Strategy**: Choose `tool_result` (append to tool response) or `user_message` (add as follow-up message)
+#### Execute Mode for Independent Plan Selection
+- **Mode Cycling**: Navigate through Normal → Planning → Execute modes via `Shift+Tab` or mode bar click
+- **Plan Selector Popover**: Browse up to 10 recent plans with timestamps and original prompts
+- **View Full Plan**: Modal displays complete task breakdown from selected plan
+- **Empty Submission**: Press Enter to execute selected plan without additional input
+- **Context Path Preservation**: Context paths (`@/path/to/file`) automatically restored from planning to execution phase
 
-#### Subagent Round Timeouts & Configuration
-- **Per-Round Timeout Control**: New `subagent_round_timeouts` config with `initial_round_timeout_seconds`, `subsequent_round_timeout_seconds`, `round_timeout_grace_seconds`
-- **Extended Subagent Parameters**: `subagent_default_timeout`, `subagent_min_timeout`, `subagent_max_timeout`, `subagent_max_concurrent`
+#### Case Studies UX Enhancements
+- **Setup Guide**: Interactive "Try it yourself" collapsible sections with quick start instructions
+- **Quick Start**: `uv run massgen --web` command with model selection guidance
+- **Terminal Config**: Example YAML configuration for CLI users in `docs/source/case_studies/terminal_config.txt`
+- **Baseline Comparison**: Helper text prompting users to compare MassGen with single-agent outputs
 
-#### Configuration
-- **Example Config**: `massgen/configs/features/async_subagent_example.yaml`
+#### TUI Performance Improvements
+- **Timeline Optimization**: Viewport-based rendering with reduced size limits for faster scrolling
+- **Tool Card Spacing**: Fixed spacing issues in tool display cards
+- **Tool Tracking**: Enhanced backend integration for better streaming tool visualization
 
-### Previous Achievements (v0.0.3 - v0.1.40)
+#### Technical Improvements
+- **Plan Mode Separation**: Fixed bug where planning instructions were incorrectly injected during execute mode
+- **Context Paths Storage**: New `context_paths` field in `PlanMetadata` (`massgen/plan_storage.py`)
+- **Plan Execution**: `prepare_plan_execution_config()` in `massgen/plan_execution.py` now restores context paths
+- **Empty Input Support**: Input widget allows empty submission for plan execution in execute mode
+
+### Previous Achievements (v0.0.3 - v0.1.43)
+
+✅ **Tool Call Batching & Interactive Case Studies (v0.1.43)**: Consecutive MCP tool calls grouped into collapsible tree views with "+N more" indicators and click-to-expand. New interactive case studies page with side-by-side SVG comparisons. `PlanOptionsPopover` for browsing plans and selecting depth. Quoted path support for paths with spaces. Final presentation display and TUI polish fixes.
+
+✅ **TUI Visual Redesign & Human Input Queue (v0.1.42)**: Modern "Conversational AI" aesthetic with rounded corners, redesigned agent tabs with dot indicators, adaptive tool cards, polished modals. New `HumanInputHook` for injecting messages to agents mid-stream with thread-safe per-agent tracking. AG2 single-agent coordination fix.
+
+✅ **Async Subagent Execution (v0.1.41)**: Background subagent execution with `async_=True` for non-blocking parallel work, poll for completion and retrieve results, per-round timeout control with `subagent_round_timeouts` config, extended subagent parameters for timeout and concurrency control
 
 ✅ **Textual TUI Interactive Mode (v0.1.40)**: Interactive terminal UI with `--display textual` for real-time agent streaming, comprehensive modals for costs/votes/workspace/answers, context path injection with `@path/to/file` syntax, human feedback integration via prompt modals
 
@@ -1451,19 +1473,19 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.42 Roadmap
+### v0.1.45 Roadmap
 
-Version 0.1.42 focuses on OpenAI Responses API improvements and log analysis model selection:
+Version 0.1.45 focuses on improving subagent display in the TUI:
 
 #### Planned Features
-- **OpenAI Responses /compact Endpoint** (@ncrispino): Use OpenAI's native `/compact` endpoint for context compression instead of custom summarization
-- **Model Selector for Log Analysis**: Choose which model to use for `massgen logs analyze` self-analysis mode
+- **Subagent TUI Streaming** ([#821](https://github.com/Leezekun/MassGen/issues/821)): Stream and display subagents almost identically to main process in TUI
+- **Subagent Timeline View**: Click subagent preview card to view full timeline with identical parsing and tool displays
+- **Single Source of Truth**: Refactor TUI display creation to use shared components for main agents and subagents
 
 Key technical approach:
-- **Native Context Compression**: Leverage OpenAI's API-level compression for better token efficiency
-- **Flexible Log Analysis**: Allow users to balance cost vs quality by selecting analysis model
-
-For detailed milestones and technical specifications, see the [full v0.1.42 roadmap](ROADMAP_v0.1.42.md).
+- **Unified Display Components**: Create reusable TUI components that work for both main agents and subagents
+- **Event Streaming**: Pass events from subagents or main agents through same parsing pipeline
+- **Interactive Preview**: Collapsible subagent cards that expand to full timeline views
 
 ---
 

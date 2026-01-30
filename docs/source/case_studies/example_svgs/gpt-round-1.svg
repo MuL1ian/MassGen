@@ -1,0 +1,444 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">Fourier decomposition of a complex periodic wave</title>
+  <desc id="desc">Interactive scientific visualization of a complex waveform expressed as the sum of seven sine components, alongside magnitude and phase spectra.</desc>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <rect width="40" height="40" fill="#fdfefe" />
+      <path d="M40 0H0V40" fill="none" stroke="#dfe7fb" stroke-width="0.8" />
+      <path d="M40 20H0" fill="none" stroke="#eef3ff" stroke-width="0.6" />
+      <path d="M20 0V40" fill="none" stroke="#eef3ff" stroke-width="0.6" />
+    </pattern>
+    <linearGradient id="panelFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#f4f7ff" stop-opacity="0.85" />
+    </linearGradient>
+    <style>
+      :root {
+        font-family: 'IBM Plex Sans', 'Inter', 'Segoe UI', system-ui, sans-serif;
+      }
+      svg {
+        background: #eef3ff;
+      }
+      .panel-bg {
+        fill: url(#panelFade);
+        stroke: #d4def6;
+        stroke-width: 1.2;
+        rx: 14px;
+      }
+      text {
+        fill: #1b2b52;
+        font-size: 16px;
+      }
+      .section-title {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+      .axis {
+        stroke: #6f7c99;
+        stroke-width: 1.4;
+      }
+      .axis.secondary {
+        stroke-dasharray: 4 6;
+        stroke-width: 1;
+        opacity: 0.7;
+      }
+      .complex-wave {
+        fill: none;
+        stroke: #2d5be3;
+        stroke-width: 3;
+        filter: drop-shadow(0 0 4px rgba(45,91,227,0.35));
+      }
+      .component-path {
+        fill: none;
+        stroke-width: 2.1;
+        stroke-linecap: round;
+      }
+      .component-band:nth-of-type(odd) .component-path {
+        stroke: #ff7e36;
+      }
+      .component-band:nth-of-type(even) .component-path {
+        stroke: #ffb347;
+      }
+      .mini-axis {
+        stroke: #98a3c4;
+        stroke-width: 1;
+        stroke-dasharray: 5 5;
+      }
+      .component-label {
+        font-size: 13px;
+        fill: #47516c;
+      }
+      .connector {
+        stroke: #94a6d6;
+        stroke-width: 1.1;
+        stroke-dasharray: 6 5;
+        opacity: 0.8;
+      }
+      .connector-node {
+        fill: #2d5be3;
+        stroke: white;
+        stroke-width: 1.4;
+      }
+      .wave-anim {
+        animation-name: oscillate;
+        animation-iteration-count: infinite;
+        animation-timing-function: ease-in-out;
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      @keyframes oscillate {
+        0% { transform: translateX(0px); }
+        50% { transform: translateX(-20px); }
+        100% { transform: translateX(0px); }
+      }
+      .mag-axis, .phase-axis {
+        stroke: #6f7c99;
+        stroke-width: 1.2;
+      }
+      .mag-bar {
+        fill: #50b5a9;
+        opacity: 0.9;
+      }
+      .mag-bar-label {
+        font-size: 13px;
+        text-anchor: middle;
+        fill: #4c587b;
+      }
+      .mag-value {
+        font-size: 12px;
+        font-weight: 600;
+        fill: #1d665c;
+        text-anchor: middle;
+      }
+      .phase-circle {
+        fill: none;
+        stroke: #8895bb;
+        stroke-width: 1.5;
+      }
+      .phase-ray {
+        stroke: #ff5c8d;
+        stroke-width: 2;
+        stroke-linecap: round;
+      }
+      .phase-label {
+        font-size: 12px;
+        text-anchor: middle;
+        fill: #8c4f71;
+      }
+      .formula {
+        font-size: 18px;
+        font-weight: 500;
+        fill: #1f2747;
+      }
+      .note {
+        font-size: 13px;
+        fill: #5c6c8d;
+      }
+    </style>
+  </defs>
+
+  <rect width="1400" height="800" fill="url(#grid)" />
+
+  <g id="left-panel">
+    <rect class="panel-bg" x="40" y="60" width="440" height="680" />
+    <text class="section-title" x="60" y="100">Complex waveform (two periods)</text>
+    <text class="note" x="60" y="120">s(t) = Σ aₙ sin(n·f·t + φₙ)</text>
+    <line id="left-axis-y" class="axis" x1="100" x2="100" y1="140" y2="700" />
+    <line id="left-axis-x" class="axis" x1="60" x2="460" y1="420" y2="420" />
+    <text class="note" x="450" y="440" text-anchor="end">t (two periods)</text>
+    <text class="note" x="80" y="150" text-anchor="middle">Amplitude</text>
+    <g id="complex-wave-group">
+      <path id="complex-wave" class="complex-wave wave-anim" d="" />
+    </g>
+    <line id="mix-drop" class="axis secondary" x1="0" x2="0" y1="0" y2="0" opacity="0.5" />
+    <circle id="mix-marker" r="5" fill="#2d5be3" stroke="#fff" stroke-width="2" />
+  </g>
+
+  <g id="middle-panel">
+    <rect class="panel-bg" x="500" y="60" width="420" height="680" />
+    <text class="section-title" x="520" y="100">Seven sine components</text>
+    <text class="note" x="520" y="122">Each mini-axis spans two fundamental periods</text>
+    <g id="component-bands">
+      <g class="component-band" data-index="0">
+        <line id="axis-1" class="mini-axis" />
+        <path id="component-wave-1" class="component-path wave-anim" d="" />
+        <text id="label-1" class="component-label" text-anchor="end"></text>
+        <line id="connector-1" class="connector" />
+        <circle id="connector-node-1" class="connector-node" r="4" />
+      </g>
+      <g class="component-band" data-index="1">
+        <line id="axis-2" class="mini-axis" />
+        <path id="component-wave-2" class="component-path wave-anim" d="" />
+        <text id="label-2" class="component-label" text-anchor="end"></text>
+        <line id="connector-2" class="connector" />
+        <circle id="connector-node-2" class="connector-node" r="4" />
+      </g>
+      <g class="component-band" data-index="2">
+        <line id="axis-3" class="mini-axis" />
+        <path id="component-wave-3" class="component-path wave-anim" d="" />
+        <text id="label-3" class="component-label" text-anchor="end"></text>
+        <line id="connector-3" class="connector" />
+        <circle id="connector-node-3" class="connector-node" r="4" />
+      </g>
+      <g class="component-band" data-index="3">
+        <line id="axis-4" class="mini-axis" />
+        <path id="component-wave-4" class="component-path wave-anim" d="" />
+        <text id="label-4" class="component-label" text-anchor="end"></text>
+        <line id="connector-4" class="connector" />
+        <circle id="connector-node-4" class="connector-node" r="4" />
+      </g>
+      <g class="component-band" data-index="4">
+        <line id="axis-5" class="mini-axis" />
+        <path id="component-wave-5" class="component-path wave-anim" d="" />
+        <text id="label-5" class="component-label" text-anchor="end"></text>
+        <line id="connector-5" class="connector" />
+        <circle id="connector-node-5" class="connector-node" r="4" />
+      </g>
+      <g class="component-band" data-index="5">
+        <line id="axis-6" class="mini-axis" />
+        <path id="component-wave-6" class="component-path wave-anim" d="" />
+        <text id="label-6" class="component-label" text-anchor="end"></text>
+        <line id="connector-6" class="connector" />
+        <circle id="connector-node-6" class="connector-node" r="4" />
+      </g>
+      <g class="component-band" data-index="6">
+        <line id="axis-7" class="mini-axis" />
+        <path id="component-wave-7" class="component-path wave-anim" d="" />
+        <text id="label-7" class="component-label" text-anchor="end"></text>
+        <line id="connector-7" class="connector" />
+        <circle id="connector-node-7" class="connector-node" r="4" />
+      </g>
+    </g>
+  </g>
+
+  <g id="right-panel">
+    <rect class="panel-bg" x="940" y="60" width="420" height="680" />
+    <text class="section-title" x="960" y="100">Spectral view</text>
+    <text class="note" x="960" y="122">Top: phase, Bottom: magnitude</text>
+    <g id="phase-panel">
+      <text class="note" x="960" y="160">Phase spectrum</text>
+      <line class="phase-axis" x1="960" x2="1340" y1="210" y2="210" stroke-dasharray="6 4" opacity="0.5" />
+      <g id="phase-indicators">
+        <g id="phase-1">
+          <circle class="phase-circle" r="36" cx="0" cy="0" />
+          <line id="phase-ray-1" class="phase-ray" x1="0" y1="0" x2="0" y2="0" />
+        </g>
+        <g id="phase-2">
+          <circle class="phase-circle" r="36" cx="0" cy="0" />
+          <line id="phase-ray-2" class="phase-ray" x1="0" y1="0" x2="0" y2="0" />
+        </g>
+        <g id="phase-3">
+          <circle class="phase-circle" r="36" cx="0" cy="0" />
+          <line id="phase-ray-3" class="phase-ray" x1="0" y1="0" x2="0" y2="0" />
+        </g>
+        <g id="phase-4">
+          <circle class="phase-circle" r="36" cx="0" cy="0" />
+          <line id="phase-ray-4" class="phase-ray" x1="0" y1="0" x2="0" y2="0" />
+        </g>
+        <g id="phase-5">
+          <circle class="phase-circle" r="36" cx="0" cy="0" />
+          <line id="phase-ray-5" class="phase-ray" x1="0" y1="0" x2="0" y2="0" />
+        </g>
+        <g id="phase-6">
+          <circle class="phase-circle" r="36" cx="0" cy="0" />
+          <line id="phase-ray-6" class="phase-ray" x1="0" y1="0" x2="0" y2="0" />
+        </g>
+        <g id="phase-7">
+          <circle class="phase-circle" r="36" cx="0" cy="0" />
+          <line id="phase-ray-7" class="phase-ray" x1="0" y1="0" x2="0" y2="0" />
+        </g>
+      </g>
+    </g>
+    <g id="magnitude-panel">
+      <text class="note" x="960" y="430">Magnitude spectrum</text>
+      <line class="mag-axis" x1="960" x2="1340" y1="720" y2="720" />
+      <line class="mag-axis" x1="960" x2="960" y1="430" y2="720" />
+      <g id="mag-bars">
+        <g class="mag-item">
+          <rect id="bar-1" class="mag-bar" rx="6" ry="6" />
+          <text id="bar-value-1" class="mag-value"></text>
+          <text id="bar-label-1" class="mag-bar-label"></text>
+        </g>
+        <g class="mag-item">
+          <rect id="bar-2" class="mag-bar" rx="6" ry="6" />
+          <text id="bar-value-2" class="mag-value"></text>
+          <text id="bar-label-2" class="mag-bar-label"></text>
+        </g>
+        <g class="mag-item">
+          <rect id="bar-3" class="mag-bar" rx="6" ry="6" />
+          <text id="bar-value-3" class="mag-value"></text>
+          <text id="bar-label-3" class="mag-bar-label"></text>
+        </g>
+        <g class="mag-item">
+          <rect id="bar-4" class="mag-bar" rx="6" ry="6" />
+          <text id="bar-value-4" class="mag-value"></text>
+          <text id="bar-label-4" class="mag-bar-label"></text>
+        </g>
+        <g class="mag-item">
+          <rect id="bar-5" class="mag-bar" rx="6" ry="6" />
+          <text id="bar-value-5" class="mag-value"></text>
+          <text id="bar-label-5" class="mag-bar-label"></text>
+        </g>
+        <g class="mag-item">
+          <rect id="bar-6" class="mag-bar" rx="6" ry="6" />
+          <text id="bar-value-6" class="mag-value"></text>
+          <text id="bar-label-6" class="mag-bar-label"></text>
+        </g>
+        <g class="mag-item">
+          <rect id="bar-7" class="mag-bar" rx="6" ry="6" />
+          <text id="bar-value-7" class="mag-value"></text>
+          <text id="bar-label-7" class="mag-bar-label"></text>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <text class="formula" x="700" y="40" text-anchor="middle">
+    s(t) = a<tspan baseline-shift="sub" font-size="12">0</tspan> + Σ<tspan baseline-shift="sub" font-size="12">n=1</tspan><tspan baseline-shift="super" font-size="12">7</tspan>
+    a<tspan baseline-shift="sub" font-size="12">n</tspan> sin(n·f·t + φ<tspan baseline-shift="sub" font-size="12">n</tspan>)
+  </text>
+
+  <script><![CDATA[
+    document.addEventListener('DOMContentLoaded', () => {
+      const components = [
+        { freq: 1, amp: 1.00, phase: 0 },
+        { freq: 2, amp: 0.72, phase: Math.PI / 6 },
+        { freq: 3, amp: 0.58, phase: -Math.PI / 5 },
+        { freq: 4, amp: 0.44, phase: Math.PI / 2.7 },
+        { freq: 5, amp: 0.33, phase: -Math.PI / 3 },
+        { freq: 6, amp: 0.25, phase: Math.PI / 8 },
+        { freq: 7, amp: 0.19, phase: -3 * Math.PI / 5 }
+      ];
+
+      const basePeriod = 12;
+      const layout = {
+        left: { x: 70, width: 380, top: 130, bottom: 690 },
+        middle: { x: 520, width: 360, top: 90, bandHeight: 70, bandGap: 18 },
+        right: { x: 960, width: 360, phaseTop: 120, phaseHeight: 220, magTop: 430, magHeight: 270 }
+      };
+      layout.left.center = (layout.left.top + layout.left.bottom) / 2;
+      layout.left.height = layout.left.bottom - layout.left.top;
+
+      const sumPath = document.getElementById('complex-wave');
+      const mixDrop = document.getElementById('mix-drop');
+      const mixMarker = document.getElementById('mix-marker');
+
+      const sampleCount = 720;
+      const sumValues = [];
+      const componentValues = components.map(() => []);
+      let maxSum = 0;
+      for (let i = 0; i < sampleCount; i++) {
+        const xNorm = i / (sampleCount - 1);
+        const theta = xNorm * Math.PI * 4; // two periods
+        let total = 0;
+        components.forEach((comp, idx) => {
+          const value = comp.amp * Math.sin(comp.freq * theta + comp.phase);
+          componentValues[idx].push(value);
+          total += value;
+        });
+        sumValues.push(total);
+        const abs = Math.abs(total);
+        if (abs > maxSum) maxSum = abs;
+      }
+
+      const leftScale = (layout.left.height * 0.46) / maxSum;
+      const maxAmp = Math.max(...components.map(c => c.amp));
+      const componentScale = (layout.middle.bandHeight * 0.45) / maxAmp;
+
+      const pathFromValues = (values, xStart, width, center, scale) => values.map((value, idx) => {
+        const x = xStart + (idx / (values.length - 1)) * width;
+        const y = center - value * scale;
+        return `${idx === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
+      }).join(' ');
+
+      sumPath.setAttribute('d', pathFromValues(sumValues, layout.left.x, layout.left.width, layout.left.center, leftScale));
+      sumPath.style.animationDuration = `${basePeriod}s`;
+
+      const connectIndex = Math.floor(sampleCount * 0.82);
+      const connectNorm = connectIndex / (sampleCount - 1);
+      const connectX = layout.left.x + connectNorm * layout.left.width;
+      mixDrop.setAttribute('x1', connectX);
+      mixDrop.setAttribute('x2', connectX);
+      mixDrop.setAttribute('y1', layout.left.top);
+      mixDrop.setAttribute('y2', layout.left.bottom);
+      const mixY = layout.left.center - sumValues[connectIndex] * leftScale;
+      mixMarker.setAttribute('cx', connectX);
+      mixMarker.setAttribute('cy', mixY);
+
+      components.forEach((comp, idx) => {
+        const centerY = layout.middle.top + idx * (layout.middle.bandHeight + layout.middle.bandGap) + layout.middle.bandHeight / 2;
+        const axis = document.getElementById(`axis-${idx + 1}`);
+        axis.setAttribute('x1', layout.middle.x);
+        axis.setAttribute('x2', layout.middle.x + layout.middle.width);
+        axis.setAttribute('y1', centerY);
+        axis.setAttribute('y2', centerY);
+
+        const path = document.getElementById(`component-wave-${idx + 1}`);
+        path.setAttribute('d', pathFromValues(componentValues[idx], layout.middle.x, layout.middle.width, centerY, componentScale));
+        path.style.animationDuration = `${(basePeriod / comp.freq).toFixed(2)}s`;
+
+        const label = document.getElementById(`label-${idx + 1}`);
+        label.setAttribute('x', layout.middle.x - 26);
+        label.setAttribute('y', centerY - layout.middle.bandHeight / 2 + 14);
+        const freqLabel = comp.freq === 1 ? 'f' : `${comp.freq}f`;
+        const phaseDeg = (comp.phase * 180 / Math.PI).toFixed(0);
+        label.textContent = `a${idx + 1} = ${comp.amp.toFixed(2)} · sin(${freqLabel}·t + ${phaseDeg}°)`;
+
+        const connector = document.getElementById(`connector-${idx + 1}`);
+        const node = document.getElementById(`connector-node-${idx + 1}`);
+        const yContribution = layout.left.center - componentValues[idx][connectIndex] * leftScale;
+        connector.setAttribute('x1', layout.middle.x);
+        connector.setAttribute('x2', connectX);
+        connector.setAttribute('y1', centerY);
+        connector.setAttribute('y2', yContribution);
+        node.setAttribute('cx', connectX);
+        node.setAttribute('cy', yContribution);
+      });
+
+      const spacing = layout.right.width / (components.length + 1);
+      const barWidth = 32;
+      const magBaseY = layout.right.magTop + layout.right.magHeight;
+      const magMax = Math.max(...components.map(c => c.amp));
+      const svgNS = 'http://www.w3.org/2000/svg';
+
+      components.forEach((comp, idx) => {
+        const freqLabel = comp.freq === 1 ? 'f' : `${comp.freq}f`;
+        const xCenter = layout.right.x + spacing * (idx + 1);
+        const bar = document.getElementById(`bar-${idx + 1}`);
+        const barVal = document.getElementById(`bar-value-${idx + 1}`);
+        const barLabel = document.getElementById(`bar-label-${idx + 1}`);
+        const barHeight = (comp.amp / magMax) * (layout.right.magHeight - 40);
+        bar.setAttribute('x', (xCenter - barWidth / 2).toFixed(2));
+        bar.setAttribute('width', barWidth);
+        bar.setAttribute('y', (magBaseY - barHeight).toFixed(2));
+        bar.setAttribute('height', barHeight.toFixed(2));
+        barVal.setAttribute('x', xCenter);
+        barVal.setAttribute('y', magBaseY - barHeight - 12);
+        barVal.textContent = comp.amp.toFixed(2);
+        barLabel.setAttribute('x', xCenter);
+        barLabel.setAttribute('y', magBaseY + 22);
+        barLabel.textContent = freqLabel;
+
+        const phaseGroup = document.getElementById(`phase-${idx + 1}`);
+        phaseGroup.setAttribute('transform', `translate(${xCenter}, ${layout.right.phaseTop + layout.right.phaseHeight / 2})`);
+        const phaseRay = document.getElementById(`phase-ray-${idx + 1}`);
+        const radius = 36;
+        phaseRay.setAttribute('x2', (radius * Math.cos(comp.phase)).toFixed(2));
+        phaseRay.setAttribute('y2', (radius * Math.sin(comp.phase)).toFixed(2));
+
+        let phaseLabel = document.getElementById(`phase-label-${idx + 1}`);
+        if (!phaseLabel) {
+          phaseLabel = document.createElementNS(svgNS, 'text');
+          phaseLabel.setAttribute('id', `phase-label-${idx + 1}`);
+          phaseLabel.setAttribute('class', 'phase-label');
+          document.getElementById('phase-panel').appendChild(phaseLabel);
+        }
+        phaseLabel.setAttribute('x', xCenter);
+        phaseLabel.setAttribute('y', layout.right.phaseTop + layout.right.phaseHeight + 20);
+        const phaseDeg = (comp.phase * 180 / Math.PI).toFixed(0);
+        phaseLabel.textContent = `${freqLabel}: ${phaseDeg}°`;
+      });
+    });
+  ]]></script>
+</svg>

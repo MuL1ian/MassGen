@@ -1,0 +1,252 @@
+<svg viewBox="0 0 1400 800" xmlns="http://www.w3.org/2000/svg" style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8f9fa;">
+  <defs>
+    <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+      <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#e0e0e0" stroke-width="1"/>
+    </pattern>
+
+    <style>
+      .axis-line { stroke: #333; stroke-width: 2; }
+      .grid-bg { fill: url(#grid); }
+      .label-text { font-size: 14px; fill: #555; }
+      .title-text { font-size: 18px; font-weight: bold; fill: #333; }
+      .formula-text { font-size: 20px; font-family: 'Times New Roman', serif; fill: #333; }
+
+      /* Wave Styles */
+      .complex-wave { fill: none; stroke: #2c3e50; stroke-width: 3; }
+      .component-wave { fill: none; stroke-width: 2; }
+      .comp-1 { stroke: #e74c3c; }
+      .comp-2 { stroke: #3498db; }
+      .comp-3 { stroke: #2ecc71; }
+      .comp-4 { stroke: #9b59b6; }
+      .comp-5 { stroke: #f1c40f; }
+      .comp-6 { stroke: #e67e22; }
+      .comp-7 { stroke: #1abc9c; }
+
+      .connection-line { fill: none; stroke: #bdc3c7; stroke-width: 1; stroke-dasharray: 4 4; }
+
+      /* Spectrum Styles */
+      .bar { fill: #34495e; opacity: 0.8; }
+      .phase-circle { fill: none; stroke: #7f8c8d; stroke-width: 2; }
+      .phase-indicator { stroke: #c0392b; stroke-width: 3; stroke-linecap: round; }
+
+      /* Animation Definitions */
+      /* The container is 400px wide (2 periods). We generate 800px (4 periods) of data and slide it left by 400px. */
+      @keyframes slideWave {
+        0% { transform: translateX(0px); }
+        100% { transform: translateX(-400px); }
+      }
+
+      .animated-wave {
+        /* 8 seconds for 2 full periods to pass, infinite loop for continuous scrolling */
+        animation: slideWave 8s linear infinite;
+      }
+
+      /* Phase Rotation Animations */
+      /* Base rotation speed. Higher frequencies rotate faster relative to this. */
+      @keyframes rotatePhase {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </defs>
+
+  <g transform="translate(50, 50)">
+    <text x="200" y="-20" class="title-text" text-anchor="middle">Complex Periodic Wave y(t)</text>
+    <rect x="0" y="0" width="400" height="600" class="grid-bg"/>
+
+    <line x1="0" y1="300" x2="400" y2="300" class="axis-line" /> <line x1="0" y1="0" x2="0" y2="600" class="axis-line" />   <text x="410" y="305" class="label-text">t (2 Periods)</text>
+    <text x="-10" y="20" class="label-text" text-anchor="end">Amp</text>
+    <text x="0" y="320" class="label-text">0</text>
+    <text x="200" y="320" class="label-text" text-anchor="middle">T</text>
+    <text x="400" y="320" class="label-text" text-anchor="end">2T</text>
+
+    <svg x="0" y="0" width="400" height="600" viewBox="0 0 400 600">
+      <g class="animated-wave">
+          <path class="complex-wave" d="M0,300 L5,277.9 L10,256.5 L15,237.3 L20,221.6 L25,210.7 L30,205.3 L35,205.8 L40,211.6 L45,222.1 L50,236.1 L55,252 L60,267.8 L65,281.6 L70,291.9 L75,297.7 L80,298.3 L85,293.7 L90,284.8 L95,272.9 L100,260.2 L105,249.2 L110,242.6 L115,242.6 L120,250.3 L125,265.8 L130,287.8 L135,313.9 L140,341.2 L145,366.6 L150,387.6 L155,402.7 L160,411.9 L165,416.5 L170,418.8 L175,421.4 L180,426.5 L185,435.5 L190,447.8 L195,461.3 L200,473.2 L205,480.9 L210,483 L215,478.6 L220,467.9 L225,452.4 L230,434.3 L235,416.4 L240,401.4 L245,391.6 L250,387.9 L255,390.2 L260,397.5 L265,408.2 L270,420 L275,430.2 L280,436.8 L285,438.9 L290,436.4 L295,429.8 L300,420.9 L305,411.7 L310,404.5 L315,401.4 L320,403.9 L325,412.4 L330,425.8 L335,441.4 L340,456 L345,467 L350,472.8 L355,473 L360,468 L365,458.8 L370,446.7 L375,433.7 L380,421.9 L385,413.3 L390,409.2 L395,410.2 L400,416.6 L405,427.8 L410,441.5 L415,454.9 L420,465.3 L425,470.4 L430,469.2 L435,462.1 L440,450.6 L445,436.7 L450,423 L455,411.7 L460,404.9 L465,403.9 L470,409.1 L475,420 L480,434.6 L485,450 L490,463.1 L495,470.9 L500,471.6 L505,464.9 L510,451.9 L515,434.7 L520,416.7 L525,401.5 L530,391.8 L535,388.2 L540,390.5 L545,397.7 L550,408 L555,419.1 L560,428.3 L565,433.7 L570,434.6 L575,430.7 L580,423.1 L585,413.8 L590,404.6 L595,397.4 L600,393.5 L605,393.3 L610,396.4 L615,401.5 L620,406.8 L625,410.3 L630,410 L635,404.7 L640,393.4 L645,376.3 L650,354.8 L655,331.2 L660,308 L665,287.6 L670,271.4 L675,259.8 L680,252.5 L685,248.3 L690,245.9 L695,243.8 L700,240.9 L705,236 L710,228.5 L715,218.5 L720,207 L725,195.7 L730,186.5 L735,181 L740,180.8 L745,186.2 L750,197.3 L755,213.2 L760,232 L765,251.3 L770,268.1 L775,280 L780,286 L785,286.3 L790,281.9 L795,274.6 L800,266.3" />
+      </g>
+    </svg>
+  </g>
+
+  <g transform="translate(500, 50)">
+    <text x="200" y="-20" class="title-text" text-anchor="middle">Fourier Components (Sine Waves)</text>
+
+    <g transform="translate(0, 0)">
+      <line x1="-50" y1="42" x2="0" y2="42" class="connection-line" opacity="0.5"/>
+      <line x1="0" y1="42" x2="400" y2="42" class="axis-line" stroke-width="1"/>
+      <text x="-10" y="47" class="label-text" text-anchor="end" font-weight="bold">f</text>
+      <text x="410" y="47" class="label-text">A₁=1.0</text>
+      <svg x="0" y="0" width="400" height="85" viewBox="0 0 400 85">
+        <g class="animated-wave">
+            <path class="component-wave comp-1" d="M0,42.5 L10,48.6 L20,54.5 L30,60 L40,65.1 L50,69.7 L60,73.7 L70,77.1 L80,79.9 L90,82 L100,83.3 L110,83.9 L120,83.8 L130,82.9 L140,81.4 L150,79.1 L160,76.1 L170,72.6 L180,68.5 L190,63.8 L200,58.7 L210,53.1 L220,47.2 L230,41 L240,34.5 L250,27.9 L260,21.2 L270,14.4 L280,7.8 L290,1.3 L300,0 L310,0 L320,0 L330,0 L340,0 L350,0 L360,0 L370,0 L380,0 L390,0 L400,0 L410,1.3 L420,7.8 L430,14.4 L440,21.2 L450,27.9 L460,34.5 L470,41 L480,47.2 L490,53.1 L500,58.7 L510,63.8 L520,68.5 L530,72.6 L540,76.1 L550,79.1 L560,81.4 L570,82.9 L580,83.8 L590,83.9 L600,83.3 L610,82 L620,79.9 L630,77.1 L640,73.7 L650,69.7 L660,65.1 L670,60 L680,54.5 L690,48.6 L700,42.5 L710,36.4 L720,30.5 L730,25 L740,19.9 L750,15.3 L760,11.3 L770,7.9 L780,5.1 L790,3 L800,1.7" transform="scale(1, 0.5) translate(0, 42.5)"/>
+        </g>
+      </svg>
+    </g>
+
+    <g transform="translate(0, 85)">
+      <line x1="-50" y1="42" x2="0" y2="42" class="connection-line" opacity="0.5"/>
+      <line x1="0" y1="42" x2="400" y2="42" class="axis-line" stroke-width="1"/>
+      <text x="-10" y="47" class="label-text" text-anchor="end" font-weight="bold">2f</text>
+      <text x="410" y="47" class="label-text">A₂=0.5</text>
+       <svg x="0" y="0" width="400" height="85" viewBox="0 0 400 85">
+        <g class="animated-wave">
+            <path class="component-wave comp-2" d="M0,57.5 L10,62.7 L20,63.7 L30,60.5 L40,53.7 L50,44.2 L60,33.5 L70,23.5 L80,16.2 L90,12.9 L100,14.2 L110,19.9 L120,29.5 L130,41.7 L140,54.7 L150,66.3 L160,74.6 L170,78.4 L180,77.5 L190,71.7 L200,61.7 L210,48.8 L220,35 L230,22.7 L240,14.2 L250,11 L260,13.1 L270,20.4 L280,31.7 L290,45.6 L300,59.7 L310,71.7 L320,79.6 L330,82.3 L340,79.4 L350,71 L360,58.1 L370,42.6 L380,27 L390,14.1 L400,6.5 L410,5.7 L420,11.4 L430,23.1 L440,39.1 L450,56.7 L460,73 L470,85 L480,90.8 L490,89.5 L500,81.6 L510,68.2 L520,51.4 L530,33.9 L540,18.6 L550,8.3 L560,4.5 L570,7.7 L580,17.3 L590,32.5 L600,51.1 L610,70 L620,85.9 L630,96 L640,98.9 L650,94.4 L660,83 L670,66.2 L680,46.4 L690,26.7 L700,10.7 L710,1.3 L720,0 L730,5.9 L740,18.6 L750,36.2 L760,55.8 L770,74.1 L780,87.9 L790,94.8 L800,93.8" transform="scale(1, 0.25) translate(0, 170)"/>
+        </g>
+      </svg>
+    </g>
+
+    <g transform="translate(0, 170)">
+      <line x1="-50" y1="42" x2="0" y2="42" class="connection-line" opacity="0.5"/>
+      <line x1="0" y1="42" x2="400" y2="42" class="axis-line" stroke-width="1"/>
+      <text x="-10" y="47" class="label-text" text-anchor="end" font-weight="bold">3f</text>
+       <text x="410" y="47" class="label-text">A₃=0.3</text>
+       <svg x="0" y="0" width="400" height="85" viewBox="0 0 400 85">
+        <g class="animated-wave">
+             <path class="component-wave comp-3" d="M0,62.5 L20,58.5 L40,47.2 L60,30.8 L80,12.9 L100,0 L120,-4.1 L140,0 L160,12.9 L180,30.8 L200,47.2 L220,58.5 L240,62.5 L260,58.5 L280,47.2 L300,30.8 L320,12.9 L340,0 L360,-4.1 L380,0 L400,12.9 L420,30.8 L440,47.2 L460,58.5 L480,62.5 L500,58.5 L520,47.2 L540,30.8 L560,12.9 L580,0 L600,-4.1 L620,0 L640,12.9 L660,30.8 L680,47.2 L700,58.5 L720,62.5 L740,58.5 L760,47.2 L780,30.8 L800,12.9" transform="scale(1, 0.2) translate(0, 212.5)"/>
+        </g>
+      </svg>
+    </g>
+
+    <g transform="translate(0, 255)">
+      <line x1="-50" y1="42" x2="0" y2="42" class="connection-line" opacity="0.5"/>
+      <line x1="0" y1="42" x2="400" y2="42" class="axis-line" stroke-width="1"/>
+      <text x="-10" y="47" class="label-text" text-anchor="end" font-weight="bold">4f</text>
+      <text x="410" y="47" class="label-text">A₄=0.2</text>
+      <svg x="0" y="0" width="400" height="85" viewBox="0 0 400 85">
+        <g class="animated-wave">
+           <path class="component-wave comp-4" d="M0,42.5 L20,54.3 L40,61.5 L60,61.5 L80,54.3 L100,42.5 L120,30.7 L140,23.5 L160,23.5 L180,30.7 L200,42.5 L220,54.3 L240,61.5 L260,61.5 L280,54.3 L300,42.5 L320,30.7 L340,23.5 L360,23.5 L380,30.7 L400,42.5 L420,54.3 L440,61.5 L460,61.5 L480,54.3 L500,42.5 L520,30.7 L540,23.5 L560,23.5 L580,30.7 L600,42.5 L620,54.3 L640,61.5 L660,61.5 L680,54.3 L700,42.5 L720,30.7 L740,23.5 L760,23.5 L780,30.7 L800,42.5" transform="scale(1, 0.3) translate(0, 141.6)"/>
+        </g>
+      </svg>
+    </g>
+
+    <g transform="translate(0, 340)">
+      <line x1="-50" y1="42" x2="0" y2="42" class="connection-line" opacity="0.5"/>
+      <line x1="0" y1="42" x2="400" y2="42" class="axis-line" stroke-width="1"/>
+      <text x="-10" y="47" class="label-text" text-anchor="end" font-weight="bold">5f</text>
+      <text x="410" y="47" class="label-text">A₅=0.15</text>
+       <svg x="0" y="0" width="400" height="85" viewBox="0 0 400 85">
+        <g class="animated-wave">
+           <path class="component-wave comp-5" d="M0,22.5 L20,25.6 L40,34.3 L60,46.7 L80,58.4 L100,65.5 L120,65.5 L140,58.4 L160,46.7 L180,34.3 L200,25.6 L220,22.5 L240,25.6 L260,34.3 L280,46.7 L300,58.4 L320,65.5 L340,65.5 L360,58.4 L380,46.7 L400,34.3 L420,25.6 L440,22.5 L460,25.6 L480,34.3 L500,46.7 L520,58.4 L540,65.5 L560,65.5 L580,58.4 L600,46.7 L620,34.3 L640,25.6 L660,22.5 L680,25.6 L700,34.3 L720,46.7 L740,58.4 L760,65.5 L780,65.5 L800,58.4" transform="scale(1, 0.3) translate(0, 141.6)"/>
+        </g>
+      </svg>
+    </g>
+
+     <g transform="translate(0, 425)">
+      <line x1="-50" y1="42" x2="0" y2="42" class="connection-line" opacity="0.5"/>
+      <line x1="0" y1="42" x2="400" y2="42" class="axis-line" stroke-width="1"/>
+      <text x="-10" y="47" class="label-text" text-anchor="end" font-weight="bold">6f</text>
+      <text x="410" y="47" class="label-text">A₆=0.1</text>
+       <svg x="0" y="0" width="400" height="85" viewBox="0 0 400 85">
+        <g class="animated-wave">
+           <path class="component-wave comp-6" d="M0,57.5 L20,48.8 L40,28.9 L60,12.5 L80,12.5 L100,34.5 L120,56.5 L140,67.5 L160,63.6 L180,45.1 L200,22.5 L220,6.4 L240,2.8 L260,15 L280,38.6 L300,61.4 L320,73.6 L340,71.1 L360,54.5 L380,29.9 L400,10 L420,1.2 L440,5.9 L460,23.5 L480,48.5 L500,69.8 L520,78.5 L540,73.1 L560,55.9 L580,33.2 L600,14 L620,3.9 L640,4.8 L660,18 L680,41.5 L700,65.3 L720,79.9 L740,80.2 L760,66.5 L780,43.8 L800,21.2" transform="scale(1, 0.2) translate(0, 212.5)"/>
+        </g>
+      </svg>
+    </g>
+
+      <g transform="translate(0, 510)">
+      <line x1="-50" y1="42" x2="0" y2="42" class="connection-line" opacity="0.5"/>
+      <line x1="0" y1="42" x2="400" y2="42" class="axis-line" stroke-width="1"/>
+      <text x="-10" y="47" class="label-text" text-anchor="end" font-weight="bold">7f</text>
+      <text x="410" y="47" class="label-text">A₇=0.08</text>
+       <svg x="0" y="0" width="400" height="85" viewBox="0 0 400 85">
+        <g class="animated-wave">
+           <path class="component-wave comp-7" d="M0,49.5 L20,67 L40,75 L60,70 L80,53.5 L100,32.5 L120,15 L140,7.5 L160,12.5 L180,29 L200,50 L220,67.5 L240,75 L260,70 L280,53.5 L300,32.5 L320,15 L340,7.5 L360,12.5 L380,29 L400,50 L420,67.5 L440,75 L460,70 L480,53.5 L500,32.5 L520,15 L540,7.5 L560,12.5 L580,29 L600,50 L620,67.5 L640,75 L660,70 L680,53.5 L700,32.5 L720,15 L740,7.5 L760,12.5 L780,29 L800,50" transform="scale(1, 0.15) translate(0, 283.3)"/>
+        </g>
+      </svg>
+    </g>
+  </g>
+
+
+  <g transform="translate(980, 50)">
+
+    <text x="180" y="-20" class="title-text" text-anchor="middle">Frequency Domain Formula</text>
+     <rect x="10" y="10" width="340" height="60" fill="white" stroke="#bdc3c7" rx="5"/>
+    <text x="180" y="45" class="formula-text" text-anchor="middle">y(t) = Σ Aₙ sin(nωt + φₙ)</text>
+    <text x="180" y="65" class="label-text" text-anchor="middle" font-size="12px">for n = 1 to 7</text>
+
+    <g transform="translate(0, 120)">
+      <text x="180" y="-15" class="title-text" text-anchor="middle" font-size="16px">Phase Spectrum (φₙ)</text>
+      <rect x="0" y="0" width="360" height="100" class="grid-bg"/>
+
+      <g transform="translate(30, 50)">
+        <circle r="30" class="phase-circle comp-1" opacity="0.3"/>
+        <g>
+             <line x1="0" y1="0" x2="30" y2="0" class="phase-indicator comp-1"/>
+             <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="8s" repeatCount="indefinite"/>
+        </g>
+        <text x="0" y="45" class="label-text" text-anchor="middle">f</text>
+      </g>
+       <g transform="translate(80, 50)">
+        <circle r="30" class="phase-circle comp-2" opacity="0.3"/>
+        <g transform="rotate(45)">
+             <line x1="0" y1="0" x2="30" y2="0" class="phase-indicator comp-2"/>
+              <animateTransform attributeName="transform" type="rotate" from="45 0 0" to="405 0 0" dur="4s" repeatCount="indefinite"/>
+        </g>
+        <text x="0" y="45" class="label-text" text-anchor="middle">2f</text>
+      </g>
+      <g transform="translate(130, 50)">
+        <circle r="30" class="phase-circle comp-3" opacity="0.3"/>
+        <g transform="rotate(90)">
+             <line x1="0" y1="0" x2="30" y2="0" class="phase-indicator comp-3"/>
+              <animateTransform attributeName="transform" type="rotate" from="90 0 0" to="450 0 0" dur="2.66s" repeatCount="indefinite"/>
+        </g>
+        <text x="0" y="45" class="label-text" text-anchor="middle">3f</text>
+      </g>
+       <g transform="translate(180, 50)">
+        <circle r="30" class="phase-circle comp-4" opacity="0.3"/>
+        <g>
+             <line x1="0" y1="0" x2="30" y2="0" class="phase-indicator comp-4"/>
+              <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="2s" repeatCount="indefinite"/>
+        </g>
+        <text x="0" y="45" class="label-text" text-anchor="middle">4f</text>
+      </g>
+      <g transform="translate(230, 50)">
+        <circle r="30" class="phase-circle comp-5" opacity="0.3"/>
+        <g transform="rotate(270)">
+             <line x1="0" y1="0" x2="30" y2="0" class="phase-indicator comp-5"/>
+              <animateTransform attributeName="transform" type="rotate" from="270 0 0" to="630 0 0" dur="1.6s" repeatCount="indefinite"/>
+        </g>
+        <text x="0" y="45" class="label-text" text-anchor="middle">5f</text>
+      </g>
+       <g transform="translate(280, 50)">
+        <circle r="30" class="phase-circle comp-6" opacity="0.3"/>
+        <g transform="rotate(180)">
+             <line x1="0" y1="0" x2="30" y2="0" class="phase-indicator comp-6"/>
+             <animateTransform attributeName="transform" type="rotate" from="180 0 0" to="540 0 0" dur="1.33s" repeatCount="indefinite"/>
+        </g>
+        <text x="0" y="45" class="label-text" text-anchor="middle">6f</text>
+      </g>
+       <g transform="translate(330, 50)">
+        <circle r="30" class="phase-circle comp-7" opacity="0.3"/>
+        <g transform="rotate(30)">
+             <line x1="0" y1="0" x2="30" y2="0" class="phase-indicator comp-7"/>
+             <animateTransform attributeName="transform" type="rotate" from="30 0 0" to="390 0 0" dur="1.14s" repeatCount="indefinite"/>
+        </g>
+        <text x="0" y="45" class="label-text" text-anchor="middle">7f</text>
+      </g>
+    </g>
+
+    <g transform="translate(0, 300)">
+      <text x="180" y="-15" class="title-text" text-anchor="middle" font-size="16px">Magnitude Spectrum (Aₙ)</text>
+      <rect x="0" y="0" width="360" height="300" class="grid-bg"/>
+      <line x1="0" y1="300" x2="360" y2="300" class="axis-line"/>
+      <line x1="0" y1="0" x2="0" y2="300" class="axis-line"/>
+
+      <text x="370" y="305" class="label-text">Frequency</text>
+      <text x="-10" y="10" class="label-text" text-anchor="end">Magnitude</text>
+
+      <rect x="20" y="50" width="30" height="250" class="bar comp-1"/>
+      <text x="35" y="320" class="label-text" text-anchor="middle">f</text>
+      <rect x="70" y="175" width="30" height="125" class="bar comp-2"/>
+       <text x="85" y="320" class="label-text" text-anchor="middle">2f</text>
+      <rect x="120" y="225" width="30" height="75" class="bar comp-3"/>
+       <text x="135" y="320" class="label-text" text-anchor="middle">3f</text>
+      <rect x="170" y="250" width="30" height="50" class="bar comp-4"/>
+       <text x="185" y="320" class="label-text" text-anchor="middle">4f</text>
+      <rect x="220" y="262.5" width="30" height="37.5" class="bar comp-5"/>
+       <text x="235" y="320" class="label-text" text-anchor="middle">5f</text>
+      <rect x="270" y="275" width="30" height="25" class="bar comp-6"/>
+       <text x="285" y="320" class="label-text" text-anchor="middle">6f</text>
+      <rect x="320" y="280" width="30" height="20" class="bar comp-7"/>
+       <text x="335" y="320" class="label-text" text-anchor="middle">7f</text>
+    </g>
+  </g>
+</svg>
