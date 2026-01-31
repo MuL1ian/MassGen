@@ -49,9 +49,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
-import re
 import sys
-import uuid
 import warnings
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -78,14 +76,16 @@ from ..logger_config import (
 )
 from ..structured_logging import get_current_round, get_tracer, log_token_usage
 from ..tool import ToolManager
-from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
 from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import (
     FilesystemSupport,
     LLMBackend,
     StreamChunk,
-    get_multimodal_tool_definitions,
+    build_workflow_instructions,
 )
+from .base import extract_structured_response as _extract_structured_response
+from .base import get_multimodal_tool_definitions
+from .base import parse_workflow_tool_calls as _parse_workflow_tool_calls
 
 
 class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
@@ -1148,66 +1148,11 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                 "directories you were told to work in, not any parent directories.",
             )
 
-        # Add workflow tools information if present
+        # Add workflow tools section (shared with Codex backend)
         if tools:
-            workflow_tools = [t for t in tools if t.get("function", {}).get("name") in WORKFLOW_TOOL_NAMES]
-            if workflow_tools:
-                system_parts.append("\n--- Coordination Actions ---")
-                for tool in workflow_tools:
-                    name = tool.get("function", {}).get("name", "unknown")
-                    description = tool.get("function", {}).get("description", "No description")
-                    system_parts.append(f"- {name}: {description}")
-
-                    # Add usage examples for workflow tools
-                    if name == "new_answer":
-                        system_parts.append(
-                            '    Usage: {"tool_name": "new_answer", ' '"arguments": {"content": "your improved answer. If any builtin tools were used, mention how they are used here."}}',
-                        )
-                    elif name == "vote":
-                        # Extract valid agent IDs from enum if available
-                        agent_id_enum = None
-                        for t in tools:
-                            if t.get("function", {}).get("name") == "vote":
-                                agent_id_param = t.get("function", {}).get("parameters", {}).get("properties", {}).get("agent_id", {})
-                                if "enum" in agent_id_param:
-                                    agent_id_enum = agent_id_param["enum"]
-                                break
-
-                        if agent_id_enum:
-                            agent_list = ", ".join(agent_id_enum)
-                            system_parts.append(f'    Usage: {{"tool_name": "vote", ' f'"arguments": {{"agent_id": "agent1", ' f'"reason": "explanation"}}}} // Choose agent_id from: {agent_list}')
-                        else:
-                            system_parts.append('    Usage: {"tool_name": "vote", ' '"arguments": {"agent_id": "agent1", ' '"reason": "explanation"}}')
-                    elif name == "submit":
-                        system_parts.append(
-                            '    Usage: {"tool_name": "submit", ' '"arguments": {"confirmed": true}}',
-                        )
-                    elif name == "restart_orchestration":
-                        system_parts.append(
-                            '    Usage: {"tool_name": "restart_orchestration", ' '"arguments": {"reason": "The answer is incomplete because...", ' '"instructions": "In the next attempt, please..."}}',
-                        )
-                    elif name == "ask_others":
-                        system_parts.append(
-                            '    Usage: {"tool_name": "ask_others", ' '"arguments": {"question": "Which framework should we use: Next.js or React?"}}',
-                        )
-                        system_parts.append(
-                            '    IMPORTANT: When user says "call ask_others" or "ask others", you MUST execute this tool call.',
-                        )
-
-                system_parts.append("\n--- MassGen Coordination Instructions ---")
-                system_parts.append("IMPORTANT: You must respond with a structured JSON decision at the end of your response.")
-                # system_parts.append(
-                #     "You must use the coordination tools (new_answer, vote) "
-                #     "to participate in multi-agent workflows."
-                # )
-                # system_parts.append(
-                #     "Make sure to include the JSON in the exact format shown in the usage examples above.")
-                system_parts.append("The JSON MUST be formatted as a strict JSON code block:")
-                system_parts.append("1. Start with ```json on one line")
-                system_parts.append("2. Include your JSON content (properly formatted)")
-                system_parts.append("3. End with ``` on one line")
-                system_parts.append('Example format:\n```json\n{"tool_name": "vote", "arguments": {"agent_id": "agent1", "reason": "explanation"}}\n```')
-                system_parts.append("The JSON block should be placed at the very end of your response, after your analysis.")
+            workflow_section = build_workflow_instructions(tools)
+            if workflow_section:
+                system_parts.append(workflow_section)
 
         return "\n".join(system_parts)
 
@@ -1240,165 +1185,12 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
             )
 
     def extract_structured_response(self, response_text: str) -> Optional[Dict[str, Any]]:
-        """Extract structured JSON response for Claude Code format.
-
-        Looks for JSON in the format:
-        {"tool_name": "vote/new_answer", "arguments": {...}}
-
-        Args:
-            response_text: The full response text to search
-
-        Returns:
-            Extracted JSON dict if found, None otherwise
-        """
-        try:
-            import re
-
-            # Strategy 0: Look for JSON inside markdown code blocks first
-            markdown_json_pattern = r"```json\s*(\{.*?\})\s*```"
-            markdown_matches = re.findall(markdown_json_pattern, response_text, re.DOTALL)
-
-            for match in reversed(markdown_matches):
-                try:
-                    parsed = json.loads(match.strip())
-                    if isinstance(parsed, dict) and "tool_name" in parsed:
-                        return parsed
-                except json.JSONDecodeError:
-                    continue
-
-            # Strategy 1: Look for complete JSON blocks with proper braces
-            json_pattern = r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}"
-            json_matches = re.findall(json_pattern, response_text, re.DOTALL)
-
-            # Try parsing each match (in reverse order - last one first)
-            for match in reversed(json_matches):
-                try:
-                    cleaned_match = match.strip()
-                    parsed = json.loads(cleaned_match)
-                    if isinstance(parsed, dict) and "tool_name" in parsed:
-                        return parsed
-                except json.JSONDecodeError:
-                    continue
-
-            # Strategy 2: Look for JSON blocks with nested braces (more complex)
-            brace_count = 0
-            json_start = -1
-
-            for i, char in enumerate(response_text):
-                if char == "{":
-                    if brace_count == 0:
-                        json_start = i
-                    brace_count += 1
-                elif char == "}":
-                    brace_count -= 1
-                    if brace_count == 0 and json_start >= 0:
-                        # Found a complete JSON block
-                        json_block = response_text[json_start : i + 1]
-                        try:
-                            parsed = json.loads(json_block)
-                            if isinstance(parsed, dict) and "tool_name" in parsed:
-                                return parsed
-                        except json.JSONDecodeError:
-                            pass
-                        json_start = -1
-
-            # Strategy 3: Line-by-line approach (fallback)
-            lines = response_text.strip().split("\n")
-            json_candidates = []
-
-            for i, line in enumerate(lines):
-                stripped = line.strip()
-                if stripped.startswith("{") and stripped.endswith("}"):
-                    json_candidates.append(stripped)
-                elif stripped.startswith("{"):
-                    # Multi-line JSON - collect until closing brace
-                    json_text = stripped
-                    for j in range(i + 1, len(lines)):
-                        json_text += "\n" + lines[j].strip()
-                        if lines[j].strip().endswith("}"):
-                            json_candidates.append(json_text)
-                            break
-
-            # Try to parse each candidate
-            for candidate in reversed(json_candidates):
-                try:
-                    parsed = json.loads(candidate)
-                    if isinstance(parsed, dict) and "tool_name" in parsed:
-                        return parsed
-                except json.JSONDecodeError:
-                    continue
-
-            return None
-
-        except Exception:
-            return None
+        """Extract structured JSON response — delegates to shared helper."""
+        return _extract_structured_response(response_text)
 
     def _parse_workflow_tool_calls(self, text_content: str) -> List[Dict[str, Any]]:
-        """Parse workflow tool calls from text content.
-
-        Searches for JSON-formatted tool calls in the response text and
-        converts them to the standard tool call format used by MassGen.
-        Uses the extract_structured_response method for robust JSON extraction.
-
-        Args:
-            text_content: Response text to search for tool calls
-
-        Returns:
-            List of unique tool call dictionaries in standard format
-        """
-        tool_calls = []
-
-        # First try to extract structured JSON response
-        structured_response = self.extract_structured_response(text_content)
-
-        if structured_response and isinstance(structured_response, dict):
-            tool_name = structured_response.get("tool_name")
-            arguments = structured_response.get("arguments", {})
-
-            if tool_name and isinstance(arguments, dict):
-                tool_calls.append(
-                    {
-                        "id": f"call_{uuid.uuid4().hex[:8]}",
-                        "type": "function",
-                        "function": {"name": tool_name, "arguments": arguments},
-                    },
-                )
-                return tool_calls
-
-        # Fallback: Look for multiple JSON tool calls using regex patterns
-        seen_calls = set()  # Track unique tool calls to prevent duplicates
-
-        # Look for JSON tool call patterns
-        json_patterns = [
-            r'\{"tool_name":\s*"([^"]+)",\s*"arguments":\s*' r"(\{[^}]*\})\}",
-            r'\{\s*"tool_name"\s*:\s*"([^"]+)"\s*,\s*"arguments"' r"\s*:\s*(\{[^}]*\})\s*\}",
-        ]
-
-        for pattern in json_patterns:
-            matches = re.finditer(pattern, text_content, re.IGNORECASE)
-            for match in matches:
-                tool_name = match.group(1)
-                try:
-                    arguments = json.loads(match.group(2))
-
-                    # Create a unique identifier for this tool call
-                    # Based on tool name and arguments content
-                    call_signature = (tool_name, json.dumps(arguments, sort_keys=True))
-
-                    # Only add if we haven't seen this exact call before
-                    if call_signature not in seen_calls:
-                        seen_calls.add(call_signature)
-                        tool_calls.append(
-                            {
-                                "id": f"call_{uuid.uuid4().hex[:8]}",
-                                "type": "function",
-                                "function": {"name": tool_name, "arguments": arguments},
-                            },
-                        )
-                except json.JSONDecodeError:
-                    continue
-
-        return tool_calls
+        """Parse workflow tool calls from text — delegates to shared helper."""
+        return _parse_workflow_tool_calls(text_content)
 
     def _build_claude_options(self, **options_kwargs) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions with provided parameters.

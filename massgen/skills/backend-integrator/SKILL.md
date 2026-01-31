@@ -341,7 +341,43 @@ backend:
   auto_discover_custom_tools: true        # Discover from registry
 ```
 
-**MassGen workflow tools** (new_answer, vote, etc.): Always injected via system prompt — these are coordination-level, not executable tools.
+**MassGen workflow tools** (new_answer, vote, etc.): Always injected via system prompt — these are coordination-level, not executable tools. See §6.7 for full details.
+
+#### 6.7 Workflow Tool Integration (vote, new_answer, etc.)
+
+Workflow tools are NOT native function-calling tools — they're injected into the system prompt and parsed from the model's text output. This pattern is shared between Claude Code and Codex backends.
+
+**Shared helpers** in `massgen/backend/base.py`:
+```python
+from .base import build_workflow_instructions, parse_workflow_tool_calls, extract_structured_response
+
+# build_workflow_instructions(tools) → str
+#   Filters tools to workflow tools, returns instruction text with usage examples.
+#   Returns "" if no workflow tools present.
+
+# parse_workflow_tool_calls(text) → List[Dict]
+#   Extracts JSON tool calls from text output.
+#   Returns standard format: {id, type, function: {name, arguments}}
+
+# extract_structured_response(text) → Optional[Dict]
+#   Low-level: extracts {"tool_name": "...", "arguments": {...}} from text.
+#   Tries: ```json blocks → regex → brace-matching → line-by-line.
+```
+
+**For API backends**: Workflow tools are passed as normal function tools — no injection needed.
+
+**For CLI/SDK backends** (Codex, Claude Code): The model can't receive native function tool definitions, so:
+
+1. **Build instructions**: Call `build_workflow_instructions(tools)` to get the instruction text
+2. **Inject into system prompt**: Append to whatever mechanism the backend uses for system prompts
+3. **Accumulate text output**: Track all `content` chunks during streaming
+4. **Parse after streaming**: Call `parse_workflow_tool_calls(accumulated_text)` to extract tool calls
+5. **Yield as done chunk**: `yield StreamChunk(type="done", tool_calls=workflow_tool_calls)`
+
+**Codex-specific**: Instructions go into `AGENTS.md` at the workspace root (Codex auto-reads this). The orchestrator's system message is also extracted from messages and included, since Codex only receives a single user prompt via CLI — the system message from the orchestrator would otherwise be lost. This approach was utilized as the developer instructions approach wasn't working.
+
+**Claude Code-specific**: Instructions are built by `_build_system_prompt_with_workflow_tools()` which also adds MCP command-line sections, then passed as `system_prompt` to the SDK.
+
 
 #### 6.6 Provider-Native Tools: Keep vs. Override
 
@@ -447,6 +483,27 @@ If a CLI-based backend doesn't support Docker natively, run the CLI inside the M
 5. If the CLI needs host credentials, mount them read-only via `_build_credential_mounts()`
 
 **Reference**: `codex.py` implements this pattern with `_stream_docker()` / `_stream_local()` branching.
+
+#### Docker MCP Path Resolution
+MCP server configs are built by the orchestrator on the host with absolute host file paths (e.g., `fastmcp run /host/path/massgen/mcp_tools/planning/_server.py:create_server`). Inside Docker, these paths don't exist unless explicitly mounted.
+
+**Solution**: `_docker_manager.py` bind-mounts the `massgen/` package directory into the container at the same host path (read-only). This makes host-path-based MCP configs work as-is inside the container, using the latest source from the host rather than stale pip-installed modules.
+
+#### Shell Sandboxing for Backends with Native Tools
+**This section applies only to backends that bring their own shell/file tools** (e.g., CLI wrappers with built-in command execution). If a backend delegates all tool execution to MassGen's MCP servers, MassGen's `PathPermissionManager` handles sandboxing automatically.
+
+When the backend has its own tools that can access the filesystem or run commands, you must map MassGen's permission model to the backend's sandbox mechanism:
+
+| MassGen concept | Expected access |
+|---|---|
+| Workspace | Write |
+| Temp workspaces | Read-only |
+| Read context paths | Read-only |
+| Write context paths | Write — must be explicitly granted in backend sandbox config |
+
+The workspace is typically writable by default. Read access to the full filesystem is usually allowed. The key task is ensuring write context paths are added to the backend's writable allowlist (e.g., `sandbox_workspace_write.writable_roots` for Codex, `allowed_directories` for Claude Code).
+
+**Docker mode**: Skip backend sandbox config — the container IS the sandbox. Grant full access inside the container.
 
 ### SDK Wrapper Backend (like Claude Code)
 ```

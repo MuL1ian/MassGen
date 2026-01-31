@@ -64,7 +64,9 @@ from .base import (
     FilesystemSupport,
     LLMBackend,
     StreamChunk,
+    build_workflow_instructions,
     get_multimodal_tool_definitions,
+    parse_workflow_tool_calls,
 )
 
 
@@ -369,14 +371,36 @@ class CodexBackend(LLMBackend):
             if mcp_section:
                 config["mcp_servers"] = mcp_section
 
-        # Write system prompt as model instructions file
-        if self.system_prompt:
-            config_dir = Path(self.cwd) / ".codex"
-            config_dir.mkdir(parents=True, exist_ok=True)
-            instructions_path = config_dir / "instructions.md"
-            instructions_path.write_text(self.system_prompt)
-            config["model_instructions_file"] = str(instructions_path)
-            logger.info(f"Wrote Codex instructions file: {instructions_path}")
+        # Inject system prompt + workflow instructions via AGENTS.md in workspace root.
+        # Codex automatically reads AGENTS.md from the working directory.
+        full_prompt = self.system_prompt or ""
+        pending = getattr(self, "_pending_workflow_instructions", "")
+        if pending:
+            full_prompt = (full_prompt + "\n" + pending) if full_prompt else pending
+        if full_prompt:
+            agents_md_path = Path(self.cwd) / "AGENTS.md"
+            agents_md_path.write_text(full_prompt)
+            logger.info(f"Wrote Codex AGENTS.md: {agents_md_path} ({len(full_prompt)} chars)")
+
+        # Configure sandbox writable_roots for local (non-Docker) workspace-write mode.
+        # Codex workspace-write sandbox allows reads everywhere but only writes to:
+        #   cwd (workspace) + /tmp + writable_roots
+        # MassGen pattern: workspace=write, temp_workspaces=read, context_paths per permission.
+        # We only need writable_roots for context paths with write permission.
+        if not self._is_docker_mode and self.approval_mode in ("full-auto", "auto-edit"):
+            writable_roots = []
+            if self.filesystem_manager:
+                ppm = getattr(self.filesystem_manager, "path_permission_manager", None)
+                if ppm:
+                    for mp in getattr(ppm, "managed_paths", []):
+                        if mp.path_type == "context" and getattr(mp, "will_be_writable", False):
+                            writable_roots.append(str(Path(mp.path).resolve()))
+            if writable_roots:
+                config["sandbox_workspace_write"] = {
+                    "writable_roots": writable_roots,
+                    "network_access": True,
+                }
+                logger.info(f"Codex sandbox writable_roots: {writable_roots}")
 
         if not config:
             return
@@ -474,6 +498,10 @@ class CodexBackend(LLMBackend):
         if isinstance(v, bool):
             return "true" if v else "false"
         if isinstance(v, str):
+            if "\n" in v:
+                # Use TOML multiline basic string for content with newlines
+                escaped = v.replace("\\", "\\\\").replace('"""', '\\"""')
+                return f'"""\n{escaped}"""'
             return json.dumps(v)  # JSON string quoting works for TOML
         if isinstance(v, (int, float)):
             return str(v)
@@ -495,26 +523,35 @@ class CodexBackend(LLMBackend):
         - Arrays and strings use standard TOML syntax
         """
         lines: List[str] = []
+        # Write top-level scalar keys FIRST (before any [table] sections),
+        # otherwise TOML parsers assign them to the last open table.
+        table_keys: List[str] = []
         for section_key, section_val in config.items():
             if isinstance(section_val, dict):
-                for name, entry in section_val.items():
-                    lines.append(f"[{section_key}.{name}]")
-                    # Separate simple values from sub-tables (dicts)
-                    sub_tables: List[tuple] = []
-                    for k, v in entry.items():
-                        if isinstance(v, dict):
-                            sub_tables.append((k, v))
-                        else:
-                            lines.append(f"{k} = {CodexBackend._toml_value(v)}")
-                    lines.append("")
-                    # Write sub-tables after simple values
-                    for sub_key, sub_val in sub_tables:
-                        lines.append(f"[{section_key}.{name}.{sub_key}]")
-                        for sk, sv in sub_val.items():
-                            lines.append(f"{sk} = {CodexBackend._toml_value(sv)}")
-                        lines.append("")
+                table_keys.append(section_key)
             else:
                 lines.append(f"{section_key} = {CodexBackend._toml_value(section_val)}")
+        if lines:
+            lines.append("")  # blank line before tables
+
+        for section_key in table_keys:
+            section_val = config[section_key]
+            for name, entry in section_val.items():
+                lines.append(f"[{section_key}.{name}]")
+                # Separate simple values from sub-tables (dicts)
+                sub_tables: List[tuple] = []
+                for k, v in entry.items():
+                    if isinstance(v, dict):
+                        sub_tables.append((k, v))
+                    else:
+                        lines.append(f"{k} = {CodexBackend._toml_value(v)}")
+                lines.append("")
+                # Write sub-tables after simple values
+                for sub_key, sub_val in sub_tables:
+                    lines.append(f"[{section_key}.{name}.{sub_key}]")
+                    for sk, sv in sub_val.items():
+                        lines.append(f"{sk} = {CodexBackend._toml_value(sv)}")
+                    lines.append("")
         path.write_text("\n".join(lines) + "\n")
 
     def _cleanup_workspace_config(self) -> None:
@@ -531,6 +568,10 @@ class CodexBackend(LLMBackend):
             # Remove dir if empty
             if config_dir.exists() and not any(config_dir.iterdir()):
                 config_dir.rmdir()
+            # Also remove AGENTS.md we wrote in workspace root
+            agents_md = Path(self.cwd) / "AGENTS.md"
+            if agents_md.exists():
+                agents_md.unlink()
             logger.info("Cleaned up Codex workspace config.")
         except OSError as e:
             logger.warning(f"Failed to clean up Codex workspace config: {e}")
@@ -594,9 +635,15 @@ class CodexBackend(LLMBackend):
         cmd = [codex_bin, "exec"]
 
         # Resume existing session or start new
+        # `codex exec resume` is a subcommand with its own limited flags
+        # (--json, prompt only) — model/sandbox/cwd flags are NOT accepted.
         if resume_session and self.session_id:
             cmd.extend(["resume", self.session_id])
+            cmd.append("--json")
+            cmd.append(prompt)
+            return cmd
 
+        # --- New session path ---
         # JSON output for parsing
         cmd.append("--json")
 
@@ -605,9 +652,13 @@ class CodexBackend(LLMBackend):
             cmd.extend(["--model", self.model])
 
         # Sandbox + approval mode:
-        # In Docker mode, the container IS the sandbox, so always use danger-full-access
+        # In Docker mode, the container IS the sandbox — bypass Codex's own sandbox
+        # entirely. Using --dangerously-bypass-approvals-and-sandbox (--yolo) instead
+        # of --full-auto -s danger-full-access because the latter still initializes
+        # Landlock on Linux, which fails in containers without the required kernel
+        # capabilities (error: "Sandbox(LandlockRestrict)").
         if for_docker:
-            cmd.extend(["--full-auto", "-s", "danger-full-access"])
+            cmd.append("--dangerously-bypass-approvals-and-sandbox")
         elif self.approval_mode == "full-access":
             # Full filesystem access but still auto-approve via --full-auto
             cmd.extend(["--full-auto", "-s", "danger-full-access"])
@@ -818,7 +869,33 @@ class CodexBackend(LLMBackend):
         """
         await self._ensure_authenticated()
 
-        # Write project-scoped config with MCP servers
+        # Extract system message from messages and merge into instructions file
+        # The orchestrator injects the full system prompt (task context, coordination
+        # instructions, etc.) as the first system message.  Codex only receives a
+        # single user-prompt via CLI, so we must surface the system content through
+        # the model_instructions_file.
+        system_from_messages = ""
+        for msg in messages:
+            if msg.get("role") == "system":
+                c = msg.get("content", "")
+                if isinstance(c, str):
+                    system_from_messages = c
+                elif isinstance(c, list):
+                    system_from_messages = "".join(p.get("text", "") for p in c if p.get("type") == "text")
+                break  # Use first system message only
+
+        if system_from_messages:
+            # Override the backend's system_prompt so _write_workspace_config picks it up
+            self.system_prompt = system_from_messages
+            logger.info(f"Codex: injected system message from orchestrator ({len(system_from_messages)} chars)")
+
+        # Build workflow instructions from tools and store for config writing
+        tool_names = [t.get("function", {}).get("name", "?") for t in (tools or [])]
+        logger.info(f"Codex stream_with_tools: received {len(tools or [])} tools: {tool_names}")
+        self._pending_workflow_instructions = build_workflow_instructions(tools or [])
+        logger.info(f"Codex workflow instructions: {len(self._pending_workflow_instructions)} chars")
+
+        # Write project-scoped config with MCP servers (+ workflow instructions)
         self._write_workspace_config()
 
         # Extract the latest user message as the prompt
@@ -838,20 +915,42 @@ class CodexBackend(LLMBackend):
             yield StreamChunk(type="error", error="No user message found in messages")
             return
 
-        # Determine if we should resume existing session
-        resume_session = self.session_id is not None and len(messages) > 1
+        # Resume session if we have one — Codex maintains server-side history,
+        # so even single-message enforcement retries should resume the session
+        resume_session = self.session_id is not None
 
         # Start API call timing
         self.start_api_call_timing(self.model)
 
-        if self._is_docker_mode:
-            # Docker execution path: run codex inside the MassGen container
-            async for chunk in self._stream_docker(prompt, resume_session):
-                yield chunk
-        else:
-            # Local execution path: spawn subprocess on host
-            async for chunk in self._stream_local(prompt, resume_session):
-                yield chunk
+        # Accumulate text content to parse workflow tool calls after streaming
+        accumulated_content = ""
+        held_done_chunk = None
+        has_workflow = bool(self._pending_workflow_instructions)
+
+        stream = self._stream_docker(prompt, resume_session) if self._is_docker_mode else self._stream_local(prompt, resume_session)
+        async for chunk in stream:
+            if chunk.type == "content" and chunk.content:
+                accumulated_content += chunk.content
+            # Hold the done chunk so we can attach workflow tool calls to it
+            if chunk.type == "done" and has_workflow:
+                held_done_chunk = chunk
+                continue
+            yield chunk
+
+        # Parse workflow tool calls from accumulated text and emit final done
+        if has_workflow and accumulated_content:
+            workflow_tool_calls = parse_workflow_tool_calls(accumulated_content)
+            if workflow_tool_calls:
+                logger.info(f"Codex: parsed {len(workflow_tool_calls)} workflow tool call(s) from text")
+                # Yield tool_calls as separate chunk so orchestrator picks them up
+                yield StreamChunk(type="tool_calls", tool_calls=workflow_tool_calls, source="codex")
+                # Then yield the held done chunk as-is
+                done = held_done_chunk or StreamChunk(type="done")
+                yield done
+            elif held_done_chunk:
+                yield held_done_chunk
+        elif held_done_chunk:
+            yield held_done_chunk
 
     async def _stream_docker(
         self,
@@ -1068,6 +1167,7 @@ class CodexBackend(LLMBackend):
         """Reset session state for new conversation."""
         self.session_id = None
         self._session_file = None
+        self._pending_workflow_instructions = ""
         self._cleanup_workspace_config()
         logger.info("Codex session state reset.")
 

@@ -644,6 +644,15 @@ class DockerManager:
             for host_path, mount_config in session_mount.items():
                 mount_info.append(f"      {host_path} ← {mount_config['bind']} ({mount_config['mode']}, session)")
 
+        # Mount the massgen package directory (read-only) so MCP server scripts
+        # referenced by absolute host paths work inside the container.
+        # The orchestrator builds MCP configs like:
+        #   fastmcp run /host/path/massgen/mcp_tools/planning/_server.py:create_server
+        # By mounting the massgen source at the same path, these commands work as-is.
+        massgen_package_dir = Path(__file__).parent.parent.resolve()
+        volumes[str(massgen_package_dir)] = {"bind": str(massgen_package_dir), "mode": "ro"}
+        mount_info.append(f"      {massgen_package_dir} ← {massgen_package_dir} (ro, massgen package)")
+
         # Create merged skills directory (user skills + massgen skills)
         # openskills expects skills in ~/.agent/skills
         if skills_directory or massgen_skills:
