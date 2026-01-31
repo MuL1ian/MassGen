@@ -465,8 +465,8 @@ class ConfigBuilder:
         try:
             for provider_id, provider_info in self.PROVIDERS.items():
                 try:
-                    # Claude Code is always available (works with CLI login or API key)
-                    if provider_id == "claude_code":
+                    # Claude Code and Codex are always available (work with CLI login/OAuth or API key)
+                    if provider_id in ("claude_code", "codex"):
                         api_keys[provider_id] = True
                         continue
 
@@ -512,6 +512,7 @@ class ConfigBuilder:
                 ("openai", "OpenAI", "OPENAI_API_KEY"),
                 ("anthropic", "Anthropic (Claude)", "ANTHROPIC_API_KEY"),
                 ("claude_code", "Claude Code (optional)", "CLAUDE_CODE_API_KEY"),
+                ("codex", "OpenAI Codex (optional)", "OPENAI_API_KEY"),
                 ("gemini", "Google Gemini", "GOOGLE_API_KEY"),
                 ("grok", "xAI (Grok)", "XAI_API_KEY"),
                 # Azure

@@ -104,6 +104,7 @@ class DockerManager:
         self.mount_gh_config = "gh_config" in mount_list
         self.mount_npm_config = "npm_config" in mount_list
         self.mount_pypi_config = "pypi_config" in mount_list
+        self.mount_codex_config = "codex_config" in mount_list
         self.additional_mounts = credentials.get("additional_mounts", {})
         self.env_file_path = credentials.get("env_file")
         self.pass_env_vars = credentials.get("env_vars", [])
@@ -333,6 +334,9 @@ class DockerManager:
                 logger.info(f"🔐 [Docker] Mounting npm config: {npm_config} → /home/massgen/.npmrc (ro)")
             else:
                 logger.warning(f"⚠️ [Docker] npm config not found: {npm_config}")
+
+        # Codex config: handled separately via _copy_codex_auth() after container creation
+        # (Codex needs write access to ~/.codex/ for session files, so we can't mount read-only)
 
         # Mount pypi config (read-only)
         if self.mount_pypi_config:

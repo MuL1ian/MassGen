@@ -64,6 +64,7 @@ from .backend.azure_openai import AzureOpenAIBackend
 from .backend.chat_completions import ChatCompletionsBackend
 from .backend.claude import ClaudeBackend
 from .backend.claude_code import ClaudeCodeBackend
+from .backend.codex import CodexBackend
 from .backend.gemini import GeminiBackend
 from .backend.grok import GrokBackend
 from .backend.inference import InferenceBackend
@@ -1266,6 +1267,13 @@ def create_backend(backend_type: str, **kwargs) -> Any:
             )
 
         return ClaudeCodeBackend(**kwargs)
+
+    elif backend_type == "codex":
+        # CodexBackend using OpenAI Codex CLI subprocess wrapper
+        # Authentication: API key (OPENAI_API_KEY) or ChatGPT OAuth
+        # Requires: npm install -g @openai/codex
+
+        return CodexBackend(**kwargs)
 
     elif backend_type == "azure_openai":
         api_key = kwargs.get("api_key") or os.getenv("AZURE_OPENAI_API_KEY")
