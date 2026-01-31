@@ -72,7 +72,7 @@ from ..token_manager.token_manager import ToolExecutionMetric
 from ..tool import ToolManager
 from ..utils import CoordinationStage
 from ._constants import configure_openrouter_extra_body
-from .base import LLMBackend, StreamChunk
+from .base import LLMBackend, StreamChunk, get_multimodal_tool_definitions
 
 
 @dataclass
@@ -359,21 +359,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             False,
         ) or kwargs.get("enable_multimodal_tools", False)
         if enable_multimodal:
-            multimodal_tools = [
-                {
-                    "name": ["read_media"],
-                    "category": "multimodal",
-                    "path": "massgen/tool/_multimodal_tools/read_media.py",
-                    "function": ["read_media"],
-                },
-                {
-                    "name": ["generate_media"],
-                    "category": "multimodal",
-                    "path": "massgen/tool/_multimodal_tools/generation/generate_media.py",
-                    "function": ["generate_media"],
-                },
-            ]
-            self._register_custom_tools(multimodal_tools)
+            self._register_custom_tools(get_multimodal_tool_definitions())
             logger.info(
                 f"[{self.backend_name}] Multimodal tools enabled: read_media, generate_media",
             )

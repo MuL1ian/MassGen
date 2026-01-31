@@ -60,7 +60,12 @@ except ImportError:
     tomli_w = None
 
 from ..logger_config import logger
-from .base import FilesystemSupport, LLMBackend, StreamChunk
+from .base import (
+    FilesystemSupport,
+    LLMBackend,
+    StreamChunk,
+    get_multimodal_tool_definitions,
+)
 
 
 class CodexBackend(LLMBackend):
@@ -122,7 +127,18 @@ class CodexBackend(LLMBackend):
         self._docker_codex_verified = False
 
         # Custom tools: wrap as MCP server for Codex to connect to
-        custom_tools = kwargs.get("custom_tools", [])
+        custom_tools = list(kwargs.get("custom_tools", []))
+
+        # Register multimodal tools if enabled (Codex doesn't inherit from
+        # BaseWithCustomToolAndMCP which normally handles this)
+        enable_multimodal = self.config.get(
+            "enable_multimodal_tools",
+            False,
+        ) or kwargs.get("enable_multimodal_tools", False)
+        if enable_multimodal:
+            custom_tools.extend(get_multimodal_tool_definitions())
+            logger.info("Codex backend: multimodal tools enabled (read_media, generate_media)")
+
         if custom_tools:
             self._setup_custom_tools_mcp(custom_tools)
 
@@ -241,6 +257,9 @@ class CodexBackend(LLMBackend):
             logger.warning("custom_tools_server not available, skipping custom tools")
             return
 
+        # Store raw config so specs can be re-written after workspace cleanup
+        self._custom_tools_config = custom_tools
+
         # Write specs to workspace
         specs_path = Path(self.cwd) / ".codex" / "custom_tool_specs.json"
         write_tool_specs(custom_tools, specs_path)
@@ -263,10 +282,55 @@ class CodexBackend(LLMBackend):
         """
         config: Dict[str, Any] = {}
 
+        # Always write custom tool specs to current workspace (cwd may change between runs)
+        if getattr(self, "_custom_tools_config", None):
+            from ..mcp_tools.custom_tools_server import (
+                build_server_config,
+                write_tool_specs,
+            )
+
+            specs_path = Path(self.cwd) / ".codex" / "custom_tool_specs.json"
+            write_tool_specs(self._custom_tools_config, specs_path)
+            self._custom_tools_specs_path = specs_path
+            # Update the MCP server config to point to current workspace
+            for s in self.mcp_servers:
+                if isinstance(s, dict) and s.get("name") == "massgen_custom_tools":
+                    s.update(
+                        build_server_config(
+                            tool_specs_path=specs_path,
+                            allowed_paths=[self.cwd],
+                            agent_id="codex",
+                        ),
+                    )
+                    break
+
         # Convert MassGen mcp_servers list to Codex config.toml format
-        if self.mcp_servers:
+        # Merge orchestrator-injected servers (self.config) with init-time servers (self.mcp_servers)
+        # which may include custom_tools MCP added by _setup_custom_tools_mcp()
+        config_mcp = self.config.get("mcp_servers") if self.config else None
+        logger.info(f"Codex _write_workspace_config: self.config mcp_servers={config_mcp is not None}, self.mcp_servers={len(self.mcp_servers)} entries")
+
+        # Start with orchestrator servers, then add any from init (custom tools)
+        mcp_servers = []
+        if config_mcp is not None:
+            if isinstance(config_mcp, dict):
+                for name, srv_config in config_mcp.items():
+                    if isinstance(srv_config, dict):
+                        srv_config["name"] = name
+                        mcp_servers.append(srv_config)
+            elif isinstance(config_mcp, list):
+                mcp_servers.extend(config_mcp)
+        # Merge in self.mcp_servers (custom tools etc.) avoiding duplicates by name
+        existing_names = {s.get("name") for s in mcp_servers if isinstance(s, dict)}
+        for s in self.mcp_servers:
+            if isinstance(s, dict) and s.get("name") not in existing_names:
+                mcp_servers.append(s)
+        if mcp_servers:
+            logger.info(f"Codex workspace config: writing {len(mcp_servers)} MCP server(s)")
+        if mcp_servers:
             mcp_section: Dict[str, Any] = {}
-            for server in self.mcp_servers:
+
+            for server in mcp_servers:
                 # Support both list-of-dicts and dict formats
                 if isinstance(server, dict):
                     name = server.get("name", "")
@@ -331,20 +395,126 @@ class CodexBackend(LLMBackend):
 
         self._workspace_config_written = True
         logger.info(f"Wrote Codex workspace config: {config_path}")
+        logger.info(f"Codex workspace config contents: {config}")
+
+        # Mark workspace as trusted in ~/.codex/config.toml so Codex loads
+        # the project-scoped config we just wrote (untrusted projects are skipped)
+        self._ensure_workspace_trusted()
+
+    def _remove_workspace_trust(self) -> None:
+        """Remove the workspace trust entry from ~/.codex/config.toml."""
+        global_config_path = Path.home() / ".codex" / "config.toml"
+        workspace_path = self.cwd
+
+        try:
+            if not global_config_path.exists():
+                return
+            content = global_config_path.read_text()
+            section_header = f'[projects."{workspace_path}"]'
+            if section_header not in content:
+                return
+
+            # Remove the trust section (header + trust_level line + trailing newline)
+            lines = content.split("\n")
+            new_lines = []
+            skip = False
+            for line in lines:
+                if line.strip() == section_header:
+                    skip = True
+                    continue
+                if skip:
+                    # Skip lines belonging to this section until next section or blank
+                    stripped = line.strip()
+                    if stripped.startswith("[") or stripped == "":
+                        skip = False
+                        if stripped == "":
+                            continue  # skip the trailing blank line
+                    else:
+                        continue
+                new_lines.append(line)
+
+            global_config_path.write_text("\n".join(new_lines))
+            logger.info(f"Removed workspace trust entry from {global_config_path}")
+        except OSError as e:
+            logger.warning(f"Failed to remove workspace trust entry: {e}")
+
+    def _ensure_workspace_trusted(self) -> None:
+        """Mark the workspace as trusted in ~/.codex/config.toml.
+
+        Codex only loads project-scoped .codex/config.toml for trusted projects.
+        We add a [projects."<workspace_path>"] trust_level = "trusted" entry
+        to the user's global config so our MCP servers are picked up.
+        """
+        global_config_path = Path.home() / ".codex" / "config.toml"
+        workspace_path = self.cwd
+
+        try:
+            # Read existing global config
+            existing_content = ""
+            if global_config_path.exists():
+                existing_content = global_config_path.read_text()
+
+            # Check if already trusted
+            if f'[projects."{workspace_path}"]' in existing_content:
+                logger.info(f"Workspace already trusted in global config: {workspace_path}")
+                return
+
+            # Append trust entry
+            trust_entry = f'\n[projects."{workspace_path}"]\ntrust_level = "trusted"\n'
+            global_config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(global_config_path, "a") as f:
+                f.write(trust_entry)
+            logger.info(f"Marked workspace as trusted in {global_config_path}: {workspace_path}")
+        except OSError as e:
+            logger.warning(f"Failed to mark workspace as trusted: {e}")
+
+    @staticmethod
+    def _toml_value(v: Any) -> str:
+        """Convert a Python value to a TOML-compatible string."""
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, str):
+            return json.dumps(v)  # JSON string quoting works for TOML
+        if isinstance(v, (int, float)):
+            return str(v)
+        if isinstance(v, list):
+            return "[" + ", ".join(CodexBackend._toml_value(item) for item in v) + "]"
+        if isinstance(v, dict):
+            # TOML inline table: {key = "value", key2 = "value2"}
+            pairs = [f"{k} = {CodexBackend._toml_value(val)}" for k, val in v.items()]
+            return "{" + ", ".join(pairs) + "}"
+        return json.dumps(v)
 
     @staticmethod
     def _write_toml_fallback(config: Dict[str, Any], path: Path) -> None:
-        """Write a simple TOML file without tomli_w dependency."""
+        """Write a simple TOML file without tomli_w dependency.
+
+        Follows the Codex config.toml format from the OpenAI docs:
+        - MCP servers use [mcp_servers.<name>] table headers
+        - Nested dicts (like env) use [mcp_servers.<name>.<key>] sub-tables
+        - Arrays and strings use standard TOML syntax
+        """
         lines: List[str] = []
         for section_key, section_val in config.items():
             if isinstance(section_val, dict):
                 for name, entry in section_val.items():
                     lines.append(f"[{section_key}.{name}]")
+                    # Separate simple values from sub-tables (dicts)
+                    sub_tables: List[tuple] = []
                     for k, v in entry.items():
-                        lines.append(f"{k} = {json.dumps(v)}")
+                        if isinstance(v, dict):
+                            sub_tables.append((k, v))
+                        else:
+                            lines.append(f"{k} = {CodexBackend._toml_value(v)}")
                     lines.append("")
+                    # Write sub-tables after simple values
+                    for sub_key, sub_val in sub_tables:
+                        lines.append(f"[{section_key}.{name}.{sub_key}]")
+                        for sk, sv in sub_val.items():
+                            lines.append(f"{sk} = {CodexBackend._toml_value(sv)}")
+                        lines.append("")
             else:
-                lines.append(f"{section_key} = {json.dumps(section_val)}")
+                lines.append(f"{section_key} = {CodexBackend._toml_value(section_val)}")
         path.write_text("\n".join(lines) + "\n")
 
     def _cleanup_workspace_config(self) -> None:
@@ -364,6 +534,10 @@ class CodexBackend(LLMBackend):
             logger.info("Cleaned up Codex workspace config.")
         except OSError as e:
             logger.warning(f"Failed to clean up Codex workspace config: {e}")
+
+        # Remove trust entry from global config
+        self._remove_workspace_trust()
+
         self._workspace_config_written = False
         self._custom_tools_specs_path = None
 

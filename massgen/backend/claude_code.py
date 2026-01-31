@@ -80,7 +80,12 @@ from ..structured_logging import get_current_round, get_tracer, log_token_usage
 from ..tool import ToolManager
 from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
 from ._streaming_buffer_mixin import StreamingBufferMixin
-from .base import FilesystemSupport, LLMBackend, StreamChunk
+from .base import (
+    FilesystemSupport,
+    LLMBackend,
+    StreamChunk,
+    get_multimodal_tool_definitions,
+)
 
 
 class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
@@ -194,21 +199,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                         self._multimodal_config[media_type]["model"] = model
 
         if enable_multimodal:
-            multimodal_tools = [
-                {
-                    "name": ["read_media"],
-                    "category": "multimodal",
-                    "path": "massgen/tool/_multimodal_tools/read_media.py",
-                    "function": ["read_media"],
-                },
-                {
-                    "name": ["generate_media"],
-                    "category": "multimodal",
-                    "path": "massgen/tool/_multimodal_tools/generation/generate_media.py",
-                    "function": ["generate_media"],
-                },
-            ]
-            custom_tools = list(custom_tools) + multimodal_tools
+            custom_tools = list(custom_tools) + get_multimodal_tool_definitions()
             logger.info("[ClaudeCode] Multimodal tools enabled: read_media, generate_media")
 
         if custom_tools:

@@ -33,6 +33,27 @@ class FilesystemSupport(Enum):
     MCP = "mcp"  # Filesystem support through MCP servers
 
 
+def get_multimodal_tool_definitions() -> List[Dict[str, Any]]:
+    """Return the standard multimodal custom tool definitions (read_media, generate_media).
+
+    Used by backends that need to register multimodal tools when enable_multimodal_tools is true.
+    """
+    return [
+        {
+            "name": ["read_media"],
+            "category": "multimodal",
+            "path": "massgen/tool/_multimodal_tools/read_media.py",
+            "function": ["read_media"],
+        },
+        {
+            "name": ["generate_media"],
+            "category": "multimodal",
+            "path": "massgen/tool/_multimodal_tools/generation/generate_media.py",
+            "function": ["generate_media"],
+        },
+    ]
+
+
 @dataclass
 class StreamChunk:
     """Standardized chunk format for streaming responses."""

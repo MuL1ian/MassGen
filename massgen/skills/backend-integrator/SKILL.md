@@ -242,7 +242,24 @@ If inheriting from `CustomToolAndMCPBackend`, MCP and custom tools work automati
 - Filesystem MCP injected by `FilesystemManager` when `cwd` is set
 - Tool execution handled by `ToolManager`
 
-#### 6.2 CLI/SDK Wrappers — MCP Servers
+#### 6.2 Multimodal Tools (all backend types)
+When `enable_multimodal_tools: true` is set, the backend must register `read_media` and `generate_media` custom tools. Use the shared helper in `massgen/backend/base.py`:
+
+```python
+from .base import get_multimodal_tool_definitions
+
+# In __init__:
+enable_multimodal = self.config.get("enable_multimodal_tools", False) or kwargs.get("enable_multimodal_tools", False)
+if enable_multimodal:
+    custom_tools.extend(get_multimodal_tool_definitions())
+```
+
+- **API backends** (`CustomToolAndMCPBackend` subclasses): handled automatically — base class calls `get_multimodal_tool_definitions()` and registers via `_register_custom_tools()`
+- **CLI/SDK backends** (`LLMBackend` subclasses like Codex, Claude Code): must do this explicitly in `__init__`, then wrap as MCP server (see §6.4)
+
+**Important**: Always use `get_multimodal_tool_definitions()` — never inline the tool dicts. This keeps the definitions in one place.
+
+#### 6.3 CLI/SDK Wrappers — MCP Servers
 These backends must configure the CLI/SDK's own MCP system:
 
 **Codex**: Write project-scoped `.codex/config.toml` in the workspace (`-C` dir). Codex reads this automatically. Convert MassGen's `mcp_servers` list to TOML format:
@@ -257,7 +274,7 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
 options = {"mcp_servers": {"filesystem": {"command": "npx", "args": [...]}}}
 ```
 
-#### 6.3 CLI/SDK Wrappers — Custom Tools
+#### 6.4 CLI/SDK Wrappers — Custom Tools
 Custom tools need special handling since the LLM runs inside an external process:
 
 **Preferred: Wrap as MCP server** (what `claude_code.py` does):
@@ -310,7 +327,7 @@ The server is launched by the CLI as a subprocess and connects via stdio. Cleanu
 - Parse structured output (JSON blocks) for tool calls
 - Only use when MCP wrapping isn't feasible
 
-#### 6.4 Custom Tool YAML Config
+#### 6.5 Custom Tool YAML Config
 ```yaml
 backend:
   type: your_backend
@@ -326,7 +343,7 @@ backend:
 
 **MassGen workflow tools** (new_answer, vote, etc.): Always injected via system prompt — these are coordination-level, not executable tools.
 
-#### 6.5 Provider-Native Tools: Keep vs. Override
+#### 6.6 Provider-Native Tools: Keep vs. Override
 
 CLI/SDK-based agents (Codex, Claude Code) come with their own built-in tools (file editing, shell execution, web search, sub-agents, etc.). When integrating, decide which to keep and which to override with MassGen equivalents.
 
