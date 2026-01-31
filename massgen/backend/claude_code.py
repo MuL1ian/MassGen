@@ -51,6 +51,7 @@ import json
 import os
 import re
 import sys
+import time
 import uuid
 import warnings
 from pathlib import Path
@@ -170,6 +171,8 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
         # Track tool_use_id -> tool_name for matching ToolResultBlock to its ToolUseBlock
         # (ToolResultBlock only has tool_use_id, not the tool name)
         self._tool_id_to_name: Dict[str, str] = {}
+        # Track tool_use_id -> start time for elapsed_seconds calculation
+        self._tool_start_times: Dict[str, float] = {}
 
         # Custom tools support - initialize ToolManager if custom_tools are provided
         self._custom_tool_manager: Optional[ToolManager] = None
@@ -1657,6 +1660,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                     "Bash(chmod*)",
                     "Bash(chown*)",
                     # Redundant tools - MassGen has native implementations
+                    "Skill",
                     "Read",  # Use MassGen's read_file_content
                     "Write",  # Use MassGen's save_file_content
                     "Edit",  # Use MassGen's append_file_content
@@ -1983,19 +1987,38 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
 
                             # Track tool_id -> tool_name for ToolResultBlock matching
                             self._tool_id_to_name[block.id] = block.name
+                            self._tool_start_times[block.id] = time.time()
 
-                            # Emit tool start event in standard format (matches ContentNormalizer patterns)
+                            # Emit structured tool_start event for TUI event pipeline
+                            from ..logger_config import (
+                                get_event_emitter as _get_emitter,
+                            )
+
+                            _emitter = _get_emitter()
+                            if _emitter:
+                                tool_args = block.input if isinstance(block.input, dict) else {"input": block.input}
+                                _emitter.emit_tool_start(
+                                    tool_id=block.id,
+                                    tool_name=block.name,
+                                    args=tool_args,
+                                    server_name=None,
+                                    agent_id=agent_id,
+                                )
+
+                            # Yield tool status chunks for non-Textual displays
+                            # (Textual TUI uses structured events above instead)
                             yield StreamChunk(
-                                type="content",
-                                content=f"🔧 Calling {block.name}...",
+                                type="mcp_status",
+                                status="mcp_tool_called",
+                                content=f"Calling {block.name}...",
                                 source="claude_code",
                                 tool_call_id=block.id,
                             )
 
-                            # Emit tool arguments in standard format
                             args_str = json.dumps(block.input) if isinstance(block.input, dict) else str(block.input)
                             yield StreamChunk(
-                                type="content",
+                                type="mcp_status",
+                                status="function_call",
                                 content=f"Arguments for Calling {block.name}: {args_str}",
                                 source="claude_code",
                                 tool_call_id=block.id,
@@ -2009,6 +2032,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                             # Tool result from Claude Code
                             # Look up tool name from our tracking map
                             tool_name = self._tool_id_to_name.pop(block.tool_use_id, "unknown")
+                            elapsed = time.time() - self._tool_start_times.pop(block.tool_use_id, time.time())
 
                             is_error = block.is_error
                             result_str = str(block.content) if block.content else ""
@@ -2020,23 +2044,22 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                                 agent_id,
                             )
 
-                            # Emit tool result in standard format (matches ContentNormalizer patterns)
-                            yield StreamChunk(
-                                type="content",
-                                content=f"Results for Calling {tool_name}: {result_str}",
-                                source="claude_code",
-                                tool_call_id=block.tool_use_id,
+                            # Emit structured tool_complete event for TUI event pipeline
+                            from ..logger_config import (
+                                get_event_emitter as _get_emitter,
                             )
 
-                            # Emit tool completion in standard format
-                            completion_emoji = "❌" if is_error else "✅"
-                            completion_status = "failed" if is_error else "completed"
-                            yield StreamChunk(
-                                type="content",
-                                content=f"{completion_emoji} {tool_name} {completion_status}",
-                                source="claude_code",
-                                tool_call_id=block.tool_use_id,
-                            )
+                            _emitter = _get_emitter()
+                            if _emitter:
+                                _emitter.emit_tool_complete(
+                                    tool_id=block.tool_use_id,
+                                    tool_name=tool_name,
+                                    result=result_str,
+                                    elapsed_seconds=elapsed,
+                                    status="error" if is_error else "success",
+                                    is_error=is_error,
+                                    agent_id=agent_id,
+                                )
 
                             # Add to streaming buffer for compression recovery
                             self._append_tool_to_buffer(
@@ -2164,6 +2187,9 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
 
         except Exception as e:
             error_msg = str(e)
+            import traceback
+
+            logger.error(f"[ClaudeCodeBackend] Full traceback for streaming error:\n{traceback.format_exc()}")
 
             # Finalize streaming buffer even on error
             self._finalize_streaming_buffer(agent_id=agent_id)

@@ -20,7 +20,7 @@ Event Types:
 - status: Status update message
 - round_start: Coordination round started
 - final_answer: Final answer produced
-- stream_chunk: Raw StreamChunk for debugging (replaces streaming_debug.log)
+- stream_chunk: [Deprecated] Raw StreamChunk, kept for old log file compat only
 """
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ class EventType:
     FINAL_ANSWER = "final_answer"
 
     # Stream debugging (replaces streaming_debug.log)
-    STREAM_CHUNK = "stream_chunk"
+    STREAM_CHUNK = "stream_chunk"  # Deprecated: kept for backward compat with old log files
 
     # Timeline transcript lines (debugging/parity checks)
     TIMELINE_ENTRY = "timeline_entry"

@@ -44,7 +44,6 @@ try:
     from .base_tui_layout import BaseTUILayoutMixin
     from .content_handlers import (
         ToolBatchTracker,
-        ToolContentHandler,
         format_tool_display_name,
         get_tool_category,
     )
@@ -529,9 +528,6 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._buffer_lock = threading.Lock()
         self._recent_web_chunks: Dict[str, Deque[str]] = {agent_id: deque(maxlen=self.max_web_search_lines) for agent_id in self.agent_ids}
 
-        # Unified event pipeline: when True, events flow directly from EventEmitter
-        # to per-agent TimelineEventAdapters, bypassing the old buffer/flush path.
-        self._use_event_pipeline = kwargs.get("use_event_pipeline", True)
         self._event_listener_registered = False
 
     def _validate_agent_ids(self):
@@ -798,6 +794,8 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         if not content:
             return
+
+        tui_log(f"[update_agent_content] agent={agent_id} type={content_type} len={len(content)} content={content[:80]}")
 
         # Auto-set status to streaming when content arrives and agent is idle/waiting
         # This ensures the status indicator updates immediately when streaming starts
@@ -3122,44 +3120,39 @@ if TEXTUAL_AVAILABLE:
         def _register_event_listener(self) -> None:
             """Register this TUI as a listener on the global EventEmitter.
 
-            Events flow directly from the emitter to per-agent TimelineEventAdapters,
-            bypassing the old buffer/flush path when _use_event_pipeline is True.
+            Events flow directly from the emitter to per-agent TimelineEventAdapters.
             """
-            if not self.coordination_display._use_event_pipeline:
-                return
             if self.coordination_display._event_listener_registered:
+                tui_log("[_register_event_listener] SKIP: already registered")
                 return
 
             from massgen.logger_config import get_event_emitter
 
             emitter = get_event_emitter()
             if emitter is None:
+                tui_log("[_register_event_listener] SKIP: emitter is None")
                 return
 
             emitter.add_listener(self._handle_event_from_emitter)
             self.coordination_display._event_listener_registered = True
+            tui_log("[_register_event_listener] SUCCESS: listener registered")
 
         def _handle_event_from_emitter(self, event) -> None:
             """Handle an event from the global EventEmitter.
 
             This is called from backend/orchestrator threads. We use
             call_from_thread() to marshal into the Textual main thread.
-
-            When _use_event_pipeline is False (default), we don't route events
-            to adapters since the old buffer/flush path handles display.
-            The listener still runs so subclasses or future code can hook in.
             """
-            if not self.coordination_display._use_event_pipeline:
-                return
-
             from massgen.events import EventType
 
-            # Only handle structured events (not stream_chunk - those go via old path)
+            # Skip legacy STREAM_CHUNK events (deprecated, kept for old log compat)
             if event.event_type == EventType.STREAM_CHUNK:
                 return
 
             agent_id = event.agent_id
+            tui_log(f"[_handle_event] type={event.event_type} agent={agent_id} widgets={list(self.agent_widgets.keys())[:3]}")
             if not agent_id or agent_id not in self.agent_widgets:
+                tui_log(f"[_handle_event] SKIP: agent_id={agent_id} not in widgets")
                 return
 
             try:
@@ -3658,6 +3651,12 @@ Type your question and press Enter to ask the agents.
             """
             self._pending_flush = False
             all_updates = []
+            # Debug: log buffer sizes
+            for _aid in self.coordination_display.agent_ids:
+                with self._buffer_lock:
+                    blen = len(self._buffers.get(_aid, []))
+                if blen > 0:
+                    tui_log(f"[_flush_buffers] agent={_aid} buffer_size={blen}")
             max_items_per_agent = 5  # Limit to prevent blocking
 
             for agent_id in self.coordination_display.agent_ids:
@@ -3716,21 +3715,18 @@ Type your question and press Enter to ask the agents.
         ):
             """Update agent widget with content."""
             if agent_id not in self.agent_widgets:
+                tui_log(f"[update_agent_widget] SKIP agent={agent_id} not in agent_widgets")
                 return
 
-            panel = self.agent_widgets[agent_id]
+            # Tool content is handled via structured TOOL_START/TOOL_COMPLETE events
+            # from _handle_event_from_emitter. Skip it here to avoid duplicates.
+            if content_type == "tool":
+                return
 
-            # Event-driven pipeline
-            adapter = self._event_adapters.get(agent_id)
-            if adapter is None:
-                adapter = TimelineEventAdapter(panel, agent_id=agent_id)
-                self._event_adapters[agent_id] = adapter
-            adapter.handle_stream_content(
-                content,
-                content_type,
-                tool_call_id=tool_call_id,
-                source=agent_id,
-            )
+            # All TUI content is handled via structured events routed through
+            # _handle_event_from_emitter. This method is a no-op for Textual TUI.
+            # Non-Textual displays still use update_agent_content directly.
+            return
 
         def update_agent_status(self, agent_id: str, status: str):
             """Update agent status."""
@@ -7163,8 +7159,7 @@ Type your question and press Enter to ask the agents.
             self._not_in_use_id = f"not_in_use_{self._dom_safe_id}"
             self._is_in_use = True  # Track if panel is active in single-agent mode
 
-            # Content handlers (used by start_new_round, show_restart_separator, etc.)
-            self._tool_handler = ToolContentHandler()
+            # Batch tracker (used by start_new_round, show_restart_separator, etc.)
             self._batch_tracker = ToolBatchTracker()
 
             # Section widget IDs - using timeline for chronological view
@@ -8206,7 +8201,6 @@ Type your question and press Enter to ask the agents.
 
             # Step 4: Reset per-round UI state
             self._hide_completion_footer()
-            self._tool_handler.reset()
             self._batch_tracker.reset()
             self._reasoning_header_shown = False
 
@@ -8281,7 +8275,6 @@ Type your question and press Enter to ask the agents.
 
             # Step 4: Reset per-round UI state
             self._hide_completion_footer()
-            self._tool_handler.reset()
             self._batch_tracker.reset()
             self._reasoning_header_shown = False
 

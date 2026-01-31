@@ -807,6 +807,11 @@ class CoordinationUI:
         # Pass orchestrator reference to display for backend info
         self.display.orchestrator = orchestrator
 
+        # Start lightweight event-driven agent output writer
+        from massgen.frontend.agent_output_writer import create_agent_output_writer
+
+        self._agent_output_writer = create_agent_output_writer(self.agent_ids)
+
         # Initialize answer buffering for preventing duplicate show_final_answer calls
         self._answer_buffer = ""
         self._answer_timeout_task = None
@@ -1405,6 +1410,11 @@ class CoordinationUI:
 
         # Pass orchestrator reference to display for backend info
         self.display.orchestrator = orchestrator
+
+        # Start lightweight event-driven agent output writer
+        from massgen.frontend.agent_output_writer import create_agent_output_writer
+
+        self._agent_output_writer = create_agent_output_writer(self.agent_ids)
 
         # Initialize logger and display with context info
         log_filename = None
@@ -2008,24 +2018,22 @@ class CoordinationUI:
         await self._emit_agent_content(agent_id, buffer, chunk_type)
 
     async def _emit_agent_content(self, agent_id: str, content: str, chunk_type: str = None):
-        """Emit agent content to the display after filtering."""
+        """Emit agent content to the display after filtering.
+
+        Tool content (mcp_status, custom_tool_status) never reaches this method —
+        it's intercepted earlier in the stream processing loop and routed directly
+        to display.update_agent_content with content_type="tool". Structured
+        TOOL_START/TOOL_COMPLETE events from the backend handle TUI tool cards.
+        """
         # Get chunk_type from stored value if not provided
         if chunk_type is None:
             chunk_type = getattr(self, "_agent_chunk_types", {}).get(agent_id, "thinking")
 
-        # Determine content type and process
-        # Check for tool-related content markers
-        is_tool_content = (
-            "🔧" in content or "Arguments for Calling" in content or "Results for Calling" in content or ("✅" in content and "completed" in content) or ("❌" in content and "failed" in content)
-        )
-
         # Emit structured events for the unified event pipeline
-        # Skip tool content — it's already handled via the stream chunk path
-        # (which carries tool_call_id needed for proper tool card tracking)
         from massgen.logger_config import get_event_emitter
 
         _emitter = get_event_emitter()
-        if _emitter and not is_tool_content:
+        if _emitter:
             if chunk_type in ("reasoning", "reasoning_done", "reasoning_summary", "reasoning_summary_done", "thinking"):
                 _emitter.emit_thinking(content, agent_id=agent_id)
             elif chunk_type in ("content", "text"):
@@ -2033,22 +2041,13 @@ class CoordinationUI:
             elif chunk_type in ("status", "system_status", "backend_status"):
                 _emitter.emit_status(content, agent_id=agent_id)
             elif chunk_type in ("presentation", "final_answer"):
-                _emitter.emit_text(content, agent_id=agent_id)
-        if is_tool_content or "🔄 Vote invalid" in content:
-            # Tool usage or status messages
-            content_type = "tool" if is_tool_content else "status"
-            self.display.update_agent_content(agent_id, content, content_type)
+                _emitter.emit_final_answer(content, agent_id=agent_id)
 
-            # Note: Status updates to "completed" are handled by the authoritative
-            # send_new_answer() and update_vote_target() methods in web_display.py,
-            # not by string matching here (which caused false positives with MCP tools)
-
-            # Log to detailed logger
+        if "🔄 Vote invalid" in content:
+            self.display.update_agent_content(agent_id, content, "status")
             if self.logger:
-                self.logger.log_agent_content(agent_id, content, content_type)
-
+                self.logger.log_agent_content(agent_id, content, "status")
         else:
-            # Thinking/content - use the original chunk_type
             # Route all content through update_agent_content() so it goes through
             # the normal content pipeline (ContentNormalizer, tool cards, thinking sections, etc.)
             # Final presentation content is handled as a new round (N+1) with the same pipeline.

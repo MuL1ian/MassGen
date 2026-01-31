@@ -17,7 +17,7 @@ Usage:
 from abc import abstractmethod
 from typing import Dict, List
 
-from .content_handlers import ToolBatchTracker, ToolContentHandler
+from .content_handlers import ToolBatchTracker
 from .shared import tui_log
 
 
@@ -31,7 +31,6 @@ class BaseTUILayoutMixin:
     State provided by mixin:
     - _current_round: Which round content is being received
     - _viewed_round: Which round is currently displayed
-    - _tool_handler: ToolContentHandler instance (for reset on round change)
     - _batch_tracker: ToolBatchTracker instance (for reset on round change)
     - _context_by_round: Context sources per round
     """
@@ -42,7 +41,6 @@ class BaseTUILayoutMixin:
         Call this in __init__ after super().__init__().
         """
         # Content handlers (used by start_new_round / show_restart_separator)
-        self._tool_handler = ToolContentHandler()
         self._batch_tracker = ToolBatchTracker()
 
         # Round tracking
@@ -113,7 +111,6 @@ class BaseTUILayoutMixin:
             tui_log(f"start_new_round error: {e}")
 
         # Reset per-round state
-        self._tool_handler.reset()
         self._batch_tracker.reset()
 
         # Update ribbon if available

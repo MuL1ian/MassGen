@@ -2,7 +2,7 @@
 """
 Unified TUI event pipeline adapter.
 
-Bridges MassGen events (including stream chunks) into TimelineSection updates
+Bridges structured MassGen events into TimelineSection updates
 using ContentProcessor as the single source of truth for parsing.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from massgen.events import EventType, MassGenEvent
+from massgen.events import MassGenEvent
 
 from .content_processor import ContentOutput, ContentProcessor
 
@@ -19,8 +19,8 @@ class TimelineEventAdapter:
     """Apply MassGen events to a TimelineSection with shared parsing logic.
 
     This adapter is used by both the main TUI and subagent views to ensure
-    parity. It handles stream chunk events (line-buffered) and structured
-    events, and applies ContentOutput updates to the timeline.
+    parity. It handles structured events and applies ContentOutput updates
+    to the timeline.
     """
 
     def __init__(
@@ -59,37 +59,8 @@ class TimelineEventAdapter:
         """Set the current round number (e.g., on restart)."""
         self._round_number = max(1, int(round_number))
 
-    def handle_stream_content(
-        self,
-        content: str,
-        content_type: str,
-        tool_call_id: Optional[str] = None,
-        *,
-        source: Optional[str] = None,
-    ) -> None:
-        """Handle raw stream content from the main TUI buffer."""
-        if content is None:
-            return
-        chunk = {
-            "type": content_type,
-            "content": content,
-            "tool_call_id": tool_call_id,
-            "source": source or self._agent_id,
-            "display": True,
-        }
-        event = MassGenEvent.create(
-            event_type=EventType.STREAM_CHUNK,
-            agent_id=self._agent_id,
-            chunk=chunk,
-        )
-        self.handle_event(event)
-
     def handle_event(self, event: MassGenEvent) -> None:
         """Process a MassGen event and update the timeline."""
-        if event.event_type == EventType.STREAM_CHUNK:
-            self._handle_stream_chunk(event)
-            return
-
         output = self._processor.process_event(event, self._round_number)
         if not output:
             return
@@ -102,11 +73,7 @@ class TimelineEventAdapter:
             self._apply_output(output)
 
     def flush(self) -> None:
-        """Flush any buffered text or pending tool batches."""
-        buffered = self._processor.flush_line_buffer(self._round_number)
-        if buffered and buffered.output_type != "skip":
-            self._apply_output(buffered)
-
+        """Flush any pending tool batches."""
         batch = self._processor.flush_pending_batch(self._round_number)
         if batch:
             self._apply_output(batch)
@@ -119,101 +86,6 @@ class TimelineEventAdapter:
         if hasattr(self._panel, "_get_timeline"):
             return self._panel._get_timeline()
         return None
-
-    def _handle_stream_chunk(self, event: MassGenEvent) -> None:
-        data = event.data or {}
-        chunk = data.get("chunk")
-        if isinstance(chunk, dict):
-            chunk_dict = chunk
-        elif isinstance(data, dict):
-            chunk_dict = data
-        else:
-            return
-
-        chunk_type = chunk_dict.get("type", "")
-        content = chunk_dict.get("content")
-        status = chunk_dict.get("status")
-        tool_call_id = chunk_dict.get("tool_call_id")
-
-        if not chunk_dict.get("display", True):
-            if chunk_type != "tool_calls" and not (status == "function_call_output" and tool_call_id):
-                return
-
-        # Structured tool calls / function outputs (Responses API)
-        if chunk_type == "tool_calls" or (status == "function_call_output" and tool_call_id):
-            output = self._processor.process_event(event, self._round_number)
-            if not output:
-                return
-            if isinstance(output, list):
-                for item in output:
-                    if item and item.output_type != "skip":
-                        self._apply_output(item)
-                return
-            if output.output_type != "skip":
-                self._apply_output(output)
-            return
-
-        # Map chunk types to ContentNormalizer raw types
-        raw_type = self._map_chunk_type(chunk_type)
-        if raw_type is None:
-            return
-
-        if content is None:
-            return
-
-        # Route through line-buffered processing for parity with main TUI
-        output, _ = self._processor.process_line_buffered(
-            str(content),
-            raw_type,
-            tool_call_id,
-            self._round_number,
-            write_callback=self._write_line,
-        )
-        if output and output.output_type != "skip":
-            self._apply_output(output)
-
-        # Update any legacy line buffer display if present
-        if hasattr(self._panel, "current_line_label"):
-            try:
-                self._panel.current_line_label.update(self._processor.get_line_buffer())
-            except Exception:
-                pass
-
-    def _map_chunk_type(self, chunk_type: str) -> Optional[str]:
-        chunk_type = (chunk_type or "").lower()
-        if chunk_type in ("mcp_status", "custom_tool_status", "tool"):
-            return "tool"
-        if "mcp_status" in chunk_type or "custom_tool_status" in chunk_type:
-            return "tool"
-        if chunk_type in (
-            "reasoning",
-            "reasoning_done",
-            "reasoning_summary",
-            "reasoning_summary_done",
-            "thinking",
-        ):
-            return "thinking"
-        if chunk_type in ("content", "text"):
-            return "content"
-        if chunk_type in ("status", "system_status", "backend_status", "agent_status", "compression_status", "error"):
-            return "status"
-        if chunk_type in ("presentation", "final_answer"):
-            return "presentation"
-        return None
-
-    def _write_line(self, text: str, style: str, text_class: str, round_number: int) -> None:
-        timeline = self._get_timeline()
-        if timeline is None:
-            return
-        try:
-            timeline.add_text(
-                text,
-                style=style,
-                text_class=text_class,
-                round_number=round_number,
-            )
-        except Exception:
-            pass
 
     def _apply_output(self, output: ContentOutput) -> None:
         timeline = self._get_timeline()

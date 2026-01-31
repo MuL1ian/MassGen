@@ -423,7 +423,12 @@ def setup_logging(debug: bool = False, log_file: Optional[str] = None, turn: Opt
         # Initialize EventEmitter for structured event logging (replaces streaming_debug.log)
         from .events import EventEmitter, set_event_emitter
 
+        # Preserve listeners from previous emitter (e.g., TUI event listener)
+        # when re-creating for a new turn
+        old_listeners = _EVENT_EMITTER._listeners.copy() if _EVENT_EMITTER else []
         _EVENT_EMITTER = EventEmitter(log_session_dir)
+        for listener in old_listeners:
+            _EVENT_EMITTER.add_listener(listener)
         set_event_emitter(_EVENT_EMITTER)
 
         logger.info("Logging enabled - logging INFO+ to file: {}", log_file)

@@ -5801,6 +5801,8 @@ async def run_textual_interactive_mode(
         # Signal shutdown
         controller.stop()
         orch_thread.join(timeout=5)
+        # Restore terminal to canonical mode (echo + line editing)
+        _restore_terminal_for_input()
 
     print("✅ Textual session ended")
 
@@ -9351,7 +9353,7 @@ Environment Variables:
         asyncio.run(main(args))
     except KeyboardInterrupt:
         # User pressed Ctrl+C - exit gracefully without traceback
-        pass
+        _restore_terminal_for_input()
 
 
 if __name__ == "__main__":
