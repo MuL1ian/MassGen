@@ -1146,3 +1146,82 @@ def build_workflow_instructions(tools: List[Dict[str, Any]]) -> str:
     )
     parts.append("The JSON block should be placed at the very end of your response, after your analysis.")
     return "\n".join(parts)
+
+
+def build_workflow_mcp_instructions(tools: List[Dict[str, Any]]) -> str:
+    """Build instructions for when workflow tools are available as native MCP tools.
+
+    Unlike build_workflow_instructions() which includes JSON format examples for
+    text-based parsing, this version tells the agent to call the MCP tools directly.
+    Still needed so the agent knows it MUST call them.
+    """
+    from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
+
+    workflow_tools = [t for t in tools if t.get("function", {}).get("name") in WORKFLOW_TOOL_NAMES]
+    if not workflow_tools:
+        return ""
+
+    tool_names = [t.get("function", {}).get("name", "") for t in workflow_tools]
+
+    parts: List[str] = ["\n--- MassGen Coordination Instructions ---"]
+    parts.append(
+        "CRITICAL: You MUST call one of the following MCP tools before finishing your response. " "Do NOT just write text — you must actually invoke the tool.",
+    )
+
+    for tool in workflow_tools:
+        name = tool.get("function", {}).get("name", "unknown")
+        description = tool.get("function", {}).get("description", "No description")
+        parts.append(f"- {name}: {description}")
+
+        if name == "vote":
+            agent_id_param = tool.get("function", {}).get("parameters", {}).get("properties", {}).get("agent_id", {})
+            agent_id_enum = agent_id_param.get("enum")
+            if agent_id_enum:
+                parts.append(f"    Valid agent_id values: {', '.join(agent_id_enum)}")
+
+    if "new_answer" in tool_names and "vote" in tool_names:
+        parts.append(
+            "\nYou MUST call either `new_answer` (to submit your answer) or `vote` "
+            "(to vote for the best existing answer) as an MCP tool call. "
+            "Your response is incomplete without one of these tool calls.",
+        )
+    elif "new_answer" in tool_names:
+        parts.append("\nYou MUST call `new_answer` as an MCP tool call to submit your answer.")
+    elif "vote" in tool_names:
+        parts.append("\nYou MUST call `vote` as an MCP tool call to vote for the best answer.")
+
+    return "\n".join(parts)
+
+
+def build_workflow_mcp_server_config(
+    tools: List[Dict[str, Any]],
+    specs_dir: str,
+) -> Optional[Dict[str, Any]]:
+    """Build an MCP server config for workflow tools.
+
+    Filters *tools* to workflow tools only, writes specs to disk,
+    and returns the MCP server config dict. Returns None if no workflow
+    tools are present.
+
+    Args:
+        tools: Full list of tool definitions (may include non-workflow tools).
+        specs_dir: Directory path to write the specs JSON file into.
+
+    Returns:
+        MCP server config dict, or None if no workflow tools.
+    """
+    from pathlib import Path
+
+    from ..mcp_tools.workflow_tools_server import (
+        build_server_config,
+        write_workflow_specs,
+    )
+    from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
+
+    workflow_tools = [t for t in tools if t.get("function", {}).get("name") in WORKFLOW_TOOL_NAMES or t.get("name") in WORKFLOW_TOOL_NAMES]
+    if not workflow_tools:
+        return None
+
+    specs_path = Path(specs_dir) / "workflow_tool_specs.json"
+    write_workflow_specs(workflow_tools, specs_path)
+    return build_server_config(specs_path)

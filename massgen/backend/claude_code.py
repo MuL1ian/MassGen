@@ -82,6 +82,8 @@ from .base import (
     LLMBackend,
     StreamChunk,
     build_workflow_instructions,
+    build_workflow_mcp_instructions,
+    build_workflow_mcp_server_config,
 )
 from .base import extract_structured_response as _extract_structured_response
 from .base import get_multimodal_tool_definitions
@@ -1192,6 +1194,21 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
         """Parse workflow tool calls from text — delegates to shared helper."""
         return _parse_workflow_tool_calls(text_content)
 
+    @staticmethod
+    def _try_extract_workflow_mcp_result(result_str: str) -> Optional[Dict[str, Any]]:
+        """Try to extract a workflow tool call from an MCP tool result string.
+
+        Returns:
+            Tool call dict in orchestrator format, or None.
+        """
+        from ..mcp_tools.workflow_tools_server import extract_workflow_tool_call
+
+        try:
+            result = json.loads(result_str)
+            return extract_workflow_tool_call(result)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
     def _build_claude_options(self, **options_kwargs) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions with provided parameters.
 
@@ -1419,9 +1436,36 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
         else:
             system_content = ""
 
+        # Try to set up workflow tools as native MCP tools
+        workflow_mcp_config = build_workflow_mcp_server_config(
+            tools or [],
+            str(Path(self.config.get("cwd", os.getcwd())) / ".claude_code_workflow"),
+        )
+        self._has_workflow_mcp = False
+        if workflow_mcp_config:
+            # Add workflow MCP server to config for this session
+            if "mcp_servers" not in self.config:
+                self.config["mcp_servers"] = []
+            if isinstance(self.config["mcp_servers"], list):
+                # Remove any previous workflow server entry
+                self.config["mcp_servers"] = [s for s in self.config["mcp_servers"] if not (isinstance(s, dict) and s.get("name") == "massgen_workflow_tools")]
+                self.config["mcp_servers"].append(workflow_mcp_config)
+            elif isinstance(self.config["mcp_servers"], dict):
+                self.config["mcp_servers"]["massgen_workflow_tools"] = workflow_mcp_config
+            self._has_workflow_mcp = True
+            logger.info("ClaudeCode: workflow tools configured as native MCP server")
+
         # Build system prompt with tools information
-        # This must be done before any conditional paths to ensure it's always defined
-        workflow_system_prompt = self._build_system_prompt_with_workflow_tools(tools or [], system_content)
+        # When MCP server is active, use MCP-specific instructions (no JSON format examples)
+        # instead of text-based instructions, but still tell the agent it MUST call the tools
+        if self._has_workflow_mcp:
+            mcp_instructions = build_workflow_mcp_instructions(tools or [])
+            base_with_mcp = system_content
+            if mcp_instructions:
+                base_with_mcp = (system_content + "\n" + mcp_instructions) if system_content else mcp_instructions
+            workflow_system_prompt = self._build_system_prompt_with_workflow_tools([], base_with_mcp)
+        else:
+            workflow_system_prompt = self._build_system_prompt_with_workflow_tools(tools or [], system_content)
 
         # Check if we already have a client
         if self._client is not None:
@@ -1711,6 +1755,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
 
         # Stream response and convert to MassGen StreamChunks
         accumulated_content = ""
+        workflow_tool_calls_from_mcp: List[Dict[str, Any]] = []
         try:
             async for message in client.receive_response():
                 if isinstance(message, (AssistantMessage, UserMessage)):
@@ -1796,6 +1841,14 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                             is_error = block.is_error
                             result_str = str(block.content) if block.content else ""
 
+                            # Check if this is a workflow MCP tool result
+                            if self._has_workflow_mcp and tool_name.startswith("mcp__massgen_workflow_tools__"):
+                                workflow_call = self._try_extract_workflow_mcp_result(result_str)
+                                if workflow_call:
+                                    workflow_tool_calls_from_mcp.append(workflow_call)
+                                    logger.info(f"ClaudeCode: captured workflow tool call from MCP: {workflow_call['function']['name']}")
+                                    continue  # Don't emit as regular content
+
                             log_stream_chunk(
                                 "backend.claude_code",
                                 "tool_result",
@@ -1828,20 +1881,28 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                                 is_error=is_error,
                             )
 
-                    # Parse workflow tool calls from accumulated content
-                    workflow_tool_calls = self._parse_workflow_tool_calls(accumulated_content)
-                    if workflow_tool_calls:
-                        log_stream_chunk(
-                            "backend.claude_code",
-                            "tool_calls",
-                            workflow_tool_calls,
-                            agent_id,
-                        )
+                    # Emit workflow tool calls (prefer MCP results, fallback to text parsing)
+                    if workflow_tool_calls_from_mcp:
+                        logger.info(f"ClaudeCode: {len(workflow_tool_calls_from_mcp)} workflow tool call(s) from MCP server")
                         yield StreamChunk(
                             type="tool_calls",
-                            tool_calls=workflow_tool_calls,
+                            tool_calls=workflow_tool_calls_from_mcp,
                             source="claude_code",
                         )
+                    else:
+                        workflow_tool_calls = self._parse_workflow_tool_calls(accumulated_content)
+                        if workflow_tool_calls:
+                            log_stream_chunk(
+                                "backend.claude_code",
+                                "tool_calls",
+                                workflow_tool_calls,
+                                agent_id,
+                            )
+                            yield StreamChunk(
+                                type="tool_calls",
+                                tool_calls=workflow_tool_calls,
+                                source="claude_code",
+                            )
 
                     # Yield complete message
                     log_stream_chunk(

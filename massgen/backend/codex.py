@@ -65,6 +65,8 @@ from .base import (
     LLMBackend,
     StreamChunk,
     build_workflow_instructions,
+    build_workflow_mcp_instructions,
+    build_workflow_mcp_server_config,
     get_multimodal_tool_definitions,
     parse_workflow_tool_calls,
 )
@@ -561,7 +563,7 @@ class CodexBackend(LLMBackend):
         config_dir = Path(self.cwd) / ".codex"
         try:
             # Remove individual files we created
-            for filename in ("config.toml", "custom_tool_specs.json"):
+            for filename in ("config.toml", "custom_tool_specs.json", "workflow_tool_specs.json"):
                 filepath = config_dir / filename
                 if filepath.exists():
                     filepath.unlink()
@@ -811,12 +813,24 @@ class CodexBackend(LLMBackend):
             # For completed calls with results, emit as content
             if status == "completed" and item.get("result") is not None:
                 result = item.get("result", "")
+                # Check if this is a workflow MCP tool result — extract and emit as tool_calls
+                if server == "massgen_workflow_tools":
+                    workflow_call = self._try_extract_workflow_mcp_result_from_codex(result)
+                    if workflow_call:
+                        return StreamChunk(
+                            type="tool_calls",
+                            tool_calls=[workflow_call],
+                            source="codex",
+                        )
                 return StreamChunk(
                     type="content",
                     content=f"[MCP {server}/{tool_name}]: {result}",
                 )
             # For in-progress or started, emit as tool_call
+            # Skip workflow MCP tools — only the completed result matters
             if status != "completed":
+                if server == "massgen_workflow_tools":
+                    return None
                 tool_call = {
                     "id": item.get("id", ""),
                     "name": f"{server}/{tool_name}" if server else tool_name,
@@ -889,13 +903,31 @@ class CodexBackend(LLMBackend):
             self.system_prompt = system_from_messages
             logger.info(f"Codex: injected system message from orchestrator ({len(system_from_messages)} chars)")
 
-        # Build workflow instructions from tools and store for config writing
+        # Setup workflow tools as MCP server (preferred) or text instructions (fallback)
         tool_names = [t.get("function", {}).get("name", "?") for t in (tools or [])]
         logger.info(f"Codex stream_with_tools: received {len(tools or [])} tools: {tool_names}")
-        self._pending_workflow_instructions = build_workflow_instructions(tools or [])
-        logger.info(f"Codex workflow instructions: {len(self._pending_workflow_instructions)} chars")
 
-        # Write project-scoped config with MCP servers (+ workflow instructions)
+        # Try to set up workflow tools as native MCP tools
+        workflow_mcp_config = build_workflow_mcp_server_config(
+            tools or [],
+            str(Path(self.cwd) / ".codex"),
+        )
+        if workflow_mcp_config:
+            # Add workflow MCP server to mcp_servers for this session
+            # Remove any previous workflow server entry
+            self.mcp_servers = [s for s in self.mcp_servers if not (isinstance(s, dict) and s.get("name") == "massgen_workflow_tools")]
+            self.mcp_servers.append(workflow_mcp_config)
+            # Still inject instructions so the agent knows it MUST call the tools
+            self._pending_workflow_instructions = build_workflow_mcp_instructions(tools or [])
+            logger.info("Codex: workflow tools configured as native MCP server")
+        else:
+            # Fallback: text-based workflow instructions
+            self._pending_workflow_instructions = build_workflow_instructions(tools or [])
+            logger.info(f"Codex workflow instructions (text fallback): {len(self._pending_workflow_instructions)} chars")
+
+        has_workflow_mcp = workflow_mcp_config is not None
+
+        # Write project-scoped config with MCP servers (+ workflow instructions if fallback)
         self._write_workspace_config()
 
         # Extract the latest user message as the prompt
@@ -925,31 +957,29 @@ class CodexBackend(LLMBackend):
         # Accumulate text content to parse workflow tool calls after streaming
         accumulated_content = ""
         held_done_chunk = None
-        has_workflow = bool(self._pending_workflow_instructions)
+        has_workflow = has_workflow_mcp or bool(self._pending_workflow_instructions)
+        got_workflow_tool_calls = False
 
         stream = self._stream_docker(prompt, resume_session) if self._is_docker_mode else self._stream_local(prompt, resume_session)
         async for chunk in stream:
             if chunk.type == "content" and chunk.content:
                 accumulated_content += chunk.content
+            # Track if workflow tool_calls arrived from MCP (via _parse_item)
+            if chunk.type == "tool_calls" and has_workflow_mcp:
+                got_workflow_tool_calls = True
             # Hold the done chunk so we can attach workflow tool calls to it
             if chunk.type == "done" and has_workflow:
                 held_done_chunk = chunk
                 continue
             yield chunk
 
-        # Parse workflow tool calls from accumulated text and emit final done
-        if has_workflow and accumulated_content:
+        # Text parsing fallback — only if MCP didn't produce workflow tool calls
+        if not got_workflow_tool_calls and has_workflow and accumulated_content:
             workflow_tool_calls = parse_workflow_tool_calls(accumulated_content)
             if workflow_tool_calls:
                 logger.info(f"Codex: parsed {len(workflow_tool_calls)} workflow tool call(s) from text")
-                # Yield tool_calls as separate chunk so orchestrator picks them up
                 yield StreamChunk(type="tool_calls", tool_calls=workflow_tool_calls, source="codex")
-                # Then yield the held done chunk as-is
-                done = held_done_chunk or StreamChunk(type="done")
-                yield done
-            elif held_done_chunk:
-                yield held_done_chunk
-        elif held_done_chunk:
+        if held_done_chunk:
             yield held_done_chunk
 
     async def _stream_docker(
@@ -1150,6 +1180,46 @@ class CodexBackend(LLMBackend):
             logger.error(f"Codex backend error: {e}")
             self.end_api_call_timing(success=False, error=str(e))
             yield StreamChunk(type="error", error=str(e))
+
+    @staticmethod
+    def _try_extract_workflow_mcp_result_from_codex(result: Any) -> Optional[Dict[str, Any]]:
+        """Extract a workflow tool call from a Codex MCP tool result.
+
+        Codex MCP results come as dicts like:
+            {'content': [{'text': '{"status":"ok","server":"massgen_workflow_tools",...}', 'type': 'text'}],
+             'structured_content': None}
+
+        Or sometimes as raw JSON strings.
+
+        Returns:
+            Tool call dict in orchestrator format, or None.
+        """
+        from ..mcp_tools.workflow_tools_server import extract_workflow_tool_call
+
+        json_str = None
+
+        if isinstance(result, dict):
+            # Codex wraps MCP results in {'content': [{'text': '...', 'type': 'text'}], ...}
+            content_list = result.get("content", [])
+            if isinstance(content_list, list):
+                for item in content_list:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        json_str = item.get("text", "")
+                        break
+            if not json_str:
+                # Try the result dict itself
+                return extract_workflow_tool_call(result)
+        elif isinstance(result, str):
+            json_str = result
+
+        if not json_str:
+            return None
+
+        try:
+            parsed = json.loads(json_str)
+            return extract_workflow_tool_call(parsed)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def get_provider_name(self) -> str:
         """Get the name of this provider."""
