@@ -443,6 +443,20 @@ class Orchestrator(ChatAgent):
             for agent_id, agent in self.agents.items():
                 _setup_agent_orchestration(agent_id, agent)
 
+        # Create workspace symlinks in the log directory for easy inspection
+        try:
+            log_dir = get_log_session_dir()
+            for agent_id, agent in self.agents.items():
+                if agent.backend.filesystem_manager and agent.backend.filesystem_manager.cwd:
+                    agent_log_dir = log_dir / agent_id
+                    agent_log_dir.mkdir(parents=True, exist_ok=True)
+                    workspace_link = agent_log_dir / "workspace"
+                    if not workspace_link.exists():
+                        workspace_link.symlink_to(Path(agent.backend.filesystem_manager.cwd).resolve())
+                        logger.info(f"[Orchestrator] Symlinked {workspace_link} → {agent.backend.filesystem_manager.cwd}")
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Failed to create workspace symlinks: {e}")
+
         # Initialize broadcast channel for agent-to-agent communication
         self.broadcast_channel = BroadcastChannel(self)
         logger.info("[Orchestrator] Broadcast channel initialized")
@@ -1275,7 +1289,7 @@ class Orchestrator(ChatAgent):
         try:
             log_dir = get_log_session_dir()
             if log_dir:
-                log_directory = str(log_dir)
+                log_directory = str(log_dir.resolve())
         except Exception:
             pass  # Log directory not configured
 
@@ -6564,10 +6578,6 @@ Your answer:"""
 
                     logger.info(
                         f"[Orchestrator] Agent {agent_id} made {num_votes} votes - using last vote: {final_voted_agent}",
-                    )
-                    yield (
-                        "content",
-                        f"⚠️ Agent made {num_votes} votes - using last (final decision): {final_voted_agent}\n",
                     )
 
                 # Check for mixed new_answer and vote calls - violates binary decision framework
