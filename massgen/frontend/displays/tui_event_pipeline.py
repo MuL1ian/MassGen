@@ -122,6 +122,9 @@ class TimelineEventAdapter:
             except Exception:
                 pass
         elif output.output_type in ("thinking", "text", "status", "presentation") and output.text_content:
+            # Skip "Evaluation complete" status — already shown in FinalPresentationCard header
+            if output.text_class == "status" and "Evaluation complete" in output.text_content:
+                return
             try:
                 timeline.add_text(
                     output.text_content,
@@ -197,6 +200,8 @@ class TimelineEventAdapter:
             self._apply_final_presentation_end(output)
         elif output.output_type == "answer_locked":
             self._apply_answer_locked(output, timeline)
+        elif output.output_type == "orchestrator_timeout":
+            self._apply_orchestrator_timeout(output, round_number, timeline)
 
         if self._on_output_applied:
             try:
@@ -332,80 +337,162 @@ class TimelineEventAdapter:
         round_number: int,
         timeline: Any,
     ) -> None:
-        """Create a FinalPresentationCard and mount it in the timeline.
+        """Store metadata for deferred FinalPresentationCard creation.
 
-        Skips if a card was already created by the StreamChunk pipeline
-        (show_final_presentation_start) to avoid double-rendering.
+        The card is NOT created here — it is deferred until answer_locked
+        fires, so the card only appears after post-eval completes and the
+        answer is confirmed (not restarted).
         """
-        # Check if a FinalPresentationCard already exists in this timeline
-        if getattr(self, "_final_presentation_card", None) is not None:
-            return
-        try:
-            from .textual_widgets.content_sections import FinalPresentationCard
-
-            existing = timeline.query(FinalPresentationCard)
-            if existing:
-                # Card was already created by the StreamChunk pipeline
-                self._final_presentation_card = existing.first()
-                return
-        except Exception:
-            pass
-
         extra = output.extra or {}
         agent_id = extra.get("agent_id", self._agent_id or "")
         vote_counts = extra.get("vote_counts", {})
         answer_labels = extra.get("answer_labels", {})
         is_tie = extra.get("is_tie", False)
 
-        # Build formatted vote results matching the format MassGenApp uses
-        formatted_vote_results = {
-            "vote_counts": {answer_labels.get(aid, aid): cnt for aid, cnt in vote_counts.items()} if vote_counts else {},
-            "winner": answer_labels.get(agent_id, agent_id),
+        self._pending_final_card_meta = {
+            "agent_id": agent_id,
+            "vote_counts": vote_counts,
+            "answer_labels": answer_labels,
             "is_tie": is_tie,
+            "completion_only": extra.get("completion_only", False),
+            "round_number": round_number,
         }
-
-        try:
-            from .textual_widgets.content_sections import FinalPresentationCard
-
-            card = FinalPresentationCard(
-                agent_id=agent_id,
-                vote_results=formatted_vote_results,
-                id="final_presentation_card",
-            )
-            card.add_class(f"round-{round_number}")
-            if extra.get("completion_only"):
-                card.add_class("completion-only")
-            timeline.mount(card)
-            self._final_presentation_card = card
-        except Exception:
-            pass
+        self._pending_final_card_timeline = timeline
 
     def _apply_final_presentation_chunk(self, output: ContentOutput) -> None:
-        """Stream content into the FinalPresentationCard."""
-        card = getattr(self, "_final_presentation_card", None)
-        if card and output.text_content:
+        """No-op — content will be applied from self._final_answer at card creation."""
+
+    def _apply_final_presentation_end(self, output: ContentOutput) -> None:
+        """No-op — card creation and completion handled by _apply_answer_locked."""
+
+    def _apply_orchestrator_timeout(
+        self,
+        output: ContentOutput,
+        round_number: int,
+        timeline: Any,
+    ) -> None:
+        """Render an orchestrator timeout banner card in the timeline."""
+        extra = output.extra or {}
+        timeout_reason = extra.get("timeout_reason", "Unknown")
+        available_answers = extra.get("available_answers", 0)
+        selected_agent = extra.get("selected_agent")
+        selection_reason = extra.get("selection_reason", "")
+        agent_answer_summary = extra.get("agent_answer_summary", {})
+
+        # Build banner text
+        lines = [f"Reason: {timeout_reason}"]
+        lines.append(f"Answers available: {available_answers}")
+
+        if selected_agent:
+            lines.append(f"Selected agent: {selected_agent} ({selection_reason})")
+        else:
+            lines.append("No answers produced. Check agent workspaces for any files created.")
+
+        if agent_answer_summary:
+            summary_parts = []
+            for aid, info in agent_answer_summary.items():
+                status = "answer" if info.get("has_answer") else "no answer"
+                votes = info.get("vote_count", 0)
+                summary_parts.append(f"  {aid}: {status}, {votes} vote(s)")
+            if summary_parts:
+                lines.append("Agent summary:")
+                lines.extend(summary_parts)
+
+        banner_text = "\n".join(lines)
+
+        try:
+            from textual.widgets import Static
+
+            banner = Static(
+                f"[bold yellow]ORCHESTRATOR TIMEOUT[/bold yellow]\n{banner_text}",
+                classes=f"orchestrator-timeout-banner round-{round_number}",
+            )
+            timeline.mount(banner)
+        except Exception:
+            # Fallback: render as plain text
             try:
-                card.append_content(output.text_content)
+                timeline.add_text(
+                    f"ORCHESTRATOR TIMEOUT\n{banner_text}",
+                    style="bold yellow",
+                    text_class="orchestrator-timeout",
+                    round_number=round_number,
+                )
             except Exception:
                 pass
 
-    def _apply_final_presentation_end(self, output: ContentOutput) -> None:
-        """Mark the FinalPresentationCard as complete."""
+    def finalize_if_incomplete(self) -> None:
+        """Populate an empty FinalPresentationCard from the stored final answer.
+
+        Called when polling stops (subagent completed/timed out) to handle the
+        case where final_presentation_start was emitted but the subagent was
+        killed before any chunks or the end event arrived.
+        """
         card = getattr(self, "_final_presentation_card", None)
-        if card:
+        if card is None:
+            return
+        # Check if card already has content
+        try:
+            if getattr(card, "_final_content", []):
+                return
+        except Exception:
+            pass
+        # Use stored final answer as fallback
+        if self._final_answer:
             try:
+                card.append_chunk(self._final_answer)
                 card.set_post_eval_status("verified")
                 card.complete()
             except Exception:
                 pass
 
     def _apply_answer_locked(self, output: ContentOutput, timeline: Any) -> None:
-        """Lock the timeline to the final answer."""
+        """Create the FinalPresentationCard (if deferred) and lock the timeline."""
+        # Create card now if it doesn't exist yet (deferred from _apply_final_presentation_start)
+        if getattr(self, "_final_presentation_card", None) is None:
+            meta = getattr(self, "_pending_final_card_meta", None)
+            tl = getattr(self, "_pending_final_card_timeline", None) or timeline
+            if meta and tl:
+                try:
+                    from .textual_widgets.content_sections import FinalPresentationCard
+
+                    agent_id = meta["agent_id"]
+                    vote_counts = meta.get("vote_counts", {})
+                    answer_labels = meta.get("answer_labels", {})
+                    is_tie = meta.get("is_tie", False)
+                    round_number = meta.get("round_number", 0)
+
+                    formatted_vote_results = {
+                        "vote_counts": {answer_labels.get(aid, aid): cnt for aid, cnt in vote_counts.items()} if vote_counts else {},
+                        "winner": answer_labels.get(agent_id, agent_id),
+                        "is_tie": is_tie,
+                    }
+
+                    card = FinalPresentationCard(
+                        agent_id=agent_id,
+                        vote_results=formatted_vote_results,
+                        id="final_presentation_card",
+                    )
+                    card.add_class(f"round-{round_number}")
+                    if meta.get("completion_only"):
+                        card.add_class("completion-only")
+
+                    # Populate with full final answer content
+                    if self._final_answer:
+                        card.append_content(self._final_answer)
+
+                    tl.mount(card)
+                    self._final_presentation_card = card
+                except Exception:
+                    pass
+
         card = getattr(self, "_final_presentation_card", None)
         try:
+            if card:
+                card.set_post_eval_status("verified")
+                card.complete()
+                if hasattr(card, "set_locked_mode"):
+                    card.set_locked_mode(True)
             if hasattr(timeline, "lock_to_final_answer"):
                 timeline.lock_to_final_answer("final_presentation_card")
-            if card and hasattr(card, "set_locked_mode"):
-                card.set_locked_mode(True)
         except Exception:
             pass

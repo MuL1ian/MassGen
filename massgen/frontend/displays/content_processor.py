@@ -46,6 +46,7 @@ OutputType = Literal[
     "final_presentation_end",
     "answer_locked",
     "thinking_done",
+    "orchestrator_timeout",
     "skip",  # Filter out this content
 ]
 
@@ -213,6 +214,8 @@ class ContentProcessor:
             return self._handle_event_final_presentation_end(event, round_number)
         elif event.event_type == EventType.ANSWER_LOCKED:
             return self._handle_event_answer_locked(event, round_number)
+        elif event.event_type == EventType.ORCHESTRATOR_TIMEOUT:
+            return self._handle_event_orchestrator_timeout(event, round_number)
         return None
 
     def _handle_event_tool_start(
@@ -874,6 +877,29 @@ class ContentProcessor:
             text_style="",
             text_class="",
             extra={"agent_id": event.agent_id or ""},
+        )
+
+    def _handle_event_orchestrator_timeout(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle orchestrator_timeout event.
+
+        Returns a ContentOutput with structured timeout data for the TUI
+        to render as a distinct banner card.
+        """
+        self._batch_tracker.mark_content_arrived()
+        return ContentOutput(
+            output_type="orchestrator_timeout",
+            round_number=round_number,
+            extra={
+                "timeout_reason": event.data.get("timeout_reason", ""),
+                "available_answers": event.data.get("available_answers", 0),
+                "selected_agent": event.data.get("selected_agent"),
+                "selection_reason": event.data.get("selection_reason", ""),
+                "agent_answer_summary": event.data.get("agent_answer_summary", {}),
+            },
         )
 
     def flush_pending_batch(self, round_number: int = 1) -> Optional[ContentOutput]:

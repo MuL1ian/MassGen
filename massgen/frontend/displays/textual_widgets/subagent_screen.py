@@ -166,27 +166,17 @@ class SubagentFooter(Horizontal):
 
 
 class SubagentStatusLine(Static):
-    """Status line showing subagent execution status (pulsing dot if running)."""
+    """Status line showing agent activity dots and execution status.
+
+    Displays: A ● B ●  ● Running (42s)  esc:back ?:help
+    """
 
     DEFAULT_CSS = """
     SubagentStatusLine {
         height: 1;
         width: 100%;
         background: $surface;
-        border-top: solid $primary-darken-3;
         padding: 0 1;
-    }
-
-    SubagentStatusLine.running {
-        color: $warning;
-    }
-
-    SubagentStatusLine.completed {
-        color: $success;
-    }
-
-    SubagentStatusLine.error {
-        color: $error;
     }
     """
 
@@ -204,29 +194,60 @@ class SubagentStatusLine(Static):
         super().__init__(**kwargs)
         self._status = status
         self._elapsed = 0
+        self._agent_order: List[str] = []
+        self._agent_letters: Dict[str, str] = {}
+        self._agent_active: Dict[str, bool] = {}
+
+    def set_agents(self, agent_ids: List[str]) -> None:
+        """Register the inner agents for activity display."""
+        self._agent_order = list(agent_ids)
+        self._agent_letters.clear()
+        self._agent_active.clear()
+        for idx, aid in enumerate(agent_ids):
+            self._agent_letters[aid] = chr(ord("A") + idx) if idx < 26 else str(idx + 1)
+            self._agent_active[aid] = False
+        self.refresh()
+
+    def set_agent_active(self, agent_id: str, active: bool) -> None:
+        """Set whether an agent is currently active."""
+        if agent_id in self._agent_active:
+            self._agent_active[agent_id] = active
+            self.refresh()
 
     def render(self) -> Text:
-        """Render the status line."""
+        """Render agent dots + status."""
         text = Text()
+
+        # Agent activity dots: A ● B ○
+        if self._agent_order:
+            for agent_id in self._agent_order:
+                letter = self._agent_letters.get(agent_id, "?")
+                active = self._agent_active.get(agent_id, False)
+                if active:
+                    text.append(f" {letter} ", style="bold")
+                    text.append("●", style="bold green")
+                else:
+                    text.append(f" {letter} ", style="dim")
+                    text.append("·", style="dim")
+            text.append("  ")
+
+        # Status
         icon = self.STATUS_ICONS.get(self._status, "●")
-        text.append(f" {icon} ", style="bold")
+        text.append(f"{icon} ", style="bold")
         text.append(self._status.capitalize())
         if self._status == "running":
             text.append(f" ({self._elapsed}s)")
+
+        # Hints
+        text.append("  ")
+        text.append("esc:back • ?:help", style="dim")
+
         return text
 
     def update_status(self, status: str, elapsed: int = 0) -> None:
         """Update the status display."""
         self._status = status
         self._elapsed = elapsed
-        # Update CSS class
-        self.remove_class("running", "completed", "error")
-        if status == "running":
-            self.add_class("running")
-        elif status in ("completed", "success"):
-            self.add_class("completed")
-        elif status in ("error", "failed", "timeout"):
-            self.add_class("error")
         self.refresh()
 
 
@@ -263,13 +284,28 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
 
     SubagentPanel .pinned-task-plan {
         width: 100%;
+        height: auto;
+        max-height: 12;
+        padding: 0 0 1 0;
+        border-bottom: solid rgba(61, 68, 77, 0.5);
+    }
+
+    SubagentPanel .pinned-task-plan.collapsed {
+        max-height: 3;
+        overflow: hidden;
+    }
+
+    SubagentPanel .pinned-task-plan.hidden {
+        display: none;
     }
 
     SubagentPanel TimelineSection {
         width: 100%;
-        height: 100%;
-        padding: 0 2 1 2;
+        height: 1fr;
+        padding: 0 2 2 2;
         overflow-y: auto;
+        scrollbar-size: 1 3;
+        scrollbar-gutter: stable;
     }
     """
 
@@ -388,6 +424,7 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
         try:
             new = self.query_one(f"#{new_id}", TimelineSection)
             new.remove_class("hidden")
+            new._scroll_to_end(animate=False, force=True)
             self._active_timeline_id = new_id
         except Exception:
             pass
@@ -448,6 +485,12 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
         except Exception:
             pass
 
+    def toggle_task_plan(self) -> None:
+        """Toggle the active agent's task plan between collapsed and expanded."""
+        host = self._task_plan_host
+        if host:
+            host.toggle()
+
     def _is_planning_mcp_tool(self, tool_name: str) -> bool:
         """Check if a tool is a Planning MCP tool (skip normal tool cards)."""
         from massgen.frontend.displays.task_plan_support import is_planning_tool
@@ -480,6 +523,7 @@ class SubagentView(Container):
         ("escape", "close", "Back"),
         ("tab", "next_subagent", "Next Subagent"),
         ("shift+tab", "prev_subagent", "Previous Subagent"),
+        ("ctrl+t", "toggle_task_plan", "Toggle Task Plan"),
     ]
 
     class CloseRequested(Message):
@@ -550,6 +594,7 @@ class SubagentView(Container):
 
         # Inner agent tracking
         self._inner_agents: List[str] = []
+        self._agent_active_set: set[str] = set()
         self._inner_agent_models: Dict[str, str] = {}
         self._current_inner_agent: Optional[str] = None
         self._tool_call_agent_map: Dict[str, str] = {}
@@ -597,9 +642,6 @@ class SubagentView(Container):
             id="subagent-status-line",
         )
 
-        # Footer with buttons
-        yield SubagentFooter(id="subagent-footer")
-
     def on_mount(self) -> None:
         """Initialize event reader and load events."""
         # Get widget references
@@ -634,12 +676,17 @@ class SubagentView(Container):
 
         # Detect inner agents and update the inner tab bar
         self._inner_agents, self._inner_agent_models = self._detect_inner_agents()
+        self._agent_active_set = set(self._inner_agents)
         self._current_inner_agent = self._inner_agents[0] if self._inner_agents else self._subagent.id
 
         # Update inner agent tabs with detected agents
         if self._inner_tab_bar and self._inner_agents:
             self._inner_tab_bar.update_agents(self._inner_agents, self._inner_agent_models)
             self._inner_tab_bar.set_active(self._current_inner_agent)
+
+        # Register agents on the status line for activity dots
+        if self._status_line and self._inner_agents:
+            self._status_line.set_agents(self._inner_agents)
 
         # Mount one timeline per inner agent
         if self._panel:
@@ -865,6 +912,7 @@ class SubagentView(Container):
             new_events = self._event_reader.get_new_events()
             if new_events:
                 self._update_tool_call_agent_map(new_events)
+                self._update_activity_dots(new_events)
                 for agent_id in list(self._agents_loaded):
                     if agent_id in self._event_adapters:
                         filtered = self._filter_events_for_agent(new_events, agent_id)
@@ -882,6 +930,16 @@ class SubagentView(Container):
 
         # Stop polling if completed
         if self._subagent.status not in ("running", "pending"):
+            # Finalize any incomplete final presentation cards (e.g. timeout
+            # killed the subagent before chunks/end events were written)
+            for adapter in self._event_adapters.values():
+                adapter.finalize_if_incomplete()
+
+            # Mark all agents as inactive
+            if self._status_line:
+                for aid in self._inner_agents:
+                    self._status_line.set_agent_active(aid, False)
+
             if self._poll_timer:
                 self._poll_timer.stop()
                 self._poll_timer = None
@@ -906,6 +964,27 @@ class SubagentView(Container):
         # Update tab bar status
         if self._tab_bar:
             self._tab_bar.update_agent_status(self._subagent.id, self._subagent.status)
+
+    def _update_activity_dots(self, events: List[MassGenEvent]) -> None:
+        """Update agent activity dots based on new events."""
+        if not self._status_line:
+            return
+        # Track which agents had activity in this batch
+        active_agents: set[str] = set()
+        for event in events:
+            aid = event.agent_id
+            if aid and aid in self._agent_active_set:
+                et = event.event_type
+                # Active event types
+                if et in ("thinking_start", "text_start", "tool_start", "stream_chunk"):
+                    active_agents.add(aid)
+                # Completion event types — mark inactive
+                elif et in ("thinking_complete", "text_complete", "tool_complete", "round_end"):
+                    active_agents.discard(aid)
+        # Apply: any agent with recent activity is active
+        for aid in self._inner_agents:
+            if aid in active_agents:
+                self._status_line.set_agent_active(aid, True)
 
     def _switch_subagent(self, index: int) -> None:
         """Switch to a different subagent (top-level switch — full rebuild needed)."""
@@ -932,12 +1011,17 @@ class SubagentView(Container):
 
             # Detect inner agents for the new subagent
             self._inner_agents, self._inner_agent_models = self._detect_inner_agents()
+            self._agent_active_set = set(self._inner_agents)
             self._current_inner_agent = self._inner_agents[0] if self._inner_agents else self._subagent.id
 
             # Update inner agent tabs
             if self._inner_tab_bar and self._inner_agents:
                 self._inner_tab_bar.update_agents(self._inner_agents, self._inner_agent_models)
                 self._inner_tab_bar.set_active(self._current_inner_agent)
+
+            # Update activity dots on status line
+            if self._status_line and self._inner_agents:
+                self._status_line.set_agents(self._inner_agents)
 
             # Mount new timelines and load first agent
             if self._panel:
@@ -1185,6 +1269,11 @@ class SubagentView(Container):
     def action_prev_subagent(self) -> None:
         """Navigate to previous subagent."""
         self._switch_subagent((self._current_index - 1) % len(self._all_subagents))
+
+    def action_toggle_task_plan(self) -> None:
+        """Toggle task plan collapse/expand."""
+        if self._panel:
+            self._panel.toggle_task_plan()
 
     def action_copy_answer(self) -> None:
         """Copy answer to clipboard."""

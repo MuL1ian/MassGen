@@ -141,6 +141,9 @@ class EventType:
     FINAL_PRESENTATION_END = "final_presentation_end"
     ANSWER_LOCKED = "answer_locked"
 
+    # Timeout events
+    ORCHESTRATOR_TIMEOUT = "orchestrator_timeout"
+
     # Injection events
     INJECTION_RECEIVED = "injection_received"
 
@@ -696,6 +699,32 @@ class EventEmitter:
             agent_id=agent_id,
         )
 
+    def emit_orchestrator_timeout(
+        self,
+        timeout_reason: str,
+        available_answers: int,
+        selected_agent: Optional[str] = None,
+        selection_reason: str = "",
+        agent_answer_summary: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Emit an orchestrator timeout event.
+
+        Args:
+            timeout_reason: Why the timeout occurred (e.g. "Time limit exceeded (30.1s/30s)")
+            available_answers: Number of answers available at timeout
+            selected_agent: Which agent was selected for presentation (None if no answers)
+            selection_reason: Why this agent was selected
+            agent_answer_summary: Per-agent summary {agent_id: {has_answer, vote_count}}
+        """
+        self.emit_raw(
+            EventType.ORCHESTRATOR_TIMEOUT,
+            timeout_reason=timeout_reason,
+            available_answers=available_answers,
+            selected_agent=selected_agent,
+            selection_reason=selection_reason,
+            agent_answer_summary=agent_answer_summary or {},
+        )
+
     def close(self) -> None:
         """Close the event file handle."""
         with self._lock:
@@ -760,6 +789,7 @@ class EventReader:
                         events.append(MassGenEvent.from_json(line))
                     except json.JSONDecodeError:
                         continue  # Skip malformed lines
+            self._last_position = f.tell()
 
         return events
 

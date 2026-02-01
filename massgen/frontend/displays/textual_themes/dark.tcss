@@ -4928,7 +4928,6 @@ SubagentStatusLine {
     height: 1;
     width: 100%;
     background: $bg-surface;
-    border-top: solid $border-subtle;
     padding: 0 1;
     color: $fg-muted;
 }
@@ -4954,7 +4953,7 @@ SubagentPanel {
 
 SubagentPanel TimelineSection {
     width: 100%;
-    height: 100%;
+    height: 1fr;
     padding: 0 2 1 2;
     overflow-y: auto;
     background: $bg-base;

@@ -28,13 +28,7 @@ try:
     from rich.text import Text
     from textual import events, on
     from textual.app import App, ComposeResult
-    from textual.containers import (
-        Container,
-        Horizontal,
-        ScrollableContainer,
-        Vertical,
-        VerticalScroll,
-    )
+    from textual.containers import Container, Horizontal, Vertical, VerticalScroll
     from textual.message import Message
     from textual.reactive import reactive
     from textual.screen import ModalScreen
@@ -3037,12 +3031,24 @@ if TEXTUAL_AVAILABLE:
             Runs on the Textual main thread (via call_from_thread).
             """
             for event in events:
+                # Handle coordination event side effects first (some events like
+                # orchestrator_timeout don't have an agent_id)
+                self._handle_coordination_event_side_effects(event)
+
                 agent_id = event.agent_id
-                if not agent_id or agent_id not in self.agent_widgets:
+
+                # Orchestrator-level events (no agent_id) go to all adapters
+                if not agent_id and event.event_type == "orchestrator_timeout":
+                    for aid, panel in self.agent_widgets.items():
+                        adapter = self._event_adapters.get(aid)
+                        if adapter is None:
+                            adapter = TimelineEventAdapter(panel, agent_id=aid)
+                            self._event_adapters[aid] = adapter
+                        adapter.handle_event(event)
                     continue
 
-                # Handle coordination event side effects (status bar, toasts, tracking)
-                self._handle_coordination_event_side_effects(event)
+                if not agent_id or agent_id not in self.agent_widgets:
+                    continue
 
                 panel = self.agent_widgets[agent_id]
                 adapter = self._event_adapters.get(agent_id)
@@ -3189,6 +3195,22 @@ if TEXTUAL_AVAILABLE:
                 # Update input placeholder
                 if hasattr(self, "question_input"):
                     self.question_input.placeholder = "Type your follow-up question..."
+
+            elif event.event_type == "orchestrator_timeout":
+                # Show toast notification
+                timeout_reason = event.data.get("timeout_reason", "")
+                available = event.data.get("available_answers", 0)
+                self.notify(
+                    f"[bold yellow]Orchestration timed out[/bold yellow]\n{timeout_reason}\n{available} answer(s) available",
+                    timeout=8,
+                )
+
+                # Update ExecutionStatusLine: mark unfinished agents as timed out
+                if self._execution_status_line:
+                    summary = event.data.get("agent_answer_summary", {})
+                    for aid, info in summary.items():
+                        if not info.get("has_answer"):
+                            self._execution_status_line.set_agent_state(aid, "error")
 
             elif event.event_type == "context_received":
                 agent_id = event.agent_id or ""
@@ -5012,7 +5034,7 @@ Type your question and press Enter to ask the agents.
                     new_panel.remove_class("hidden")
                     # Auto-scroll to bottom so user sees latest content
                     try:
-                        timeline = new_panel.query_one("#timeline_container", ScrollableContainer)
+                        timeline = new_panel.query_one(f"#{new_panel._timeline_section_id}", TimelineSection)
                         timeline._scroll_to_end(animate=False, force=True)
                     except Exception:
                         pass  # Timeline may not exist yet

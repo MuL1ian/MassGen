@@ -7438,7 +7438,14 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 # Exit here - CLI will detect restart_pending and call coordinate() again
                 return
 
-        # No restart - add final answer to conversation history
+        # No restart - emit answer_locked event now that answer is confirmed
+        from massgen.events import get_event_emitter
+
+        _emitter = get_event_emitter()
+        if _emitter:
+            _emitter.emit_answer_locked(agent_id=self._selected_agent)
+
+        # Add final answer to conversation history
         if self._final_presentation_content:
             self.add_to_history("assistant", self._final_presentation_content)
 
@@ -7453,7 +7460,52 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
     async def _handle_orchestrator_timeout(self) -> AsyncGenerator[StreamChunk, None]:
         """Handle orchestrator timeout by jumping directly to get_final_presentation."""
-        # Output orchestrator timeout message first
+        # Count available answers
+        available_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer and not state.is_killed}
+
+        # Determine best available agent for presentation (if any answers exist)
+        current_votes = {aid: state.votes for aid, state in self.agent_states.items() if state.votes and not state.is_killed}
+        selected_agent = None
+        selection_reason = "no answers available"
+
+        if available_answers:
+            selected_agent = self._determine_final_agent_from_votes(
+                current_votes,
+                available_answers,
+            )
+            if current_votes:
+                selection_reason = "most votes"
+            else:
+                selection_reason = "first with answer"
+
+        # Build per-agent summary
+        agent_answer_summary = {}
+        for aid, state in self.agent_states.items():
+            if state.is_killed:
+                continue
+            vote_count = 0
+            for v in current_votes.values():
+                if v.get("agent_id") == aid:
+                    vote_count += 1
+            agent_answer_summary[aid] = {
+                "has_answer": bool(state.answer),
+                "vote_count": vote_count,
+            }
+
+        # Emit structured event for TUI
+        from massgen.events import get_event_emitter
+
+        _timeout_emitter = get_event_emitter()
+        if _timeout_emitter:
+            _timeout_emitter.emit_orchestrator_timeout(
+                timeout_reason=self.timeout_reason or "Unknown",
+                available_answers=len(available_answers),
+                selected_agent=selected_agent,
+                selection_reason=selection_reason,
+                agent_answer_summary=agent_answer_summary,
+            )
+
+        # Also yield as StreamChunk for non-TUI displays
         log_stream_chunk(
             "orchestrator",
             "content",
@@ -7463,21 +7515,6 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         yield StreamChunk(
             type="content",
             content=f"\n⚠️ **Orchestrator Timeout**: {self.timeout_reason}\n",
-            source=self.orchestrator_id,
-        )
-
-        # Count available answers
-        available_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer and not state.is_killed}
-
-        log_stream_chunk(
-            "orchestrator",
-            "content",
-            f"📊 Current state: {len(available_answers)} answers available\n",
-            self.orchestrator_id,
-        )
-        yield StreamChunk(
-            type="content",
-            content=f"📊 Current state: {len(available_answers)} answers available\n",
             source=self.orchestrator_id,
         )
 
@@ -7499,13 +7536,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             yield StreamChunk(type="done")
             return
 
-        # Determine best available agent for presentation
-        current_votes = {aid: state.votes for aid, state in self.agent_states.items() if state.votes and not state.is_killed}
-
-        self._selected_agent = self._determine_final_agent_from_votes(
-            current_votes,
-            available_answers,
-        )
+        self._selected_agent = selected_agent
 
         # Jump directly to get_final_presentation
         vote_results = self._get_vote_results()

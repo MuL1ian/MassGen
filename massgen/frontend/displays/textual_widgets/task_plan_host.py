@@ -82,6 +82,10 @@ class TaskPlanHost(Container):
         self.remove_class("hidden")
         self._task_plan_visible = True
 
+    def on_click(self) -> None:
+        """Click to toggle collapse/expand."""
+        self.toggle()
+
     def toggle(self) -> None:
         """Toggle visibility (collapsed/expanded) of the pinned task plan."""
         if not self._active_task_plan_tasks:
