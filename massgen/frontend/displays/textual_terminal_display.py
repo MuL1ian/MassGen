@@ -1835,6 +1835,46 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         self._write_to_system_file(f"\n=== TURN {turn} ===\nQuestion: {question}\n")
 
+    def begin_restart(
+        self,
+        attempt: int,
+        max_attempts: int,
+        reason: str = "",
+        instructions: str = "",
+    ) -> None:
+        """Prepare the TUI for a restart attempt without recreating the app.
+
+        Resets internal state and delegates to the app's prepare_for_restart_attempt.
+
+        Args:
+            attempt: The new attempt number (1-indexed).
+            max_attempts: Total allowed attempts.
+            reason: Why the restart was triggered.
+            instructions: Instructions for the next attempt.
+        """
+        self.reset_quit_request()
+        self._final_answer_cache = None
+        self._final_answer_metadata = {}
+        self._final_stream_active = False
+        self._final_stream_buffer = ""
+        self._final_presentation_agent = None
+
+        if self._app:
+            self._call_app_method(
+                "prepare_for_restart_attempt",
+                attempt,
+                max_attempts,
+                reason,
+                instructions,
+            )
+
+        for agent_id in self.agent_ids:
+            separator = f"\n{'='*60}\n=== ATTEMPT {attempt}/{max_attempts} ===\n{'='*60}\n"
+            self._write_to_agent_file(agent_id, separator)
+        self._write_to_system_file(
+            f"\n=== ATTEMPT {attempt}/{max_attempts} ===\nReason: {reason}\n",
+        )
+
     def end_turn(
         self,
         turn: int,
@@ -5053,6 +5093,57 @@ Type your question and press Enter to ask the agents.
 
             logger.info(f"[TUI-App] prepare_for_new_turn() complete for turn {turn}")
 
+        def prepare_for_restart_attempt(
+            self,
+            attempt: int,
+            max_attempts: int,
+            reason: str = "",
+            instructions: str = "",
+        ):
+            """Reset the UI for a restart attempt while keeping the app running.
+
+            Unlike prepare_for_new_turn which clears timelines, this adds a restart
+            separator to each agent panel so users see continuity between attempts.
+
+            Args:
+                attempt: The new attempt number (1-indexed).
+                max_attempts: Total allowed attempts.
+                reason: Why the restart was triggered.
+                instructions: Instructions for the next attempt.
+            """
+            from massgen.logger_config import logger
+
+            logger.info(
+                f"[TUI-App] prepare_for_restart_attempt() called: " f"attempt={attempt}/{max_attempts}, reason={reason!r}",
+            )
+
+            # Clear winner state from previous attempt
+            self.clear_winner_state()
+
+            # Reset ribbon round state so rounds start fresh for this attempt
+            if self._status_ribbon:
+                self._status_ribbon.reset_round_state_all_agents()
+
+            # Add restart separator to each agent panel
+            for agent_id, panel in self.agent_widgets.items():
+                try:
+                    panel.show_restart_separator(attempt=attempt, reason=reason)
+                    logger.info(f"[TUI-App] Restart separator added for {agent_id}")
+                except Exception as e:
+                    logger.warning(
+                        f"[TUI-App] Failed to add restart separator for {agent_id}: {e}",
+                    )
+
+            # Show attempt counter in status bar
+            if self._status_bar and hasattr(self._status_bar, "show_restart_count"):
+                self._status_bar.show_restart_count(attempt, max_attempts)
+
+            # Reset agent status indicators to thinking
+            for agent_id in self.agent_widgets:
+                self.set_agent_working(agent_id, working=True)
+
+            logger.info("[TUI-App] prepare_for_restart_attempt() complete")
+
         # =====================================================================
         # Multi-turn Lifecycle Methods
         # =====================================================================
@@ -5180,9 +5271,9 @@ Type your question and press Enter to ask the agents.
                 for agent_id in self._status_bar._agent_order:
                     self._status_bar.set_agent_activity(agent_id, "thinking")
 
-            # Also show prominent restart separator in ALL agent panels
-            for agent_id, panel in self.agent_widgets.items():
-                panel.show_restart_separator(attempt, reason)
+            # NOTE: Do NOT add restart separators to agent panels here.
+            # That is handled by prepare_for_restart_attempt() which is called
+            # by the CLI restart loop after coordination finishes.
 
         def show_restart_context(self, reason: str, instructions: str):
             """Show restart context."""
@@ -8003,24 +8094,49 @@ Type your question and press Enter to ask the agents.
             self.content_log.write(formatted)
 
         def show_restart_separator(self, attempt: int = 1, reason: str = ""):
-            """Handle restart - start new round with view-based navigation.
+            """Handle orchestration-level restart (new attempt).
 
-            With Phase 12 view-based navigation, restarts create a new round that
-            users can switch to via the dropdown. This clears the timeline for fresh
-            content and updates the round tracking.
+            Resets round counter back to 1 and shows an "Attempt N" separator
+            so users can distinguish orchestration restarts from within-attempt
+            round changes.
             """
+            from massgen.logger_config import logger
+
             # Mark that non-tool content arrived (prevents future batching across this content)
             self._batch_tracker.mark_content_arrived()
             # Finalize any current batch when restart occurs
             self._batch_tracker.finalize_current_batch()
 
-            # Determine if this was a context reset
-            is_context_reset = "context" in reason.lower() or "reset" in reason.lower()
+            # Reset round counter so the new attempt starts at round 1
+            self._current_round = 1
+            self._viewed_round = 1
+            self._current_view = "round"
 
-            # Start the new round (clears timeline, updates ribbon, stores content)
-            self.start_new_round(attempt, is_context_reset)
+            # Switch timeline to round 1 of the new attempt
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.switch_to_round(1)
+                timeline.clear_tools_tracking()
+                # Add an "Attempt N" separator
+                subtitle = "Restart"
+                if reason:
+                    subtitle += f" · {reason[:60]}"
+                timeline.add_separator(
+                    f"Attempt {attempt}",
+                    round_number=1,
+                    subtitle=subtitle,
+                )
+
+                # Add Round 1 banner under the attempt separator
+                timeline._round_1_shown = True
+                timeline.add_separator("Round 1", round_number=1)
+            except Exception as e:
+                logger.error(f"AgentPanel.show_restart_separator timeline error: {e}")
 
             # Reset per-attempt UI state
+            self._hide_completion_footer()
+            self._tool_handler.reset()
+            self._batch_tracker.reset()
             self._tool_row_count = 0
             self._reasoning_header_shown = False
 

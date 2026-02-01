@@ -1140,7 +1140,7 @@ class CommandExecutionSection(SystemPromptSection):
 
     def build_content(self) -> str:
         parts = ["## Command Execution"]
-        parts.append("You can run command line commands using the `execute_command` tool.")
+        parts.append("You can run command line commands using your command execution tool.")
         parts.append("**Efficiency**: Batch multiple commands in one call using `&&` (e.g., `ls servers/ && ls custom_tools/`)\n")
 
         if self.docker_mode:
@@ -1208,6 +1208,7 @@ class FilesystemOperationsSection(SystemPromptSection):
         agent_answers: Optional[Dict[str, str]] = None,
         enable_command_execution: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
+        has_native_tools: bool = False,
     ):
         super().__init__(
             title="Filesystem Operations",
@@ -1222,6 +1223,7 @@ class FilesystemOperationsSection(SystemPromptSection):
         self.agent_answers = agent_answers
         self.enable_command_execution = enable_command_execution
         self.agent_mapping = agent_mapping  # Optional: from coordination_tracker.get_reverse_agent_mapping()
+        self.has_native_tools = has_native_tools  # True when backend has native file tools (skip MCP-specific language)
 
     def build_content(self) -> str:
         parts = ["## Filesystem Access"]
@@ -1345,10 +1347,10 @@ class FilesystemOperationsSection(SystemPromptSection):
         parts.append(
             "\n**Task Handling Priority**: When responding to user requests, follow this priority "
             "order:\n"
-            "1. **Use MCP Tools First**: If you have specialized MCP tools available, call them "
+            "1. **Use Tools First**: If you have specialized tools available, call them "
             "DIRECTLY to complete the task\n"
-            "   - Save any outputs/artifacts from MCP tools to your workspace\n"
-            "2. **Write Code If Needed**: If MCP tools cannot complete the task, write and execute "
+            "   - Save any outputs/artifacts to your workspace\n"
+            "2. **Write Code If Needed**: If tools cannot complete the task, write and execute "
             "code\n"
             "3. **Create Other Files**: Create configs, documents, or other deliverables as "
             "needed\n"
@@ -1771,7 +1773,7 @@ You have just presented a final answer to the user. Now you must evaluate whethe
 Review the final answer that was presented and determine if it completely and accurately addresses the original task requirements.
 
 **Available Tools:**
-You have access to the same filesystem and MCP tools that were available during presentation. Use these tools to:
+You have access to the same filesystem and tools that were available during presentation. Use these tools to:
 - Verify that claimed files actually exist in the workspace
 - Check file contents to confirm they match what was described
 - Validate any technical claims or implementations

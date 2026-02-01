@@ -2567,8 +2567,16 @@ async def run_question_with_history(
                                 f"Failed to reset backend for {agent_id}: {e}",
                             )
 
-                # Create fresh UI instance for next attempt
-                ui = _build_coordination_ui(ui_config)
+                # Reuse existing UI if it supports restart, otherwise recreate
+                try:
+                    ui.prepare_for_restart(
+                        orchestrator,
+                        orchestrator.current_attempt + 1,
+                        orchestrator.max_attempts,
+                    )
+                except Exception:
+                    logger.warning("prepare_for_restart failed, recreating UI")
+                    ui = _build_coordination_ui(ui_config)
 
                 # Reset cancellation state for new attempt
                 cancellation_mgr.reset()
@@ -3109,8 +3117,16 @@ async def run_single_question(
                                 f"Failed to reset backend for {agent_id}: {e}",
                             )
 
-                # Create fresh UI instance for next attempt
-                ui = _build_coordination_ui(ui_config)
+                # Reuse existing UI if it supports restart, otherwise recreate
+                try:
+                    ui.prepare_for_restart(
+                        orchestrator,
+                        orchestrator.current_attempt + 1,
+                        orchestrator.max_attempts,
+                    )
+                except Exception:
+                    logger.warning("prepare_for_restart failed, recreating UI")
+                    ui = _build_coordination_ui(ui_config)
 
                 # Continue to next attempt
                 continue
@@ -5566,25 +5582,77 @@ async def run_textual_interactive_mode(
                 },
             )
 
-            # Run orchestration (won't call display.run_async due to interactive_mode)
-            # Use coordinate_with_context if we have conversation history for multi-turn
-            if conversation_history:
-                # Build messages list with history + current question
-                messages = conversation_history + [
-                    {"role": "user", "content": question},
-                ]
-                answer = await coord_ui.coordinate_with_context(
-                    orchestrator=orchestrator,
-                    question=question,
-                    messages=messages,
-                    agent_ids=agent_ids,
-                )
-            else:
-                answer = await coord_ui.coordinate(
-                    orchestrator=orchestrator,
-                    question=question,
-                    agent_ids=agent_ids,
-                )
+            # Run orchestration with restart loop
+            # (won't call display.run_async due to interactive_mode)
+            while True:
+                # Use coordinate_with_context if we have conversation history for multi-turn
+                if conversation_history:
+                    # Build messages list with history + current question
+                    messages = conversation_history + [
+                        {"role": "user", "content": question},
+                    ]
+                    answer = await coord_ui.coordinate_with_context(
+                        orchestrator=orchestrator,
+                        question=question,
+                        messages=messages,
+                        agent_ids=agent_ids,
+                    )
+                else:
+                    answer = await coord_ui.coordinate(
+                        orchestrator=orchestrator,
+                        question=question,
+                        agent_ids=agent_ids,
+                    )
+
+                # Check if restart is needed
+                if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
+                    from massgen.logger_config import set_log_attempt
+
+                    set_log_attempt(orchestrator.current_attempt + 1)
+
+                    save_execution_metadata(
+                        query=question,
+                        config_path=config_path,
+                        config_content=original_config,
+                        cli_args={
+                            "mode": "textual_interactive_restart",
+                            "attempt": orchestrator.current_attempt + 1,
+                            "turn": turn_num,
+                            "session_id": sess_id,
+                            "restart_reason": orchestrator.restart_reason,
+                        },
+                    )
+
+                    # Reset all agent backends for clean state
+                    for agent_id, agent in orchestrator.agents.items():
+                        if hasattr(agent.backend, "reset_state"):
+                            try:
+                                import inspect
+
+                                result = agent.backend.reset_state()
+                                if inspect.iscoroutine(result):
+                                    await result
+                                logger.info(f"Reset backend state for {agent_id}")
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to reset backend for {agent_id}: {e}",
+                                )
+
+                    # Reuse existing UI for restart (never recreate in Textual
+                    # mode — the Textual app owns the display and a fresh
+                    # CoordinationUI would not have it)
+                    try:
+                        coord_ui.prepare_for_restart(
+                            orchestrator,
+                            orchestrator.current_attempt + 1,
+                            orchestrator.max_attempts,
+                        )
+                    except Exception as e:
+                        logger.warning(f"prepare_for_restart failed: {e}", exc_info=True)
+
+                    continue
+                else:
+                    break
 
             # Handle session persistence (same as Rich mode)
             session_id_to_use = session_info.get("session_id")

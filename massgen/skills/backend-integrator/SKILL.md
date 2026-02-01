@@ -381,7 +381,7 @@ from .base import build_workflow_instructions, parse_workflow_tool_calls, extrac
 
 #### 6.6 Provider-Native Tools: Keep vs. Override
 
-CLI/SDK-based agents (Codex, Claude Code) come with their own built-in tools (file editing, shell execution, web search, sub-agents, etc.). When integrating, decide which to keep and which to override with MassGen equivalents.
+CLI/SDK-based agents (Codex, Claude Code) come with their own built-in tools (file editing, shell execution, web search, sub-agents, etc.). When integrating, decide which to keep and which to override with MassGen equivalents. Document these decisions in `get_tool_category_overrides()` on the `NativeToolBackendMixin` — see §6.8 and Phase 10.2 for details.
 
 **General rule**: Prefer the provider's native tools unless MassGen has a specific reason to override. Native tools are optimized for the provider's model and avoid extra MCP overhead.
 
@@ -401,19 +401,69 @@ CLI/SDK-based agents (Codex, Claude Code) come with their own built-in tools (fi
 [mcp_servers.some_server]
 disabled_tools = ["task", "sub_agent"]
 
-# Claude Code: via SDK options
-options = {
-    "permissions": {
-        "disallowed_tools": ["Task"],  # Disable Claude Code's Task tool
-    }
-}
+# Claude Code: via SDK disallowed_tools param
+all_params["disallowed_tools"] = [
+    "Read", "Write", "Edit", "MultiEdit",  # Use MassGen's MCP filesystem
+    "Bash", "BashOutput", "KillShell",     # Use MassGen's execute_command
+    "LS", "Grep", "Glob",                  # Use MassGen's filesystem tools
+    "TodoWrite",                            # MassGen has its own task tracking
+    "NotebookEdit", "NotebookRead",
+    "ExitPlanMode",
+    # Security restrictions
+    "Bash(rm*)", "Bash(sudo*)", "Bash(su*)", "Bash(chmod*)", "Bash(chown*)",
+]
+# Conditionally keep web tools:
+if not enable_web_search:
+    disallowed_tools.extend(["WebSearch", "WebFetch"])
 ```
+
+**Key patterns**:
+- Claude Code SDK supports glob patterns for Bash restrictions: `"Bash(rm*)"`, `"Bash(sudo*)"`
+- Check `if "disallowed_tools" not in all_params` to allow user override via YAML config
+- Codex uses `disabled_tools` per MCP server in `.codex/config.toml`; for built-in tools, Codex doesn't have a disable mechanism — use `--full-auto` to auto-approve instead
 
 **Document in capabilities.py** which native tools the backend provides:
 ```python
 builtin_tools=["file_edit", "shell", "web_search", "sub_agent"],
 notes="Native tools: file ops, shell, web search, sub-agents. Override sub-agents with MassGen's."
 ```
+
+#### 6.8 NativeToolBackendMixin
+
+**File**: `massgen/backend/native_tool_mixin.py`
+
+For backends with built-in tools (CLI/SDK wrappers), use `NativeToolBackendMixin` to standardize tool filtering and hook integration:
+
+```python
+from .native_tool_mixin import NativeToolBackendMixin
+
+class YourBackend(NativeToolBackendMixin, LLMBackend):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.__init_native_tool_mixin__()
+        # Optional: initialize hook adapter
+        self._init_native_hook_adapter(
+            "massgen.mcp_tools.native_hook_adapters.YourBackendAdapter"
+        )
+
+    def get_disallowed_tools(self, config):
+        """Return native tools to disable (MassGen has equivalents)."""
+        return ["NativeTool1", "NativeTool2"]
+```
+
+**Mixin provides**:
+| Method | Purpose |
+|--------|---------|
+| `get_disallowed_tools(config)` | **Abstract** — declare which native tools to disable |
+| `get_tool_category_overrides()` | **Abstract** — declare which MCP categories to skip/override |
+| `supports_native_hooks()` | Check if hook adapter is available |
+| `get_native_hook_adapter()` | Get the adapter instance |
+| `set_native_hooks_config(config)` | Set MassGen hooks in native format |
+| `_init_native_hook_adapter(path)` | Initialize adapter by import path |
+
+**Reference implementations**:
+- `claude_code.py` — disables most native tools (Read, Write, Bash, etc.) in favor of MassGen MCP
+- `codex.py` — keeps all native tools (MassGen skips attaching MCP equivalents instead)
 
 ### Phase 7: Testing (2+ files)
 
@@ -461,6 +511,166 @@ uv run python docs/scripts/generate_backend_tables.py
 
 #### 9.3 User Guide
 **File**: `docs/source/user_guide/backends.rst` — add section for new backend
+
+### Phase 10: System Prompt Considerations
+
+The system prompt is assembled by `massgen/system_message_builder.py` using priority-based sections from `massgen/system_prompt_sections.py`. Different sections are conditionally included based on backend capabilities and config flags.
+
+#### 10.1 Section Categories
+
+**Always included** (all backends):
+| Section | Purpose |
+|---------|---------|
+| `AgentIdentitySection` | WHO the agent is |
+| `EvaluationSection` | vote/new_answer coordination primitives |
+| `CoreBehaviorsSection` | Action bias, parallel execution |
+| `OutputFirstVerificationSection` | Quality iteration loop |
+| `SkillsSection` | `openskills read` via command execution |
+| `MemorySection` | Decision documentation |
+| `WorkspaceStructureSection` | Workspace paths |
+| `ProjectInstructionsSection` | CLAUDE.md/AGENTS.md |
+| `SubagentSection` | MassGen subagent delegation |
+| `BroadcastCommunicationSection` | Inter-agent communication |
+| `PostEvaluationSection` | submit/restart |
+| `FileSearchSection` | rg/sg universal CLI tools |
+| `TaskContextSection` | CONTEXT.md creation |
+
+**Conditional on config flags**:
+| Section | Gate |
+|---------|------|
+| `TaskPlanningSection` | `enable_task_planning=True` |
+| `EvolvingSkillsSection` | `auto_discover_custom_tools=True` AND `enable_task_planning=True` |
+| `PlanningModeSection` | `planning_mode_enabled=True` |
+| `CodeBasedToolsSection` | `enable_code_based_tools=True` (CodeAct paradigm) |
+| `CommandExecutionSection` | `enable_mcp_command_line=True` |
+
+**Adapted for native backends**:
+| Section | Adaptation |
+|---------|------------|
+| `FilesystemOperationsSection` | `has_native_tools=True` → generic tool language |
+| `FilesystemBestPracticesSection` | Comparison tool language adjusted |
+
+#### 10.2 `tool_category_overrides`
+
+**File**: `massgen/backend/native_tool_mixin.py`
+
+The `get_tool_category_overrides()` abstract method on `NativeToolBackendMixin` declares which MassGen tool categories a backend handles natively. Each native backend implements this method:
+
+```python
+@abstractmethod
+def get_tool_category_overrides(self) -> Dict[str, str]:
+    # "skip"     = backend has native equivalent
+    # "override" = attach MassGen's version, disable native
+    # (absent)   = attach MCP normally
+```
+
+Categories: `filesystem`, `command_execution`, `file_search`, `web_search`, `planning`, `subagents`
+
+Currently used by `system_message_builder.py` to:
+- Pass `has_native_tools=True` to filesystem sections when `filesystem: "skip"`
+- Document which tool categories each backend handles natively
+
+**Note**: MCP server injection filtering (which MCP servers to attach) is handled individually by each CLI/SDK backend (`codex.py`, `claude_code.py`). The `get_tool_category_overrides()` method serves as documentation and controls system prompt section behavior. Non-mixin backends (API-based) return `{}` by default via `system_message_builder.py`'s fallback.
+
+#### 10.3 Path Permission Caveat
+
+Native CLI tools (Read/Write/Bash in Claude Code, file_read/file_write in Codex) may not support MassGen's granular per-path permissions via `PathPermissionManager`. When `filesystem: "skip"`, the backend relies on its own sandboxing. See `massgen/filesystem_manager/_path_permission_manager.py`.
+
+### Phase 11: Hooks
+
+MassGen supports hooks for intercepting tool execution and other lifecycle events. Hooks run transparently (not documented in the system prompt).
+
+#### 11.1 Hook Types
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `PreToolUse` | Before tool execution | Validate/modify inputs, enforce permissions |
+| `PostToolUse` | After tool execution | Inject content into results (MidStreamInjection) |
+| `PathPermissionManagerHook` | On filesystem tool calls | Enforce per-path read/write permissions |
+| `MidStreamInjectionHook` | Post tool use | Inject coordination messages (voting reminders, etc.) |
+| `HighPriorityTaskReminderHook` | Post tool use | Remind agent of current task |
+
+#### 11.2 Hook Architecture
+
+```
+GeneralHookManager (massgen/mcp_tools/hooks/)
+    ├── Registers global and per-agent hooks
+    ├── Executes hooks in order for MCP-based backends
+    └── For native backends → NativeHookAdapter
+            ├── ClaudeCodeNativeHookAdapter
+            │   └── Converts to Claude Agent SDK HookMatcher format
+            └── (future) CodexNativeHookAdapter
+```
+
+#### 11.3 Native Hook Adapters — How to Implement
+
+For backends with native tool execution (CLI/SDK wrappers), MassGen hooks need to be bridged into the backend's hook system. This is done via `NativeHookAdapter` (base class in `massgen/mcp_tools/native_hook_adapters/base.py`).
+
+**Step 1**: Create adapter subclass:
+```python
+# massgen/mcp_tools/native_hook_adapters/your_backend_adapter.py
+from .base import NativeHookAdapter
+
+class YourBackendNativeHookAdapter(NativeHookAdapter):
+    def supports_hook_type(self, hook_type):
+        return hook_type in (HookType.PRE_TOOL_USE, HookType.POST_TOOL_USE)
+
+    def convert_hook_to_native(self, hook, hook_type, context_factory=None):
+        """Wrap MassGen hook as your backend's native hook format."""
+        async def native_hook(tool_name, tool_args, context):
+            event = self.create_hook_event_from_native(
+                {"tool_name": tool_name, "tool_input": tool_args},
+                hook_type, context_factory() if context_factory else {},
+            )
+            result = await hook.execute(event)
+            return self.convert_hook_result_to_native(result, hook_type)
+        return {"pattern": hook.matcher, "handler": native_hook}
+
+    def build_native_hooks_config(self, hook_manager, agent_id=None, context_factory=None):
+        """Convert all registered hooks to native config."""
+        config = {"PreToolUse": [], "PostToolUse": []}
+        for hook_type, hooks in hook_manager.get_hooks(agent_id).items():
+            for hook in hooks:
+                native = self.convert_hook_to_native(hook, hook_type, context_factory)
+                config[hook_type.value].append(native)
+        return config
+
+    def merge_native_configs(self, *configs):
+        """Merge permission hooks + MassGen hooks + user hooks."""
+        merged = {"PreToolUse": [], "PostToolUse": []}
+        for config in configs:
+            for key in merged:
+                merged[key].extend(config.get(key, []))
+        return merged
+```
+
+**Step 2**: Initialize in backend `__init__`:
+```python
+from ..mcp_tools.native_hook_adapters import YourBackendNativeHookAdapter
+self._native_hook_adapter = YourBackendNativeHookAdapter()
+```
+
+**Step 3**: Implement the backend interface methods:
+```python
+def supports_native_hooks(self) -> bool:
+    return self._native_hook_adapter is not None
+
+def get_native_hook_adapter(self):
+    return self._native_hook_adapter
+
+def set_native_hooks_config(self, config):
+    self._massgen_hooks_config = config
+```
+
+**Step 4**: Merge hooks when launching the backend process. The orchestrator calls `set_native_hooks_config()` with converted hooks; your backend merges with its own permission hooks when building options.
+
+#### 11.4 Reference
+
+- Hook framework: `massgen/mcp_tools/hooks/`
+- Adapter base: `massgen/mcp_tools/native_hook_adapters/base.py`
+- Claude Code adapter: `massgen/mcp_tools/native_hook_adapters/claude_code_adapter.py`
+- Path permissions: `massgen/filesystem_manager/_path_permission_manager.py`
+- Orchestrator hook setup: `massgen/orchestrator.py` (search for `native_hook`)
 
 ## Common Patterns
 

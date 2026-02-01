@@ -1404,10 +1404,21 @@ class TimelineSection(ScrollableContainer):
         try:
             # Check if this is a round/restart/final separator (should be prominent)
             is_round = label.upper().startswith("ROUND") if label else False
+            is_attempt = label.upper().startswith("ATTEMPT") if label else False
             is_restart = "RESTART" in label.upper() if label else False
             is_final = "FINAL" in label.upper() if label else False
 
-            if is_round or is_restart or is_final:
+            if is_attempt:
+                # Orchestration-level restart — use the more prominent AttemptBanner
+                import re
+
+                attempt_num = 2
+                match = re.search(r"(\d+)", label)
+                if match:
+                    attempt_num = int(match.group(1))
+                widget = AttemptBanner(attempt=attempt_num, reason=subtitle.replace("Restart · ", "").replace("Restart", ""), id=widget_id)
+                logger.debug(f"TimelineSection.add_separator: Created AttemptBanner attempt={attempt_num}")
+            elif is_round or is_restart or is_final:
                 # Create prominent round/restart/final banner
                 widget = RestartBanner(label=label, subtitle=subtitle, id=widget_id)
                 logger.debug(f"TimelineSection.add_separator: Created RestartBanner for '{label}' subtitle='{subtitle}'")
@@ -2253,6 +2264,71 @@ class RestartBanner(Static):
             # No subtitle - just fill with line
             remaining = total_width - left_line_len - len(label_text)
             text.append(line_char * remaining, style=line_color)
+
+        return text
+
+
+class AttemptBanner(Static):
+    """Prominent multi-line banner for orchestration-level restarts (new attempts).
+
+    More visually distinct than a round separator to clearly signal that the
+    entire coordination is restarting, not just an intra-round agent restart.
+
+    Design:
+    ```
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     🔄 Attempt 2  ·  The answer was incomplete...
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ```
+    """
+
+    DEFAULT_CSS = """
+    AttemptBanner {
+        width: 100%;
+        height: auto;
+        margin: 1 0;
+        padding: 0;
+        background: transparent;
+    }
+    """
+
+    def __init__(self, attempt: int = 2, reason: str = "", id: Optional[str] = None) -> None:
+        super().__init__(id=id)
+        self._attempt = attempt
+        self._reason = reason
+
+    def render(self) -> Text:
+        """Render a prominent double-line attempt banner."""
+        text = Text(no_wrap=False)
+
+        try:
+            total_width = self.size.width
+            if total_width < 40:
+                total_width = 200
+        except Exception:
+            total_width = 200
+
+        line_char = "━"
+        line_color = "#b45309"  # Amber/orange for the border lines
+        label_color = "#f59e0b"  # Bright amber for the label
+        reason_color = "#9ca3af"  # Gray for reason text
+
+        # Top line
+        text.append(line_char * total_width, style=line_color)
+        text.append("\n")
+
+        # Content line: " 🔄 Attempt N  ·  reason..."
+        label = f" \u21bb Attempt {self._attempt}"
+        text.append(label, style=f"bold {label_color}")
+
+        if self._reason:
+            truncated = self._reason[:80] + "..." if len(self._reason) > 80 else self._reason
+            text.append(f"  \u00b7  {truncated}", style=reason_color)
+
+        text.append("\n")
+
+        # Bottom line
+        text.append(line_char * total_width, style=line_color)
 
         return text
 

@@ -70,9 +70,10 @@ from .base import (
     get_multimodal_tool_definitions,
     parse_workflow_tool_calls,
 )
+from .native_tool_mixin import NativeToolBackendMixin
 
 
-class CodexBackend(LLMBackend):
+class CodexBackend(NativeToolBackendMixin, LLMBackend):
     """OpenAI Codex backend using CLI subprocess with JSON event stream.
 
     Provides streaming interface to Codex with OAuth support and session
@@ -104,6 +105,7 @@ class CodexBackend(LLMBackend):
                 - approval_mode: Codex approval mode (full-auto, full-access, suggest)
         """
         super().__init__(api_key, **kwargs)
+        self.__init_native_tool_mixin__()
 
         # Authentication setup
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -1220,6 +1222,44 @@ class CodexBackend(LLMBackend):
             return extract_workflow_tool_call(parsed)
         except (json.JSONDecodeError, TypeError):
             return None
+
+    def get_disallowed_tools(self, config: Dict[str, Any]) -> List[str]:
+        """Return Codex native tools to disable.
+
+        Codex keeps all its native tools (shell, file_read, file_write,
+        file_edit, web_search) since MassGen skips attaching MCP equivalents
+        for categories the backend handles natively (see tool_category_overrides).
+
+        Tool filtering for MCP servers is handled separately via
+        enabled_tools/disabled_tools in .codex/config.toml per server.
+
+        Codex also supports disabling built-in tools via config.toml:
+        - [features].shell_tool = false
+        - web_search = "disabled"
+
+        Args:
+            config: Backend config dict.
+
+        Returns:
+            Empty list — all native tools are kept.
+        """
+        return []
+
+    def get_tool_category_overrides(self) -> Dict[str, str]:
+        """Return tool category overrides for Codex.
+
+        Codex has native tools for filesystem, command execution, file search,
+        and web search. MassGen overrides native planning and subagent tools
+        with its own implementations.
+        """
+        return {
+            "filesystem": "skip",  # Native: file_read, file_write, file_edit
+            "command_execution": "skip",  # Native: shell
+            "file_search": "skip",  # Native: shell (rg/sg available)
+            "web_search": "skip",  # Native: web_search
+            "planning": "override",  # Override with MassGen planning MCP
+            "subagents": "override",  # Override with MassGen spawn_subagents
+        }
 
     def get_provider_name(self) -> str:
         """Get the name of this provider."""

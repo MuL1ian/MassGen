@@ -88,9 +88,10 @@ from .base import (
 from .base import extract_structured_response as _extract_structured_response
 from .base import get_multimodal_tool_definitions
 from .base import parse_workflow_tool_calls as _parse_workflow_tool_calls
+from .native_tool_mixin import NativeToolBackendMixin
 
 
-class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
+class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
     """Claude Code backend using claude-code-sdk-python.
 
     Provides streaming interface to Claude Code with built-in tool execution
@@ -234,15 +235,10 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                 logger.info(f"Registered SDK MCP server with {len(self._custom_tool_manager.registered_tools)} custom tools")
 
         # Initialize native hook adapter for MassGen hooks integration
-        self._native_hook_adapter: Optional[Any] = None
-        self._massgen_hooks_config: Optional[Dict[str, Any]] = None
-        try:
-            from ..mcp_tools.native_hook_adapters import ClaudeCodeNativeHookAdapter
-
-            self._native_hook_adapter = ClaudeCodeNativeHookAdapter()
-            logger.debug("[ClaudeCodeBackend] Native hook adapter initialized")
-        except ImportError as e:
-            logger.debug(f"[ClaudeCodeBackend] Native hook adapter not available: {e}")
+        self.__init_native_tool_mixin__()
+        self._init_native_hook_adapter(
+            "massgen.mcp_tools.native_hook_adapters.ClaudeCodeNativeHookAdapter",
+        )
 
         # Note: _execution_trace is initialized by StreamingBufferMixin
         # and configured with agent_id when _clear_streaming_buffer is called
@@ -341,42 +337,70 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
         """
         return True
 
-    def supports_native_hooks(self) -> bool:
-        """Check if this backend supports native hook integration.
+    # supports_native_hooks(), get_native_hook_adapter(), set_native_hooks_config()
+    # are provided by NativeToolBackendMixin
 
-        Claude Code backend supports native hooks via the Claude Agent SDK's
-        HookMatcher API, allowing MassGen hooks to be executed natively by
-        the Claude Code server.
+    def get_disallowed_tools(self, config: Dict[str, Any]) -> List[str]:
+        """Return native Claude Code tools to disable.
 
-        Returns:
-            True if the native hook adapter is available
-        """
-        return self._native_hook_adapter is not None
-
-    def get_native_hook_adapter(self) -> Optional[Any]:
-        """Get the native hook adapter for this backend.
-
-        Returns:
-            ClaudeCodeNativeHookAdapter instance if available, None otherwise
-        """
-        return self._native_hook_adapter
-
-    def set_native_hooks_config(self, config: Dict[str, Any]) -> None:
-        """Set MassGen hooks converted to native format.
-
-        Called by the orchestrator to set up MassGen hooks (MidStreamInjection,
-        HighPriorityTaskReminder, user-configured hooks) in native format.
-        These hooks will be merged with permission hooks when building
-        ClaudeAgentOptions.
+        MassGen replaces most Claude Code native tools with its own MCP equivalents
+        for workspace isolation and coordination. Only Task (for subagents) and
+        optionally WebSearch/WebFetch are kept.
 
         Args:
-            config: Native hooks configuration dict with PreToolUse and/or
-                   PostToolUse keys containing HookMatcher lists
+            config: Backend config dict. Uses enable_web_search to conditionally
+                    keep web tools.
+
+        Returns:
+            List of tool names/patterns to disable via SDK disallowed_tools.
         """
-        self._massgen_hooks_config = config
-        logger.debug(
-            f"[ClaudeCodeBackend] Set native hooks config: " f"PreToolUse={len(config.get('PreToolUse', []))} hooks, " f"PostToolUse={len(config.get('PostToolUse', []))} hooks",
-        )
+        disallowed = [
+            # Security restrictions (dangerous bash patterns)
+            "Bash(rm*)",
+            "Bash(sudo*)",
+            "Bash(su*)",
+            "Bash(chmod*)",
+            "Bash(chown*)",
+            # Redundant tools - MassGen has MCP equivalents
+            "Read",  # → MassGen read_file_content
+            "Write",  # → MassGen save_file_content
+            "Edit",  # → MassGen append_file_content
+            "MultiEdit",  # → MassGen append_file_content
+            "Bash",  # → MassGen run_shell_script / execute_command
+            "BashOutput",
+            "KillShell",
+            "LS",  # → MassGen list_directory
+            "Grep",  # → execute_command (issue 640)
+            "Glob",  # → execute_command (issue 640)
+            "TodoWrite",  # → MassGen task tracking
+            "NotebookEdit",
+            "NotebookRead",
+            "mcp__ide__getDiagnostics",
+            "mcp__ide__executeCode",
+            "ExitPlanMode",
+        ]
+
+        # Conditionally keep web tools
+        if not config.get("enable_web_search", False):
+            disallowed.extend(["WebSearch", "WebFetch"])
+
+        return disallowed
+
+    def get_tool_category_overrides(self) -> Dict[str, str]:
+        """Return tool category overrides for Claude Code.
+
+        Claude Code has native tools for filesystem, command execution, file search,
+        web search, and planning. MassGen overrides the native Task tool with its
+        own subagent spawning.
+        """
+        return {
+            "filesystem": "skip",  # Native: Read, Write, Edit, MultiEdit, Glob, Grep, LS
+            "command_execution": "skip",  # Native: Bash
+            "file_search": "skip",  # Native: Grep, Glob
+            "web_search": "skip",  # Native: WebSearch, WebFetch
+            "planning": "skip",  # Native: EnterPlanMode, ExitPlanMode, TodoWrite
+            "subagents": "override",  # Override native Task with MassGen spawn_subagents
+        }
 
     def _get_execution_trace_hooks(self) -> Dict[str, List[Any]]:
         """Create SDK hooks that capture tool executions for the execution trace.
@@ -1476,37 +1500,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
             enable_web_search = all_params.get("enable_web_search", False)
 
             if "disallowed_tools" not in all_params:
-                disallowed_tools = [
-                    # Security restrictions (dangerous bash patterns)
-                    "Bash(rm*)",
-                    "Bash(sudo*)",
-                    "Bash(su*)",
-                    "Bash(chmod*)",
-                    "Bash(chown*)",
-                    # Redundant tools - MassGen has native implementations
-                    "Read",  # Use MassGen's read_file_content
-                    "Write",  # Use MassGen's save_file_content
-                    "Edit",  # Use MassGen's append_file_content
-                    "MultiEdit",  # Use MassGen's append_file_content
-                    "Bash",  # Use MassGen's run_shell_script
-                    "BashOutput",
-                    "KillShell",
-                    "LS",  # MassGen has list_directory
-                    "Grep",  # Use execute_command or future MassGen grep (issue 640)
-                    "Glob",  # Use execute_command or future MassGen glob (issue 640)
-                    "TodoWrite",  # MassGen has its own task tracking
-                    "NotebookEdit",
-                    "NotebookRead",
-                    "mcp__ide__getDiagnostics",
-                    "mcp__ide__executeCode",
-                    "ExitPlanMode",
-                ]
-
-                # Only disable web tools if not enabled
-                if not enable_web_search:
-                    disallowed_tools.extend(["WebSearch", "WebFetch"])
-
-                all_params["disallowed_tools"] = disallowed_tools
+                all_params["disallowed_tools"] = self.get_disallowed_tools(all_params)
                 logger.info(
                     f"[ClaudeCodeBackend] Using minimal tool set: Task" f"{', WebSearch, WebFetch' if enable_web_search else ''}",
                 )
