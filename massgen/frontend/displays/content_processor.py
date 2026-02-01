@@ -41,6 +41,11 @@ OutputType = Literal[
     "reminder",
     "separator",
     "final_answer",
+    "final_presentation_start",
+    "final_presentation_chunk",
+    "final_presentation_end",
+    "answer_locked",
+    "thinking_done",
     "skip",  # Filter out this content
 ]
 
@@ -87,6 +92,9 @@ class ContentOutput:
 
     # Original normalized content (for debugging/advanced use)
     normalized: Optional[NormalizedContent] = None
+
+    # Extra metadata for specialized output types (final_presentation_start, etc.)
+    extra: Optional[Dict[str, Any]] = None
 
 
 class ContentProcessor:
@@ -197,6 +205,14 @@ class ContentProcessor:
             return self._handle_event_context_received(event, round_number)
         elif event.event_type == EventType.INJECTION_RECEIVED:
             return self._handle_event_injection_received(event, round_number)
+        elif event.event_type == EventType.FINAL_PRESENTATION_START:
+            return self._handle_event_final_presentation_start(event, round_number)
+        elif event.event_type == EventType.FINAL_PRESENTATION_CHUNK:
+            return self._handle_event_final_presentation_chunk(event, round_number)
+        elif event.event_type == EventType.FINAL_PRESENTATION_END:
+            return self._handle_event_final_presentation_end(event, round_number)
+        elif event.event_type == EventType.ANSWER_LOCKED:
+            return self._handle_event_answer_locked(event, round_number)
         return None
 
     def _handle_event_tool_start(
@@ -720,17 +736,43 @@ class ContentProcessor:
         self,
         event: MassGenEvent,
         round_number: int,
-    ) -> Optional[ContentOutput]:
-        """Handle winner_selected coordination event."""
+    ) -> Optional[Union[ContentOutput, List[ContentOutput]]]:
+        """Handle winner_selected coordination event.
+
+        Creates a FinalPresentationCard in completion-only mode (no streaming
+        content — the answer is already in the timeline via normal pipeline).
+        """
         winner = event.agent_id or "unknown"
+        vote_results_str = event.data.get("vote_results", "")
+
+        # Parse vote_results if it's a string repr
+        vote_counts: Dict[str, Any] = {}
+        is_tie = False
+        if vote_results_str:
+            try:
+                import ast
+
+                vr = ast.literal_eval(vote_results_str)
+                if isinstance(vr, dict):
+                    vote_counts = vr.get("vote_counts", {})
+                    is_tie = vr.get("is_tie", False)
+            except Exception:
+                pass
 
         self._batch_tracker.mark_content_arrived()
         return ContentOutput(
-            output_type="status",
+            output_type="final_presentation_start",
             round_number=round_number,
-            text_content=f"Winner selected: {winner}",
-            text_style="bold green",
-            text_class="status",
+            text_content="",
+            text_style="",
+            text_class="final_presentation",
+            extra={
+                "agent_id": winner,
+                "vote_counts": vote_counts,
+                "answer_labels": {},
+                "is_tie": is_tie,
+                "completion_only": True,
+            },
         )
 
     def _handle_event_context_received(
@@ -759,6 +801,79 @@ class ContentProcessor:
             text_content=label,
             text_style="italic cyan",
             text_class="injection",
+        )
+
+    def _handle_event_final_presentation_start(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle final_presentation_start event.
+
+        Returns a ContentOutput with output_type="final_presentation_start"
+        carrying vote_counts and answer_labels for the TUI pipeline to
+        create a FinalPresentationCard.
+        """
+        self._batch_tracker.mark_content_arrived()
+        return ContentOutput(
+            output_type="final_presentation_start",
+            round_number=round_number,
+            text_content="",
+            text_style="",
+            text_class="final_presentation",
+            extra={
+                "agent_id": event.agent_id or "",
+                "vote_counts": event.data.get("vote_counts", {}),
+                "answer_labels": event.data.get("answer_labels", {}),
+                "is_tie": event.data.get("is_tie", False),
+            },
+        )
+
+    def _handle_event_final_presentation_chunk(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle final_presentation_chunk event — streamed content for the card."""
+        content = event.data.get("content", "")
+        if not content:
+            return None
+        return ContentOutput(
+            output_type="final_presentation_chunk",
+            round_number=round_number,
+            text_content=content,
+            text_style="",
+            text_class="final_presentation",
+        )
+
+    def _handle_event_final_presentation_end(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle final_presentation_end event — marks the card as complete."""
+        return ContentOutput(
+            output_type="final_presentation_end",
+            round_number=round_number,
+            text_content="",
+            text_style="",
+            text_class="final_presentation",
+            extra={"agent_id": event.agent_id or ""},
+        )
+
+    def _handle_event_answer_locked(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle answer_locked event — timeline locks to final answer."""
+        return ContentOutput(
+            output_type="answer_locked",
+            round_number=round_number,
+            text_content="",
+            text_style="",
+            text_class="",
+            extra={"agent_id": event.agent_id or ""},
         )
 
     def flush_pending_batch(self, round_number: int = 1) -> Optional[ContentOutput]:

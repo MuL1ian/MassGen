@@ -3344,89 +3344,31 @@ Your answer:"""
                             # End round token tracking with "answer" outcome
                             if agent and hasattr(agent.backend, "end_round_tracking"):
                                 agent.backend.end_round_tracking("answer")
-                            # Notify web display if available
+                            # Emit answer_submitted event (unified pipeline for main + subagent TUI)
+                            _ans_list = self.coordination_tracker.answers_by_agent.get(agent_id, [])
+                            _answer_number = len(_ans_list)
+                            _agent_num = self.coordination_tracker._get_agent_number(agent_id)
+                            _answer_label = f"agent{_agent_num}.{_answer_number}"
+                            from massgen.events import get_event_emitter
+
+                            _emitter = get_event_emitter()
+                            if _emitter:
+                                _emitter.emit_answer_submitted(
+                                    agent_id=agent_id,
+                                    content=result_data,
+                                    answer_number=_answer_number,
+                                    answer_label=_answer_label,
+                                )
+
+                            # Notify web display for browser tracking (non-TUI displays)
                             if hasattr(self, "coordination_ui") and self.coordination_ui:
                                 display = getattr(self.coordination_ui, "display", None)
-                                if display and hasattr(display, "send_new_answer"):
-                                    # Get answer count and label for this agent
-                                    agent_answers = self.coordination_tracker.answers_by_agent.get(
-                                        agent_id,
-                                        [],
-                                    )
-                                    answer_number = len(agent_answers)
-                                    agent_num = self.coordination_tracker._get_agent_number(
-                                        agent_id,
-                                    )
-                                    answer_label = f"agent{agent_num}.{answer_number}"
-
-                                    # Get workspace path from snapshot mapping
-                                    workspace_path = None
-                                    snapshot_mapping = self.coordination_tracker.snapshot_mappings.get(
-                                        answer_label,
-                                    )
-                                    if snapshot_mapping:
-                                        # Build absolute workspace path from mapping
-                                        log_session_dir = get_log_session_dir()
-                                        if log_session_dir and snapshot_mapping.get(
-                                            "path",
-                                        ):
-                                            # path is like "agent_a/20251230_123456/answer.txt"
-                                            # workspace is at "agent_a/20251230_123456/workspace"
-                                            snapshot_path = snapshot_mapping["path"]
-                                            if snapshot_path.endswith("/answer.txt"):
-                                                workspace_rel = snapshot_path[: -len("/answer.txt")] + "/workspace"
-                                            else:
-                                                workspace_rel = f"{agent_id}/{answer_timestamp}/workspace"
-                                            workspace_path = str(
-                                                Path(log_session_dir) / workspace_rel,
-                                            )
-
+                                if display and hasattr(display, "send_new_answer") and not hasattr(display, "_app"):
                                     display.send_new_answer(
-                                        agent_id=agent_id,
-                                        content=result_data,
-                                        answer_number=answer_number,
-                                        answer_label=answer_label,
-                                        workspace_path=workspace_path,
-                                    )
-                                # Emit to events.jsonl for subagent TUI parity
-                                # Compute answer metadata outside display check so it works in --automation mode
-                                _ans_list = self.coordination_tracker.answers_by_agent.get(agent_id, [])
-                                _answer_number = len(_ans_list)
-                                _agent_num = self.coordination_tracker._get_agent_number(agent_id)
-                                _answer_label = f"agent{_agent_num}.{_answer_number}"
-                                from massgen.events import get_event_emitter
-
-                                _emitter = get_event_emitter()
-                                if _emitter:
-                                    _emitter.emit_answer_submitted(
                                         agent_id=agent_id,
                                         content=result_data,
                                         answer_number=_answer_number,
                                         answer_label=_answer_label,
-                                    )
-                                # Record answer with context for timeline visualization
-                                if display and hasattr(
-                                    display,
-                                    "record_answer_with_context",
-                                ):
-                                    agent_answers = self.coordination_tracker.answers_by_agent.get(
-                                        agent_id,
-                                        [],
-                                    )
-                                    answer_number = len(agent_answers)
-                                    agent_num = self.coordination_tracker._get_agent_number(
-                                        agent_id,
-                                    )
-                                    # Use same label format as coordination_tracker: "agent1.1"
-                                    answer_label = f"agent{agent_num}.{answer_number}"
-                                    context_sources = self.coordination_tracker.get_agent_context_labels(
-                                        agent_id,
-                                    )
-                                    display.record_answer_with_context(
-                                        agent_id=agent_id,
-                                        answer_label=answer_label,
-                                        context_sources=context_sources,
-                                        round_num=answer_number,
                                     )
                             # Update status file for real-time monitoring
                             # Run in executor to avoid blocking event loop
@@ -3569,46 +3511,7 @@ Your answer:"""
                                             target_id=result_data.get("agent_id", ""),
                                             reason=result_data.get("reason", ""),
                                         )
-                                    # Record vote with context for timeline visualization
-                                    if display and hasattr(
-                                        display,
-                                        "record_vote_with_context",
-                                    ):
-                                        agent_num = self.coordination_tracker._get_agent_number(
-                                            agent_id,
-                                        )
-                                        # Count previous votes by this agent to get vote number
-                                        votes_by_agent = [v for v in self.coordination_tracker.votes if v.voter_id == agent_id]
-                                        vote_number = len(
-                                            votes_by_agent,
-                                        )  # Already recorded above, so this is the count
-                                        # Use format like "vote1.1" (matches answer format "agent1.1")
-                                        vote_label = f"vote{agent_num}.{vote_number}"
-                                        available_answers = self.coordination_tracker.iteration_available_labels.copy()
-                                        # Get the answer label that was voted for (e.g., "agent2.3")
-                                        voted_for_agent = result_data.get(
-                                            "agent_id",
-                                            "",
-                                        )
-                                        voted_for_label = self.coordination_tracker.get_voted_for_label(
-                                            agent_id,
-                                            voted_for_agent,
-                                        )
-                                        display.record_vote_with_context(
-                                            voter_id=agent_id,
-                                            vote_label=vote_label,
-                                            voted_for=voted_for_label or voted_for_agent,
-                                            available_answers=available_answers,
-                                            voting_round=self.coordination_tracker.current_iteration,
-                                        )
-                                    # Notify TUI to display vote tool card (TextualTerminalDisplay)
-                                    if display and hasattr(display, "notify_vote"):
-                                        display.notify_vote(
-                                            voter=agent_id,
-                                            voted_for=result_data.get("agent_id", ""),
-                                            reason=result_data.get("reason", ""),
-                                        )
-                                # Emit to events.jsonl for subagent TUI parity
+                                # Emit vote event (unified pipeline for main + subagent TUI)
                                 from massgen.events import get_event_emitter
 
                                 _emitter = get_event_emitter()
@@ -7391,16 +7294,7 @@ Your answer:"""
                 # Use existing answer directly without an additional LLM call
                 existing_answer = self.agent_states[self._selected_agent].answer
                 if existing_answer:
-                    # Notify TUI to highlight winner (TextualTerminalDisplay)
-                    if hasattr(self, "coordination_ui") and self.coordination_ui:
-                        display = getattr(self.coordination_ui, "display", None)
-                        if display and hasattr(display, "highlight_winner_quick"):
-                            display.highlight_winner_quick(
-                                winner_id=self._selected_agent,
-                                vote_results=vote_results,
-                            )
-
-                    # Emit to events.jsonl for subagent TUI parity
+                    # Emit to events.jsonl for unified pipeline
                     from massgen.events import get_event_emitter
 
                     _emitter = get_event_emitter()
@@ -7408,6 +7302,9 @@ Your answer:"""
                         _emitter.emit_winner_selected(
                             winner_id=self._selected_agent,
                             vote_results=vote_results,
+                        )
+                        _emitter.emit_answer_locked(
+                            agent_id=self._selected_agent,
                         )
 
                     log_stream_chunk(
@@ -7999,6 +7896,18 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             source=selected_agent_id,
         )
 
+        # Emit event for unified pipeline
+        from massgen.events import get_event_emitter
+
+        _fp_emitter = get_event_emitter()
+        if _fp_emitter:
+            _fp_emitter.emit_final_presentation_start(
+                agent_id=selected_agent_id,
+                vote_counts=vote_counts,
+                answer_labels=answer_labels,
+                is_tie=vote_results.get("is_tie", False) if vote_results else False,
+            )
+
         # Start round token tracking for final presentation
         final_round = self.coordination_tracker.get_agent_round(selected_agent_id)
         if hasattr(agent.backend, "start_round_tracking"):
@@ -8057,6 +7966,12 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         content=chunk.content,
                         source=selected_agent_id,
                     )
+                    # Emit chunk event for unified pipeline
+                    if _fp_emitter:
+                        _fp_emitter.emit_final_presentation_chunk(
+                            agent_id=selected_agent_id,
+                            content=chunk.content,
+                        )
                 elif chunk_type in [
                     "reasoning",
                     "reasoning_done",
@@ -8318,6 +8233,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 if stored_answer:
                     self._final_presentation_content = stored_answer
 
+            # Emit final_presentation_end event for unified pipeline
+            if _fp_emitter:
+                _fp_emitter.emit_final_presentation_end(agent_id=selected_agent_id)
+
             # Note: end_round_tracking for presentation is called from _present_final_answer
             # after the async for loop completes, to ensure reliable timing before save_coordination_logs
 
@@ -8459,6 +8378,17 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             source="orchestrator",
         )
 
+        # Emit post_evaluation start event for unified pipeline
+        from massgen.events import get_event_emitter
+
+        _pe_emitter = get_event_emitter()
+        if _pe_emitter:
+            _pe_emitter.emit_post_evaluation(
+                phase="start",
+                content="Post-evaluation: Reviewing final answer",
+                agent_id=selected_agent_id,
+            )
+
         # Start round token tracking for post-evaluation
         post_eval_round = self.coordination_tracker.get_agent_round(selected_agent_id) + 1
         if hasattr(agent.backend, "start_round_tracking"):
@@ -8498,6 +8428,13 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                             content=chunk.content,
                             source=selected_agent_id,
                         )
+                        # Emit post_evaluation content for unified pipeline
+                        if _pe_emitter:
+                            _pe_emitter.emit_post_evaluation(
+                                phase="content",
+                                content=chunk.content,
+                                agent_id=selected_agent_id,
+                            )
 
                         # Accumulate content for JSON parsing across chunks
                         accumulated_content += chunk.content
@@ -8703,6 +8640,15 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         finally:
             # Note: end_round_tracking for post_evaluation is called from _present_final_answer
             # after the async for loop completes, to ensure reliable timing before save_coordination_logs
+
+            # Emit post_evaluation end event for unified pipeline
+            if _pe_emitter:
+                winner = selected_agent_id if not self.restart_pending else None
+                _pe_emitter.emit_post_evaluation(
+                    phase="end",
+                    winner=winner,
+                    agent_id=selected_agent_id,
+                )
 
             # If evaluation didn't complete (no submit/restart called), auto-submit
             # This handles cases where:

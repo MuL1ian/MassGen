@@ -2997,16 +2997,9 @@ if TEXTUAL_AVAILABLE:
             if event.event_type == "stream_chunk":
                 return
 
-            # Skip coordination events — these are rendered by display callbacks
-            # (notify_vote, send_new_answer, highlight_winner_quick, etc.)
-            # and would double-render if also processed through the event pipeline.
-            if event.event_type in (
-                "answer_submitted",
-                "vote",
-                "winner_selected",
-                "context_received",
-            ):
-                return
+            # Coordination events (answer_submitted, vote, winner_selected,
+            # context_received) are now rendered through the event pipeline
+            # instead of direct display callbacks.
 
             agent_id = event.agent_id
             if not agent_id or agent_id not in self.agent_widgets:
@@ -3048,6 +3041,9 @@ if TEXTUAL_AVAILABLE:
                 if not agent_id or agent_id not in self.agent_widgets:
                     continue
 
+                # Handle coordination event side effects (status bar, toasts, tracking)
+                self._handle_coordination_event_side_effects(event)
+
                 panel = self.agent_widgets[agent_id]
                 adapter = self._event_adapters.get(agent_id)
                 if adapter is None:
@@ -3055,6 +3051,153 @@ if TEXTUAL_AVAILABLE:
                     self._event_adapters[agent_id] = adapter
 
                 adapter.handle_event(event)
+
+        def _handle_coordination_event_side_effects(self, event) -> None:
+            """Handle status bar, toast, and browser tracking for coordination events.
+
+            These side effects were previously in direct display methods
+            (notify_vote, notify_new_answer, highlight_winner_quick).
+            """
+            import time
+
+            if event.event_type == "answer_submitted":
+                agent_id = event.agent_id or ""
+                content = event.data.get("content", "")
+                answer_label = event.data.get("answer_label", "")
+                answer_number = event.data.get("answer_number", 1)
+
+                model_name = self.coordination_display.agent_models.get(agent_id, "")
+
+                # Track for browser
+                self._answers.append(
+                    {
+                        "agent_id": agent_id,
+                        "model": model_name,
+                        "content": content,
+                        "answer_id": None,
+                        "answer_number": answer_number,
+                        "answer_label": answer_label,
+                        "workspace_path": event.data.get("workspace_path"),
+                        "timestamp": time.time(),
+                        "is_final": False,
+                        "is_winner": False,
+                    },
+                )
+
+                # Update status bar
+                if self._status_bar:
+                    agent_count = len(self.coordination_display.agent_ids)
+                    answer_count = len(self._answers)
+                    vote_count = len(self._votes)
+                    self._status_bar.update_progress(agent_count, answer_count, vote_count)
+                    self._status_bar.increment_agent_answer(agent_id)
+
+                # Show toast
+                agent_display = f"{agent_id}" + (f" ({model_name})" if model_name else "")
+                preview = content[:100].replace("\n", " ")
+                if len(content) > 100:
+                    preview += "..."
+                self.notify(
+                    f"📝 [bold green]New Answer[/] from [bold]{agent_display}[/]\n   Answer #{answer_number}: {preview}",
+                    timeout=5,
+                )
+
+            elif event.event_type == "vote":
+                voter = event.agent_id or ""
+                target = event.data.get("target_id", "")
+                reason = event.data.get("reason", "")
+
+                voter_model = self.coordination_display.agent_models.get(voter, "")
+                voted_for_model = self.coordination_display.agent_models.get(target, "")
+
+                # Get voted-for answer label from coordination tracker
+                voted_for_label = None
+                tracker = None
+                if hasattr(self.coordination_display, "orchestrator") and self.coordination_display.orchestrator:
+                    tracker = getattr(self.coordination_display.orchestrator, "coordination_tracker", None)
+                if tracker:
+                    voted_for_label = tracker.get_voted_for_label(voter, target)
+
+                vote_count = len(self._votes) + 1
+                self._votes.append(
+                    {
+                        "voter": voter,
+                        "voter_model": voter_model,
+                        "voted_for": target,
+                        "voted_for_model": voted_for_model,
+                        "voted_for_label": voted_for_label,
+                        "reason": reason,
+                        "timestamp": time.time(),
+                    },
+                )
+
+                if self._status_bar:
+                    self._status_bar.add_vote(target, voter)
+                    agent_count = len(self.coordination_display.agent_ids)
+                    answer_count = len(self._answers)
+                    expected_votes = agent_count * (agent_count - 1) if agent_count > 1 else 0
+                    self._status_bar.update_progress(agent_count, answer_count, vote_count, expected_votes)
+
+                    standings = self._status_bar.get_standings_text()
+                    voter_display = f"{voter}" + (f" ({voter_model})" if voter_model else "")
+                    target_display = f"{target}" + (f" ({voted_for_model})" if voted_for_model else "")
+
+                    if standings:
+                        self.notify(
+                            f"🗳️ [bold]{voter_display}[/] voted for [bold cyan]{target_display}[/]\n📊 {standings}",
+                            timeout=4,
+                        )
+                    else:
+                        self.notify(
+                            f"🗳️ [bold]{voter_display}[/] voted for [bold cyan]{target_display}[/]",
+                            timeout=3,
+                        )
+                else:
+                    self.notify(f"🗳️ {voter} voted for {target}", timeout=3)
+
+            elif event.event_type == "winner_selected":
+                winner_id = event.agent_id or ""
+                # Switch to winner tab and mark with trophy
+                if self._tab_bar:
+                    self._tab_bar.set_active(winner_id)
+                    self._tab_bar.set_winner(winner_id)
+
+                # Update ExecutionStatusLine: all agents to done
+                if self._execution_status_line:
+                    for aid in self._execution_status_line._agent_ids:
+                        self._execution_status_line.set_agent_state(aid, "done")
+
+                # Show winner panel, hide others
+                if winner_id in self.agent_widgets:
+                    if self._active_agent_id and self._active_agent_id in self.agent_widgets:
+                        self.agent_widgets[self._active_agent_id].add_class("hidden")
+                    self.agent_widgets[winner_id].remove_class("hidden")
+                    self._active_agent_id = winner_id
+
+            elif event.event_type == "final_presentation_start":
+                agent_id = event.agent_id or ""
+                # Switch to winner tab if not already
+                if self._tab_bar:
+                    self._tab_bar.set_active(agent_id)
+                    self._tab_bar.set_winner(agent_id)
+                if self._execution_status_line:
+                    for aid in self._execution_status_line._agent_ids:
+                        self._execution_status_line.set_agent_state(aid, "done")
+
+            elif event.event_type == "answer_locked":
+                agent_id = event.agent_id or ""
+                # Update input placeholder
+                if hasattr(self, "question_input"):
+                    self.question_input.placeholder = "Type your follow-up question..."
+
+            elif event.event_type == "context_received":
+                agent_id = event.agent_id or ""
+                context_labels = event.data.get("context_labels", [])
+                if hasattr(self, "update_agent_context"):
+                    try:
+                        self.update_agent_context(agent_id, context_labels)
+                    except Exception:
+                        pass
 
         def _is_execution_in_progress(self) -> bool:
             """Check if agents are currently executing.
@@ -7420,12 +7563,13 @@ Type your question and press Enter to ask the agents.
             except Exception:
                 pass  # Card doesn't exist, continue to create it
 
-            # Also check for any SubagentCard in the timeline (callback might use different ID)
+            # Also check if a card for THIS tool call already exists under a different ID
+            # (callback path might use a different ID scheme)
             try:
-                cards = list(timeline.query(SubagentCard))
-                if cards:
-                    tui_log(f"_show_subagent_card_from_args: SubagentCard already exists ({cards[0].id}), skipping")
-                    return
+                for existing_card in timeline.query(SubagentCard):
+                    if getattr(existing_card, "tool_call_id", None) == tool_data.tool_id:
+                        tui_log(f"_show_subagent_card_from_args: card for tool {tool_data.tool_id} already exists ({existing_card.id}), skipping")
+                        return
             except Exception:
                 pass
 

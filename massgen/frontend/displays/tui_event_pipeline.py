@@ -189,6 +189,14 @@ class TimelineEventAdapter:
             # Store for retrieval but don't render inline — a dedicated
             # final answer card handles display separately.
             self._final_answer = output.text_content
+        elif output.output_type == "final_presentation_start":
+            self._apply_final_presentation_start(output, round_number, timeline)
+        elif output.output_type == "final_presentation_chunk":
+            self._apply_final_presentation_chunk(output)
+        elif output.output_type == "final_presentation_end":
+            self._apply_final_presentation_end(output)
+        elif output.output_type == "answer_locked":
+            self._apply_answer_locked(output, timeline)
 
         if self._on_output_applied:
             try:
@@ -271,8 +279,11 @@ class TimelineEventAdapter:
 
                 if existing is None:
                     # Tool arrived already completed (e.g., coordination events
-                    # like workspace/vote and workspace/new_answer). Add it directly.
+                    # like workspace/vote and workspace/new_answer). Add it
+                    # and immediately update so it shows the correct status
+                    # (green checkmark) instead of staying at "running" (orange dot).
                     timeline.add_tool(tool_data, round_number=round_number)
+                    timeline.update_tool(tool_data.tool_id, tool_data)
                 elif output.batch_action == "update_batch":
                     try:
                         timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
@@ -312,3 +323,89 @@ class TimelineEventAdapter:
                 self._panel._update_running_tools_count()
             except Exception:
                 pass
+
+    # --- Final presentation / answer lock handlers ---
+
+    def _apply_final_presentation_start(
+        self,
+        output: ContentOutput,
+        round_number: int,
+        timeline: Any,
+    ) -> None:
+        """Create a FinalPresentationCard and mount it in the timeline.
+
+        Skips if a card was already created by the StreamChunk pipeline
+        (show_final_presentation_start) to avoid double-rendering.
+        """
+        # Check if a FinalPresentationCard already exists in this timeline
+        if getattr(self, "_final_presentation_card", None) is not None:
+            return
+        try:
+            from .textual_widgets.content_sections import FinalPresentationCard
+
+            existing = timeline.query(FinalPresentationCard)
+            if existing:
+                # Card was already created by the StreamChunk pipeline
+                self._final_presentation_card = existing.first()
+                return
+        except Exception:
+            pass
+
+        extra = output.extra or {}
+        agent_id = extra.get("agent_id", self._agent_id or "")
+        vote_counts = extra.get("vote_counts", {})
+        answer_labels = extra.get("answer_labels", {})
+        is_tie = extra.get("is_tie", False)
+
+        # Build formatted vote results matching the format MassGenApp uses
+        formatted_vote_results = {
+            "vote_counts": {answer_labels.get(aid, aid): cnt for aid, cnt in vote_counts.items()} if vote_counts else {},
+            "winner": answer_labels.get(agent_id, agent_id),
+            "is_tie": is_tie,
+        }
+
+        try:
+            from .textual_widgets.content_sections import FinalPresentationCard
+
+            card = FinalPresentationCard(
+                agent_id=agent_id,
+                vote_results=formatted_vote_results,
+                id="final_presentation_card",
+            )
+            card.add_class(f"round-{round_number}")
+            if extra.get("completion_only"):
+                card.add_class("completion-only")
+            timeline.mount(card)
+            self._final_presentation_card = card
+        except Exception:
+            pass
+
+    def _apply_final_presentation_chunk(self, output: ContentOutput) -> None:
+        """Stream content into the FinalPresentationCard."""
+        card = getattr(self, "_final_presentation_card", None)
+        if card and output.text_content:
+            try:
+                card.append_content(output.text_content)
+            except Exception:
+                pass
+
+    def _apply_final_presentation_end(self, output: ContentOutput) -> None:
+        """Mark the FinalPresentationCard as complete."""
+        card = getattr(self, "_final_presentation_card", None)
+        if card:
+            try:
+                card.set_post_eval_status("verified")
+                card.complete()
+            except Exception:
+                pass
+
+    def _apply_answer_locked(self, output: ContentOutput, timeline: Any) -> None:
+        """Lock the timeline to the final answer."""
+        card = getattr(self, "_final_presentation_card", None)
+        try:
+            if hasattr(timeline, "lock_to_final_answer"):
+                timeline.lock_to_final_answer("final_presentation_card")
+            if card and hasattr(card, "set_locked_mode"):
+                card.set_locked_mode(True)
+        except Exception:
+            pass

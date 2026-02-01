@@ -41,7 +41,7 @@ class _PlanCache:
     summary: Optional[str]
 
 
-class SubagentColumn(Vertical):
+class SubagentColumn(Vertical, can_focus=True):
     """Single subagent column inside the overview card."""
 
     DEFAULT_CSS = """
@@ -56,6 +56,16 @@ class SubagentColumn(Vertical):
     SubagentColumn:last-of-type {
         border-right: none;
         margin-right: 0;
+    }
+
+    SubagentColumn:hover {
+        background: #1a1f2e;
+    }
+
+    SubagentColumn:focus {
+        background: #1c2333;
+        border-left: thick #a371f7;
+        padding-left: 0;
     }
 
     SubagentColumn .agent-header {
@@ -100,6 +110,7 @@ class SubagentColumn(Vertical):
         self._summary = summary
         self._tools = tools
         self._open_callback = open_callback
+        self._pulse_frame = 0
 
     def compose(self) -> ComposeResult:
         yield Static("", classes="agent-header", id="agent_header")
@@ -140,26 +151,43 @@ class SubagentColumn(Vertical):
         except Exception:
             pass
 
+    def advance_pulse(self) -> None:
+        """Advance pulse animation frame (called by parent card)."""
+        if self._subagent.status == "running":
+            self._pulse_frame = (self._pulse_frame + 1) % 3
+
     def _build_header(self) -> Text:
-        """Build header: status icon + name + elapsed time right-aligned."""
+        """Build header: status icon + name + elapsed time + click arrow."""
         text = Text()
         icon, style = SubagentCard.status_icon_and_style(self._subagent.status)
+
+        # Pulsing icon for running state
+        if self._subagent.status == "running":
+            pulse_icons = ["●", "◉", "○"]
+            icon = pulse_icons[self._pulse_frame]
+
         label = self._truncate(self._subagent.id, 20)
         text.append(f"{icon} ", style=style)
         text.append(label, style=style)
 
-        # Right-align elapsed time
+        # Right-align elapsed time + click arrow
         elapsed = int(self._subagent.elapsed_seconds)
+        suffix_parts = []
         if elapsed > 0:
             if elapsed >= 60:
-                elapsed_str = f"{elapsed // 60}m{elapsed % 60:02d}s"
+                suffix_parts.append(f"{elapsed // 60}m{elapsed % 60:02d}s")
             else:
-                elapsed_str = f"{elapsed}s"
-            # Pad to push elapsed to the right
-            name_len = len(label) + 2  # icon + space + label
-            padding = max(1, 28 - name_len - len(elapsed_str))
-            text.append(" " * padding)
-            text.append(elapsed_str, style="#8b949e")
+                suffix_parts.append(f"{elapsed}s")
+
+        suffix = " ".join(suffix_parts)
+        arrow = " ▸"
+        name_len = len(label) + 2  # icon + space + label
+        total_suffix = len(suffix) + len(arrow)
+        padding = max(1, 28 - name_len - total_suffix)
+        text.append(" " * padding)
+        if suffix:
+            text.append(suffix, style="#8b949e")
+        text.append(arrow, style="dim #6e7681")
 
         return text
 
@@ -183,42 +211,47 @@ class SubagentColumn(Vertical):
         return Text(truncated, style="#c9d1d9")
 
     def _build_progress_bar(self) -> Text:
-        """Build progress bar using block characters (elapsed/timeout ratio)."""
+        """Build progress bar with thin lines and color transitions."""
         elapsed = self._subagent.elapsed_seconds
         timeout = self._subagent.timeout_seconds
         status = self._subagent.status
+        bar_width = 20
 
-        if status in ("completed", "error", "failed", "timeout"):
-            bar_width = 20
-            if status == "completed":
-                text = Text()
-                text.append("━" * bar_width, style="#7ee787")
-                text.append(" 100%", style="#7ee787")
-                return text
-            elif status in ("error", "failed"):
-                text = Text()
-                text.append("━" * bar_width, style="#f85149")
-                text.append(" ERR", style="#f85149")
-                return text
-            else:  # timeout
-                text = Text()
-                text.append("━" * bar_width, style="#d29922")
-                text.append(" T/O", style="#d29922")
-                return text
+        if status == "completed":
+            text = Text()
+            text.append("━" * bar_width, style="bold #7ee787")
+            text.append(" ✓ Done", style="bold #7ee787")
+            return text
+        elif status in ("error", "failed"):
+            text = Text()
+            text.append("━" * bar_width, style="bold #f85149")
+            text.append(" ✗ Error", style="bold #f85149")
+            return text
+        elif status == "timeout":
+            text = Text()
+            text.append("━" * bar_width, style="bold #d29922")
+            text.append(" ⏱ Timeout", style="bold #d29922")
+            return text
 
         if timeout <= 0:
             return Text("")
 
         ratio = min(elapsed / timeout, 1.0)
-        percent = int(ratio * 100)
-        bar_width = 20
         filled = int(ratio * bar_width)
         empty = bar_width - filled
 
+        # Color shifts by progress
+        if ratio < 0.33:
+            fill_style = "#a371f7"
+        elif ratio < 0.66:
+            fill_style = "#58a6ff"
+        else:
+            fill_style = "#39c5cf"
+
         text = Text()
-        text.append("━" * filled, style="#a371f7")
-        text.append("─" * empty, style="#30363d")
-        text.append(f" {percent}%", style="#8b949e")
+        text.append("━" * filled, style=fill_style)
+        text.append("─" * empty, style="dim #30363d")
+        text.append(f" {int(ratio * 100)}%", style="dim #8b949e")
         return text
 
     def _split_tools(self, tools: List[str]) -> Tuple[str, List[str]]:
@@ -240,6 +273,10 @@ class SubagentCard(Vertical, can_focus=True):
 
     BINDINGS = [
         ("enter", "open_selected", "Open"),
+        ("left", "focus_prev_column", "Previous"),
+        ("right", "focus_next_column", "Next"),
+        ("h", "focus_prev_column", "Previous"),
+        ("l", "focus_next_column", "Next"),
     ]
 
     class OpenModal(Message):
@@ -260,12 +297,14 @@ class SubagentCard(Vertical, can_focus=True):
         background: #161b22;
         border-left: tall #7c3aed;
         border-top: solid #21262d;
+        border-bottom: solid #0d1117;
     }
 
     SubagentCard.all-completed {
         border-left: tall #7ee787;
         background: #131a16;
         border-top: solid #1c2e22;
+        border-bottom: solid #0a0f0a;
     }
 
     SubagentCard:hover {
@@ -276,9 +315,22 @@ class SubagentCard(Vertical, can_focus=True):
         background: #182019;
     }
 
+    SubagentCard:focus-within {
+        background: #1a1f2e;
+    }
+
+    SubagentCard.appearing {
+        opacity: 0.0;
+    }
+
+    SubagentCard.appeared {
+        opacity: 1.0;
+    }
+
     SubagentCard #subagent-card-title {
         height: 1;
         margin-bottom: 1;
+        padding: 0 1;
     }
 
     SubagentCard #subagent-scroll {
@@ -287,6 +339,7 @@ class SubagentCard(Vertical, can_focus=True):
         max-height: 12;
         overflow-x: auto;
         overflow-y: hidden;
+        scrollbar-size: 1 1;
     }
 
     SubagentCard #subagent-columns {
@@ -347,7 +400,7 @@ class SubagentCard(Vertical, can_focus=True):
                 self._start_times[sa.id] = now - sa.elapsed_seconds
 
     def compose(self) -> ComposeResult:
-        yield Static(Text("⬡ Subagents", style="dim #8b949e"), id="subagent-card-title")
+        yield Static(self._build_card_header(), id="subagent-card-title")
         with ScrollableContainer(id="subagent-scroll"):
             with Horizontal(id="subagent-columns"):
                 for sa in self._subagents:
@@ -366,6 +419,26 @@ class SubagentCard(Vertical, can_focus=True):
 
     def on_mount(self) -> None:
         self._start_polling_if_needed()
+        # Entrance animation
+        self.add_class("appearing")
+        self.set_timer(0.05, self._complete_appearance)
+
+    def _complete_appearance(self) -> None:
+        self.remove_class("appearing")
+        self.add_class("appeared")
+
+    def _build_card_header(self) -> Text:
+        """Build clean header: icon + title, checkmark only when all complete."""
+        text = Text()
+        all_done = self._subagents and all(sa.status == "completed" for sa in self._subagents)
+        if all_done:
+            text.append("⬡ ", style="bold #7ee787")
+            text.append("Subagents", style="dim #e6edf3")
+            text.append("  ✓", style="bold #7ee787")
+        else:
+            text.append("⬡ ", style="bold #7c3aed")
+            text.append("Subagents", style="dim #e6edf3")
+        return text
 
     def on_unmount(self) -> None:
         if self._poll_timer is not None:
@@ -408,6 +481,18 @@ class SubagentCard(Vertical, can_focus=True):
         for sa in self._subagents:
             if sa.status in ("running", "pending") and sa.id in self._start_times:
                 sa.elapsed_seconds = now - self._start_times[sa.id]
+
+        # Advance pulse frames for running columns
+        for sa in self._subagents:
+            col = self._columns.get(sa.id)
+            if col:
+                col.advance_pulse()
+
+        # Refresh header (status summary changes as subagents complete)
+        try:
+            self.query_one("#subagent-card-title", Static).update(self._build_card_header())
+        except Exception:
+            pass
 
         # Always refresh tool lines for running subagents
         if any(sa.status in ("running", "pending") for sa in self._subagents):
@@ -610,6 +695,27 @@ class SubagentCard(Vertical, can_focus=True):
             return
         selected = self._subagents[self._selected_index % len(self._subagents)]
         self._request_open(selected, self._subagents)
+
+    def action_focus_prev_column(self) -> None:
+        if not self._subagents:
+            return
+        self._selected_index = (self._selected_index - 1) % len(self._subagents)
+        self._focus_column(self._selected_index)
+
+    def action_focus_next_column(self) -> None:
+        if not self._subagents:
+            return
+        self._selected_index = (self._selected_index + 1) % len(self._subagents)
+        self._focus_column(self._selected_index)
+
+    def _focus_column(self, index: int) -> None:
+        try:
+            sa = self._subagents[index]
+            column = self._columns.get(sa.id)
+            if column:
+                column.focus()
+        except (IndexError, KeyError):
+            pass
 
     @classmethod
     def from_spawn_result(

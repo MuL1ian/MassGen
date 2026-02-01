@@ -135,6 +135,12 @@ class EventType:
     WINNER_SELECTED = "winner_selected"
     CONTEXT_RECEIVED = "context_received"
 
+    # Final presentation events (unified pipeline for main + subagent TUI)
+    FINAL_PRESENTATION_START = "final_presentation_start"
+    FINAL_PRESENTATION_CHUNK = "final_presentation_chunk"
+    FINAL_PRESENTATION_END = "final_presentation_end"
+    ANSWER_LOCKED = "answer_locked"
+
     # Injection events
     INJECTION_RECEIVED = "injection_received"
 
@@ -586,6 +592,54 @@ class EventEmitter:
             EventType.CONTEXT_RECEIVED,
             agent_id=agent_id,
             context_labels=context_labels,
+        )
+
+    def emit_final_presentation_start(
+        self,
+        agent_id: str,
+        vote_counts: Optional[Dict[str, Any]] = None,
+        answer_labels: Optional[Dict[str, str]] = None,
+        is_tie: bool = False,
+    ) -> None:
+        """Emit a final_presentation_start event."""
+        self.emit_raw(
+            EventType.FINAL_PRESENTATION_START,
+            agent_id=agent_id,
+            vote_counts=vote_counts,
+            answer_labels=answer_labels,
+            is_tie=is_tie,
+        )
+
+    def emit_final_presentation_chunk(
+        self,
+        agent_id: str,
+        content: str,
+    ) -> None:
+        """Emit a final_presentation_chunk event."""
+        self.emit_raw(
+            EventType.FINAL_PRESENTATION_CHUNK,
+            agent_id=agent_id,
+            content=content,
+        )
+
+    def emit_final_presentation_end(
+        self,
+        agent_id: str,
+    ) -> None:
+        """Emit a final_presentation_end event."""
+        self.emit_raw(
+            EventType.FINAL_PRESENTATION_END,
+            agent_id=agent_id,
+        )
+
+    def emit_answer_locked(
+        self,
+        agent_id: str,
+    ) -> None:
+        """Emit an answer_locked event (timeline locks to final answer)."""
+        self.emit_raw(
+            EventType.ANSWER_LOCKED,
+            agent_id=agent_id,
         )
 
     def emit_phase_change(
