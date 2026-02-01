@@ -1404,21 +1404,10 @@ class TimelineSection(ScrollableContainer):
         try:
             # Check if this is a round/restart/final separator (should be prominent)
             is_round = label.upper().startswith("ROUND") if label else False
-            is_attempt = label.upper().startswith("ATTEMPT") if label else False
             is_restart = "RESTART" in label.upper() if label else False
             is_final = "FINAL" in label.upper() if label else False
 
-            if is_attempt:
-                # Orchestration-level restart — use the more prominent AttemptBanner
-                import re
-
-                attempt_num = 2
-                match = re.search(r"(\d+)", label)
-                if match:
-                    attempt_num = int(match.group(1))
-                widget = AttemptBanner(attempt=attempt_num, reason=subtitle.replace("Restart · ", "").replace("Restart", ""), id=widget_id)
-                logger.debug(f"TimelineSection.add_separator: Created AttemptBanner attempt={attempt_num}")
-            elif is_round or is_restart or is_final:
+            if is_round or is_restart or is_final:
                 # Create prominent round/restart/final banner
                 widget = RestartBanner(label=label, subtitle=subtitle, id=widget_id)
                 logger.debug(f"TimelineSection.add_separator: Created RestartBanner for '{label}' subtitle='{subtitle}'")
@@ -1447,6 +1436,46 @@ class TimelineSection(ScrollableContainer):
         except Exception as e:
             # Log the error but don't crash
             logger.error(f"TimelineSection.add_separator failed: {e}")
+
+    def add_attempt_banner(
+        self,
+        attempt: int,
+        reason: str = "",
+        instructions: str = "",
+        round_number: int = 1,
+    ) -> None:
+        """Add a prominent AttemptBanner widget to the timeline.
+
+        Args:
+            attempt: The attempt number (1-indexed).
+            reason: Why the restart was triggered.
+            instructions: Instructions for the next attempt.
+            round_number: The round to tag this content with.
+        """
+        from massgen.logger_config import logger
+
+        self._close_reasoning_batch()
+        self._item_count += 1
+        widget_id = f"tl_attempt_{self._item_count}"
+
+        try:
+            widget = AttemptBanner(
+                attempt=attempt,
+                reason=reason,
+                instructions=instructions,
+                id=widget_id,
+            )
+            widget.add_class(f"round-{round_number}")
+            self.mount(widget)
+
+            def trim_and_scroll():
+                self._trim_old_items()
+                self._auto_scroll()
+
+            self.call_after_refresh(trim_and_scroll)
+            logger.debug(f"TimelineSection.add_attempt_banner: mounted {widget_id}")
+        except Exception as e:
+            logger.error(f"TimelineSection.add_attempt_banner failed: {e}")
 
     def _close_reasoning_batch(self) -> None:
         """Close current reasoning batch when non-reasoning content arrives.
@@ -2268,16 +2297,27 @@ class RestartBanner(Static):
         return text
 
 
-class AttemptBanner(Static):
-    """Prominent multi-line banner for orchestration-level restarts (new attempts).
+class AttemptBanner(Vertical):
+    """Prominent banner for orchestration-level restarts (new attempts).
 
     More visually distinct than a round separator to clearly signal that the
     entire coordination is restarting, not just an intra-round agent restart.
 
-    Design:
+    Collapsed (default):
     ```
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     🔄 Attempt 2  ·  The answer was incomplete...
+     ▸ ↻ Attempt 2  ·  The answer was incomplete...
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ```
+
+    Expanded (click header):
+    ```
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     ▾ ↻ Attempt 2
+    ──────────────────────────────────────────────────────────────────────────
+     Reason: The answer only describes John Lennon and omits Paul McCartney
+     Instructions: Provide two descriptions (John Lennon AND Paul McCartney)
+                   ...
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     ```
     """
@@ -2290,47 +2330,151 @@ class AttemptBanner(Static):
         padding: 0;
         background: transparent;
     }
+
+    AttemptBanner .attempt-header {
+        width: 100%;
+        height: auto;
+        padding: 0;
+    }
+
+    AttemptBanner .attempt-header:hover {
+        background: #1a1a1a;
+    }
+
+    AttemptBanner .attempt-detail {
+        width: 100%;
+        height: auto;
+        padding: 1 2;
+        background: #1a1507;
+        display: none;
+    }
+
+    AttemptBanner .attempt-footer {
+        width: 100%;
+        height: 1;
+        padding: 0;
+    }
+
+    AttemptBanner.expanded .attempt-detail {
+        display: block;
+    }
+
+    AttemptBanner .attempt-footer {
+        display: none;
+    }
+
+    AttemptBanner.expanded .attempt-footer {
+        display: block;
+    }
     """
 
-    def __init__(self, attempt: int = 2, reason: str = "", id: Optional[str] = None) -> None:
+    def __init__(self, attempt: int = 2, reason: str = "", instructions: str = "", id: Optional[str] = None) -> None:
         super().__init__(id=id)
         self._attempt = attempt
         self._reason = reason
+        self._instructions = instructions
+        self._expanded = False
 
-    def render(self) -> Text:
-        """Render a prominent double-line attempt banner."""
-        text = Text(no_wrap=False)
+    def compose(self) -> ComposeResult:
+        yield Static(id="attempt_header", classes="attempt-header")
+        yield Static(id="attempt_detail", classes="attempt-detail")
+        yield Static(id="attempt_footer", classes="attempt-footer")
 
+    def on_mount(self) -> None:
+        # Defer initial render so layout has computed the real width
+        self.call_after_refresh(self._refresh_all)
+
+    def on_resize(self) -> None:
+        self._refresh_all()
+
+    def _refresh_all(self) -> None:
+        self._update_header()
+        self._update_detail()
+        self._update_footer()
+
+    def _get_width(self) -> int:
         try:
-            total_width = self.size.width
-            if total_width < 40:
-                total_width = 200
+            w = self.size.width
+            return w if w >= 40 else 200
         except Exception:
-            total_width = 200
+            return 200
+
+    def _update_header(self) -> None:
+        text = Text(no_wrap=False)
+        total_width = self._get_width()
 
         line_char = "━"
-        line_color = "#b45309"  # Amber/orange for the border lines
-        label_color = "#f59e0b"  # Bright amber for the label
-        reason_color = "#9ca3af"  # Gray for reason text
+        line_color = "#b45309"
+        label_color = "#f59e0b"
+        reason_color = "#6b7280"
+        indicator_color = "#9ca3af"
 
         # Top line
         text.append(line_char * total_width, style=line_color)
         text.append("\n")
 
-        # Content line: " 🔄 Attempt N  ·  reason..."
-        label = f" \u21bb Attempt {self._attempt}"
-        text.append(label, style=f"bold {label_color}")
+        # Label line
+        indicator = "▾" if self._expanded else "▸"
+        text.append(f" {indicator} ", style=indicator_color)
+        text.append(f"\u21bb Attempt {self._attempt}", style=f"bold {label_color}")
+
+        if not self._expanded and self._reason:
+            truncated = self._reason[:70] + "..." if len(self._reason) > 70 else self._reason
+            text.append(f"  \u00b7  {truncated}", style=f"italic {reason_color}")
+
+        if not self._expanded:
+            text.append("\n")
+            # Bottom line when collapsed
+            text.append(line_char * total_width, style=line_color)
+
+        try:
+            header = self.query_one("#attempt_header", Static)
+            header.update(text)
+        except Exception:
+            pass
+
+    def _update_detail(self) -> None:
+        text = Text(no_wrap=False)
+
+        label_color = "#b45309"
+        content_color = "#d4d4d4"
 
         if self._reason:
-            truncated = self._reason[:80] + "..." if len(self._reason) > 80 else self._reason
-            text.append(f"  \u00b7  {truncated}", style=reason_color)
+            text.append("Reason\n", style=f"bold {label_color}")
+            text.append(self._reason, style=content_color)
 
-        text.append("\n")
+        if self._instructions:
+            if self._reason:
+                text.append("\n\n")
+            text.append("Instructions\n", style=f"bold {label_color}")
+            text.append(self._instructions, style=content_color)
 
-        # Bottom line
-        text.append(line_char * total_width, style=line_color)
+        try:
+            detail = self.query_one("#attempt_detail", Static)
+            detail.update(text)
+        except Exception:
+            pass
 
-        return text
+    def _update_footer(self) -> None:
+        text = Text(no_wrap=True)
+        total_width = self._get_width()
+        text.append("━" * total_width, style="#b45309")
+
+        try:
+            footer = self.query_one("#attempt_footer", Static)
+            footer.update(text)
+        except Exception:
+            pass
+
+    def on_click(self, event) -> None:
+        """Toggle expanded/collapsed on click."""
+        self._expanded = not self._expanded
+        if self._expanded:
+            self.add_class("expanded")
+        else:
+            self.remove_class("expanded")
+        self._update_header()
+        self._update_detail()
 
 
 class FinalPresentationCard(Vertical):

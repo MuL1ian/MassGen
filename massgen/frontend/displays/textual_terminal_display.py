@@ -5127,7 +5127,7 @@ Type your question and press Enter to ask the agents.
             # Add restart separator to each agent panel
             for agent_id, panel in self.agent_widgets.items():
                 try:
-                    panel.show_restart_separator(attempt=attempt, reason=reason)
+                    panel.show_restart_separator(attempt=attempt, reason=reason, instructions=instructions)
                     logger.info(f"[TUI-App] Restart separator added for {agent_id}")
                 except Exception as e:
                     logger.warning(
@@ -8093,7 +8093,7 @@ Type your question and press Enter to ask the agents.
             formatted = self._format_tool_line(parsed, event)
             self.content_log.write(formatted)
 
-        def show_restart_separator(self, attempt: int = 1, reason: str = ""):
+        def show_restart_separator(self, attempt: int = 1, reason: str = "", instructions: str = ""):
             """Handle orchestration-level restart (new attempt).
 
             Resets round counter back to 1 and shows an "Attempt N" separator
@@ -8112,19 +8112,18 @@ Type your question and press Enter to ask the agents.
             self._viewed_round = 1
             self._current_view = "round"
 
-            # Switch timeline to round 1 of the new attempt
+            # Reset timeline tracking for the new attempt (don't scroll —
+            # the new banner appends at the bottom and auto-scrolls there)
             try:
                 timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
-                timeline.switch_to_round(1)
+                timeline.set_viewed_round(1)
                 timeline.clear_tools_tracking()
-                # Add an "Attempt N" separator
-                subtitle = "Restart"
-                if reason:
-                    subtitle += f" · {reason[:60]}"
-                timeline.add_separator(
-                    f"Attempt {attempt}",
+                # Add attempt banner
+                timeline.add_attempt_banner(
+                    attempt=attempt,
+                    reason=reason,
+                    instructions=instructions,
                     round_number=1,
-                    subtitle=subtitle,
                 )
 
                 # Add Round 1 banner under the attempt separator
