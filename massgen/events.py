@@ -20,13 +20,12 @@ Event Types:
 - status: Status update message
 - round_start: Coordination round started
 - final_answer: Final answer produced
-- stream_chunk: [DEPRECATED] No longer emitted. Kept for reading old log files only.
+- workspace_action: Workspace action (new_answer, vote, etc.)
 """
 
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -114,9 +113,6 @@ class EventType:
     ROUND_START = "round_start"
     ROUND_END = "round_end"
     FINAL_ANSWER = "final_answer"
-
-    # Stream debugging (replaces streaming_debug.log)
-    STREAM_CHUNK = "stream_chunk"  # DEPRECATED: no longer emitted. Kept only for reading old log files.
 
     # Timeline transcript lines (debugging/parity checks)
     TIMELINE_ENTRY = "timeline_entry"
@@ -237,7 +233,6 @@ class EventEmitter:
                 try:
                     self._file_handle.write(event.to_json() + "\n")
                     self._file_handle.flush()
-                    os.fsync(self._file_handle.fileno())
                 except Exception:
                     pass  # Don't fail main execution for logging issues
 
@@ -404,13 +399,6 @@ class EventEmitter:
             content=content,
             agent_id=agent_id,
         )
-
-    def emit_stream_chunk(self, chunk: Any, agent_id: Optional[str] = None) -> None:
-        """DEPRECATED: No longer emits events. Kept for API compatibility.
-
-        STREAM_CHUNK events have been replaced by structured events
-        (TOOL_START, TOOL_COMPLETE, THINKING, TEXT, etc.).
-        """
 
     def emit_hook_execution(
         self,

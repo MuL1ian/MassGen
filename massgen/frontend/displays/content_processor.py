@@ -168,8 +168,8 @@ class ContentProcessor:
             return self._handle_event_round_start(event)
         elif event.event_type == EventType.FINAL_ANSWER:
             return self._handle_event_final_answer(event, round_number)
-        elif event.event_type == EventType.STREAM_CHUNK:
-            # Legacy STREAM_CHUNK events — skip gracefully
+        elif event.event_type == "stream_chunk":
+            # Legacy stream_chunk events from old log files — skip gracefully
             return None
         elif event.event_type == EventType.WORKSPACE_ACTION:
             return self._handle_event_workspace_action(event, round_number)
@@ -404,6 +404,13 @@ class ContentProcessor:
         if not message:
             return None
 
+        # Skip info-level status messages — these are internal/operational
+        # (e.g., "Voting complete", "Presenting final answer") and are already
+        # handled by dedicated display paths (vote notifications, presentation
+        # start events, etc.).
+        if level == "info":
+            return None
+
         # Use ContentNormalizer as single source of truth for filtering
         normalized = ContentNormalizer.normalize(message, "status")
         if not normalized.should_display:
@@ -412,7 +419,7 @@ class ContentProcessor:
         return ContentOutput(
             output_type="status",
             round_number=round_number,
-            text_content=f"[{level}] {normalized.cleaned_content}",
+            text_content=normalized.cleaned_content,
             text_style="dim cyan",
             text_class="status",
         )

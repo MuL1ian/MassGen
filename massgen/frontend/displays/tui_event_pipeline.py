@@ -186,16 +186,9 @@ class TimelineEventAdapter:
                 except Exception:
                     pass
         elif output.output_type == "final_answer" and output.text_content:
+            # Store for retrieval but don't render inline — a dedicated
+            # final answer card handles display separately.
             self._final_answer = output.text_content
-            try:
-                timeline.add_text(
-                    f"✓ FINAL ANSWER\n{output.text_content}",
-                    style="bold green",
-                    text_class="final-answer",
-                    round_number=round_number,
-                )
-            except Exception:
-                pass
 
         if self._on_output_applied:
             try:

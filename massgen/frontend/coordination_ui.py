@@ -791,11 +791,6 @@ class CoordinationUI:
         # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
         orchestrator.coordination_ui = self
 
-        # Set up subagent spawn callbacks now that coordination_ui is available
-        # This allows the TUI to show SubagentCard immediately when spawn_subagents is called
-        if hasattr(orchestrator, "setup_subagent_spawn_callbacks"):
-            orchestrator.setup_subagent_spawn_callbacks()
-
         # Auto-detect agent IDs if not provided
         # Sort for consistent anonymous mapping with coordination_tracker
         if agent_ids is None:
@@ -847,6 +842,11 @@ class CoordinationUI:
 
         # Pass orchestrator reference to display for backend info
         self.display.orchestrator = orchestrator
+
+        # Set up subagent spawn callbacks AFTER display is initialized
+        # so the callback can access the display for TUI notifications
+        if hasattr(orchestrator, "setup_subagent_spawn_callbacks"):
+            orchestrator.setup_subagent_spawn_callbacks()
 
         # Start lightweight event-driven agent output writer
         from massgen.frontend.agent_output_writer import create_agent_output_writer
@@ -1433,11 +1433,6 @@ class CoordinationUI:
         # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
         orchestrator.coordination_ui = self
 
-        # Set up subagent spawn callbacks now that coordination_ui is available
-        # This allows the TUI to show SubagentCard immediately when spawn_subagents is called
-        if hasattr(orchestrator, "setup_subagent_spawn_callbacks"):
-            orchestrator.setup_subagent_spawn_callbacks()
-
         # Auto-detect agent IDs if not provided
         # Sort for consistent anonymous mapping with coordination_tracker
         if agent_ids is None:
@@ -1489,6 +1484,11 @@ class CoordinationUI:
 
         # Pass orchestrator reference to display for backend info
         self.display.orchestrator = orchestrator
+
+        # Set up subagent spawn callbacks AFTER display is initialized
+        # so the callback can access the display for TUI notifications
+        if hasattr(orchestrator, "setup_subagent_spawn_callbacks"):
+            orchestrator.setup_subagent_spawn_callbacks()
 
         # Start lightweight event-driven agent output writer
         from massgen.frontend.agent_output_writer import create_agent_output_writer
@@ -2245,6 +2245,11 @@ class CoordinationUI:
                         tool_msg = f"🔧 Calling workspace/{action_type}"
                         if params:
                             tool_msg += f" {params}"
+                        from massgen.logger_config import get_event_emitter
+
+                        _emitter = get_event_emitter()
+                        if _emitter:
+                            _emitter.emit_workspace_action(action_type, params, agent_id=agent_id)
                         self.display.update_agent_content(agent_id, tool_msg, "tool")
                         if self.logger:
                             self.logger.log_agent_content(agent_id, tool_msg, "tool")
@@ -2258,6 +2263,11 @@ class CoordinationUI:
                     tool_msg = f"🔧 Calling workspace/{action_type}"
                     if params:
                         tool_msg += f" {params}"
+                    from massgen.logger_config import get_event_emitter
+
+                    _emitter = get_event_emitter()
+                    if _emitter:
+                        _emitter.emit_workspace_action(action_type, params, agent_id=agent_id)
                     self.display.update_agent_content(agent_id, tool_msg, "tool")
                     if self.logger:
                         self.logger.log_agent_content(agent_id, tool_msg, "tool")

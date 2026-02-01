@@ -2536,6 +2536,11 @@ if TEXTUAL_AVAILABLE:
 
             # Event-driven pipeline state
             self._event_adapters: Dict[str, TimelineEventAdapter] = {}
+            # Event batching: accumulate events for ~16ms before marshaling
+            self._event_batch: Deque = deque()
+            self._event_batch_lock = threading.Lock()
+            self._event_batch_timer: Optional[threading.Timer] = None
+            self._EVENT_BATCH_INTERVAL = 0.016  # 16ms (~60fps)
 
             # Answer tracking for browser modal
             self._answers: List[Dict[str, Any]] = []  # All answers with metadata
@@ -3140,43 +3145,61 @@ if TEXTUAL_AVAILABLE:
         def _handle_event_from_emitter(self, event) -> None:
             """Handle an event from the global EventEmitter.
 
-            This is called from backend/orchestrator threads. We use
-            call_from_thread() to marshal into the Textual main thread.
+            Called from backend/orchestrator threads. Events are batched for
+            ~16ms before being marshaled to the Textual main thread via a
+            single call_from_thread(), reducing per-token thread sync overhead.
             """
-            from massgen.events import EventType
-
-            # Skip legacy STREAM_CHUNK events (deprecated, kept for old log compat)
-            if event.event_type == EventType.STREAM_CHUNK:
+            # Skip legacy stream_chunk events from old log files
+            if event.event_type == "stream_chunk":
                 return
 
             agent_id = event.agent_id
-            tui_log(f"[_handle_event] type={event.event_type} agent={agent_id} widgets={list(self.agent_widgets.keys())[:3]}")
             if not agent_id or agent_id not in self.agent_widgets:
-                tui_log(f"[_handle_event] SKIP: agent_id={agent_id} not in widgets")
                 return
 
+            with self._event_batch_lock:
+                self._event_batch.append(event)
+                # Start timer on first event in batch
+                if self._event_batch_timer is None:
+                    self._event_batch_timer = threading.Timer(
+                        self._EVENT_BATCH_INTERVAL,
+                        self._flush_event_batch,
+                    )
+                    self._event_batch_timer.daemon = True
+                    self._event_batch_timer.start()
+
+        def _flush_event_batch(self) -> None:
+            """Flush accumulated events to the Textual main thread."""
+            with self._event_batch_lock:
+                if not self._event_batch:
+                    self._event_batch_timer = None
+                    return
+                batch = list(self._event_batch)
+                self._event_batch.clear()
+                self._event_batch_timer = None
+
             try:
-                self.call_from_thread(self._route_event_to_adapter, event)
+                self.call_from_thread(self._route_event_batch, batch)
             except Exception:
                 pass  # Don't crash for display issues
 
-        def _route_event_to_adapter(self, event) -> None:
-            """Route a structured event to the correct agent's TimelineEventAdapter.
+        def _route_event_batch(self, events) -> None:
+            """Route a batch of events to their agent TimelineEventAdapters.
 
             Runs on the Textual main thread (via call_from_thread).
             """
-            agent_id = event.agent_id
-            if not agent_id or agent_id not in self.agent_widgets:
-                return
+            for event in events:
+                agent_id = event.agent_id
+                if not agent_id or agent_id not in self.agent_widgets:
+                    continue
 
-            panel = self.agent_widgets[agent_id]
+                panel = self.agent_widgets[agent_id]
+                adapter = self._event_adapters.get(agent_id)
+                if adapter is None:
+                    adapter = TimelineEventAdapter(panel, agent_id=agent_id)
+                    self._event_adapters[agent_id] = adapter
 
-            adapter = self._event_adapters.get(agent_id)
-            if adapter is None:
-                adapter = TimelineEventAdapter(panel, agent_id=agent_id)
-                self._event_adapters[agent_id] = adapter
-
-            adapter.handle_event(event)
+                adapter.handle_event(event)
 
         def _is_execution_in_progress(self) -> bool:
             """Check if agents are currently executing.

@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
-from massgen.events import EventType, MassGenEvent
+from massgen.events import MassGenEvent
 
 from .content_processor import ContentOutput, ContentProcessor
 from .timeline_transcript import render_output
@@ -35,9 +35,9 @@ class TimelineEventRecorder:
         """Process a single event and emit any resulting transcript lines."""
         if event.event_type == "timeline_entry":
             return
-        if event.event_type == EventType.STREAM_CHUNK:
-            # Legacy STREAM_CHUNK events — skip gracefully for backward compat
-            logger.debug("Skipping legacy STREAM_CHUNK event during replay")
+        if event.event_type == "stream_chunk":
+            # Legacy stream_chunk events from old log files — skip gracefully
+            logger.debug("Skipping legacy stream_chunk event during replay")
             return
 
         output = self._processor.process_event(event, self._round_number)
