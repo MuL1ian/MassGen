@@ -311,6 +311,18 @@ class CoordinationUI:
                         self.display.update_system_status("⏸️ Cancelling turn...")
                     raise CancellationRequested(partial_saved=orchestrator.cancellation_manager._partial_saved)
 
+                # Unpack legacy tuple format from orchestrator
+                # Some code paths yield ("type", StreamChunk/content, ...) tuples
+                if isinstance(chunk, tuple):
+                    if len(chunk) >= 2 and hasattr(chunk[1], "type"):
+                        # ("reasoning", StreamChunk(...)) — use the StreamChunk
+                        chunk = chunk[1]
+                    elif len(chunk) >= 2:
+                        # ("content", "text") or ("type", content, extra...)
+                        from massgen.backend.base import StreamChunk as _SC
+
+                        chunk = _SC(type=chunk[0], content=str(chunk[1]) if chunk[1] else "")
+
                 content = getattr(chunk, "content", "") or ""
                 source = getattr(chunk, "source", None)
                 chunk_type_raw = getattr(chunk, "type", "")
@@ -366,6 +378,11 @@ class CoordinationUI:
                 elif chunk_type == "system_status":
                     if self.display and hasattr(self.display, "update_system_status"):
                         self.display.update_system_status(content)
+                    from massgen.logger_config import get_event_emitter
+
+                    _emitter = get_event_emitter()
+                    if _emitter and content:
+                        _emitter.emit_system_status(content)
                     continue
 
                 # Filter out debug chunks from display
@@ -431,6 +448,16 @@ class CoordinationUI:
                             self.display.update_hook_execution(source, tool_call_id, hook_info)
                         else:
                             hook_logger.warning("[CoordinationUI] display missing update_hook_execution method")
+                    # Only emit hook events that have meaningful content (injection or non-allow decision)
+                    if hook_info:
+                        _decision = hook_info.get("decision", "allow") if isinstance(hook_info, dict) else "allow"
+                        _has_injection = bool(hook_info.get("injection_content")) if isinstance(hook_info, dict) else False
+                        if _decision != "allow" or _has_injection:
+                            from massgen.logger_config import get_event_emitter
+
+                            _emitter = get_event_emitter()
+                            if _emitter:
+                                _emitter.emit_hook_execution(tool_call_id, hook_info, agent_id=source)
                     if self.logger:
                         self.logger.log_chunk(source, str(hook_info), chunk_type)
                     continue
@@ -485,7 +512,7 @@ class CoordinationUI:
                                 delattr(self, summary_active_key)
 
                         if reasoning_content:
-                            # Display reasoning as thinking content
+                            # Display reasoning as thinking content (old path - writes agent files)
                             if self.display:
                                 self.display.update_agent_content(source, reasoning_content, "thinking")
                             if self.logger:
@@ -507,9 +534,14 @@ class CoordinationUI:
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
-                            # Fix 3: Continue to next chunk to prevent double-processing
-                            # Content has been routed to post-eval panel, skip regular processing
-                            continue
+                        from massgen.logger_config import get_event_emitter
+
+                        _emitter = get_event_emitter()
+                        if _emitter:
+                            _emitter.emit_post_evaluation("content", content=content, agent_id=source)
+                        # Fix 3: Continue to next chunk to prevent double-processing
+                        # Content has been routed to post-eval panel, skip regular processing
+                        continue
 
                 # Track selected agent for post-evaluation
                 if content and "🏆 Selected Agent:" in content:
@@ -525,6 +557,11 @@ class CoordinationUI:
                     # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
                     if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                         self.display._routing_to_post_eval_card = True
+                    from massgen.logger_config import get_event_emitter
+
+                    _emitter = get_event_emitter()
+                    if _emitter:
+                        _emitter.emit_post_evaluation("start", content=content, agent_id=source)
 
                 # Detect post-evaluation completion and show footer
                 if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
@@ -533,10 +570,14 @@ class CoordinationUI:
                         # Bug 2 fix: Clear display flag when post-eval ends
                         if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                             self.display._routing_to_post_eval_card = False
+                        winner = getattr(self, "_post_eval_winner", None) or source
                         if self.display and hasattr(self.display, "end_post_evaluation_content"):
-                            # Use tracked winner, fall back to source
-                            winner = getattr(self, "_post_eval_winner", None) or source
                             self.display.end_post_evaluation_content(winner)
+                        from massgen.logger_config import get_event_emitter
+
+                        _emitter = get_event_emitter()
+                        if _emitter:
+                            _emitter.emit_post_evaluation("end", winner=winner, agent_id=source)
 
                 if content:
                     full_response += content
@@ -924,6 +965,15 @@ class CoordinationUI:
                         self.display.update_system_status("⏸️ Cancelling turn...")
                     raise CancellationRequested(partial_saved=orchestrator.cancellation_manager._partial_saved)
 
+                # Unpack legacy tuple format from orchestrator
+                if isinstance(chunk, tuple):
+                    if len(chunk) >= 2 and hasattr(chunk[1], "type"):
+                        chunk = chunk[1]
+                    elif len(chunk) >= 2:
+                        from massgen.backend.base import StreamChunk as _SC
+
+                        chunk = _SC(type=chunk[0], content=str(chunk[1]) if chunk[1] else "")
+
                 content = getattr(chunk, "content", "") or ""
                 source = getattr(chunk, "source", None)
                 chunk_type_raw = getattr(chunk, "type", "")
@@ -971,6 +1021,11 @@ class CoordinationUI:
                 elif chunk_type == "system_status":
                     if self.display and hasattr(self.display, "update_system_status"):
                         self.display.update_system_status(content)
+                    from massgen.logger_config import get_event_emitter
+
+                    _emitter = get_event_emitter()
+                    if _emitter and content:
+                        _emitter.emit_system_status(content)
                     continue
 
                 # Handle preparation status updates (for web UI progress)
@@ -1044,6 +1099,16 @@ class CoordinationUI:
                             self.display.update_hook_execution(source, tool_call_id, hook_info)
                         else:
                             hook_logger.warning("[CoordinationUI-interactive] display missing update_hook_execution method")
+                    # Only emit hook events that have meaningful content (injection or non-allow decision)
+                    if hook_info:
+                        _decision = hook_info.get("decision", "allow") if isinstance(hook_info, dict) else "allow"
+                        _has_injection = bool(hook_info.get("injection_content")) if isinstance(hook_info, dict) else False
+                        if _decision != "allow" or _has_injection:
+                            from massgen.logger_config import get_event_emitter
+
+                            _emitter = get_event_emitter()
+                            if _emitter:
+                                _emitter.emit_hook_execution(tool_call_id, hook_info, agent_id=source)
                     if self.logger:
                         self.logger.log_chunk(source, str(hook_info), chunk_type)
                     continue
@@ -1121,9 +1186,14 @@ class CoordinationUI:
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
-                            # Fix 3: Continue to next chunk to prevent double-processing
-                            # Content has been routed to post-eval panel, skip regular processing
-                            continue
+                        from massgen.logger_config import get_event_emitter
+
+                        _emitter = get_event_emitter()
+                        if _emitter:
+                            _emitter.emit_post_evaluation("content", content=content, agent_id=source)
+                        # Fix 3: Continue to next chunk to prevent double-processing
+                        # Content has been routed to post-eval panel, skip regular processing
+                        continue
 
                 # Track selected agent for post-evaluation
                 if content and "🏆 Selected Agent:" in content:
@@ -1139,6 +1209,11 @@ class CoordinationUI:
                     # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
                     if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                         self.display._routing_to_post_eval_card = True
+                    from massgen.logger_config import get_event_emitter
+
+                    _emitter = get_event_emitter()
+                    if _emitter:
+                        _emitter.emit_post_evaluation("start", content=content, agent_id=source)
 
                 # Detect post-evaluation completion and show footer
                 if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
@@ -1147,10 +1222,14 @@ class CoordinationUI:
                         # Bug 2 fix: Clear display flag when post-eval ends
                         if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                             self.display._routing_to_post_eval_card = False
+                        winner = getattr(self, "_post_eval_winner", None) or source
                         if self.display and hasattr(self.display, "end_post_evaluation_content"):
-                            # Use tracked winner, fall back to source
-                            winner = getattr(self, "_post_eval_winner", None) or source
                             self.display.end_post_evaluation_content(winner)
+                        from massgen.logger_config import get_event_emitter
+
+                        _emitter = get_event_emitter()
+                        if _emitter:
+                            _emitter.emit_post_evaluation("end", winner=winner, agent_id=source)
 
                 if content:
                     full_response += content
@@ -1461,6 +1540,15 @@ class CoordinationUI:
                         self.display.update_system_status("⏸️ Cancelling turn...")
                     raise CancellationRequested(partial_saved=orchestrator.cancellation_manager._partial_saved)
 
+                # Unpack legacy tuple format from orchestrator
+                if isinstance(chunk, tuple):
+                    if len(chunk) >= 2 and hasattr(chunk[1], "type"):
+                        chunk = chunk[1]
+                    elif len(chunk) >= 2:
+                        from massgen.backend.base import StreamChunk as _SC
+
+                        chunk = _SC(type=chunk[0], content=str(chunk[1]) if chunk[1] else "")
+
                 content = getattr(chunk, "content", "") or ""
                 source = getattr(chunk, "source", None)
                 chunk_type_raw = getattr(chunk, "type", "")
@@ -1484,6 +1572,11 @@ class CoordinationUI:
                 elif chunk_type == "system_status":
                     if self.display and hasattr(self.display, "update_system_status"):
                         self.display.update_system_status(content)
+                    from massgen.logger_config import get_event_emitter
+
+                    _emitter = get_event_emitter()
+                    if _emitter and content:
+                        _emitter.emit_system_status(content)
                     continue
 
                 # Handle preparation status updates (for web UI progress)
@@ -1611,9 +1704,14 @@ class CoordinationUI:
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
-                            # Fix 3: Continue to next chunk to prevent double-processing
-                            # Content has been routed to post-eval panel, skip regular processing
-                            continue
+                        from massgen.logger_config import get_event_emitter
+
+                        _emitter = get_event_emitter()
+                        if _emitter:
+                            _emitter.emit_post_evaluation("content", content=content, agent_id=source)
+                        # Fix 3: Continue to next chunk to prevent double-processing
+                        # Content has been routed to post-eval panel, skip regular processing
+                        continue
 
                 # Track selected agent for post-evaluation
                 if content and "🏆 Selected Agent:" in content:
@@ -1629,6 +1727,11 @@ class CoordinationUI:
                     # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
                     if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                         self.display._routing_to_post_eval_card = True
+                    from massgen.logger_config import get_event_emitter
+
+                    _emitter = get_event_emitter()
+                    if _emitter:
+                        _emitter.emit_post_evaluation("start", content=content, agent_id=source)
 
                 # Detect post-evaluation completion and show footer
                 if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
@@ -1637,10 +1740,14 @@ class CoordinationUI:
                         # Bug 2 fix: Clear display flag when post-eval ends
                         if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                             self.display._routing_to_post_eval_card = False
+                        winner = getattr(self, "_post_eval_winner", None) or source
                         if self.display and hasattr(self.display, "end_post_evaluation_content"):
-                            # Use tracked winner, fall back to source
-                            winner = getattr(self, "_post_eval_winner", None) or source
                             self.display.end_post_evaluation_content(winner)
+                        from massgen.logger_config import get_event_emitter
+
+                        _emitter = get_event_emitter()
+                        if _emitter:
+                            _emitter.emit_post_evaluation("end", winner=winner, agent_id=source)
 
                 if content:
                     full_response += content

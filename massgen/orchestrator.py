@@ -1571,13 +1571,12 @@ class Orchestrator(ChatAgent):
     @staticmethod
     def _is_tool_related_content(content: str) -> bool:
         """
-        Check if content is tool-related output that should be excluded from clean answer.
+        Defensive check: exclude tool-related output from clean answer text.
 
-        Tool-related content includes:
-        - Tool calls: 🔧 tool_name(...)
-        - Tool results: 🔧 Tool ✅ Result: ... or 🔧 Tool ❌ Error: ...
-        - MCP status: 🔧 MCP: ...
-        - Backend status: Final Temp Working directory: ...
+        This guards against backends (e.g., ClaudeCode) that may embed tool
+        output or status messages in content-type chunks. Normally these are
+        handled via separate chunk_type branches (mcp_status, backend_status,
+        custom_tool_status), but this catches any that leak through.
 
         Args:
             content: The content string to check
@@ -1588,11 +1587,11 @@ class Orchestrator(ChatAgent):
         if not content:
             return False
 
-        # Tool calls and results from ClaudeCodeBackend
+        # Tool output prefixed by orchestrator for mcp_status / custom_tool_status
         if content.startswith("🔧 "):
             return True
 
-        # Backend status messages
+        # Backend status messages (session info from ClaudeCode)
         if content.startswith("Final Temp Working directory:"):
             return True
         if content.startswith("Final Session ID:"):
@@ -6229,7 +6228,26 @@ Your answer:"""
                         "reasoning_summary",
                         "reasoning_summary_done",
                     ]:
-                        # Stream reasoning content as tuple format
+                        # Emit structured event directly for TUI pipeline
+                        from massgen.events import EventType
+                        from massgen.logger_config import get_event_emitter
+
+                        _emitter = get_event_emitter()
+                        if _emitter:
+                            is_done = chunk_type in ("reasoning_done", "reasoning_summary_done")
+                            reasoning_delta = getattr(chunk, "reasoning_delta", None)
+                            reasoning_text = getattr(chunk, "reasoning_text", None)
+                            summary_delta = getattr(chunk, "reasoning_summary_delta", None)
+                            content = reasoning_delta or reasoning_text or summary_delta or ""
+                            if content or is_done:
+                                _emitter.emit_raw(
+                                    EventType.THINKING,
+                                    content=content,
+                                    done=is_done,
+                                    agent_id=agent_id,
+                                )
+
+                        # Stream reasoning content as tuple format for Rich display
                         reasoning_chunk = StreamChunk(
                             type=chunk.type,
                             content=chunk.content,

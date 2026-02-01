@@ -1568,6 +1568,11 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
 
         options["can_use_tool"] = can_use_tool
 
+        # Capture stderr from the Claude Code subprocess to prevent noisy
+        # "Stream closed" / "Error in hook callback" messages on Ctrl+C.
+        # Without this, stderr is inherited and dumps directly to the terminal.
+        options["stderr"] = lambda line: logger.debug(f"[ClaudeCode stderr] {line.rstrip()}")
+
         # Debug: Log the full mcp_servers config being passed to SDK
         if "mcp_servers" in options and "filesystem" in options["mcp_servers"]:
             logger.info(f"[ClaudeCodeBackend] FINAL filesystem config to SDK: {options['mcp_servers']['filesystem']}")

@@ -20,12 +20,13 @@ Event Types:
 - status: Status update message
 - round_start: Coordination round started
 - final_answer: Final answer produced
-- stream_chunk: [Deprecated] Raw StreamChunk, kept for old log file compat only
+- stream_chunk: [DEPRECATED] No longer emitted. Kept for reading old log files only.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -115,7 +116,7 @@ class EventType:
     FINAL_ANSWER = "final_answer"
 
     # Stream debugging (replaces streaming_debug.log)
-    STREAM_CHUNK = "stream_chunk"  # Deprecated: kept for backward compat with old log files
+    STREAM_CHUNK = "stream_chunk"  # DEPRECATED: no longer emitted. Kept only for reading old log files.
 
     # Timeline transcript lines (debugging/parity checks)
     TIMELINE_ENTRY = "timeline_entry"
@@ -126,6 +127,11 @@ class EventType:
     RESTART_BANNER = "restart_banner"
     AGENT_RESTART = "agent_restart"
     PRESENTATION_START = "presentation_start"
+
+    # Pipeline gap events (for subagent parity)
+    HOOK_EXECUTION = "hook_execution"
+    POST_EVALUATION = "post_evaluation"
+    SYSTEM_STATUS = "system_status"
 
     # Error events
     ERROR = "error"
@@ -231,6 +237,7 @@ class EventEmitter:
                 try:
                     self._file_handle.write(event.to_json() + "\n")
                     self._file_handle.flush()
+                    os.fsync(self._file_handle.fileno())
                 except Exception:
                     pass  # Don't fail main execution for logging issues
 
@@ -305,10 +312,7 @@ class EventEmitter:
             is_error: Whether this is an error result
             agent_id: Override agent ID
         """
-        # Truncate result if too long (preserve first/last parts)
         result_str = str(result)
-        if len(result_str) > 2000:
-            result_str = result_str[:1000] + "\n...[truncated]...\n" + result_str[-500:]
 
         self.emit_raw(
             EventType.TOOL_COMPLETE,
@@ -402,21 +406,69 @@ class EventEmitter:
         )
 
     def emit_stream_chunk(self, chunk: Any, agent_id: Optional[str] = None) -> None:
-        """Emit a raw stream chunk for debugging (replaces streaming_debug.log).
+        """DEPRECATED: No longer emits events. Kept for API compatibility.
+
+        STREAM_CHUNK events have been replaced by structured events
+        (TOOL_START, TOOL_COMPLETE, THINKING, TEXT, etc.).
+        """
+
+    def emit_hook_execution(
+        self,
+        tool_call_id: Optional[str],
+        hook_info: Any,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emit a hook execution event.
 
         Args:
-            chunk: The StreamChunk object
+            tool_call_id: ID of the tool call that triggered the hook
+            hook_info: Hook execution details
             agent_id: Override agent ID
         """
-        # Convert StreamChunk to dict if it has a dict representation
-        if hasattr(chunk, "__dict__"):
-            chunk_data = {k: v for k, v in chunk.__dict__.items() if v is not None}
-        else:
-            chunk_data = {"repr": repr(chunk)}
-
         self.emit_raw(
-            EventType.STREAM_CHUNK,
-            chunk=chunk_data,
+            EventType.HOOK_EXECUTION,
+            tool_call_id=tool_call_id,
+            hook_info=str(hook_info) if hook_info else None,
+            agent_id=agent_id,
+        )
+
+    def emit_post_evaluation(
+        self,
+        phase: str,
+        content: Optional[str] = None,
+        winner: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emit a post-evaluation event.
+
+        Args:
+            phase: "start", "content", or "end"
+            content: Evaluation content (for "content" phase)
+            winner: Winning agent (for "end" phase)
+            agent_id: Override agent ID
+        """
+        self.emit_raw(
+            EventType.POST_EVALUATION,
+            phase=phase,
+            content=content,
+            winner=winner,
+            agent_id=agent_id,
+        )
+
+    def emit_system_status(
+        self,
+        message: str,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emit a system status event.
+
+        Args:
+            message: Status message
+            agent_id: Override agent ID
+        """
+        self.emit_raw(
+            EventType.SYSTEM_STATUS,
+            message=message,
             agent_id=agent_id,
         )
 

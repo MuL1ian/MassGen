@@ -822,22 +822,18 @@ def log_coordination_step(step: str, details: dict = None):
 
 def log_streaming_debug(chunk: Any, agent_id: str | None = None):
     """
-    Log full StreamChunk to events.jsonl for detailed debugging.
+    Log StreamChunk for detailed debugging via loguru.
 
-    This logs the complete StreamChunk object as a structured event,
-    useful for deep debugging and TUI reconstruction.
+    Note: STREAM_CHUNK events are no longer written to events.jsonl.
+    Structured events (TOOL_START, TOOL_COMPLETE, THINKING, TEXT, etc.)
+    replace STREAM_CHUNK for TUI reconstruction.
 
     Args:
         chunk: The StreamChunk object to log
         agent_id: Optional agent ID to associate with the chunk
     """
-    # Use event emitter for structured logging
-    if _EVENT_EMITTER is not None:
-        _EVENT_EMITTER.emit_stream_chunk(chunk, agent_id=agent_id)
-    else:
-        # Fallback to loguru if event emitter not initialized
-        log = logger.bind(category="streaming_debug")
-        log.debug(f"🔹 [chat] Yielding chunk: {chunk}")
+    log = logger.bind(category="streaming_debug")
+    log.debug(f"🔹 [chat] Yielding chunk: {chunk}")
 
 
 def get_event_emitter() -> Optional["EventEmitter"]:

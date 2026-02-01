@@ -1634,8 +1634,8 @@ class TimelineSection(ScrollableContainer):
                 self._close_reasoning_batch()
 
             if self._current_reasoning_card is not None:
-                # Append to existing batch
-                self._current_reasoning_card.append_content(content)
+                # Append to existing batch (streaming tokens)
+                self._current_reasoning_card.append_content(content, streaming=True)
                 # Just scroll for append case (no mount, no trim needed)
                 self._auto_scroll()
             else:

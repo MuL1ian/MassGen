@@ -80,7 +80,7 @@ def update_task_plan_from_tool(
     try:
         result_data = json.loads(result)
     except (json.JSONDecodeError, TypeError) as exc:
-        _log(f"_task_plan: JSON parse error: {exc}")
+        _log(f"_task_plan: JSON parse error: {exc} (result length={len(result)})")
         return True
 
     if not isinstance(result_data, dict):

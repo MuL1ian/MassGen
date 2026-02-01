@@ -35,6 +35,8 @@ def get_mcp_server_name(tool_name: str) -> Optional[str]:
 def get_mcp_tool_name(tool_name: str) -> Optional[str]:
     """Extract the actual tool name from mcp__server__tool format.
 
+    Handles custom tools: mcp__server__custom_tool__name -> name
+
     Args:
         tool_name: The full tool name (e.g., "mcp__filesystem__write_file").
 
@@ -43,6 +45,8 @@ def get_mcp_tool_name(tool_name: str) -> Optional[str]:
     """
     if tool_name.startswith("mcp__"):
         parts = tool_name.split("__")
+        if len(parts) >= 4 and parts[2] == "custom_tool":
+            return "__".join(parts[3:])
         if len(parts) >= 3:
             return parts[2]
     return None
@@ -104,9 +108,13 @@ def get_tool_category(tool_name: str) -> Dict[str, str]:
 def format_tool_display_name(tool_name: str) -> str:
     """Format tool name for display."""
     # Handle MCP tools: mcp__server__tool -> server/tool
+    # Custom tools have extra segments: mcp__server__custom_tool__actual_name
     if tool_name.startswith("mcp__"):
         parts = tool_name.split("__")
-        if len(parts) >= 3:
+        if len(parts) >= 4 and parts[2] == "custom_tool":
+            # mcp__server__custom_tool__name -> server/name
+            return f"{parts[1]}/{'__'.join(parts[3:])}"
+        elif len(parts) >= 3:
             return f"{parts[1]}/{parts[2]}"
         elif len(parts) == 2:
             return parts[1]

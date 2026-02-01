@@ -181,6 +181,12 @@ class ContentProcessor:
             return self._handle_event_agent_restart(event, round_number)
         elif event.event_type == EventType.PHASE_CHANGE:
             return self._handle_event_phase_change(event, round_number)
+        elif event.event_type == EventType.HOOK_EXECUTION:
+            return self._handle_event_hook_execution(event, round_number)
+        elif event.event_type == EventType.POST_EVALUATION:
+            return self._handle_event_post_evaluation(event, round_number)
+        elif event.event_type == EventType.SYSTEM_STATUS:
+            return self._handle_event_system_status(event, round_number)
         return None
 
     def _handle_event_tool_start(
@@ -326,28 +332,30 @@ class ContentProcessor:
     ) -> Optional[ContentOutput]:
         """Handle thinking event.
 
-        Applies the same filtering as main TUI for visual parity.
+        Thinking events arrive as small streaming tokens (e.g. " planning",
+        " the").  We must NOT run them through the full normalize pipeline
+        which calls .strip() and would remove the leading spaces that
+        separate words.  Instead we only filter obviously empty content.
+
+        Events with ``done=True`` signal the end of a reasoning block.
         """
         content = event.data.get("content", "")
-        if not content:
+        is_done = event.data.get("done", False)
+
+        if not content and not is_done:
             return None
 
-        # Apply same filtering as main TUI for parity
-        normalized = ContentNormalizer.normalize(content, "thinking")
-        if not normalized.should_display:
-            return None
-
-        cleaned = self._thinking_handler.process(normalized)
-        if not cleaned:
+        # Only filter empty/whitespace-only content (but allow done markers)
+        if not is_done and not content.strip():
             return None
 
         # Mark that content arrived (breaks tool batching)
         self._batch_tracker.mark_content_arrived()
 
         return ContentOutput(
-            output_type="thinking",
+            output_type="thinking_done" if is_done else "thinking",
             round_number=round_number,
-            text_content=cleaned,
+            text_content=content,
             text_style="dim italic",
             text_class="thinking-inline",
         )
@@ -516,6 +524,72 @@ class ContentProcessor:
             output_type="status",
             round_number=round_number,
             text_content=f"Phase: {phase}",
+            text_style="dim cyan",
+            text_class="status",
+        )
+
+    def _handle_event_hook_execution(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle hook_execution event.
+
+        Hook execution details are already attached to tool cards on the main
+        display path via update_hook_execution → add_hook_to_tool. We skip
+        rendering them as standalone timeline entries to avoid duplication.
+        """
+        return None
+
+    def _handle_event_post_evaluation(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle post_evaluation event."""
+        phase = event.data.get("phase", "")
+        content = event.data.get("content", "")
+        winner = event.data.get("winner", "")
+
+        if phase == "start":
+            return ContentOutput(
+                output_type="status",
+                round_number=round_number,
+                text_content=content or "Post-evaluation started",
+                text_style="bold magenta",
+                text_class="status",
+            )
+        elif phase == "content":
+            return ContentOutput(
+                output_type="text",
+                round_number=round_number,
+                text_content=content or "",
+                text_style="",
+                text_class="post_evaluation",
+            )
+        elif phase == "end":
+            label = f"Evaluation complete — winner: {winner}" if winner else "Evaluation complete"
+            return ContentOutput(
+                output_type="status",
+                round_number=round_number,
+                text_content=label,
+                text_style="bold green",
+                text_class="status",
+            )
+        return None
+
+    def _handle_event_system_status(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle system_status event."""
+        message = event.data.get("message", "")
+
+        return ContentOutput(
+            output_type="status",
+            round_number=round_number,
+            text_content=message,
             text_style="dim cyan",
             text_class="status",
         )

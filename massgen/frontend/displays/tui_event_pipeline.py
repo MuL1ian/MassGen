@@ -114,6 +114,13 @@ class TimelineEventAdapter:
                         timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
             except Exception:
                 pass
+        elif output.output_type == "thinking_done":
+            # Close the current reasoning batch so the next summary starts fresh
+            try:
+                if hasattr(timeline, "_close_reasoning_batch"):
+                    timeline._close_reasoning_batch()
+            except Exception:
+                pass
         elif output.output_type in ("thinking", "text", "status", "presentation") and output.text_content:
             try:
                 timeline.add_text(

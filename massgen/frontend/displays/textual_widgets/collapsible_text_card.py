@@ -178,21 +178,26 @@ class CollapsibleTextCard(Static):
         """Get the total number of chunks."""
         return len(self._chunks)
 
-    def append_content(self, new_content: str) -> None:
-        """Append additional content as a new chunk.
-
-        Used for batching consecutive reasoning statements into one card.
-        Each append creates a new chunk, separated visually.
+    def append_content(self, new_content: str, streaming: bool = False) -> None:
+        """Append additional content to the card.
 
         Args:
-            new_content: Text to append as a new chunk.
+            new_content: Text to append.
+            streaming: If True, concatenate directly to the last chunk (for
+                token-by-token streaming). If False, add as a new visually
+                separated chunk.
         """
         # Clean and validate content
         cleaned = self._clean_content(new_content)
         if not cleaned:
             return
 
-        # Add as new chunk
-        self._chunks.append(cleaned)
-        self._content += "\n" + self.CHUNK_SEPARATOR + "\n" + cleaned
+        if streaming and self._chunks:
+            # Concatenate to last chunk (streaming tokens)
+            self._chunks[-1] += cleaned
+            self._content += cleaned
+        else:
+            # Add as new separated chunk
+            self._chunks.append(cleaned)
+            self._content += "\n" + self.CHUNK_SEPARATOR + "\n" + cleaned
         self.refresh()

@@ -276,6 +276,9 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
         # Active tool result capture during manual tool execution
         self._active_tool_result_store: Optional[Dict[str, str]] = None
 
+        # Monotonic counter for globally unique tool call IDs
+        self._tool_call_counter = 0
+
         # Exponential backoff configuration
         self.backoff_config = BackoffConfig(
             max_attempts=int(backoff_max_attempts),
@@ -758,8 +761,9 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                                 tool_name = _normalize_gemini_tool_name(part.function_call.name)
                                                 tool_args = dict(part.function_call.args) if part.function_call.args else {}
 
-                                                # Create call record
-                                                call_id = f"call_{len(captured_function_calls)}"
+                                                # Create call record with globally unique ID
+                                                call_id = f"call_{self._tool_call_counter}"
+                                                self._tool_call_counter += 1
                                                 call_record = {
                                                     "call_id": call_id,
                                                     "name": tool_name,
@@ -1343,7 +1347,8 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                                         # Normalize tool name (strip prefixes like "default_api:")
                                                         tool_name = _normalize_gemini_tool_name(part.function_call.name)
                                                         tool_args = dict(part.function_call.args) if part.function_call.args else {}
-                                                        call_id = f"call_{len(new_function_calls)}"
+                                                        call_id = f"call_{self._tool_call_counter}"
+                                                        self._tool_call_counter += 1
                                                         call_record = {
                                                             "call_id": call_id,
                                                             "name": tool_name,
