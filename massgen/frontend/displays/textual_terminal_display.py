@@ -2299,6 +2299,7 @@ if TEXTUAL_AVAILABLE:
         # Only canonical shortcuts that users expect
         BINDINGS = [
             # Agent navigation
+            Binding("w", "go_to_winner", "Go to Winner", show=False),
             Binding("tab", "next_agent", "Next Agent"),
             Binding("left", "prev_agent", "Prev Agent", show=False),
             Binding("right", "next_agent", "Next Agent", show=False),
@@ -2357,6 +2358,7 @@ if TEXTUAL_AVAILABLE:
             # self._subagent_side_panel: Optional[Container] = None
             # self._subagent_view: Optional[SubagentView] = None
             self._active_agent_id: Optional[str] = None
+            self._winner_agent_id: Optional[str] = None
             # Final presentation state (streams into winner's AgentPanel)
             self._final_presentation_agent: Optional[str] = None
             self._final_presentation_card: Optional[FinalPresentationCard] = None
@@ -3174,6 +3176,7 @@ if TEXTUAL_AVAILABLE:
                         self._execution_status_line.set_agent_state(aid, "done")
 
                 # Show winner panel, hide others
+                self._winner_agent_id = winner_id
                 if winner_id in self.agent_widgets:
                     if self._active_agent_id and self._active_agent_id in self.agent_widgets:
                         self.agent_widgets[self._active_agent_id].add_class("hidden")
@@ -3182,6 +3185,7 @@ if TEXTUAL_AVAILABLE:
 
             elif event.event_type == "final_presentation_start":
                 agent_id = event.agent_id or ""
+                self._winner_agent_id = agent_id
                 # Switch to winner tab if not already
                 if self._tab_bar:
                     self._tab_bar.set_active(agent_id)
@@ -4963,6 +4967,11 @@ Type your question and press Enter to ask the agents.
                 if prev_agent:
                     self._switch_to_agent(prev_agent)
 
+        def action_go_to_winner(self):
+            """Switch to the winner agent tab."""
+            if self._winner_agent_id:
+                self._switch_to_agent(self._winner_agent_id)
+
         def action_show_subagents(self):
             """Show subagent screen for first running subagent.
 
@@ -5058,6 +5067,10 @@ Type your question and press Enter to ask the agents.
 
                 self._active_agent_id = agent_id
                 tui_log(f"  Switch complete to: {agent_id}")
+
+                # Notify if navigating away from winner
+                if self._winner_agent_id and agent_id != self._winner_agent_id:
+                    self.notify("Press W to go to winner agent", timeout=4)
 
                 # Update current_agent_index for compatibility with existing methods
                 try:
@@ -7996,18 +8009,7 @@ Type your question and press Enter to ask the agents.
                 return
 
             if self._last_tool_was_terminal:
-                # Delay transition so users can see the completed terminal tool
-                self._transition_pending = True
-                self._pending_round_transition = (round_number, is_context_reset)
-                self._transition_timer = self.set_timer(5.0, self._execute_round_transition)
                 self._last_tool_was_terminal = False  # Reset for next round
-
-                # Show a subtle notification
-                try:
-                    self.notify("Round complete - transitioning in 5s", timeout=3)
-                except Exception:
-                    pass  # Notification is optional
-                return
 
             # Execute the round transition immediately
             self._execute_round_transition_impl(round_number, is_context_reset)

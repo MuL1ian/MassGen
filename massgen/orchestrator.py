@@ -5700,6 +5700,7 @@ Your answer:"""
 
         # Track whether we've notified TUI of new round (done once per real execution)
         _notified_round = False
+        _mid_stream_injection = False
 
         # Set round start time for per-round timeout tracking
         self.agent_states[agent_id].round_start_time = time.time()
@@ -6051,13 +6052,15 @@ Your answer:"""
                         # Note: agent_restart notification is yielded at the top of _stream_agent_execution
                         yield ("done", None)
                         return
-                    # else: injection_count >= 1, mid-stream callback will handle via tool results
-                    # Do NOT clear restart_pending here - the callback checks this flag
-                    # and will clear it after injecting content (see get_injection_content)
+                    else:
+                        # injection_count >= 1, mid-stream callback will handle via tool results
+                        # Do NOT clear restart_pending here - the callback checks this flag
+                        # and will clear it after injecting content (see get_injection_content)
+                        _mid_stream_injection = True
 
                 # Track restarts for TUI round display - only when agent is about to do real work
                 # (not if it's exiting immediately due to restart_pending)
-                if not _notified_round:
+                if not _notified_round and not _mid_stream_injection:
                     _notified_round = True
                     self.agent_states[agent_id].restart_count += 1
                     current_round = self.agent_states[agent_id].restart_count
@@ -8009,6 +8012,23 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     "reasoning_summary",
                     "reasoning_summary_done",
                 ]:
+                    # Emit structured event for TUI pipeline (same as main coordination loop)
+                    if _fp_emitter:
+                        is_done = chunk_type in ("reasoning_done", "reasoning_summary_done")
+                        reasoning_delta = getattr(chunk, "reasoning_delta", None)
+                        reasoning_text = getattr(chunk, "reasoning_text", None)
+                        summary_delta = getattr(chunk, "reasoning_summary_delta", None)
+                        _thinking_content = reasoning_delta or reasoning_text or summary_delta or ""
+                        if _thinking_content or is_done:
+                            from massgen.events import EventType
+
+                            _fp_emitter.emit_raw(
+                                EventType.THINKING,
+                                content=_thinking_content,
+                                done=is_done,
+                                agent_id=selected_agent_id,
+                            )
+
                     # Stream reasoning content with proper attribution (same as main coordination)
                     reasoning_chunk = StreamChunk(
                         type=chunk_type,
@@ -8446,6 +8466,17 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                     previous_winners=self._winning_agents_history.copy(),
                 ):
                     chunk_type = self._get_chunk_type_value(chunk)
+
+                    # Skip content/reasoning after evaluation decision (submit/restart)
+                    # to prevent stray text appearing after answer_locked
+                    if evaluation_complete and chunk_type in (
+                        "content",
+                        "reasoning",
+                        "reasoning_done",
+                        "reasoning_summary",
+                        "reasoning_summary_done",
+                    ):
+                        continue
 
                     if chunk_type == "content" and chunk.content:
                         log_stream_chunk(

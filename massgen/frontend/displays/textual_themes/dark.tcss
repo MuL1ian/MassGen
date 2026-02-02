@@ -379,15 +379,15 @@ AgentTab.active.status-error {
 
 /* Winner tab styling */
 AgentTab.status-winner {
-    background: #3d3510;
-    color: #dcdcaa;
+    background: #1a2e1a;
+    color: #89d689;
     text-style: bold;
-    border-bottom: tall #dcdcaa;
+    border-bottom: tall #89d689;
 }
 
 AgentTab.status-winner.active {
-    background: #4d4520;
-    border-bottom: tall #dcdcaa;
+    background: #243e24;
+    border-bottom: tall #89d689;
 }
 
 /* Dimmed tabs (non-winner during final presentation) */

@@ -49,7 +49,7 @@ class SubagentColumn(Vertical, can_focus=True):
         width: 1fr;
         min-width: 32;
         height: auto;
-        padding: 0 1 1 1;
+        padding: 0 1 0 1;
         border-right: solid #21262d;
     }
 
@@ -200,8 +200,8 @@ class SubagentColumn(Vertical, can_focus=True):
         # On completion, show answer preview instead
         if self._subagent.status == "completed" and self._subagent.answer_preview:
             preview = self._subagent.answer_preview.strip()
-            if len(preview) > 58:
-                preview = preview[:55] + "..."
+            if len(preview) > 300:
+                preview = preview[:297] + "..."
             text = Text()
             text.append("✓ ", style="#7ee787")
             text.append(preview, style="#7ee787 dim")
@@ -291,8 +291,8 @@ class SubagentCard(Vertical, can_focus=True):
     SubagentCard {
         width: 100%;
         height: auto;
-        min-height: 9;
-        padding: 1 1 1 2;
+        min-height: 5;
+        padding: 0 1 0 2;
         margin: 0 0 1 1;
         background: #161b22;
         border-left: tall #7c3aed;

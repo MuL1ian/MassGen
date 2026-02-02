@@ -359,6 +359,29 @@ class TimelineEventAdapter:
         }
         self._pending_final_card_timeline = timeline
 
+        # Add "Final Answer" separator banner to timeline.  In the main TUI
+        # the direct display path (AgentPanel.start_final_presentation) already
+        # adds this banner, so skip if the panel signals it was handled.
+        already_handled = getattr(self._panel, "_is_final_presentation_round", False)
+        if timeline and hasattr(timeline, "add_separator") and not already_handled:
+            subtitle = ""
+            if vote_counts:
+                sorted_votes = sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)
+                vote_parts = []
+                for aid, count in sorted_votes:
+                    label = answer_labels.get(aid, aid) if answer_labels else aid
+                    vote_parts.append(f"{label} ({count})")
+                subtitle = f"Votes: {', '.join(vote_parts)}"
+            try:
+                new_round = round_number + 1
+                timeline.add_separator(
+                    "FINAL PRESENTATION",
+                    round_number=new_round,
+                    subtitle=subtitle,
+                )
+            except Exception:
+                pass
+
     def _apply_final_presentation_chunk(self, output: ContentOutput) -> None:
         """No-op — content will be applied from self._final_answer at card creation."""
 

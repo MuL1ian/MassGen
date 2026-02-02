@@ -125,7 +125,7 @@ class AgentTab(Static):
         "done": "✓",  # Dim check - final presentation in progress
         "error": "✗",  # X mark - error
         "cancelled": "✗",  # X mark - cancelled (yellow when rendered)
-        "winner": "✓",  # Check mark - winner
+        "winner": "👑",  # Crown - winner
     }
 
     # Map raw status strings to our icon states
@@ -146,6 +146,7 @@ class AgentTab(Static):
         "waiting": "voted",  # Waiting for others after voting
         "complete": "voted",  # Finished, waiting for consensus
         "completed": "voted",
+        "winner": "winner",  # Crown - winner of voting
         "done": "done",  # Dim checkmark - final presentation happening
         "error": "error",
         "cancelled": "cancelled",
