@@ -313,7 +313,9 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
         presentation_instructions = """You have been selected as the winning presenter in a coordination process.
 Present the best possible coordinated answer by combining the strengths from all participants.
 
-Present your answer using markdown formatting where it aids readability.\n\n"""
+Present your answer using markdown formatting where it aids readability.
+
+When you have composed your final answer, submit it using the `new_answer` tool. Only include the markdown-formatted answer in the tool call. This will be the official final deliverable.\n\n"""
 
         # Add image generation instructions only if enabled
         if enable_image_generation:

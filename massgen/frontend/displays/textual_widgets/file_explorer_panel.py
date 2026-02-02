@@ -228,25 +228,35 @@ class FileExplorerPanel(Vertical):
             current.add_leaf(f"{icon} {filename}", data=data_path)
         tree.root.expand()
 
-    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
-        """Load preview when a file is clicked."""
+    def auto_preview(self, answer_text: str) -> None:
+        """Auto-select the first file whose name appears in answer_text."""
+        if not answer_text or not self._all_paths:
+            return
+        answer_lower = answer_text.lower()
+        for display_path in sorted(self._all_paths.keys()):
+            filename = Path(display_path).name.lower()
+            if filename != "..." and filename in answer_lower:
+                self._show_preview(self._path_lookup.get(display_path, display_path))
+                return
+        # Single file — just show it
+        if len(self._all_paths) == 1:
+            display_path = next(iter(self._all_paths))
+            self._show_preview(self._path_lookup.get(display_path, display_path))
+
+    def _show_preview(self, filepath: str) -> None:
+        """Load a file into the preview pane."""
         from textual.widgets import Label
 
-        filepath = event.node.data
         if not filepath:
             return
-
         try:
             preview_header = self.query_one("#file_preview_header", Label)
             preview_widget = self.query_one("#file_preview", Static)
-
             p = Path(filepath)
             preview_header.update(f"── {p.name} ──")
-
             if p.exists() and p.is_file():
                 try:
                     content = p.read_text(errors="replace")
-                    # Limit to first 100 lines
                     lines = content.splitlines()[:100]
                     if len(content.splitlines()) > 100:
                         lines.append(f"\n... ({len(content.splitlines()) - 100} more lines)")
@@ -257,3 +267,8 @@ class FileExplorerPanel(Vertical):
                 preview_widget.update(f"(file not found: {filepath})")
         except Exception:
             pass
+
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        """Load preview when a file is clicked."""
+        if event.node.data:
+            self._show_preview(event.node.data)

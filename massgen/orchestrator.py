@@ -7971,13 +7971,21 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         # Use agent's chat method with proper system message (reset chat for clean presentation)
         presentation_content = ""  # All content for display/logging
         clean_answer_content = ""  # Only clean text for answer.txt (excludes tool calls/results)
+        submitted_answer = None  # Clean answer submitted via new_answer tool (preferred over clean_answer_content)
         final_snapshot_saved = False  # Track whether snapshot was saved during stream
         was_cancelled = False  # Track if we broke out due to cancellation
+
+        # Build presentation tools: only new_answer (no vote/broadcast)
+        from massgen.tool.workflow_toolkits import NewAnswerToolkit
+
+        _na_toolkit = NewAnswerToolkit()
+        presentation_tools = _na_toolkit.get_tools({"api_format": "chat_completions"})
 
         try:
             # Track final round iterations (each chunk is like an iteration)
             async for chunk in agent.chat(
                 presentation_messages,
+                presentation_tools,
                 reset_chat=True,  # Reset conversation history for clean presentation
                 current_stage=CoordinationStage.PRESENTATION,
                 orchestrator_turn=self._current_turn,
@@ -8116,6 +8124,29 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         source=selected_agent_id,
                         tool_call_id=getattr(chunk, "tool_call_id", None),
                     )
+                elif chunk_type == "tool_calls":
+                    # Intercept new_answer tool calls to extract clean answer
+                    chunk_tool_calls = getattr(chunk, "tool_calls", []) or []
+                    for tool_call in chunk_tool_calls:
+                        tool_name = agent.backend.extract_tool_name(tool_call)
+                        if tool_name == "new_answer":
+                            tool_args = agent.backend.extract_tool_arguments(tool_call)
+                            if isinstance(tool_args, dict):
+                                submitted_answer = tool_args.get("content", "")
+                            elif isinstance(tool_args, str):
+                                import json as _json
+
+                                try:
+                                    submitted_answer = _json.loads(tool_args).get("content", "")
+                                except (ValueError, AttributeError):
+                                    submitted_answer = tool_args
+                    # Yield tool calls through so TUI can display them
+                    yield StreamChunk(
+                        type="tool_calls",
+                        content=chunk.content,
+                        source=selected_agent_id,
+                        tool_calls=chunk_tool_calls,
+                    )
                 elif chunk_type == "hook_execution":
                     # Hook execution - pass through with source
                     log_stream_chunk(
@@ -8133,10 +8164,13 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     )
                 elif chunk_type == "done":
                     # Save the final workspace snapshot (from final workspace directory)
-                    # Use clean_answer_content (excludes tool calls/results) for answer.txt
-                    final_answer = (
-                        clean_answer_content.strip() if clean_answer_content.strip() else self.agent_states[selected_agent_id].answer
-                    )  # fallback to stored answer if no clean content generated
+                    # Prefer submitted_answer (from new_answer tool) over clean_answer_content
+                    if submitted_answer and submitted_answer.strip():
+                        final_answer = submitted_answer.strip()
+                    elif clean_answer_content.strip():
+                        final_answer = clean_answer_content.strip()
+                    else:
+                        final_answer = self.agent_states[selected_agent_id].answer
                     final_context = self.get_last_context(selected_agent_id)
                     await self._save_agent_snapshot(
                         self._selected_agent,
@@ -8251,10 +8285,11 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 )
 
             # Store the final presentation content for post-evaluation and history
-            # Use clean_answer_content (excludes tool calls/results)
-            if clean_answer_content.strip():
+            # Prefer submitted_answer (from new_answer tool) over clean_answer_content
+            _display_answer = submitted_answer.strip() if submitted_answer and submitted_answer.strip() else clean_answer_content.strip()
+            if _display_answer:
                 # Store the clean final answer (used by post-evaluation and conversation history)
-                self._final_presentation_content = clean_answer_content.strip()
+                self._final_presentation_content = _display_answer
 
                 # Emit final_answer event for TUI event pipeline
                 from massgen.logger_config import get_event_emitter as _get_fa_emitter

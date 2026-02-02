@@ -3122,6 +3122,7 @@ class FinalPresentationCard(Vertical):
                                 p = self.query_one("#file_explorer_panel", FileExplorerPanel)
                                 p.rebuild_tree()
                                 p.add_class("visible")
+                                p.auto_preview(self.get_content())
                                 p.refresh(layout=True)
                             except Exception:
                                 pass
