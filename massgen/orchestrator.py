@@ -6062,7 +6062,9 @@ Your answer:"""
                         # injection_count >= 1, mid-stream callback will handle via tool results
                         # Do NOT clear restart_pending here - the callback checks this flag
                         # and will clear it after injecting content (see get_injection_content)
-                        _mid_stream_injection = True
+                        # Only suppress the round banner once streaming has already started.
+                        if not is_first_real_attempt:
+                            _mid_stream_injection = True
 
                 # Track restarts for TUI round display - only when agent is about to do real work
                 # (not if it's exiting immediately due to restart_pending)
