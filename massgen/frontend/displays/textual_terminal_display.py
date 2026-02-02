@@ -7697,16 +7697,16 @@ Type your question and press Enter to ask the agents.
             if not isinstance(result_data, dict):
                 return
 
-            # Remove card on failed spawn (e.g., too many tasks)
-            if not result_data.get("success", True):
+            # Extract spawned subagents list
+            spawned = result_data.get("results", result_data.get("spawned_subagents", result_data.get("subagents", [])))
+
+            # Remove card only on true spawn failure (no results at all)
+            if not result_data.get("success", True) and not spawned:
                 try:
                     card.remove()
                 except Exception as e:
                     tui_log(f"[TextualDisplay] {e}")
                 return
-
-            # Extract spawned subagents list
-            spawned = result_data.get("results", result_data.get("spawned_subagents", result_data.get("subagents", [])))
             if not spawned:
                 return
 
