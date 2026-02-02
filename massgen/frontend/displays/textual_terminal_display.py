@@ -4202,12 +4202,8 @@ Type your question and press Enter to ask the agents.
                     timeline.lock_to_final_answer("final_presentation_card")
                     card.set_locked_mode(True)
                     # Auto-collapse task plan when final presentation shows
-                    try:
-                        pinned_container = panel.query_one(f"#{panel._pinned_task_plan_id}", Container)
-                        pinned_container.add_class("collapsed")
-                        panel._task_plan_visible = False
-                    except Exception:
-                        pass
+                    if hasattr(panel, "_task_plan_host"):
+                        panel._task_plan_host.collapse()
                     # Update input placeholder to encourage follow-up
                     if hasattr(self, "question_input"):
                         self.question_input.placeholder = "Type your follow-up question..."
@@ -4320,6 +4316,9 @@ Type your question and press Enter to ask the agents.
                         timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
                         timeline.lock_to_final_answer("final_presentation_card")
                         self._final_presentation_card.set_locked_mode(True)
+                        # Auto-collapse task plan when final answer shows
+                        if hasattr(panel, "_task_plan_host"):
+                            panel._task_plan_host.collapse()
                         # Update input placeholder to encourage follow-up
                         if hasattr(self, "question_input"):
                             self.question_input.placeholder = "Type your follow-up question..."
@@ -4608,6 +4607,9 @@ Type your question and press Enter to ask the agents.
                         try:
                             timeline.lock_to_final_answer("winner_selected_card")
                             card.set_locked_mode(True)
+                            # Auto-collapse task plan when final answer shows
+                            if hasattr(panel, "_task_plan_host"):
+                                panel._task_plan_host.collapse()
                             # Update input placeholder to encourage follow-up
                             if hasattr(self, "question_input"):
                                 self.question_input.placeholder = "Type your follow-up question..."

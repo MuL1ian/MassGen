@@ -8600,6 +8600,21 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                             selected_agent_id,
                         )
                         yield reasoning_chunk
+                        # Emit thinking events for the unified event pipeline
+                        if _pe_emitter and chunk.content:
+                            _pe_emitter.emit_thinking(
+                                content=chunk.content,
+                                agent_id=selected_agent_id,
+                            )
+                        if _pe_emitter and chunk_type in ("reasoning_done", "reasoning_summary_done"):
+                            from massgen.events import EventType as _EvType
+
+                            _pe_emitter.emit_raw(
+                                _EvType.THINKING,
+                                content="",
+                                done=True,
+                                agent_id=selected_agent_id,
+                            )
                     elif chunk_type == "tool_calls":
                         # Post-evaluation tool call detected - only set flag if valid tool found
                         if hasattr(chunk, "tool_calls") and chunk.tool_calls:

@@ -97,6 +97,12 @@ class TaskPlanHost(Container):
         else:
             self.add_class("collapsed")
 
+    def collapse(self) -> None:
+        """Collapse the task plan (hide content, keep header)."""
+        if self._active_task_plan_tasks:
+            self._task_plan_visible = False
+            self.add_class("collapsed")
+
     def clear(self) -> None:
         """Clear task plan state and hide the host."""
         self._active_task_plan_id = None

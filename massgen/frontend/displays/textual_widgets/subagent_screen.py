@@ -1180,6 +1180,11 @@ class SubagentView(Container):
         timeline.lock_to_final_answer(card_id)
         card.set_locked_mode(True)
 
+        # Auto-collapse task plan when final answer shows
+        tph = self._panel._task_plan_hosts.get(agent_id) if self._panel else None
+        if tph:
+            tph.collapse()
+
         self._final_answer_locked.add(agent_id)
         logger.info(f"[SubagentScreen] Final answer lock applied for agent {agent_id}")
 

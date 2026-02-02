@@ -528,18 +528,13 @@ class CoordinationUI:
                     self._reset_summary_active_flags()
 
                 # Handle post-evaluation content streaming
-                # Bug 2 fix: Removed local _routed_to_post_eval variable - display-level flag handles this now
+                # Event emission is handled by the orchestrator; coordination_ui
+                # only routes content to the display layer.
                 if source and content and chunk_type == "content":
                     # Check if we're in post-evaluation
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
-                        from massgen.logger_config import get_event_emitter
-
-                        _emitter = get_event_emitter()
-                        if _emitter:
-                            _emitter.emit_post_evaluation("content", content=content, agent_id=source)
-                        # Fix 3: Continue to next chunk to prevent double-processing
                         # Content has been routed to post-eval panel, skip regular processing
                         continue
 
@@ -554,30 +549,18 @@ class CoordinationUI:
                 # Detect post-evaluation start
                 if chunk_type == "status" and "Post-evaluation" in content:
                     self._in_post_evaluation = True
-                    # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
                     if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                         self.display._routing_to_post_eval_card = True
-                    from massgen.logger_config import get_event_emitter
-
-                    _emitter = get_event_emitter()
-                    if _emitter:
-                        _emitter.emit_post_evaluation("start", content=content, agent_id=source)
 
                 # Detect post-evaluation completion and show footer
                 if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                     if "Evaluation complete" in content or "Restart requested" in content:
                         self._in_post_evaluation = False
-                        # Bug 2 fix: Clear display flag when post-eval ends
                         if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                             self.display._routing_to_post_eval_card = False
                         winner = getattr(self, "_post_eval_winner", None) or source
                         if self.display and hasattr(self.display, "end_post_evaluation_content"):
                             self.display.end_post_evaluation_content(winner)
-                        from massgen.logger_config import get_event_emitter
-
-                        _emitter = get_event_emitter()
-                        if _emitter:
-                            _emitter.emit_post_evaluation("end", winner=winner, agent_id=source)
 
                 if content:
                     full_response += content
@@ -1180,18 +1163,13 @@ class CoordinationUI:
                     self._reset_summary_active_flags()
 
                 # Handle post-evaluation content streaming
-                # Bug 2 fix: Removed local _routed_to_post_eval variable - display-level flag handles this now
+                # Event emission is handled by the orchestrator; coordination_ui
+                # only routes content to the display layer.
                 if source and content and chunk_type == "content":
                     # Check if we're in post-evaluation
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
-                        from massgen.logger_config import get_event_emitter
-
-                        _emitter = get_event_emitter()
-                        if _emitter:
-                            _emitter.emit_post_evaluation("content", content=content, agent_id=source)
-                        # Fix 3: Continue to next chunk to prevent double-processing
                         # Content has been routed to post-eval panel, skip regular processing
                         continue
 
@@ -1206,30 +1184,18 @@ class CoordinationUI:
                 # Detect post-evaluation start
                 if chunk_type == "status" and "Post-evaluation" in content:
                     self._in_post_evaluation = True
-                    # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
                     if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                         self.display._routing_to_post_eval_card = True
-                    from massgen.logger_config import get_event_emitter
-
-                    _emitter = get_event_emitter()
-                    if _emitter:
-                        _emitter.emit_post_evaluation("start", content=content, agent_id=source)
 
                 # Detect post-evaluation completion and show footer
                 if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                     if "Evaluation complete" in content or "Restart requested" in content:
                         self._in_post_evaluation = False
-                        # Bug 2 fix: Clear display flag when post-eval ends
                         if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                             self.display._routing_to_post_eval_card = False
                         winner = getattr(self, "_post_eval_winner", None) or source
                         if self.display and hasattr(self.display, "end_post_evaluation_content"):
                             self.display.end_post_evaluation_content(winner)
-                        from massgen.logger_config import get_event_emitter
-
-                        _emitter = get_event_emitter()
-                        if _emitter:
-                            _emitter.emit_post_evaluation("end", winner=winner, agent_id=source)
 
                 if content:
                     full_response += content
@@ -1699,17 +1665,13 @@ class CoordinationUI:
                     self._reset_summary_active_flags()
 
                 # Handle post-evaluation content streaming
+                # Event emission is handled by the orchestrator; coordination_ui
+                # only routes content to the display layer.
                 if source and content and chunk_type == "content":
-                    # Check if we're in post-evaluation by looking for the status message
+                    # Check if we're in post-evaluation
                     if hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                         if self.display and hasattr(self.display, "show_post_evaluation_content"):
                             self.display.show_post_evaluation_content(content, source)
-                        from massgen.logger_config import get_event_emitter
-
-                        _emitter = get_event_emitter()
-                        if _emitter:
-                            _emitter.emit_post_evaluation("content", content=content, agent_id=source)
-                        # Fix 3: Continue to next chunk to prevent double-processing
                         # Content has been routed to post-eval panel, skip regular processing
                         continue
 
@@ -1724,30 +1686,18 @@ class CoordinationUI:
                 # Detect post-evaluation start
                 if chunk_type == "status" and "Post-evaluation" in content:
                     self._in_post_evaluation = True
-                    # Bug 2 fix: Set display flag to prevent timeline routing during post-eval
                     if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                         self.display._routing_to_post_eval_card = True
-                    from massgen.logger_config import get_event_emitter
-
-                    _emitter = get_event_emitter()
-                    if _emitter:
-                        _emitter.emit_post_evaluation("start", content=content, agent_id=source)
 
                 # Detect post-evaluation completion and show footer
                 if chunk_type == "status" and hasattr(self, "_in_post_evaluation") and self._in_post_evaluation:
                     if "Evaluation complete" in content or "Restart requested" in content:
                         self._in_post_evaluation = False
-                        # Bug 2 fix: Clear display flag when post-eval ends
                         if self.display and hasattr(self.display, "_routing_to_post_eval_card"):
                             self.display._routing_to_post_eval_card = False
                         winner = getattr(self, "_post_eval_winner", None) or source
                         if self.display and hasattr(self.display, "end_post_evaluation_content"):
                             self.display.end_post_evaluation_content(winner)
-                        from massgen.logger_config import get_event_emitter
-
-                        _emitter = get_event_emitter()
-                        if _emitter:
-                            _emitter.emit_post_evaluation("end", winner=winner, agent_id=source)
 
                 if content:
                     full_response += content

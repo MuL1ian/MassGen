@@ -655,7 +655,7 @@ class ContentProcessor:
                 round_number=round_number,
                 text_content=content or "",
                 text_style="",
-                text_class="post_evaluation",
+                text_class="content-inline",
             )
         elif phase == "end":
             label = f"Evaluation complete — winner: {winner}" if winner else "Evaluation complete"

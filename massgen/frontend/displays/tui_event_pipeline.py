@@ -526,5 +526,9 @@ class TimelineEventAdapter:
                     card.set_locked_mode(True)
             if hasattr(timeline, "lock_to_final_answer"):
                 timeline.lock_to_final_answer("final_presentation_card")
+            # Auto-collapse task plan when final answer shows
+            panel = self._panel
+            if hasattr(panel, "_task_plan_host"):
+                panel._task_plan_host.collapse()
         except Exception:
             pass
