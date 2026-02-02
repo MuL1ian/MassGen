@@ -14,6 +14,7 @@ Composable UI sections for displaying different content types:
 import logging
 import re
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from rich.text import Text
@@ -2510,8 +2511,16 @@ class FinalPresentationCard(Vertical):
         margin-bottom: 1;
     }
 
-    FinalPresentationCard #final_card_content {
+    FinalPresentationCard #final_card_body {
         width: 100%;
+        height: auto;
+        max-height: 30;
+        layout: horizontal;
+    }
+
+    FinalPresentationCard #final_card_content {
+        width: 1fr;
+        min-width: 0;
         height: auto;
         max-height: 30;
         padding: 1 2 0 2;
@@ -2524,6 +2533,20 @@ class FinalPresentationCard(Vertical):
         height: auto;
         background: transparent;
         color: #e6e6e6;
+        margin: 0 1;
+    }
+
+    FinalPresentationCard #final_card_text MarkdownH1,
+    FinalPresentationCard #final_card_text MarkdownH2,
+    FinalPresentationCard #final_card_text MarkdownH3 {
+        background: transparent;
+        color: #fab387;
+        margin: 1 0 0 0;
+    }
+
+    FinalPresentationCard #final_card_text MarkdownFence {
+        background: #161b22;
+        margin: 1 0;
     }
 
     FinalPresentationCard #final_card_post_eval {
@@ -2715,6 +2738,11 @@ class FinalPresentationCard(Vertical):
         height: 1;
     }
 
+    FinalPresentationCard.locked-mode #final_card_body {
+        height: 1fr;
+        max-height: 999;
+    }
+
     FinalPresentationCard.locked-mode #final_card_content {
         height: 1fr;
         max-height: 999;
@@ -2731,6 +2759,7 @@ class FinalPresentationCard(Vertical):
         model_name: str = "",
         vote_results: Optional[Dict] = None,
         context_paths: Optional[Dict] = None,
+        workspace_path: Optional[str] = None,
         completion_only: bool = False,
         id: Optional[str] = None,
     ) -> None:
@@ -2739,6 +2768,7 @@ class FinalPresentationCard(Vertical):
         self.model_name = model_name
         self.vote_results = vote_results or {}
         self.context_paths = context_paths or {}
+        self.workspace_path = workspace_path
         self._final_content: list = []
         self._post_eval_content: list = []
         self._is_streaming = not completion_only
@@ -2759,12 +2789,22 @@ class FinalPresentationCard(Vertical):
             yield Label(self._build_title(), id="final_card_title")
             yield Label(self._build_vote_summary(), id="final_card_votes")
 
-        # Content section with Static text (scrollable)
-        # NOTE: markup=False to avoid Rich markup parsing issues with special characters
-        # Store direct reference for faster updates
-        self._text_widget = Static("", id="final_card_text", markup=False)
-        with ScrollableContainer(id="final_card_content"):
-            yield self._text_widget
+        # Body: horizontal container for content + file explorer
+        from textual.widgets import Markdown
+
+        from massgen.frontend.displays.textual_widgets.file_explorer_panel import (
+            FileExplorerPanel,
+        )
+
+        self._text_widget = Markdown("", id="final_card_text")
+        with Horizontal(id="final_card_body"):
+            with ScrollableContainer(id="final_card_content"):
+                yield self._text_widget
+            yield FileExplorerPanel(
+                context_paths=self.context_paths,
+                workspace_path=self.workspace_path,
+                id="file_explorer_panel",
+            )
 
         # Post-evaluation section (hidden until post-eval content arrives)
         with Vertical(id="final_card_post_eval", classes="hidden"):
@@ -2870,7 +2910,9 @@ class FinalPresentationCard(Vertical):
 
         # Fallback to query
         try:
-            text_widget = self.query_one("#final_card_text", Static)
+            from textual.widgets import Markdown
+
+            text_widget = self.query_one("#final_card_text", Markdown)
             text_widget.update(full_text)
             text_widget.refresh()
             return True
@@ -2879,10 +2921,11 @@ class FinalPresentationCard(Vertical):
 
         # Last resort: manually create the text widget if compose didn't run
         try:
+            from textual.widgets import Markdown
+
             # Check if we have any children at all
             if not list(self.children):
-                # Create a simple Static widget directly
-                self._text_widget = Static(full_text, id="final_card_text_manual", markup=False)
+                self._text_widget = Markdown(full_text, id="final_card_text_manual")
                 self.mount(self._text_widget)
                 return True
         except Exception:
@@ -2899,6 +2942,11 @@ class FinalPresentationCard(Vertical):
         # (content has already been shown through the normal pipeline)
         if self.has_class("completion-only"):
             self.complete()
+
+        # Show file explorer if set_locked_mode was called before mount
+        if getattr(self, "_pending_file_explorer", False):
+            self._pending_file_explorer = False
+            self._show_file_explorer(True)
 
     def _on_compose(self) -> None:
         """Called after compose() completes - use this to flush content."""
@@ -3009,11 +3057,13 @@ class FinalPresentationCard(Vertical):
                 timeline.unlock_final_answer()
                 self.remove_class("locked-mode")
                 link.update("⎯ Answer Only")
+                self._show_file_explorer(False)
             else:
                 # Lock: show only final answer
                 timeline.lock_to_final_answer(self.id or "final_presentation_card")
                 self.add_class("locked-mode")
                 link.update("↩ Previous Work")
+                self._show_file_explorer(True)
         except Exception:
             pass
 
@@ -3033,6 +3083,10 @@ class FinalPresentationCard(Vertical):
                 link.update("↩ Previous Work")
             except Exception:
                 pass
+            # Show file explorer directly (called after 0.1s timer, card should be mounted)
+            self._show_file_explorer(True)
+            # Also set flag for on_mount fallback in case we're not mounted yet
+            self._pending_file_explorer = True
         else:
             self.remove_class("locked-mode")
             try:
@@ -3041,6 +3095,93 @@ class FinalPresentationCard(Vertical):
                 link.update("⎯ Answer Only")
             except Exception:
                 pass
+            self._show_file_explorer(False)
+
+    def _show_file_explorer(self, show: bool) -> None:
+        """Show or hide the file explorer side panel."""
+        try:
+            from massgen.frontend.displays.textual_widgets.file_explorer_panel import (
+                FileExplorerPanel,
+            )
+
+            panel = self.query_one("#file_explorer_panel", FileExplorerPanel)
+
+            if not show:
+                panel.remove_class("visible")
+                return
+
+            # Lazy-resolve workspace path from log directory
+            if not panel.has_files():
+                self._resolve_workspace_path(panel)
+                if panel.workspace_path and Path(panel.workspace_path).exists():
+                    panel._scan_workspace()
+                    if panel.has_files():
+
+                        def _apply():
+                            try:
+                                p = self.query_one("#file_explorer_panel", FileExplorerPanel)
+                                p.rebuild_tree()
+                                p.add_class("visible")
+                                p.refresh(layout=True)
+                            except Exception:
+                                pass
+
+                        self.call_later(_apply)
+                        return
+
+            if panel.has_files():
+                panel.add_class("visible")
+                try:
+                    self.query_one("#final_card_context_paths").add_class("hidden")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _resolve_workspace_path(self, panel) -> None:
+        """Resolve the workspace path from the log session directory."""
+        try:
+            from massgen.logger_config import get_log_session_dir
+
+            log_dir = get_log_session_dir()
+            if not log_dir:
+                return
+
+            candidate = self._find_final_workspace(log_dir, self.agent_id)
+            if candidate is None:
+                # log_dir may be the session root; scan turn/attempt subdirs
+                for turn_dir in sorted(log_dir.glob("turn_*"), reverse=True):
+                    for attempt_dir in sorted(turn_dir.glob("attempt_*"), reverse=True):
+                        candidate = self._find_final_workspace(attempt_dir, self.agent_id)
+                        if candidate is not None:
+                            break
+                    if candidate is not None:
+                        break
+
+            if candidate is not None and candidate.exists():
+                panel.workspace_path = str(candidate)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _find_final_workspace(base_dir: Path, agent_id: str) -> Optional[Path]:
+        """Look for final/<agent_id>/workspace under base_dir."""
+        final_dir = base_dir / "final"
+        if not final_dir.exists() or not final_dir.is_dir():
+            return None
+        ws = final_dir / agent_id / "workspace"
+        if ws.exists():
+            return ws
+        agent_dir = final_dir / agent_id
+        if agent_dir.exists():
+            return agent_dir
+        # Single-agent fallback
+        agent_dirs = [d for d in final_dir.iterdir() if d.is_dir()]
+        if len(agent_dirs) == 1:
+            lone = agent_dirs[0]
+            ws = lone / "workspace"
+            return ws if ws.exists() else lone
+        return None
 
     def _copy_to_clipboard(self) -> None:
         """Copy final answer to system clipboard."""

@@ -311,7 +311,9 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
         # Present your final coordinated answer in the most helpful and complete way possible."""
 
         presentation_instructions = """You have been selected as the winning presenter in a coordination process.
-Present the best possible coordinated answer by combining the strengths from all participants.\n\n"""
+Present the best possible coordinated answer by combining the strengths from all participants.
+
+Present your answer using markdown formatting where it aids readability.\n\n"""
 
         # Add image generation instructions only if enabled
         if enable_image_generation:

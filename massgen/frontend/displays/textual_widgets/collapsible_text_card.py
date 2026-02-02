@@ -45,6 +45,9 @@ class CollapsibleTextCard(Static):
     # Chunks visible when collapsed - shows the tail (newest content)
     COLLAPSED_CHUNK_COUNT = 3
 
+    # Max lines shown per chunk when collapsed (tail shown, oldest trimmed)
+    COLLAPSED_MAX_LINES = 8
+
     can_focus = True
 
     @staticmethod
@@ -101,6 +104,17 @@ class CollapsibleTextCard(Static):
             if line:  # Skip completely empty lines
                 text.append(f"\n{line}", style="dim #9ca3af")
 
+    def _render_chunk_truncated(self, text: Text, chunk: str) -> None:
+        """Render a chunk, truncating to last COLLAPSED_MAX_LINES lines if too long."""
+        lines = [line for line in chunk.split("\n") if line]
+        if len(lines) > self.COLLAPSED_MAX_LINES:
+            hidden = len(lines) - self.COLLAPSED_MAX_LINES
+            text.append(f"\n(+{hidden} lines above)", style="dim italic #6e7681")
+            for line in lines[-self.COLLAPSED_MAX_LINES :]:
+                text.append(f"\n{line}", style="dim #9ca3af")
+        else:
+            self._render_chunk(text, chunk)
+
     def _build_content(self) -> Text:
         """Build the Rich Text content for display."""
         text = Text()
@@ -145,7 +159,7 @@ class CollapsibleTextCard(Static):
                     else:
                         # Blank line between content chunks for readability
                         text.append("\n")
-                self._render_chunk(text, chunk)
+                self._render_chunk_truncated(text, chunk)
 
         return text
 
