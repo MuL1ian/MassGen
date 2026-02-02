@@ -1,4 +1,4 @@
-# MassGen v0.1.45 Release Announcement
+ # MassGen v0.1.46 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.45, featuring TUI (Textual Terminal) as the default display mode! 🚀 All users now get the superior interactive terminal UI by default, with automatic migration for existing configs. Setup wizards generate TUI configs out of the box, and documentation has been enhanced to highlight the TUI experience.
+We're excited to release MassGen v0.1.46, featuring real-time subagent TUI streaming! 🚀 Subagents now display in interactive preview cards that expand to full timeline views, with a major TUI event architecture refactor for better maintainability and consistency.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.45
+pip install massgen==0.1.46
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.45
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.46
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,37 +29,38 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.45, featuring TUI (Textual Terminal) as the default display mode! 🚀
+We're excited to release MassGen v0.1.46, featuring real-time subagent TUI streaming! 🚀
 
-**TUI as Default Display**
-- All new MassGen installations use the superior TUI experience by default
-- Existing configs with `rich_terminal` automatically migrate with deprecation warning
-- 160+ example configs updated to use `textual_terminal`
-- Use `--display rich` flag to explicitly request legacy Rich display
+**Subagent TUI Streaming**
+- Clickable preview cards show subagent status and progress in the main TUI
+- Click any card to expand to full timeline view with real-time event streaming
+- Unified display components ensure identical tool displays between main and subagents
+- Subagent rounds tracking with visual status indicators
 
-**Enhanced Setup & First-Run Experience**
-- Setup wizard (`--setup`, `--quickstart`) generates TUI configs by default
-- Clear documentation highlighting TUI benefits for new users
-- Prominent TUI feature descriptions throughout docs
-- Smooth migration path for existing users
+**Enhanced Final Presentation**
+- Final answer display now includes workspace visualization
+- Winning agent clearly highlighted with visual indicator
+- Improved formatting with better reasoning/answer separation
 
-**Bug Fixes & Packaging**
-- Fixed case study page paths for proper documentation rendering
-- Added missing files to MANIFEST.in for complete PyPI package distribution
-- Updated ReadTheDocs configuration with Python 3.12
+**TUI Architecture Refactor**
+- Major refactor to structured event emission pipeline
+- Single source of truth for display creation shared across agent types
+- Improved maintainability and consistency
+- Better debugging support with enhanced logging
 
-**What is the TUI?**
-The Textual Terminal UI provides:
-- Interactive mode cycling (Normal → Planning → Execute) via Shift+Tab
-- Real-time agent progress with collapsible tool calls
-- Plan browsing and execution from a visual selector
-- Human input queue for mid-stream message injection
-- Organized timeline with tool batching and rounded cards
-- Professional "Conversational AI" aesthetic with desaturated colors
+**Bug Fixes**
+- Fixed banner display issues for first coordination round
+- Fixed tool call ID handling for models like kimi2.5
+- Improved round tracking logic for accurate status display
 
-Try the TUI: `massgen --display textual` (now the default!)
+**Documentation Updates**
+- New tutorial video GIF previews for better visual guidance
+- Comprehensive subagent architecture documentation
+- Updated video tutorial links opening in new tabs
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.45
+Try subagent streaming: `uv run massgen --config @examples/configs/features/test_subagent_orchestrator_code_mode.yaml "Use subagents to research bob dylan"`
+
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.46
 
 <!-- Paste feature-highlights.md content here -->
 

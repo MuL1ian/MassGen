@@ -26,16 +26,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.46 (February 3, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
+Subagents now stream in real-time with clickable preview cards that expand to full timeline views. Major TUI event architecture refactor with structured event emission pipeline. Improved final presentation display with workspace visualization and winning agent highlighting. Tutorial video GIF previews added to documentation.
+
 **v0.1.45 (January 31, 2026)** - TUI Default & Config Migration
 TUI (Textual Terminal) is now the default display mode for all users. Existing configs with `rich_terminal` auto-migrate with deprecation warning. Setup wizard generates TUI configs. Enhanced documentation and first-run experience highlight TUI benefits. Minor documentation and packaging fixes.
 
 **v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection
 New Execute mode allows cycling through Normal → Planning → Execute modes via Shift+Tab. Users can independently browse and select from existing plans for execution. Context paths preserved between planning and execution phases. Minor TUI performance improvements and enhanced case studies documentation.
 
-**v0.1.43 (January 26, 2026)** - TUI UX Polish & Interactive Case Studies
-Enhanced TUI with tool call batching, improved final presentation display, quoted path support, and plan mode enhancements. New interactive case studies page with visual comparisons between MassGen and single-agent solutions. Video tutorials section added to documentation.
-
 ---
+
+## [0.1.46] - 2026-02-02
+
+### Added
+- **Subagent TUI Streaming** ([#821](https://github.com/Leezekun/MassGen/issues/821)): Stream and display subagents almost identically to main process in TUI
+  - Clickable subagent preview cards that expand to full timeline views
+  - Real-time event streaming from subprocess logs via symlinks
+  - Unified display components reused for both main agents and subagents
+  - Subagent rounds tracking and status visualization
+
+- **Enhanced Final Presentation Display**:
+  - Final presentation now includes workspace visualization
+  - Winning agent highlighted with clear visual indicator
+  - Workspace symlinks (`curr_workspace`) for easy access to final agent's workspace
+  - Improved final answer formatting with better separation from reasoning
+
+### Changed
+- **TUI Event Architecture Refactor**: Major refactor to structured event emission pipeline
+  - Single source of truth for TUI display creation shared between main and subagent views
+  - Unified event parsing for consistent tool displays across agent types
+  - Stream chunk handling removed in favor of direct event emission (phase 4 refactor)
+  - Improved event streaming architecture for better maintainability
+
+- **Subagent Display Improvements**:
+  - Refactored subagent rendering to remove older streams and prevent clutter
+  - Better debugging support with enhanced logging
+  - Tool numbering fixes for consistent display
+
+### Fixed
+- **Banner Display Issues**: Fixed banners not showing up for first coordination round
+- **Tool Call ID Handling**: Fixed issue when tool call IDs are not alphanumeric (e.g., kimi2.5 models)
+- **Round Tracking**: Improved round tracking logic for more accurate status display
+
+### Documentation, Configurations and Resources
+- **Tutorial Video GIFs**: New `docs/source/_static/images/tutorial-*.gif` files for visual documentation
+- **Module Documentation**: New `docs/modules/subagents.md` comprehensive guide for subagent architecture
+- **Updated Documentation**: `docs/source/index.rst` with tutorial GIF previews and updated video links
+- **OpenSpec Design Docs**: Multiple design documents for TUI refactoring and event pipeline architecture
+
+### Technical Details
+- **Major Focus**: Subagent TUI streaming, event architecture refactor, final presentation improvements
+- **Files Modified**:
+  - TUI: `massgen/frontend/displays/textual_widgets/subagent_screen.py`, `subagent_card.py`, event handling modules
+  - Subagent: `massgen/subagent/manager.py` with improved logging directory structure
+  - Final presentation: Enhanced workspace handling and visual indicators
+  - Docs: `docs/modules/subagents.md`, `docs/source/index.rst`
+- **Contributors**: @ncrispino (23 commits), @HenryQi, @franklinnwren, and the MassGen team
 
 ## [0.1.45] - 2026-01-31
 

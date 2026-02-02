@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.45 Features](#-latest-features-v0145)
+- [v0.1.46 Features](#-latest-features-v0146)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.45)](#recent-achievements-v0145)
-- [Previous Achievements (v0.0.3 - v0.1.44)](#previous-achievements-v003---v0144)
+- [Recent Achievements (v0.1.46)](#recent-achievements-v0146)
+- [Previous Achievements (v0.0.3 - v0.1.45)](#previous-achievements-v003---v0145)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.46 Roadmap](#v0146-roadmap)
+- [v0.1.47 Roadmap](#v0147-roadmap)
 </details>
 
 <details open>
@@ -155,31 +155,26 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.45)
+## 🆕 Latest Features (v0.1.46)
 
-**🎉 Released: January 30, 2026**
+**🎉 Released: February 2, 2026**
 
-**What's New in v0.1.45:**
-- **🖥️ TUI as Default** - Superior Textual Terminal UI now launches by default for all users with automatic config migration
-- **⚙️ Config Migration** - Example configs updated to use `textual_terminal` display mode
-- **🚀 Enhanced Setup** - Setup wizard (`--setup`, `--quickstart`) generates TUI configs by default
-- **📚 Documentation Polish** - Enhanced first-run experience and prominent TUI feature descriptions
-- **🔧 Bug Fixes** - Fixed case study page paths, PyPI packaging, and ReadTheDocs configuration
+**What's New in v0.1.46:**
+- **🚀 Subagent TUI Streaming** - Interactive preview cards that expand to full timeline views with real-time event streaming
+- **🎨 Enhanced Final Presentation** - Final answer display now includes workspace visualization and winning agent highlighting
+- **🏗️ TUI Architecture Refactor** - Unified event pipeline with single source of truth for display creation
+- **🔧 Bug Fixes** - Fixed banner display, tool call ID handling for non-alphanumeric IDs, and round tracking logic
+- **📚 Documentation** - New `docs/modules/subagents.md` architecture guide and tutorial video GIF previews
 
-**Try v0.1.45 Features:**
+**Try v0.1.46 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Experience TUI by default (no --display flag needed)
-uv run massgen --config @examples/basic/multi/three_agents_default \
-  "Compare the benefits of solar, wind, and hydro energy"
+# Experience subagent TUI streaming with async execution
+uv run massgen --config @examples/configs/features/test_subagent_orchestrator_code_mode.yaml "Use subagents to research bob dylan"
 
-# Use legacy Rich display if needed
-uv run massgen --display rich "Your question"
-
-# Setup wizard generates TUI configs automatically
-uv run massgen --quickstart
+# Click on preview cards to expand to full timeline views
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1228,27 +1223,38 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.45)
+### Recent Achievements (v0.1.46)
 
-**🎉 Released: January 30, 2026**
+**🎉 Released: February 2, 2026**
 
-#### TUI as Default Display Mode
-- **Default Experience**: Textual Terminal UI now launches by default for all new installations
-- **Automatic Migration**: Existing configs with `rich_terminal` automatically migrate with deprecation warning
-- **Config Updates**: Example Configs updated to use `textual_terminal` display mode
-- **Legacy Access**: Use `--display rich` flag to explicitly request legacy Rich display
+#### Subagent TUI Streaming
+- **Interactive Preview Cards**: Clickable subagent preview cards that expand to full timeline views with real-time event streaming
+- **Unified Display Components**: Single source of truth for display creation ensuring identical tool displays between main and subagents
+- **Status Visualization**: Subagent rounds tracking with visual status indicators and progress updates
 
-#### Enhanced Setup & First-Run Experience
-- **Setup Wizard**: `--setup` and `--quickstart` commands now generate TUI configs by default
-- **Documentation**: Clear TUI benefits highlighted throughout documentation
-- **User Experience**: Improved first-run experience with prominent TUI feature descriptions
+#### Enhanced Final Presentation
+- **Workspace Visualization**: Final answer display now includes workspace paths and artifact locations
+- **Winner Highlighting**: Winning agent clearly indicated with visual markers in final presentation
+- **Improved Formatting**: Better separation between reasoning content and final answers
 
-#### Bug Fixes & Infrastructure
-- **Case Study Paths**: Fixed documentation rendering for case study pages
-- **PyPI Packaging**: Added missing files to `MANIFEST.in` for complete package distribution
-- **ReadTheDocs**: Updated configuration with Python 3.12 for documentation builds
+#### TUI Architecture Refactor
+- **Event Pipeline**: Structured event emission pipeline replacing stream-based architecture
+- **Shared Components**: Main and subagent views use identical rendering components for consistency
+- **Enhanced Logging**: Improved debugging support with comprehensive event logging
 
-### Previous Achievements (v0.0.3 - v0.1.44)
+#### Bug Fixes
+- **Banner Display**: Fixed coordination round banners not showing in first round
+- **Tool Call IDs**: Support for non-alphanumeric tool call IDs (models like kimi2.5)
+- **Round Tracking**: Improved round tracking logic for accurate status display across agents
+
+#### Documentation
+- **Architecture Guide**: Comprehensive `docs/modules/subagents.md` documenting subagent system design
+- **Visual Tutorials**: New tutorial video GIF previews in `docs/source/_static/images/`
+- **Updated Index**: `docs/source/index.rst` with enhanced tutorial links and navigation
+
+### Previous Achievements (v0.0.3 - v0.1.45)
+
+✅ **TUI as Default & Config Migration (v0.1.45)**: Textual Terminal UI now launches by default with automatic `rich_terminal` to `textual_terminal` migration, setup wizard generates TUI configs, legacy Rich display accessible via `--display rich` flag
 
 ✅ **Execute Mode for Independent Plan Selection (v0.1.44)**: Mode cycling through Normal → Planning → Execute via `Shift+Tab` or mode bar, plan selector browsing up to 10 recent plans with timestamps, view full plan modal with complete task breakdown, empty submission for plan execution, context path preservation between planning and execution phases, enhanced case studies with interactive setup guides, TUI performance optimizations with viewport-based rendering
 
@@ -1482,19 +1488,18 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.46 Roadmap
+### v0.1.47 Roadmap
 
-Version 0.1.46 focuses on fixing TUI scrolling and timeline management issues:
+Version 0.1.47 focuses on OpenAI native compression and enhanced log analysis capabilities:
 
 #### Planned Features
-- **Fix TUI Scrolling Problem** ([#824](https://github.com/Leezekun/MassGen/issues/824)): Fix blank space issues when TUI truncates older items after reaching item limit
-- **Timeline Truncation Fix**: Ensure proper rendering of final presentation box without being pushed down
-- **Container Height Management**: Fix container height calculations for proper reflow when content is truncated
+- **OpenAI Responses /compact Endpoint** ([#739](https://github.com/massgen/MassGen/issues/739)): Use OpenAI's native `/compact` endpoint instead of custom summarization for better token efficiency
+- **Log Analysis Model Selector** ([#766](https://github.com/massgen/MassGen/issues/766)): Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 
 Key technical approach:
-- **Item Removal Logic**: Fix timeline item removal to properly reclaim space with smooth transitions
-- **Final Presentation Positioning**: Ensure final answer box displays correctly without empty space
-- **Edge Case Handling**: Test with long-running sessions and various terminal sizes
+- **Native Compression**: Leverage OpenAI's API-level context compression for improved response quality
+- **Flexible Analysis**: Configurable model selection for cost/quality tradeoffs in log analysis
+- **Seamless Integration**: Compatible with existing reactive compression system
 
 ---
 

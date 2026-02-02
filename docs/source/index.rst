@@ -185,17 +185,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.46 (February 2, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
+
+Real-time subagent TUI streaming with interactive preview cards that expand to full timeline views. Unified display components ensure identical tool displays between main and subagents. Enhanced final presentation with workspace visualization and winning agent highlighting. Major TUI event architecture refactor with structured emission pipeline. Bug fixes for banner display, tool call ID handling, and round tracking.
+
 **v0.1.45 (January 30, 2026)** - TUI as Default & Config Migration
 
-Textual Terminal UI now launches by default for all users with automatic config migration. All 160+ example configs updated to use ``textual_terminal`` display mode. Setup wizard (``--setup``, ``--quickstart``) generates TUI configs by default. Enhanced first-run experience with prominent TUI feature descriptions. Bug fixes for case study paths, PyPI packaging, and ReadTheDocs configuration.
+Textual Terminal UI now launches by default for all users with automatic config migration. Example configs updated to use ``textual_terminal`` display mode. Setup wizard (``--setup``, ``--quickstart``) generates TUI configs by default. Enhanced first-run experience with prominent TUI feature descriptions. Bug fixes for case study paths, PyPI packaging, and ReadTheDocs configuration.
 
 **v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection
 
 New Execute mode for cycling through Normal → Planning → Execute modes via ``Shift+Tab``. Users can browse and select from existing plans with a plan selector popover. Context paths preserved between planning and execution phases. Enhanced case studies page with setup guides and quick start instructions.
-
-**v0.1.43 (January 26, 2026)** - Tool Call Batching & Interactive Case Studies
-
-Consecutive MCP tool calls now grouped into collapsible tree views with timing info. New interactive case studies page with side-by-side SVG comparisons. Plan mode enhancements with ``PlanOptionsPopover`` for browsing plans and selecting depth. Quoted path support for paths with spaces. Final presentation display fixes.
 
 :doc:`Full changelog → <changelog>`
 

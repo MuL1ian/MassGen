@@ -227,13 +227,30 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.45 - Latest
+### v0.1.46 - Latest
+**New Features:** Subagent TUI Streaming, Enhanced Final Presentation, TUI Architecture Refactor
+
+**Key Features:**
+- **Subagent TUI Streaming**: Interactive preview cards that expand to full timeline views with real-time event streaming
+- **Enhanced Final Presentation**: Final answer display with workspace visualization and winning agent highlighting
+- **TUI Architecture Refactor**: Unified event pipeline with single source of truth for display creation
+- **Bug Fixes**: Fixed banner display, tool call ID handling, and round tracking logic
+
+**Try It:**
+```bash
+# Experience subagent TUI streaming with async execution
+uv run massgen --config @examples/configs/features/test_subagent_orchestrator_code_mode.yaml "Use subagents to research bob dylan"
+
+# Click on preview cards in the TUI to expand subagent timelines
+# Watch real-time event streaming from background subagents
+```
+
+### v0.1.45
 **New Features:** TUI as Default Display Mode, Config Migration, Enhanced Setup
 
 **Key Features:**
 - **TUI as Default**: Textual Terminal UI now launches by default for all users
 - **Automatic Migration**: Existing configs with `rich_terminal` auto-migrate with deprecation warning
-- **Config Updates**: All 160+ example configs updated to `textual_terminal` display mode
 - **Enhanced Setup**: Setup wizard generates TUI configs by default
 - **Legacy Access**: Use `--display rich` to explicitly request legacy Rich display
 
@@ -242,10 +259,6 @@ Most configurations use environment variables for API keys:so
 # TUI launches by default (no --display flag needed)
 uv run massgen --config @examples/basic/multi/three_agents_default \
   "Compare the benefits of solar, wind, and hydro energy"
-
-# Use legacy Rich display if needed
-uv run massgen --display rich --config @examples/basic/multi/three_agents_default \
-  "Your question"
 
 # Setup wizard generates TUI configs automatically
 uv run massgen --quickstart
