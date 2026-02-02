@@ -134,6 +134,12 @@ class TimelineEventAdapter:
                 )
             except Exception:
                 pass
+        elif output.output_type == "hook":
+            if output.hook_tool_call_id and output.hook_info:
+                try:
+                    timeline.add_hook_to_tool(output.hook_tool_call_id, output.hook_info)
+                except Exception:
+                    pass
         elif output.output_type == "injection":
             if output.normalized is not None and hasattr(self._panel, "_add_injection_content"):
                 try:

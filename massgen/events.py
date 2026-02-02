@@ -446,7 +446,7 @@ class EventEmitter:
         self.emit_raw(
             EventType.HOOK_EXECUTION,
             tool_call_id=tool_call_id,
-            hook_info=str(hook_info) if hook_info else None,
+            hook_info=hook_info,
             agent_id=agent_id,
         )
 

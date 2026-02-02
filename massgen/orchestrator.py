@@ -3393,25 +3393,6 @@ Your answer:"""
                                 )
                             restart_triggered_id = agent_id  # Last agent to provide new answer
                             reset_signal = True
-                            log_stream_chunk(
-                                "orchestrator",
-                                "content",
-                                "✅ Answer provided\n",
-                                agent_id,
-                            )
-
-                            # Track new answer event
-                            log_stream_chunk(
-                                "orchestrator",
-                                "content",
-                                "✅ Answer provided\n",
-                                agent_id,
-                            )
-                            yield StreamChunk(
-                                type="agent_status" if self.trace_classification == "strict" else "content",
-                                content="✅ Answer provided\n",
-                                source=agent_id,
-                            )
 
                         elif result_type == "vote":
                             # Agent voted for existing answer

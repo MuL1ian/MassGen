@@ -46,6 +46,7 @@ OutputType = Literal[
     "final_presentation_end",
     "answer_locked",
     "thinking_done",
+    "hook",
     "orchestrator_timeout",
     "skip",  # Filter out this content
 ]
@@ -90,6 +91,10 @@ class ContentOutput:
     # For separators
     separator_label: str = ""
     separator_subtitle: str = ""
+
+    # For hook attachments to tool cards
+    hook_tool_call_id: Optional[str] = None
+    hook_info: Optional[Dict[str, Any]] = None
 
     # Original normalized content (for debugging/advanced use)
     normalized: Optional[NormalizedContent] = None
@@ -473,6 +478,12 @@ class ContentProcessor:
         # convert to 1-indexed display round number
         display_round = event.round_number + 1
 
+        # Only emit separator for the initial round (Round 1).
+        # Subsequent rounds are signaled by agent_restart events which
+        # appear at the correct point in the timeline (after answer+vote).
+        if display_round > 1:
+            return None
+
         return ContentOutput(
             output_type="separator",
             round_number=display_round,
@@ -583,11 +594,42 @@ class ContentProcessor:
     ) -> Optional[ContentOutput]:
         """Handle hook_execution event.
 
-        Hook execution details are already attached to tool cards on the main
-        display path via update_hook_execution → add_hook_to_tool. We skip
-        rendering them as standalone timeline entries to avoid duplication.
+        Returns a hook ContentOutput so the event pipeline can attach hook
+        details (including injection content) to the preceding tool card.
+        On the main display path this is handled via update_hook_execution →
+        add_hook_to_tool, but for subagent screens the ContentProcessor
+        pipeline is the only path, so we must emit the data here.
         """
-        return None
+        tool_call_id = event.data.get("tool_call_id")
+        raw_hook_info = event.data.get("hook_info")
+
+        # hook_info may be a dict or a stringified dict (legacy JSONL logs)
+        if isinstance(raw_hook_info, str):
+            try:
+                import ast
+
+                raw_hook_info = ast.literal_eval(raw_hook_info)
+            except Exception:
+                raw_hook_info = {}
+        if not isinstance(raw_hook_info, dict):
+            raw_hook_info = {}
+
+        hook_info = {
+            "hook_name": raw_hook_info.get("hook_name", ""),
+            "hook_type": raw_hook_info.get("hook_type", ""),
+            "status": raw_hook_info.get("decision", raw_hook_info.get("status", "")),
+            "injection_content": raw_hook_info.get("injection_content"),
+            "output": raw_hook_info.get("output", ""),
+        }
+        # Only emit if there's a tool to attach to
+        if not tool_call_id:
+            return None
+        return ContentOutput(
+            output_type="hook",
+            round_number=round_number,
+            hook_tool_call_id=tool_call_id,
+            hook_info=hook_info,
+        )
 
     def _handle_event_post_evaluation(
         self,
@@ -793,19 +835,13 @@ class ContentProcessor:
         event: MassGenEvent,
         round_number: int,
     ) -> Optional[ContentOutput]:
-        """Handle injection_received event."""
-        source_agents = event.data.get("source_agents", [])
-        injection_type = event.data.get("injection_type", "mid_stream")
-        label = f"Received {injection_type} injection from: {', '.join(source_agents)}"
+        """Handle injection_received event.
 
-        self._batch_tracker.mark_content_arrived()
-        return ContentOutput(
-            output_type="injection",
-            round_number=round_number,
-            text_content=label,
-            text_style="italic cyan",
-            text_class="injection",
-        )
+        The injection content is already carried by the preceding
+        hook_execution event and attached to the tool card there.
+        Suppress the standalone banner to avoid duplication.
+        """
+        return None
 
     def _handle_event_final_presentation_start(
         self,

@@ -51,7 +51,7 @@ from ..base_tui_layout import BaseTUILayoutMixin
 from ..tui_event_pipeline import TimelineEventAdapter
 from .agent_status_ribbon import AgentStatusRibbon
 from .content_sections import FinalPresentationCard, TimelineSection
-from .tab_bar import AgentTabBar, AgentTabChanged
+from .tab_bar import AgentTabBar, AgentTabChanged, SessionInfoClicked
 
 logger = logging.getLogger(__name__)
 
@@ -377,19 +377,22 @@ class SubagentPanel(Container, BaseTUILayoutMixin):
                 unique_ids.append(aid)
 
         for i, aid in enumerate(unique_ids):
-            # Mount TaskPlanHost per agent
+            # Mount TaskPlanHost per agent (skip if ID still in DOM from pending async removal)
             tph_id = f"subagent-task-plan-{aid}"
-            hidden_cls = "pinned-task-plan hidden"
-            tph = self._TaskPlanHost(
-                agent_id=aid,
-                ribbon=self._ribbon,
-                id=tph_id,
-                classes=hidden_cls,
-            )
-            self._task_plan_hosts[aid] = tph
-            self.mount(tph)
+            try:
+                self.query_one(f"#{tph_id}")
+            except Exception:
+                hidden_cls = "pinned-task-plan hidden"
+                tph = self._TaskPlanHost(
+                    agent_id=aid,
+                    ribbon=self._ribbon,
+                    id=tph_id,
+                    classes=hidden_cls,
+                )
+                self._task_plan_hosts[aid] = tph
+                self.mount(tph)
 
-            # Mount timeline per agent
+            # Mount timeline per agent (skip if ID still in DOM)
             widget_id = f"subagent-timeline-{aid}"
             try:
                 self.query_one(f"#{widget_id}")
@@ -543,6 +546,10 @@ class SubagentView(Container):
         width: 100%;
         height: 1fr;
     }
+
+    SubagentView #subagent-tab-bar #session_info {
+        display: none;
+    }
     """
 
     # Polling interval for live updates
@@ -583,6 +590,7 @@ class SubagentView(Container):
         self._event_adapters: Dict[str, TimelineEventAdapter] = {}
         self._agents_loaded: set[str] = set()
         self._final_answer_locked: set[str] = set()  # Agents with final answer lock applied
+        self._inner_winner: Optional[str] = None  # Winner agent ID (persists across rebuilds)
 
         # References to widgets (set after compose)
         self._header: Optional[SubagentHeader] = None
@@ -612,6 +620,7 @@ class SubagentView(Container):
             yield AgentTabBar(
                 agent_ids=agent_ids,
                 agent_models=agent_models,
+                question=self._subagent.task or "",
                 tab_id_prefix="subagent_",  # Prefix to avoid ID conflicts
                 id="subagent-tab-bar",
             )
@@ -619,12 +628,14 @@ class SubagentView(Container):
         # Inner agent tabs - ALWAYS shown (this subagent's full TUI)
         # Each subagent IS a full MassGen subcall that may have multiple inner agents
         # Initialize with placeholder - will be updated in on_mount after event reader is ready
-        yield AgentTabBar(
+        inner_tabs = AgentTabBar(
             agent_ids=[self._subagent.id],  # Placeholder, updated in on_mount
             agent_models={},
+            question=self._subagent.task or "",
             tab_id_prefix="inner_",  # Prefix to avoid ID conflicts with outer tabs
             id="inner-agent-tabs",
         )
+        yield inner_tabs
 
         # Status ribbon
         yield AgentStatusRibbon(
@@ -872,17 +883,13 @@ class SubagentView(Container):
 
     @staticmethod
     def _display_round(event: MassGenEvent) -> MassGenEvent:
-        """Convert 0-based orchestrator round to 1-based display round for round_start events."""
-        if event.event_type != "round_start":
-            return event
-        display_round = (event.round_number or 0) + 1
-        return MassGenEvent(
-            timestamp=event.timestamp,
-            event_type=event.event_type,
-            agent_id=event.agent_id,
-            round_number=display_round,
-            data=event.data,
-        )
+        """Pass through events unchanged.
+
+        The 0-based to 1-based round conversion is handled by
+        ContentProcessor._handle_event_round_start(), so no extra
+        conversion is needed here.
+        """
+        return event
 
     def _sync_adapter_state(self) -> None:
         """Sync round/final answer state from the active agent's adapter."""
@@ -891,6 +898,15 @@ class SubagentView(Container):
             adapter = self._event_adapters[agent_id]
             self._round_number = adapter.round_number
             self._final_answer = adapter.final_answer
+
+    def _detect_and_apply_winner(self, events: List[MassGenEvent]) -> None:
+        """Scan events for presentation_start/final_presentation_start and apply winner crown."""
+        for event in events:
+            if event.event_type in ("presentation_start", "final_presentation_start") and event.agent_id:
+                if event.agent_id in self._inner_agents:
+                    self._inner_winner = event.agent_id
+        if self._inner_winner and self._inner_tab_bar:
+            self._inner_tab_bar.set_winner(self._inner_winner)
 
     def _poll_updates(self) -> None:
         """Poll for status and event updates."""
@@ -924,11 +940,8 @@ class SubagentView(Container):
                 self._sync_adapter_state()
                 self._update_status_display()
 
-                # Check for winner_selected events and update inner tab crown
-                for event in new_events:
-                    if event.event_type == "winner_selected" and event.agent_id:
-                        if self._inner_tab_bar and event.agent_id in self._inner_agents:
-                            self._inner_tab_bar.set_winner(event.agent_id)
+                # Check for winner events and update inner tab crown
+                self._detect_and_apply_winner(new_events)
 
                 # Check if any agent got a final answer
                 for agent_id in list(self._agents_loaded):
@@ -945,10 +958,6 @@ class SubagentView(Container):
             if self._status_line:
                 for aid in self._inner_agents:
                     self._status_line.set_agent_active(aid, False)
-
-            # Mark outer tab as done
-            if self._tab_bar:
-                self._tab_bar.update_agent_status(self._subagent.id, "done")
 
             if self._poll_timer:
                 self._poll_timer.stop()
@@ -1009,6 +1018,7 @@ class SubagentView(Container):
             self._agents_loaded.clear()
             self._final_answer_locked.clear()
             self._tool_call_agent_map.clear()
+            self._inner_winner = None
 
             # Remove old timelines
             if self._panel:
@@ -1024,10 +1034,11 @@ class SubagentView(Container):
             self._agent_active_set = set(self._inner_agents)
             self._current_inner_agent = self._inner_agents[0] if self._inner_agents else self._subagent.id
 
-            # Update inner agent tabs
+            # Update inner agent tabs and prompt for new subagent
             if self._inner_tab_bar and self._inner_agents:
                 self._inner_tab_bar.update_agents(self._inner_agents, self._inner_agent_models)
                 self._inner_tab_bar.set_active(self._current_inner_agent)
+                self._inner_tab_bar.update_question(self._subagent.task or "")
 
             # Update activity dots on status line
             if self._status_line and self._inner_agents:
@@ -1049,7 +1060,7 @@ class SubagentView(Container):
                 self._tab_bar.set_active(self._subagent.id)
                 for sa in self._all_subagents:
                     if sa.status not in ("running", "pending"):
-                        self._tab_bar.update_agent_status(sa.id, "done")
+                        self._tab_bar.update_agent_status(sa.id, "completed")
 
             # Update ribbon agent
             if self._ribbon:
@@ -1109,10 +1120,11 @@ class SubagentView(Container):
             self._event_adapters[aid] = TimelineEventAdapter(proxy, agent_id=aid)
 
         adapter = self._event_adapters[aid]
-        events = self._event_reader.read_all()
-        self._update_tool_call_agent_map(events)
-        if agent_id:
-            events = self._filter_events_for_agent(events, agent_id)
+        all_events = self._event_reader.read_all()
+        self._update_tool_call_agent_map(all_events)
+        # Scan all events for winner before filtering
+        self._detect_and_apply_winner(all_events)
+        events = self._filter_events_for_agent(all_events, agent_id) if agent_id else all_events
 
         logger.info(f"[SubagentScreen] Loading {len(events)} events for agent {aid}")
         for event in events:
@@ -1181,10 +1193,12 @@ class SubagentView(Container):
         - Legacy stream_chunk events: skip (handled by ContentProcessor as no-ops)
         """
         filtered: List[MassGenEvent] = []
+        seen_rounds: set = set()
 
         for event in events:
             if event.event_type == "round_start":
-                if event.round_number is not None:
+                if event.round_number is not None and event.round_number not in seen_rounds:
+                    seen_rounds.add(event.round_number)
                     filtered.append(event)
             elif event.event_type in ("tool_start", "tool_complete"):
                 tool_id = event.data.get("tool_id", "")
@@ -1243,6 +1257,21 @@ class SubagentView(Container):
             self._request_close()
         elif event.action_id == "copy":
             self._copy_answer()
+
+    def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
+        """Handle click on session info to show full prompt."""
+        event.stop()
+        try:
+            from massgen.frontend.displays.textual import TextContentModal
+
+            self.app.push_screen(
+                TextContentModal(
+                    title=f"Turn {event.turn} • Prompt",
+                    content=event.question or "(No prompt)",
+                ),
+            )
+        except Exception as e:
+            self.notify(f"Cannot show prompt: {e}", severity="error", timeout=3)
 
     def on_agent_tab_changed(self, event: AgentTabChanged) -> None:
         """Handle tab bar agent selection."""
