@@ -320,13 +320,14 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         return "claude_code"
 
     def get_filesystem_support(self) -> FilesystemSupport:
-        """Claude Code now uses MassGen's MCP-based filesystem tools (v0.1.26)
+        """Claude Code uses native tools (Read, Write, Edit, Bash, etc.) for filesystem ops.
 
-        Native Claude Code tools (Read, Write, Edit, Bash, etc.) are disabled
-        via disallowed_tools to give MassGen full control. File operations
-        are handled through the filesystem MCP server.
+        Native tools are protected by OS-level sandbox (Seatbelt/macOS,
+        bubblewrap/Linux) and PathPermissionManager hooks. MCP filesystem/
+        command_line servers are not injected; workspace_tools MCP is injected
+        separately for media generation capabilities.
         """
-        return FilesystemSupport.MCP
+        return FilesystemSupport.NATIVE
 
     def is_stateful(self) -> bool:
         """
@@ -343,9 +344,12 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
     def get_disallowed_tools(self, config: Dict[str, Any]) -> List[str]:
         """Return native Claude Code tools to disable.
 
-        MassGen replaces most Claude Code native tools with its own MCP equivalents
-        for workspace isolation and coordination. Only Task (for subagents) and
-        optionally WebSearch/WebFetch are kept.
+        Most native tools (Read, Write, Edit, Bash, etc.) are kept enabled,
+        with security enforced by PathPermissionManager hooks and OS-level
+        sandbox (local) or container isolation (Docker).
+
+        Only dangerous bash patterns and tools not useful in MassGen context
+        are disabled.
 
         Args:
             config: Backend config dict. Uses enable_web_search to conditionally
@@ -361,23 +365,11 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "Bash(su*)",
             "Bash(chmod*)",
             "Bash(chown*)",
-            # Redundant tools - MassGen has MCP equivalents
-            "Read",  # → MassGen read_file_content
-            "Write",  # → MassGen save_file_content
-            "Edit",  # → MassGen append_file_content
-            "MultiEdit",  # → MassGen append_file_content
-            "Bash",  # → MassGen run_shell_script / execute_command
-            "BashOutput",
-            "KillShell",
-            "LS",  # → MassGen list_directory
-            "Grep",  # → execute_command (issue 640)
-            "Glob",  # → execute_command (issue 640)
-            "TodoWrite",  # → MassGen task tracking
-            "NotebookEdit",
-            "NotebookRead",
+            # Not useful in MassGen context
+            "TodoWrite",
+            "ExitPlanMode",
             "mcp__ide__getDiagnostics",
             "mcp__ide__executeCode",
-            "ExitPlanMode",
         ]
 
         # Conditionally keep web tools
@@ -1345,12 +1337,20 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             if add_dirs:
                 logger.info(f"[ClaudeCodeBackend._build_claude_options] Adding extra dirs for Claude Code access: {add_dirs}")
 
+        # Enable OS-level sandbox for native tool security
+        # Seatbelt on macOS, bubblewrap on Linux — restricts writes to cwd + add_dirs
+        sandbox_settings = {
+            "enabled": True,
+            "autoAllowBashIfSandboxed": True,
+        }
+
         options = {
             "cwd": cwd_option,
             "resume": self.get_current_session_id(),
             "permission_mode": permission_mode,
             "allowed_tools": allowed_tools,
             "add_dirs": add_dirs if add_dirs else [],
+            "sandbox": sandbox_settings,
             # Disable loading filesystem-based settings to ensure our programmatic config takes precedence
             "setting_sources": [],
             **{k: v for k, v in options_kwargs.items() if k not in excluded_params},
