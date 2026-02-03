@@ -3373,11 +3373,14 @@ Your answer:"""
                             if hasattr(self, "coordination_ui") and self.coordination_ui:
                                 display = getattr(self.coordination_ui, "display", None)
                                 if display and hasattr(display, "send_new_answer") and not hasattr(display, "_app"):
+                                    # Get the current round for this agent (0-indexed) and convert to 1-indexed
+                                    _agent_round = self.coordination_tracker.get_agent_round(agent_id) + 1
                                     display.send_new_answer(
                                         agent_id=agent_id,
                                         content=result_data,
                                         answer_number=_answer_number,
                                         answer_label=_answer_label,
+                                        submission_round=_agent_round,
                                     )
                             # Update status file for real-time monitoring
                             # Run in executor to avoid blocking event loop
@@ -6069,14 +6072,19 @@ Your answer:"""
 
                     # If this is a restart (round > 1), notify the UI to show fresh timeline
                     if current_round > 1:
+                        # Determine restart reason based on context
+                        restart_reason = "new answer"  # Default - most common case
+                        if answers:
+                            restart_reason = "new answer"
                         logger.info(
-                            f"[Orchestrator] Agent {agent_id} starting round {current_round} (restart)",
+                            f"[Orchestrator] Agent {agent_id} starting round {current_round} (restart: {restart_reason})",
                         )
                         yield (
                             "agent_restart",
                             {
                                 "agent_id": agent_id,
                                 "round": current_round,
+                                "restart_reason": restart_reason,
                             },
                         )
 

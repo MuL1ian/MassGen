@@ -62,6 +62,9 @@ class TimelineEventAdapter:
 
     def handle_event(self, event: MassGenEvent) -> None:
         """Process a MassGen event and update the timeline."""
+        tui_log(
+            f"[EVENT_DEBUG] handle_event: type={event.event_type} " f"event_round={event.round_number} adapter_round={self._round_number}",
+        )
         output = self._processor.process_event(event, self._round_number)
         if not output:
             return
@@ -176,21 +179,36 @@ class TimelineEventAdapter:
         elif output.output_type == "separator":
             round_number = output.round_number or self._round_number
             label = output.separator_label or ""
-            if label.startswith("Round ") and round_number <= self._last_separator_round:
-                return
             if label.startswith("Round "):
+                if round_number <= self._last_separator_round:
+                    tui_log(
+                        f"[EVENT_DEBUG] separator: skipping duplicate round={round_number} " f"(last={self._last_separator_round})",
+                    )
+                    return
+                tui_log(
+                    f"[EVENT_DEBUG] separator: updating adapter round from " f"{self._round_number} to {round_number}",
+                )
                 self._last_separator_round = round_number
-            self._round_number = round_number
-            if hasattr(self._panel, "start_new_round"):
-                try:
-                    self._panel.start_new_round(self._round_number, is_context_reset=False)
-                except Exception as e:
-                    tui_log(f"[TimelineEventAdapter] {e}")
+                self._round_number = round_number
+                if hasattr(self._panel, "start_new_round"):
+                    try:
+                        self._panel.start_new_round(self._round_number, is_context_reset=False, defer_banner=True)
+                    except Exception as e:
+                        tui_log(f"[TimelineEventAdapter] {e}")
+                else:
+                    try:
+                        timeline.add_separator(
+                            output.separator_label,
+                            round_number=self._round_number,
+                            subtitle=output.separator_subtitle,
+                        )
+                    except Exception as e:
+                        tui_log(f"[TimelineEventAdapter] {e}")
             else:
                 try:
                     timeline.add_separator(
                         output.separator_label,
-                        round_number=self._round_number,
+                        round_number=round_number,
                         subtitle=output.separator_subtitle,
                     )
                 except Exception as e:
@@ -289,18 +307,35 @@ class TimelineEventAdapter:
                 except Exception:
                     existing = None
 
-                if existing is None:
+                # Avoid duplicating tools that already live inside a batch
+                in_batch = output.batch_action == "update_batch"
+                if not in_batch:
+                    try:
+                        in_batch = timeline.get_tool_batch(tool_data.tool_id) is not None
+                    except Exception:
+                        in_batch = False
+
+                if in_batch:
+                    updated = False
+                    try:
+                        updated = timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
+                    except Exception as e:
+                        tui_log(f"[TimelineEventAdapter] {e}")
+                    if updated:
+                        pass
+                    elif existing is None:
+                        # Batch missing — fall back to standalone rendering
+                        timeline.add_tool(tool_data, round_number=round_number)
+                        timeline.update_tool(tool_data.tool_id, tool_data)
+                    else:
+                        timeline.update_tool(tool_data.tool_id, tool_data)
+                elif existing is None:
                     # Tool arrived already completed (e.g., coordination events
                     # like workspace/vote and workspace/new_answer). Add it
                     # and immediately update so it shows the correct status
                     # (green checkmark) instead of staying at "running" (orange dot).
                     timeline.add_tool(tool_data, round_number=round_number)
                     timeline.update_tool(tool_data.tool_id, tool_data)
-                elif output.batch_action == "update_batch":
-                    try:
-                        timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
-                    except Exception:
-                        timeline.update_tool(tool_data.tool_id, tool_data)
                 else:
                     timeline.update_tool(tool_data.tool_id, tool_data)
 
@@ -370,7 +405,7 @@ class TimelineEventAdapter:
         # the direct display path (AgentPanel.start_final_presentation) already
         # adds this banner, so skip if the panel signals it was handled.
         already_handled = getattr(self._panel, "_is_final_presentation_round", False)
-        if timeline and hasattr(timeline, "add_separator") and not already_handled:
+        if timeline and hasattr(timeline, "add_separator"):
             subtitle = ""
             if vote_counts:
                 sorted_votes = sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)
@@ -381,11 +416,18 @@ class TimelineEventAdapter:
                 subtitle = f"Votes: {', '.join(vote_parts)}"
             try:
                 new_round = round_number + 1
-                timeline.add_separator(
-                    "FINAL PRESENTATION",
-                    round_number=new_round,
-                    subtitle=subtitle,
-                )
+                has_banner = False
+                if hasattr(timeline, "_has_round_banner"):
+                    try:
+                        has_banner = timeline._has_round_banner(new_round)
+                    except Exception:
+                        has_banner = False
+                if not already_handled and not has_banner:
+                    timeline.add_separator(
+                        "FINAL PRESENTATION",
+                        round_number=new_round,
+                        subtitle=subtitle,
+                    )
                 # Update round tracking so subsequent content (tool calls,
                 # text, thinking) is tagged with the final-presentation round
                 self._round_number = new_round

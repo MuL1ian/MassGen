@@ -225,22 +225,48 @@ class CoordinationUI:
         elif chunk_type == "agent_restart":
             # Agent is starting a new round due to new context from other agents
             data = self._parse_chunk_data(chunk, content)
-            if self.display and hasattr(self.display, "show_agent_restart"):
-                if data:
-                    agent_id = data.get("agent_id")
-                    round_num = data.get("round", 1)
-                    if agent_id:
-                        self.display.show_agent_restart(agent_id, round_num)
-            # Emit structured event
 
+            # When the unified event pipeline is active, emit the structured event
+            # so the pipeline can render the round banner AFTER processing preceding
+            # events (answer_submitted, vote) for correct chronological ordering.
+            # When NOT active, use the direct display path instead.
+            pipeline_active = bool(getattr(self.display, "_event_listener_registered", False))
+
+            if not pipeline_active:
+                # Fallback direct path when event pipeline is not active
+                if self.display and hasattr(self.display, "show_agent_restart"):
+                    if data:
+                        agent_id = data.get("agent_id")
+                        round_num = data.get("round", 1)
+                        if agent_id:
+                            self.display.show_agent_restart(agent_id, round_num)
+
+            # Emit structured event (always, for logging and event pipeline)
             _emitter = get_event_emitter()
             if _emitter and data:
-                _emitter.emit_agent_restart(data.get("round", 1), agent_id=data.get("agent_id"))
+                _emitter.emit_agent_restart(
+                    data.get("round", 1),
+                    agent_id=data.get("agent_id"),
+                    restart_reason=data.get("restart_reason"),
+                )
             return True
 
         elif chunk_type == "final_presentation_start":
             data = self._parse_chunk_data(chunk, content)
-            if self.display and hasattr(self.display, "show_final_presentation_start"):
+            # When the unified event pipeline is active, emit the structured event
+            # so the pipeline can render the final presentation banner.
+            # When NOT active, use the direct display path instead.
+            pipeline_active = bool(getattr(self.display, "_event_listener_registered", False))
+            if pipeline_active:
+                # Emit structured event for the event pipeline to handle
+                _emitter = get_event_emitter()
+                if _emitter and data:
+                    _emitter.emit_presentation_start(
+                        agent_id=data.get("agent_id"),
+                        vote_counts=data.get("vote_counts"),
+                        answer_labels=data.get("answer_labels"),
+                    )
+            elif self.display and hasattr(self.display, "show_final_presentation_start"):
                 if data:
                     agent_id = data.get("agent_id")
                     vote_counts = data.get("vote_counts")
@@ -251,15 +277,6 @@ class CoordinationUI:
                             vote_counts=vote_counts,
                             answer_labels=answer_labels,
                         )
-            # Emit structured event
-
-            _emitter = get_event_emitter()
-            if _emitter and data:
-                _emitter.emit_presentation_start(
-                    agent_id=data.get("agent_id"),
-                    vote_counts=data.get("vote_counts"),
-                    answer_labels=data.get("answer_labels"),
-                )
             # Reset reasoning prefix state
             self._reset_summary_active_flags()
             return True
@@ -2297,13 +2314,18 @@ class CoordinationUI:
                         reason = vote_match.group(2).strip() if vote_match.group(2) else ""
                         # Get voter from orchestrator status if available
                         voter = "Agent"  # Default fallback
+                        submission_round = 1  # Default fallback
                         if self.orchestrator:
                             # Try to get the agent that just voted from status
                             status = self.orchestrator.get_status()
                             # Use current agent context if available
                             if hasattr(self.orchestrator, "_current_streaming_agent"):
                                 voter = self.orchestrator._current_streaming_agent
-                        self.display.notify_vote(voter, voted_for, reason)
+                            # Get the voter's round (0-indexed) and convert to 1-indexed
+                            tracker = getattr(self.orchestrator, "coordination_tracker", None)
+                            if tracker and voter != "Agent":
+                                submission_round = tracker.get_agent_round(voter) + 1
+                        self.display.notify_vote(voter, voted_for, reason, submission_round)
 
         # Handle final answer content - buffer it to prevent duplicate calls
         elif "Final Coordinated Answer" not in content and not any(

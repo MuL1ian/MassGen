@@ -742,10 +742,14 @@ class TextualTerminalDisplay(TerminalDisplay):
 
     # === Status Bar Notification Bridge Methods ===
 
-    def notify_vote(self, voter: str, voted_for: str, reason: str = ""):
-        """Notify the TUI of a vote cast - updates status bar, shows toast, and adds tool card."""
+    def notify_vote(self, voter: str, voted_for: str, reason: str = "", submission_round: int = 1):
+        """Notify the TUI of a vote cast - updates status bar, shows toast, and adds tool card.
+
+        Args:
+            submission_round: Round the vote was cast in (1-indexed display round)
+        """
         if self._app:
-            self._call_app_method("notify_vote", voter, voted_for, reason)
+            self._call_app_method("notify_vote", voter, voted_for, reason, submission_round)
 
     def highlight_winner_quick(
         self,
@@ -772,6 +776,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         answer_number: int = 1,
         answer_label: Optional[str] = None,
         workspace_path: Optional[str] = None,
+        submission_round: int = 1,
     ) -> None:
         """Notify the TUI of a new answer - shows enhanced toast and tracks for browser.
 
@@ -782,6 +787,7 @@ class TextualTerminalDisplay(TerminalDisplay):
             answer_number: The answer number for this agent (1, 2, etc.)
             answer_label: Label for this answer (e.g., "agent1.1")
             workspace_path: Absolute path to the workspace snapshot for this answer
+            submission_round: Round the answer was submitted in (1-indexed display round)
         """
         if self._app:
             self._call_app_method(
@@ -792,6 +798,7 @@ class TextualTerminalDisplay(TerminalDisplay):
                 answer_number,
                 answer_label,
                 workspace_path,
+                submission_round,
             )
 
     def record_answer_with_context(
@@ -4646,7 +4653,7 @@ Type your question and press Enter to ask the agents.
                         )
 
                         # CRITICAL: Suppress auto Round 1 insertion before adding turn banner.
-                        # add_widget() calls _ensure_round_1_shown() which would add Round 1
+                        # add_widget() calls _ensure_round_banner() which would add Round 1
                         # ABOVE the turn banner. We add Round 1 explicitly BELOW it instead.
                         timeline._round_1_shown = True
 
@@ -4676,7 +4683,7 @@ Type your question and press Enter to ask the agents.
                         # This ensures proper order: Turn X → [Context] → Round 1 → Content
                         logger.info(f"[TUI-App] Adding Round 1 separator for {agent_id}")
                         timeline.add_separator("Round 1", round_number=1)
-                        timeline._round_1_shown = True  # Prevent _ensure_round_1_shown() from adding it again
+                        timeline._round_1_shown = True  # Prevent _ensure_round_banner() from adding it again
                         logger.info("[TUI-App] Round 1 separator added, _round_1_shown set to True")
 
                         # Scroll to the turn banner to show the new turn at the top
@@ -6153,8 +6160,14 @@ Type your question and press Enter to ask the agents.
 
         # === Status Bar Notification Methods ===
 
-        def notify_vote(self, voter: str, voted_for: str, reason: str = "") -> None:
-            """Called when a vote is cast. Updates status bar, shows toast, and adds tool card."""
+        def notify_vote(self, voter: str, voted_for: str, reason: str = "", submission_round: int = 1) -> None:
+            """Called when a vote is cast. Updates status bar, shows toast, and adds tool card.
+
+            Args:
+                submission_round: Round the vote was cast in (1-indexed).
+                    This ensures the vote card appears in the correct round
+                    even if panel._current_round has advanced due to restart.
+            """
             import time
             from datetime import datetime
 
@@ -6245,9 +6258,9 @@ Type your question and press Enter to ask the agents.
                     )
 
                     # Add tool card to timeline and mark as success immediately
-                    # Phase 12: Pass round_number for CSS visibility
-                    current_round = panel._current_round
-                    timeline.add_tool(tool_data, round_number=current_round)
+                    # Use submission_round (not panel._current_round) to ensure
+                    # chronological correctness: vote appears before round restart
+                    timeline.add_tool(tool_data, round_number=submission_round)
                     tool_data.status = "success"
                     timeline.update_tool(tool_id, tool_data)
 
@@ -6283,8 +6296,15 @@ Type your question and press Enter to ask the agents.
             answer_number: int,
             answer_label: Optional[str],
             workspace_path: Optional[str],
+            submission_round: int = 1,
         ) -> None:
-            """Called when an agent submits an answer. Shows enhanced toast, tool card, and tracks for browser."""
+            """Called when an agent submits an answer. Shows enhanced toast, tool card, and tracks for browser.
+
+            Args:
+                submission_round: Round the answer was submitted in (1-indexed).
+                    This ensures the answer card appears in the correct round
+                    even if panel._current_round has advanced due to restart.
+            """
             import time
 
             # Get model name for richer display
@@ -6368,8 +6388,9 @@ Type your question and press Enter to ask the agents.
                     )
 
                     # Add tool card directly to timeline
-                    # Phase 12: Pass round_number for CSS visibility
-                    timeline.add_tool(tool_data, round_number=panel._current_round)
+                    # Use submission_round (not panel._current_round) to ensure
+                    # chronological correctness: answer appears before round restart
+                    timeline.add_tool(tool_data, round_number=submission_round)
                     # Mark as success immediately
                     tool_data.status = "success"
                     timeline.update_tool(tool_id, tool_data)
@@ -7239,7 +7260,7 @@ Type your question and press Enter to ask the agents.
             self._last_tool_was_terminal: bool = False
             self._transition_pending: bool = False
             self._transition_timer: Optional[Any] = None
-            self._pending_round_transition: Optional[Tuple[int, bool]] = None  # (round_num, is_context_reset)
+            self._pending_round_transition: Optional[Tuple[int, bool, bool]] = None  # (round_num, is_context_reset, defer_banner)
 
             # Final presentation tracking
             # When True, content flows through the normal pipeline but is tagged as final presentation
@@ -7940,7 +7961,12 @@ Type your question and press Enter to ask the agents.
         # ========================================================================
         # Storage methods removed - widgets stay in DOM with round-N tags
 
-        def start_new_round(self, round_number: int, is_context_reset: bool = False) -> None:
+        def start_new_round(
+            self,
+            round_number: int,
+            is_context_reset: bool = False,
+            defer_banner: bool = False,
+        ) -> None:
             """Start a new round - update tracking and switch visibility.
 
             Phase 12: With CSS-based visibility, all round content stays in the DOM.
@@ -7957,24 +7983,25 @@ Type your question and press Enter to ask the agents.
             Args:
                 round_number: The new round number
                 is_context_reset: Whether this round started with a context reset
+                defer_banner: If True, defer the round banner until first content
             """
             from massgen.logger_config import logger
 
             logger.debug(
-                f"AgentPanel.start_new_round: round={round_number}, " f"prev_round={self._current_round}, context_reset={is_context_reset}",
+                f"AgentPanel.start_new_round: round={round_number}, " f"prev_round={self._current_round}, context_reset={is_context_reset}, defer_banner={defer_banner}",
             )
 
             # Terminal tool transition delay - give users time to see completed action
             if self._transition_pending:
                 # Already waiting for a transition - update the pending round
-                self._pending_round_transition = (round_number, is_context_reset)
+                self._pending_round_transition = (round_number, is_context_reset, defer_banner)
                 return
 
             if self._last_tool_was_terminal:
                 self._last_tool_was_terminal = False  # Reset for next round
 
             # Execute the round transition immediately
-            self._execute_round_transition_impl(round_number, is_context_reset)
+            self._execute_round_transition_impl(round_number, is_context_reset, defer_banner)
 
         def _execute_round_transition(self) -> None:
             """Execute a delayed round transition (called by timer)."""
@@ -7982,11 +8009,16 @@ Type your question and press Enter to ask the agents.
             self._transition_timer = None
 
             if self._pending_round_transition:
-                round_number, is_context_reset = self._pending_round_transition
+                round_number, is_context_reset, defer_banner = self._pending_round_transition
                 self._pending_round_transition = None
-                self._execute_round_transition_impl(round_number, is_context_reset)
+                self._execute_round_transition_impl(round_number, is_context_reset, defer_banner)
 
-        def _execute_round_transition_impl(self, round_number: int, is_context_reset: bool = False) -> None:
+        def _execute_round_transition_impl(
+            self,
+            round_number: int,
+            is_context_reset: bool = False,
+            defer_banner: bool = False,
+        ) -> None:
             """Execute the actual round transition logic."""
             from massgen.logger_config import logger
 
@@ -8003,13 +8035,23 @@ Type your question and press Enter to ask the agents.
                 # Clear tools tracking so new round's tool_ids don't collide with old round's
                 timeline.clear_tools_tracking()
 
-                # Step 3: Add "Round X" banner at the top of each new round
-                if round_number > 1:
-                    # Build subtitle based on restart context
-                    subtitle = "Restart"
+                # Step 3: Add (or defer) "Round X" banner at the top of each new round
+                if round_number >= 1:
+                    subtitle = "Restart" if round_number > 1 else None
                     if is_context_reset:
-                        subtitle += " • Context cleared"
-                    timeline.add_separator(f"Round {round_number}", round_number=round_number, subtitle=subtitle)
+                        subtitle = (subtitle or "") + " • Context cleared"
+                    if defer_banner and hasattr(timeline, "defer_round_banner"):
+                        timeline.defer_round_banner(
+                            round_number,
+                            f"Round {round_number}",
+                            subtitle if subtitle else None,
+                        )
+                    elif round_number > 1:
+                        timeline.add_separator(
+                            f"Round {round_number}",
+                            round_number=round_number,
+                            subtitle=subtitle if subtitle else None,
+                        )
             except Exception as e:
                 logger.error(f"AgentPanel.start_new_round timeline error: {e}")
 
@@ -8083,7 +8125,14 @@ Type your question and press Enter to ask the agents.
                 timeline.clear_tools_tracking()
 
                 # Add "Final Presentation" banner with distinct styling and vote summary
-                timeline.add_separator("FINAL PRESENTATION", round_number=new_round, subtitle=subtitle)
+                has_banner = False
+                if hasattr(timeline, "_has_round_banner"):
+                    try:
+                        has_banner = timeline._has_round_banner(new_round)
+                    except Exception:
+                        has_banner = False
+                if not has_banner:
+                    timeline.add_separator("FINAL PRESENTATION", round_number=new_round, subtitle=subtitle)
             except Exception as e:
                 logger.error(f"AgentPanel.start_final_presentation timeline error: {e}")
 

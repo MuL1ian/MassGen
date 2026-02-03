@@ -26,6 +26,8 @@ class _MockTimeline:
         self._tools: Dict[str, Any] = {}
         self._batches: Dict[str, List[Any]] = {}
         self._tool_to_batch: Dict[str, str] = {}
+        self._deferred_round_banners: Dict[int, tuple[str, str]] = {}
+        self._shown_round_banners: set[int] = set()
 
     # --- Text / separators ---
 
@@ -37,6 +39,7 @@ class _MockTimeline:
         text_class: str = "content-inline",
         round_number: int = 1,
     ) -> None:
+        self._ensure_round_banner(round_number)
         self._cb(format_text(content, text_class, round_number))
 
     def add_separator(
@@ -46,11 +49,30 @@ class _MockTimeline:
         round_number: int = 1,
         subtitle: str = "",
     ) -> None:
+        if label.startswith("Round "):
+            self._shown_round_banners.add(round_number)
+            self._deferred_round_banners.pop(round_number, None)
+        self._cb(format_separator(label, round_number, subtitle))
+
+    def defer_round_banner(self, round_number: int, label: str, subtitle: Optional[str] = None) -> None:
+        if round_number in self._shown_round_banners:
+            return
+        self._deferred_round_banners[round_number] = (label, subtitle or "")
+
+    def _ensure_round_banner(self, round_number: int) -> None:
+        if round_number in self._shown_round_banners:
+            return
+        if round_number in self._deferred_round_banners:
+            label, subtitle = self._deferred_round_banners.pop(round_number)
+        else:
+            label, subtitle = (f"Round {round_number}", "")
+        self._shown_round_banners.add(round_number)
         self._cb(format_separator(label, round_number, subtitle))
 
     # --- Tools ---
 
     def add_tool(self, tool_data: Any, *, round_number: int = 1) -> None:
+        self._ensure_round_banner(round_number)
         self._tools[tool_data.tool_id] = (tool_data, round_number)
         action = "pending" if tool_data.status == "running" else "standalone"
         self._cb(format_tool(tool_data, round_number, action, server_name=getattr(tool_data, "server_name", None)))
@@ -72,6 +94,7 @@ class _MockTimeline:
     # --- Batches ---
 
     def add_batch(self, batch_id: str, server_name: str, *, round_number: int = 1) -> None:
+        self._ensure_round_banner(round_number)
         self._batches[batch_id] = []
 
     def convert_tool_to_batch(
@@ -83,6 +106,7 @@ class _MockTimeline:
         *,
         round_number: int = 1,
     ) -> None:
+        self._ensure_round_banner(round_number)
         self._batches[batch_id] = []
         self._tool_to_batch[pending_tool_id] = batch_id
         self._tool_to_batch[tool_data.tool_id] = batch_id
@@ -90,11 +114,12 @@ class _MockTimeline:
         self._cb(format_tool(tool_data, round_number, "convert_to_batch", batch_id=batch_id, server_name=server_name))
 
     def add_tool_to_batch(self, batch_id: str, tool_data: Any) -> None:
+        prev = self._tools.get(tool_data.tool_id)
+        rn = prev[1] if prev else 1
+        self._ensure_round_banner(rn)
         if batch_id in self._batches:
             self._batches[batch_id].append(tool_data)
         self._tool_to_batch[tool_data.tool_id] = batch_id
-        prev = self._tools.get(tool_data.tool_id)
-        rn = prev[1] if prev else 1
         self._tools[tool_data.tool_id] = (tool_data, rn)
         self._cb(format_tool(tool_data, rn, "add_to_batch", batch_id=batch_id, server_name=getattr(tool_data, "server_name", None)))
 
@@ -131,8 +156,16 @@ class _MockPanel:
     def _get_timeline(self) -> _MockTimeline:
         return self._timeline
 
-    def start_new_round(self, round_number: int, is_context_reset: bool = False) -> None:
-        self._timeline.add_separator(f"Round {round_number}", round_number=round_number)
+    def start_new_round(
+        self,
+        round_number: int,
+        is_context_reset: bool = False,
+        defer_banner: bool = False,
+    ) -> None:
+        if defer_banner and hasattr(self._timeline, "defer_round_banner"):
+            self._timeline.defer_round_banner(round_number, f"Round {round_number}", None)
+        else:
+            self._timeline.add_separator(f"Round {round_number}", round_number=round_number)
 
 
 class TimelineEventRecorder:

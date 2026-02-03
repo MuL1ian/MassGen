@@ -673,12 +673,24 @@ class EventEmitter:
         self,
         round_number: int,
         agent_id: Optional[str] = None,
+        restart_reason: Optional[str] = None,
     ) -> None:
-        """Emit an agent restart event."""
+        """Emit an agent restart event and update round tracking.
+
+        Args:
+            round_number: The new round number
+            agent_id: Agent that is restarting
+            restart_reason: Why the agent is restarting (e.g., "new answer", "context update")
+        """
+        # Update the round tracking for this agent so subsequent events
+        # (answer_submitted, vote, etc.) have the correct round number
+        if agent_id:
+            self._current_round_numbers[agent_id] = round_number
         self.emit_raw(
             EventType.AGENT_RESTART,
             restart_round=round_number,
             agent_id=agent_id,
+            restart_reason=restart_reason,
         )
 
     def emit_presentation_start(

@@ -608,6 +608,10 @@ class TimelineSection(ScrollableContainer):
         self._last_round_shown = 0
         # Track pending round separators to avoid duplicates before mount completes
         self._pending_round_separators: set[int] = set()
+        # Track which rounds already have banners
+        self._shown_round_banners: set[int] = set()
+        # Track deferred round banners (round_number -> (label, subtitle))
+        self._deferred_round_banners: Dict[int, tuple[str, Optional[str]]] = {}
 
     def compose(self) -> ComposeResult:
         # Scroll mode indicator (hidden by default)
@@ -616,28 +620,66 @@ class TimelineSection(ScrollableContainer):
 
     def _ensure_round_1_shown(self) -> None:
         """Ensure Round 1 banner is shown before any content."""
-        has_banner = self._has_round_banner(1)
+        self._ensure_round_banner(1)
+
+    def defer_round_banner(self, round_number: int, label: str, subtitle: Optional[str] = None) -> None:
+        """Defer a round banner until the first item of that round is rendered."""
+        if round_number in self._shown_round_banners:
+            return
+        self._deferred_round_banners[round_number] = (label, subtitle)
+
+    def _ensure_round_banner(self, round_number: int) -> None:
+        """Ensure the Round X banner appears before the first content of that round."""
+        round_number = max(1, int(round_number))
+        has_banner = self._has_round_banner(round_number)
         try:
             from massgen.frontend.displays.shared.tui_debug import tui_log
 
             tui_log(
-                f"[ROUND_DEBUG] ensure_round_1_shown panel={self.id} round_1_shown={self._round_1_shown} has_banner={has_banner}",
+                f"[ROUND_DEBUG] ensure_round_banner panel={self.id} round={round_number} " f"round_1_shown={self._round_1_shown} has_banner={has_banner}",
                 level="info",
             )
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
 
         if has_banner:
+            self._shown_round_banners.add(round_number)
+            self._last_round_shown = max(self._last_round_shown, round_number)
+            if round_number == 1:
+                self._round_1_shown = True
+            return
+        if round_number == 1 and self._round_1_shown:
+            return
+        if round_number in self._shown_round_banners:
+            return
+        if round_number in self._pending_round_separators:
+            return
+
+        label, subtitle = self._deferred_round_banners.pop(
+            round_number,
+            (f"Round {round_number}", None),
+        )
+        insert_before = None
+        try:
+            indicator = self.query_one("#scroll_mode_indicator", Static)
+        except Exception:
+            indicator = None
+        for child in self.children:
+            if indicator is not None and child is indicator:
+                continue
+            if f"round-{round_number}" in child.classes:
+                insert_before = child
+                break
+        if insert_before is None:
+            insert_before = self._find_insert_before_for_round(round_number)
+        if round_number == 1:
             self._round_1_shown = True
-            self._last_round_shown = max(self._last_round_shown, 1)
-            return
-        if self._round_1_shown:
-            return
-        if 1 in self._pending_round_separators:
-            return
-        self._round_1_shown = True
-        insert_before = self._first_content_child()
-        self.add_separator("Round 1", round_number=1, before=insert_before)
+        self.add_separator(
+            label,
+            round_number=round_number,
+            subtitle=subtitle or "",
+            before=insert_before,
+        )
 
     def _has_round_banner(self, round_number: int) -> bool:
         """Check if a RestartBanner exists for the given round."""
@@ -660,6 +702,33 @@ class TimelineSection(ScrollableContainer):
             if indicator is not None and child is indicator:
                 continue
             return child
+        return None
+
+    def _find_insert_before_for_round(self, round_number: int) -> Optional[Any]:
+        """Find the earliest widget belonging to a later round.
+
+        This allows late-arriving items from an earlier round to be inserted
+        before the next round's banner/content.
+        """
+        try:
+            indicator = self.query_one("#scroll_mode_indicator", Static)
+        except Exception:
+            indicator = None
+
+        for child in self.children:
+            if indicator is not None and child is indicator:
+                continue
+            if not hasattr(child, "classes"):
+                continue
+            for cls in child.classes:
+                if not cls.startswith("round-"):
+                    continue
+                try:
+                    child_round = int(cls.split("-", 1)[1])
+                except Exception:
+                    continue
+                if child_round > round_number:
+                    return child
         return None
 
     def _log(self, msg: str) -> None:
@@ -996,8 +1065,8 @@ class TimelineSection(ScrollableContainer):
         Returns:
             The created ToolCallCard
         """
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
+        # Ensure this round's banner is shown before first content
+        self._ensure_round_banner(round_number)
 
         # Close any open reasoning batch when tool arrives
         self._close_reasoning_batch()
@@ -1032,7 +1101,14 @@ class TimelineSection(ScrollableContainer):
         self._item_count += 1
 
         try:
-            self.mount(card)
+            insert_before = self._find_insert_before_for_round(round_number)
+            self.mount(card, before=insert_before)
+
+            from datetime import datetime
+
+            tui_log(
+                f"[MOUNT_DEBUG] add_tool: round={round_number} tool={tool_data.tool_name} " f"time={datetime.now().isoformat()}",
+            )
 
             # Defer trim and scroll until after mount completes
             def trim_and_scroll():
@@ -1132,8 +1208,8 @@ class TimelineSection(ScrollableContainer):
         Returns:
             The created ToolBatchCard
         """
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
+        # Ensure this round's banner is shown before first content
+        self._ensure_round_banner(round_number)
 
         card = ToolBatchCard(
             server_name=server_name,
@@ -1153,7 +1229,8 @@ class TimelineSection(ScrollableContainer):
             tui_log(f"[ContentSections] {e}")
 
         try:
-            self.mount(card)
+            insert_before = self._find_insert_before_for_round(round_number)
+            self.mount(card, before=insert_before)
 
             # Defer trim and scroll until after mount completes
             def trim_and_scroll():
@@ -1435,9 +1512,6 @@ class TimelineSection(ScrollableContainer):
             text_class: CSS class (status, thinking-inline, content-inline, response)
             round_number: The round this content belongs to (for view switching)
         """
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
-
         # Clean up excessive newlines only - preserve all spacing
         import re
 
@@ -1445,6 +1519,9 @@ class TimelineSection(ScrollableContainer):
 
         if not content.strip():  # Check if effectively empty
             return
+
+        # Ensure this round's banner is shown before first content
+        self._ensure_round_banner(round_number)
 
         # Check if this is thinking or content - route to appropriate batching
         is_thinking = "thinking" in text_class
@@ -1489,7 +1566,8 @@ class TimelineSection(ScrollableContainer):
             # Tag with round class for navigation (scroll-to behavior)
             widget.add_class(f"round-{round_number}")
 
-            self.mount(widget)
+            insert_before = self._find_insert_before_for_round(round_number)
+            self.mount(widget, before=insert_before)
 
             # Defer trim and scroll until after mount completes
             def trim_and_scroll():
@@ -1520,6 +1598,9 @@ class TimelineSection(ScrollableContainer):
         """
         from massgen.logger_config import logger
 
+        if subtitle is None:
+            subtitle = ""
+
         try:
             from massgen.frontend.displays.shared.tui_debug import tui_log
 
@@ -1535,7 +1616,7 @@ class TimelineSection(ScrollableContainer):
 
         # Deduplicate round separators — multiple round_start events per round
         if label.startswith("Round "):
-            if round_number in self._pending_round_separators or round_number <= self._last_round_shown:
+            if round_number in self._pending_round_separators or round_number in self._shown_round_banners:
                 try:
                     from massgen.frontend.displays.shared.tui_debug import tui_log
 
@@ -1578,7 +1659,20 @@ class TimelineSection(ScrollableContainer):
             widget.add_class(f"round-{round_number}")
             logger.debug(f"TimelineSection.add_separator: Adding widget for round {round_number}")
 
-            self.mount(widget)
+            self.mount(widget, before=before, after=after)
+
+            from datetime import datetime
+
+            tui_log(
+                f"[MOUNT_DEBUG] add_separator: label='{label}' round={round_number} " f"time={datetime.now().isoformat()}",
+            )
+
+            if label.startswith("Round "):
+                self._pending_round_separators.discard(round_number)
+                self._shown_round_banners.add(round_number)
+                self._last_round_shown = max(self._last_round_shown, round_number)
+                if round_number == 1:
+                    self._round_1_shown = True
 
             # Defer trim and scroll until after mount completes
             def trim_and_scroll():
@@ -1632,15 +1726,15 @@ class TimelineSection(ScrollableContainer):
             f.write(
                 f"DEBUG add_reasoning: label={label}, current_card={self._current_reasoning_card is not None}, " f"current_label={self._current_batch_label}, content_preview={content_preview}\n",
             )
+        # Ensure this round's banner is shown before reasoning content
+        self._ensure_round_banner(round_number)
+
         try:
             from massgen.frontend.displays.timeline_transcript import record_text
 
             record_text(content, f"reasoning-{label.lower()}", round_number)
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
-
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
 
         try:
             # Close batch if label changed
@@ -1665,7 +1759,8 @@ class TimelineSection(ScrollableContainer):
                 )
                 self._current_reasoning_card.add_class(f"round-{round_number}")
                 self._current_batch_label = label
-                self.mount(self._current_reasoning_card)
+                insert_before = self._find_insert_before_for_round(round_number)
+                self.mount(self._current_reasoning_card, before=insert_before)
 
                 # Defer trim and scroll until after mount completes
                 def trim_and_scroll():
@@ -1683,8 +1778,8 @@ class TimelineSection(ScrollableContainer):
             widget: Any Textual widget to add to the timeline
             round_number: The round this content belongs to (for view switching)
         """
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
+        # Ensure this round's banner is shown before first content
+        self._ensure_round_banner(round_number)
 
         self._item_count += 1
 
@@ -1692,7 +1787,8 @@ class TimelineSection(ScrollableContainer):
         widget.add_class(f"round-{round_number}")
 
         try:
-            self.mount(widget)
+            insert_before = self._find_insert_before_for_round(round_number)
+            self.mount(widget, before=insert_before)
             self._log(f"Timeline items: {len(list(self.children))}")
             self._trim_old_items()  # Keep timeline size bounded (do before scroll)
             # Defer scroll to ensure trim's layout refresh completes first
@@ -1740,6 +1836,10 @@ class TimelineSection(ScrollableContainer):
 
         # Reset round tracking flags
         self._round_1_shown = False
+        self._last_round_shown = 0
+        self._pending_round_separators.clear()
+        self._shown_round_banners.clear()
+        self._deferred_round_banners.clear()
         logger.info("[TimelineSection] Set _round_1_shown = False")
 
         # CRITICAL FIX: Force layout refresh after clearing and defer Round 1 separator
