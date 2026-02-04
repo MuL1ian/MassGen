@@ -407,14 +407,15 @@ The Codex backend supports flexible authentication:
 
 .. code-block:: yaml
 
-   orchestrator:
-     command_line_execution_mode: "docker"
-
    agents:
      - id: "secure_codex"
        backend:
          type: "codex"
          model: "gpt-5.2-codex"
+         cwd: "workspace"
+         enable_mcp_command_line: true
+         command_line_execution_mode: "docker"
+         command_line_docker_network_mode: "bridge"  # Required for Codex
 
 Gemini Backend
 ~~~~~~~~~~~~~~
@@ -908,14 +909,21 @@ isolation via container boundaries:
 .. code-block:: yaml
 
    # Recommended: Docker mode for Codex with sensitive data
-   orchestrator:
-     command_line_execution_mode: "docker"
-
    agents:
      - id: "secure_codex"
        backend:
          type: "codex"
          model: "gpt-5.2-codex"
+         cwd: "workspace"
+         enable_mcp_command_line: true
+         command_line_execution_mode: "docker"
+         command_line_docker_network_mode: "bridge"  # Required for Codex
+         command_line_docker_enable_sudo: true
+
+.. important::
+
+   **Codex in Docker mode requires** ``command_line_docker_network_mode: "bridge"``.
+   Without this setting, Codex will fail to execute. The validator will check for this.
 
 In Docker mode:
 

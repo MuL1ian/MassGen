@@ -130,6 +130,7 @@ class NativeToolBackendMixin:
         self,
         tools: List[Dict[str, Any]],
         mcp_base_path: str,
+        mcp_tool_prefix: str = "",
     ) -> tuple[Optional[Dict[str, Any]], str]:
         """Setup workflow tools as MCP server with text fallback.
 
@@ -140,6 +141,9 @@ class NativeToolBackendMixin:
         Args:
             tools: List of tool schemas from orchestrator.
             mcp_base_path: Base path for writing MCP tool specs (e.g., workspace/.codex).
+            mcp_tool_prefix: Prefix for MCP tool names in instructions. For Claude Code,
+                            this is "mcp__massgen_workflow_tools__" since Claude Code
+                            prefixes MCP tools with "mcp__{server_name}__".
 
         Returns:
             Tuple of (mcp_config, instructions):
@@ -154,7 +158,7 @@ class NativeToolBackendMixin:
 
         workflow_mcp_config = build_workflow_mcp_server_config(tools or [], mcp_base_path)
         if workflow_mcp_config:
-            instructions = build_workflow_mcp_instructions(tools or [])
+            instructions = build_workflow_mcp_instructions(tools or [], mcp_prefix=mcp_tool_prefix)
             logger.info(f"[{self.__class__.__name__}] Workflow tools configured as MCP server")
         else:
             instructions = build_workflow_instructions(tools or [])

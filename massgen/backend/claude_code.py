@@ -366,6 +366,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "Bash(chmod*)",
             "Bash(chown*)",
             # Not useful in MassGen context
+            "Task",  # we have our own version of subagents
             "TodoWrite",
             "ExitPlanMode",
             "mcp__ide__getDiagnostics",
@@ -1476,33 +1477,10 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         else:
             system_content = ""
 
-        # Setup workflow tools using shared mixin method
-        workflow_mcp_config, workflow_instructions = self._setup_workflow_tools(
-            tools or [],
-            str(Path(self.config.get("cwd", os.getcwd())) / ".claude_code_workflow"),
-        )
-        self._has_workflow_mcp = workflow_mcp_config is not None
-        if workflow_mcp_config:
-            # Add workflow MCP server to config for this session
-            if "mcp_servers" not in self.config:
-                self.config["mcp_servers"] = []
-            if isinstance(self.config["mcp_servers"], list):
-                # Remove any previous workflow server entry
-                self.config["mcp_servers"] = [s for s in self.config["mcp_servers"] if not (isinstance(s, dict) and s.get("name") == "massgen_workflow_tools")]
-                self.config["mcp_servers"].append(workflow_mcp_config)
-            elif isinstance(self.config["mcp_servers"], dict):
-                self.config["mcp_servers"]["massgen_workflow_tools"] = workflow_mcp_config
-
-        # Build system prompt with tools information
-        # When MCP server is active, use MCP-specific instructions (no JSON format examples)
-        # instead of text-based instructions, but still tell the agent it MUST call the tools
-        if self._has_workflow_mcp:
-            base_with_mcp = system_content
-            if workflow_instructions:
-                base_with_mcp = (system_content + "\n" + workflow_instructions) if system_content else workflow_instructions
-            workflow_system_prompt = self._build_system_prompt_with_workflow_tools([], base_with_mcp)
-        else:
-            workflow_system_prompt = self._build_system_prompt_with_workflow_tools(tools or [], system_content)
+        # Use text-based workflow tools (JSON parsing) for Claude Code
+        # TODO: MCP-based workflow tools not yet working with Claude Code SDK
+        self._has_workflow_mcp = False
+        workflow_system_prompt = self._build_system_prompt_with_workflow_tools(tools or [], system_content)
 
         # Check if we already have a client
         if self._client is not None:

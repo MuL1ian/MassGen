@@ -1153,12 +1153,17 @@ def build_workflow_instructions(tools: List[Dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
-def build_workflow_mcp_instructions(tools: List[Dict[str, Any]]) -> str:
+def build_workflow_mcp_instructions(tools: List[Dict[str, Any]], mcp_prefix: str = "") -> str:
     """Build instructions for when workflow tools are available as native MCP tools.
 
     Unlike build_workflow_instructions() which includes JSON format examples for
     text-based parsing, this version tells the agent to call the MCP tools directly.
     Still needed so the agent knows it MUST call them.
+
+    Args:
+        tools: List of tool definitions.
+        mcp_prefix: Optional prefix for MCP tool names (e.g., "mcp__massgen_workflow_tools__"
+                   for Claude Code). If empty, tools are called by their simple names.
     """
     from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
 
@@ -1175,8 +1180,9 @@ def build_workflow_mcp_instructions(tools: List[Dict[str, Any]]) -> str:
 
     for tool in workflow_tools:
         name = tool.get("function", {}).get("name", "unknown")
+        full_name = f"{mcp_prefix}{name}" if mcp_prefix else name
         description = tool.get("function", {}).get("description", "No description")
-        parts.append(f"- {name}: {description}")
+        parts.append(f"- `{full_name}`: {description}")
 
         if name == "vote":
             agent_id_param = tool.get("function", {}).get("parameters", {}).get("properties", {}).get("agent_id", {})
@@ -1184,16 +1190,20 @@ def build_workflow_mcp_instructions(tools: List[Dict[str, Any]]) -> str:
             if agent_id_enum:
                 parts.append(f"    Valid agent_id values: {', '.join(agent_id_enum)}")
 
+    # Use prefixed names in instructions
+    new_answer_name = f"`{mcp_prefix}new_answer`" if mcp_prefix else "`new_answer`"
+    vote_name = f"`{mcp_prefix}vote`" if mcp_prefix else "`vote`"
+
     if "new_answer" in tool_names and "vote" in tool_names:
         parts.append(
-            "\nYou MUST call either `new_answer` (to submit your answer) or `vote` "
+            f"\nYou MUST call either {new_answer_name} (to submit your answer) or {vote_name} "
             "(to vote for the best existing answer) as an MCP tool call. "
             "Your response is incomplete without one of these tool calls.",
         )
     elif "new_answer" in tool_names:
-        parts.append("\nYou MUST call `new_answer` as an MCP tool call to submit your answer.")
+        parts.append(f"\nYou MUST call {new_answer_name} as an MCP tool call to submit your answer.")
     elif "vote" in tool_names:
-        parts.append("\nYou MUST call `vote` as an MCP tool call to vote for the best answer.")
+        parts.append(f"\nYou MUST call {vote_name} as an MCP tool call to vote for the best answer.")
 
     return "\n".join(parts)
 
