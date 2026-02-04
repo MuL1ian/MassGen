@@ -161,7 +161,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 **What's New in v0.1.47:**
 - **🚀 Codex Backend** - Run OpenAI Codex CLI as a MassGen backend with local and Docker execution
-- **🎨 TUI Theme System** - Palette-based theming with dark, light, Catppuccin Latte, and Catppuccin Mocha variants
+- **🎨 TUI Theme System** - Palette-based theming with dark and light variants
 - **🗳️ Per-agent Voting Sensitivity** - Set different voting standards (strict/balanced/lenient) for each agent
 - **🔧 Claude Code Refactored** - Shared `NativeToolMixin` for native tool handling across CLI-based backends
 - **🐛 Bug Fixes** - Fixed final presentation display, improved MCP error handling, enhanced round tracking
@@ -171,8 +171,9 @@ This project started with the "threads of thought" and "iterative refinement" id
 # Install or upgrade
 pip install --upgrade massgen
 
-# Try per-agent voting sensitivity with different evaluation standards
-uv run massgen --config massgen/configs/voting/gemini_gpt_voting_sensitivity.yaml "What are the best practices for building microservices?"
+# First install codex with `npm install -g @openai/codex`, then authenticate and run the below.
+uv run massgen --config @examples/configs/providers/openai/codex/codex_local.yaml "Create a website about Bob Dylan"
+uv run massgen --config @examples/configs/providers/openai/codex/codex_docker.yaml "Create a website about Bob Dylan"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1227,12 +1228,12 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 #### Codex Backend
 - **OpenAI Codex CLI**: New `codex` backend type with local and Docker execution modes
-- **Authentication**: OAuth and API key support with session persistence and resumption
+- **Authentication**: OAuth and API key support
 - **Native Tool Architecture**: `NativeToolMixin` for shared tool handling between Codex and Claude Code, with custom and workflow MCP servers (`custom_tools_server.py`, `workflow_tools_server.py`) exposing MassGen tools to CLI-based backends
 
 #### TUI Theme System
 - **Palette-based Architecture**: Unified `base.tcss` with semantic CSS variables replacing per-widget inline CSS
-- **Theme Variants**: Dark, light, Catppuccin Latte, and Catppuccin Mocha palette files
+- **Theme Variants**: Dark and light palette files
 
 #### Per-agent Voting Sensitivity
 - **Agent-level Override**: Voting sensitivity (`strict`/`balanced`/`lenient`) now configurable per-agent, overriding orchestrator-level defaults with rewritten evaluation criteria

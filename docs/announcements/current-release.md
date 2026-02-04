@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.47, adding Codex Backend Support! 🚀 OpenAI Codex CLI is now a fully supported backend with local and Docker execution, OAuth and API key authentication, and session persistence. A new NativeToolMixin provides shared native tool handling across CLI-based backends (Codex and Claude Code). Plus: TUI theme system refactored to palette-based architecture and per-agent voting sensitivity.
+We're excited to release MassGen v0.1.47, adding Codex Backend Support! 🚀 OpenAI Codex CLI is now a fully supported backend with local and Docker execution, OAuth and API key authentication. A new NativeToolMixin provides shared native tool handling across CLI-based backends (Codex and Claude Code). Plus: TUI theme system refactored to palette-based architecture and per-agent voting sensitivity.
 
 ## Install
 
@@ -29,19 +29,19 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.47, adding Codex Backend Support! 🚀 OpenAI Codex CLI is now a fully supported backend with local and Docker execution, OAuth and API key authentication, and session persistence. A new NativeToolMixin provides shared native tool handling across CLI-based backends (Codex and Claude Code). Plus: TUI theme system refactored to palette-based architecture, per-agent voting sensitivity, and bug fixes.
+We're excited to release MassGen v0.1.47, adding Codex Backend Support! 🚀 OpenAI Codex CLI is now a fully supported backend with local and Docker execution, OAuth and API key authentication. A new NativeToolMixin provides shared native tool handling across CLI-based backends (Codex and Claude Code). Plus: TUI theme system refactored to palette-based architecture, per-agent voting sensitivity, and bug fixes.
 
 **Key Features:**
 
 **Codex Backend** - New `codex` backend type for OpenAI Codex CLI:
 - Local and Docker execution modes with workspace mounting
-- OAuth and API key authentication with session persistence
+- OAuth and API key authentication
 - Custom and workflow MCP servers for exposing MassGen tools to CLI-based backends
 - NativeToolMixin abstract mixin shared between Codex and Claude Code
 
 **TUI Theme Refactoring** - Palette-based architecture with unified base styles:
 - Semantic CSS variables for consistent cross-component theming
-- Theme palette files for dark, light, Catppuccin Latte, and Catppuccin Mocha variants
+- Theme palette files for dark and light variants
 
 **Per-agent Voting Sensitivity** - Per-agent override for voting evaluation criteria (strict/balanced/lenient)
 

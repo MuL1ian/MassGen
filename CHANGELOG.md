@@ -25,14 +25,14 @@ TUI (Textual Terminal) is now the default display mode for all users. Existing c
 ### Added
 - **Codex Backend** ([#843](https://github.com/massgen/MassGen/pull/843)): New `codex` backend type for OpenAI Codex CLI
   - Local and Docker execution modes with workspace mounting
-  - OAuth and API key authentication with session persistence
+  - OAuth and API key authentication
   - `NativeToolMixin` abstract mixin for shared native tool handling between Codex and Claude Code
   - Custom and workflow MCP servers (`custom_tools_server.py`, `workflow_tools_server.py`) for exposing MassGen tools to CLI-based backends
 
 ### Changed
 - **TUI Theme System** ([#842](https://github.com/massgen/MassGen/pull/842)): Refactored to palette-based architecture with unified `base.tcss` replacing per-widget inline CSS
   - Semantic CSS variables for consistent cross-component theming
-  - Theme palette files for dark, light, Catppuccin Latte, and Catppuccin Mocha variants
+  - Theme palette files for dark and light variants
   - Removed legacy `transparent.tcss`
 
 - **Per-agent Voting Sensitivity** ([#842](https://github.com/massgen/MassGen/pull/842)): Voting sensitivity (`strict`/`balanced`/`lenient`) now configurable per-agent, overriding orchestrator-level defaults with rewritten evaluation criteria
