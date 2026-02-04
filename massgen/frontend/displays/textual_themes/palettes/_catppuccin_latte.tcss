@@ -121,7 +121,7 @@ $state-cancelled-bg: #fcdcdc;
 $state-cancelled-banner-bg: #f0b0b0;
 $state-consensus-bg: #fcf0dc;
 
-/* State Text Colors - WCAG AA compliant */
+/* State Text Colors */
 $state-success-text: #2e7d32;
 $state-warning-text: #b86000;
 $state-error-text: #c01030;
@@ -174,7 +174,6 @@ $vscode-gray: #9ca0b0;
 $vscode-gray-text: #7c7f93;
 
 /* Bright Accent Colors for Content */
-$content-blue: #1e66f5;
 $content-purple: #8839ef;
 $content-yellow: #df8e1d;
 $content-green: #40a02b;

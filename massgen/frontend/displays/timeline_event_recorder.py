@@ -159,7 +159,7 @@ class _MockPanel:
     def start_new_round(
         self,
         round_number: int,
-        is_context_reset: bool = False,
+        _is_context_reset: bool = False,
         defer_banner: bool = False,
     ) -> None:
         if defer_banner and hasattr(self._timeline, "defer_round_banner"):

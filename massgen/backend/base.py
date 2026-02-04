@@ -308,6 +308,8 @@ class LLMBackend(ABC):
             # Debug options (not passed to API)
             "debug_delay_seconds",
             "debug_delay_after_n_tools",
+            # Per-agent voting sensitivity (coordination config, not API param)
+            "voting_sensitivity",
         }
 
     @abstractmethod

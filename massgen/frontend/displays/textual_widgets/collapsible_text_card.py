@@ -273,7 +273,9 @@ class CollapsibleTextCard(Static):
                     self._flush_pending_refresh,
                 )
             except Exception:
-                # Widget not mounted yet - refresh directly
+                # Widget not mounted yet or timer failed - reset state and refresh directly
+                self._refresh_pending = False
+                self._refresh_timer = None
                 self.refresh()
 
     def append_content(self, new_content: str, streaming: bool = False) -> None:

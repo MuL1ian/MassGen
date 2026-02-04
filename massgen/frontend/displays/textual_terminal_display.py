@@ -4014,7 +4014,9 @@ Type your question and press Enter to ask the agents.
         def _update_winner_hints(self, winner_id: str) -> None:
             """Update winner hints on all agent timelines.
 
-            Shows the hint on non-winning agents, hides on the winner.
+            Args:
+                winner_id: The ID of the winning agent. Non-winners will show
+                    a hint directing users to the winner's timeline.
             """
             for agent_id, panel in self.agent_widgets.items():
                 try:
@@ -4022,8 +4024,11 @@ Type your question and press Enter to ask the agents.
                     if timeline:
                         # Show hint on non-winners, hide on winner
                         timeline.show_winner_hint(show=(agent_id != winner_id))
-                except Exception:
-                    pass
+                except Exception as e:
+                    tui_log(
+                        f"_update_winner_hints failed for agent={agent_id}, winner={winner_id}: {e}",
+                        level="debug",
+                    )
 
         def show_subagent_card_from_spawn(
             self,

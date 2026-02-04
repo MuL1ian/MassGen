@@ -320,12 +320,14 @@ class TimelineEventAdapter:
                         in_batch = False
 
                 if in_batch:
-                    updated = False
+                    updated = None
                     try:
                         updated = timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
                     except Exception as e:
                         tui_log(f"[TimelineEventAdapter] {e}")
-                    if updated:
+                        updated = False  # Mark as failed on exception
+                    # Treat None as success (some implementations don't return a value)
+                    if updated is not False:
                         pass
                     elif existing is None:
                         # Batch missing — fall back to standalone rendering

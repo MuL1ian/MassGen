@@ -3375,13 +3375,22 @@ Your answer:"""
                                 if display and hasattr(display, "send_new_answer") and not hasattr(display, "_app"):
                                     # Get the current round for this agent (0-indexed) and convert to 1-indexed
                                     _agent_round = self.coordination_tracker.get_agent_round(agent_id) + 1
-                                    display.send_new_answer(
-                                        agent_id=agent_id,
-                                        content=result_data,
-                                        answer_number=_answer_number,
-                                        answer_label=_answer_label,
-                                        submission_round=_agent_round,
-                                    )
+                                    try:
+                                        display.send_new_answer(
+                                            agent_id=agent_id,
+                                            content=result_data,
+                                            answer_number=_answer_number,
+                                            answer_label=_answer_label,
+                                            submission_round=_agent_round,
+                                        )
+                                    except TypeError:
+                                        # Older display implementations may not accept submission_round
+                                        display.send_new_answer(
+                                            agent_id=agent_id,
+                                            content=result_data,
+                                            answer_number=_answer_number,
+                                            answer_label=_answer_label,
+                                        )
                             # Update status file for real-time monitoring
                             # Run in executor to avoid blocking event loop
                             log_session_dir = get_log_session_dir()
