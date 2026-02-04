@@ -78,13 +78,9 @@ from ..structured_logging import get_current_round, get_tracer, log_token_usage
 from ..tool import ToolManager
 from ._streaming_buffer_mixin import StreamingBufferMixin
 from .base import (
-    FilesystemSupport,
-    LLMBackend,
-    StreamChunk,
-    build_workflow_instructions,
-    build_workflow_mcp_instructions,
-    build_workflow_mcp_server_config,
+    build_workflow_instructions,  # Used in _build_system_prompt_with_workflow_tools
 )
+from .base import FilesystemSupport, LLMBackend, StreamChunk
 from .base import extract_structured_response as _extract_structured_response
 from .base import get_multimodal_tool_definitions
 from .base import parse_workflow_tool_calls as _parse_workflow_tool_calls
@@ -1324,18 +1320,18 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                 mcp_servers_dict = mcp_servers
 
         # Get additional directories from filesystem manager for Claude Code access
-        # This is required because Claude Code's built-in permission system restricts
-        # filesystem access to cwd by default. MCP server args alone aren't sufficient.
+        # IMPORTANT: add_dirs grants WRITE access - only include paths with write permission.
+        # Read-only context paths must NOT be in add_dirs (OS sandbox allows reads anyway).
+        # NOTE: cwd is already writable by default, so we exclude it from add_dirs.
         add_dirs = []
         if self.filesystem_manager:
-            fs_paths = self.filesystem_manager.path_permission_manager.get_mcp_filesystem_paths()
-            # Add all paths except cwd (which is already accessible)
+            # Only get writable paths - add_dirs grants write access
+            writable_paths = self.filesystem_manager.path_permission_manager.get_writable_paths()
             cwd_str = str(cwd_option)
-            for path in fs_paths:
-                if path != cwd_str:
-                    add_dirs.append(path)
+            # Exclude cwd since it's already writable by default
+            add_dirs = [p for p in writable_paths if p != cwd_str]
             if add_dirs:
-                logger.info(f"[ClaudeCodeBackend._build_claude_options] Adding extra dirs for Claude Code access: {add_dirs}")
+                logger.info(f"[ClaudeCodeBackend._build_claude_options] Adding writable dirs for Claude Code access: {add_dirs}")
 
         # Enable OS-level sandbox for native tool security
         # Seatbelt on macOS, bubblewrap on Linux — restricts writes to cwd + add_dirs
@@ -1345,7 +1341,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         }
 
         options = {
-            "cwd": cwd_option,
+            "cwd": str(cwd_option),
             "resume": self.get_current_session_id(),
             "permission_mode": permission_mode,
             "allowed_tools": allowed_tools,
@@ -1377,15 +1373,14 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         if hooks_config:
             options["hooks"] = hooks_config
 
-        # Add can_use_tool hook to auto-grant MCP tools
+        # Add can_use_tool hook to auto-grant tool permissions
+        # Note: File access validation is handled by PreToolUse hooks (validate_context_access)
+        # This callback just grants permission to call the tool itself
         async def can_use_tool(tool_name: str, tool_args: dict, context):
-            """Auto-grant permissions for MCP tools."""
-            # Auto-approve all MCP tools (they start with mcp__)
-            if tool_name.startswith("mcp__"):
-                return PermissionResultAllow(updated_input=tool_args)
-            # For non-MCP tools, use default permission behavior
-            # Return None to use default permission mode
-            return None
+            """Auto-grant tool call permissions. PreToolUse hooks handle path validation."""
+            # Return PermissionResultAllow for all tools
+            # The PreToolUse hooks will still validate file paths for Read/Write/Bash/etc.
+            return PermissionResultAllow(updated_input=tool_args)
 
         options["can_use_tool"] = can_use_tool
 
@@ -1460,12 +1455,12 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         else:
             system_content = ""
 
-        # Try to set up workflow tools as native MCP tools
-        workflow_mcp_config = build_workflow_mcp_server_config(
+        # Setup workflow tools using shared mixin method
+        workflow_mcp_config, workflow_instructions = self._setup_workflow_tools(
             tools or [],
             str(Path(self.config.get("cwd", os.getcwd())) / ".claude_code_workflow"),
         )
-        self._has_workflow_mcp = False
+        self._has_workflow_mcp = workflow_mcp_config is not None
         if workflow_mcp_config:
             # Add workflow MCP server to config for this session
             if "mcp_servers" not in self.config:
@@ -1476,17 +1471,14 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                 self.config["mcp_servers"].append(workflow_mcp_config)
             elif isinstance(self.config["mcp_servers"], dict):
                 self.config["mcp_servers"]["massgen_workflow_tools"] = workflow_mcp_config
-            self._has_workflow_mcp = True
-            logger.info("ClaudeCode: workflow tools configured as native MCP server")
 
         # Build system prompt with tools information
         # When MCP server is active, use MCP-specific instructions (no JSON format examples)
         # instead of text-based instructions, but still tell the agent it MUST call the tools
         if self._has_workflow_mcp:
-            mcp_instructions = build_workflow_mcp_instructions(tools or [])
             base_with_mcp = system_content
-            if mcp_instructions:
-                base_with_mcp = (system_content + "\n" + mcp_instructions) if system_content else mcp_instructions
+            if workflow_instructions:
+                base_with_mcp = (system_content + "\n" + workflow_instructions) if system_content else workflow_instructions
             workflow_system_prompt = self._build_system_prompt_with_workflow_tools([], base_with_mcp)
         else:
             workflow_system_prompt = self._build_system_prompt_with_workflow_tools(tools or [], system_content)

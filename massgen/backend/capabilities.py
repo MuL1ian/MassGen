@@ -280,7 +280,9 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         notes=(
             "OpenAI Codex CLI with OAuth support. Works with ChatGPT Plus/Pro subscription "
             "(via `codex login`) or OPENAI_API_KEY. Native filesystem access via CLI. "
-            "Requires: npm install -g @openai/codex"
+            "Requires: npm install -g @openai/codex. "
+            "SANDBOX LIMITATION: OS-level sandbox (Seatbelt/Landlock) only restricts writes, "
+            "NOT reads. For security-sensitive workloads, prefer Docker mode for full isolation."
         ),
         model_release_dates={
             "gpt-5.2-codex": "2025-12",

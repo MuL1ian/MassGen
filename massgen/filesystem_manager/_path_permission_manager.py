@@ -1121,9 +1121,10 @@ class PathPermissionManager:
         permission = self.get_permission(path)
         logger.debug(f"[PathPermissionManager] Validating write tool '{tool_name}' for path: {path} with permission: {permission}")
 
-        # No permission means not in context paths (workspace paths are always allowed)
-        # IMPORTANT: Check if this path is in a file_context_parent directory
-        # If so, access should be denied (only the specific file has access, not siblings)
+        # No permission means path is not in ANY managed path (workspace, context_paths, etc.)
+        # This includes paths outside allowed directories - these should be DENIED.
+        # Note: Workspace IS added as a managed path with WRITE permission, so it will
+        # have permission != None. Only truly outside paths will have permission == None.
         if permission is None:
             # Check if path is within a file_context_parent directory
             parent_paths = [mp for mp in self.managed_paths if mp.path_type == "file_context_parent"]
@@ -1132,8 +1133,8 @@ class PathPermissionManager:
                     # Path is in a file context parent dir, but not the specific file
                     # Deny access to prevent sibling file access
                     return (False, f"Access denied: '{path}' is not an explicitly allowed file in this directory")
-            # Not in any managed paths - allow (likely workspace or other valid path)
-            return (True, None)
+            # Not in any managed paths - DENY access (path is outside allowed directories)
+            return (False, f"Access denied: '{path}' is outside allowed directories. Only workspace and context paths are accessible.")
 
         # Check write permission (permission is already set correctly based on context_write_access_enabled)
         if permission == Permission.WRITE:
@@ -1470,6 +1471,27 @@ class PathPermissionManager:
                 logger.warning(f"[PathPermissionManager] MCP filesystem path does not exist: {path_str}")
 
         return out
+
+    def get_writable_paths(self) -> List[str]:
+        """
+        Get paths with write permission for SDK add_dirs configuration.
+
+        This is used for Claude Code SDK's add_dirs option, which grants WRITE access
+        to directories beyond cwd. Only paths that actually have write permission
+        should be included - read-only context paths must NOT be in add_dirs as that
+        would incorrectly grant them write access.
+
+        Returns:
+            List of directory path strings with write permission (excludes files)
+        """
+        writable_paths = []
+        for mp in self.managed_paths:
+            # Only include directories with write permission
+            if mp.permission == Permission.WRITE and not mp.is_file:
+                writable_paths.append(str(mp.path))
+
+        logger.debug(f"[PathPermissionManager] Writable paths for SDK add_dirs: {writable_paths}")
+        return writable_paths
 
     def get_permission_summary(self) -> str:
         """Get a human-readable summary of permissions."""

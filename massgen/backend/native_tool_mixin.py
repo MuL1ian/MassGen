@@ -123,3 +123,41 @@ class NativeToolBackendMixin:
             logger.debug(f"[{self.__class__.__name__}] Native hook adapter initialized: {class_name}")
         except (ImportError, AttributeError) as e:
             logger.debug(f"[{self.__class__.__name__}] Native hook adapter not available: {e}")
+
+    # ── Workflow Tools Setup ─────────────────────────────────────────────
+
+    def _setup_workflow_tools(
+        self,
+        tools: List[Dict[str, Any]],
+        mcp_base_path: str,
+    ) -> tuple[Optional[Dict[str, Any]], str]:
+        """Setup workflow tools as MCP server with text fallback.
+
+        Shared logic for configuring MassGen workflow tools (new_answer, vote, etc.)
+        for native tool backends. Tries to set up an MCP server first; falls back
+        to text-based instructions if MCP setup fails.
+
+        Args:
+            tools: List of tool schemas from orchestrator.
+            mcp_base_path: Base path for writing MCP tool specs (e.g., workspace/.codex).
+
+        Returns:
+            Tuple of (mcp_config, instructions):
+            - mcp_config: MCP server config dict if created, None if using text fallback
+            - instructions: Workflow instructions to inject into system prompt
+        """
+        from .base import (
+            build_workflow_instructions,
+            build_workflow_mcp_instructions,
+            build_workflow_mcp_server_config,
+        )
+
+        workflow_mcp_config = build_workflow_mcp_server_config(tools or [], mcp_base_path)
+        if workflow_mcp_config:
+            instructions = build_workflow_mcp_instructions(tools or [])
+            logger.info(f"[{self.__class__.__name__}] Workflow tools configured as MCP server")
+        else:
+            instructions = build_workflow_instructions(tools or [])
+            logger.info(f"[{self.__class__.__name__}] Workflow tools using text fallback ({len(instructions)} chars)")
+
+        return workflow_mcp_config, instructions

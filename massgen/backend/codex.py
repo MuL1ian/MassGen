@@ -12,8 +12,9 @@ Key Features:
 - Session persistence and resumption
 - JSON event stream parsing for real-time streaming
 - MCP tool support via project-scoped .codex/config.toml in workspace
-- System prompt injection via model_instructions_file in config.toml
+- System prompt injection via AGENTS.md in workspace root
 - Full conversation context maintained across turns
+- Uses CODEX_HOME env var to isolate config from user's global ~/.codex/
 
 Architecture:
 - Wraps `codex exec --json` CLI command
@@ -28,12 +29,21 @@ Tool & Sandbox Design Decisions:
   handles file ops and shell natively via its own sandbox.
 - MassGen-specific MCPs (planning, memory, workspace_tools for media gen,
   custom tools) ARE injected via .codex/config.toml [mcp_servers].
-- Codex sandbox is OS-level (Seatbelt on macOS, Landlock on Linux), NOT
-  Docker-based. It does not respect MassGen's docker execution mode.
 - For docker execution mode: the Codex CLI runs inside a MassGen Docker
   container (via DockerManager exec_create/exec_start with streaming).
   Uses --sandbox danger-full-access since the container provides isolation.
   Host ~/.codex/ is mounted read-only for OAuth token access.
+
+Sandbox Limitations (IMPORTANT):
+- Codex sandbox is OS-level (Seatbelt on macOS, Landlock on Linux).
+- The OS sandbox ONLY restricts WRITES - reads are NOT blocked!
+- This means Codex can read files from anywhere on the filesystem, including
+  sensitive directories outside the workspace and context_paths.
+- MassGen's permission hooks cannot intercept Codex's native tool calls.
+- For security-sensitive workloads, PREFER DOCKER MODE which provides full
+  filesystem isolation via container boundaries.
+- When running without Docker, the writable_roots config restricts writes
+  to workspace + context_paths with write permission, but reads are unrestricted.
 
 Requirements:
 - Codex CLI installed: npm install -g @openai/codex
@@ -64,9 +74,6 @@ from .base import (
     FilesystemSupport,
     LLMBackend,
     StreamChunk,
-    build_workflow_instructions,
-    build_workflow_mcp_instructions,
-    build_workflow_mcp_server_config,
     get_multimodal_tool_definitions,
     parse_workflow_tool_calls,
 )
@@ -100,6 +107,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                     If None, will attempt OAuth authentication.
             **kwargs: Additional configuration options including:
                 - model: Model name (default: gpt-5.2-codex)
+                - model_reasoning_effort: Reasoning effort level (low, medium, high, xhigh)
                 - cwd: Current working directory for Codex
                 - system_prompt: System prompt to prepend
                 - approval_mode: Codex approval mode (full-auto, full-access, suggest)
@@ -118,6 +126,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         # Configuration
         self.model = kwargs.get("model", "gpt-5.2-codex")
+        self.model_reasoning_effort = kwargs.get("model_reasoning_effort")  # low, medium, high, xhigh
         self._config_cwd = kwargs.get("cwd")  # May be relative; resolved at execution time
         self.system_prompt = kwargs.get("system_prompt", "")
         self.approval_mode = kwargs.get("approval_mode", "full-auto")
@@ -281,12 +290,19 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         logger.info(f"Custom tools MCP server configured with {len(custom_tools)} tool configs")
 
     def _write_workspace_config(self) -> None:
-        """Write a project-scoped .codex/config.toml in the workspace directory.
+        """Write config.toml to workspace/.codex directory.
 
-        This configures MCP servers and other settings for this agent's session
-        without touching the user's global ~/.codex/config.toml.
+        This configures MCP servers and other settings for this agent's session.
+        The CODEX_HOME env var is set to workspace/.codex when running Codex,
+        so it reads this config instead of ~/.codex/config.toml.
         """
         config: Dict[str, Any] = {}
+
+        # Model settings
+        if self.model:
+            config["model"] = self.model
+        if self.model_reasoning_effort:
+            config["model_reasoning_effort"] = self.model_reasoning_effort
 
         # Always write custom tool specs to current workspace (cwd may change between runs)
         if getattr(self, "_custom_tools_config", None):
@@ -386,25 +402,41 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             agents_md_path.write_text(full_prompt)
             logger.info(f"Wrote Codex AGENTS.md: {agents_md_path} ({len(full_prompt)} chars)")
 
-        # Configure sandbox writable_roots for local (non-Docker) workspace-write mode.
-        # Codex workspace-write sandbox allows reads everywhere but only writes to:
+        # Configure sandbox for local (non-Docker) workspace-write mode.
+        # Codex OS-level sandbox (Seatbelt on macOS, Landlock on Linux) restricts writes to:
         #   cwd (workspace) + /tmp + writable_roots
-        # MassGen pattern: workspace=write, temp_workspaces=read, context_paths per permission.
-        # We only need writable_roots for context paths with write permission.
+        # MassGen pattern: workspace=write, context_paths per permission.
+        # Use get_writable_paths() to get context paths with write permission.
         if not self._is_docker_mode and self.approval_mode in ("full-auto", "auto-edit"):
+            # Enable workspace-write sandbox mode
+            config["sandbox_mode"] = "workspace-write"
+
             writable_roots = []
             if self.filesystem_manager:
                 ppm = getattr(self.filesystem_manager, "path_permission_manager", None)
-                if ppm:
-                    for mp in getattr(ppm, "managed_paths", []):
-                        if mp.path_type == "context" and getattr(mp, "will_be_writable", False):
-                            writable_roots.append(str(Path(mp.path).resolve()))
+                if ppm and hasattr(ppm, "get_writable_paths"):
+                    writable_roots = ppm.get_writable_paths()
+                    # Filter out cwd since workspace is already writable by default
+                    writable_roots = [p for p in writable_roots if p != self.cwd]
+
             if writable_roots:
                 config["sandbox_workspace_write"] = {
                     "writable_roots": writable_roots,
                     "network_access": True,
                 }
                 logger.info(f"Codex sandbox writable_roots: {writable_roots}")
+            else:
+                # Still configure sandbox_workspace_write for network access even without extra roots
+                config["sandbox_workspace_write"] = {
+                    "network_access": True,
+                }
+                logger.info("Codex sandbox: workspace-write mode enabled (no additional writable_roots)")
+
+        elif self._is_docker_mode:
+            # Docker mode: fully disable Codex's internal sandbox since container provides isolation.
+            # This prevents Landlock initialization failures in containers lacking kernel capabilities.
+            config["sandbox_mode"] = "danger-full-access"
+            logger.info("Codex Docker mode: sandbox_mode set to danger-full-access")
 
         if not config:
             return
@@ -424,77 +456,6 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         self._workspace_config_written = True
         logger.info(f"Wrote Codex workspace config: {config_path}")
         logger.info(f"Codex workspace config contents: {config}")
-
-        # Mark workspace as trusted in ~/.codex/config.toml so Codex loads
-        # the project-scoped config we just wrote (untrusted projects are skipped)
-        self._ensure_workspace_trusted()
-
-    def _remove_workspace_trust(self) -> None:
-        """Remove the workspace trust entry from ~/.codex/config.toml."""
-        global_config_path = Path.home() / ".codex" / "config.toml"
-        workspace_path = self.cwd
-
-        try:
-            if not global_config_path.exists():
-                return
-            content = global_config_path.read_text()
-            section_header = f'[projects."{workspace_path}"]'
-            if section_header not in content:
-                return
-
-            # Remove the trust section (header + trust_level line + trailing newline)
-            lines = content.split("\n")
-            new_lines = []
-            skip = False
-            for line in lines:
-                if line.strip() == section_header:
-                    skip = True
-                    continue
-                if skip:
-                    # Skip lines belonging to this section until next section or blank
-                    stripped = line.strip()
-                    if stripped.startswith("[") or stripped == "":
-                        skip = False
-                        if stripped == "":
-                            continue  # skip the trailing blank line
-                    else:
-                        continue
-                new_lines.append(line)
-
-            global_config_path.write_text("\n".join(new_lines))
-            logger.info(f"Removed workspace trust entry from {global_config_path}")
-        except OSError as e:
-            logger.warning(f"Failed to remove workspace trust entry: {e}")
-
-    def _ensure_workspace_trusted(self) -> None:
-        """Mark the workspace as trusted in ~/.codex/config.toml.
-
-        Codex only loads project-scoped .codex/config.toml for trusted projects.
-        We add a [projects."<workspace_path>"] trust_level = "trusted" entry
-        to the user's global config so our MCP servers are picked up.
-        """
-        global_config_path = Path.home() / ".codex" / "config.toml"
-        workspace_path = self.cwd
-
-        try:
-            # Read existing global config
-            existing_content = ""
-            if global_config_path.exists():
-                existing_content = global_config_path.read_text()
-
-            # Check if already trusted
-            if f'[projects."{workspace_path}"]' in existing_content:
-                logger.info(f"Workspace already trusted in global config: {workspace_path}")
-                return
-
-            # Append trust entry
-            trust_entry = f'\n[projects."{workspace_path}"]\ntrust_level = "trusted"\n'
-            global_config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(global_config_path, "a") as f:
-                f.write(trust_entry)
-            logger.info(f"Marked workspace as trusted in {global_config_path}: {workspace_path}")
-        except OSError as e:
-            logger.warning(f"Failed to mark workspace as trusted: {e}")
 
     @staticmethod
     def _toml_value(v: Any) -> str:
@@ -540,22 +501,34 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         for section_key in table_keys:
             section_val = config[section_key]
-            for name, entry in section_val.items():
-                lines.append(f"[{section_key}.{name}]")
-                # Separate simple values from sub-tables (dicts)
-                sub_tables: List[tuple] = []
-                for k, v in entry.items():
-                    if isinstance(v, dict):
-                        sub_tables.append((k, v))
-                    else:
-                        lines.append(f"{k} = {CodexBackend._toml_value(v)}")
-                lines.append("")
-                # Write sub-tables after simple values
-                for sub_key, sub_val in sub_tables:
-                    lines.append(f"[{section_key}.{name}.{sub_key}]")
-                    for sk, sv in sub_val.items():
-                        lines.append(f"{sk} = {CodexBackend._toml_value(sv)}")
+            # Check if this is a table-of-tables (like mcp_servers) or a simple table
+            # (like sandbox_workspace_write). A table-of-tables has all dict values.
+            is_table_of_tables = all(isinstance(v, dict) for v in section_val.values())
+
+            if is_table_of_tables and section_val:
+                # Table-of-tables: [section_key.name] for each entry
+                for name, entry in section_val.items():
+                    lines.append(f"[{section_key}.{name}]")
+                    # Separate simple values from sub-tables (dicts)
+                    sub_tables: List[tuple] = []
+                    for k, v in entry.items():
+                        if isinstance(v, dict):
+                            sub_tables.append((k, v))
+                        else:
+                            lines.append(f"{k} = {CodexBackend._toml_value(v)}")
                     lines.append("")
+                    # Write sub-tables after simple values
+                    for sub_key, sub_val in sub_tables:
+                        lines.append(f"[{section_key}.{name}.{sub_key}]")
+                        for sk, sv in sub_val.items():
+                            lines.append(f"{sk} = {CodexBackend._toml_value(sv)}")
+                        lines.append("")
+            else:
+                # Simple table: [section_key] with key = value pairs
+                lines.append(f"[{section_key}]")
+                for k, v in section_val.items():
+                    lines.append(f"{k} = {CodexBackend._toml_value(v)}")
+                lines.append("")
         path.write_text("\n".join(lines) + "\n")
 
     def _cleanup_workspace_config(self) -> None:
@@ -579,9 +552,6 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             logger.info("Cleaned up Codex workspace config.")
         except OSError as e:
             logger.warning(f"Failed to clean up Codex workspace config: {e}")
-
-        # Remove trust entry from global config
-        self._remove_workspace_trust()
 
         self._workspace_config_written = False
         self._custom_tools_specs_path = None
@@ -909,8 +879,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         tool_names = [t.get("function", {}).get("name", "?") for t in (tools or [])]
         logger.info(f"Codex stream_with_tools: received {len(tools or [])} tools: {tool_names}")
 
-        # Try to set up workflow tools as native MCP tools
-        workflow_mcp_config = build_workflow_mcp_server_config(
+        # Use shared mixin method to setup workflow tools
+        workflow_mcp_config, self._pending_workflow_instructions = self._setup_workflow_tools(
             tools or [],
             str(Path(self.cwd) / ".codex"),
         )
@@ -919,13 +889,6 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             # Remove any previous workflow server entry
             self.mcp_servers = [s for s in self.mcp_servers if not (isinstance(s, dict) and s.get("name") == "massgen_workflow_tools")]
             self.mcp_servers.append(workflow_mcp_config)
-            # Still inject instructions so the agent knows it MUST call the tools
-            self._pending_workflow_instructions = build_workflow_mcp_instructions(tools or [])
-            logger.info("Codex: workflow tools configured as native MCP server")
-        else:
-            # Fallback: text-based workflow instructions
-            self._pending_workflow_instructions = build_workflow_instructions(tools or [])
-            logger.info(f"Codex workflow instructions (text fallback): {len(self._pending_workflow_instructions)} chars")
 
         has_workflow_mcp = workflow_mcp_config is not None
 
@@ -1008,22 +971,19 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             # Build command for docker execution
             cmd = self._build_exec_command(prompt, resume_session=resume_session, for_docker=True)
 
-            # Auth: copy host ~/.codex/auth.json into workspace .codex/ dir,
-            # then set HOME to workspace so Codex finds it at ~/. codex/auth.json.
-            # The workspace is writable, so Codex can also write session files there.
+            # Set CODEX_HOME to workspace/.codex so Codex reads config from there.
+            # Copy auth.json from host ~/.codex/ for OAuth tokens.
             workspace = self.cwd
             codex_dir = Path(workspace) / ".codex"
             codex_dir.mkdir(parents=True, exist_ok=True)
             host_auth = Path.home() / ".codex" / "auth.json"
             if host_auth.exists():
-                import shutil
-
                 shutil.copy2(str(host_auth), str(codex_dir / "auth.json"))
                 logger.info("Codex Docker auth: copied OAuth tokens to workspace .codex/")
             else:
                 logger.warning("Codex Docker auth: no ~/.codex/auth.json found on host")
 
-            exec_env = {"NO_COLOR": "1", "HOME": workspace}
+            exec_env = {"NO_COLOR": "1", "CODEX_HOME": str(codex_dir)}
 
             logger.info(f"Running Codex in Docker: {cmd}")
 
@@ -1126,6 +1086,18 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         logger.info(f"Running Codex command: {' '.join(cmd)}")
 
+        # Set CODEX_HOME to workspace/.codex so Codex reads config from there
+        # instead of ~/.codex. This avoids needing to modify the user's global
+        # config with trust entries.
+        codex_home = str(Path(self.cwd) / ".codex")
+        Path(codex_home).mkdir(parents=True, exist_ok=True)
+
+        # Copy auth.json from user's ~/.codex/ if it exists (for OAuth)
+        host_auth = Path.home() / ".codex" / "auth.json"
+        if host_auth.exists():
+            shutil.copy2(str(host_auth), str(Path(codex_home) / "auth.json"))
+            logger.debug("Copied OAuth tokens to workspace CODEX_HOME")
+
         try:
             # Start subprocess
             proc = await asyncio.create_subprocess_exec(
@@ -1133,7 +1105,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.cwd,
-                env={**os.environ, "NO_COLOR": "1"},  # Disable ANSI colors
+                env={**os.environ, "NO_COLOR": "1", "CODEX_HOME": codex_home},
             )
 
             first_content = True
@@ -1264,6 +1236,26 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
     def get_provider_name(self) -> str:
         """Get the name of this provider."""
         return "codex"
+
+    def is_mcp_tool_call(self, tool_name: str) -> bool:
+        """Check if a tool call is an MCP function.
+
+        Codex uses server_name/tool_name format (e.g., massgen_custom_tools/custom_tool__generate_media).
+        """
+        # Check for Codex MCP naming convention (server/tool)
+        if "/" in tool_name:
+            return True
+        # Also check standard MCP naming (mcp__server__tool)
+        if tool_name.startswith("mcp__"):
+            return True
+        return False
+
+    def is_custom_tool_call(self, tool_name: str) -> bool:
+        """Check if a tool call is a custom tool function.
+
+        Custom tools in Codex are wrapped as MCP and use the massgen_custom_tools server.
+        """
+        return tool_name.startswith("massgen_custom_tools/")
 
     def get_filesystem_support(self) -> FilesystemSupport:
         """Codex has native filesystem support via built-in tools."""

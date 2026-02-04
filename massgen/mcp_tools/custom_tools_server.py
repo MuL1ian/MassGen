@@ -275,6 +275,7 @@ def build_server_config(
     tool_specs_path: Path,
     allowed_paths: Optional[List[str]] = None,
     agent_id: str = "unknown",
+    tool_timeout_sec: int = 300,
 ) -> Dict[str, Any]:
     """Build an MCP server config dict for use in .codex/config.toml or mcp_servers list.
 
@@ -282,14 +283,17 @@ def build_server_config(
         tool_specs_path: Path to the tool specs JSON file.
         allowed_paths: List of allowed filesystem paths.
         agent_id: Agent identifier.
+        tool_timeout_sec: Timeout in seconds for tool execution (default 300 for media generation).
 
     Returns:
         MCP server configuration dict (stdio type).
     """
-    server_script = str(Path(__file__).resolve())
+    # Use absolute file path - works in Docker because massgen is bind-mounted at same host path
+    script_path = Path(__file__).resolve()
+
     cmd_args = [
         "run",
-        f"{server_script}:create_server",
+        f"{script_path}:create_server",
         "--",
         "--tool-specs",
         str(tool_specs_path),
@@ -305,4 +309,5 @@ def build_server_config(
         "command": "fastmcp",
         "args": cmd_args,
         "env": {"FASTMCP_SHOW_CLI_BANNER": "false"},
+        "tool_timeout_sec": tool_timeout_sec,
     }

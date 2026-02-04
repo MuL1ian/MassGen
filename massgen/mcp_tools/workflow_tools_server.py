@@ -155,30 +155,33 @@ def write_workflow_specs(
 
 def build_server_config(
     tool_specs_path: Path,
+    tool_timeout_sec: int = 120,
 ) -> Dict[str, Any]:
     """Build an MCP server config dict for use in .codex/config.toml or mcp_servers list.
 
     Args:
         tool_specs_path: Path to the workflow tool specs JSON file.
+        tool_timeout_sec: Timeout in seconds for tool execution (default 120).
 
     Returns:
         MCP server configuration dict (stdio type).
     """
-    server_script = str(Path(__file__).resolve())
-    cmd_args = [
-        "run",
-        f"{server_script}:create_server",
-        "--",
-        "--tool-specs",
-        str(tool_specs_path),
-    ]
+    # Use absolute file path - works in Docker because massgen is bind-mounted at same host path
+    script_path = Path(__file__).resolve()
 
     return {
         "name": SERVER_NAME,
         "type": "stdio",
         "command": "fastmcp",
-        "args": cmd_args,
+        "args": [
+            "run",
+            f"{script_path}:create_server",
+            "--",
+            "--tool-specs",
+            str(tool_specs_path),
+        ],
         "env": {"FASTMCP_SHOW_CLI_BANNER": "false"},
+        "tool_timeout_sec": tool_timeout_sec,
     }
 
 
