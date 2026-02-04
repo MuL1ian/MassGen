@@ -7,24 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- **BREAKING (Soft):** Default display changed from `rich_terminal` to `textual_terminal`
-  - All users now get the superior TUI experience by default
-  - Existing configs with `display_type: "rich_terminal"` will show deprecation warning and use TUI
-  - Use `--display rich` flag to force legacy Rich display
-  - Updated ALL 160+ example configs to use `textual_terminal`
-
-### Improved
-- Setup wizard (`--setup`, `--quickstart`) now generates configs with TUI display
-- Enhanced documentation with prominent TUI feature descriptions
-- Improved first-run experience with clear TUI benefits explanation
-
-### Deprecated
-- `rich_terminal` display type is now deprecated in favor of `textual_terminal`
-- Configs using `rich_terminal` will show warning and auto-convert to TUI
-- Use `--display rich` to explicitly request legacy Rich display
-
 ## Recent Releases
+
+**v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
+New Codex backend for OpenAI Codex CLI with local and Docker execution. TUI theme system refactored to palette-based architecture with unified base styles. Per-agent voting sensitivity configuration. Claude Code backend refactored with shared NativeToolMixin.
 
 **v0.1.46 (February 3, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
 Subagents now stream in real-time with clickable preview cards that expand to full timeline views. Major TUI event architecture refactor with structured event emission pipeline. Improved final presentation display with workspace visualization and winning agent highlighting. Tutorial video GIF previews added to documentation.
@@ -32,10 +18,50 @@ Subagents now stream in real-time with clickable preview cards that expand to fu
 **v0.1.45 (January 31, 2026)** - TUI Default & Config Migration
 TUI (Textual Terminal) is now the default display mode for all users. Existing configs with `rich_terminal` auto-migrate with deprecation warning. Setup wizard generates TUI configs. Enhanced documentation and first-run experience highlight TUI benefits. Minor documentation and packaging fixes.
 
-**v0.1.44 (January 28, 2026)** - Execute Mode for Independent Plan Selection
-New Execute mode allows cycling through Normal → Planning → Execute modes via Shift+Tab. Users can independently browse and select from existing plans for execution. Context paths preserved between planning and execution phases. Minor TUI performance improvements and enhanced case studies documentation.
-
 ---
+
+## [0.1.47] - 2026-02-04
+
+### Added
+- **Codex Backend** ([#843](https://github.com/massgen/MassGen/pull/843)): New `codex` backend type for OpenAI Codex CLI
+  - Local and Docker execution modes with workspace mounting
+  - OAuth and API key authentication with session persistence
+  - `NativeToolMixin` abstract mixin for shared native tool handling between Codex and Claude Code
+  - Custom and workflow MCP servers (`custom_tools_server.py`, `workflow_tools_server.py`) for exposing MassGen tools to CLI-based backends
+
+### Changed
+- **TUI Theme System** ([#842](https://github.com/massgen/MassGen/pull/842)): Refactored to palette-based architecture with unified `base.tcss` replacing per-widget inline CSS
+  - Semantic CSS variables for consistent cross-component theming
+  - Theme palette files for dark, light, Catppuccin Latte, and Catppuccin Mocha variants
+  - Removed legacy `transparent.tcss`
+
+- **Per-agent Voting Sensitivity** ([#842](https://github.com/massgen/MassGen/pull/842)): Voting sensitivity (`strict`/`balanced`/`lenient`) now configurable per-agent, overriding orchestrator-level defaults with rewritten evaluation criteria
+
+- **Claude Code Backend** ([#843](https://github.com/massgen/MassGen/pull/843)): Refactored to use `NativeToolMixin` with native filesystem support and OS-level sandbox, extracting shared tool handling logic
+
+- **Round Display Tracking** ([#842](https://github.com/massgen/MassGen/pull/842)): Vote and answer submissions now track and display submission round numbers in TUI timeline and coordination UI
+
+- **Gemini Backend** ([#842](https://github.com/massgen/MassGen/pull/842)): Globally unique tool call ID generation and configuration improvements
+
+### Fixed
+- **Final Presentation Display** ([#842](https://github.com/massgen/MassGen/pull/842)): Fixed rendering issues with final presentation box
+- **MCP Tool Call Error Handling** ([#842](https://github.com/massgen/MassGen/pull/842)): Enhanced error handling for invalid MCP tool calls with clearer user guidance
+
+### Documentation, Configurations and Resources
+- **Backends User Guide**: Updated `docs/source/user_guide/backends.rst` with Codex backend documentation
+- **Interactive Mode Design**: New `docs/modules/interactive_mode.md` architecture document
+- **Capabilities Registry**: Updated `massgen/backend/capabilities.py` with Codex models (`gpt-5.2-codex`, `gpt-5.1-codex`, `gpt-5-codex`, `gpt-4.1`)
+- **Backend Integrator Skill**: New `massgen/skills/backend-integrator/SKILL.md` for guided backend integration workflows
+- **OpenSpec Documents**: Interactive mode proposal, design, vision, and spec documents
+
+### Technical Details
+- **Major Focus**: Codex backend integration, TUI theme refactoring, per-agent voting sensitivity
+- **Files Modified**:
+  - Backend: `massgen/backend/codex.py` (new), `massgen/backend/native_tool_mixin.py` (new), `massgen/backend/claude_code.py` (refactored)
+  - TUI: `massgen/frontend/displays/textual_themes/base.tcss` (new), palette files (new/moved), widget CSS extraction
+  - MCP: `massgen/mcp_tools/custom_tools_server.py` (new), `massgen/mcp_tools/workflow_tools_server.py` (new)
+  - Docs: `docs/source/user_guide/backends.rst`, `docs/modules/interactive_mode.md`
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.46] - 2026-02-02
 

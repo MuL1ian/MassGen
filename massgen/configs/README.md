@@ -227,22 +227,33 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.46 - Latest
+### v0.1.47 - Latest
+**New Features:** Codex Backend, TUI Theme Refactoring, Per-agent Voting Sensitivity
+
+**Key Features:**
+- **Codex Backend**: Run OpenAI Codex CLI as a MassGen backend with local and Docker execution
+- **TUI Theme System**: Palette-based theming with dark, light, Catppuccin Latte, and Catppuccin Mocha variants
+- **Per-agent Voting Sensitivity**: Set different voting standards (strict/balanced/lenient) for each agent
+- **Claude Code Refactored**: Shared NativeToolMixin for native tool handling across CLI-based backends
+
+**Try It:**
+```bash
+# Try per-agent voting sensitivity with different evaluation standards
+uv run massgen --config massgen/configs/voting/gemini_gpt_voting_sensitivity.yaml "What are the best practices for building microservices?"
+```
+
+### v0.1.46
 **New Features:** Subagent TUI Streaming, Enhanced Final Presentation, TUI Architecture Refactor
 
 **Key Features:**
 - **Subagent TUI Streaming**: Interactive preview cards that expand to full timeline views with real-time event streaming
 - **Enhanced Final Presentation**: Final answer display with workspace visualization and winning agent highlighting
 - **TUI Architecture Refactor**: Unified event pipeline with single source of truth for display creation
-- **Bug Fixes**: Fixed banner display, tool call ID handling, and round tracking logic
 
 **Try It:**
 ```bash
 # Experience subagent TUI streaming with async execution
 uv run massgen --config @examples/configs/features/test_subagent_orchestrator_code_mode.yaml "Use subagents to research bob dylan"
-
-# Click on preview cards in the TUI to expand subagent timelines
-# Watch real-time event streaming from background subagents
 ```
 
 ### v0.1.45
