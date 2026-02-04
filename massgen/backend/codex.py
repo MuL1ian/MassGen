@@ -257,6 +257,71 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         logger.info("Codex authentication successful.")
 
+    def _build_custom_tools_mcp_env(self) -> Dict[str, str]:
+        """Build environment variables for the custom tools MCP server.
+
+        Mirrors Docker credential configuration when available; otherwise
+        returns only the FastMCP banner suppression flag.
+        """
+        env_vars = {"FASTMCP_SHOW_CLI_BANNER": "false"}
+
+        if not self.config:
+            return env_vars
+
+        creds = self.config.get("command_line_docker_credentials") or {}
+        if not creds:
+            return env_vars
+
+        # Helper to load .env files (simple KEY=VALUE lines)
+        def _load_env_file(env_file_path: Path) -> Dict[str, str]:
+            loaded: Dict[str, str] = {}
+            try:
+                with open(env_file_path, "r") as f:
+                    for line_num, line in enumerate(f, start=1):
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        key, value = line.split("=", 1)
+                        key = key.strip()
+                        value = value.strip()
+                        if key:
+                            loaded[key] = value
+                        else:
+                            logger.warning(f"⚠️ [Codex] Skipping invalid line {line_num} in {env_file_path}: {line}")
+            except Exception as e:
+                logger.warning(f"⚠️ [Codex] Failed to read env file {env_file_path}: {e}")
+            return loaded
+
+        # Pass all env vars if configured
+        if creds.get("pass_all_env"):
+            env_vars.update(os.environ)
+
+        # Load from env_file (filtered if env_vars_from_file is set)
+        env_file = creds.get("env_file")
+        if env_file:
+            env_path = Path(env_file).expanduser().resolve()
+            if env_path.exists():
+                file_env = _load_env_file(env_path)
+                filter_list = creds.get("env_vars_from_file")
+                if filter_list:
+                    filtered_env = {k: v for k, v in file_env.items() if k in filter_list}
+                    env_vars.update(filtered_env)
+                else:
+                    env_vars.update(file_env)
+            else:
+                logger.warning(f"⚠️ [Codex] Env file not found: {env_path}")
+
+        # Pass specific env vars from host
+        for var_name in creds.get("env_vars", []) or []:
+            if var_name in os.environ:
+                env_vars[var_name] = os.environ[var_name]
+            else:
+                logger.warning(f"⚠️ [Codex] Requested env var '{var_name}' not found in host environment")
+
+        # Always enforce banner suppression
+        env_vars["FASTMCP_SHOW_CLI_BANNER"] = "false"
+        return env_vars
+
     def _setup_custom_tools_mcp(self, custom_tools: List[Dict[str, Any]]) -> None:
         """Wrap MassGen custom tools as an MCP server and add to mcp_servers.
 
@@ -285,6 +350,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             tool_specs_path=specs_path,
             allowed_paths=[self.cwd],
             agent_id="codex",
+            env=self._build_custom_tools_mcp_env(),
         )
         self.mcp_servers.append(server_config)
         logger.info(f"Custom tools MCP server configured with {len(custom_tools)} tool configs")
@@ -322,6 +388,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                             tool_specs_path=specs_path,
                             allowed_paths=[self.cwd],
                             agent_id="codex",
+                            env=self._build_custom_tools_mcp_env(),
                         ),
                     )
                     break

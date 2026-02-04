@@ -275,6 +275,7 @@ def build_server_config(
     tool_specs_path: Path,
     allowed_paths: Optional[List[str]] = None,
     agent_id: str = "unknown",
+    env: Optional[Dict[str, str]] = None,
     tool_timeout_sec: int = 300,
 ) -> Dict[str, Any]:
     """Build an MCP server config dict for use in .codex/config.toml or mcp_servers list.
@@ -303,11 +304,17 @@ def build_server_config(
     if allowed_paths:
         cmd_args.extend(["--allowed-paths"] + allowed_paths)
 
+    env_vars = {"FASTMCP_SHOW_CLI_BANNER": "false"}
+    if env:
+        env_vars.update(env)
+        # Always enforce banner suppression
+        env_vars["FASTMCP_SHOW_CLI_BANNER"] = "false"
+
     return {
         "name": "massgen_custom_tools",
         "type": "stdio",
         "command": "fastmcp",
         "args": cmd_args,
-        "env": {"FASTMCP_SHOW_CLI_BANNER": "false"},
+        "env": env_vars,
         "tool_timeout_sec": tool_timeout_sec,
     }
