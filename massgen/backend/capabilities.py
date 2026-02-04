@@ -252,6 +252,45 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "Image understanding support."
         ),
     ),
+    "codex": BackendCapabilities(
+        backend_type="codex",
+        provider_name="Codex",
+        supported_capabilities={
+            "bash",
+            "mcp",
+            "filesystem_native",
+            "web_search",
+        },
+        builtin_tools=[
+            "shell",
+            "file_read",
+            "file_write",
+            "file_edit",
+            "web_search",
+        ],
+        filesystem_support="native",
+        models=[
+            "gpt-5.2-codex",
+            "gpt-5.1-codex",
+            "gpt-5-codex",
+            "gpt-4.1",
+        ],
+        default_model="gpt-5.2-codex",
+        env_var="OPENAI_API_KEY",
+        notes=(
+            "OpenAI Codex CLI with OAuth support. Works with ChatGPT Plus/Pro subscription "
+            "(via `codex login`) or OPENAI_API_KEY. Native filesystem access via CLI. "
+            "Requires: npm install -g @openai/codex. "
+            "SANDBOX LIMITATION: OS-level sandbox (Seatbelt/Landlock) only restricts writes, "
+            "NOT reads. For security-sensitive workloads, prefer Docker mode for full isolation."
+        ),
+        model_release_dates={
+            "gpt-5.2-codex": "2025-12",
+            "gpt-5.1-codex": "2025-12",
+            "gpt-5-codex": "2025-09",
+            "gpt-4.1": "2025-04",
+        },
+    ),
     "gemini": BackendCapabilities(
         backend_type="gemini",
         provider_name="Gemini",

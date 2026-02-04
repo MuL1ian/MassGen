@@ -751,6 +751,35 @@ class CoordinationUI:
         if hasattr(self, "_agent_content_buffers"):
             self._agent_content_buffers = {}
 
+    def prepare_for_restart(self, orchestrator, attempt: int, max_attempts: int) -> None:
+        """Prepare the UI for a restart attempt without recreating display or UI.
+
+        Resets internal state and tells the display to show a restart separator.
+
+        Args:
+            orchestrator: The orchestrator (used to extract restart context).
+            attempt: The new attempt number (1-indexed).
+            max_attempts: Total allowed attempts.
+        """
+        reason = getattr(orchestrator, "restart_reason", "") or ""
+        instructions = getattr(orchestrator, "restart_instructions", "") or ""
+
+        # Reset answer/presentation state
+        self._answer_buffer = ""
+        if self._answer_timeout_task:
+            self._answer_timeout_task.cancel()
+            self._answer_timeout_task = None
+        self._final_answer_shown = False
+        self._agent_content_buffers = {}
+        self._last_phase = "idle"
+
+        # Flag so coordinate() skips display cleanup on re-entry
+        self._is_restart = True
+
+        # Delegate to display
+        if self.display and hasattr(self.display, "begin_restart"):
+            self.display.begin_restart(attempt, max_attempts, reason, instructions)
+
     async def coordinate(self, orchestrator, question: str, agent_ids: Optional[List[str]] = None) -> str:
         """Coordinate agents with visual display.
 
@@ -772,10 +801,16 @@ class CoordinationUI:
         final_result = ""
         final_answer = ""
 
+        # Check if this is a restart re-entry (display already prepared)
+        is_restart = getattr(self, "_is_restart", False)
+        if is_restart:
+            self._is_restart = False
+
         # Reset display to ensure clean state for each coordination
         # But preserve web displays - they have their own lifecycle managed by the web server
         # Also preserve display in preserve_display mode (for multi-turn TUI)
-        if self.display is not None and self.display_type != "web" and not self.preserve_display:
+        # Also skip cleanup on restart re-entry (display was already prepared)
+        if self.display is not None and self.display_type != "web" and not self.preserve_display and not is_restart:
             self.display.cleanup()
             self.display = None
 
@@ -1394,10 +1429,16 @@ class CoordinationUI:
         final_result = ""
         final_answer = ""
 
+        # Check if this is a restart re-entry (display already prepared)
+        is_restart = getattr(self, "_is_restart", False)
+        if is_restart:
+            self._is_restart = False
+
         # Reset display to ensure clean state for each coordination
         # But preserve web displays - they have their own lifecycle managed by the web server
         # Also preserve display in preserve_display mode (for multi-turn TUI)
-        if self.display is not None and self.display_type != "web" and not self.preserve_display:
+        # Also skip cleanup on restart re-entry (display was already prepared)
+        if self.display is not None and self.display_type != "web" and not self.preserve_display and not is_restart:
             self.display.cleanup()
             self.display = None
 

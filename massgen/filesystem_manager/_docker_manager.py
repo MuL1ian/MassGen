@@ -104,6 +104,7 @@ class DockerManager:
         self.mount_gh_config = "gh_config" in mount_list
         self.mount_npm_config = "npm_config" in mount_list
         self.mount_pypi_config = "pypi_config" in mount_list
+        self.mount_codex_config = "codex_config" in mount_list
         self.additional_mounts = credentials.get("additional_mounts", {})
         self.env_file_path = credentials.get("env_file")
         self.pass_env_vars = credentials.get("env_vars", [])
@@ -333,6 +334,9 @@ class DockerManager:
                 logger.info(f"🔐 [Docker] Mounting npm config: {npm_config} → /home/massgen/.npmrc (ro)")
             else:
                 logger.warning(f"⚠️ [Docker] npm config not found: {npm_config}")
+
+        # Codex config: handled separately via _copy_codex_auth() after container creation
+        # (Codex needs write access to ~/.codex/ for session files, so we can't mount read-only)
 
         # Mount pypi config (read-only)
         if self.mount_pypi_config:
@@ -639,6 +643,15 @@ class DockerManager:
             volumes.update(session_mount)
             for host_path, mount_config in session_mount.items():
                 mount_info.append(f"      {host_path} ← {mount_config['bind']} ({mount_config['mode']}, session)")
+
+        # Mount the massgen package directory (read-only) so MCP server scripts
+        # referenced by absolute host paths work inside the container.
+        # The orchestrator builds MCP configs like:
+        #   fastmcp run /host/path/massgen/mcp_tools/planning/_server.py:create_server
+        # By mounting the massgen source at the same path, these commands work as-is.
+        massgen_package_dir = Path(__file__).parent.parent.resolve()
+        volumes[str(massgen_package_dir)] = {"bind": str(massgen_package_dir), "mode": "ro"}
+        mount_info.append(f"      {massgen_package_dir} ← {massgen_package_dir} (ro, massgen package)")
 
         # Create merged skills directory (user skills + massgen skills)
         # openskills expects skills in ~/.agent/skills

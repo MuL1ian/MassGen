@@ -5,8 +5,11 @@ Base backend interface for LLM providers.
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -31,6 +34,27 @@ class FilesystemSupport(Enum):
     NONE = "none"  # No filesystem support
     NATIVE = "native"  # Built-in filesystem tools (like Claude Code)
     MCP = "mcp"  # Filesystem support through MCP servers
+
+
+def get_multimodal_tool_definitions() -> List[Dict[str, Any]]:
+    """Return the standard multimodal custom tool definitions (read_media, generate_media).
+
+    Used by backends that need to register multimodal tools when enable_multimodal_tools is true.
+    """
+    return [
+        {
+            "name": ["read_media"],
+            "category": "multimodal",
+            "path": "massgen/tool/_multimodal_tools/read_media.py",
+            "function": ["read_media"],
+        },
+        {
+            "name": ["generate_media"],
+            "category": "multimodal",
+            "path": "massgen/tool/_multimodal_tools/generation/generate_media.py",
+            "function": ["generate_media"],
+        },
+    ]
 
 
 @dataclass
@@ -929,3 +953,280 @@ class LLMBackend(ABC):
             stage: CoordinationStage enum value
         """
         self.coordination_stage = stage
+
+
+# ---------------------------------------------------------------------------
+# Shared workflow tool helpers (used by Claude Code and Codex backends)
+# ---------------------------------------------------------------------------
+
+
+def extract_structured_response(text: str) -> Optional[Dict[str, Any]]:
+    """Extract a structured JSON workflow tool call from text.
+
+    Looks for ``{"tool_name": "...", "arguments": {...}}`` in the text,
+    trying multiple strategies: markdown code blocks, regex, brace-matching,
+    and line-by-line scanning.
+
+    Returns:
+        Parsed dict if found, ``None`` otherwise.
+    """
+    try:
+        # Strategy 0: JSON inside ```json code blocks (last match wins)
+        markdown_matches = re.findall(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+        for match in reversed(markdown_matches):
+            try:
+                parsed = json.loads(match.strip())
+                if isinstance(parsed, dict) and "tool_name" in parsed:
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+
+        # Strategy 1: Simple regex for JSON objects
+        for match in reversed(re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)):
+            try:
+                parsed = json.loads(match.strip())
+                if isinstance(parsed, dict) and "tool_name" in parsed:
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+
+        # Strategy 2: Brace-matching walk
+        brace_count = 0
+        json_start = -1
+        for i, char in enumerate(text):
+            if char == "{":
+                if brace_count == 0:
+                    json_start = i
+                brace_count += 1
+            elif char == "}":
+                brace_count -= 1
+                if brace_count == 0 and json_start >= 0:
+                    try:
+                        parsed = json.loads(text[json_start : i + 1])
+                        if isinstance(parsed, dict) and "tool_name" in parsed:
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+                    json_start = -1
+
+        # Strategy 3: Line-by-line fallback
+        lines = text.strip().split("\n")
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            candidate = None
+            if stripped.startswith("{") and stripped.endswith("}"):
+                candidate = stripped
+            elif stripped.startswith("{"):
+                parts = stripped
+                for j in range(i + 1, len(lines)):
+                    parts += "\n" + lines[j].strip()
+                    if lines[j].strip().endswith("}"):
+                        candidate = parts
+                        break
+            if candidate:
+                try:
+                    parsed = json.loads(candidate)
+                    if isinstance(parsed, dict) and "tool_name" in parsed:
+                        return parsed
+                except json.JSONDecodeError:
+                    continue
+
+        return None
+    except Exception:
+        return None
+
+
+def parse_workflow_tool_calls(text: str) -> List[Dict[str, Any]]:
+    """Parse workflow tool calls from accumulated text output.
+
+    Returns a list of tool-call dicts in the standard format expected by
+    the orchestrator::
+
+        {"id": "call_...", "type": "function",
+         "function": {"name": "vote", "arguments": {...}}}
+    """
+    # Primary path: structured extraction
+    structured = extract_structured_response(text)
+    if structured and isinstance(structured, dict):
+        tool_name = structured.get("tool_name")
+        arguments = structured.get("arguments", {})
+        if tool_name and isinstance(arguments, dict):
+            return [
+                {
+                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": arguments},
+                },
+            ]
+
+    # Fallback: regex for multiple tool calls
+    tool_calls: List[Dict[str, Any]] = []
+    seen: set = set()
+    patterns = [
+        r'\{"tool_name":\s*"([^"]+)",\s*"arguments":\s*(\{[^}]*\})\}',
+        r'\{\s*"tool_name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*(\{[^}]*\})\s*\}',
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            tool_name = match.group(1)
+            try:
+                arguments = json.loads(match.group(2))
+                sig = (tool_name, json.dumps(arguments, sort_keys=True))
+                if sig not in seen:
+                    seen.add(sig)
+                    tool_calls.append(
+                        {
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": arguments},
+                        },
+                    )
+            except json.JSONDecodeError:
+                continue
+    return tool_calls
+
+
+def build_workflow_instructions(tools: List[Dict[str, Any]]) -> str:
+    """Build workflow tool instructions for system prompt injection.
+
+    Filters *tools* to workflow tools only and returns the instruction text
+    to append to a system prompt.  Returns empty string when no workflow
+    tools are present.
+    """
+    from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
+
+    workflow_tools = [t for t in tools if t.get("function", {}).get("name") in WORKFLOW_TOOL_NAMES]
+    if not workflow_tools:
+        return ""
+
+    parts: List[str] = ["\n--- Coordination Actions ---"]
+    for tool in workflow_tools:
+        name = tool.get("function", {}).get("name", "unknown")
+        description = tool.get("function", {}).get("description", "No description")
+        parts.append(f"- {name}: {description}")
+
+        if name == "new_answer":
+            parts.append(
+                '    Usage: {"tool_name": "new_answer", ' '"arguments": {"content": "your improved answer. If any builtin tools were used, mention how they are used here."}}',
+            )
+        elif name == "vote":
+            agent_id_enum = None
+            for t in tools:
+                if t.get("function", {}).get("name") == "vote":
+                    agent_id_param = t.get("function", {}).get("parameters", {}).get("properties", {}).get("agent_id", {})
+                    if "enum" in agent_id_param:
+                        agent_id_enum = agent_id_param["enum"]
+                    break
+            if agent_id_enum:
+                agent_list = ", ".join(agent_id_enum)
+                parts.append(
+                    f'    Usage: {{"tool_name": "vote", "arguments": {{"agent_id": "agent1", ' f'"reason": "explanation"}}}} // Choose agent_id from: {agent_list}',
+                )
+            else:
+                parts.append(
+                    '    Usage: {"tool_name": "vote", ' '"arguments": {"agent_id": "agent1", "reason": "explanation"}}',
+                )
+        elif name == "submit":
+            parts.append('    Usage: {"tool_name": "submit", "arguments": {"confirmed": true}}')
+        elif name == "restart_orchestration":
+            parts.append(
+                '    Usage: {"tool_name": "restart_orchestration", ' '"arguments": {"reason": "The answer is incomplete because...", ' '"instructions": "In the next attempt, please..."}}',
+            )
+        elif name == "ask_others":
+            parts.append(
+                '    Usage: {"tool_name": "ask_others", ' '"arguments": {"question": "Which framework should we use: Next.js or React?"}}',
+            )
+            parts.append(
+                '    IMPORTANT: When user says "call ask_others" or "ask others", you MUST execute this tool call.',
+            )
+
+    parts.append("\n--- MassGen Coordination Instructions ---")
+    parts.append("IMPORTANT: You must respond with a structured JSON decision at the end of your response.")
+    parts.append("The JSON MUST be formatted as a strict JSON code block:")
+    parts.append("1. Start with ```json on one line")
+    parts.append("2. Include your JSON content (properly formatted)")
+    parts.append("3. End with ``` on one line")
+    parts.append(
+        'Example format:\n```json\n{"tool_name": "vote", "arguments": {"agent_id": "agent1", "reason": "explanation"}}\n```',
+    )
+    parts.append("The JSON block should be placed at the very end of your response, after your analysis.")
+    return "\n".join(parts)
+
+
+def build_workflow_mcp_instructions(tools: List[Dict[str, Any]]) -> str:
+    """Build instructions for when workflow tools are available as native MCP tools.
+
+    Unlike build_workflow_instructions() which includes JSON format examples for
+    text-based parsing, this version tells the agent to call the MCP tools directly.
+    Still needed so the agent knows it MUST call them.
+    """
+    from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
+
+    workflow_tools = [t for t in tools if t.get("function", {}).get("name") in WORKFLOW_TOOL_NAMES]
+    if not workflow_tools:
+        return ""
+
+    tool_names = [t.get("function", {}).get("name", "") for t in workflow_tools]
+
+    parts: List[str] = ["\n--- MassGen Coordination Instructions ---"]
+    parts.append(
+        "CRITICAL: You MUST call one of the following MCP tools before finishing your response. " "Do NOT just write text — you must actually invoke the tool.",
+    )
+
+    for tool in workflow_tools:
+        name = tool.get("function", {}).get("name", "unknown")
+        description = tool.get("function", {}).get("description", "No description")
+        parts.append(f"- {name}: {description}")
+
+        if name == "vote":
+            agent_id_param = tool.get("function", {}).get("parameters", {}).get("properties", {}).get("agent_id", {})
+            agent_id_enum = agent_id_param.get("enum")
+            if agent_id_enum:
+                parts.append(f"    Valid agent_id values: {', '.join(agent_id_enum)}")
+
+    if "new_answer" in tool_names and "vote" in tool_names:
+        parts.append(
+            "\nYou MUST call either `new_answer` (to submit your answer) or `vote` "
+            "(to vote for the best existing answer) as an MCP tool call. "
+            "Your response is incomplete without one of these tool calls.",
+        )
+    elif "new_answer" in tool_names:
+        parts.append("\nYou MUST call `new_answer` as an MCP tool call to submit your answer.")
+    elif "vote" in tool_names:
+        parts.append("\nYou MUST call `vote` as an MCP tool call to vote for the best answer.")
+
+    return "\n".join(parts)
+
+
+def build_workflow_mcp_server_config(
+    tools: List[Dict[str, Any]],
+    specs_dir: str,
+) -> Optional[Dict[str, Any]]:
+    """Build an MCP server config for workflow tools.
+
+    Filters *tools* to workflow tools only, writes specs to disk,
+    and returns the MCP server config dict. Returns None if no workflow
+    tools are present.
+
+    Args:
+        tools: Full list of tool definitions (may include non-workflow tools).
+        specs_dir: Directory path to write the specs JSON file into.
+
+    Returns:
+        MCP server config dict, or None if no workflow tools.
+    """
+    from pathlib import Path
+
+    from ..mcp_tools.workflow_tools_server import (
+        build_server_config,
+        write_workflow_specs,
+    )
+    from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
+
+    workflow_tools = [t for t in tools if t.get("function", {}).get("name") in WORKFLOW_TOOL_NAMES or t.get("name") in WORKFLOW_TOOL_NAMES]
+    if not workflow_tools:
+        return None
+
+    specs_path = Path(specs_dir) / "workflow_tool_specs.json"
+    write_workflow_specs(workflow_tools, specs_path)
+    return build_server_config(specs_path)
