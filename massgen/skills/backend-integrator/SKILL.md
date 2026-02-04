@@ -376,8 +376,37 @@ from .base import build_workflow_instructions, parse_workflow_tool_calls, extrac
 
 **Codex-specific**: Instructions go into `AGENTS.md` at the workspace root (Codex auto-reads this). The orchestrator's system message is also extracted from messages and included, since Codex only receives a single user prompt via CLI — the system message from the orchestrator would otherwise be lost. This approach was utilized as the developer instructions approach wasn't working.
 
-**Claude Code-specific**: Instructions are built by `_build_system_prompt_with_workflow_tools()` which also adds MCP command-line sections, then passed as `system_prompt` to the SDK.
+**Claude Code-specific**: Instructions are built by `_build_system_prompt_with_workflow_tools()` which also adds tool calling sections, then passed as `system_prompt` to the SDK.
 
+It is an open question as to whether typical workflow tool parsing works (e.g., Claude Code) or if we need to use MCP tools (e.g., Codex).
+
+#### 6.7.1 MCP-Based vs Text-Based Workflow Tools
+
+When deciding between MCP-based and text-based workflow tools for CLI/SDK backends:
+
+**MCP-based approach** (attempted but not always reliable):
+- Register workflow tools as an MCP server
+- Pass to the SDK/CLI's MCP system
+- **Caveat**: MCP tool naming varies by SDK. Claude Code prefixes with `mcp__{server_name}__`:
+  ```
+  # If server is "massgen_workflow_tools", tool names become:
+  # "new_answer" → "mcp__massgen_workflow_tools__new_answer"
+  # "vote" → "mcp__massgen_workflow_tools__vote"
+  ```
+- When using MCP workflow tools, use `build_workflow_mcp_instructions()` with the appropriate prefix:
+  ```python
+  instructions = build_workflow_mcp_instructions(
+      tools,
+      mcp_prefix="mcp__massgen_workflow_tools__"
+  )
+  ```
+
+**Text-based approach** (current fallback for Claude Code):
+- Inject workflow tool instructions into system prompt
+- Parse JSON tool calls from model's text output using `parse_workflow_tool_calls()`
+- More reliable but requires robust parsing
+
+**Current status**: Claude Code uses text-based workflow tools (JSON parsing) because MCP-based approach was unreliable. Codex uses text-based as well via AGENTS.md instructions.
 
 #### 6.6 Provider-Native Tools: Keep vs. Override
 
@@ -486,7 +515,32 @@ BACKEND_CONFIGS = {
 }
 ```
 
-#### 7.3 Config Validation
+#### 7.3 Native Tool Permission Testing (CLI/SDK backends)
+**Script**: `scripts/test_native_tools_sandbox.py`
+
+For backends with built-in tools (CLI/SDK wrappers), run the sandbox permission test script to verify that:
+- Native tools respect MassGen's permission boundaries
+- Read-only paths cannot be written to
+- Workspace isolation works correctly
+- Docker mode sandboxing is enforced
+
+```bash
+# Test your new backend
+uv run python scripts/test_native_tools_sandbox.py --backend your_backend
+
+# Test with Docker mode
+uv run python scripts/test_native_tools_sandbox.py --backend your_backend --docker
+```
+
+This script:
+- Attempts file operations at various permission levels
+- Verifies that disallowed operations are blocked
+- Reports which sandbox restrictions are enforced vs bypassed
+- Is essential for understanding the limitations of each native backend
+
+**Note**: Run this for both local and Docker modes to understand how sandboxing differs.
+
+#### 7.4 Config Validation
 ```bash
 uv run python scripts/validate_all_configs.py
 ```
@@ -579,6 +633,8 @@ Native CLI tools (Read/Write/Bash in Claude Code, file_read/file_write in Codex)
 ### Phase 11: Hooks
 
 MassGen supports hooks for intercepting tool execution and other lifecycle events. Hooks run transparently (not documented in the system prompt).
+
+Note that some backends may not support hooks (e.g., Codex). In this case, hooks will only be applied where possible within MassGen's tool execution framework.
 
 #### 11.1 Hook Types
 
@@ -691,6 +747,21 @@ If a CLI-based backend doesn't support Docker natively, run the CLI inside the M
 3. In `stream_with_tools`, use `container.client.api.exec_create()` + `exec_start(stream=True)` to run the CLI inside the container
 4. If the CLI has its own sandbox, disable it — the container provides isolation
 5. If the CLI needs host credentials, mount them read-only via `_build_credential_mounts()`
+
+**IMPORTANT**: Some CLI backends require `command_line_docker_network_mode: bridge` when running in Docker mode. This allows the container to make outbound network requests to APIs. Add config validation to enforce this:
+
+```python
+# In config_validator.py
+if backend_type == "your_backend":
+    execution_mode = backend_config.get("command_line_execution_mode")
+    if execution_mode == "docker":
+        if "command_line_docker_network_mode" not in backend_config:
+            result.add_error(
+                "YourBackend in Docker mode requires 'command_line_docker_network_mode'",
+                f"{location}.command_line_docker_network_mode",
+                "Add 'command_line_docker_network_mode: bridge' (required for network access)",
+            )
+```
 
 **Reference**: `codex.py` implements this pattern with `_stream_docker()` / `_stream_local()` branching.
 

@@ -230,4 +230,5 @@ webui/node_modules/
 webui/dist/
 webui/mockups/
 
-node_modules/.sandbox_test
+node_modules/
+.sandbox_test/

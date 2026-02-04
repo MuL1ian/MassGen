@@ -37,6 +37,7 @@ class TimelineEventAdapter:
         self._round_number = 1
         self._tool_count = 0
         self._final_answer: Optional[str] = None
+        self._final_answer_received = False  # Track when definitive final_answer event received
         self._last_separator_round = 0
         self._on_output_applied = on_output_applied
 
@@ -54,6 +55,7 @@ class TimelineEventAdapter:
         self._round_number = 1
         self._tool_count = 0
         self._final_answer = None
+        self._final_answer_received = False
         self._last_separator_round = 0
 
     def set_round_number(self, round_number: int) -> None:
@@ -130,7 +132,8 @@ class TimelineEventAdapter:
             if output.text_class == "status" and "Evaluation complete" in output.text_content:
                 return
             # Capture text during final presentation as the final answer
-            if output.output_type == "text" and getattr(self, "_pending_final_card_meta", None):
+            # (only if we haven't received the definitive final_answer event yet)
+            if output.output_type == "text" and getattr(self, "_pending_final_card_meta", None) and not getattr(self, "_final_answer_received", False):
                 tui_log(f"[FINAL_CARD] Capturing text as final_answer: {output.text_content[:50] if output.text_content else None}...")
                 self._final_answer = output.text_content
             try:
@@ -221,6 +224,9 @@ class TimelineEventAdapter:
             # Store for retrieval but don't render inline — a dedicated
             # final answer card handles display separately.
             self._final_answer = output.text_content
+            # Mark that we've received the definitive final_answer event
+            # so post-evaluation TEXT events don't overwrite it
+            self._final_answer_received = True
         elif output.output_type == "final_presentation_start":
             self._apply_final_presentation_start(output, round_number, timeline)
         elif output.output_type == "final_presentation_chunk":

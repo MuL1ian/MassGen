@@ -1,5 +1,5 @@
 agents:
-- id: agent_1
+- id: agent_a
   backend:
     type: codex
     model: gpt-5.2-codex
