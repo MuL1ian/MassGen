@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.46 Features](#-latest-features-v0146)
+- [v0.1.47 Features](#-latest-features-v0147)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.46)](#recent-achievements-v0146)
-- [Previous Achievements (v0.0.3 - v0.1.45)](#previous-achievements-v003---v0145)
+- [Recent Achievements (v0.1.47)](#recent-achievements-v0147)
+- [Previous Achievements (v0.0.3 - v0.1.46)](#previous-achievements-v003---v0146)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.47 Roadmap](#v0147-roadmap)
+- [v0.1.48 Roadmap](#v0148-roadmap)
 </details>
 
 <details open>
@@ -154,26 +154,25 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.46)
+## 🆕 Latest Features (v0.1.47)
 
-**🎉 Released: February 2, 2026**
+**🎉 Released: February 4, 2026**
 
-**What's New in v0.1.46:**
-- **🚀 Subagent TUI Streaming** - Interactive preview cards that expand to full timeline views with real-time event streaming
-- **🎨 Enhanced Final Presentation** - Final answer display now includes workspace visualization and winning agent highlighting
-- **🏗️ TUI Architecture Refactor** - Unified event pipeline with single source of truth for display creation
-- **🔧 Bug Fixes** - Fixed banner display, tool call ID handling for non-alphanumeric IDs, and round tracking logic
-- **📚 Documentation** - New `docs/modules/subagents.md` architecture guide and tutorial video GIF previews
+**What's New in v0.1.47:**
+- **🚀 Codex Backend** - Run OpenAI Codex CLI as a MassGen backend with local and Docker execution
+- **🎨 TUI Theme System** - Palette-based theming with dark and light variants
+- **🗳️ Per-agent Voting Sensitivity** - Set different voting standards (strict/balanced/lenient) for each agent
+- **🔧 Claude Code Refactored** - Shared `NativeToolMixin` for native tool handling across CLI-based backends
+- **🐛 Bug Fixes** - Fixed final presentation display, improved MCP error handling, enhanced round tracking
 
-**Try v0.1.46 Features:**
+**Try v0.1.47 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Experience subagent TUI streaming with async execution
-uv run massgen --config @examples/configs/features/test_subagent_orchestrator_code_mode.yaml "Use subagents to research bob dylan"
-
-# Click on preview cards to expand to full timeline views
+# First install codex with `npm install -g @openai/codex`, then authenticate and run the below.
+uv run massgen --config @examples/configs/providers/openai/codex/codex_local.yaml "Create a website about Bob Dylan"
+uv run massgen --config @examples/configs/providers/openai/codex/codex_docker.yaml "Create a website about Bob Dylan"
 ```
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
@@ -1222,36 +1221,40 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.46)
+### Recent Achievements (v0.1.47)
 
-**🎉 Released: February 2, 2026**
+**🎉 Released: February 4, 2026**
 
-#### Subagent TUI Streaming
-- **Interactive Preview Cards**: Clickable subagent preview cards that expand to full timeline views with real-time event streaming
-- **Unified Display Components**: Single source of truth for display creation ensuring identical tool displays between main and subagents
-- **Status Visualization**: Subagent rounds tracking with visual status indicators and progress updates
+#### Codex Backend
+- **OpenAI Codex CLI**: New `codex` backend type with local and Docker execution modes
+- **Authentication**: OAuth and API key support
+- **Native Tool Architecture**: `NativeToolMixin` for shared tool handling between Codex and Claude Code, with custom and workflow MCP servers (`custom_tools_server.py`, `workflow_tools_server.py`) exposing MassGen tools to CLI-based backends
 
-#### Enhanced Final Presentation
-- **Workspace Visualization**: Final answer display now includes workspace paths and artifact locations
-- **Winner Highlighting**: Winning agent clearly indicated with visual markers in final presentation
-- **Improved Formatting**: Better separation between reasoning content and final answers
+#### TUI Theme System
+- **Palette-based Architecture**: Unified `base.tcss` with semantic CSS variables replacing per-widget inline CSS
+- **Theme Variants**: Dark and light palette files
 
-#### TUI Architecture Refactor
-- **Event Pipeline**: Structured event emission pipeline replacing stream-based architecture
-- **Shared Components**: Main and subagent views use identical rendering components for consistency
-- **Enhanced Logging**: Improved debugging support with comprehensive event logging
+#### Per-agent Voting Sensitivity
+- **Agent-level Override**: Voting sensitivity (`strict`/`balanced`/`lenient`) now configurable per-agent, overriding orchestrator-level defaults with rewritten evaluation criteria
+
+#### Changed
+- **Claude Code Backend**: Refactored to use `NativeToolMixin` with native filesystem support and OS-level sandbox
+- **Round Display Tracking**: Vote and answer submissions now track and display submission round numbers in TUI
+- **Gemini Backend**: Globally unique tool call ID generation and configuration improvements
 
 #### Bug Fixes
-- **Banner Display**: Fixed coordination round banners not showing in first round
-- **Tool Call IDs**: Support for non-alphanumeric tool call IDs (models like kimi2.5)
-- **Round Tracking**: Improved round tracking logic for accurate status display across agents
+- **Final Presentation Display**: Fixed rendering issues with final presentation box
+- **MCP Error Handling**: Enhanced handling for invalid MCP tool calls with clearer user guidance
 
-#### Documentation
-- **Architecture Guide**: Comprehensive `docs/modules/subagents.md` documenting subagent system design
-- **Visual Tutorials**: New tutorial video GIF previews in `docs/source/_static/images/`
-- **Updated Index**: `docs/source/index.rst` with enhanced tutorial links and navigation
+#### Documentation, Configurations and Resources
+- `docs/source/user_guide/backends.rst` — updated with Codex backend documentation
+- `docs/modules/interactive_mode.md` — new interactive mode architecture document
+- `massgen/backend/capabilities.py` — updated with Codex models
+- `massgen/skills/backend-integrator/SKILL.md` — new backend integration skill
 
-### Previous Achievements (v0.0.3 - v0.1.45)
+### Previous Achievements (v0.0.3 - v0.1.46)
+
+✅ **Subagent TUI Streaming & Event Architecture Refactor (v0.1.46)**: Interactive preview cards that expand to full timeline views with real-time event streaming, unified event pipeline with single source of truth for display creation, enhanced final presentation with workspace visualization and winning agent highlighting, fixed banner display and tool call ID handling
 
 ✅ **TUI as Default & Config Migration (v0.1.45)**: Textual Terminal UI now launches by default with automatic `rich_terminal` to `textual_terminal` migration, setup wizard generates TUI configs, legacy Rich display accessible via `--display rich` flag
 
@@ -1487,9 +1490,9 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.47 Roadmap
+### v0.1.48 Roadmap
 
-Version 0.1.47 focuses on OpenAI native compression and enhanced log analysis capabilities:
+Version 0.1.48 focuses on OpenAI native compression and enhanced log analysis capabilities:
 
 #### Planned Features
 - **OpenAI Responses /compact Endpoint** ([#739](https://github.com/massgen/MassGen/issues/739)): Use OpenAI's native `/compact` endpoint instead of custom summarization for better token efficiency
