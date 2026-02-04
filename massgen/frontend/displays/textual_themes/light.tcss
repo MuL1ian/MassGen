@@ -68,7 +68,7 @@ $agent-8-bg: #ffebe9;
  */
 
 Screen {
-    background: initial;  /* Use terminal's native background */
+    background: $bg-base;
     color: $fg-primary;
     layers: base overlay;
 }
@@ -82,7 +82,7 @@ Screen {
     width: 100%;
     height: 1fr;
     align: center middle;
-    background: initial;  /* Use terminal's native background */
+    background: $bg-base;
 }
 
 #welcome_screen Label, #welcome_screen Static {
@@ -131,7 +131,7 @@ Screen {
 
 #main_container {
     layout: vertical;
-    background: initial;  /* Use terminal's native background */
+    background: $bg-base;
     height: 1fr;
     padding: 0;
 }

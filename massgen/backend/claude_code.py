@@ -49,10 +49,8 @@ from __future__ import annotations
 import atexit
 import json
 import os
-import re
 import sys
 import time
-import uuid
 import warnings
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -79,12 +77,18 @@ from ..logger_config import (
 )
 from ..structured_logging import get_current_round, get_tracer, log_token_usage
 from ..tool import ToolManager
-from ..tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
 from ._streaming_buffer_mixin import StreamingBufferMixin
+from .base import (
+    build_workflow_instructions,  # Used in _build_system_prompt_with_workflow_tools
+)
 from .base import FilesystemSupport, LLMBackend, StreamChunk
+from .base import extract_structured_response as _extract_structured_response
+from .base import get_multimodal_tool_definitions
+from .base import parse_workflow_tool_calls as _parse_workflow_tool_calls
+from .native_tool_mixin import NativeToolBackendMixin
 
 
-class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
+class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend):
     """Claude Code backend using claude-code-sdk-python.
 
     Provides streaming interface to Claude Code with built-in tool execution
@@ -197,21 +201,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                         self._multimodal_config[media_type]["model"] = model
 
         if enable_multimodal:
-            multimodal_tools = [
-                {
-                    "name": ["read_media"],
-                    "category": "multimodal",
-                    "path": "massgen/tool/_multimodal_tools/read_media.py",
-                    "function": ["read_media"],
-                },
-                {
-                    "name": ["generate_media"],
-                    "category": "multimodal",
-                    "path": "massgen/tool/_multimodal_tools/generation/generate_media.py",
-                    "function": ["generate_media"],
-                },
-            ]
-            custom_tools = list(custom_tools) + multimodal_tools
+            custom_tools = list(custom_tools) + get_multimodal_tool_definitions()
             logger.info("[ClaudeCode] Multimodal tools enabled: read_media, generate_media")
 
         if custom_tools:
@@ -244,15 +234,10 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                 logger.info(f"Registered SDK MCP server with {len(self._custom_tool_manager.registered_tools)} custom tools")
 
         # Initialize native hook adapter for MassGen hooks integration
-        self._native_hook_adapter: Optional[Any] = None
-        self._massgen_hooks_config: Optional[Dict[str, Any]] = None
-        try:
-            from ..mcp_tools.native_hook_adapters import ClaudeCodeNativeHookAdapter
-
-            self._native_hook_adapter = ClaudeCodeNativeHookAdapter()
-            logger.debug("[ClaudeCodeBackend] Native hook adapter initialized")
-        except ImportError as e:
-            logger.debug(f"[ClaudeCodeBackend] Native hook adapter not available: {e}")
+        self.__init_native_tool_mixin__()
+        self._init_native_hook_adapter(
+            "massgen.mcp_tools.native_hook_adapters.ClaudeCodeNativeHookAdapter",
+        )
 
         # Note: _execution_trace is initialized by StreamingBufferMixin
         # and configured with agent_id when _clear_streaming_buffer is called
@@ -334,13 +319,14 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
         return "claude_code"
 
     def get_filesystem_support(self) -> FilesystemSupport:
-        """Claude Code now uses MassGen's MCP-based filesystem tools (v0.1.26)
+        """Claude Code uses native tools (Read, Write, Edit, Bash, etc.) for filesystem ops.
 
-        Native Claude Code tools (Read, Write, Edit, Bash, etc.) are disabled
-        via disallowed_tools to give MassGen full control. File operations
-        are handled through the filesystem MCP server.
+        Native tools are protected by OS-level sandbox (Seatbelt/macOS,
+        bubblewrap/Linux) and PathPermissionManager hooks. MCP filesystem/
+        command_line servers are not injected; workspace_tools MCP is injected
+        separately for media generation capabilities.
         """
-        return FilesystemSupport.MCP
+        return FilesystemSupport.NATIVE
 
     def is_stateful(self) -> bool:
         """
@@ -351,42 +337,74 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
         """
         return True
 
-    def supports_native_hooks(self) -> bool:
-        """Check if this backend supports native hook integration.
+    # supports_native_hooks(), get_native_hook_adapter(), set_native_hooks_config()
+    # are provided by NativeToolBackendMixin
 
-        Claude Code backend supports native hooks via the Claude Agent SDK's
-        HookMatcher API, allowing MassGen hooks to be executed natively by
-        the Claude Code server.
+    def get_disallowed_tools(self, config: Dict[str, Any]) -> List[str]:
+        """Return native Claude Code tools to disable.
 
-        Returns:
-            True if the native hook adapter is available
-        """
-        return self._native_hook_adapter is not None
+        Most native tools (Read, Write, Edit, etc.) are kept enabled,
+        with security enforced by PathPermissionManager hooks and OS-level
+        sandbox (local) or container isolation (Docker).
 
-    def get_native_hook_adapter(self) -> Optional[Any]:
-        """Get the native hook adapter for this backend.
-
-        Returns:
-            ClaudeCodeNativeHookAdapter instance if available, None otherwise
-        """
-        return self._native_hook_adapter
-
-    def set_native_hooks_config(self, config: Dict[str, Any]) -> None:
-        """Set MassGen hooks converted to native format.
-
-        Called by the orchestrator to set up MassGen hooks (MidStreamInjection,
-        HighPriorityTaskReminder, user-configured hooks) in native format.
-        These hooks will be merged with permission hooks when building
-        ClaudeAgentOptions.
+        Bash handling:
+        - Disabled by default (safe default when no MCP command_line configured)
+        - Enabled if enable_mcp_command_line=true (local mode - native Bash works)
+        - Disabled if docker mode (must use execute_command MCP instead)
 
         Args:
-            config: Native hooks configuration dict with PreToolUse and/or
-                   PostToolUse keys containing HookMatcher lists
+            config: Backend config dict.
+
+        Returns:
+            List of tool names/patterns to disable via SDK disallowed_tools.
         """
-        self._massgen_hooks_config = config
-        logger.debug(
-            f"[ClaudeCodeBackend] Set native hooks config: " f"PreToolUse={len(config.get('PreToolUse', []))} hooks, " f"PostToolUse={len(config.get('PostToolUse', []))} hooks",
-        )
+        disallowed = [
+            # Security restrictions (dangerous bash patterns)
+            "Bash(rm*)",
+            "Bash(sudo*)",
+            "Bash(su*)",
+            "Bash(chmod*)",
+            "Bash(chown*)",
+            # Not useful in MassGen context
+            "TodoWrite",
+            "ExitPlanMode",
+            "mcp__ide__getDiagnostics",
+            "mcp__ide__executeCode",
+        ]
+
+        # Bash handling: disabled by default, enabled for local MCP mode, disabled for docker
+        enable_mcp_command_line = config.get("enable_mcp_command_line", False)
+        command_line_execution_mode = config.get("command_line_execution_mode", "local")
+
+        if not enable_mcp_command_line:
+            # No MCP command line configured - disable native Bash (safe default)
+            disallowed.append("Bash")
+        elif command_line_execution_mode == "docker":
+            # Docker mode - must use execute_command MCP, disable native Bash
+            disallowed.append("Bash")
+        # else: enable_mcp_command_line=true + local mode - keep native Bash enabled
+
+        # Conditionally keep web tools
+        if not config.get("enable_web_search", False):
+            disallowed.extend(["WebSearch", "WebFetch"])
+
+        return disallowed
+
+    def get_tool_category_overrides(self) -> Dict[str, str]:
+        """Return tool category overrides for Claude Code.
+
+        Claude Code has native tools for filesystem, command execution, file search,
+        web search, and planning. MassGen overrides the native Task tool with its
+        own subagent spawning.
+        """
+        return {
+            "filesystem": "skip",  # Native: Read, Write, Edit, MultiEdit, Glob, Grep, LS
+            "command_execution": "skip",  # Native: Bash
+            "file_search": "skip",  # Native: Grep, Glob
+            "web_search": "skip",  # Native: WebSearch, WebFetch
+            "planning": "skip",  # Native: EnterPlanMode, ExitPlanMode, TodoWrite
+            "subagents": "override",  # Override native Task with MassGen spawn_subagents
+        }
 
     def _get_execution_trace_hooks(self) -> Dict[str, List[Any]]:
         """Create SDK hooks that capture tool executions for the execution trace.
@@ -1160,66 +1178,11 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                 "directories you were told to work in, not any parent directories.",
             )
 
-        # Add workflow tools information if present
+        # Add workflow tools section (shared with Codex backend)
         if tools:
-            workflow_tools = [t for t in tools if t.get("function", {}).get("name") in WORKFLOW_TOOL_NAMES]
-            if workflow_tools:
-                system_parts.append("\n--- Coordination Actions ---")
-                for tool in workflow_tools:
-                    name = tool.get("function", {}).get("name", "unknown")
-                    description = tool.get("function", {}).get("description", "No description")
-                    system_parts.append(f"- {name}: {description}")
-
-                    # Add usage examples for workflow tools
-                    if name == "new_answer":
-                        system_parts.append(
-                            '    Usage: {"tool_name": "new_answer", ' '"arguments": {"content": "your improved answer. If any builtin tools were used, mention how they are used here."}}',
-                        )
-                    elif name == "vote":
-                        # Extract valid agent IDs from enum if available
-                        agent_id_enum = None
-                        for t in tools:
-                            if t.get("function", {}).get("name") == "vote":
-                                agent_id_param = t.get("function", {}).get("parameters", {}).get("properties", {}).get("agent_id", {})
-                                if "enum" in agent_id_param:
-                                    agent_id_enum = agent_id_param["enum"]
-                                break
-
-                        if agent_id_enum:
-                            agent_list = ", ".join(agent_id_enum)
-                            system_parts.append(f'    Usage: {{"tool_name": "vote", ' f'"arguments": {{"agent_id": "agent1", ' f'"reason": "explanation"}}}} // Choose agent_id from: {agent_list}')
-                        else:
-                            system_parts.append('    Usage: {"tool_name": "vote", ' '"arguments": {"agent_id": "agent1", ' '"reason": "explanation"}}')
-                    elif name == "submit":
-                        system_parts.append(
-                            '    Usage: {"tool_name": "submit", ' '"arguments": {"confirmed": true}}',
-                        )
-                    elif name == "restart_orchestration":
-                        system_parts.append(
-                            '    Usage: {"tool_name": "restart_orchestration", ' '"arguments": {"reason": "The answer is incomplete because...", ' '"instructions": "In the next attempt, please..."}}',
-                        )
-                    elif name == "ask_others":
-                        system_parts.append(
-                            '    Usage: {"tool_name": "ask_others", ' '"arguments": {"question": "Which framework should we use: Next.js or React?"}}',
-                        )
-                        system_parts.append(
-                            '    IMPORTANT: When user says "call ask_others" or "ask others", you MUST execute this tool call.',
-                        )
-
-                system_parts.append("\n--- MassGen Coordination Instructions ---")
-                system_parts.append("IMPORTANT: You must respond with a structured JSON decision at the end of your response.")
-                # system_parts.append(
-                #     "You must use the coordination tools (new_answer, vote) "
-                #     "to participate in multi-agent workflows."
-                # )
-                # system_parts.append(
-                #     "Make sure to include the JSON in the exact format shown in the usage examples above.")
-                system_parts.append("The JSON MUST be formatted as a strict JSON code block:")
-                system_parts.append("1. Start with ```json on one line")
-                system_parts.append("2. Include your JSON content (properly formatted)")
-                system_parts.append("3. End with ``` on one line")
-                system_parts.append('Example format:\n```json\n{"tool_name": "vote", "arguments": {"agent_id": "agent1", "reason": "explanation"}}\n```')
-                system_parts.append("The JSON block should be placed at the very end of your response, after your analysis.")
+            workflow_section = build_workflow_instructions(tools)
+            if workflow_section:
+                system_parts.append(workflow_section)
 
         return "\n".join(system_parts)
 
@@ -1252,165 +1215,27 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
             )
 
     def extract_structured_response(self, response_text: str) -> Optional[Dict[str, Any]]:
-        """Extract structured JSON response for Claude Code format.
-
-        Looks for JSON in the format:
-        {"tool_name": "vote/new_answer", "arguments": {...}}
-
-        Args:
-            response_text: The full response text to search
-
-        Returns:
-            Extracted JSON dict if found, None otherwise
-        """
-        try:
-            import re
-
-            # Strategy 0: Look for JSON inside markdown code blocks first
-            markdown_json_pattern = r"```json\s*(\{.*?\})\s*```"
-            markdown_matches = re.findall(markdown_json_pattern, response_text, re.DOTALL)
-
-            for match in reversed(markdown_matches):
-                try:
-                    parsed = json.loads(match.strip())
-                    if isinstance(parsed, dict) and "tool_name" in parsed:
-                        return parsed
-                except json.JSONDecodeError:
-                    continue
-
-            # Strategy 1: Look for complete JSON blocks with proper braces
-            json_pattern = r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}"
-            json_matches = re.findall(json_pattern, response_text, re.DOTALL)
-
-            # Try parsing each match (in reverse order - last one first)
-            for match in reversed(json_matches):
-                try:
-                    cleaned_match = match.strip()
-                    parsed = json.loads(cleaned_match)
-                    if isinstance(parsed, dict) and "tool_name" in parsed:
-                        return parsed
-                except json.JSONDecodeError:
-                    continue
-
-            # Strategy 2: Look for JSON blocks with nested braces (more complex)
-            brace_count = 0
-            json_start = -1
-
-            for i, char in enumerate(response_text):
-                if char == "{":
-                    if brace_count == 0:
-                        json_start = i
-                    brace_count += 1
-                elif char == "}":
-                    brace_count -= 1
-                    if brace_count == 0 and json_start >= 0:
-                        # Found a complete JSON block
-                        json_block = response_text[json_start : i + 1]
-                        try:
-                            parsed = json.loads(json_block)
-                            if isinstance(parsed, dict) and "tool_name" in parsed:
-                                return parsed
-                        except json.JSONDecodeError:
-                            pass
-                        json_start = -1
-
-            # Strategy 3: Line-by-line approach (fallback)
-            lines = response_text.strip().split("\n")
-            json_candidates = []
-
-            for i, line in enumerate(lines):
-                stripped = line.strip()
-                if stripped.startswith("{") and stripped.endswith("}"):
-                    json_candidates.append(stripped)
-                elif stripped.startswith("{"):
-                    # Multi-line JSON - collect until closing brace
-                    json_text = stripped
-                    for j in range(i + 1, len(lines)):
-                        json_text += "\n" + lines[j].strip()
-                        if lines[j].strip().endswith("}"):
-                            json_candidates.append(json_text)
-                            break
-
-            # Try to parse each candidate
-            for candidate in reversed(json_candidates):
-                try:
-                    parsed = json.loads(candidate)
-                    if isinstance(parsed, dict) and "tool_name" in parsed:
-                        return parsed
-                except json.JSONDecodeError:
-                    continue
-
-            return None
-
-        except Exception:
-            return None
+        """Extract structured JSON response — delegates to shared helper."""
+        return _extract_structured_response(response_text)
 
     def _parse_workflow_tool_calls(self, text_content: str) -> List[Dict[str, Any]]:
-        """Parse workflow tool calls from text content.
+        """Parse workflow tool calls from text — delegates to shared helper."""
+        return _parse_workflow_tool_calls(text_content)
 
-        Searches for JSON-formatted tool calls in the response text and
-        converts them to the standard tool call format used by MassGen.
-        Uses the extract_structured_response method for robust JSON extraction.
-
-        Args:
-            text_content: Response text to search for tool calls
+    @staticmethod
+    def _try_extract_workflow_mcp_result(result_str: str) -> Optional[Dict[str, Any]]:
+        """Try to extract a workflow tool call from an MCP tool result string.
 
         Returns:
-            List of unique tool call dictionaries in standard format
+            Tool call dict in orchestrator format, or None.
         """
-        tool_calls = []
+        from ..mcp_tools.workflow_tools_server import extract_workflow_tool_call
 
-        # First try to extract structured JSON response
-        structured_response = self.extract_structured_response(text_content)
-
-        if structured_response and isinstance(structured_response, dict):
-            tool_name = structured_response.get("tool_name")
-            arguments = structured_response.get("arguments", {})
-
-            if tool_name and isinstance(arguments, dict):
-                tool_calls.append(
-                    {
-                        "id": f"call_{uuid.uuid4().hex[:8]}",
-                        "type": "function",
-                        "function": {"name": tool_name, "arguments": arguments},
-                    },
-                )
-                return tool_calls
-
-        # Fallback: Look for multiple JSON tool calls using regex patterns
-        seen_calls = set()  # Track unique tool calls to prevent duplicates
-
-        # Look for JSON tool call patterns
-        json_patterns = [
-            r'\{"tool_name":\s*"([^"]+)",\s*"arguments":\s*' r"(\{[^}]*\})\}",
-            r'\{\s*"tool_name"\s*:\s*"([^"]+)"\s*,\s*"arguments"' r"\s*:\s*(\{[^}]*\})\s*\}",
-        ]
-
-        for pattern in json_patterns:
-            matches = re.finditer(pattern, text_content, re.IGNORECASE)
-            for match in matches:
-                tool_name = match.group(1)
-                try:
-                    arguments = json.loads(match.group(2))
-
-                    # Create a unique identifier for this tool call
-                    # Based on tool name and arguments content
-                    call_signature = (tool_name, json.dumps(arguments, sort_keys=True))
-
-                    # Only add if we haven't seen this exact call before
-                    if call_signature not in seen_calls:
-                        seen_calls.add(call_signature)
-                        tool_calls.append(
-                            {
-                                "id": f"call_{uuid.uuid4().hex[:8]}",
-                                "type": "function",
-                                "function": {"name": tool_name, "arguments": arguments},
-                            },
-                        )
-                except json.JSONDecodeError:
-                    continue
-
-        return tool_calls
+        try:
+            result = json.loads(result_str)
+            return extract_workflow_tool_call(result)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def _build_claude_options(self, **options_kwargs) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions with provided parameters.
@@ -1511,25 +1336,33 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                 mcp_servers_dict = mcp_servers
 
         # Get additional directories from filesystem manager for Claude Code access
-        # This is required because Claude Code's built-in permission system restricts
-        # filesystem access to cwd by default. MCP server args alone aren't sufficient.
+        # IMPORTANT: add_dirs grants WRITE access - only include paths with write permission.
+        # Read-only context paths must NOT be in add_dirs (OS sandbox allows reads anyway).
+        # NOTE: cwd is already writable by default, so we exclude it from add_dirs.
         add_dirs = []
         if self.filesystem_manager:
-            fs_paths = self.filesystem_manager.path_permission_manager.get_mcp_filesystem_paths()
-            # Add all paths except cwd (which is already accessible)
+            # Only get writable paths - add_dirs grants write access
+            writable_paths = self.filesystem_manager.path_permission_manager.get_writable_paths()
             cwd_str = str(cwd_option)
-            for path in fs_paths:
-                if path != cwd_str:
-                    add_dirs.append(path)
+            # Exclude cwd since it's already writable by default
+            add_dirs = [p for p in writable_paths if p != cwd_str]
             if add_dirs:
-                logger.info(f"[ClaudeCodeBackend._build_claude_options] Adding extra dirs for Claude Code access: {add_dirs}")
+                logger.info(f"[ClaudeCodeBackend._build_claude_options] Adding writable dirs for Claude Code access: {add_dirs}")
+
+        # Enable OS-level sandbox for native tool security
+        # Seatbelt on macOS, bubblewrap on Linux — restricts writes to cwd + add_dirs
+        sandbox_settings = {
+            "enabled": True,
+            "autoAllowBashIfSandboxed": True,
+        }
 
         options = {
-            "cwd": cwd_option,
+            "cwd": str(cwd_option),
             "resume": self.get_current_session_id(),
             "permission_mode": permission_mode,
             "allowed_tools": allowed_tools,
             "add_dirs": add_dirs if add_dirs else [],
+            "sandbox": sandbox_settings,
             # Disable loading filesystem-based settings to ensure our programmatic config takes precedence
             "setting_sources": [],
             **{k: v for k, v in options_kwargs.items() if k not in excluded_params},
@@ -1556,15 +1389,14 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
         if hooks_config:
             options["hooks"] = hooks_config
 
-        # Add can_use_tool hook to auto-grant MCP tools
+        # Add can_use_tool hook to auto-grant tool permissions
+        # Note: File access validation is handled by PreToolUse hooks (validate_context_access)
+        # This callback just grants permission to call the tool itself
         async def can_use_tool(tool_name: str, tool_args: dict, context):
-            """Auto-grant permissions for MCP tools."""
-            # Auto-approve all MCP tools (they start with mcp__)
-            if tool_name.startswith("mcp__"):
-                return PermissionResultAllow(updated_input=tool_args)
-            # For non-MCP tools, use default permission behavior
-            # Return None to use default permission mode
-            return None
+            """Auto-grant tool call permissions. PreToolUse hooks handle path validation."""
+            # Return PermissionResultAllow for all tools
+            # The PreToolUse hooks will still validate file paths for Read/Write/Bash/etc.
+            return PermissionResultAllow(updated_input=tool_args)
 
         options["can_use_tool"] = can_use_tool
 
@@ -1644,9 +1476,33 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
         else:
             system_content = ""
 
+        # Setup workflow tools using shared mixin method
+        workflow_mcp_config, workflow_instructions = self._setup_workflow_tools(
+            tools or [],
+            str(Path(self.config.get("cwd", os.getcwd())) / ".claude_code_workflow"),
+        )
+        self._has_workflow_mcp = workflow_mcp_config is not None
+        if workflow_mcp_config:
+            # Add workflow MCP server to config for this session
+            if "mcp_servers" not in self.config:
+                self.config["mcp_servers"] = []
+            if isinstance(self.config["mcp_servers"], list):
+                # Remove any previous workflow server entry
+                self.config["mcp_servers"] = [s for s in self.config["mcp_servers"] if not (isinstance(s, dict) and s.get("name") == "massgen_workflow_tools")]
+                self.config["mcp_servers"].append(workflow_mcp_config)
+            elif isinstance(self.config["mcp_servers"], dict):
+                self.config["mcp_servers"]["massgen_workflow_tools"] = workflow_mcp_config
+
         # Build system prompt with tools information
-        # This must be done before any conditional paths to ensure it's always defined
-        workflow_system_prompt = self._build_system_prompt_with_workflow_tools(tools or [], system_content)
+        # When MCP server is active, use MCP-specific instructions (no JSON format examples)
+        # instead of text-based instructions, but still tell the agent it MUST call the tools
+        if self._has_workflow_mcp:
+            base_with_mcp = system_content
+            if workflow_instructions:
+                base_with_mcp = (system_content + "\n" + workflow_instructions) if system_content else workflow_instructions
+            workflow_system_prompt = self._build_system_prompt_with_workflow_tools([], base_with_mcp)
+        else:
+            workflow_system_prompt = self._build_system_prompt_with_workflow_tools(tools or [], system_content)
 
         # Check if we already have a client
         if self._client is not None:
@@ -1657,38 +1513,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
             enable_web_search = all_params.get("enable_web_search", False)
 
             if "disallowed_tools" not in all_params:
-                disallowed_tools = [
-                    # Security restrictions (dangerous bash patterns)
-                    "Bash(rm*)",
-                    "Bash(sudo*)",
-                    "Bash(su*)",
-                    "Bash(chmod*)",
-                    "Bash(chown*)",
-                    # Redundant tools - MassGen has native implementations
-                    "Skill",
-                    "Read",  # Use MassGen's read_file_content
-                    "Write",  # Use MassGen's save_file_content
-                    "Edit",  # Use MassGen's append_file_content
-                    "MultiEdit",  # Use MassGen's append_file_content
-                    "Bash",  # Use MassGen's run_shell_script
-                    "BashOutput",
-                    "KillShell",
-                    "LS",  # MassGen has list_directory
-                    "Grep",  # Use execute_command or future MassGen grep (issue 640)
-                    "Glob",  # Use execute_command or future MassGen glob (issue 640)
-                    "TodoWrite",  # MassGen has its own task tracking
-                    "NotebookEdit",
-                    "NotebookRead",
-                    "mcp__ide__getDiagnostics",
-                    "mcp__ide__executeCode",
-                    "ExitPlanMode",
-                ]
-
-                # Only disable web tools if not enabled
-                if not enable_web_search:
-                    disallowed_tools.extend(["WebSearch", "WebFetch"])
-
-                all_params["disallowed_tools"] = disallowed_tools
+                all_params["disallowed_tools"] = self.get_disallowed_tools(all_params)
                 logger.info(
                     f"[ClaudeCodeBackend] Using minimal tool set: Task" f"{', WebSearch, WebFetch' if enable_web_search else ''}",
                 )
@@ -1937,6 +1762,7 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
 
         # Stream response and convert to MassGen StreamChunks
         accumulated_content = ""
+        workflow_tool_calls_from_mcp: List[Dict[str, Any]] = []
         try:
             async for message in client.receive_response():
                 if isinstance(message, (AssistantMessage, UserMessage)):
@@ -2042,6 +1868,14 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                             is_error = block.is_error
                             result_str = str(block.content) if block.content else ""
 
+                            # Check if this is a workflow MCP tool result
+                            if self._has_workflow_mcp and tool_name.startswith("mcp__massgen_workflow_tools__"):
+                                workflow_call = self._try_extract_workflow_mcp_result(result_str)
+                                if workflow_call:
+                                    workflow_tool_calls_from_mcp.append(workflow_call)
+                                    logger.info(f"ClaudeCode: captured workflow tool call from MCP: {workflow_call['function']['name']}")
+                                    continue  # Don't emit as regular content
+
                             log_stream_chunk(
                                 "backend.claude_code",
                                 "tool_result",
@@ -2073,20 +1907,28 @@ class ClaudeCodeBackend(StreamingBufferMixin, LLMBackend):
                                 is_error=is_error,
                             )
 
-                    # Parse workflow tool calls from accumulated content
-                    workflow_tool_calls = self._parse_workflow_tool_calls(accumulated_content)
-                    if workflow_tool_calls:
-                        log_stream_chunk(
-                            "backend.claude_code",
-                            "tool_calls",
-                            workflow_tool_calls,
-                            agent_id,
-                        )
+                    # Emit workflow tool calls (prefer MCP results, fallback to text parsing)
+                    if workflow_tool_calls_from_mcp:
+                        logger.info(f"ClaudeCode: {len(workflow_tool_calls_from_mcp)} workflow tool call(s) from MCP server")
                         yield StreamChunk(
                             type="tool_calls",
-                            tool_calls=workflow_tool_calls,
+                            tool_calls=workflow_tool_calls_from_mcp,
                             source="claude_code",
                         )
+                    else:
+                        workflow_tool_calls = self._parse_workflow_tool_calls(accumulated_content)
+                        if workflow_tool_calls:
+                            log_stream_chunk(
+                                "backend.claude_code",
+                                "tool_calls",
+                                workflow_tool_calls,
+                                agent_id,
+                            )
+                            yield StreamChunk(
+                                type="tool_calls",
+                                tool_calls=workflow_tool_calls,
+                                source="claude_code",
+                            )
 
                     # Yield complete message
                     log_stream_chunk(

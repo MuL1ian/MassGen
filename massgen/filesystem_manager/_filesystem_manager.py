@@ -330,10 +330,11 @@ class FilesystemManager:
         # Add temporary workspace to path manager (read-only)
         # Create the directory if it doesn't exist - MCP filesystem server requires
         # directories to exist when validating allowed paths
-        if self.agent_temporary_workspace_parent and not self.agent_temporary_workspace_parent.exists():
-            self.agent_temporary_workspace_parent.mkdir(parents=True, exist_ok=True)
-            logger.info(f"[FilesystemManager] Created temp workspace parent directory: {self.agent_temporary_workspace_parent}")
-        self.path_permission_manager.add_path(self.agent_temporary_workspace_parent, Permission.READ, "temp_workspace")
+        if self.agent_temporary_workspace_parent:
+            if not self.agent_temporary_workspace_parent.exists():
+                self.agent_temporary_workspace_parent.mkdir(parents=True, exist_ok=True)
+                logger.info(f"[FilesystemManager] Created temp workspace parent directory: {self.agent_temporary_workspace_parent}")
+            self.path_permission_manager.add_path(self.agent_temporary_workspace_parent, Permission.READ, "temp_workspace")
 
         # Orchestration-specific paths (set by setup_orchestration_paths)
         self.snapshot_storage = None  # Path for storing workspace snapshots

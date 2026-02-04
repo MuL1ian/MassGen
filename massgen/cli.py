@@ -64,6 +64,7 @@ from .backend.azure_openai import AzureOpenAIBackend
 from .backend.chat_completions import ChatCompletionsBackend
 from .backend.claude import ClaudeBackend
 from .backend.claude_code import ClaudeCodeBackend
+from .backend.codex import CodexBackend
 from .backend.gemini import GeminiBackend
 from .backend.grok import GrokBackend
 from .backend.inference import InferenceBackend
@@ -1341,6 +1342,13 @@ def create_backend(backend_type: str, **kwargs) -> Any:
 
         return ClaudeCodeBackend(**kwargs)
 
+    elif backend_type == "codex":
+        # CodexBackend using OpenAI Codex CLI subprocess wrapper
+        # Authentication: API key (OPENAI_API_KEY) or ChatGPT OAuth
+        # Requires: npm install -g @openai/codex
+
+        return CodexBackend(**kwargs)
+
     elif backend_type == "azure_openai":
         api_key = kwargs.get("api_key") or os.getenv("AZURE_OPENAI_API_KEY")
         endpoint = kwargs.get("base_url") or os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -1820,6 +1828,9 @@ def create_agents_from_config(
         record_all_tool_calls = recording_config.get("record_all_tool_calls", False)
         record_reasoning = recording_config.get("record_reasoning", False)
 
+        # Get per-agent voting sensitivity (if specified)
+        agent_voting_sensitivity = agent_data.get("voting_sensitivity")
+
         # Create agent
         agent = ConfigurableAgent(
             config=agent_config,
@@ -1829,6 +1840,7 @@ def create_agents_from_config(
             context_monitor=context_monitor,
             record_all_tool_calls=record_all_tool_calls,
             record_reasoning=record_reasoning,
+            voting_sensitivity=agent_voting_sensitivity,
         )
 
         # Configure retrieval settings from YAML (if memory is enabled)
@@ -2633,8 +2645,16 @@ async def run_question_with_history(
                                 f"Failed to reset backend for {agent_id}: {e}",
                             )
 
-                # Create fresh UI instance for next attempt
-                ui = _build_coordination_ui(ui_config)
+                # Reuse existing UI if it supports restart, otherwise recreate
+                try:
+                    ui.prepare_for_restart(
+                        orchestrator,
+                        orchestrator.current_attempt + 1,
+                        orchestrator.max_attempts,
+                    )
+                except Exception:
+                    logger.warning("prepare_for_restart failed, recreating UI")
+                    ui = _build_coordination_ui(ui_config)
 
                 # Reset cancellation state for new attempt
                 cancellation_mgr.reset()
@@ -3175,8 +3195,16 @@ async def run_single_question(
                                 f"Failed to reset backend for {agent_id}: {e}",
                             )
 
-                # Create fresh UI instance for next attempt
-                ui = _build_coordination_ui(ui_config)
+                # Reuse existing UI if it supports restart, otherwise recreate
+                try:
+                    ui.prepare_for_restart(
+                        orchestrator,
+                        orchestrator.current_attempt + 1,
+                        orchestrator.max_attempts,
+                    )
+                except Exception:
+                    logger.warning("prepare_for_restart failed, recreating UI")
+                    ui = _build_coordination_ui(ui_config)
 
                 # Continue to next attempt
                 continue
@@ -5632,25 +5660,77 @@ async def run_textual_interactive_mode(
                 },
             )
 
-            # Run orchestration (won't call display.run_async due to interactive_mode)
-            # Use coordinate_with_context if we have conversation history for multi-turn
-            if conversation_history:
-                # Build messages list with history + current question
-                messages = conversation_history + [
-                    {"role": "user", "content": question},
-                ]
-                answer = await coord_ui.coordinate_with_context(
-                    orchestrator=orchestrator,
-                    question=question,
-                    messages=messages,
-                    agent_ids=agent_ids,
-                )
-            else:
-                answer = await coord_ui.coordinate(
-                    orchestrator=orchestrator,
-                    question=question,
-                    agent_ids=agent_ids,
-                )
+            # Run orchestration with restart loop
+            # (won't call display.run_async due to interactive_mode)
+            while True:
+                # Use coordinate_with_context if we have conversation history for multi-turn
+                if conversation_history:
+                    # Build messages list with history + current question
+                    messages = conversation_history + [
+                        {"role": "user", "content": question},
+                    ]
+                    answer = await coord_ui.coordinate_with_context(
+                        orchestrator=orchestrator,
+                        question=question,
+                        messages=messages,
+                        agent_ids=agent_ids,
+                    )
+                else:
+                    answer = await coord_ui.coordinate(
+                        orchestrator=orchestrator,
+                        question=question,
+                        agent_ids=agent_ids,
+                    )
+
+                # Check if restart is needed
+                if hasattr(orchestrator, "restart_pending") and orchestrator.restart_pending:
+                    from massgen.logger_config import set_log_attempt
+
+                    set_log_attempt(orchestrator.current_attempt + 1)
+
+                    save_execution_metadata(
+                        query=question,
+                        config_path=config_path,
+                        config_content=original_config,
+                        cli_args={
+                            "mode": "textual_interactive_restart",
+                            "attempt": orchestrator.current_attempt + 1,
+                            "turn": turn_num,
+                            "session_id": sess_id,
+                            "restart_reason": orchestrator.restart_reason,
+                        },
+                    )
+
+                    # Reset all agent backends for clean state
+                    for agent_id, agent in orchestrator.agents.items():
+                        if hasattr(agent.backend, "reset_state"):
+                            try:
+                                import inspect
+
+                                result = agent.backend.reset_state()
+                                if inspect.iscoroutine(result):
+                                    await result
+                                logger.info(f"Reset backend state for {agent_id}")
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to reset backend for {agent_id}: {e}",
+                                )
+
+                    # Reuse existing UI for restart (never recreate in Textual
+                    # mode — the Textual app owns the display and a fresh
+                    # CoordinationUI would not have it)
+                    try:
+                        coord_ui.prepare_for_restart(
+                            orchestrator,
+                            orchestrator.current_attempt + 1,
+                            orchestrator.max_attempts,
+                        )
+                    except Exception as e:
+                        logger.warning(f"prepare_for_restart failed: {e}", exc_info=True)
+
+                    continue
+                else:
+                    break
 
             # Handle session persistence (same as Rich mode)
             session_id_to_use = session_info.get("session_id")

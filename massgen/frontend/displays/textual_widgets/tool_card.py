@@ -29,24 +29,8 @@ class InjectionToggle(Static):
     preventing the click from bubbling up to the parent ToolCallCard.
     """
 
-    DEFAULT_CSS = """
-    InjectionToggle {
-        width: 100%;
-        height: auto;
-        min-height: 1;
-        padding: 0;
-        margin: 0;
-    }
-
-    InjectionToggle:hover {
-        background: #21262d;
-    }
-
-    InjectionToggle.expanded {
-        min-height: 5;
-        max-height: 20;  /* SPACE-005: Cap expansion to prevent layout thrashing */
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(
         self,

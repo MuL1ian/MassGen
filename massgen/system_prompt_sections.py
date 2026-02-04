@@ -1140,7 +1140,7 @@ class CommandExecutionSection(SystemPromptSection):
 
     def build_content(self) -> str:
         parts = ["## Command Execution"]
-        parts.append("You can run command line commands using the `execute_command` tool.")
+        parts.append("You can run command line commands using your command execution tool.")
         parts.append("**Efficiency**: Batch multiple commands in one call using `&&` (e.g., `ls servers/ && ls custom_tools/`)\n")
 
         if self.docker_mode:
@@ -1208,6 +1208,7 @@ class FilesystemOperationsSection(SystemPromptSection):
         agent_answers: Optional[Dict[str, str]] = None,
         enable_command_execution: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
+        has_native_tools: bool = False,
     ):
         super().__init__(
             title="Filesystem Operations",
@@ -1222,6 +1223,7 @@ class FilesystemOperationsSection(SystemPromptSection):
         self.agent_answers = agent_answers
         self.enable_command_execution = enable_command_execution
         self.agent_mapping = agent_mapping  # Optional: from coordination_tracker.get_reverse_agent_mapping()
+        self.has_native_tools = has_native_tools  # True when backend has native file tools (skip MCP-specific language)
 
     def build_content(self) -> str:
         parts = ["## Filesystem Access"]
@@ -1345,10 +1347,10 @@ class FilesystemOperationsSection(SystemPromptSection):
         parts.append(
             "\n**Task Handling Priority**: When responding to user requests, follow this priority "
             "order:\n"
-            "1. **Use MCP Tools First**: If you have specialized MCP tools available, call them "
+            "1. **Use Tools First**: If you have specialized tools available, call them "
             "DIRECTLY to complete the task\n"
-            "   - Save any outputs/artifacts from MCP tools to your workspace\n"
-            "2. **Write Code If Needed**: If MCP tools cannot complete the task, write and execute "
+            "   - Save any outputs/artifacts to your workspace\n"
+            "2. **Write Code If Needed**: If tools cannot complete the task, write and execute "
             "code\n"
             "3. **Create Other Files**: Create configs, documents, or other deliverables as "
             "needed\n"
@@ -1681,38 +1683,32 @@ Note: All your other tools are still available to help you evaluate answers. The
 
         # Determine evaluation criteria based on voting sensitivity
         if self.voting_sensitivity == "strict":
-            evaluation_section = """Critically examine existing answers for flaws (be skeptical, not charitable),
-verify claims by checking actual files/outputs, and consider if you can build on or combine the best elements.
+            evaluation_section = """**CRITICAL EVALUATION REQUIRED**
 
-Does the best CURRENT ANSWER address the ORIGINAL MESSAGE exceptionally well? Consider:
-- Is it comprehensive, addressing ALL aspects and edge cases?
-- Is it technically accurate and well-reasoned?
-- Does it provide clear explanations and proper justification?
-- Is it complete with no significant gaps or weaknesses?
-- Could it serve as a reference-quality solution?
+Before you can vote, you MUST complete this analysis:
 
-**Before voting, ask: Can I CREATE A BETTER ANSWER by:**
-- Combining strengths from multiple answers (e.g., Agent 1's visuals + Agent 2's content)?
-- Fixing errors or gaps you identified in the best answer?
-- Adding missing elements that would make it more complete?
+**Step 1: Identify Weaknesses (REQUIRED)**
+List 2-3 specific weaknesses, gaps, or areas for improvement in the best existing answer.
 
-If YES to any of these, produce a `new_answer` instead of voting.
-Only vote if the best answer is truly excellent AND you cannot improve it."""
+**Step 2: For EACH weakness, choose ONE:**
+- "I can fix this" -> You MUST provide a `new_answer`
+- "Another answer addresses this" -> Combine answers to shore up the weakness
+- "I cannot fix this because: [specific reason]" -> Explain why (outside your capabilities, requires info you don't have, etc.)
+
+**Step 3: Decision**
+- If you can fix OR combine to address ANY weakness -> `new_answer`
+- If you explained why you cannot fix ALL weaknesses -> `vote`
+
+You may NOT vote without first explaining why each weakness is unfixable by you."""
         elif self.voting_sensitivity == "balanced":
-            evaluation_section = """Critically examine existing answers for flaws,
-verify claims by checking actual files/outputs, and consider if you can build on or combine approaches.
+            evaluation_section = """Critically examine existing answers for flaws and opportunities.
 
-Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well? Consider:
-- Is it comprehensive, accurate, and complete?
-- Could it be meaningfully improved, refined, or expanded?
-- Are there weaknesses, gaps, or better approaches?
+**Before voting:**
+1. Identify at least 1 weakness in the best answer
+2. Can you fix it or combine with another answer to address it? If not, explain why.
 
-**Before voting, ask: Can I CREATE A BETTER ANSWER by:**
-- Combining strengths from multiple answers (e.g., one agent's structure + another's execution)?
-- Fixing errors or gaps you identified?
-- Adding missing elements?
-
-If YES, produce a `new_answer`. Only vote if you genuinely cannot add meaningful value."""
+If you CAN fix or combine to address any weakness, produce a `new_answer`.
+Only vote after explaining why identified weaknesses are unfixable by you."""
         else:
             # Default to lenient (including explicit "lenient" or any other value)
             evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well?
@@ -1771,7 +1767,7 @@ You have just presented a final answer to the user. Now you must evaluate whethe
 Review the final answer that was presented and determine if it completely and accurately addresses the original task requirements.
 
 **Available Tools:**
-You have access to the same filesystem and MCP tools that were available during presentation. Use these tools to:
+You have access to the same filesystem and tools that were available during presentation. Use these tools to:
 - Verify that claimed files actually exist in the workspace
 - Check file contents to confirm they match what was described
 - Validate any technical claims or implementations

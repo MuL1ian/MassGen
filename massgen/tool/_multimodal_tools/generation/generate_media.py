@@ -527,7 +527,7 @@ async def generate_media(
                     }
 
         # Execute generation(s) with concurrency control
-        semaphore = asyncio.Semaphore(max_concurrent)
+        semaphore = asyncio.Semaphore(max_concurrent if max_concurrent is not None else 4)
         tasks = [_generate_one(i, p, semaphore) for i, p in enumerate(prompt_list)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

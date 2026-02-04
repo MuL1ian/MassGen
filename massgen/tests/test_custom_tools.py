@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from massgen.backend.response import ResponseBackend  # noqa: E402
+from massgen.mcp_tools.custom_tools_server import build_server_config  # noqa: E402
 from massgen.tool import ExecutionResult, ToolManager  # noqa: E402
 from massgen.tool._result import TextContent  # noqa: E402
 
@@ -385,6 +386,18 @@ class TestCustomToolsIntegration:
         assert len(custom) == 1 and custom[0]["name"] == "custom_tool__calculate_sum"
         assert len(mcp) == 1 and mcp[0]["name"] == "mcp_tool"
         assert len(provider) == 1 and provider[0]["name"] == "web_search"
+
+
+def test_custom_tools_build_server_config_env_merge(tmp_path: Path) -> None:
+    """Ensure custom tools MCP env merges and forces banner suppression."""
+    specs_path = tmp_path / "custom_tool_specs.json"
+    cfg = build_server_config(
+        specs_path,
+        env={"OPENAI_API_KEY": "test-key", "FASTMCP_SHOW_CLI_BANNER": "true"},
+    )
+    env = cfg.get("env", {})
+    assert env.get("OPENAI_API_KEY") == "test-key"
+    assert env.get("FASTMCP_SHOW_CLI_BANNER") == "false"
 
 
 # ============================================================================

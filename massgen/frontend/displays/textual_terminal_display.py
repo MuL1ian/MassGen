@@ -31,6 +31,7 @@ try:
     from textual.message import Message
     from textual.reactive import reactive
     from textual.screen import ModalScreen
+    from textual.theme import Theme
     from textual.widget import Widget
     from textual.widgets import Button, Footer, Input, Label, RichLog, Static, TextArea
 
@@ -85,6 +86,7 @@ try:
         TaskPlanModal,
         TasksClicked,
         TimelineSection,
+        ToolBatchCard,
         ToolCallCard,
         ToolDetailModal,
         ToolSection,
@@ -742,10 +744,14 @@ class TextualTerminalDisplay(TerminalDisplay):
 
     # === Status Bar Notification Bridge Methods ===
 
-    def notify_vote(self, voter: str, voted_for: str, reason: str = ""):
-        """Notify the TUI of a vote cast - updates status bar, shows toast, and adds tool card."""
+    def notify_vote(self, voter: str, voted_for: str, reason: str = "", submission_round: int = 1):
+        """Notify the TUI of a vote cast - updates status bar, shows toast, and adds tool card.
+
+        Args:
+            submission_round: Round the vote was cast in (1-indexed display round)
+        """
         if self._app:
-            self._call_app_method("notify_vote", voter, voted_for, reason)
+            self._call_app_method("notify_vote", voter, voted_for, reason, submission_round)
 
     def highlight_winner_quick(
         self,
@@ -772,6 +778,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         answer_number: int = 1,
         answer_label: Optional[str] = None,
         workspace_path: Optional[str] = None,
+        submission_round: int = 1,
     ) -> None:
         """Notify the TUI of a new answer - shows enhanced toast and tracks for browser.
 
@@ -782,6 +789,7 @@ class TextualTerminalDisplay(TerminalDisplay):
             answer_number: The answer number for this agent (1, 2, etc.)
             answer_label: Label for this answer (e.g., "agent1.1")
             workspace_path: Absolute path to the workspace snapshot for this answer
+            submission_round: Round the answer was submitted in (1-indexed display round)
         """
         if self._app:
             self._call_app_method(
@@ -792,6 +800,7 @@ class TextualTerminalDisplay(TerminalDisplay):
                 answer_number,
                 answer_label,
                 workspace_path,
+                submission_round,
             )
 
     def record_answer_with_context(
@@ -1156,6 +1165,46 @@ class TextualTerminalDisplay(TerminalDisplay):
             self._write_to_agent_file(agent_id, separator)
 
         self._write_to_system_file(f"\n=== TURN {turn} ===\nQuestion: {question}\n")
+
+    def begin_restart(
+        self,
+        attempt: int,
+        max_attempts: int,
+        reason: str = "",
+        instructions: str = "",
+    ) -> None:
+        """Prepare the TUI for a restart attempt without recreating the app.
+
+        Resets internal state and delegates to the app's prepare_for_restart_attempt.
+
+        Args:
+            attempt: The new attempt number (1-indexed).
+            max_attempts: Total allowed attempts.
+            reason: Why the restart was triggered.
+            instructions: Instructions for the next attempt.
+        """
+        self.reset_quit_request()
+        self._final_answer_cache = None
+        self._final_answer_metadata = {}
+        self._final_stream_active = False
+        self._final_stream_buffer = ""
+        self._final_presentation_agent = None
+
+        if self._app:
+            self._call_app_method(
+                "prepare_for_restart_attempt",
+                attempt,
+                max_attempts,
+                reason,
+                instructions,
+            )
+
+        for agent_id in self.agent_ids:
+            separator = f"\n{'='*60}\n=== ATTEMPT {attempt}/{max_attempts} ===\n{'='*60}\n"
+            self._write_to_agent_file(agent_id, separator)
+        self._write_to_system_file(
+            f"\n=== ATTEMPT {attempt}/{max_attempts} ===\nReason: {reason}\n",
+        )
 
     def end_turn(
         self,
@@ -2255,13 +2304,124 @@ if TEXTUAL_AVAILABLE:
         """Main Textual application for MassGen coordination."""
 
         THEMES_DIR = Path(__file__).parent / "textual_themes"
-        CSS_PATH = str(THEMES_DIR / "dark.tcss")
+        PALETTES_DIR = THEMES_DIR / "palettes"
+        CSS_PATH = str(THEMES_DIR / "dark.tcss")  # Legacy - now using combined CSS
+
+        # Map theme names to palette files
+        # Core themes cycle via Ctrl+Shift+T; others available via config only
+        PALETTE_MAP = {
+            "dark": "_dark.tcss",
+            "light": "_light.tcss",
+            "catppuccin_mocha": "_catppuccin_mocha.tcss",
+            "catppuccin_latte": "_catppuccin_latte.tcss",
+        }
+
+        # Themes that cycle with Ctrl+Shift+T
+        CORE_THEMES = ["dark", "light"]
+
+        # Custom Textual themes with proper color palettes
+        # These are registered at app startup and provide consistent styling
+        CUSTOM_THEMES = {
+            "dark": Theme(
+                name="massgen-dark",
+                primary="#58a6ff",  # Blue
+                secondary="#a371f7",  # Purple
+                accent="#f0883e",  # Orange
+                foreground="#e6edf3",  # Light text
+                background="#0d1117",  # Dark bg
+                surface="#161b22",  # Elevated surface
+                panel="#21262d",  # Panel bg
+                success="#3fb950",
+                warning="#d29922",
+                error="#f85149",
+                dark=True,
+            ),
+            "light": Theme(
+                name="massgen-light",
+                primary="#0969da",  # Strong blue
+                secondary="#8250df",  # Purple
+                accent="#bf8700",  # Amber
+                foreground="#1f2328",  # Dark text (high contrast)
+                background="#ffffff",  # White bg
+                surface="#f6f8fa",  # Light gray surface
+                panel="#ffffff",  # White panel
+                success="#1a7f37",  # Dark green (readable)
+                warning="#9a6700",  # Dark amber
+                error="#cf222e",  # Dark red
+                dark=False,
+            ),
+        }
+
+        # Map internal theme names to Textual registered theme names
+        THEME_NAME_MAP = {
+            "dark": "massgen-dark",
+            "light": "massgen-light",
+        }
+
+        # Cache for combined CSS files
+        _combined_css_cache: Dict[str, Path] = {}
+
+        @classmethod
+        def _get_combined_css_path(cls, theme: str) -> Path:
+            """Get path to combined CSS (palette + base) for a theme.
+
+            Textual CSS variables must be defined before they're used, so we
+            concatenate the palette file (which defines variables like $bg-base)
+            with the base file (which uses those variables).
+
+            Args:
+                theme: Theme name (e.g., "dark", "light")
+
+            Returns:
+                Path to the combined CSS file
+            """
+            # Get palette file for this theme
+            palette_file = cls.PALETTE_MAP.get(theme, "_dark.tcss")
+            palette_path = cls.PALETTES_DIR / palette_file
+            base_path = cls.THEMES_DIR / "base.tcss"
+
+            # Create combined CSS in a cache directory
+            import tempfile
+
+            cache_dir = Path(tempfile.gettempdir()) / "massgen_themes"
+            cache_dir.mkdir(exist_ok=True)
+            combined_path = cache_dir / f"{theme}_combined.tcss"
+
+            # Check if cache is valid (exists and newer than source files)
+            # Check both in-memory cache dict AND the on-disk file (from previous session)
+            cache_valid = False
+            if combined_path.exists():
+                # Check modification times - regenerate if sources are newer
+                cache_mtime = combined_path.stat().st_mtime
+                palette_mtime = palette_path.stat().st_mtime if palette_path.exists() else 0
+                base_mtime = base_path.stat().st_mtime if base_path.exists() else 0
+                source_mtime = max(palette_mtime, base_mtime)
+                cache_valid = cache_mtime >= source_mtime
+
+            if cache_valid:
+                # Ensure in-memory cache is up to date
+                cls._combined_css_cache[theme] = combined_path
+                return combined_path
+
+            # Read and concatenate files
+            palette_css = palette_path.read_text() if palette_path.exists() else ""
+            base_css = base_path.read_text() if base_path.exists() else ""
+
+            combined_css = f"/* Combined theme: {theme} */\n"
+            combined_css += f"/* Palette from: {palette_file} */\n\n"
+            combined_css += palette_css
+            combined_css += "\n\n/* Base component styles */\n\n"
+            combined_css += base_css
+
+            combined_path.write_text(combined_css)
+            cls._combined_css_cache[theme] = combined_path
+            return combined_path
 
         # Minimal bindings - most features accessed via /slash commands
         # Only canonical shortcuts that users expect
         BINDINGS = [
             # Agent navigation
-            Binding("w", "go_to_winner", "Go to Winner", show=False),
+            Binding("f", "go_to_winner", "Go to Winner", show=False),
             Binding("tab", "next_agent", "Next Agent"),
             Binding("left", "prev_agent", "Prev Agent", show=False),
             Binding("right", "next_agent", "Next Agent", show=False),
@@ -2292,14 +2452,12 @@ if TEXTUAL_AVAILABLE:
             buffer_lock: threading.Lock,
             buffer_flush_interval: float,
         ):
-            # Determine CSS path based on theme (dark, light, or transparent)
-            if display.theme == "light":
-                css_path = self.THEMES_DIR / "light.tcss"
-            elif display.theme == "transparent":
-                css_path = self.THEMES_DIR / "transparent.tcss"
-            else:
-                css_path = self.THEMES_DIR / "dark.tcss"
-            super().__init__(css_path=str(css_path))
+            # Build combined CSS from palette + base
+            # Textual CSS variables must be defined before use, so we concatenate
+            # the palette (variables) with the base (component styles)
+            theme = display.theme if display.theme in self.PALETTE_MAP else "dark"
+            combined_css_path = self._get_combined_css_path(theme)
+            super().__init__(css_path=str(combined_css_path))
             self.coordination_display = display
             self.question = question
             self._buffers = buffers
@@ -2591,6 +2749,15 @@ if TEXTUAL_AVAILABLE:
 
         async def on_mount(self):
             """Set up periodic buffer flushing when app starts."""
+            # Register custom themes for proper color palette support
+            for theme in self.CUSTOM_THEMES.values():
+                self.register_theme(theme)
+
+            # Set initial theme based on coordination_display.theme
+            initial_theme = self.coordination_display.theme
+            if initial_theme in self.THEME_NAME_MAP:
+                self.theme = self.THEME_NAME_MAP[initial_theme]
+
             self._thread_id = threading.get_ident()
             self.coordination_display._app_ready.set()
             self._register_event_listener()
@@ -2794,7 +2961,7 @@ if TEXTUAL_AVAILABLE:
             try:
                 theme_widget = self.query_one("#status_theme", Static)
                 theme = self.coordination_display.theme
-                icon_map = {"dark": "D", "light": "L", "transparent": "T"}
+                icon_map = {"dark": "D", "light": "L"}
                 icon = f"[dim]{icon_map.get(theme, 'D')}[/]"
                 theme_widget.update(icon)
             except Exception as e:
@@ -3137,6 +3304,7 @@ if TEXTUAL_AVAILABLE:
 
                 # Show winner panel, hide others
                 self._winner_agent_id = winner_id
+                self._update_winner_hints(winner_id)
                 if winner_id in self.agent_widgets:
                     if self._active_agent_id and self._active_agent_id in self.agent_widgets:
                         self.agent_widgets[self._active_agent_id].add_class("hidden")
@@ -3146,6 +3314,7 @@ if TEXTUAL_AVAILABLE:
             elif event.event_type == "final_presentation_start":
                 agent_id = event.agent_id or ""
                 self._winner_agent_id = agent_id
+                self._update_winner_hints(agent_id)
                 # Switch to winner tab if not already
                 if self._tab_bar:
                     self._tab_bar.set_active(agent_id)
@@ -3882,6 +4051,25 @@ Type your question and press Enter to ask the agents.
             timestamp = datetime.now().strftime("%H:%M:%S")
             self._orchestrator_events.append(f"{timestamp} {event}")
 
+        def _update_winner_hints(self, winner_id: str) -> None:
+            """Update winner hints on all agent timelines.
+
+            Args:
+                winner_id: The ID of the winning agent. Non-winners will show
+                    a hint directing users to the winner's timeline.
+            """
+            for agent_id, panel in self.agent_widgets.items():
+                try:
+                    timeline = panel._get_timeline()
+                    if timeline:
+                        # Show hint on non-winners, hide on winner
+                        timeline.show_winner_hint(show=(agent_id != winner_id))
+                except Exception as e:
+                    tui_log(
+                        f"_update_winner_hints failed for agent={agent_id}, winner={winner_id}: {e}",
+                        level="debug",
+                    )
+
         def show_subagent_card_from_spawn(
             self,
             agent_id: str,
@@ -3998,6 +4186,7 @@ Type your question and press Enter to ask the agents.
 
             # Track the winner
             self._winner_agent_id = selected_agent
+            self._update_winner_hints(selected_agent)
 
             # Mark the winning answer(s) in tracked answers and extract workspace_path
             winner_workspace_path = None
@@ -4114,13 +4303,21 @@ Type your question and press Enter to ask the agents.
                     if hasattr(orch, "get_context_path_writes_categorized"):
                         context_paths = orch.get_context_path_writes_categorized()
 
-                # Remove any existing completion card to avoid duplicate ID issues
-                try:
-                    existing_card = timeline.query_one("#final_presentation_card", FinalPresentationCard)
-                    existing_card.remove()
-                except Exception as e:
-                    tui_log(f"[TextualDisplay] {e}")  # No existing card, that's fine
+                # Check if card already exists (may have been created by event pipeline)
+                existing_cards = list(timeline.query("#final_presentation_card"))
+                if existing_cards:
+                    tui_log("[TextualDisplay] Final card already exists, reusing it")
+                    card = existing_cards[0]
+                    self._final_presentation_card = card
+                    # Still need to do the lock and complete
+                    if answer and not getattr(card, "_final_content", []):
+                        card.append_chunk(answer)
+                    card.complete()
+                    timeline.lock_to_final_answer("final_presentation_card")
+                    card.set_locked_mode(True)
+                    return
 
+                tui_log("[TextualDisplay] Creating new final presentation card")
                 # Create the final answer card with content
                 card = FinalPresentationCard(
                     agent_id=agent_id,
@@ -4133,7 +4330,9 @@ Type your question and press Enter to ask the agents.
                 current_round = getattr(panel, "_current_round", 1)
                 card.add_class(f"round-{current_round}")
 
-                timeline.add_widget(card)
+                # Use mount() directly to ensure card is always at the END of timeline
+                # (add_widget uses round-based insertion which can place card before later content)
+                timeline.mount(card)
                 self._final_presentation_card = card
 
                 # Stop the round timer - final presentation is the end state
@@ -4149,7 +4348,8 @@ Type your question and press Enter to ask the agents.
 
                 # Set the answer content and mark as complete
                 def set_content_and_complete():
-                    if answer:
+                    # Only add content if card is empty (streaming may have already populated it)
+                    if answer and not getattr(card, "_final_content", []):
                         card.append_chunk(answer)
                     card.complete()
                     try:
@@ -4377,6 +4577,14 @@ Type your question and press Enter to ask the agents.
                     timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
                     self._final_stream_timeline = timeline
 
+                    # Check if card already exists (may have been created by event pipeline)
+                    existing_cards = list(timeline.query("#final_presentation_card"))
+                    if existing_cards:
+                        tui_log("[TextualDisplay] begin_final_stream: card already exists, reusing")
+                        self._final_presentation_card = existing_cards[0]
+                        timeline.scroll_to_widget("final_presentation_card")
+                        return
+
                     # Get coordination_tracker for answer label lookup
                     tracker = None
                     if hasattr(self.coordination_display, "orchestrator") and self.coordination_display.orchestrator:
@@ -4405,6 +4613,7 @@ Type your question and press Enter to ask the agents.
                         "is_tie": is_tie,
                     }
 
+                    tui_log("[TextualDisplay] begin_final_stream: creating new card")
                     # Create the unified card
                     card = FinalPresentationCard(
                         agent_id=agent_id,
@@ -4416,7 +4625,8 @@ Type your question and press Enter to ask the agents.
                     card.add_class(f"round-{current_round}")
                     # Note: Removed full-width-mode to allow tool cards to be visible
                     # during final presentation (was causing content cutoff issue)
-                    timeline.add_widget(card)
+                    # Use mount() directly to ensure card is always at the END of timeline
+                    timeline.mount(card)
                     self._final_presentation_card = card
 
                     # Scroll to show the card
@@ -4559,7 +4769,8 @@ Type your question and press Enter to ask the agents.
                     card.add_class(f"round-{self._current_round}")
                     # Use completion-only mode - content already in timeline via normal pipeline
                     card.add_class("completion-only")
-                    timeline.add_widget(card)
+                    # Use mount() directly to ensure card is always at the END of timeline
+                    timeline.mount(card)
                     self._final_presentation_card = card
 
                     # Auto-lock timeline to show only final answer
@@ -4646,7 +4857,7 @@ Type your question and press Enter to ask the agents.
                         )
 
                         # CRITICAL: Suppress auto Round 1 insertion before adding turn banner.
-                        # add_widget() calls _ensure_round_1_shown() which would add Round 1
+                        # add_widget() calls _ensure_round_banner() which would add Round 1
                         # ABOVE the turn banner. We add Round 1 explicitly BELOW it instead.
                         timeline._round_1_shown = True
 
@@ -4676,7 +4887,7 @@ Type your question and press Enter to ask the agents.
                         # This ensures proper order: Turn X → [Context] → Round 1 → Content
                         logger.info(f"[TUI-App] Adding Round 1 separator for {agent_id}")
                         timeline.add_separator("Round 1", round_number=1)
-                        timeline._round_1_shown = True  # Prevent _ensure_round_1_shown() from adding it again
+                        timeline._round_1_shown = True  # Prevent _ensure_round_banner() from adding it again
                         logger.info("[TUI-App] Round 1 separator added, _round_1_shown set to True")
 
                         # Scroll to the turn banner to show the new turn at the top
@@ -4703,6 +4914,57 @@ Type your question and press Enter to ask the agents.
                         tui_log(f"[TextualDisplay] {e}")
 
             logger.info(f"[TUI-App] prepare_for_new_turn() complete for turn {turn}")
+
+        def prepare_for_restart_attempt(
+            self,
+            attempt: int,
+            max_attempts: int,
+            reason: str = "",
+            instructions: str = "",
+        ):
+            """Reset the UI for a restart attempt while keeping the app running.
+
+            Unlike prepare_for_new_turn which clears timelines, this adds a restart
+            separator to each agent panel so users see continuity between attempts.
+
+            Args:
+                attempt: The new attempt number (1-indexed).
+                max_attempts: Total allowed attempts.
+                reason: Why the restart was triggered.
+                instructions: Instructions for the next attempt.
+            """
+            from massgen.logger_config import logger
+
+            logger.info(
+                f"[TUI-App] prepare_for_restart_attempt() called: " f"attempt={attempt}/{max_attempts}, reason={reason!r}",
+            )
+
+            # Clear winner state from previous attempt
+            self.clear_winner_state()
+
+            # Reset ribbon round state so rounds start fresh for this attempt
+            if self._status_ribbon:
+                self._status_ribbon.reset_round_state_all_agents()
+
+            # Add restart separator to each agent panel
+            for agent_id, panel in self.agent_widgets.items():
+                try:
+                    panel.show_restart_separator(attempt=attempt, reason=reason, instructions=instructions)
+                    logger.info(f"[TUI-App] Restart separator added for {agent_id}")
+                except Exception as e:
+                    logger.warning(
+                        f"[TUI-App] Failed to add restart separator for {agent_id}: {e}",
+                    )
+
+            # Show attempt counter in status bar
+            if self._status_bar and hasattr(self._status_bar, "show_restart_count"):
+                self._status_bar.show_restart_count(attempt, max_attempts)
+
+            # Reset agent status indicators to thinking
+            for agent_id in self.agent_widgets:
+                self.set_agent_working(agent_id, working=True)
+
+            logger.info("[TUI-App] prepare_for_restart_attempt() complete")
 
         # =====================================================================
         # Multi-turn Lifecycle Methods
@@ -4831,7 +5093,8 @@ Type your question and press Enter to ask the agents.
                 for agent_id in self._status_bar._agent_order:
                     self._status_bar.set_agent_activity(agent_id, "thinking")
 
-            # Also show prominent restart separator in ALL agent panels
+            # Show restart separator in ALL agent panels for within-turn restarts
+            # (post-eval restarts are handled separately by prepare_for_restart_attempt)
             for agent_id, panel in self.agent_widgets.items():
                 panel.show_restart_separator(attempt, reason)
                 adapter = self._event_adapters.get(agent_id)
@@ -5030,9 +5293,9 @@ Type your question and press Enter to ask the agents.
                 self._active_agent_id = agent_id
                 tui_log(f"  Switch complete to: {agent_id}")
 
-                # Notify if navigating away from winner
+                # Show winner hint separator on non-winner timelines
                 if self._winner_agent_id and agent_id != self._winner_agent_id:
-                    self.notify("Press W to go to winner agent", timeout=4)
+                    self._update_winner_hints(self._winner_agent_id)
 
                 # Update current_agent_index for compatibility with existing methods
                 try:
@@ -5595,6 +5858,24 @@ Type your question and press Enter to ask the agents.
             self.push_screen(modal)
             event.stop()
 
+        def on_tool_batch_card_tool_in_batch_clicked(
+            self,
+            event: ToolBatchCard.ToolInBatchClicked,
+        ) -> None:
+            """Handle tool-in-batch click - show detail modal."""
+            tool = event.tool_item
+            modal = ToolDetailModal(
+                tool_name=tool.display_name,
+                icon="🔧",  # Generic tool icon
+                status=tool.status,
+                elapsed=f"{tool.elapsed_seconds:.1f}s" if tool.elapsed_seconds else None,
+                args=tool.args_full,
+                result=tool.result_full,
+                error=tool.error,
+            )
+            self.push_screen(modal)
+            event.stop()
+
         def on_task_plan_card_open_modal(self, event: TaskPlanCard.OpenModal) -> None:
             """Handle task plan card click - show task plan modal."""
             modal = TaskPlanModal(
@@ -5734,42 +6015,24 @@ Type your question and press Enter to ask the agents.
                 self.agent_widgets[self._active_agent_id].toggle_task_plan()
 
         def action_toggle_theme(self) -> None:
-            """Toggle between dark, light, and transparent themes (Ctrl+Shift+T binding)."""
-            from textual.css.stylesheet import Stylesheet
-
+            """Toggle between dark and light themes (Ctrl+Shift+T binding)."""
             current = self.coordination_display.theme
-            # Cycle: dark -> light -> transparent -> dark
-            theme_cycle = {"dark": "light", "light": "transparent", "transparent": "dark"}
-            new_theme = theme_cycle.get(current, "dark")
-
-            # Load and apply new CSS
-            css_path = self.THEMES_DIR / f"{new_theme}.tcss"
-            if not css_path.exists():
-                self.notify(f"Theme file not found: {css_path}", severity="error")
-                return
+            # Cycle through core themes only: dark -> light -> dark
+            try:
+                current_idx = self.CORE_THEMES.index(current)
+                next_idx = (current_idx + 1) % len(self.CORE_THEMES)
+                new_theme = self.CORE_THEMES[next_idx]
+            except ValueError:
+                # Current theme not in core themes, reset to dark
+                new_theme = "dark"
 
             try:
-                # Create a fresh stylesheet with the new CSS
-                new_stylesheet = Stylesheet(variables=self.get_css_variables())
-                new_stylesheet.read(css_path)
-                new_stylesheet.parse()
+                # Use our custom registered themes for proper color palette support
+                textual_theme_name = self.THEME_NAME_MAP.get(new_theme, "massgen-dark")
+                self.theme = textual_theme_name
 
-                # Replace the app's stylesheet (this is what refresh_css uses)
-                self.stylesheet = new_stylesheet
-
-                # Update the theme state AFTER successfully loading CSS
+                # Update the theme state
                 self.coordination_display.theme = new_theme
-
-                # Now refresh_css will use the new stylesheet
-                # It calls: stylesheet.set_variables(), reparse(), update()
-                self.refresh_css(animate=False)
-
-                # Force full repaint of all widgets
-                self.refresh(repaint=True, layout=True)
-
-                # Also refresh the screen
-                if self.screen.is_mounted:
-                    self.screen.refresh(repaint=True, layout=True)
 
             except Exception as e:
                 self.notify(f"Theme error: {e}", severity="error", timeout=3)
@@ -6153,8 +6416,14 @@ Type your question and press Enter to ask the agents.
 
         # === Status Bar Notification Methods ===
 
-        def notify_vote(self, voter: str, voted_for: str, reason: str = "") -> None:
-            """Called when a vote is cast. Updates status bar, shows toast, and adds tool card."""
+        def notify_vote(self, voter: str, voted_for: str, reason: str = "", submission_round: int = 1) -> None:
+            """Called when a vote is cast. Updates status bar, shows toast, and adds tool card.
+
+            Args:
+                submission_round: Round the vote was cast in (1-indexed).
+                    This ensures the vote card appears in the correct round
+                    even if panel._current_round has advanced due to restart.
+            """
             import time
             from datetime import datetime
 
@@ -6245,9 +6514,9 @@ Type your question and press Enter to ask the agents.
                     )
 
                     # Add tool card to timeline and mark as success immediately
-                    # Phase 12: Pass round_number for CSS visibility
-                    current_round = panel._current_round
-                    timeline.add_tool(tool_data, round_number=current_round)
+                    # Use submission_round (not panel._current_round) to ensure
+                    # chronological correctness: vote appears before round restart
+                    timeline.add_tool(tool_data, round_number=submission_round)
                     tool_data.status = "success"
                     timeline.update_tool(tool_id, tool_data)
 
@@ -6283,8 +6552,15 @@ Type your question and press Enter to ask the agents.
             answer_number: int,
             answer_label: Optional[str],
             workspace_path: Optional[str],
+            submission_round: int = 1,
         ) -> None:
-            """Called when an agent submits an answer. Shows enhanced toast, tool card, and tracks for browser."""
+            """Called when an agent submits an answer. Shows enhanced toast, tool card, and tracks for browser.
+
+            Args:
+                submission_round: Round the answer was submitted in (1-indexed).
+                    This ensures the answer card appears in the correct round
+                    even if panel._current_round has advanced due to restart.
+            """
             import time
 
             # Get model name for richer display
@@ -6368,8 +6644,9 @@ Type your question and press Enter to ask the agents.
                     )
 
                     # Add tool card directly to timeline
-                    # Phase 12: Pass round_number for CSS visibility
-                    timeline.add_tool(tool_data, round_number=panel._current_round)
+                    # Use submission_round (not panel._current_round) to ensure
+                    # chronological correctness: answer appears before round restart
+                    timeline.add_tool(tool_data, round_number=submission_round)
                     # Mark as success immediately
                     tool_data.status = "success"
                     timeline.update_tool(tool_id, tool_data)
@@ -7239,7 +7516,7 @@ Type your question and press Enter to ask the agents.
             self._last_tool_was_terminal: bool = False
             self._transition_pending: bool = False
             self._transition_timer: Optional[Any] = None
-            self._pending_round_transition: Optional[Tuple[int, bool]] = None  # (round_num, is_context_reset)
+            self._pending_round_transition: Optional[Tuple[int, bool, bool]] = None  # (round_num, is_context_reset, defer_banner)
 
             # Final presentation tracking
             # When True, content flows through the normal pipeline but is tagged as final presentation
@@ -7496,25 +7773,49 @@ Type your question and press Enter to ask the agents.
             except Exception as e:
                 tui_log(f"_update_pinned_task_plan error: {e}")
 
-        def show_restart_separator(self, attempt: int = 1, reason: str = ""):
-            """Handle restart - start new round with view-based navigation.
+        def show_restart_separator(self, attempt: int = 1, reason: str = "", instructions: str = ""):
+            """Handle orchestration-level restart (new attempt).
 
-            With Phase 12 view-based navigation, restarts create a new round that
-            users can switch to via the dropdown. This clears the timeline for fresh
-            content and updates the round tracking.
+            Resets round counter back to 1 and shows an "Attempt N" separator
+            so users can distinguish orchestration restarts from within-attempt
+            round changes.
             """
+            from massgen.logger_config import logger
+
             # Mark that non-tool content arrived (prevents future batching across this content)
             self._batch_tracker.mark_content_arrived()
             # Finalize any current batch when restart occurs
             self._batch_tracker.finalize_current_batch()
 
-            # Determine if this was a context reset
-            is_context_reset = "context" in reason.lower() or "reset" in reason.lower()
+            # Reset round counter so the new attempt starts at round 1
+            self._current_round = 1
+            self._viewed_round = 1
+            self._current_view = "round"
 
-            # Start the new round (clears timeline, updates ribbon, stores content)
-            self.start_new_round(attempt, is_context_reset)
+            # Reset timeline tracking for the new attempt (don't scroll —
+            # the new banner appends at the bottom and auto-scrolls there)
+            try:
+                timeline = self.query_one(f"#{self._timeline_section_id}", TimelineSection)
+                timeline.set_viewed_round(1)
+                timeline.clear_tools_tracking()
+                # Add attempt banner
+                timeline.add_attempt_banner(
+                    attempt=attempt,
+                    reason=reason,
+                    instructions=instructions,
+                    round_number=1,
+                )
+
+                # Add Round 1 banner under the attempt separator
+                timeline._round_1_shown = True
+                timeline.add_separator("Round 1", round_number=1)
+            except Exception as e:
+                logger.error(f"AgentPanel.show_restart_separator timeline error: {e}")
 
             # Reset per-attempt UI state
+            self._hide_completion_footer()
+            self._tool_handler.reset()
+            self._batch_tracker.reset()
             self._reasoning_header_shown = False
 
         def _is_planning_mcp_tool(self, tool_name: str) -> bool:
@@ -7940,7 +8241,12 @@ Type your question and press Enter to ask the agents.
         # ========================================================================
         # Storage methods removed - widgets stay in DOM with round-N tags
 
-        def start_new_round(self, round_number: int, is_context_reset: bool = False) -> None:
+        def start_new_round(
+            self,
+            round_number: int,
+            is_context_reset: bool = False,
+            defer_banner: bool = False,
+        ) -> None:
             """Start a new round - update tracking and switch visibility.
 
             Phase 12: With CSS-based visibility, all round content stays in the DOM.
@@ -7957,24 +8263,25 @@ Type your question and press Enter to ask the agents.
             Args:
                 round_number: The new round number
                 is_context_reset: Whether this round started with a context reset
+                defer_banner: If True, defer the round banner until first content
             """
             from massgen.logger_config import logger
 
             logger.debug(
-                f"AgentPanel.start_new_round: round={round_number}, " f"prev_round={self._current_round}, context_reset={is_context_reset}",
+                f"AgentPanel.start_new_round: round={round_number}, " f"prev_round={self._current_round}, context_reset={is_context_reset}, defer_banner={defer_banner}",
             )
 
             # Terminal tool transition delay - give users time to see completed action
             if self._transition_pending:
                 # Already waiting for a transition - update the pending round
-                self._pending_round_transition = (round_number, is_context_reset)
+                self._pending_round_transition = (round_number, is_context_reset, defer_banner)
                 return
 
             if self._last_tool_was_terminal:
                 self._last_tool_was_terminal = False  # Reset for next round
 
             # Execute the round transition immediately
-            self._execute_round_transition_impl(round_number, is_context_reset)
+            self._execute_round_transition_impl(round_number, is_context_reset, defer_banner)
 
         def _execute_round_transition(self) -> None:
             """Execute a delayed round transition (called by timer)."""
@@ -7982,11 +8289,16 @@ Type your question and press Enter to ask the agents.
             self._transition_timer = None
 
             if self._pending_round_transition:
-                round_number, is_context_reset = self._pending_round_transition
+                round_number, is_context_reset, defer_banner = self._pending_round_transition
                 self._pending_round_transition = None
-                self._execute_round_transition_impl(round_number, is_context_reset)
+                self._execute_round_transition_impl(round_number, is_context_reset, defer_banner)
 
-        def _execute_round_transition_impl(self, round_number: int, is_context_reset: bool = False) -> None:
+        def _execute_round_transition_impl(
+            self,
+            round_number: int,
+            is_context_reset: bool = False,
+            defer_banner: bool = False,
+        ) -> None:
             """Execute the actual round transition logic."""
             from massgen.logger_config import logger
 
@@ -8003,13 +8315,23 @@ Type your question and press Enter to ask the agents.
                 # Clear tools tracking so new round's tool_ids don't collide with old round's
                 timeline.clear_tools_tracking()
 
-                # Step 3: Add "Round X" banner at the top of each new round
-                if round_number > 1:
-                    # Build subtitle based on restart context
-                    subtitle = "Restart"
+                # Step 3: Add (or defer) "Round X" banner at the top of each new round
+                if round_number >= 1:
+                    subtitle = "Restart" if round_number > 1 else None
                     if is_context_reset:
-                        subtitle += " • Context cleared"
-                    timeline.add_separator(f"Round {round_number}", round_number=round_number, subtitle=subtitle)
+                        subtitle = (subtitle or "") + " • Context cleared"
+                    if defer_banner and hasattr(timeline, "defer_round_banner"):
+                        timeline.defer_round_banner(
+                            round_number,
+                            f"Round {round_number}",
+                            subtitle if subtitle else None,
+                        )
+                    elif round_number > 1:
+                        timeline.add_separator(
+                            f"Round {round_number}",
+                            round_number=round_number,
+                            subtitle=subtitle if subtitle else None,
+                        )
             except Exception as e:
                 logger.error(f"AgentPanel.start_new_round timeline error: {e}")
 
@@ -8083,7 +8405,14 @@ Type your question and press Enter to ask the agents.
                 timeline.clear_tools_tracking()
 
                 # Add "Final Presentation" banner with distinct styling and vote summary
-                timeline.add_separator("FINAL PRESENTATION", round_number=new_round, subtitle=subtitle)
+                has_banner = False
+                if hasattr(timeline, "_has_round_banner"):
+                    try:
+                        has_banner = timeline._has_round_banner(new_round)
+                    except Exception:
+                        has_banner = False
+                if not has_banner:
+                    timeline.add_separator("FINAL PRESENTATION", round_number=new_round, subtitle=subtitle)
             except Exception as e:
                 logger.error(f"AgentPanel.start_final_presentation timeline error: {e}")
 

@@ -54,40 +54,8 @@ class WelcomeStep(StepComponent):
         features: List of features/benefits to display.
     """
 
-    DEFAULT_CSS = """
-    WelcomeStep {
-        width: 100%;
-        height: auto;
-        padding: 0 2;
-    }
-
-    WelcomeStep .wizard-welcome {
-        width: 100%;
-        height: auto;
-        padding: 1 0;
-    }
-
-    WelcomeStep .wizard-welcome-intro {
-        color: #8b949e;
-        width: 100%;
-        margin-bottom: 0;
-    }
-
-    WelcomeStep .wizard-welcome-feature {
-        color: #3fb950;
-        width: 100%;
-        margin-bottom: 0;
-        padding-left: 2;
-    }
-
-    WelcomeStep .wizard-welcome-hint {
-        color: #6e7681;
-        text-style: italic;
-        width: 100%;
-        margin-top: 1;
-        text-align: center;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(
         self,

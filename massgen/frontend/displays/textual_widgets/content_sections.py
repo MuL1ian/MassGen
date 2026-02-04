@@ -59,36 +59,8 @@ class ToolSection(Vertical):
     is_collapsed = reactive(False)  # Default expanded to show tool activity
     tool_count = reactive(0)
 
-    DEFAULT_CSS = """
-    ToolSection {
-        height: auto;
-        max-height: 40%;
-        margin: 0 0 1 0;
-        padding: 0;
-    }
-
-    ToolSection.collapsed {
-        height: 3;
-        overflow: hidden;
-    }
-
-    ToolSection.hidden {
-        display: none;
-    }
-
-    ToolSection .section-header {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-    }
-
-    ToolSection #tool_container {
-        height: auto;
-        max-height: 100%;
-        padding: 0 1;
-        overflow-y: auto;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -280,52 +252,8 @@ class ReasoningSection(Vertical):
     COLLAPSE_THRESHOLD = 5  # Auto-collapse after this many items
     PREVIEW_LINES = 2  # Show this many lines when collapsed
 
-    DEFAULT_CSS = """
-    ReasoningSection {
-        height: auto;
-        max-height: 30%;
-        margin: 0 0 1 0;
-        padding: 0;
-        border: solid #30363d;
-        border-left: thick #484f58;
-        background: #161b22;
-    }
-
-    ReasoningSection.collapsed #reasoning_content {
-        max-height: 2;
-        overflow: hidden;
-    }
-
-    ReasoningSection.hidden {
-        display: none;
-    }
-
-    ReasoningSection #reasoning_header {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-        background: #21262d;
-        color: #8b949e;
-    }
-
-    ReasoningSection #reasoning_header:hover {
-        background: #30363d;
-    }
-
-    ReasoningSection #reasoning_content {
-        height: auto;
-        max-height: 100%;
-        padding: 0 1;
-        overflow-y: auto;
-        background: #0d1117;
-    }
-
-    ReasoningSection .reasoning-text {
-        width: 100%;
-        padding: 0;
-        color: #8b949e;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -472,96 +400,8 @@ class TimelineSection(ScrollableContainer):
     ```
     """
 
-    DEFAULT_CSS = """
-    TimelineSection {
-        width: 100%;
-        height: 1fr;
-        padding: 0 2 1 2;
-        margin: 0;
-        overflow-y: auto;
-        scrollbar-size: 1 3;
-        scrollbar-gutter: stable;
-    }
-
-    TimelineSection .timeline-text {
-        width: 100%;
-        padding: 1 1;
-        margin: 1 0;
-    }
-
-    TimelineSection .timeline-text.status {
-        color: #569cd6;
-    }
-
-    TimelineSection .timeline-text.thinking {
-        color: #9ca3af;
-    }
-
-    TimelineSection .timeline-text.response {
-        color: #4ec9b0;
-    }
-
-    TimelineSection .timeline-text.coordination {
-        color: #858585;
-        background: $surface-darken-1;
-        /* Inherit base padding/margin for consistency */
-    }
-
-    TimelineSection .timeline-text.reasoning-inline {
-        color: #8b949e;
-        border-left: thick #484f58;
-        padding-left: 1;
-        /* Inherit base margin (1 0) for consistent spacing */
-    }
-
-    /* Phase 11.2: Scroll arrow indicators */
-    TimelineSection .scroll-arrow-indicator {
-        width: 100%;
-        height: 1;
-        text-align: center;
-        color: #8b949e;
-        background: transparent;
-    }
-
-    TimelineSection .scroll-arrow-indicator.hidden {
-        display: none;
-    }
-
-    TimelineSection #scroll_top_indicator {
-        dock: top;
-    }
-
-    TimelineSection #scroll_bottom_indicator {
-        dock: bottom;
-    }
-
-    /* Phase 12: Generic hidden rule for round-based visibility */
-    TimelineSection .hidden {
-        display: none;
-    }
-
-    /* Answer lock mode: final card fills the space */
-    TimelineSection.answer-locked {
-        overflow-y: hidden;
-        padding: 0;
-    }
-
-    /* Hidden class for non-locked items */
-    TimelineSection .answer-lock-hidden {
-        display: none;
-    }
-
-    /* ARCH-001: Viewport culling - hide items outside visible area */
-    TimelineSection .viewport-culled {
-        display: none;
-    }
-
-    /* Locked final card fills available space */
-    TimelineSection .final-card-locked {
-        height: 1fr;
-        margin: 0;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
     MAX_TIMELINE_ITEMS = 30  # Viewport culling threshold
@@ -608,36 +448,97 @@ class TimelineSection(ScrollableContainer):
         self._last_round_shown = 0
         # Track pending round separators to avoid duplicates before mount completes
         self._pending_round_separators: set[int] = set()
+        # Track which rounds already have banners
+        self._shown_round_banners: set[int] = set()
+        # Track deferred round banners (round_number -> (label, subtitle))
+        self._deferred_round_banners: Dict[int, tuple[str, Optional[str]]] = {}
 
     def compose(self) -> ComposeResult:
         # Scroll mode indicator (hidden by default)
         yield Static("", id="scroll_mode_indicator", classes="scroll-indicator hidden")
         # Content is mounted directly into TimelineSection (no nested container)
+        # Winner hint is mounted dynamically at the end when needed
+
+    def show_winner_hint(self, show: bool = True) -> None:
+        """Show or hide the winner navigation hint at the bottom of the timeline."""
+        try:
+            hint = self.query_one("#winner_hint", Static)
+            if show:
+                hint.remove_class("hidden")
+            else:
+                hint.add_class("hidden")
+        except Exception:
+            # Hint doesn't exist yet - mount it if we need to show it
+            if show:
+                hint = Static(
+                    "─────────────── Press f to see final answer ───────────────",
+                    id="winner_hint",
+                    classes="winner-hint",
+                )
+                self.mount(hint)  # Mounts at end of children
 
     def _ensure_round_1_shown(self) -> None:
         """Ensure Round 1 banner is shown before any content."""
-        has_banner = self._has_round_banner(1)
+        self._ensure_round_banner(1)
+
+    def defer_round_banner(self, round_number: int, label: str, subtitle: Optional[str] = None) -> None:
+        """Defer a round banner until the first item of that round is rendered."""
+        if round_number in self._shown_round_banners:
+            return
+        self._deferred_round_banners[round_number] = (label, subtitle)
+
+    def _ensure_round_banner(self, round_number: int) -> None:
+        """Ensure the Round X banner appears before the first content of that round."""
+        round_number = max(1, int(round_number))
+        has_banner = self._has_round_banner(round_number)
         try:
             from massgen.frontend.displays.shared.tui_debug import tui_log
 
             tui_log(
-                f"[ROUND_DEBUG] ensure_round_1_shown panel={self.id} round_1_shown={self._round_1_shown} has_banner={has_banner}",
+                f"[ROUND_DEBUG] ensure_round_banner panel={self.id} round={round_number} " f"round_1_shown={self._round_1_shown} has_banner={has_banner}",
                 level="info",
             )
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
 
         if has_banner:
+            self._shown_round_banners.add(round_number)
+            self._last_round_shown = max(self._last_round_shown, round_number)
+            if round_number == 1:
+                self._round_1_shown = True
+            return
+        if round_number == 1 and self._round_1_shown:
+            return
+        if round_number in self._shown_round_banners:
+            return
+        if round_number in self._pending_round_separators:
+            return
+
+        label, subtitle = self._deferred_round_banners.pop(
+            round_number,
+            (f"Round {round_number}", None),
+        )
+        insert_before = None
+        try:
+            indicator = self.query_one("#scroll_mode_indicator", Static)
+        except Exception:
+            indicator = None
+        for child in self.children:
+            if indicator is not None and child is indicator:
+                continue
+            if f"round-{round_number}" in child.classes:
+                insert_before = child
+                break
+        if insert_before is None:
+            insert_before = self._find_insert_before_for_round(round_number)
+        if round_number == 1:
             self._round_1_shown = True
-            self._last_round_shown = max(self._last_round_shown, 1)
-            return
-        if self._round_1_shown:
-            return
-        if 1 in self._pending_round_separators:
-            return
-        self._round_1_shown = True
-        insert_before = self._first_content_child()
-        self.add_separator("Round 1", round_number=1, before=insert_before)
+        self.add_separator(
+            label,
+            round_number=round_number,
+            subtitle=subtitle or "",
+            before=insert_before,
+        )
 
     def _has_round_banner(self, round_number: int) -> bool:
         """Check if a RestartBanner exists for the given round."""
@@ -660,6 +561,33 @@ class TimelineSection(ScrollableContainer):
             if indicator is not None and child is indicator:
                 continue
             return child
+        return None
+
+    def _find_insert_before_for_round(self, round_number: int) -> Optional[Any]:
+        """Find the earliest widget belonging to a later round.
+
+        This allows late-arriving items from an earlier round to be inserted
+        before the next round's banner/content.
+        """
+        try:
+            indicator = self.query_one("#scroll_mode_indicator", Static)
+        except Exception:
+            indicator = None
+
+        for child in self.children:
+            if indicator is not None and child is indicator:
+                continue
+            if not hasattr(child, "classes"):
+                continue
+            for cls in child.classes:
+                if not cls.startswith("round-"):
+                    continue
+                try:
+                    child_round = int(cls.split("-", 1)[1])
+                except Exception:
+                    continue
+                if child_round > round_number:
+                    return child
         return None
 
     def _log(self, msg: str) -> None:
@@ -887,6 +815,10 @@ class TimelineSection(ScrollableContainer):
         Args:
             card_id: The ID of the FinalPresentationCard to lock to
         """
+        from massgen.frontend.displays.shared.tui_debug import tui_log
+
+        tui_log(f"[LOCK] lock_to_final_answer called: card_id={card_id}, already_locked={self._answer_lock_mode}")
+
         if self._answer_lock_mode:
             return  # Already locked
 
@@ -897,22 +829,40 @@ class TimelineSection(ScrollableContainer):
         self.add_class("answer-locked")
 
         # Hide all children except the final card
-        for child in self.children:
+        children = list(self.children)
+        tui_log(f"[LOCK] Found {len(children)} children, timeline height={self.size.height}")
+        card_found = False
+        for child in children:
             child_id = getattr(child, "id", None)
             if child_id != card_id:
                 child.add_class("answer-lock-hidden")
             else:
-                child.add_class("final-card-locked")
+                card_found = True
+                # Check if terminal is too small for full presentation
+                if self.size.height < 15:
+                    tui_log(f"[LOCK] Using compact mode (height={self.size.height})")
+                    child.add_class("final-card-compact")
+                else:
+                    tui_log(f"[LOCK] Using locked mode (height={self.size.height})")
+                    child.add_class("final-card-locked")
+
+        if not card_found:
+            tui_log(f"[LOCK] WARNING: Card with id={card_id} not found among children!")
 
     def unlock_final_answer(self) -> None:
         """Unlock timeline to show all content.
 
         Restores normal timeline view with all tools and text visible.
         """
+        from massgen.frontend.displays.shared.tui_debug import tui_log
+
         if not self._answer_lock_mode:
             return  # Already unlocked
 
+        tui_log(f"[LOCK] unlock_final_answer called, locked_card_id={self._locked_card_id}")
+
         self._answer_lock_mode = False
+        card_id = self._locked_card_id
 
         # Remove lock mode class from timeline
         self.remove_class("answer-locked")
@@ -921,11 +871,35 @@ class TimelineSection(ScrollableContainer):
         for child in self.children:
             child.remove_class("answer-lock-hidden")
             child.remove_class("final-card-locked")
+            child.remove_class("final-card-compact")
 
         self._locked_card_id = None
 
-        # Scroll to show the final card
-        self._scroll_to_end(animate=False, force=True)
+        # Scroll to show the final card (scroll to it specifically, not just end)
+        if card_id:
+            try:
+                card = self.query_one(f"#{card_id}")
+                card.scroll_visible(animate=True, top=True)
+                tui_log(f"[LOCK] Scrolled to card {card_id}")
+            except Exception as e:
+                tui_log(f"[LOCK] Could not scroll to card: {e}")
+                self._scroll_to_end(animate=False, force=True)
+        else:
+            self._scroll_to_end(animate=False, force=True)
+
+    def on_resize(self, event) -> None:
+        """Handle resize events to switch between compact and full modes."""
+        if self._answer_lock_mode and self._locked_card_id:
+            try:
+                card = self.query_one(f"#{self._locked_card_id}")
+                if self.size.height < 15:
+                    card.remove_class("final-card-locked")
+                    card.add_class("final-card-compact")
+                else:
+                    card.remove_class("final-card-compact")
+                    card.add_class("final-card-locked")
+            except Exception:
+                pass
 
     def _trim_old_items(self) -> None:
         """ARCH-001: Cull items outside viewport using visibility toggling.
@@ -996,8 +970,8 @@ class TimelineSection(ScrollableContainer):
         Returns:
             The created ToolCallCard
         """
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
+        # Ensure this round's banner is shown before first content
+        self._ensure_round_banner(round_number)
 
         # Close any open reasoning batch when tool arrives
         self._close_reasoning_batch()
@@ -1032,7 +1006,14 @@ class TimelineSection(ScrollableContainer):
         self._item_count += 1
 
         try:
-            self.mount(card)
+            insert_before = self._find_insert_before_for_round(round_number)
+            self.mount(card, before=insert_before)
+
+            from datetime import datetime
+
+            tui_log(
+                f"[MOUNT_DEBUG] add_tool: round={round_number} tool={tool_data.tool_name} " f"time={datetime.now().isoformat()}",
+            )
 
             # Defer trim and scroll until after mount completes
             def trim_and_scroll():
@@ -1132,8 +1113,8 @@ class TimelineSection(ScrollableContainer):
         Returns:
             The created ToolBatchCard
         """
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
+        # Ensure this round's banner is shown before first content
+        self._ensure_round_banner(round_number)
 
         card = ToolBatchCard(
             server_name=server_name,
@@ -1153,7 +1134,8 @@ class TimelineSection(ScrollableContainer):
             tui_log(f"[ContentSections] {e}")
 
         try:
-            self.mount(card)
+            insert_before = self._find_insert_before_for_round(round_number)
+            self.mount(card, before=insert_before)
 
             # Defer trim and scroll until after mount completes
             def trim_and_scroll():
@@ -1435,9 +1417,6 @@ class TimelineSection(ScrollableContainer):
             text_class: CSS class (status, thinking-inline, content-inline, response)
             round_number: The round this content belongs to (for view switching)
         """
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
-
         # Clean up excessive newlines only - preserve all spacing
         import re
 
@@ -1445,6 +1424,9 @@ class TimelineSection(ScrollableContainer):
 
         if not content.strip():  # Check if effectively empty
             return
+
+        # Ensure this round's banner is shown before first content
+        self._ensure_round_banner(round_number)
 
         # Check if this is thinking or content - route to appropriate batching
         is_thinking = "thinking" in text_class
@@ -1489,7 +1471,8 @@ class TimelineSection(ScrollableContainer):
             # Tag with round class for navigation (scroll-to behavior)
             widget.add_class(f"round-{round_number}")
 
-            self.mount(widget)
+            insert_before = self._find_insert_before_for_round(round_number)
+            self.mount(widget, before=insert_before)
 
             # Defer trim and scroll until after mount completes
             def trim_and_scroll():
@@ -1520,6 +1503,9 @@ class TimelineSection(ScrollableContainer):
         """
         from massgen.logger_config import logger
 
+        if subtitle is None:
+            subtitle = ""
+
         try:
             from massgen.frontend.displays.shared.tui_debug import tui_log
 
@@ -1535,7 +1521,7 @@ class TimelineSection(ScrollableContainer):
 
         # Deduplicate round separators — multiple round_start events per round
         if label.startswith("Round "):
-            if round_number in self._pending_round_separators or round_number <= self._last_round_shown:
+            if round_number in self._pending_round_separators or round_number in self._shown_round_banners:
                 try:
                     from massgen.frontend.displays.shared.tui_debug import tui_log
 
@@ -1578,7 +1564,20 @@ class TimelineSection(ScrollableContainer):
             widget.add_class(f"round-{round_number}")
             logger.debug(f"TimelineSection.add_separator: Adding widget for round {round_number}")
 
-            self.mount(widget)
+            self.mount(widget, before=before, after=after)
+
+            from datetime import datetime
+
+            tui_log(
+                f"[MOUNT_DEBUG] add_separator: label='{label}' round={round_number} " f"time={datetime.now().isoformat()}",
+            )
+
+            if label.startswith("Round "):
+                self._pending_round_separators.discard(round_number)
+                self._shown_round_banners.add(round_number)
+                self._last_round_shown = max(self._last_round_shown, round_number)
+                if round_number == 1:
+                    self._round_1_shown = True
 
             # Defer trim and scroll until after mount completes
             def trim_and_scroll():
@@ -1600,6 +1599,46 @@ class TimelineSection(ScrollableContainer):
             if label.startswith("Round "):
                 self._pending_round_separators.discard(round_number)
             logger.error(f"TimelineSection.add_separator failed: {e}")
+
+    def add_attempt_banner(
+        self,
+        attempt: int,
+        reason: str = "",
+        instructions: str = "",
+        round_number: int = 1,
+    ) -> None:
+        """Add a prominent AttemptBanner widget to the timeline.
+
+        Args:
+            attempt: The attempt number (1-indexed).
+            reason: Why the restart was triggered.
+            instructions: Instructions for the next attempt.
+            round_number: The round to tag this content with.
+        """
+        from massgen.logger_config import logger
+
+        self._close_reasoning_batch()
+        self._item_count += 1
+        widget_id = f"tl_attempt_{self._item_count}"
+
+        try:
+            widget = AttemptBanner(
+                attempt=attempt,
+                reason=reason,
+                instructions=instructions,
+                id=widget_id,
+            )
+            widget.add_class(f"round-{round_number}")
+            self.mount(widget)
+
+            def trim_and_scroll():
+                self._trim_old_items()
+                self._auto_scroll()
+
+            self.call_after_refresh(trim_and_scroll)
+            logger.debug(f"TimelineSection.add_attempt_banner: mounted {widget_id}")
+        except Exception as e:
+            logger.error(f"TimelineSection.add_attempt_banner failed: {e}")
 
     def _close_reasoning_batch(self) -> None:
         """Close current reasoning batch when non-reasoning content arrives.
@@ -1632,15 +1671,15 @@ class TimelineSection(ScrollableContainer):
             f.write(
                 f"DEBUG add_reasoning: label={label}, current_card={self._current_reasoning_card is not None}, " f"current_label={self._current_batch_label}, content_preview={content_preview}\n",
             )
+        # Ensure this round's banner is shown before reasoning content
+        self._ensure_round_banner(round_number)
+
         try:
             from massgen.frontend.displays.timeline_transcript import record_text
 
             record_text(content, f"reasoning-{label.lower()}", round_number)
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
-
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
 
         try:
             # Close batch if label changed
@@ -1665,7 +1704,8 @@ class TimelineSection(ScrollableContainer):
                 )
                 self._current_reasoning_card.add_class(f"round-{round_number}")
                 self._current_batch_label = label
-                self.mount(self._current_reasoning_card)
+                insert_before = self._find_insert_before_for_round(round_number)
+                self.mount(self._current_reasoning_card, before=insert_before)
 
                 # Defer trim and scroll until after mount completes
                 def trim_and_scroll():
@@ -1683,8 +1723,8 @@ class TimelineSection(ScrollableContainer):
             widget: Any Textual widget to add to the timeline
             round_number: The round this content belongs to (for view switching)
         """
-        # Ensure Round 1 banner is shown before first content
-        self._ensure_round_1_shown()
+        # Ensure this round's banner is shown before first content
+        self._ensure_round_banner(round_number)
 
         self._item_count += 1
 
@@ -1692,7 +1732,8 @@ class TimelineSection(ScrollableContainer):
         widget.add_class(f"round-{round_number}")
 
         try:
-            self.mount(widget)
+            insert_before = self._find_insert_before_for_round(round_number)
+            self.mount(widget, before=insert_before)
             self._log(f"Timeline items: {len(list(self.children))}")
             self._trim_old_items()  # Keep timeline size bounded (do before scroll)
             # Defer scroll to ensure trim's layout refresh completes first
@@ -1740,6 +1781,10 @@ class TimelineSection(ScrollableContainer):
 
         # Reset round tracking flags
         self._round_1_shown = False
+        self._last_round_shown = 0
+        self._pending_round_separators.clear()
+        self._shown_round_banners.clear()
+        self._deferred_round_banners.clear()
         logger.info("[TimelineSection] Set _round_1_shown = False")
 
         # CRITICAL FIX: Force layout refresh after clearing and defer Round 1 separator
@@ -1864,50 +1909,8 @@ class ThinkingSection(Vertical):
 
     is_collapsed = reactive(False)
 
-    DEFAULT_CSS = """
-    ThinkingSection {
-        height: auto;
-        max-height: 50%;
-        padding: 0;
-        margin: 0 0 1 0;
-        border-left: thick #484f58;
-        background: #161b22;
-    }
-
-    ThinkingSection.hidden {
-        display: none;
-    }
-
-    ThinkingSection #thinking_header {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-        background: #21262d;
-        color: #8b949e;
-    }
-
-    ThinkingSection #thinking_header:hover {
-        background: #30363d;
-        color: #c9d1d9;
-    }
-
-    ThinkingSection #thinking_content {
-        height: auto;
-        max-height: 100%;
-        padding: 0 1;
-        overflow-y: auto;
-    }
-
-    ThinkingSection.collapsed #thinking_content {
-        max-height: 3;
-        overflow: hidden;
-    }
-
-    ThinkingSection #thinking_log {
-        height: auto;
-        padding: 0;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -2076,39 +2079,8 @@ class ResponseSection(Vertical):
     ```
     """
 
-    DEFAULT_CSS = """
-    ResponseSection {
-        height: auto;
-        max-height: 50%;
-        margin: 1 0;
-        padding: 0;
-        border: round $primary-lighten-2;
-        background: $surface;
-    }
-
-    ResponseSection.hidden {
-        display: none;
-    }
-
-    ResponseSection #response_header {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-        background: $primary-darken-2;
-        color: $text;
-    }
-
-    ResponseSection #response_content {
-        height: auto;
-        max-height: 100%;
-        padding: 1 2;
-        overflow-y: auto;
-    }
-
-    ResponseSection #response_content Static {
-        width: 100%;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -2178,38 +2150,8 @@ class StatusBadge(Static):
     Design: `● Connected` or `⟳ Working` - small, not prominent.
     """
 
-    DEFAULT_CSS = """
-    StatusBadge {
-        width: auto;
-        height: 1;
-        padding: 0 1;
-        text-align: right;
-    }
-
-    StatusBadge.status-connected {
-        color: #4ec9b0;
-    }
-
-    StatusBadge.status-working {
-        color: #dcdcaa;
-    }
-
-    StatusBadge.status-streaming {
-        color: #569cd6;
-    }
-
-    StatusBadge.status-completed {
-        color: #4ec9b0;
-    }
-
-    StatusBadge.status-error {
-        color: #f44747;
-    }
-
-    StatusBadge.status-waiting {
-        color: #858585;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     status = reactive("waiting")
 
@@ -2257,26 +2199,8 @@ class CompletionFooter(Static):
     Design: `────────────────────────────────────── ✓ Complete ───`
     """
 
-    DEFAULT_CSS = """
-    CompletionFooter {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-        text-align: center;
-    }
-
-    CompletionFooter.hidden {
-        display: none;
-    }
-
-    CompletionFooter.status-completed {
-        color: #4ec9b0;
-    }
-
-    CompletionFooter.status-error {
-        color: #f44747;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     is_visible = reactive(False)
     status = reactive("completed")
@@ -2336,19 +2260,8 @@ class RestartBanner(Static):
     ```
     """
 
-    DEFAULT_CSS = """
-    RestartBanner {
-        width: 100%;
-        height: 1;
-        margin: 1 0;
-        padding: 0;
-        background: transparent;
-    }
-
-    RestartBanner.hidden {
-        display: none;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, label: str = "", subtitle: str = "", id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -2434,6 +2347,186 @@ class RestartBanner(Static):
         return text
 
 
+class AttemptBanner(Vertical):
+    """Prominent banner for orchestration-level restarts (new attempts).
+
+    More visually distinct than a round separator to clearly signal that the
+    entire coordination is restarting, not just an intra-round agent restart.
+
+    Collapsed (default):
+    ```
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     ▸ ↻ Attempt 2  ·  The answer was incomplete...
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ```
+
+    Expanded (click header):
+    ```
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     ▾ ↻ Attempt 2
+    ──────────────────────────────────────────────────────────────────────────
+     Reason: The answer only describes John Lennon and omits Paul McCartney
+     Instructions: Provide two descriptions (John Lennon AND Paul McCartney)
+                   ...
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ```
+    """
+
+    DEFAULT_CSS = """
+    AttemptBanner {
+        width: 100%;
+        height: auto;
+        margin: 1 0;
+        padding: 0;
+        background: transparent;
+    }
+
+    AttemptBanner .attempt-header {
+        width: 100%;
+        height: auto;
+        padding: 0;
+    }
+
+    AttemptBanner .attempt-header:hover {
+        background: #1a1a1a;
+    }
+
+    AttemptBanner .attempt-detail {
+        width: 100%;
+        height: auto;
+        padding: 1 2;
+        background: #1a1507;
+        display: none;
+    }
+
+    AttemptBanner .attempt-footer {
+        width: 100%;
+        height: 1;
+        padding: 0;
+    }
+
+    AttemptBanner.expanded .attempt-detail {
+        display: block;
+    }
+
+    AttemptBanner .attempt-footer {
+        display: none;
+    }
+
+    AttemptBanner.expanded .attempt-footer {
+        display: block;
+    }
+    """
+
+    def __init__(self, attempt: int = 2, reason: str = "", instructions: str = "", id: Optional[str] = None) -> None:
+        super().__init__(id=id)
+        self._attempt = attempt
+        self._reason = reason
+        self._instructions = instructions
+        self._expanded = False
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="attempt_header", classes="attempt-header")
+        yield Static(id="attempt_detail", classes="attempt-detail")
+        yield Static(id="attempt_footer", classes="attempt-footer")
+
+    def on_mount(self) -> None:
+        # Defer initial render so layout has computed the real width
+        self.call_after_refresh(self._refresh_all)
+
+    def on_resize(self) -> None:
+        self._refresh_all()
+
+    def _refresh_all(self) -> None:
+        self._update_header()
+        self._update_detail()
+        self._update_footer()
+
+    def _get_width(self) -> int:
+        try:
+            w = self.size.width
+            return w if w >= 40 else 200
+        except Exception:
+            return 200
+
+    def _update_header(self) -> None:
+        text = Text(no_wrap=False)
+        total_width = self._get_width()
+
+        line_char = "━"
+        line_color = "#b45309"
+        label_color = "#f59e0b"
+        reason_color = "#6b7280"
+        indicator_color = "#9ca3af"
+
+        # Top line
+        text.append(line_char * total_width, style=line_color)
+        text.append("\n")
+
+        # Label line
+        indicator = "▾" if self._expanded else "▸"
+        text.append(f" {indicator} ", style=indicator_color)
+        text.append(f"\u21bb Attempt {self._attempt}", style=f"bold {label_color}")
+
+        if not self._expanded and self._reason:
+            truncated = self._reason[:70] + "..." if len(self._reason) > 70 else self._reason
+            text.append(f"  \u00b7  {truncated}", style=f"italic {reason_color}")
+
+        if not self._expanded:
+            text.append("\n")
+            # Bottom line when collapsed
+            text.append(line_char * total_width, style=line_color)
+
+        try:
+            header = self.query_one("#attempt_header", Static)
+            header.update(text)
+        except Exception:
+            pass
+
+    def _update_detail(self) -> None:
+        text = Text(no_wrap=False)
+
+        label_color = "#b45309"
+        content_color = "#d4d4d4"
+
+        if self._reason:
+            text.append("Reason\n", style=f"bold {label_color}")
+            text.append(self._reason, style=content_color)
+
+        if self._instructions:
+            if self._reason:
+                text.append("\n\n")
+            text.append("Instructions\n", style=f"bold {label_color}")
+            text.append(self._instructions, style=content_color)
+
+        try:
+            detail = self.query_one("#attempt_detail", Static)
+            detail.update(text)
+        except Exception:
+            pass
+
+    def _update_footer(self) -> None:
+        text = Text(no_wrap=True)
+        total_width = self._get_width()
+        text.append("━" * total_width, style="#b45309")
+
+        try:
+            footer = self.query_one("#attempt_footer", Static)
+            footer.update(text)
+        except Exception:
+            pass
+
+    def on_click(self, event) -> None:
+        """Toggle expanded/collapsed on click."""
+        self._expanded = not self._expanded
+        if self._expanded:
+            self.add_class("expanded")
+        else:
+            self.remove_class("expanded")
+        self._update_header()
+        self._update_detail()
+
+
 class FinalPresentationCard(Vertical):
     """Unified card widget for displaying the final answer presentation.
 
@@ -2457,303 +2550,11 @@ class FinalPresentationCard(Vertical):
     ```
     """
 
-    DEFAULT_CSS = """
-    FinalPresentationCard {
-        width: 100%;
-        height: auto;
-        margin: 1 0;
-        padding: 0;
-        border: solid #fab387;
-        background: transparent;
-    }
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
-    FinalPresentationCard.streaming {
-        border: double #fab387;
-    }
-
-    FinalPresentationCard.completed {
-        border: solid #a6e3a1;
-        background: transparent;
-    }
-
-    /* Hide post_eval and context_paths in completed mode when they have hidden class */
-    FinalPresentationCard.completed #final_card_post_eval.hidden,
-    FinalPresentationCard.completed #final_card_context_paths.hidden {
-        display: none;
-        height: 0;
-        padding: 0;
-        margin: 0;
-    }
-
-    FinalPresentationCard #final_card_header {
-        width: 100%;
-        height: auto;
-        padding: 0 1;
-        background: transparent;
-    }
-
-    FinalPresentationCard.completed #final_card_header {
-        background: transparent;
-    }
-
-    FinalPresentationCard #final_card_title {
-        color: #fab387;
-        text-style: bold;
-    }
-
-    FinalPresentationCard.completed #final_card_title {
-        color: #a6e3a1;
-    }
-
-    FinalPresentationCard #final_card_votes {
-        color: #8b949e;
-        height: 1;
-        border-bottom: solid #45475a;
-        padding-bottom: 1;
-        margin-bottom: 1;
-    }
-
-    FinalPresentationCard #final_card_body {
-        width: 100%;
-        height: auto;
-        max-height: 30;
-        layout: horizontal;
-    }
-
-    FinalPresentationCard #final_card_content {
-        width: 1fr;
-        min-width: 0;
-        height: auto;
-        max-height: 30;
-        padding: 1 2 0 2;
-        background: transparent;
-        overflow-y: auto;
-    }
-
-    FinalPresentationCard #final_card_text {
-        width: 100%;
-        height: auto;
-        background: transparent;
-        color: #e6e6e6;
-        margin: 0 1;
-    }
-
-    FinalPresentationCard #final_card_text MarkdownH1,
-    FinalPresentationCard #final_card_text MarkdownH2,
-    FinalPresentationCard #final_card_text MarkdownH3 {
-        background: transparent;
-        color: #fab387;
-        margin: 1 0 0 0;
-    }
-
-    FinalPresentationCard #final_card_text MarkdownFence {
-        background: #161b22;
-        margin: 1 0;
-    }
-
-    FinalPresentationCard #final_card_post_eval {
-        width: 100%;
-        height: auto;
-        padding: 0;
-        background: #161b22;
-        border-top: dashed #30363d;
-    }
-
-    FinalPresentationCard #final_card_post_eval.hidden {
-        display: none;
-    }
-
-    FinalPresentationCard #post_eval_header {
-        width: 100%;
-        height: 2;
-        padding: 0 2;
-        background: #161b22;
-    }
-
-    FinalPresentationCard #post_eval_status {
-        color: #3fb950;
-        width: auto;
-    }
-
-    FinalPresentationCard #post_eval_status.evaluating {
-        color: #58a6ff;
-    }
-
-    FinalPresentationCard #post_eval_toggle {
-        color: #8b949e;
-        width: auto;
-        text-align: right;
-        margin-left: 1;
-    }
-
-    FinalPresentationCard #post_eval_toggle:hover {
-        color: #c9d1d9;
-        text-style: underline;
-    }
-
-    FinalPresentationCard #post_eval_details {
-        width: 100%;
-        height: auto;
-        max-height: 10;
-        padding: 0 2 1 2;
-        overflow-y: auto;
-    }
-
-    FinalPresentationCard #post_eval_details.collapsed {
-        display: none;
-    }
-
-    FinalPresentationCard #post_eval_content {
-        color: #8b949e;
-        height: auto;
-    }
-
-    FinalPresentationCard #final_card_context_paths {
-        width: 100%;
-        height: auto;
-        padding: 1 2;
-        background: #161b22;
-        border-top: dashed #30363d;
-    }
-
-    FinalPresentationCard #final_card_context_paths.hidden {
-        display: none;
-    }
-
-    FinalPresentationCard #context_paths_header {
-        color: #58a6ff;
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    FinalPresentationCard #context_paths_list {
-        height: auto;
-    }
-
-    FinalPresentationCard .context-path-new {
-        color: #3fb950;
-    }
-
-    FinalPresentationCard .context-path-modified {
-        color: #d29922;
-    }
-
-    FinalPresentationCard #final_card_footer {
-        width: 100%;
-        height: auto;
-        padding: 1 2;
-        background: transparent;
-    }
-
-    FinalPresentationCard #final_card_footer.hidden {
-        display: none;
-    }
-
-    FinalPresentationCard #final_card_buttons {
-        width: 100%;
-        height: 1;
-    }
-
-    /* Footer links - consistent clickable link style */
-    FinalPresentationCard .footer-link {
-        width: auto;
-        height: 1;
-        color: #89b4fa;
-        text-style: underline;
-        padding: 0 1;
-    }
-
-    FinalPresentationCard .footer-link:hover {
-        color: #b4befe;
-        text-style: bold underline;
-    }
-
-    FinalPresentationCard #continue_message {
-        display: none;
-    }
-
-    /* Full-width mode - fills available vertical space */
-    FinalPresentationCard.full-width-mode {
-        height: 1fr;
-        min-height: 20;
-    }
-
-    FinalPresentationCard.full-width-mode #final_card_content {
-        height: 1fr;
-        overflow-y: auto;
-    }
-
-    /* Enhanced prominence styling for full-width mode */
-    FinalPresentationCard.full-width-mode.streaming {
-        border: double #fab387;
-    }
-
-    FinalPresentationCard.full-width-mode.completed {
-        border: double #a6e3a1;
-        background: transparent;
-    }
-
-    FinalPresentationCard.full-width-mode #final_card_header {
-        background: transparent;
-        padding: 0 1;
-    }
-
-    FinalPresentationCard.full-width-mode #final_card_title {
-        color: #a6e3a1;
-    }
-
-    /* Completion-only mode - minimal footer bar */
-    /* Content already shown through normal pipeline, just show action buttons */
-    FinalPresentationCard.completion-only {
-        border: none;
-        background: transparent;
-        margin: 0;
-        padding: 0;
-    }
-
-    FinalPresentationCard.completion-only #final_card_header {
-        display: none;
-    }
-
-    FinalPresentationCard.completion-only #final_card_content {
-        display: none;
-    }
-
-    FinalPresentationCard.completion-only #final_card_post_eval {
-        display: none;
-    }
-
-    FinalPresentationCard.completion-only #final_card_context_paths {
-        display: none;
-    }
-
-    FinalPresentationCard.completion-only #final_card_footer {
-        display: block;
-        background: #161b22;
-        border: solid #30363d;
-        padding: 1 2;
-    }
-
-    /* Spacer to push unlock button to the right in footer */
-    FinalPresentationCard #final_card_button_spacer {
-        width: 1fr;
-        height: 1;
-    }
-
-    FinalPresentationCard.locked-mode #final_card_body {
-        height: 1fr;
-        max-height: 999;
-    }
-
-    FinalPresentationCard.locked-mode #final_card_content {
-        height: 1fr;
-        max-height: 999;
-    }
-
-    FinalPresentationCard.locked-mode {
-        height: 1fr;
-    }
-    """
+    # Debounce interval for batched updates (seconds)
+    _UPDATE_DEBOUNCE_MS = 50
 
     def __init__(
         self,
@@ -2777,6 +2578,10 @@ class FinalPresentationCard(Vertical):
         self._post_eval_expanded = False
         self._post_eval_status = "none"  # none, evaluating, verified
         self._text_widget: Optional[Static] = None  # Direct reference to text widget
+        # Performance: track pending updates for debouncing
+        self._update_pending = False
+        self._update_timer = None
+        self._cached_full_text: Optional[str] = None  # Cache to avoid repeated joins
         if completion_only:
             self.add_class("completion-only")
         else:
@@ -2834,6 +2639,9 @@ class FinalPresentationCard(Vertical):
             with Horizontal(id="final_card_buttons"):
                 yield Static("📋 Copy", id="final_card_copy_btn", classes="footer-link")
                 yield Static("📂 Workspace", id="final_card_workspace_btn", classes="footer-link")
+                # Verified indicator - faded, shown when post-eval verified
+                verified = Static("✓ Verified", id="final_card_verified", classes="verified-indicator")
+                yield verified
                 # Spacer to push unlock button to the right
                 yield Static("", id="final_card_button_spacer")
                 # Unlock button - hidden initially, shown when locked
@@ -2869,29 +2677,49 @@ class FinalPresentationCard(Vertical):
 
         Args:
             chunk: Text chunk to append
+
+        Performance: Uses debounced updates to batch multiple chunks into
+        a single render cycle, avoiding O(n²) string joining and expensive
+        Markdown re-renders on every chunk.
         """
         if not chunk:
             return
 
-        # Always accumulate content first (even if widget not ready yet)
+        # Accumulate content and invalidate cache
         self._final_content.append(chunk)
+        self._cached_full_text = None  # Invalidate cache
 
-        # Try to update the widget directly
-        if not self._try_update_text():
-            # Widget not ready - compose might not have run yet
-            # Try to force recompose and schedule retry
+        # Schedule debounced update if not already pending
+        if not self._update_pending:
+            self._update_pending = True
             try:
-                if self._text_widget is None:
-                    # Compose hasn't run - try to trigger it
-                    self.recompose()
-                self.set_timer(0.1, self._try_update_text)
-            except Exception as e:
-                tui_log(f"[ContentSections] {e}")  # Ignore if timer/recompose can't be set
+                self._update_timer = self.set_timer(
+                    self._UPDATE_DEBOUNCE_MS / 1000.0,
+                    self._flush_pending_update,
+                )
+            except Exception:
+                # Widget not mounted yet - will flush on mount
+                pass
+
+    def _flush_pending_update(self) -> None:
+        """Flush pending chunks to the text widget.
+
+        Called by the debounce timer to batch multiple chunks into one render.
+        """
+        self._update_pending = False
+        self._update_timer = None
+        self._try_update_text()
+
+    def _get_full_text(self) -> str:
+        """Get the full accumulated text, using cache when available."""
+        if self._cached_full_text is None:
+            self._cached_full_text = "".join(self._final_content)
+        return self._cached_full_text
 
     def _try_update_text(self) -> bool:
         """Try to update the text widget with accumulated content.
 
-        Called after each chunk arrives. Silently fails if widget not ready yet.
+        Called by the debounce timer. Silently fails if widget not ready yet.
 
         Returns:
             True if update succeeded, False if widget not ready.
@@ -2899,13 +2727,13 @@ class FinalPresentationCard(Vertical):
         if not self._final_content:
             return True  # Nothing to update
 
-        full_text = "".join(self._final_content)
+        full_text = self._get_full_text()
 
         # Use direct reference if available (set in compose)
         if self._text_widget is not None:
             try:
                 self._text_widget.update(full_text)
-                self._text_widget.refresh()
+                # Note: No explicit refresh() - update() schedules its own refresh
                 return True
             except Exception as e:
                 tui_log(f"[ContentSections] {e}")
@@ -2916,7 +2744,6 @@ class FinalPresentationCard(Vertical):
 
             text_widget = self.query_one("#final_card_text", Markdown)
             text_widget.update(full_text)
-            text_widget.refresh()
             return True
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
@@ -2937,6 +2764,12 @@ class FinalPresentationCard(Vertical):
 
     def on_mount(self) -> None:
         """Flush any pending content when the widget is mounted."""
+        # Cancel any pending debounce timer and flush immediately
+        self._update_pending = False
+        if self._update_timer:
+            self._update_timer.stop()
+            self._update_timer = None
+
         # Flush any buffered content that arrived before mount
         self._try_update_text()
 
@@ -2962,6 +2795,13 @@ class FinalPresentationCard(Vertical):
 
         self._is_streaming = False
 
+        # Flush any pending debounced updates immediately
+        self._update_pending = False
+        if self._update_timer:
+            self._update_timer.stop()
+            self._update_timer = None
+        self._try_update_text()
+
         # Update styling
         self.remove_class("streaming")
         # Only add completed class if not in completion-only mode
@@ -2985,8 +2825,7 @@ class FinalPresentationCard(Vertical):
 
     def get_content(self) -> str:
         """Get the full content for copy operation."""
-        # Join chunks directly since they may already contain newlines
-        return "".join(self._final_content)
+        return self._get_full_text()
 
     def on_click(self, event) -> None:
         """Handle clicks on footer links and post-eval toggle."""
@@ -3236,31 +3075,39 @@ class FinalPresentationCard(Vertical):
         self._post_eval_status = status
 
         try:
-            # Show the post-eval section
-            post_eval_section = self.query_one("#final_card_post_eval")
-            post_eval_section.remove_class("hidden")
+            # Update the faded verified indicator in the footer
+            try:
+                verified_indicator = self.query_one("#final_card_verified", Static)
+                if status == "verified":
+                    verified_indicator.display = True
+                else:
+                    verified_indicator.display = False
+            except Exception:
+                pass
 
-            # Update status label
-            status_label = self.query_one("#post_eval_status", Label)
-            toggle_label = self.query_one("#post_eval_toggle", Label)
-
-            if status == "evaluating":
-                status_label.update("🔍 Evaluating...")
-                status_label.add_class("evaluating")
-                toggle_label.update("")
-            elif status == "verified":
-                status_label.update("✓ Verified by Post-Evaluation")
-                status_label.remove_class("evaluating")
-                if self._post_eval_content:
-                    toggle_label.update("▸ Show Details")
-            elif status == "restart":
-                status_label.update("🔄 Restart Requested")
-                status_label.remove_class("evaluating")
-                if self._post_eval_content:
-                    toggle_label.update("▸ Show Details")
-
-            # Add content if provided
+            # Show the post-eval section only if there's content to show
             if content and content.strip():
+                post_eval_section = self.query_one("#final_card_post_eval")
+                post_eval_section.remove_class("hidden")
+
+                # Update status label in post-eval section
+                status_label = self.query_one("#post_eval_status", Label)
+                toggle_label = self.query_one("#post_eval_toggle", Label)
+
+                if status == "evaluating":
+                    status_label.update("🔍 Evaluating...")
+                    status_label.add_class("evaluating")
+                    toggle_label.update("")
+                elif status == "verified":
+                    status_label.update("✓ Verified")
+                    status_label.remove_class("evaluating")
+                    toggle_label.update("▸ Show Details")
+                elif status == "restart":
+                    status_label.update("🔄 Restart Requested")
+                    status_label.remove_class("evaluating")
+                    toggle_label.update("▸ Show Details")
+
+                # Add content
                 self._post_eval_content.append(content)
                 post_eval_static = self.query_one("#post_eval_content", Static)
                 full_content = "\n".join(self._post_eval_content)

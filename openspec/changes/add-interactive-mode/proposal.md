@@ -9,7 +9,7 @@ Interactive Mode transforms MassGen from a single-task system into a **persisten
 ## What Changes
 
 - **New interactive session layer**: A persistent `InteractiveSession` class that manages conversations across multiple runs
-- **New `launch_run` tool**: Allows the interactive agent to spawn full multi-agent coordination
+- **New `launch_run` MCP tool**: New MCP server (`massgen/mcp_tools/interactive/`) allowing the interactive agent to spawn full multi-agent coordination. MCP-based for portability to external backends (Claude Code, Codex, etc.)
 - **New system prompt section**: `InteractiveModeSection` provides orchestrator persona and MassGen knowledge
 - **TUI mode integration**: Extends `TuiModeState` with interactive mode fields
 - **Run approval modal**: Optional approval step before spawning runs
@@ -21,7 +21,7 @@ Interactive Mode transforms MassGen from a single-task system into a **persisten
 - **Affected specs**: interactive-mode (new)
 - **Affected code**:
   - `massgen/interactive_session.py` (new)
-  - `massgen/tool/workflow_toolkits/launch_run.py` (new)
+  - `massgen/mcp_tools/interactive/` (new MCP server)
   - `massgen/frontend/displays/textual/run_approval_modal.py` (new)
   - `massgen/system_prompt_sections.py` (modify)
   - `massgen/frontend/displays/tui_modes.py` (modify)
