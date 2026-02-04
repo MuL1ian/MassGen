@@ -736,9 +736,9 @@ Backend
      - Docker CPU limit (e.g., "2.0", default: "4.0")
    * - ``command_line_docker_network_mode``
      - string
-     - No
+     - **Codex** (Docker mode)
      - All with MCP support
-     - Docker network mode: "bridge", "host", "none" (default: "none")
+     - Docker network mode: "bridge", "host", "none". **Required for Codex in Docker mode** (use "bridge").
    * - ``command_line_docker_enable_sudo``
      - boolean
      - No

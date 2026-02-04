@@ -366,6 +366,57 @@ API key for standard Claude backend agents.
 * Snapshot sharing between agents
 * Full development tool suite
 
+Codex Backend
+~~~~~~~~~~~~~
+
+**Basic Configuration:**
+
+.. code-block:: yaml
+
+   agents:
+     - id: "codex_agent"
+       backend:
+         type: "codex"
+         model: "gpt-5.2-codex"
+         cwd: "workspace"
+
+**Authentication:**
+
+The Codex backend supports flexible authentication:
+
+* **API key**: Set ``OPENAI_API_KEY`` environment variable
+* **ChatGPT subscription**: If no API key, uses OAuth via ``codex login``
+
+**Supported Models:** gpt-5.2-codex (default), gpt-5.1-codex, gpt-5-codex, gpt-4.1
+
+**Special Features:**
+
+* Native shell and file operations via Codex CLI
+* Web search capability
+* Session persistence and resumption
+* MCP server support via workspace config
+
+.. warning::
+
+   **Sandbox Limitation**: Codex uses OS-level sandboxing (Seatbelt/Landlock) which
+   **only restricts writes, NOT reads**. Codex can read any file on the filesystem.
+   For security-sensitive workloads, use Docker mode or consider Claude Code instead.
+   See :ref:`Native Tool Backends <native-tool-backends>` for details.
+
+**Recommended: Docker Mode for Security:**
+
+.. code-block:: yaml
+
+   agents:
+     - id: "secure_codex"
+       backend:
+         type: "codex"
+         model: "gpt-5.2-codex"
+         cwd: "workspace"
+         enable_mcp_command_line: true
+         command_line_execution_mode: "docker"
+         command_line_docker_network_mode: "bridge"  # Required for Codex
+
 Gemini Backend
 ~~~~~~~~~~~~~~
 
@@ -770,6 +821,123 @@ Consider these factors when selecting backends:
 * **LM Studio**: Fully local, no data sharing
 * **Azure OpenAI**: Enterprise security
 * **Self-hosted vLLM**: Private cloud deployment
+
+.. _native-tool-backends:
+
+Native Tool Backends (Claude Code & Codex)
+------------------------------------------
+
+MassGen supports two "native tool" backends that wrap CLI/SDK tools rather than just API calls:
+**Claude Code** (Anthropic's Claude Code SDK) and **Codex** (OpenAI's Codex CLI). These backends
+come with their own built-in filesystem and shell tools, providing a more integrated development
+experience but with different security characteristics than API-only backends.
+
+Architecture Differences
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table:: Native Tool Backends vs API Backends
+   :header-rows: 1
+   :widths: 25 35 40
+
+   * - Aspect
+     - Native Tool Backends (Claude Code, Codex)
+     - API Backends (OpenAI, Claude, Gemini, etc.)
+   * - Tool Execution
+     - Native tools (Read, Write, Bash) run locally via CLI/SDK
+     - Tools run via MassGen's MCP servers
+   * - Permission Control
+     - Backend's own sandbox + limited MassGen hooks
+     - Full MassGen PathPermissionManager control
+   * - Filesystem Access
+     - Direct local filesystem access
+     - Controlled through MCP filesystem tools
+   * - State Management
+     - Stateful (session persistence, conversation history)
+     - Stateless (each call is independent)
+
+Claude Code vs Codex Comparison
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table:: Claude Code vs Codex
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Feature
+     - Claude Code
+     - Codex
+   * - Provider
+     - Anthropic (Claude Code SDK)
+     - OpenAI (Codex CLI)
+   * - Authentication
+     - API key (ANTHROPIC_API_KEY) or subscription
+     - API key (OPENAI_API_KEY) or ChatGPT subscription (OAuth)
+   * - Models
+     - Claude Sonnet 4, Claude Opus 4
+     - GPT-5.2-Codex, GPT-5.1-Codex, GPT-5-Codex
+   * - Native Tools
+     - Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch
+     - shell, apply_patch, web_search, image_view
+   * - MCP Support
+     - Yes (SDK-native)
+     - Yes (via .codex/config.toml)
+   * - Sandbox Type
+     - SDK permission hooks
+     - OS-level (Seatbelt on macOS, Landlock on Linux)
+   * - **Read Restrictions**
+     - **Yes** - SDK hooks block reads outside allowed paths
+     - **No** - OS sandbox only restricts writes
+   * - Write Restrictions
+     - Yes - SDK hooks enforce write permissions
+     - Yes - OS sandbox restricts writes to writable_roots
+
+.. warning::
+
+   **Codex Sandbox Limitation**: Codex uses OS-level sandboxing (Seatbelt on macOS,
+   Landlock on Linux) which **only restricts writes, NOT reads**. This means Codex
+   can read any file on the filesystem, including sensitive files outside the workspace
+   and context_paths (SSH keys, credentials, environment files, etc.).
+
+   MassGen's permission hooks **cannot intercept** Codex's native tool calls because
+   they run directly through the Codex CLI's internal tools.
+
+Security Recommendations
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+**For security-sensitive workloads, prefer Docker mode** which provides full filesystem
+isolation via container boundaries:
+
+.. code-block:: yaml
+
+   # Recommended: Docker mode for Codex with sensitive data
+   agents:
+     - id: "secure_codex"
+       backend:
+         type: "codex"
+         model: "gpt-5.2-codex"
+         cwd: "workspace"
+         enable_mcp_command_line: true
+         command_line_execution_mode: "docker"
+         command_line_docker_network_mode: "bridge"  # Required for Codex
+         command_line_docker_enable_sudo: true
+
+.. important::
+
+   **Codex in Docker mode requires** ``command_line_docker_network_mode: "bridge"``.
+   Without this setting, Codex will fail to execute. The validator will check for this.
+
+In Docker mode:
+
+* The container itself is the sandbox - Codex's native tools can only access what's mounted
+* Host filesystem is fully isolated from the agent
+* ``~/.codex/`` is mounted read-only for OAuth token access
+* The Codex CLI runs with ``--sandbox danger-full-access`` since the container provides isolation
+
+**When Docker is not available**, consider:
+
+1. **Use Claude Code instead** - SDK permission hooks provide read/write restrictions
+2. **Limit context_paths** - Only grant access to directories that need agent access
+3. **Avoid sensitive data** - Don't run Codex in directories with credentials or secrets
+4. **Use API-only backends** - For maximum control, use ``openai`` or ``claude`` backends with MCP tools
 
 Backend Configuration Best Practices
 -------------------------------------

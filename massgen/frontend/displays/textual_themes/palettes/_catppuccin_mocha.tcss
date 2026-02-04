@@ -1,0 +1,247 @@
+/* =============================================================================
+ * MassGen TUI - Catppuccin Mocha Palette Variables
+ * =============================================================================
+ * Catppuccin Mocha - A professional dark theme palette
+ * https://github.com/catppuccin/catppuccin
+ *
+ * To use: Import this file instead of _variables.tcss to switch to Catppuccin.
+ * =============================================================================
+ */
+
+/* === Catppuccin Mocha Base Colors === */
+$bg-base: #1e1e2e;           /* Base */
+$bg-surface: #181825;        /* Mantle */
+$bg-surface-2: #313244;      /* Surface0 */
+$bg-surface-3: #45475a;      /* Surface1 */
+$bg-card: #1e1e2e;           /* Base - card backgrounds */
+$bg-elevated: #313244;       /* Surface0 - hover states */
+
+$fg-primary: #cdd6f4;        /* Text */
+$fg-secondary: #cdd6f4;      /* Text (same as primary) */
+$fg-muted: #bac2de;          /* Subtext1 */
+$fg-subtle: #a6adc8;         /* Subtext0 */
+$fg-disabled: #585b70;       /* Surface2 */
+$fg-on-accent: #1e1e2e;      /* Base (for text on accent) */
+
+$border-default: #6c7086;    /* Overlay0 */
+$border-highlight: #9399b2;  /* Overlay1 */
+$border-muted: #45475a;      /* Surface1 */
+$border-soft: #313244;       /* Surface0 */
+$border-accent: #7f849c;     /* Overlay0 lighter */
+$border-subtle: #313244;     /* Surface0 */
+$border-focus: #89b4fa;      /* Blue */
+
+/* Semantic Accent Colors */
+$accent-primary: #89b4fa;    /* Blue */
+$accent-success: #a6e3a1;    /* Green */
+$accent-warning: #fab387;    /* Peach */
+$accent-error: #f38ba8;      /* Red */
+$accent-info: #74c7ec;       /* Sapphire */
+$accent-special: #cba6f7;    /* Mauve */
+
+/* Agent Color Palette - Catppuccin flavors */
+$agent-1: #89b4fa;           /* Blue */
+$agent-1-bg: #1e2030;
+$agent-2: #a6e3a1;           /* Green */
+$agent-2-bg: #1e2b1e;
+$agent-3: #cba6f7;           /* Mauve */
+$agent-3-bg: #2b1e30;
+$agent-4: #fab387;           /* Peach */
+$agent-4-bg: #302820;
+$agent-5: #74c7ec;           /* Sapphire */
+$agent-5-bg: #1e2830;
+$agent-6: #f5c2e7;           /* Pink */
+$agent-6-bg: #301e28;
+$agent-7: #f9e2af;           /* Yellow */
+$agent-7-bg: #302b1e;
+$agent-8: #f38ba8;           /* Red */
+$agent-8-bg: #301e1e;
+
+/* Component-Specific Variables */
+$modal-backdrop: rgba(17, 17, 27, 0.8);
+$scrollbar-track: $bg-surface;
+$scrollbar-thumb: $border-default;
+$scrollbar-thumb-hover: $border-highlight;
+
+/* Focus Ring */
+$focus-ring-color: $accent-primary;
+$focus-ring-width: 2;
+
+/* Button Variants */
+$btn-primary-bg: $accent-primary;
+$btn-primary-fg: $bg-base;
+$btn-success-bg: $accent-success;
+$btn-success-fg: $bg-base;
+$btn-warning-bg: $accent-warning;
+$btn-warning-fg: $bg-base;
+$btn-error-bg: $accent-error;
+$btn-error-fg: $bg-base;
+
+/* Status Badge Colors - Using color-mix for translucency */
+$status-running-bg: rgba(137, 180, 250, 0.2);
+$status-running-fg: $accent-primary;
+$status-success-bg: rgba(166, 227, 161, 0.2);
+$status-success-fg: $accent-success;
+$status-warning-bg: rgba(250, 179, 135, 0.2);
+$status-warning-fg: $accent-warning;
+$status-error-bg: rgba(243, 139, 168, 0.2);
+$status-error-fg: $accent-error;
+
+/* Tool Categories */
+$tool-read: #89b4fa;         /* Blue */
+$tool-write: #fab387;        /* Peach */
+$tool-execute: #a6e3a1;      /* Green */
+$tool-search: #cba6f7;       /* Mauve */
+$tool-web: #74c7ec;          /* Sapphire */
+$tool-default: #6c7086;      /* Overlay0 */
+
+/* Spacing */
+$spacing-xs: 1;
+$spacing-sm: 2;
+$spacing-md: 3;
+$spacing-lg: 4;
+$spacing-xl: 6;
+
+/* Border Radius */
+$radius-sm: 0.3;
+$radius-md: 0.5;
+$radius-lg: 1;
+$radius-pill: 9999;
+
+/* ============================================================================
+ * Extended Semantic Variables for Theme Support
+ * ============================================================================ */
+
+/* State Backgrounds - Catppuccin tinted backgrounds */
+$state-success-bg: #1e2b1e;
+$state-success-bg-bright: #283b28;
+$state-warning-bg: #302820;
+$state-warning-bg-bright: #3d3420;
+$state-error-bg: #301e1e;
+$state-error-bg-subtle: #301e1e30;
+$state-cancelled-bg: #2e1e1e;
+$state-cancelled-banner-bg: #5c3030;
+$state-consensus-bg: #302b1e;
+
+/* State Text Colors */
+$state-success-text: #a6e3a1;
+$state-warning-text: #fab387;
+$state-error-text: #f38ba8;
+$state-consensus-text: #f9e2af;
+
+/* Component: Context Label */
+$context-label-bg: #1e2030;
+$context-label-text: #a6e3a1;
+
+/* Component: Task Plan Toggle */
+$task-plan-bg: #2b1e30;
+$task-plan-bg-hover: #382840;
+$task-plan-text: #cba6f7;
+
+/* Component: Task Card */
+$task-focused-bg: rgba(49, 50, 68, 0.6);
+$task-reminder-bg: rgba(74, 61, 45, 0.7);
+
+/* Links */
+$link-hover: #cba6f7;
+
+/* Content Colors */
+$content-blue: #89b4fa;
+
+/* Component: Overlay */
+$overlay-bg: #11111b80;
+
+/* Component: Badge Backgrounds */
+$badge-bg-tasks-hover: #2b1e30;
+$badge-bg-warning-hover: #302820;
+
+/* Modal/Panel Backgrounds */
+$modal-bg: #181825;
+$modal-content-bg: #1e1e2e;
+$modal-content-text: #cdd6f4;
+
+/* History/Turn Backgrounds */
+$history-turn-bg: #313244;
+$history-turn-bg-hover: #45475a;
+
+/* VS Code Accent Colors (Catppuccin equivalents) */
+$vscode-blue: #89b4fa;
+$vscode-cyan: #94e2d5;
+$vscode-light-blue: #74c7ec;
+$vscode-orange: #fab387;
+$vscode-pink: #f5c2e7;
+$vscode-red: #f38ba8;
+$vscode-blue-alt: #89b4fa;
+$vscode-gray: #585b70;
+$vscode-gray-text: #7f849c;
+
+/* Bright Accent Colors for Content */
+$content-blue: #89b4fa;
+$content-purple: #cba6f7;
+$content-yellow: #f9e2af;
+$content-green: #a6e3a1;
+$content-white: #cdd6f4;
+$content-light: #cdd6f4;
+$content-light-blue: #74c7ec;
+
+/* Injection/Reminder Content */
+$injection-bg: #2b2040;
+$injection-bg-hover: #352848;
+$reminder-bg: #403020;
+
+/* Wizard/CLI Colors */
+$wizard-accent: #74c7ec;
+$wizard-success: #a6e3a1;
+$wizard-selected-bg: #1e2b1e;
+$wizard-scrollbar: #313244;
+$wizard-scrollbar-hover: #45475a;
+$wizard-scrollbar-active: #585b70;
+$wizard-error-bg: #3d2020;
+
+/* Tool Type Colors */
+$tool-api: #fab387;
+$tool-ai: #89b4fa;
+$tool-memory: #a6e3a1;
+$tool-workspace: #a6e3a1;
+
+/* Terminal Tool Colors */
+$terminal-border: #6c7086;
+$terminal-success: #a6e3a1;
+$terminal-error: #f38ba8;
+$terminal-hover: #7f849c;
+$terminal-focus: #9399b2;
+$terminal-text: #9399b2;
+
+/* Thinking/Content Card Colors */
+$thinking-border: #7f849c;
+$content-border: #6c7086;
+$content-muted: #6c7086;
+
+/* Diff Highlighting */
+$diff-add-bg: #1e2b1e;
+$diff-remove-bg: #301e1e;
+
+/* Answer Selection */
+$answer-selected-bg: #313244;
+$answer-highlighted-bg: #1e3050;
+$answer-highlight-bg: #1e3050;
+
+/* Selected Item Borders */
+$selected-blue: #89b4fa;
+$selected-green: #a6e3a1;
+$selected-purple: #cba6f7;
+$selected-orange: #fab387;
+$selected-cyan: #74c7ec;
+$selected-pink: #f5c2e7;
+$selected-yellow: #f9e2af;
+$selected-red: #f38ba8;
+
+/* Checkbox/Radio Selected State */
+$checkbox-selected-bg: #40a070;
+$checkbox-selected-bg-hover: #50b080;
+$checkbox-selected-border: #a6e3a1;
+
+/* Panel/Border Colors */
+$panel-border: #45475a;
+$panel-border-separator: #45475a;
+$panel-border-light: #313244;

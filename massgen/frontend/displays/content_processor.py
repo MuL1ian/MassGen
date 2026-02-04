@@ -473,22 +473,15 @@ class ContentProcessor:
         self,
         event: MassGenEvent,
     ) -> Optional[ContentOutput]:
-        """Handle round_start event."""
-        # round_number is a top-level field on MassGenEvent (0-indexed),
-        # convert to 1-indexed display round number
-        display_round = event.round_number + 1
+        """Handle round_start event.
 
-        # Only emit separator for the initial round (Round 1).
-        # Subsequent rounds are signaled by agent_restart events which
-        # appear at the correct point in the timeline (after answer+vote).
-        if display_round > 1:
-            return None
+        Round banners are now handled exclusively by agent_restart events.
+        This avoids duplicate banners and stale round numbers that occur when
+        round_start fires with the orchestrator's view (not the agent's actual round).
 
-        return ContentOutput(
-            output_type="separator",
-            round_number=display_round,
-            separator_label=f"Round {display_round}",
-        )
+        Round 1 is handled by _ensure_round_banner(1) in content_sections.py.
+        """
+        return None
 
     def _handle_event_final_answer(
         self,
@@ -512,6 +505,9 @@ class ContentProcessor:
         """Handle workspace_action event."""
         action_type = event.data.get("action_type", "unknown")
         params = event.data.get("params")
+        # Suppress vote/new_answer actions (rendered via dedicated tool cards)
+        if action_type in {"vote", "new_answer"}:
+            return None
         label = f"workspace/{action_type}"
         if params:
             label += f" {params}"
@@ -547,14 +543,15 @@ class ContentProcessor:
         event: MassGenEvent,
         round_number: int,
     ) -> Optional[ContentOutput]:
-        """Handle presentation_start event."""
-        self._batch_tracker.mark_content_arrived()
-        return ContentOutput(
-            output_type="separator",
-            round_number=round_number,
-            separator_label="Final Presentation",
-            separator_subtitle="",
-        )
+        """Handle presentation_start event.
+
+        Note: This event is suppressed because FINAL_PRESENTATION_START
+        will follow with the proper banner including vote counts and
+        answer labels. Returning the separator here would create a
+        duplicate "Final Presentation" banner without vote info.
+        """
+        # Suppress - FINAL_PRESENTATION_START handles the banner with vote info
+        return None
 
     def _handle_event_agent_restart(
         self,
@@ -564,11 +561,19 @@ class ContentProcessor:
         """Handle agent_restart event."""
         agent_round = event.data.get("restart_round", round_number)
 
+        # Extract restart reason from event data
+        restart_reason = event.data.get("restart_reason", "")
+        subtitle = ""
+        if restart_reason:
+            subtitle = f"Restart: {restart_reason}"
+
+        # Use agent_restart to advance the displayed round for this agent.
+        # The banner is deferred by the adapter to avoid mid-stream ordering issues.
         return ContentOutput(
             output_type="separator",
             round_number=agent_round,
             separator_label=f"Round {agent_round}",
-            separator_subtitle="Agent restart",
+            separator_subtitle=subtitle,
         )
 
     def _handle_event_phase_change(
@@ -691,7 +696,17 @@ class ContentProcessor:
 
         Creates a workspace/new_answer tool card matching the main TUI's
         notify_new_answer() rendering for subagent TUI parity.
+
+        Note: Uses event's embedded round_number to ensure the answer is tagged
+        with the round it was submitted IN, not the adapter's current round
+        which may have advanced. The event system uses round_number=0 for
+        initial round (display round 1), and post-restart rounds are already
+        1-indexed (e.g., round_number=2 means display round 2).
         """
+        # Event round_number=0 means initial round (display round 1)
+        # Post-restart round_number is already the correct display round
+        event_round = event.round_number if event.round_number > 0 else 1
+
         agent_id = event.agent_id or "unknown"
         label = event.data.get("answer_label", "")
         content = event.data.get("content", "")
@@ -724,7 +739,7 @@ class ContentProcessor:
         self._batch_tracker.mark_content_arrived()
         return ContentOutput(
             output_type="tool",
-            round_number=round_number,
+            round_number=event_round,
             tool_data=tool_data,
             batch_action="standalone",
         )
@@ -738,7 +753,17 @@ class ContentProcessor:
 
         Creates a workspace/vote tool card matching the main TUI's
         notify_vote() rendering for subagent TUI parity.
+
+        Note: Uses event's embedded round_number to ensure the vote is tagged
+        with the round it was cast IN, not the adapter's current round which
+        may have advanced. The event system uses round_number=0 for initial
+        round (display round 1), and post-restart rounds are already 1-indexed
+        (e.g., round_number=4 means display round 4).
         """
+        # Event round_number=0 means initial round (display round 1)
+        # Post-restart round_number is already the correct display round
+        event_round = event.round_number if event.round_number > 0 else 1
+
         voter = event.agent_id or "unknown"
         target = event.data.get("target_id", "unknown")
         reason = event.data.get("reason", "")
@@ -771,7 +796,7 @@ class ContentProcessor:
         self._batch_tracker.mark_content_arrived()
         return ContentOutput(
             output_type="tool",
-            round_number=round_number,
+            round_number=event_round,
             tool_data=tool_data,
             batch_action="standalone",
         )

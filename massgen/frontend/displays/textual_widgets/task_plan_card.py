@@ -43,66 +43,8 @@ class TaskPlanCard(Static):
             self.focused_task_id = focused_task_id
             super().__init__()
 
-    DEFAULT_CSS = """
-    TaskPlanCard {
-        width: 100%;
-        height: auto;
-        min-height: 1;
-        padding: 0 0 0 2;
-        margin: 0 0 0 1;
-        background: transparent;
-        border-left: solid #6e7681 50%;
-    }
-
-    TaskPlanCard:hover {
-        border-left: solid #8b949e 50%;
-    }
-
-    TaskPlanCard .task-header {
-        text-style: bold;
-        color: #a371f7;
-        margin-bottom: 1;
-    }
-
-    TaskPlanCard .task-item {
-        height: auto;
-        padding: 0;
-    }
-
-    TaskPlanCard .task-completed {
-        color: #6e7681;
-    }
-
-    TaskPlanCard .task-in-progress {
-        color: #58a6ff;
-        text-style: bold;
-    }
-
-    TaskPlanCard .task-pending {
-        color: #8b949e;
-    }
-
-    TaskPlanCard .task-blocked {
-        color: #6e7681;
-        text-style: italic;
-    }
-
-    TaskPlanCard .task-focused {
-        background: rgba(33, 38, 45, 0.6);
-    }
-
-    TaskPlanCard .task-count {
-        color: #6e7681;
-        text-style: italic;
-    }
-
-    TaskPlanCard .task-reminder {
-        background: rgba(74, 61, 45, 0.7);
-        color: #ffa657;
-        padding: 0 1;
-        margin-top: 1;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     # Status indicators
     STATUS_ICONS = {

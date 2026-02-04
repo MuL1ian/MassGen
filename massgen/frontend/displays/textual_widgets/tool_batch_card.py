@@ -63,6 +63,14 @@ class ToolBatchCard(Static, can_focus=True):
             self.card = card
             super().__init__()
 
+    class ToolInBatchClicked(Message):
+        """Posted when a tool line within a batch is clicked."""
+
+        def __init__(self, card: "ToolBatchCard", tool_item: ToolBatchItem) -> None:
+            self.card = card
+            self.tool_item = tool_item
+            super().__init__()
+
     # Number of tools to show when collapsed
     COLLAPSED_VISIBLE_COUNT = 3
 
@@ -90,6 +98,7 @@ class ToolBatchCard(Static, can_focus=True):
         self.server_name = server_name
         self._tools: Dict[str, ToolBatchItem] = {}  # tool_id -> ToolBatchItem
         self._tool_order: List[str] = []  # Maintain insertion order
+        self._tool_line_map: Dict[int, str] = {}  # line_number -> tool_id for click detection
         self._expanded = False
         self._start_time = datetime.now()
 
@@ -115,6 +124,10 @@ class ToolBatchCard(Static, can_focus=True):
     def _build_content(self) -> Text:
         """Build the card content as Rich Text."""
         text = Text()
+
+        # Clear line map for fresh tracking
+        self._tool_line_map.clear()
+        current_line = 0  # Track line numbers for click detection
 
         # Calculate aggregate status
         statuses = [t.status for t in self._tools.values()]
@@ -152,7 +165,7 @@ class ToolBatchCard(Static, can_focus=True):
             header_style = "bold"
             icon_style = "green"
 
-        # Build header: "▸ filesystem [0.8s] ✓"
+        # Build header: "▸ filesystem [0.8s] ✓" (line 0)
         text.append(f"{expand_indicator} ", style="dim")
         text.append(self.server_name, style=header_style)
         text.append(f"  {elapsed_str} ", style="dim")
@@ -165,25 +178,35 @@ class ToolBatchCard(Static, can_focus=True):
         if not self._expanded and tool_count > self.COLLAPSED_VISIBLE_COUNT:
             hidden = tool_count - self.COLLAPSED_VISIBLE_COUNT
             text.append(f"\n    ├─ (+{hidden} earlier)", style="dim italic")
+            current_line += 1  # "(+N earlier)" line
             tools_to_show = all_tools[-self.COLLAPSED_VISIBLE_COUNT :]
         else:
             tools_to_show = all_tools
 
-        # Render tool tree
+        # Render tool tree and track line numbers
         for i, tool in enumerate(tools_to_show):
             is_last = i == len(tools_to_show) - 1
-            self._render_tool_line(text, tool, is_last)
+            current_line += 1  # Each tool starts on a new line
+            self._tool_line_map[current_line] = tool.tool_id
+            lines_added = self._render_tool_line(text, tool, is_last)
+            # Account for extra lines (e.g., error preview)
+            current_line += lines_added
 
         return text
 
-    def _render_tool_line(self, text: Text, tool: ToolBatchItem, is_last: bool) -> None:
+    def _render_tool_line(self, text: Text, tool: ToolBatchItem, is_last: bool) -> int:
         """Render a single tool line in the tree.
 
         Args:
             text: Rich Text to append to.
             tool: ToolBatchItem to render.
             is_last: Whether this is the last visible item.
+
+        Returns:
+            Number of extra lines added (e.g., 1 for error preview, 0 otherwise).
         """
+        extra_lines = 0
+
         # Tree connector
         connector = "└─" if is_last else "├─"
 
@@ -221,6 +244,9 @@ class ToolBatchCard(Static, can_focus=True):
         if tool.status == "error" and tool.error and self._expanded:
             error_preview = tool.error.replace("\n", " ")[:50]
             text.append(f"\n         ✗ {error_preview}", style="dim red")
+            extra_lines = 1
+
+        return extra_lines
 
     def _shorten_path(self, path: str, max_len: int) -> str:
         """Shorten a path, keeping the end (filename/dirs) visible.
@@ -364,25 +390,27 @@ class ToolBatchCard(Static, can_focus=True):
             self.add_class("status-running")
 
     def on_click(self, event: Click) -> None:
-        """Handle click - toggle expansion or open modal."""
+        """Handle click - toggle expansion or open tool detail modal."""
         click_x = event.x if hasattr(event, "x") else 0
+        click_y = event.y if hasattr(event, "y") else 0
 
-        if click_x < 3:
-            # Click on expand indicator - toggle
-            self._expanded = not self._expanded
-            if self._expanded:
-                self.add_class("expanded")
-            else:
-                self.remove_class("expanded")
+        if not self._expanded:
+            # Collapsed: expand on any click
+            self._expanded = True
+            self.add_class("expanded")
+            self._refresh_content()
+        elif click_x < 3:
+            # Left edge when expanded: collapse
+            self._expanded = False
+            self.remove_class("expanded")
             self._refresh_content()
         else:
-            # Click elsewhere - toggle expand (could also open modal)
-            self._expanded = not self._expanded
-            if self._expanded:
-                self.add_class("expanded")
-            else:
-                self.remove_class("expanded")
-            self._refresh_content()
+            # Expanded + click elsewhere: check if clicking a tool line
+            tool_id = self._tool_line_map.get(click_y)
+            if tool_id and tool_id in self._tools:
+                # Post message to open tool detail modal
+                self.post_message(self.ToolInBatchClicked(self, self._tools[tool_id]))
+            # Don't collapse - user clicked a tool line or empty space
 
     def add_tool(self, tool: ToolBatchItem) -> None:
         """Add a tool to this batch.

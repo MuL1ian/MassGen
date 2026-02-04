@@ -20,27 +20,8 @@ class QueuedInputBanner(Static):
     indicates they will be injected after the next tool call.
     """
 
-    DEFAULT_CSS = """
-    QueuedInputBanner {
-        height: auto;
-        max-height: 5;
-        background: #21262d;
-        border: solid #30363d;
-        border-left: thick #58a6ff;
-        padding: 0 1;
-        margin-bottom: 0;
-        margin-left: 1;
-        display: none;
-    }
-
-    QueuedInputBanner.visible {
-        display: block;
-    }
-
-    QueuedInputBanner:hover {
-        background: #30363d;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(
         self,

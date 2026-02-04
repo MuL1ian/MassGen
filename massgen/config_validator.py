@@ -354,6 +354,17 @@ class ConfigValidator:
                         "Use a string for the system message",
                     )
 
+            # Validate optional field: voting_sensitivity (per-agent override)
+            if "voting_sensitivity" in agent_config:
+                voting_sensitivity = agent_config["voting_sensitivity"]
+                if voting_sensitivity not in self.VALID_VOTING_SENSITIVITY:
+                    valid_values = ", ".join(sorted(self.VALID_VOTING_SENSITIVITY))
+                    result.add_error(
+                        f"Invalid voting_sensitivity: '{voting_sensitivity}'",
+                        f"{agent_location}.voting_sensitivity",
+                        f"Use one of: {valid_values}",
+                    )
+
     def _validate_backend(self, backend_config: Dict[str, Any], location: str, result: ValidationResult) -> None:
         """Validate backend configuration (Level 3)."""
         if not isinstance(backend_config, dict):
@@ -499,6 +510,18 @@ class ConfigValidator:
         # Validate hooks if present
         if "hooks" in backend_config:
             self._validate_hooks(backend_config["hooks"], f"{location}.hooks", result)
+
+        # Validate Codex Docker mode requirements
+        if backend_type == "codex":
+            execution_mode = backend_config.get("command_line_execution_mode")
+            if execution_mode == "docker":
+                # command_line_docker_network_mode is required for Codex in Docker mode
+                if "command_line_docker_network_mode" not in backend_config:
+                    result.add_error(
+                        "Codex backend in Docker mode requires 'command_line_docker_network_mode'",
+                        f"{location}.command_line_docker_network_mode",
+                        "Add 'command_line_docker_network_mode: bridge' (required for Codex Docker execution)",
+                    )
 
     def _validate_tool_filtering(
         self,

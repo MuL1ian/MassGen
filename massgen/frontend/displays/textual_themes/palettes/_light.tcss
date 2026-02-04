@@ -1,0 +1,200 @@
+/* =============================================================================
+ * MassGen TUI - Light Theme Palette
+ * =============================================================================
+ * GitHub Light inspired palette with WCAG AA compliant colors.
+ * This file defines ONLY variables - component styles are in base.tcss.
+ * =============================================================================
+ */
+
+/* Background Colors */
+$bg-base: #ffffff;
+$bg-surface: #f6f8fa;
+$bg-surface-2: #eaeef2;
+$bg-surface-3: #d8dee4;
+$bg-card: #ffffff;
+$bg-elevated: #f6f8fa;
+
+/* Foreground/Text Colors - WCAG AA compliant */
+$fg-primary: #1f2328;
+$fg-secondary: #424a53;
+$fg-muted: #57606a;
+$fg-subtle: #6e7781;
+$fg-disabled: #8b949e;
+$fg-on-accent: #ffffff;
+
+/* Border Colors */
+$border-default: #d0d7de;
+$border-highlight: #c9d1d9;
+$border-muted: #eaeef2;
+$border-soft: #e8eaed;
+$border-accent: #b8c0c8;
+$border-subtle: #e8eaed;
+$border-focus: #0969da;
+
+/* Semantic Accent Colors */
+$accent-primary: #0969da;
+$accent-success: #1a7f37;
+$accent-warning: #9a6700;
+$accent-error: #cf222e;
+$accent-info: #0550ae;
+$accent-special: #8250df;
+
+/* Agent Colors - for distinguishing agents */
+$agent-1: #0969da;
+$agent-1-bg: #ddf4ff;
+$agent-2: #1a7f37;
+$agent-2-bg: #dafbe1;
+$agent-3: #8250df;
+$agent-3-bg: #fbefff;
+$agent-4: #bf5700;
+$agent-4-bg: #fff5e8;
+$agent-5: #0969da;
+$agent-5-bg: #ddf4ff;
+$agent-6: #bf3989;
+$agent-6-bg: #ffeff7;
+$agent-7: #9a6700;
+$agent-7-bg: #fff8c5;
+$agent-8: #cf222e;
+$agent-8-bg: #ffebe9;
+
+/* ============================================================================
+ * Extended Semantic Variables for Theme Support
+ * ============================================================================ */
+
+/* State Backgrounds - light tinted backgrounds for different states */
+$state-success-bg: #dafbe1;
+$state-success-bg-bright: #c5f6d0;
+$state-warning-bg: #fff8c5;
+$state-warning-bg-bright: #fff1a8;
+$state-error-bg: #ffebe9;
+$state-error-bg-subtle: #ffebe980;
+$state-cancelled-bg: #ffebe9;
+$state-cancelled-banner-bg: #ffc5c0;
+$state-consensus-bg: #fff8c5;
+
+/* State Text Colors - WCAG AA compliant on light backgrounds */
+$state-success-text: #116329;
+$state-warning-text: #7a4500;
+$state-error-text: #a40e26;
+$state-consensus-text: #6a5600;
+
+/* Component: Context Label */
+$context-label-bg: #ddf4ff;
+$context-label-text: #116329;
+
+/* Component: Task Plan Toggle */
+$task-plan-bg: #fbefff;
+$task-plan-bg-hover: #f3e0ff;
+$task-plan-text: #6e40c9;
+
+/* Component: Task Card */
+$task-focused-bg: rgba(230, 235, 240, 0.6);
+$task-reminder-bg: rgba(255, 248, 197, 0.7);
+
+/* Links */
+$link-hover: #6639ba;
+
+/* Component: Overlay (single-agent mode "not in use") */
+$overlay-bg: #ffffff80;
+
+/* Component: Badge Backgrounds */
+$badge-bg-tasks-hover: #f3e0ff;
+$badge-bg-warning-hover: #fff8c5;
+
+/* Modal/Panel Backgrounds (Light mode) */
+$modal-bg: #f6f8fa;
+$modal-content-bg: #ffffff;
+$modal-content-text: #1f2328;
+
+/* History/Turn Backgrounds */
+$history-turn-bg: #f6f8fa;
+$history-turn-bg-hover: #eaeef2;
+
+/* VS Code Light Accent Colors */
+$vscode-blue: #0550ae;
+$vscode-cyan: #0e7b6a;
+$vscode-light-blue: #0550ae;
+$vscode-orange: #a35200;
+$vscode-pink: #8b2d8f;
+$vscode-red: #cf222e;
+$vscode-blue-alt: #0969da;
+$vscode-gray: #8c959f;
+$vscode-gray-text: #656d76;
+
+/* Bright Accent Colors for Content */
+$content-blue: #0969da;
+$content-purple: #8250df;
+$content-yellow: #9a6700;
+$content-green: #1a7f37;
+$content-white: #1f2328;
+$content-light: #1f2328;
+$content-light-blue: #0550ae;
+
+/* Injection/Reminder Content */
+$injection-bg: #fbefff;
+$injection-bg-hover: #f3e0ff;
+$reminder-bg: #fff8c5;
+
+/* Button Variants */
+$btn-primary-bg: #1a7f37;
+$btn-primary-bg-hover: #238636;
+$btn-danger-bg: #cf222e;
+$btn-danger-bg-hover: #a40e26;
+$btn-secondary-bg: #eaeef2;
+
+/* Wizard/CLI Colors */
+$wizard-accent: #0969da;
+$wizard-success: #1a7f37;
+$wizard-selected-bg: #dafbe1;
+$wizard-scrollbar: #d0d7de;
+$wizard-scrollbar-hover: #afb8c1;
+$wizard-scrollbar-active: #8c959f;
+$wizard-error-bg: #ffebe9;
+
+/* Tool Type Colors */
+$tool-api: #a35200;
+$tool-ai: #0969da;
+$tool-memory: #1a7f37;
+$tool-workspace: #1a7f37;
+
+/* Terminal Tool Colors (muted for light theme) */
+$terminal-border: #8c959f;
+$terminal-success: #1a7f37;
+$terminal-error: #cf222e;
+$terminal-hover: #57606a;
+$terminal-focus: #57606a;
+$terminal-text: #57606a;
+
+/* Thinking/Content Card Colors */
+$thinking-border: #8c959f;
+$content-border: #8c959f;
+$content-muted: #57606a;
+
+/* Diff Highlighting */
+$diff-add-bg: #dafbe1;
+$diff-remove-bg: #ffebe9;
+
+/* Answer Selection */
+$answer-selected-bg: #f6f8fa;
+$answer-highlighted-bg: #ddf4ff;
+$answer-highlight-bg: #ddf4ff;
+
+/* Selected Item Borders */
+$selected-blue: #0969da;
+$selected-green: #1a7f37;
+$selected-purple: #8250df;
+$selected-orange: #bf5700;
+$selected-cyan: #0969da;
+$selected-pink: #bf3989;
+$selected-yellow: #9a6700;
+$selected-red: #cf222e;
+
+/* Checkbox/Radio Selected State */
+$checkbox-selected-bg: #1a7f37;
+$checkbox-selected-bg-hover: #238636;
+$checkbox-selected-border: #1a7f37;
+
+/* Panel/Border Colors */
+$panel-border: #d0d7de;
+$panel-border-separator: #d8dee4;
+$panel-border-light: #d8dee4;

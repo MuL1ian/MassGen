@@ -1,0 +1,7020 @@
+/* =============================================================================
+ * MassGen TUI - Base Component Styles
+ * =============================================================================
+ * This file contains ALL component styles for the TUI using Textual's built-in
+ * theme variables ($background, $text, $primary, $surface, etc.) for dynamic
+ * theme support.
+ *
+ * Theme switching is handled by Textual's theme system:
+ *   self.theme = "textual-dark"  or  self.theme = "textual-light"
+ *
+ * Built-in variables used:
+ * - $background, $text, $text-muted
+ * - $surface, $surface-lighten-1, $surface-lighten-2, $surface-darken-1
+ * - $primary, $primary-lighten-1, $secondary, $secondary-lighten-2
+ * - $success, $warning, $warning-lighten-1, $error, $error-lighten-2
+ * - $panel (elevated surfaces)
+ * =============================================================================
+ */
+
+/* =============================================================================
+ * Base Styles
+ * =============================================================================
+ */
+
+Screen {
+    background: $background;
+    color: $text;
+    layers: base overlay;
+}
+
+.hidden {
+    display: none;
+}
+
+/* === Welcome Screen === */
+#welcome_screen {
+    width: 100%;
+    height: 1fr;
+    align: center middle;
+    background: $background;
+}
+
+#welcome_screen Label, #welcome_screen Static {
+    width: auto;
+    text-align: center;
+    color: $text;
+}
+
+#welcome_logo {
+    color: $primary;
+    text-style: bold;
+}
+
+#welcome_tagline {
+    color: $secondary;
+    text-style: none;
+    margin-top: 2;
+}
+
+#welcome_workflow {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#welcome_agents {
+    color: $text;
+    margin-top: 1;
+}
+
+#welcome_hint {
+    color: $primary;
+    text-style: italic;
+    margin-top: 2;
+}
+
+#welcome_shortcuts_hint {
+    color: $text-muted;
+    text-style: italic;
+    margin-top: 1;
+}
+
+#cwd_hint {
+    color: $text-muted;
+    text-style: italic;
+    margin-top: 1;
+}
+
+#main_container {
+    layout: vertical;
+    background: $background;
+    height: 1fr;
+    padding: 0;
+}
+
+#main_split {
+    layout: horizontal;
+    width: 100%;
+    height: 1fr;
+}
+
+/* === Cancellation State === */
+/* PERSISTENT visual feedback when execution is cancelled.
+ * Persists until user submits a new question to clearly indicate
+ * the system is waiting for input. */
+#main_container.cancelled-state {
+    background: $error 10%;
+}
+
+/* Gray out agent panels in cancelled state */
+#main_container.cancelled-state AgentPanel {
+    border-left: thick $error;
+    opacity: 0.6;
+}
+
+/* Gray out timeline content in cancelled state */
+#main_container.cancelled-state TimelineSection {
+    opacity: 0.7;
+}
+
+.cancellation-banner {
+    dock: top;
+    height: 2;
+    background: $error 30%;
+    color: $error;
+    text-align: center;
+    text-style: bold;
+    padding: 0 1;
+    display: none;
+}
+
+.cancellation-banner.visible {
+    display: block;
+}
+
+#agents_container {
+    layout: vertical;
+    width: 1fr;
+    height: 100%;
+}
+
+#subagent_side_panel {
+    width: 45%;
+    min-width: 40;
+    height: 100%;
+    border-left: solid $surface-lighten-1;
+    background: $background;
+}
+
+#subagent_side_panel.hidden {
+    display: none;
+}
+
+/* === Swimlane Mode === */
+/* When .swimlane is added to #agents_container, show agents side-by-side */
+#agents_container.swimlane {
+    layout: horizontal;
+    overflow-x: auto;
+}
+
+#agents_container.swimlane AgentPanel {
+    width: 1fr;
+    min-width: 40;
+    max-width: 100;
+    height: 100%;
+    border-right: solid $surface-lighten-1;
+    display: block;
+}
+
+#agents_container.swimlane AgentPanel:last-of-type {
+    border-right: none;
+}
+
+/* In swimlane mode, show all agents (remove hidden) */
+#agents_container.swimlane AgentPanel.hidden {
+    display: block;
+}
+
+/* Swimlane agent header - more compact */
+#agents_container.swimlane AgentPanel > Vertical > Label:first-of-type {
+    height: 2;
+    padding: 0 1;
+    background: $surface;
+    border-bottom: solid $surface-lighten-1;
+}
+
+/* === Agent Tab Bar === */
+/* NOTE: No dock: top - flows naturally below HeaderWidget */
+/* Phase 9: Removed border-bottom for edge-to-edge layout */
+AgentTabBar {
+    height: 3;
+    width: 100%;
+    layout: horizontal;
+    background: transparent;
+    border-bottom: none;
+    padding: 0 1;
+}
+
+AgentTab {
+    width: auto;
+    height: 3;
+    padding: 0 2;
+    margin: 0;
+    content-align: center middle;
+    text-align: center;
+    background: transparent;
+    border: none;
+}
+
+AgentTab:hover {
+    background: $surface;
+    color: $text;
+}
+
+AgentTab:focus {
+    background: $surface;
+    color: $text;
+    /* Only bottom border to prevent clipping model name on 2-line tabs */
+    border-bottom: tall $primary;
+    outline: none;
+}
+
+AgentTab.active {
+    background: $panel;
+    color: $text;
+    border-bottom: tall $primary;
+}
+
+AgentTab.inactive {
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+AgentTab.inactive:hover {
+    color: $text;
+    background: $surface;
+}
+
+/* === Agent Color Palette - Each agent gets a unique accent underline === */
+/* Color 1: Blue (default) */
+AgentTab.agent-color-1.active { border-bottom: tall $primary; background: $primary 15%; }
+
+/* Color 2: Green */
+AgentTab.agent-color-2.active { border-bottom: tall $success; background: $success 15%; }
+
+/* Color 3: Purple */
+AgentTab.agent-color-3.active { border-bottom: tall $secondary; background: $secondary 15%; }
+
+/* Color 4: Orange */
+AgentTab.agent-color-4.active { border-bottom: tall $warning; background: $warning 15%; }
+
+/* Color 5: Cyan */
+AgentTab.agent-color-5.active { border-bottom: tall $secondary-lighten-2; background: $secondary-lighten-2 15%; }
+
+/* Color 6: Pink */
+AgentTab.agent-color-6.active { border-bottom: tall $error-lighten-2; background: $error-lighten-2 15%; }
+
+/* Color 7: Yellow */
+AgentTab.agent-color-7.active { border-bottom: tall $warning-lighten-1; background: $warning-lighten-1 15%; }
+
+/* Color 8: Red */
+AgentTab.agent-color-8.active { border-bottom: tall $error; background: $error 15%; }
+
+/* Tab status colors - underline indicators */
+AgentTab.status-waiting {
+    color: $text-muted;
+}
+
+AgentTab.status-working {
+    border-bottom: tall $primary;
+}
+
+AgentTab.status-streaming {
+    border-bottom: tall $success;
+}
+
+AgentTab.status-completed {
+    border-bottom: tall $success;
+}
+
+AgentTab.status-voted {
+    border-bottom: tall $success;
+}
+
+AgentTab.status-done {
+    border-bottom: tall $primary-lighten-1;
+    color: $text-muted;
+}
+
+AgentTab.status-cancelled {
+    border-bottom: tall $warning;
+    color: $warning;
+}
+
+AgentTab.status-error {
+    border-bottom: tall $error;
+}
+
+/* Active tab with status - subtle background tint */
+AgentTab.active.status-working {
+    background: $surface;
+    border-bottom: tall $primary;
+}
+
+AgentTab.active.status-streaming {
+    background: $success 15%;
+    border-bottom: tall $success;
+}
+
+AgentTab.active.status-completed {
+    background: $success 15%;
+    border-bottom: tall $success;
+}
+
+AgentTab.active.status-voted {
+    background: $success 15%;
+    border-bottom: tall $success;
+}
+
+AgentTab.active.status-done {
+    background: $surface;
+    border-bottom: tall $primary-lighten-1;
+    color: $text-muted;
+}
+
+AgentTab.active.status-cancelled {
+    background: $warning-lighten-1 15%;
+    border-bottom: tall $warning;
+}
+
+AgentTab.active.status-error {
+    background: $error 15%;
+    border-bottom: tall $error;
+}
+
+/* Winner tab styling */
+AgentTab.status-winner {
+    background: $success 30%;
+    color: $success;
+    text-style: bold;
+    border-bottom: tall $success;
+}
+
+AgentTab.status-winner.active {
+    background: $success 50%;
+    border-bottom: tall $success;
+}
+
+/* Dimmed tabs (non-winner during final presentation) */
+AgentTab.dimmed {
+    opacity: 0.6;
+}
+
+/* Disabled tabs (single-agent mode - unselected agents) */
+AgentTab.disabled {
+    background: transparent;
+    color: $primary-lighten-1;
+    text-style: italic;
+    opacity: 0.7;
+}
+
+AgentTab.disabled:hover {
+    background: $surface;
+    color: $text-muted;
+    /* Clicking disabled tab selects it as new single agent */
+}
+
+/* === Session Info (in tab bar) === */
+#session_info {
+    width: 1fr;
+    height: 100%;
+    content-align: right middle;
+    text-align: right;
+    padding-right: 1;
+}
+
+#session_info:hover {
+    background: $surface;
+}
+
+#session_info:focus {
+    background: $surface;
+    border: solid $primary;
+    outline: none;
+}
+
+/* === Agent Status Ribbon === */
+AgentStatusRibbon {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    background: transparent;
+    border-top: solid $surface-lighten-1;
+    padding: 0 1;
+}
+
+AgentStatusRibbon .ribbon-container {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
+}
+
+AgentStatusRibbon .ribbon-section {
+    width: auto;
+    height: auto;
+    padding: 0 1;
+}
+
+AgentStatusRibbon .ribbon-divider {
+    width: auto;
+    height: auto;
+    color: $text-muted;
+}
+
+AgentStatusRibbon #round_nav_label {
+    color: $text;
+}
+
+AgentStatusRibbon #round_nav_label:hover {
+    color: $primary;
+}
+
+AgentStatusRibbon #tasks_display {
+    color: $text-muted;
+}
+
+AgentStatusRibbon #tasks_display:hover {
+    color: $primary;
+    text-style: underline;
+}
+
+AgentStatusRibbon #tasks_display.has-tasks {
+    color: $secondary;
+}
+
+AgentStatusRibbon #timeout_display.warning {
+    color: $warning;
+}
+
+AgentStatusRibbon #timeout_display.critical {
+    color: $error;
+}
+
+AgentStatusRibbon #token_count {
+    color: $text-muted;
+}
+
+AgentStatusRibbon #cost_display {
+    color: $text-muted;
+}
+
+/* === Phase Indicator Bar === */
+PhaseIndicatorBar {
+    width: 100%;
+    height: 1;
+    background: $surface;
+    border-bottom: solid $surface-lighten-1;
+    padding: 0 2;
+    content-align: center middle;
+}
+
+PhaseIndicatorBar.hidden {
+    display: none;
+}
+
+PhaseIndicatorBar #phase_content {
+    width: 100%;
+    height: 1;
+    text-align: center;
+}
+
+/* === Session Info Panel === */
+SessionInfoPanel {
+    width: 100%;
+    height: 1;
+    background: $surface;
+    border: solid $surface-lighten-1;
+    border-title-color: $text-muted;
+    padding: 0 1;
+    content-align: center middle;
+}
+
+SessionInfoPanel.hidden {
+    display: none;
+}
+
+SessionInfoPanel #session_content {
+    width: 100%;
+    height: 1;
+    text-align: center;
+}
+
+/* === Mode Bar (now inside input_header on the left) === */
+/* Override ModeBar widget's DEFAULT_CSS - keep width: auto so buttons fit content */
+ModeBar {
+    height: 2;
+    width: auto;
+    layout: horizontal;
+    background: $background;
+    padding: 0;
+    margin-left: 1;  /* Align with input box left edge */
+    align: left middle;
+    border: none;
+    border-bottom: none;
+}
+
+#mode_bar {
+    height: 2;
+    width: auto;
+    layout: horizontal;
+    background: $background;
+    padding: 0;
+    align: left middle;
+    border: none;
+    border-bottom: none;
+}
+
+#mode_bar.hidden {
+    display: none;
+}
+
+/* Mode Toggle buttons - underline style */
+ModeToggle {
+    width: auto;
+    height: 2;
+    margin: 0 1 0 0;
+    padding: 0 1;
+    background: transparent;
+    color: $text;
+    border: none;
+    border-bottom: tall $surface-lighten-2;
+    outline: none;
+}
+
+ModeToggle:hover {
+    background: transparent;
+    color: $text;
+    border-bottom: tall $primary-lighten-1;
+}
+
+ModeToggle:focus {
+    background: transparent;
+    color: $text;
+    border-bottom: tall $primary-lighten-1;
+    outline: none;
+}
+
+ModeToggle.disabled {
+    background: transparent;
+    color: $text-muted;
+    border-bottom: tall $surface;
+    text-style: italic;
+}
+
+/* Plan mode states - green text + underline */
+ModeToggle.state-plan {
+    color: $success;
+    border-bottom: tall $success;
+}
+
+ModeToggle.state-plan:hover,
+ModeToggle.state-plan:focus {
+    color: $success;
+    border-bottom: tall $success;
+}
+
+ModeToggle.state-execute {
+    color: $success;
+    border-bottom: tall $success;
+    text-style: bold;
+}
+
+ModeToggle.state-execute:hover,
+ModeToggle.state-execute:focus {
+    color: $success;
+    border-bottom: tall $success;
+    text-style: bold;
+}
+
+/* Agent mode states - single is muted (reduced mode) */
+ModeToggle.state-single {
+    color: $text-muted;
+    border-bottom: tall $surface-lighten-2;
+}
+
+/* Multi-agent (default) - normal text */
+ModeToggle.state-multi {
+    color: $text;
+    border-bottom: tall $surface-lighten-2;
+}
+
+/* Refinement on - default state, not highlighted */
+ModeToggle.state-on {
+    color: $text;
+    border-bottom: tall $surface-lighten-2;
+}
+
+/* Refinement off - muted gray (reduced mode) */
+ModeToggle.state-off {
+    color: $text-muted;
+    border-bottom: tall $surface-lighten-2;
+}
+
+/* Normal (inactive plan) - visible but subdued */
+ModeToggle.state-normal {
+    color: $text;
+    border-bottom: tall $surface-lighten-2;
+}
+
+/* Override button in mode bar */
+#override_btn {
+    background: $warning;
+    color: $text;
+    margin-left: 1;
+}
+
+#override_btn:hover {
+    background: $warning-darken-1;
+}
+
+#override_btn.hidden {
+    display: none;
+}
+
+/* Plan info display */
+#plan_info {
+    color: $success;
+    margin-left: 1;
+}
+
+#mode_info {
+    color: $text-muted;
+    margin-left: 2;
+}
+
+/* Mode spacer (pushes override button right) */
+#mode_spacer {
+    width: 1fr;
+}
+
+/* Consensus reached animation on StatusBar */
+StatusBar.consensus-reached {
+    background: $secondary 20%;
+    border-top: solid $secondary;
+}
+
+/* Orchestrator events modal */
+#orchestrator_modal_container {
+    background: $surface;
+    border: solid $surface-lighten-1;
+    padding: 2;
+    width: 80%;
+    height: 80%;
+}
+
+#orchestrator_modal_header {
+    color: $text;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#orchestrator_hint {
+    color: $text-muted;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+#orchestrator_events_content {
+    background: $background;
+    color: $text;
+}
+
+/* Agent panels - now full width, one at a time */
+/* Phase 9: Edge-to-edge layout - removed borders from base panel */
+AgentPanel {
+    background: $surface;
+    border: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;  /* Disable scrolling on AgentPanel - scrolling happens in TimelineSection */
+}
+
+/* Vertical container inside AgentPanel - full width, full height */
+AgentPanel > Vertical {
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;  /* Scrolling happens in TimelineSection, not here */
+}
+
+/* Agent panel header label - first line with agent name, backend, timer */
+AgentPanel > Vertical > Label:first-of-type {
+    padding-left: 2;
+}
+
+AgentPanel.hidden {
+    display: none;
+}
+
+AgentPanel:hover {
+    /* Phase 9: Keep hover subtle - only left accent border */
+    border-left: solid $primary-lighten-1;
+}
+
+/* Override Textual's default purple focus outline */
+AgentPanel:focus,
+AgentPanel:focus-within {
+    /* Phase 9: Keep focus subtle - only left accent border */
+    border-left: solid $primary;
+    background: $surface;
+    outline: none;
+}
+
+AgentPanel.status-waiting {
+    /* Phase 9: Only left border for status variants */
+    border-left: solid $surface-lighten-1;
+}
+
+AgentPanel.status-working {
+    border-left: thick $primary;
+    border-right: none;
+    background: $surface;
+}
+
+AgentPanel.status-streaming {
+    border-left: thick $success;
+    border-right: none;
+    background: $background;
+}
+
+AgentPanel.status-completed {
+    border-left: thick $success;
+    border-right: none;
+}
+
+AgentPanel.status-error {
+    border-left: thick $error;
+    border-right: none;
+    background: $error 30%;
+}
+
+/* Dimmed panel (non-winner during final presentation) */
+AgentPanel.dimmed-panel {
+    opacity: 0.6;
+}
+
+/* === Agent Panel Color Palette - Match tab colors === */
+AgentPanel.agent-color-1 { border-left: thick $primary; border-right: none; }
+AgentPanel.agent-color-2 { border-left: thick $success; border-right: none; }
+AgentPanel.agent-color-3 { border-left: thick $secondary; border-right: none; }
+AgentPanel.agent-color-4 { border-left: thick $warning; border-right: none; }
+AgentPanel.agent-color-5 { border-left: thick $secondary; border-right: none; }
+AgentPanel.agent-color-6 { border-left: thick $error-lighten-2; border-right: none; }
+AgentPanel.agent-color-7 { border-left: thick $warning; border-right: none; }
+AgentPanel.agent-color-8 { border-left: thick $error; border-right: none; }
+
+/* === Agent Panel Pulsing Animation === */
+/* DISABLED: Was too distracting. Kept for reference. */
+/* AgentPanel.pulse-bright { border-left: thick #79c0ff; background: #0d1a26; }
+AgentPanel.pulse-normal { border-left: thick $primary; }
+AgentPanel.agent-color-1.pulse-bright { border-left: thick #79c0ff; background: #0d1a26; }
+AgentPanel.agent-color-2.pulse-bright { border-left: thick #56d364; background: #0d1f14; }
+AgentPanel.agent-color-3.pulse-bright { border-left: thick #bc8cff; background: #1a0d26; }
+AgentPanel.agent-color-4.pulse-bright { border-left: thick #ffa657; background: #261a0d; }
+AgentPanel.agent-color-5.pulse-bright { border-left: thick #56d7e5; background: #0d1f1f; }
+AgentPanel.agent-color-6.pulse-bright { border-left: thick #f778ba; background: #260d1a; }
+AgentPanel.agent-color-7.pulse-bright { border-left: thick #e3b341; background: #262010; }
+AgentPanel.agent-color-8.pulse-bright { border-left: thick #ff7b72; background: #26100d; } */
+
+/* Agent header row - horizontal layout for left/right content */
+.agent-header-row {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+.agent-header-left {
+    width: 1fr;
+    height: auto;
+}
+
+.agent-header-right {
+    width: auto;
+    height: auto;
+    text-align: right;
+    color: $secondary;
+}
+
+/* Header badges - clickable indicators for bg tasks and task plan */
+.agent-header-badge {
+    width: auto;
+    height: auto;
+    padding: 0 1;
+    margin-left: 1;
+    border: solid $surface-lighten-1;
+    background: $surface;
+}
+
+.agent-header-badge:hover {
+    background: $panel;
+    border: solid $surface-lighten-2;
+}
+
+.agent-header-badge.hidden {
+    display: none;
+}
+
+/* Background tasks badge - amber/orange theme */
+.header-badge-bg {
+    color: $warning;
+    border: solid $warning 30%;
+}
+
+.header-badge-bg:hover {
+    border: solid $warning;
+    background: $warning 30%;
+}
+
+/* Task plan badge - purple theme */
+.header-badge-tasks {
+    color: $secondary;
+    border: solid $secondary 30%;
+}
+
+.header-badge-tasks:hover {
+    border: solid $secondary;
+    background: $secondary 30%;
+}
+
+/* Loading indicator - centered in panel */
+.loading-container {
+    width: 100%;
+    height: 100%;
+    min-height: 5;
+    align: center middle;
+    content-align: center middle;
+    background: $background;
+}
+
+.loading-container.hidden {
+    display: none;
+}
+
+.loading-container ProgressIndicator {
+    text-align: center;
+    color: $primary;
+    text-style: bold;
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+}
+
+.loading-text {
+    text-align: center;
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* "Not in use" overlay for single-agent mode */
+.not-in-use-overlay {
+    width: 100%;
+    height: 100%;
+    min-height: 5;
+    align: center middle;
+    content-align: center middle;
+    background: $background 85%;
+    layer: overlay;
+}
+
+.not-in-use-overlay.hidden {
+    display: none;
+}
+
+.not-in-use-label {
+    text-align: center;
+    color: $text-muted;
+    text-style: bold;
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+}
+
+.not-in-use-sublabel {
+    text-align: center;
+    color: $primary-lighten-1;
+    text-style: italic;
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+}
+
+/* Context label - shows which answers an agent has in context */
+.context-label {
+    height: 1;
+    width: 100%;
+    padding: 0 1 0 3;
+    background: $surface;
+    color: $text;
+    text-style: italic;
+}
+
+.context-label.hidden {
+    display: none;
+}
+
+/* Task Plan Toggle - Shows task plan status in agent header */
+.task-plan-toggle {
+    height: 1;
+    width: 100%;
+    padding: 0 1 0 3;
+    background: $panel;
+    color: $secondary;
+    text-style: bold;
+}
+
+.task-plan-toggle:hover {
+    background: $surface-lighten-1;
+    color: $text;
+}
+
+.task-plan-toggle.hidden {
+    display: none;
+}
+
+/* Compact Header - Shows question and turn info */
+/* Phase 9: Removed border-bottom for edge-to-edge layout */
+HeaderWidget {
+    dock: top;
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    background: $background;
+    color: $text-muted;
+    border-bottom: none;
+}
+
+HeaderWidget.hidden {
+    display: none;
+}
+
+/* Input area container - docks to bottom, transparent for clean look */
+#input_area {
+    dock: bottom;
+    height: auto;
+    min-height: 4;
+    width: 100%;
+    padding: 0 1;
+    background: $background;
+}
+
+/* Execution bar - hidden (keeping input area consistent in all states) */
+#execution_bar {
+    display: none;
+}
+
+#execution_status {
+    height: 1;
+    width: auto;
+    padding: 0 2;
+    color: $text-muted;
+    content-align: left middle;
+    background: $panel;
+    margin-left: 1;
+}
+
+#execution_spacer {
+    width: 1fr;
+}
+
+#cancel_button {
+    width: auto;
+    min-width: 10;
+    height: 1;
+    background: $error;
+    color: white;
+    border: none;
+    padding: 0 2;
+    text-style: bold;
+}
+
+#cancel_button:hover {
+    background: $error-lighten-1;
+    color: white;
+}
+
+#cancel_button:focus {
+    background: $error-lighten-1;
+    border: none;
+}
+
+/* === Path Autocomplete Dropdown === */
+#path_dropdown {
+    display: none;
+    layer: overlay;
+    dock: bottom;
+    width: 100%;
+    height: auto;
+    max-height: 12;
+    background: $panel;
+    border: solid $primary;
+    padding: 0;
+    margin-bottom: 7;
+    layout: vertical;
+}
+
+#path_dropdown.visible {
+    display: block;
+}
+
+#path_dropdown > #suggestions_container {
+    height: auto;
+    max-height: 8;
+    overflow-y: auto;
+}
+
+#path_dropdown > .hint-bar {
+    dock: bottom;
+    height: 2;
+    width: 100%;
+    background: $surface-lighten-1;
+    color: $text;
+    text-align: center;
+    padding: 0 1;
+    border-top: solid $primary;
+}
+
+/* Path suggestion rows */
+SuggestionRow {
+    height: 1;
+    padding: 0 1;
+    background: transparent;
+}
+
+SuggestionRow:hover {
+    background: $surface-lighten-1;
+}
+
+SuggestionRow.selected {
+    background: $primary;
+    color: $background;
+}
+
+/* Question input - multi-line TextArea with rounded card style */
+#question_input {
+    background: transparent;
+    border: round $surface-lighten-2;
+    height: auto;
+    min-height: 1;
+    max-height: 10;
+    margin: 0 1;
+    margin-top: 0;
+    padding: 0 1;
+}
+
+#question_input:focus {
+    /* Subtle border on focus - main blue line is at top of input_header */
+    border: round $primary-lighten-1;
+    background: transparent;
+}
+
+/* Hide line numbers in the question input */
+#question_input .text-area--line-number-gutter {
+    display: none;
+}
+
+/* Input header - contains modes (left) and hint (right) on same line */
+#input_header {
+    layout: horizontal;
+    height: auto;
+    width: 100%;
+    margin: 0;
+    align: left middle;
+    /* Full-width subtle separator line above mode buttons */
+    border-top: solid $surface-lighten-2;
+    padding: 0;
+    background: $background;
+}
+
+/* Input hint text - docked to right side */
+#input_hint {
+    dock: right;
+    height: 1;
+    width: auto;
+    color: $primary-lighten-1;  /* Darker than $text-muted for shadow effect */
+    text-style: italic;
+    padding: 0 1;
+    background: $background;
+}
+
+/* Vim mode indicator - hidden by default */
+#vim_indicator {
+    display: none;
+    height: 1;
+    width: auto;
+    min-width: 10;
+}
+
+/* Vim mode indicator - shown when active (use !important to override display: none) */
+#input_header #vim_indicator.vim-normal-indicator {
+    display: block !important;
+    height: 1;
+    width: 10;
+    padding: 0 1;
+    text-style: bold;
+    content-align: center middle;
+    background: $warning;
+    color: $background;
+}
+
+#input_header #vim_indicator.vim-insert-indicator {
+    display: block !important;
+    height: 1;
+    width: 10;
+    padding: 0 1;
+    text-style: bold;
+    content-align: center middle;
+    background: $primary;
+    color: white;
+}
+
+/* Vim normal mode - input border */
+#question_input.vim-normal {
+    border: solid $warning;
+}
+
+#question_input.vim-normal:focus {
+    border: solid $warning;
+}
+
+/* === Queued Input Banner === */
+/* Shows above input bar when input is queued for injection during execution */
+#queued_input_banner {
+    height: auto;
+    max-height: 5;
+    background: $panel;
+    border: solid $surface-lighten-1;
+    border-left: thick $primary;
+    padding: 0 1;
+    margin-left: 1;
+    margin-bottom: 0;
+    display: none;
+}
+
+#queued_input_banner.visible {
+    display: block;
+}
+
+QueuedInputBanner {
+    height: auto;
+    max-height: 5;
+    background: $panel;
+    border: solid $surface-lighten-1;
+    border-left: thick $primary;
+    padding: 0 1;
+    margin-left: 1;
+    margin-bottom: 0;
+    display: none;
+}
+
+QueuedInputBanner.visible {
+    display: block;
+}
+
+#restart_banner {
+    background: $panel;
+    color: $warning;
+    padding: 1;
+    margin-top: 1;
+    border: solid $primary-lighten-1;
+}
+
+#restart_context {
+    background: $surface;
+    color: $text;
+    padding: 1;
+    border: solid $surface-lighten-1;
+}
+
+Label {
+    height: auto;
+    width: 100%;
+}
+
+RichLog {
+    background: $background;
+    color: $text;
+    scrollbar-size: 2 2;
+}
+
+/* Status colors */
+.waiting {
+    color: $text-muted;
+}
+
+.working {
+    color: $primary;
+}
+
+.streaming {
+    color: $success;
+}
+
+.completed {
+    color: $success;
+}
+
+.error {
+    color: $error;
+}
+
+/* Content type colors */
+.tool {
+    color: $primary;
+}
+
+.status {
+    color: $warning;
+}
+
+.thinking {
+    color: $text;
+}
+
+.injection {
+    color: $secondary;
+    background: $secondary 15%;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+.reminder {
+    color: $warning;
+    background: $warning 15%;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+.presentation {
+    color: $secondary;
+}
+
+/* Streaming label */
+.streaming_label {
+    color: $success;
+    text-style: italic bold;
+    height: 1;
+    width: 100%;
+    background: $success 15%;
+    border-left: tall $success;
+    padding-left: 1;
+}
+
+/* Post-evaluation panel */
+#post_eval_container {
+    background: $background 90%;
+    border: solid $surface-lighten-1;
+    margin: 0 1 1 1;
+    padding: 1;
+    width: 100%;
+}
+
+#post_eval_label {
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+/* Final stream panel - layout: fixed header, scrollable content, fixed footer */
+#final_stream_container {
+    background: $secondary 20%;
+    border: solid $secondary;
+    margin: 0 1 1 1;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    layout: vertical;
+}
+
+#final_stream_container.streaming-active {
+    border: double $secondary;
+}
+
+/* Fixed header section */
+#final_stream_header {
+    height: auto;
+    padding: 1;
+    background: $secondary 20%;
+    border-bottom: solid $secondary 50%;
+}
+
+#final_stream_label {
+    color: $secondary;
+    text-style: bold;
+}
+
+/* Scrollable content area - takes remaining space */
+#final_stream_content {
+    height: 1fr;
+    padding: 1;
+    background: $panel;
+}
+
+#final_stream_log {
+    background: $panel;
+    color: $text;
+    height: auto;
+}
+
+#final_stream_log,
+#post_eval_log {
+    scrollbar-size: 2 2;
+}
+
+/* Fixed footer section */
+#final_stream_footer {
+    height: auto;
+    padding: 1;
+    background: $panel;
+    border-top: solid $surface-lighten-1;
+}
+
+#final_stream_footer.hidden {
+    display: none;
+}
+
+#final_stream_buttons {
+    height: auto;
+    margin-bottom: 1;
+}
+
+/* Modals */
+ModalScreen {
+    align: center middle;
+}
+
+/* === Tool Detail Modal === */
+ToolDetailModal {
+    align: center middle;
+}
+
+ToolDetailModal > Container {
+    width: 80%;
+    max-width: 120;
+    height: auto;
+    max-height: 80%;
+    background: $surface;
+    border: double $primary;
+    border-left: thick $primary;
+    padding: 1 2;
+}
+
+ToolDetailModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    layout: horizontal;
+    align: left middle;
+}
+
+ToolDetailModal .modal-title {
+    width: 1fr;
+    height: auto;
+    text-style: bold;
+    color: $text;
+}
+
+ToolDetailModal .modal-close {
+    width: 3;
+    height: 1;
+    content-align: center middle;
+    text-align: center;
+    background: $panel;
+    border: solid $surface-lighten-1;
+}
+
+ToolDetailModal .modal-close:hover {
+    background: $error;
+    border: solid $error;
+}
+
+ToolDetailModal .modal-divider {
+    height: 1;
+    width: 100%;
+    color: $surface-lighten-1;
+}
+
+ToolDetailModal .modal-section-title {
+    height: 1;
+    margin-top: 1;
+    text-style: bold;
+    color: $primary;
+}
+
+ToolDetailModal .modal-body {
+    height: 1fr;
+    max-height: 40;
+    overflow-y: auto;
+    padding: 0;
+}
+
+ToolDetailModal .modal-content {
+    height: auto;
+    padding: 0 1;
+    margin-top: 1;
+    background: $panel;
+    border: solid $surface-lighten-1;
+}
+
+ToolDetailModal .args-content {
+    color: $text-muted;
+    padding: 1;
+}
+
+ToolDetailModal .result-content {
+    color: $text;
+    padding: 1;
+}
+
+ToolDetailModal .error-content {
+    color: $error;
+    padding: 1;
+}
+
+ToolDetailModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+}
+
+ToolDetailModal .close-button {
+    width: auto;
+    min-width: 18;
+    content-align: center middle;
+    text-align: center;
+}
+
+/* TaskPlanModal - Full task list modal */
+TaskPlanModal {
+    align: center middle;
+}
+
+TaskPlanModal > Container {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    background: $surface;
+    border: double $secondary;
+    border-left: thick $secondary;
+    padding: 1 2;
+}
+
+TaskPlanModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    layout: horizontal;
+}
+
+TaskPlanModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $secondary;
+}
+
+TaskPlanModal .modal-stats {
+    width: auto;
+    color: $text-muted;
+    padding-right: 2;
+}
+
+TaskPlanModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+TaskPlanModal .modal-close:hover {
+    color: $error;
+}
+
+TaskPlanModal .modal-divider {
+    height: 1;
+    width: 100%;
+    color: $secondary;
+}
+
+TaskPlanModal .modal-body {
+    height: 1fr;
+    max-height: 50;
+    overflow-y: auto;
+    padding: 1 0;
+}
+
+TaskPlanModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+}
+
+TaskPlanModal .close-button {
+    width: auto;
+    min-width: 18;
+    content-align: center middle;
+    text-align: center;
+}
+
+#presentation_container {
+    background: $background 90%;
+    border: thick $primary;
+    padding: 2;
+    width: 80%;
+    height: 80%;
+}
+
+#selector_container {
+    background: $background 90%;
+    border: thick $surface-lighten-1;
+    padding: 2;
+    width: 60%;
+    max-height: 80%;
+}
+
+#table_container {
+    background: $background 90%;
+    border: thick $surface-lighten-1;
+    padding: 2;
+    width: 90%;
+    height: 90%;
+}
+
+#vote_results_container {
+    background: $background 90%;
+    border: thick $primary;
+    padding: 2;
+    width: 70%;
+    height: 70%;
+}
+
+#vote_header {
+    color: white;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#vote_results,
+#vote_results_content,
+#table_content {
+    background: $panel;
+    color: $text;
+    padding: 1;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+#system_status_container {
+    background: $background 90%;
+    border: thick $surface-lighten-1;
+    padding: 2;
+    width: 80%;
+    height: 80%;
+}
+
+#text_content_container {
+    background: $background 90%;
+    border: thick $surface-lighten-1;
+    padding: 2;
+    width: 80%;
+    height: 80%;
+}
+
+#system_status_header,
+#text_content_header {
+    color: white;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#system_status_content,
+#text_content_body {
+    background: $panel;
+    color: $text;
+}
+
+/* Cost Breakdown Modal */
+#cost_breakdown_container {
+    background: $background 90%;
+    border: thick $secondary;
+    padding: 2;
+    width: 90%;
+    height: 70%;
+}
+
+#cost_header {
+    color: $secondary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#cost_content {
+    background: $panel;
+    color: $text;
+}
+
+/* Workspace Files Modal */
+#workspace_container {
+    background: $background 90%;
+    border: thick $primary;
+    padding: 2;
+    width: 80%;
+    height: 70%;
+}
+
+#workspace_header {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#workspace_content {
+    background: $panel;
+    color: $text;
+    height: 1fr;
+}
+
+#workspace_buttons {
+    margin-top: 1;
+}
+
+#workspace_buttons Button {
+    margin-right: 1;
+}
+
+/* Context Modal */
+#context_container {
+    background: $background 90%;
+    border: thick $warning;
+    padding: 2;
+    width: 80%;
+    height: auto;
+    max-height: 80%;
+}
+
+#context_header {
+    color: $warning;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#context_hint {
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+#context_current_paths {
+    background: $panel;
+    color: $text;
+    height: auto;
+    max-height: 10;
+    margin-bottom: 1;
+}
+
+#add_path_label {
+    color: white;
+    margin-top: 1;
+}
+
+#new_path_input {
+    margin-bottom: 1;
+}
+
+#context_buttons {
+    margin-top: 1;
+}
+
+#context_buttons Button {
+    margin-right: 1;
+}
+
+/* Conversation History Modal */
+#history_container {
+    background: $background 90%;
+    border: thick $secondary;
+    padding: 2;
+    width: 85%;
+    height: 80%;
+}
+
+#history_header {
+    color: $secondary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#current_prompt {
+    color: $secondary;
+    background: $panel;
+    padding: 1;
+    margin-bottom: 1;
+    border: solid $secondary;
+}
+
+#history_scroll {
+    height: 1fr;
+    background: $panel;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+.history-turn {
+    padding: 1;
+    margin-bottom: 1;
+    background: $surface;
+    border-left: thick $primary;
+}
+
+/* Clickable turn entry styling */
+.turn-entry {
+    padding: 1;
+    margin-bottom: 1;
+    background: $surface;
+}
+
+.turn-entry:hover {
+    background: $surface-lighten-1;
+}
+
+/* Turn entry agent color borders */
+.turn-entry.agent-color-1 { border-left: thick $primary; }
+.turn-entry.agent-color-2 { border-left: thick $success; }
+.turn-entry.agent-color-3 { border-left: thick $secondary; }
+.turn-entry.agent-color-4 { border-left: thick $warning; }
+.turn-entry.agent-color-5 { border-left: thick $secondary; }
+.turn-entry.agent-color-6 { border-left: thick $error-lighten-2; }
+.turn-entry.agent-color-7 { border-left: thick $warning; }
+.turn-entry.agent-color-8 { border-left: thick $error; }
+
+#no_history {
+    color: $text-muted;
+    text-align: center;
+    margin-top: 2;
+}
+
+#close_history_button {
+    margin-top: 1;
+}
+
+/* Turn Detail Modal */
+#turn_detail_container {
+    background: $background 90%;
+    border: thick $secondary;
+    padding: 2;
+    width: 85%;
+    height: 80%;
+}
+
+/* Turn detail with agent color borders */
+#turn_detail_container.agent-color-1 { border-left: thick $primary; }
+#turn_detail_container.agent-color-2 { border-left: thick $success; }
+#turn_detail_container.agent-color-3 { border-left: thick $secondary; }
+#turn_detail_container.agent-color-4 { border-left: thick $warning; }
+#turn_detail_container.agent-color-5 { border-left: thick $secondary; }
+#turn_detail_container.agent-color-6 { border-left: thick $error-lighten-2; }
+#turn_detail_container.agent-color-7 { border-left: thick $warning; }
+#turn_detail_container.agent-color-8 { border-left: thick $error; }
+
+#turn_detail_header {
+    color: $secondary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#turn_detail_agent {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#turn_detail_question {
+    background: $panel;
+    padding: 1;
+    margin-bottom: 1;
+    border: solid $surface-lighten-1;
+}
+
+#turn_detail_answer_scroll {
+    height: 1fr;
+    background: $panel;
+    padding: 1;
+    margin-bottom: 1;
+    border: solid $surface-lighten-1;
+}
+
+#turn_detail_answer {
+    color: $text;
+}
+
+#turn_detail_footer {
+    height: auto;
+    margin-top: 1;
+}
+
+#turn_detail_footer Button {
+    margin-right: 1;
+}
+
+/* Workspace Browser Footer */
+#workspace_browser_footer {
+    height: auto;
+    margin-top: 1;
+}
+
+#workspace_browser_footer Button {
+    margin-right: 1;
+}
+
+/* Metrics Modal */
+#metrics_container {
+    background: $background 90%;
+    border: thick $error-lighten-2;
+    padding: 2;
+    width: 90%;
+    height: 70%;
+}
+
+#metrics_header {
+    color: $error-lighten-2;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#metrics_content {
+    background: $panel;
+    color: $text;
+}
+
+/* Broadcast Prompt Modal */
+#broadcast_container {
+    background: $background 90%;
+    border: thick $error;
+    padding: 2 3;
+    width: 90%;
+    max-width: 120;
+    height: auto;
+    max-height: 85%;
+}
+
+#broadcast_banner {
+    color: white;
+    background: $error;
+    text-style: bold;
+    text-align: center;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+#broadcast_sender {
+    color: $secondary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#broadcast_question_label {
+    color: white;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+#broadcast_question {
+    background: $panel;
+    color: $text;
+    height: auto;
+    min-height: 5;
+    max-height: 15;
+    margin-bottom: 1;
+    padding: 1;
+    border: solid $surface-lighten-1;
+}
+
+#broadcast_timeout {
+    color: $warning;
+    margin-bottom: 1;
+}
+
+#response_label {
+    color: white;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+#broadcast_input {
+    height: 3;
+    margin-bottom: 1;
+    background: $panel;
+    border: solid $primary;
+}
+
+#broadcast_buttons {
+    margin-top: 1;
+    height: 3;
+    min-height: 3;
+}
+
+#broadcast_buttons Button {
+    margin-right: 2;
+    min-width: 10;
+}
+
+#submit_broadcast_button {
+    background: $secondary;
+}
+
+#skip_broadcast_button {
+    background: $secondary;
+}
+
+/* Structured Broadcast Prompt Modal */
+#structured_broadcast_container {
+    background: $background 90%;
+    border: thick $error;
+    padding: 2 3;
+    width: 90%;
+    max-width: 120;
+    height: auto;
+    max-height: 85%;
+}
+
+#structured_broadcast_container #broadcast_banner {
+    color: white;
+    background: $error;
+    text-style: bold;
+    text-align: center;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+#structured_broadcast_container #broadcast_sender {
+    color: $secondary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#structured_broadcast_container #broadcast_timeout {
+    color: $warning;
+    margin-bottom: 1;
+}
+
+#question_progress {
+    color: $primary;
+    text-style: bold;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#question_container {
+    background: $panel;
+    border: solid $surface-lighten-1;
+    padding: 2;
+    margin-bottom: 1;
+    min-height: 10;
+    max-height: 50;
+}
+
+.question_text {
+    color: white;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.options_hint {
+    color: $text-muted;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+#options_scroll {
+    max-height: 20;
+    margin-bottom: 1;
+}
+
+/* Checkbox styling - make checked state more prominent */
+#structured_broadcast_container Checkbox {
+    margin-bottom: 1;
+    padding: 0 1;
+    height: auto;
+}
+
+#structured_broadcast_container Checkbox:focus {
+    background: $panel;
+}
+
+/* Checked checkbox - bright green background, bold text */
+#structured_broadcast_container Checkbox.-on {
+    background: $primary 20%;
+    color: white;
+    text-style: bold;
+    border: solid $success;
+}
+
+#structured_broadcast_container Checkbox.-on:focus {
+    background: $primary-lighten-1;
+    border: solid $primary;
+}
+
+/* Unchecked checkbox - subtle styling */
+#structured_broadcast_container Checkbox.-off {
+    background: $panel;
+    color: $text-muted;
+    border: solid $surface-lighten-1;
+}
+
+#structured_broadcast_container Checkbox.-off:hover {
+    background: $surface-lighten-1;
+    color: $text;
+    border: solid $primary-lighten-1;
+}
+
+#structured_broadcast_container RadioSet {
+    margin-bottom: 1;
+}
+
+#structured_broadcast_container RadioButton {
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+/* Selected radio button - bright green background */
+#structured_broadcast_container RadioButton.-on {
+    background: $primary 20%;
+    color: white;
+    text-style: bold;
+    border: solid $success;
+}
+
+#structured_broadcast_container RadioButton.-off {
+    background: $panel;
+    color: $text-muted;
+    border: solid $surface-lighten-1;
+}
+
+#structured_broadcast_container RadioButton.-off:hover {
+    background: $surface-lighten-1;
+    color: $text;
+}
+
+.other_label {
+    color: $text-muted;
+    text-style: italic;
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
+#structured_broadcast_container Input {
+    height: 3;
+    margin-bottom: 1;
+    background: $background 90%;
+    border: solid $primary;
+}
+
+#prev_question_button {
+    background: $secondary;
+}
+
+#next_question_button {
+    background: $secondary;
+}
+
+/* File Inspection Modal */
+#file_inspection_container {
+    background: $background 90%;
+    border: thick $primary;
+    padding: 2;
+    width: 90%;
+    height: 80%;
+}
+
+#file_inspection_header {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#file_inspection_content {
+    height: 1fr;
+}
+
+#file_tree_panel {
+    width: 35%;
+    border-right: solid $surface-lighten-1;
+    padding-right: 1;
+}
+
+#tree_label {
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+#workspace_tree {
+    height: 1fr;
+    background: $panel;
+}
+
+#file_preview_panel {
+    width: 65%;
+    padding-left: 1;
+}
+
+#preview_label {
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+#file_preview {
+    background: $panel;
+    color: $text;
+    height: 1fr;
+}
+
+#file_inspection_buttons {
+    margin-top: 1;
+}
+
+#file_inspection_buttons Button {
+    margin-right: 1;
+}
+
+/* === Agent Output Modal === */
+#agent_output_container {
+    width: 95%;
+    height: 90%;
+    background: $surface;
+    border: solid $secondary;
+    padding: 1 2;
+    layout: vertical;
+}
+
+#agent_output_header {
+    color: $secondary;
+    text-style: bold;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#agent_output_prompt {
+    color: $primary;
+    height: auto;
+    margin-bottom: 1;
+    padding: 0 1;
+    background: $background;
+    border: solid $surface-lighten-1;
+}
+
+#agent_output_stats {
+    color: $text-muted;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#agent_output_text {
+    height: 1fr;
+    min-height: 10;
+    background: $background;
+    color: $text;
+    border: solid $surface-lighten-1;
+    padding: 1;
+}
+
+#agent_toggle_buttons {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#agent_toggle_buttons .agent-toggle-btn {
+    margin-right: 1;
+    min-width: 12;
+}
+
+#agent_toggle_buttons .agent-toggle-btn.selected {
+    background: $secondary;
+    color: $background;
+}
+
+#agent_output_buttons {
+    height: auto;
+    margin-top: 1;
+    align: left middle;
+}
+
+#agent_output_buttons Button {
+    margin-right: 1;
+}
+
+/* === Keyboard Shortcuts Modal === */
+#shortcuts_modal_container {
+    width: auto;
+    min-width: 80;
+    max-width: 150;
+    height: auto;
+    background: $background 90%;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#shortcuts_modal_header {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#shortcuts_hint {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#shortcuts_columns {
+    layout: horizontal;
+    height: auto;
+    width: 100%;
+}
+
+.shortcuts-column {
+    width: 1fr;
+    height: auto;
+    background: $panel;
+    padding: 1;
+    margin: 0 1 0 0;
+    border: solid $surface-lighten-1;
+}
+
+#shortcuts_col_right {
+    margin-right: 0;
+}
+
+#shortcuts_content {
+    height: auto;
+    background: $panel;
+    padding: 1;
+    border: solid $surface-lighten-1;
+}
+
+#shortcuts_text {
+    color: $text;
+}
+
+#table_hint {
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+/* Buttons */
+Button {
+    background: $panel;
+    color: $text;
+    margin-top: 1;
+    border: solid $surface-lighten-1;
+}
+
+Button:hover {
+    background: $surface-lighten-1;
+    border: solid $primary-lighten-1;
+}
+
+Button:focus {
+    text-style: bold;
+    border: solid $primary;
+    outline: none;
+}
+
+/* Generic focus ring for interactive elements */
+.focusable:focus {
+    border: solid $primary;
+}
+
+Button.-primary {
+    background: $primary;
+    border: solid $primary;
+}
+
+Button.-primary:hover {
+    background: $primary-lighten-1;
+    border: solid $primary-lighten-1;
+}
+
+/* Lists */
+ListView {
+    background: $background;
+    color: $text;
+    height: auto;
+    max-height: 20;
+    scrollbar-size: 2 2;
+}
+
+ListItem {
+    background: transparent;
+    padding: 0 1;
+}
+
+ListItem:hover {
+    background: $panel;
+}
+
+ListItem:focus {
+    background: $panel;
+    border: solid $primary;
+}
+
+/* TextArea */
+TextArea {
+    background: $background;
+    color: $text;
+}
+
+TextArea:focus {
+    border: solid $primary;
+}
+
+/* Scrollbars */
+Scrollbar {
+    background: $panel;
+}
+
+ScrollbarThumb {
+    background: $primary-lighten-1;
+}
+
+ScrollbarThumb:hover {
+    background: $surface-lighten-2;
+}
+
+/* Footer - hidden (using custom input area instead) */
+Footer {
+    display: none;
+}
+
+/* Safe mode indicator */
+#safe_indicator {
+    dock: bottom;
+    height: 1;
+    background: $surface;
+    color: $secondary;
+    padding: 0 1;
+}
+
+/* === Tool Call Cards === */
+ToolCallCard {
+    width: 100%;
+    height: auto;
+    min-height: 2;
+    max-height: 8;
+    padding: 0 1 0 2;
+    margin: 0 0 1 1;  /* Bottom margin only - prevents double spacing */
+    background: transparent;
+    border: none;
+    border-left: thick $surface-lighten-1;
+    transition: opacity 300ms out_expo;
+}
+
+/* Tool card appearance animation - smooth fade in effect */
+ToolCallCard.appearing {
+    opacity: 0.0;
+}
+
+ToolCallCard.appeared {
+    opacity: 1.0;
+}
+
+/* === General Animation Utility Classes === */
+/* Fade-in animation - apply .appearing then swap to .appeared
+ * Transition property animates the change over 150ms with ease-out curve */
+.appearing {
+    opacity: 0.0;
+}
+
+.appeared {
+    opacity: 1.0;
+}
+
+/* Smooth opacity transitions for timeline content */
+TimelineSection .timeline-text {
+    transition: opacity 300ms out_expo;
+}
+
+TimelineSection .timeline-text.appearing {
+    opacity: 0.0;
+}
+
+TimelineSection .timeline-text.appeared {
+    opacity: 1.0;
+}
+
+/* Pulsing indicator for active states */
+.pulsing {
+    opacity: 1.0;
+}
+
+.pulsing-dim {
+    opacity: 0.6;
+}
+
+/* Collapsed state - single line height */
+ToolCallCard.collapsed {
+    max-height: 1;
+    min-height: 1;
+}
+
+/* Expanded state */
+ToolCallCard.expanded {
+    max-height: 8;
+}
+
+/* ToolCallCard with injection content needs more height */
+ToolCallCard.has-injection {
+    max-height: 20;
+}
+
+ToolCallCard:hover {
+    background: transparent;
+    border-left: solid $primary-lighten-1;
+}
+
+ToolCallCard:focus {
+    background: transparent;
+    border-left: solid $primary;
+    outline: none;
+}
+
+ToolCallCard.status-running {
+    border-left: solid $primary;
+    background: transparent;
+}
+
+ToolCallCard.status-success {
+    border-left: solid $success;
+    background: transparent;
+}
+
+ToolCallCard.status-error {
+    border-left: solid $error;
+    background: $error 15%;
+}
+
+ToolCallCard.status-background {
+    border-left: solid $warning;
+    background: transparent;
+}
+
+/* Tool type category colors - refined palette */
+ToolCallCard.type-filesystem {
+    border-left: solid $success;
+}
+
+ToolCallCard.type-web {
+    border-left: solid $primary;
+}
+
+ToolCallCard.type-code {
+    border-left: solid $warning;
+}
+
+ToolCallCard.type-database {
+    border-left: solid $secondary;
+}
+
+ToolCallCard.type-git {
+    border-left: solid $warning;
+}
+
+ToolCallCard.type-api {
+    border-left: solid $warning;
+}
+
+ToolCallCard.type-ai {
+    border-left: solid $secondary;
+}
+
+ToolCallCard.type-memory {
+    border-left: solid $success;
+}
+
+ToolCallCard.type-workspace {
+    border-left: solid $primary;
+}
+
+/* === Subagent Tool Cards - Special styling for spawn_subagents === */
+ToolCallCard.type-subagent {
+    border-left: solid $secondary;
+    background: transparent;
+    max-height: 15;
+    padding: 0 1;
+}
+
+ToolCallCard.type-subagent.status-running {
+    border-left: solid $secondary;
+    background: transparent;
+    border: solid $secondary;
+    border-left: solid $secondary;
+}
+
+ToolCallCard.type-subagent.status-success {
+    border-left: solid $success;
+    background: transparent;
+}
+
+ToolCallCard.type-subagent.status-error {
+    border-left: solid $error;
+    background: transparent;
+}
+
+ToolCallCard.type-subagent.status-background {
+    border-left: solid $warning;
+    background: transparent;
+}
+
+ToolCallCard.type-subagent.expanded {
+    max-height: 100%;
+    height: auto;
+    min-height: 8;
+}
+
+/* === Terminal Tool Cards (new_answer, vote) === */
+/* Minimalist emphasis: left accent bar only, muted colors */
+ToolCallCard.terminal-tool {
+    border: none;
+    border-left: tall $surface-lighten-1;
+    background: transparent;
+    min-height: 3;
+    max-height: 12;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+ToolCallCard.terminal-tool.status-running {
+    border: none;
+    border-left: tall $surface-lighten-1;
+    background: transparent;
+}
+
+ToolCallCard.terminal-tool.status-success {
+    border: none;
+    border-left: tall $success;
+    background: transparent;
+}
+
+ToolCallCard.terminal-tool.status-error {
+    border: none;
+    border-left: tall $error;
+    background: transparent;
+}
+
+ToolCallCard.terminal-tool:hover {
+    background: transparent;
+    border: none;
+    border-left: tall $primary-lighten-1;
+}
+
+ToolCallCard.terminal-tool:focus {
+    background: transparent;
+    border: none;
+    border-left: tall $primary;
+    outline: none;
+}
+
+/* Terminal tool header styling - muted accent for tool name */
+ToolCallCard.terminal-tool #tool-main-content {
+    color: $text;
+}
+
+/* === Tool Batch Cards === */
+/* Tree view for batched MCP tool calls from the same server */
+
+ToolBatchCard {
+    width: 100%;
+    height: auto;
+    min-height: 3;
+    max-height: 20;
+    padding: 0 1;
+    margin: 0 0 1 1;  /* Bottom margin only - prevents double spacing */
+    background: transparent;
+    border-left: thick $surface-lighten-1;
+    transition: opacity 300ms out_expo;
+}
+
+/* Appearance animation - smooth fade in */
+ToolBatchCard.appearing {
+    opacity: 0.0;
+}
+
+ToolBatchCard.appeared {
+    opacity: 1.0;
+}
+
+ToolBatchCard:hover {
+    background: transparent;
+    border-left: solid $primary-lighten-1;
+}
+
+ToolBatchCard:focus {
+    background: transparent;
+    border-left: solid $primary;
+    outline: none;
+}
+
+/* Collapsed state */
+ToolBatchCard.collapsed {
+    max-height: 6;
+}
+
+/* Expanded state */
+ToolBatchCard.expanded {
+    max-height: 30;
+}
+
+/* Status-based styling */
+ToolBatchCard.status-running {
+    border-left: solid $primary;
+}
+
+ToolBatchCard.status-success {
+    border-left: solid $success;
+}
+
+ToolBatchCard.status-error {
+    border-left: solid $error;
+    background: transparent;
+}
+
+/* Batch card content container */
+ToolBatchCard #batch-content {
+    height: auto;
+    width: 100%;
+    scrollbar-size: 1 1;
+    scrollbar-background: transparent;
+    scrollbar-color: $surface-lighten-1;
+}
+
+/* === Collapsible Text Cards === */
+/* Collapsible blocks for long reasoning/content text */
+/* Static widget with border-left, matching ToolCallCard pattern */
+
+CollapsibleTextCard {
+    width: 100%;
+    height: auto;
+    padding: 0 1 0 2;
+    margin: 1 0 1 1;  /* 1 line top margin for spacing between blocks */
+    background: transparent;
+    border-left: thick $surface-lighten-1;
+    transition: opacity 300ms out_expo;
+}
+
+/* Appearance animation - smooth fade in */
+CollapsibleTextCard.appearing {
+    opacity: 0.0;
+}
+
+CollapsibleTextCard.appeared {
+    opacity: 1.0;
+}
+
+CollapsibleTextCard:hover {
+    background: $surface;
+    border-left: solid $primary-lighten-1;
+}
+
+CollapsibleTextCard:focus {
+    background: $surface;
+    border-left: solid $primary;
+    outline: none;
+}
+
+CollapsibleTextCard.expanded {
+    max-height: 100%;
+    background: $panel;
+}
+
+/* Thinking cards - lighter muted gray vertical line */
+CollapsibleTextCard.label-thinking {
+    border-left: solid $secondary;
+}
+
+/* Content cards - slightly different muted gray vertical line */
+CollapsibleTextCard.label-content {
+    border-left: solid $surface-lighten-1;
+}
+
+/* === Content Sections === */
+
+/* Tool Section - fixed size collapsible box for tool cards */
+ToolSection {
+    height: auto;
+    max-height: 40%;
+    margin: 0 0 1 0;
+    padding: 0;
+    border: solid $surface-lighten-1;
+    background: $surface;
+}
+
+ToolSection.collapsed {
+    height: 3;
+    overflow: hidden;
+}
+
+ToolSection.hidden {
+    display: none;
+}
+
+ToolSection #tool_section_header {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: $panel;
+    color: $primary;
+}
+
+ToolSection #tool_section_header:hover {
+    background: $surface-lighten-1;
+}
+
+ToolSection #tool_container {
+    height: auto;
+    max-height: 100%;
+    padding: 0;
+    background: $background;
+    overflow-y: auto;
+}
+
+/* Timeline Section - chronological view of all content */
+/* TimelineSection inherits from ScrollableContainer directly for proper scrollbar behavior */
+TimelineSection {
+    width: 100%;
+    height: 1fr;
+    padding: 0 2 1 2;
+    margin: 0;
+    background: $background;
+    overflow-y: auto;
+    scrollbar-size: 2 2;
+    scrollbar-gutter: stable;
+    scrollbar-background: $panel;
+    scrollbar-color: $primary-lighten-1;
+    scrollbar-color-hover: $surface-lighten-2;
+    scrollbar-color-active: $primary;
+}
+
+/* Hide legacy RichLog in AgentPanel - using TimelineSection now */
+AgentPanel RichLog {
+    display: none;
+}
+
+AgentPanel .streaming_label {
+    display: none;
+}
+
+TimelineSection .timeline-text {
+    width: 100%;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
+}
+
+TimelineSection .timeline-text.status {
+    color: $primary;
+    border-left: solid $primary;
+    padding-left: 2;
+    margin: 0 0 1 1;
+}
+
+/* Thinking/reasoning blocks - continuous vertical line */
+TimelineSection .timeline-text.thinking {
+    color: $text-muted;
+    border-left: solid $primary-lighten-1;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
+}
+
+/* Inline reasoning - continuous with thinking blocks */
+TimelineSection .timeline-text.reasoning-inline,
+TimelineSection .timeline-text.thinking-inline {
+    color: $text-muted;
+    padding: 0 0 0 2;
+    margin: 1 0 1 1;  /* 1 line top/bottom for proper spacing, 1 char left indent */
+    text-style: italic;
+}
+
+TimelineSection .timeline-text.injection {
+    color: $secondary;
+    background: $secondary 15%;
+    border-left: solid $secondary;
+    padding-left: 2;
+    margin: 0 0 1 1;
+}
+
+TimelineSection .timeline-text.reminder {
+    color: $warning;
+    background: $warning 15%;
+    border-left: solid $warning;
+    padding-left: 2;
+    margin: 0 0 1 1;
+}
+
+TimelineSection .timeline-text.response {
+    color: $success;
+    border-left: solid $success;
+    padding: 0 0 0 2;
+    margin: 0 0 1 1;
+}
+
+TimelineSection .timeline-text.answer {
+    color: $warning;
+    border-left: solid $warning;
+    padding: 0 0 1 2;
+    margin: 0 0 1 1;
+}
+
+/* Final presentation content - clean, no background */
+TimelineSection .timeline-text.final-answer {
+    color: $text;
+    padding: 0 0 0 2;
+    margin: 0 0 1 1;
+}
+
+/* Post-evaluation content - subtle blue tint */
+TimelineSection .timeline-text.post-eval {
+    color: $secondary;
+    border-left: solid $primary;
+    padding: 0 0 0 2;
+    margin: 0 0 1 1;
+}
+
+/* Pinned Task Plan Container - stays at top of agent panel */
+.pinned-task-plan {
+    width: 100%;
+    height: auto;
+    max-height: 12;
+    margin: 0;
+    padding: 0 0 1 0;
+    background: $background;
+    border-bottom: solid $surface-lighten-1 50%;
+}
+
+.pinned-task-plan.hidden {
+    display: none;
+}
+
+.pinned-task-plan.collapsed {
+    max-height: 3;
+    overflow: hidden;
+}
+
+/* Task Plan Card - Visual todo list from Planning MCP */
+TaskPlanCard {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
+    background: transparent;
+    border-left: solid $primary-lighten-1;
+}
+
+/* Update animation - subtle border pulse instead of full background */
+TaskPlanCard.updated {
+    border-left: solid $primary;
+}
+
+TaskPlanCard .task-header {
+    text-style: bold;
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+TaskPlanCard .task-completed {
+    color: $text-muted;
+}
+
+TaskPlanCard .task-in-progress {
+    color: $primary;
+    text-style: bold;
+}
+
+TaskPlanCard .task-pending {
+    color: $text-muted;
+}
+
+TaskPlanCard .task-blocked {
+    color: $text-muted;
+    text-style: italic;
+}
+
+TaskPlanCard .task-focused {
+    background: $panel;
+}
+
+TaskPlanCard .task-count {
+    color: $text-muted;
+    text-style: italic;
+}
+
+TimelineSection .timeline-text.vote {
+    color: $secondary;
+    border-left: solid $secondary;
+    padding: 0 0 0 2;
+    margin: 0 0 1 1;
+}
+
+TimelineSection .timeline-text.truncation-notice,
+TimelineSection .truncation-notice {
+    color: $text-muted;
+    text-style: italic;
+    text-align: center;
+    background: $panel;
+    border: dashed $primary-lighten-1;
+    margin: 1 0;
+    padding: 0 1;
+}
+
+/* Scroll mode indicator - centered, minimal bar */
+TimelineSection .scroll-indicator {
+    dock: top;
+    width: 100%;
+    height: auto;
+    background: transparent;
+    color: $secondary;
+    text-align: center;
+    padding: 0;
+}
+
+TimelineSection .scroll-indicator.hidden {
+    display: none;
+}
+
+/* Scroll arrow indicators (▲ more above, ▼ more below) - compact */
+TimelineSection .scroll-arrow-indicator {
+    width: 100%;
+    height: 1;
+    text-align: center;
+    color: $secondary;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+TimelineSection .scroll-arrow-indicator.hidden {
+    display: none;
+}
+
+TimelineSection #scroll_top_indicator {
+    dock: top;
+}
+
+TimelineSection #scroll_bottom_indicator {
+    dock: bottom;
+}
+
+/* Restart Banner - strong single-line separator spanning full width */
+RestartBanner {
+    width: 100%;
+    height: 1;
+    margin: 1 0;
+    padding: 0;
+    background: transparent;
+}
+
+/* FinalPresentationCard - full-width mode overrides for dark theme */
+FinalPresentationCard.full-width-mode {
+    height: 1fr;
+    min-height: 20;
+    border: double $success;
+}
+
+FinalPresentationCard.full-width-mode.streaming {
+    border: double $warning;
+}
+
+FinalPresentationCard.full-width-mode #final_card_content {
+    height: 1fr;
+    max-height: 100%;
+    overflow-y: auto;
+    background: $background;
+}
+
+FinalPresentationCard.full-width-mode #final_card_header {
+    background: transparent;
+    padding: 0 1;
+}
+
+FinalPresentationCard.full-width-mode #final_card_title {
+    color: $success;
+}
+
+FinalPresentationCard.full-width-mode.completed #final_card_header {
+    background: transparent;
+}
+
+/* Thinking Section - auto height, shrinks to content */
+ThinkingSection {
+    height: auto;
+    max-height: 50%;
+    padding: 0;
+}
+
+ThinkingSection #thinking_log {
+    height: auto;
+    max-height: 100%;
+    padding: 0 1;
+    background: $background;
+    color: $text-muted;
+}
+
+/* Status Badge - compact inline indicator */
+StatusBadge {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    text-align: right;
+}
+
+StatusBadge.status-connected {
+    color: $success;
+}
+
+StatusBadge.status-working {
+    color: $warning;
+}
+
+StatusBadge.status-streaming {
+    color: $primary;
+}
+
+StatusBadge.status-completed {
+    color: $success;
+}
+
+StatusBadge.status-error {
+    color: $error;
+}
+
+StatusBadge.status-waiting {
+    color: $text-muted;
+}
+
+/* Completion Footer - subtle completion line */
+CompletionFooter {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    text-align: center;
+    dock: bottom;
+}
+
+CompletionFooter.hidden {
+    display: none;
+}
+
+CompletionFooter.status-completed {
+    color: $success;
+}
+
+CompletionFooter.status-error {
+    color: $error;
+}
+
+/* === Status Bar === */
+/* Hidden by default - minimal status shown inline in input area */
+StatusBar {
+    display: none;
+}
+
+StatusBar.hidden {
+    display: none;
+    height: 0;
+    min-height: 0;
+}
+
+StatusBar > Static {
+    height: 1;
+}
+
+#status_phase {
+    width: auto;
+    color: $primary;
+    margin-right: 2;
+}
+
+#status_phase.restart-active {
+    color: $warning;
+    text-style: bold;
+    background: $surface-lighten-1;
+}
+
+/* Activity indicator - shows when agents are working */
+#status_activity {
+    width: auto;
+    color: $primary;
+    text-style: bold;
+    margin-right: 2;
+}
+
+#status_activity.hidden {
+    display: none;
+}
+
+.activity-indicator {
+    color: $primary;
+}
+
+#status_progress {
+    width: auto;
+    color: $secondary;
+    margin-right: 2;
+}
+
+#status_votes {
+    width: auto;
+    color: $success;
+    margin-right: 2;
+}
+
+/* Spacer to push right-side elements to the edge */
+#status_spacer {
+    width: 1fr;
+}
+
+#status_events {
+    width: auto;
+    color: $warning;
+    margin-right: 2;
+}
+
+#status_events.clickable:hover {
+    color: $text;
+    text-style: underline;
+}
+
+#status_timer {
+    width: auto;
+    color: $warning;
+}
+
+#status_hints {
+    width: auto;
+    color: $text-muted;
+    margin-left: 1;
+}
+
+#status_hints.hidden {
+    display: none;
+}
+
+/* Phase-specific border colors */
+StatusBar.phase-idle {
+    border-top: solid $primary-lighten-1;
+}
+
+StatusBar.phase-initial {
+    border-top: solid $primary;
+}
+
+StatusBar.phase-enforcement {
+    border-top: solid $success;
+}
+
+StatusBar.phase-presentation {
+    border-top: solid $warning;
+}
+
+/* === Vote Visualization Animations === */
+
+/* Vote counter pulse animation when vote is cast */
+#status_votes.vote-updated {
+    text-style: bold;
+    background: $success 30%;
+}
+
+/* Highlight when vote leader changes */
+#status_votes.leader-changed {
+    background: $warning 30%;
+    text-style: bold;
+}
+
+/* StatusBar celebration when consensus is reached */
+StatusBar.consensus-reached {
+    background: $success 15%;
+    border-top: double $success;
+}
+
+StatusBar.consensus-reached #status_votes {
+    color: $success;
+    text-style: bold;
+}
+
+/* === MCP Status Modal === */
+#mcp_status_container {
+    width: 70;
+    height: auto;
+    max-height: 80%;
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#mcp_status_header {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#mcp_status_summary {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#mcp_servers_list {
+    height: auto;
+    max-height: 20;
+    background: $panel;
+    padding: 1;
+    border: solid $surface-lighten-1;
+}
+
+.mcp-server-item {
+    margin: 1 0;
+    padding: 0 1;
+    border-left: solid $secondary;
+}
+
+.mcp-server-item.disconnected {
+    border-left: solid $error;
+}
+
+/* StatusBar MCP indicator */
+#status_mcp {
+    width: auto;
+    color: $secondary;
+    margin-left: 2;
+}
+
+/* StatusBar CWD display */
+#status_cwd {
+    width: auto;
+    color: $text-muted;
+    margin-left: 2;
+}
+
+#status_cwd:hover {
+    color: $primary;
+    text-style: underline;
+}
+
+/* StatusBar Theme toggle */
+#status_theme {
+    width: auto;
+    color: $text-muted;
+    margin-left: 2;
+}
+
+#status_theme:hover {
+    color: $primary;
+    text-style: underline;
+}
+
+/* StatusBar Cancel button */
+#status_cancel {
+    width: auto;
+    color: $error;
+    margin-left: 2;
+    text-style: bold;
+}
+
+#status_cancel:hover {
+    background: $panel;
+    color: $error;
+}
+
+#status_cancel.hidden {
+    display: none;
+}
+
+/* === Answer Browser Modal === */
+#answer_browser_container {
+    width: 95%;
+    height: 90%;
+    background: $background 90%;
+    border: solid $secondary;
+    padding: 1 2;
+}
+
+#answer_browser_header {
+    color: $secondary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#answer_browser_summary {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#answer_filter_row {
+    height: 3;
+    margin-bottom: 1;
+}
+
+#filter_label {
+    width: auto;
+    margin-right: 1;
+}
+
+#agent_filter {
+    width: 30;
+}
+
+/* Split view layout */
+#answer_browser_content {
+    height: 1fr;
+    width: 100%;
+}
+
+#answer_list {
+    width: 35%;
+    height: 100%;
+    background: $panel;
+    border: solid $surface-lighten-1;
+    padding: 1;
+    overflow-y: auto;
+}
+
+.answer-item {
+    margin: 0 0 1 0;
+    padding: 1;
+    background: $surface;
+    border: solid $surface-lighten-1;
+    border-left: thick $primary;
+}
+
+/* Agent-specific colors for answer items - matches AgentPanel/AgentTab palette */
+.answer-item.agent-color-1 { border-left: thick $primary; }  /* Blue */
+.answer-item.agent-color-2 { border-left: thick $success; }  /* Green */
+.answer-item.agent-color-3 { border-left: thick $secondary; }  /* Purple */
+.answer-item.agent-color-4 { border-left: thick $warning; }  /* Orange */
+.answer-item.agent-color-5 { border-left: thick $secondary; }  /* Cyan */
+.answer-item.agent-color-6 { border-left: thick $error-lighten-2; }  /* Pink */
+.answer-item.agent-color-7 { border-left: thick $warning; }  /* Yellow */
+.answer-item.agent-color-8 { border-left: thick $error; }  /* Red */
+
+.answer-item:hover {
+    background: $primary 20%;
+}
+
+.answer-item.clickable {
+    /* Clickable indicator - hover effect only */
+}
+
+.answer-item-selected {
+    background: $primary 30%;
+}
+
+/* Brighter colors when selected */
+.answer-item-selected.agent-color-1 { border-left: thick $primary; }
+.answer-item-selected.agent-color-2 { border-left: thick $success; }
+.answer-item-selected.agent-color-3 { border-left: thick $secondary; }
+.answer-item-selected.agent-color-4 { border-left: thick $warning; }
+.answer-item-selected.agent-color-5 { border-left: thick $secondary-lighten-2; }
+.answer-item-selected.agent-color-6 { border-left: thick $error-lighten-2; }
+.answer-item-selected.agent-color-7 { border-left: thick $warning; }
+.answer-item-selected.agent-color-8 { border-left: thick $error; }
+
+#answer_detail_panel {
+    width: 65%;
+    height: 100%;
+    background: $panel;
+    border: solid $surface-lighten-1;
+    padding: 1;
+    margin-left: 1;
+    layout: vertical;
+}
+
+#answer_detail_header {
+    color: $secondary;
+    text-style: bold;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#answer_detail_scroll {
+    height: 1fr;
+    background: $background;
+    padding: 1;
+    overflow-y: auto;
+}
+
+#answer_full_content {
+    width: 100%;
+}
+
+#answer_detail_buttons {
+    height: 3;
+    margin-top: 1;
+    align: center middle;
+}
+
+#answer_detail_buttons Button {
+    margin: 0 1;
+}
+
+#answer_browser_buttons {
+    margin-top: 1;
+    height: 3;
+}
+
+/* === Timeline Modal (Swimlane View) === */
+#timeline_modal_container {
+    width: 95%;
+    height: 90%;
+    background: $surface;
+    border: solid $secondary;
+    padding: 1 2;
+    layout: vertical;
+}
+
+#timeline_header {
+    color: $secondary;
+    text-style: bold;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#timeline_legend {
+    color: $text-muted;
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: $background;
+    border: solid $surface-lighten-1;
+}
+
+#timeline_content {
+    height: 1fr;
+    background: $background;
+    border: solid $surface-lighten-1;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+#timeline_diagram {
+    color: $text;
+}
+
+#close_timeline_button {
+    margin-top: 1;
+    width: auto;
+    align: center middle;
+}
+
+/* === Workspace Browser Modal === */
+#workspace_browser_container {
+    width: 90%;
+    max-width: 120;
+    height: 85%;
+    background: $background 90%;
+    border: solid $secondary;
+    padding: 1 2;
+}
+
+#workspace_browser_header {
+    color: $secondary;
+    text-style: bold;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#workspace_selector_row {
+    height: 3;
+    margin-bottom: 1;
+    width: 100%;
+}
+
+#workspace_agent_filter_container {
+    width: 45%;
+    height: 100%;
+}
+
+#workspace_answer_container {
+    width: 55%;
+    height: 100%;
+}
+
+#workspace_agent_label, #workspace_answer_label {
+    width: auto;
+    padding-right: 1;
+}
+
+#agent_filter_selector {
+    width: 1fr;
+}
+
+#answer_selector {
+    width: 1fr;
+}
+
+#workspace_split {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#workspace_file_list_container {
+    width: 35%;
+    height: 100%;
+    border: solid $surface-lighten-1;
+    padding: 1;
+}
+
+#file_list_header {
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+#workspace_file_list {
+    height: 1fr;
+    background: $panel;
+}
+
+.workspace-file-item {
+    padding: 0 1;
+    margin: 0;
+}
+
+.workspace-file-item:hover {
+    background: $surface;
+}
+
+#workspace_preview_container {
+    width: 65%;
+    height: 100%;
+    border: solid $surface-lighten-1;
+    padding: 1;
+    margin-left: 1;
+}
+
+#preview_header {
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+#workspace_preview {
+    height: 1fr;
+    background: $panel;
+}
+
+#close_workspace_browser_button {
+    width: 100%;
+}
+
+/* === Unified Browser Modal (Tabs) === */
+#browser_tabs_container {
+    layout: vertical;
+    width: 90%;
+    max-width: 140;
+    height: 85%;
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#browser_tab_bar {
+    height: auto;
+    min-height: 3;
+    background: $panel;
+    padding: 1 2;
+    margin-bottom: 1;
+    text-align: center;
+    color: $text;
+    border: solid $surface-lighten-1;
+}
+
+#browser_content {
+    height: 1fr;
+    background: $background;
+    padding: 1 2;
+    overflow-y: auto;
+    border: solid $surface-lighten-1;
+}
+
+#close_browser_button {
+    width: auto;
+    min-width: 18;
+    margin-top: 1;
+    content-align: center middle;
+}
+
+/* === Unified State Classes (Task 5.16) === */
+
+/* Success states */
+.state-success {
+    border: solid $success;
+    background: $success 15%;
+}
+
+.state-success-text {
+    color: $success;
+}
+
+/* Warning states */
+.state-warning {
+    border: solid $warning;
+    background: $warning 30%;
+}
+
+.state-warning-text {
+    color: $warning;
+}
+
+/* Error states */
+.state-error {
+    border: solid $error;
+    background: $error 30%;
+}
+
+.state-error-text {
+    color: $error;
+}
+
+/* Loading states */
+.state-loading {
+    border: dashed $primary;
+}
+
+.state-loading-text {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* Muted/disabled states */
+.state-muted {
+    color: $text-muted;
+    text-style: dim;
+}
+
+/* === Pulse Animations (Task 5.16) === */
+
+/* Vote pulse - brief highlight */
+.pulse-vote {
+    background: $success 20%;
+    text-style: bold;
+}
+
+/* Leader change pulse */
+.pulse-leader {
+    background: $warning 20%;
+    text-style: bold;
+}
+
+/* Winner celebration pulse */
+.pulse-winner {
+    background: $secondary 30%;
+    color: $background;
+    text-style: bold;
+}
+
+/* Completion flash */
+.flash-complete {
+    background: $primary;
+    color: white;
+}
+
+/* === Action Button Types (Task 5.16) === */
+
+Button.action-primary {
+    background: $primary;
+    border: solid $primary;
+}
+
+Button.action-primary:hover {
+    background: $primary-lighten-1;
+    border: solid $primary-lighten-1;
+}
+
+Button.action-danger {
+    background: $error-lighten-1;
+    border: solid $error-lighten-1;
+}
+
+Button.action-danger:hover {
+    background: $error;
+    border: solid $error;
+}
+
+Button.action-secondary {
+    background: $panel;
+    border: solid $surface-lighten-1;
+}
+
+Button.action-secondary:hover {
+    background: $surface-lighten-1;
+    border: solid $primary-lighten-1;
+}
+
+/* === Progress Indicator (Task 5.15) === */
+
+ProgressIndicator {
+    height: 1;
+    width: auto;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+ProgressIndicator.hidden {
+    display: none;
+}
+
+/* === Final Stream Panel Enhancements === */
+
+#final_stream_buttons {
+    height: 3;
+    layout: horizontal;
+}
+
+#final_stream_buttons Button {
+    margin-right: 1;
+    min-width: 14;
+}
+
+/* Final stream winner styling */
+#final_stream_container.winner-complete {
+    border: solid $success;
+}
+
+#final_stream_container.winner-complete #final_stream_header {
+    background: $success 15%;
+}
+
+#final_stream_container.winner-complete #final_stream_label {
+    color: $success;
+}
+
+/* Follow-up input styling in footer */
+#followup_label {
+    color: $text-muted;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#followup_input {
+    background: $background;
+    border: solid $surface-lighten-1;
+}
+
+#followup_input:focus {
+    border: solid $primary;
+}
+
+/* Hidden input area class */
+#input_area.hidden {
+    display: none;
+}
+
+/* ============================================
+   Injection Sub-Card Styling
+   ============================================ */
+
+/* Base injection sub-card within tool cards */
+InjectionSubCard {
+    height: auto;
+    margin: 1 0 0 2;
+    padding: 0 1;
+    color: $secondary;
+}
+
+/* Collapsed state - single line */
+InjectionSubCard.collapsed {
+    height: 1;
+    background: transparent;
+}
+
+/* Expanded state - full content with border */
+InjectionSubCard.expanded {
+    height: auto;
+    min-height: 5;
+    background: $secondary 15%;
+    border: solid $secondary;
+    border-left: thick $secondary;
+    padding: 1;
+}
+
+/* Hover feedback for clickability */
+InjectionSubCard:hover {
+    background: $secondary 20%;
+}
+
+/* Injection sub-card within tool cards - nested styling */
+ToolCallCard InjectionSubCard {
+    margin-left: 2;
+}
+
+ToolCallCard InjectionSubCard.collapsed {
+    margin-top: 1;
+}
+
+ToolCallCard InjectionSubCard.expanded {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+/* Injection toggle widget within tool cards */
+ToolCallCard #tool-card-content {
+    height: auto;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+ToolCallCard #tool-main-content {
+    height: auto;
+    width: 100%;
+}
+
+ToolCallCard InjectionToggle {
+    height: auto;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+ToolCallCard InjectionToggle:hover {
+    background: $panel;
+}
+
+ToolCallCard InjectionToggle.expanded {
+    min-height: 3;
+}
+
+/* ============================================
+   Wizard Framework Styling - CLI Aesthetics
+   ============================================ */
+
+/* Wizard Modal - full screen centered */
+WizardModal {
+    align: center middle;
+}
+
+#wizard_container {
+    width: 90%;
+    max-width: 80;
+    height: auto;
+    max-height: 80%;
+    min-height: 18;
+    background: $background;
+    border: none;
+    border-left: thick $primary;
+    padding: 1 2;
+    layout: vertical;
+}
+
+/* Wizard header section - CLI style */
+#wizard_header {
+    height: auto;
+    width: 100%;
+    padding: 0;
+    border-bottom: none;
+}
+
+#wizard_progress_bar {
+    height: 1;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#wizard_progress_bar Bar {
+    color: $primary;
+    background: $panel;
+}
+
+#wizard_step_counter {
+    text-align: right;
+    color: $text-muted;
+    width: 100%;
+}
+
+#wizard_title {
+    text-style: bold;
+    color: $primary;
+    text-align: center;
+    width: 100%;
+    margin-top: 0;
+}
+
+#wizard_description {
+    color: $text-muted;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+/* Wizard content area - clean, no border */
+#wizard_content {
+    height: 1fr;
+    width: 100%;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0 1;
+    background: $background;
+    scrollbar-color: $surface-lighten-1;
+    scrollbar-color-hover: $surface-lighten-2;
+    scrollbar-color-active: $primary;
+    scrollbar-size: 1 1;
+    scrollbar-background: $background;
+    scrollbar-background-hover: $background;
+    scrollbar-background-active: $background;
+    scrollbar-corner-color: $background;
+}
+
+/* Wizard error message */
+#wizard_error {
+    color: $error;
+    text-align: center;
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: $error 20%;
+    border: solid $error;
+    margin-bottom: 1;
+}
+
+#wizard_error.hidden {
+    display: none;
+}
+
+/* Wizard navigation buttons */
+#wizard_nav {
+    height: 3;
+    width: 100%;
+    align: center middle;
+    padding-top: 0;
+    margin-top: 1;
+    layout: horizontal;
+}
+
+#wizard_nav Button {
+    margin: 0 1;
+    min-width: 12;
+    height: 3;
+    text-align: center;
+    content-align: center middle;
+    color: white;
+}
+
+#wizard_back {
+    background: $panel;
+    border: solid $surface-lighten-1;
+    color: $text-muted;
+}
+
+#wizard_back:hover {
+    background: $surface-lighten-1;
+    border: solid $primary-lighten-1;
+}
+
+#wizard_back.disabled {
+    background: $surface;
+    color: $primary-lighten-1;
+    border: solid $panel;
+}
+
+#wizard_next {
+    background: $primary;
+    border: solid $primary;
+    color: white;
+}
+
+#wizard_next:hover {
+    background: $primary-lighten-1;
+    border: solid $primary-lighten-1;
+}
+
+#wizard_cancel {
+    background: transparent;
+    border: solid $surface-lighten-1;
+    color: $text-muted;
+}
+
+#wizard_cancel:hover {
+    background: $error 20%;
+    border: solid $error;
+    color: $error-lighten-1;
+}
+
+/* === Step Components Base === */
+StepComponent {
+    width: 100%;
+    height: auto;
+    padding: 0;
+}
+
+/* Welcome step styling - CLI style */
+.wizard-welcome {
+    width: 100%;
+    height: auto;
+    padding: 1 0;
+}
+
+.wizard-welcome-title {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.wizard-welcome-subtitle {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+/* CLI-style status indicators */
+.wizard-status-ok {
+    color: $success;
+    width: 100%;
+}
+
+.wizard-status-error {
+    color: $error;
+    width: 100%;
+}
+
+.wizard-status-warning {
+    color: $warning;
+    width: 100%;
+}
+
+.wizard-status-muted {
+    color: $text-muted;
+    width: 100%;
+}
+
+/* Section titles - cyan, bold (CLI style) */
+.wizard-section-title {
+    color: $primary;
+    text-style: bold;
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
+/* Status items - 2 space indent */
+.wizard-status-item {
+    width: 100%;
+    padding-left: 2;
+}
+
+/* Description text - 6 space indent, muted */
+.wizard-description {
+    padding-left: 6;
+    color: $text-muted;
+    width: 100%;
+}
+
+/* Provider checkbox list - clean, minimal */
+.provider-list {
+    height: auto;
+    padding: 0;
+    background: transparent;
+}
+
+.provider-item {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: transparent;
+    border: none;
+}
+
+.provider-item:hover {
+    background: $panel;
+}
+
+.provider-item.configured {
+    border-left: thick $success;
+}
+
+.provider-item.unconfigured {
+    border-left: thick $surface-lighten-2;
+}
+
+.provider-item.selected {
+    background: $primary 20%;
+    border-left: thick $success;
+}
+
+/* Single select option list - CLI style */
+.option-list {
+    height: auto;
+    max-height: 15;
+    padding: 0;
+    background: transparent;
+}
+
+.option-item {
+    height: auto;
+    min-height: 2;
+    padding: 1;
+    margin-bottom: 1;
+    background: $surface;
+    border: solid $surface-lighten-1;
+}
+
+.option-item:hover {
+    background: $panel;
+    border: solid $primary-lighten-1;
+}
+
+.option-item:focus {
+    border: solid $primary;
+}
+
+.option-item.selected {
+    background: $primary 20%;
+    border: solid $success;
+    border-left: thick $success;
+}
+
+.option-label {
+    color: $text;
+    text-style: bold;
+    width: 100%;
+}
+
+.option-description {
+    color: $text-muted;
+    margin-top: 0;
+    width: 100%;
+}
+
+/* Toggle step styling */
+.toggle-container {
+    align: center middle;
+    padding: 2;
+}
+
+.toggle-label {
+    color: $text;
+    margin-bottom: 1;
+}
+
+.toggle-description {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+/* Password input styling */
+.password-container {
+    padding: 1 2;
+}
+
+.password-label {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.password-input {
+    height: 3;
+    background: $background;
+    border: solid $surface-lighten-1;
+}
+
+.password-input:focus {
+    border: solid $primary;
+}
+
+.password-hint {
+    color: $text-muted;
+    text-style: italic;
+    margin-top: 1;
+}
+
+/* Text input styling */
+.text-input-container {
+    padding: 1 2;
+}
+
+.text-input-label {
+    color: $text;
+    margin-bottom: 1;
+}
+
+.text-input {
+    height: 3;
+    background: $background;
+    border: solid $surface-lighten-1;
+}
+
+.text-input:focus {
+    border: solid $primary;
+}
+
+/* Multi-line text area */
+.text-area-input {
+    height: 10;
+    background: $background;
+    border: solid $surface-lighten-1;
+}
+
+.text-area-input:focus {
+    border: solid $primary;
+}
+
+/* Model select styling */
+.model-select-container {
+    padding: 1 2;
+}
+
+.model-select-label {
+    color: $text;
+    margin-bottom: 1;
+}
+
+.model-search {
+    height: 3;
+    background: $background;
+    border: solid $surface-lighten-1;
+    margin-bottom: 1;
+}
+
+.model-search:focus {
+    border: solid $primary;
+}
+
+.model-list {
+    height: auto;
+    max-height: 15;
+    background: $surface;
+    border: solid $surface-lighten-1;
+    padding: 0;
+}
+
+.model-item {
+    height: 2;
+    padding: 0 1;
+    background: transparent;
+}
+
+.model-item:hover {
+    background: $panel;
+}
+
+.model-item.selected {
+    background: $primary 20%;
+    color: $success;
+}
+
+/* Preview step styling */
+.preview-container {
+    height: 1fr;
+    padding: 1;
+}
+
+.preview-header {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.preview-content {
+    height: 1fr;
+    background: $background;
+    border: solid $surface-lighten-1;
+    padding: 1;
+    color: $text;
+}
+
+/* Complete step styling - CLI success style */
+.complete-container {
+    width: 100%;
+    height: auto;
+    padding: 1 0;
+}
+
+.complete-icon {
+    color: $success;
+    text-style: bold;
+    width: 100%;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+.complete-title {
+    color: $success;
+    text-style: bold;
+    width: 100%;
+    text-align: center;
+    margin-bottom: 2;
+}
+
+.complete-message {
+    color: $success;
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.complete-next-steps {
+    color: $text-muted;
+    width: 100%;
+    margin-top: 0;
+}
+
+/* ============================================================================
+ * Modern Wizard Framework Styling (Dark Theme)
+ * Card-based wizard with ASCII banner, breadcrumb stepper, and status indicators
+ * ============================================================================ */
+
+/* --- ASCII Banner --- */
+ASCIIBanner {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    text-align: center;
+    padding: 0 0 1 0;
+}
+
+ASCIIBanner .banner-text {
+    color: $primary;
+    text-style: bold;
+}
+
+ASCIIBanner .banner-subtitle {
+    color: $text-muted;
+    text-align: center;
+    margin-top: 0;
+}
+
+/* --- Breadcrumb Stepper --- */
+BreadcrumbStepper {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    padding: 1 2;
+}
+
+BreadcrumbStepper .stepper-track {
+    width: auto;
+    height: 1;
+    content-align: center middle;
+}
+
+BreadcrumbStepper .stepper-labels {
+    width: auto;
+    height: 1;
+    content-align: center middle;
+}
+
+BreadcrumbStepper .step-indicator {
+    width: auto;
+    height: 1;
+}
+
+BreadcrumbStepper .step-indicator.completed {
+    color: $success;
+}
+
+BreadcrumbStepper .step-indicator.current {
+    color: $primary;
+    text-style: bold;
+}
+
+BreadcrumbStepper .step-indicator.pending {
+    color: $primary-lighten-1;
+}
+
+BreadcrumbStepper .step-connector {
+    color: $primary-lighten-1;
+    width: auto;
+}
+
+BreadcrumbStepper .step-connector.completed {
+    color: $success;
+}
+
+BreadcrumbStepper .step-label {
+    width: auto;
+    text-align: center;
+    padding: 0 1;
+}
+
+BreadcrumbStepper .step-label.current {
+    color: $primary;
+    text-style: bold;
+}
+
+BreadcrumbStepper .step-label.completed {
+    color: $success;
+}
+
+BreadcrumbStepper .step-label.pending {
+    color: $primary-lighten-1;
+}
+
+/* --- Status Indicator --- */
+StatusIndicator {
+    width: auto;
+    height: 1;
+}
+
+StatusIndicator.pending {
+    color: $primary-lighten-1;
+}
+
+StatusIndicator.loading {
+    color: $primary;
+}
+
+StatusIndicator.success {
+    color: $success;
+}
+
+StatusIndicator.error {
+    color: $error;
+}
+
+StatusIndicator.warning {
+    color: $warning;
+}
+
+/* --- Status Row --- */
+StatusRow {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+}
+
+StatusRow .status-label {
+    width: 1fr;
+}
+
+StatusRow .status-detail {
+    width: auto;
+    color: $text-muted;
+}
+
+/* (Wizard modal styles consolidated in primary block above) */
+
+/* --- Section Titles (used in step components) --- */
+.section-title {
+    color: $primary;
+    text-style: bold;
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+/* --- Success/Error Messages --- */
+.success-message {
+    color: $success;
+    text-align: center;
+    padding: 1;
+}
+
+.error-message {
+    color: $error;
+    padding: 1;
+}
+
+/* =============================================================================
+ * Phase 7: Utility CSS Classes
+ * =============================================================================
+ * Reusable utility classes for future UI enhancements
+ */
+
+/* Rounded card container */
+.rounded-card {
+    border: round $surface-lighten-1;
+    padding: 1 2;
+    margin: 1 0;
+    background: $surface;
+}
+
+/* Hero input styling */
+.input-hero {
+    border: round $surface-lighten-1;
+    background: $surface;
+    padding: 1 2;
+    margin: 1 2;
+}
+
+/* Mode pill (status badges) */
+.mode-pill {
+    border: round $surface-lighten-1;
+    padding: 0 1;
+    margin: 0 1;
+    min-width: 8;
+    background: $panel;
+}
+
+/* Progress bar styling */
+.progress-bar {
+    height: 1;
+    width: 100%;
+    background: $surface-darken-1;
+}
+
+.progress-bar-fill {
+    height: 1;
+    background: $primary;
+}
+
+/* Diff highlighting for code changes */
+.diff-add {
+    color: $success;
+    background: $success 20%;
+}
+
+.diff-remove {
+    color: $error;
+    background: $error 20%;
+}
+
+/* Tree node styling */
+.tree-node {
+    padding-left: 2;
+}
+
+.tree-node-expanded {
+    color: $text;
+}
+
+.tree-node-collapsed {
+    color: $text-muted;
+}
+
+/* =============================================================================
+ * Phase 12: View Dropdown & Final Answer View
+ * =============================================================================
+ */
+
+/* View Dropdown - Overlay for round/final answer selection */
+ViewDropdown {
+    layer: overlay;
+    width: auto;
+    min-width: 28;
+    height: auto;
+    max-height: 15;
+    background: $surface;
+    border: solid $primary-lighten-1;
+    padding: 0;
+    margin: 0;
+    offset: 0 1;
+}
+
+ViewDropdown .dropdown-item {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: transparent;
+}
+
+ViewDropdown .dropdown-item:hover {
+    background: $surface;
+}
+
+ViewDropdown .dropdown-item.current {
+    color: $primary;
+}
+
+ViewDropdown .dropdown-item.final-answer {
+    color: $success;
+    text-style: bold;
+}
+
+ViewDropdown .dropdown-item.final-answer.current {
+    color: $success;
+}
+
+ViewDropdown .dropdown-separator {
+    width: 100%;
+    height: 1;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+ViewDropdown .context-reset {
+    color: $warning;
+}
+
+/* Final Answer View - Full-panel display of winning answer */
+FinalAnswerView {
+    width: 100%;
+    height: 1fr;
+    padding: 0;
+    margin: 0;
+    background: $background;
+}
+
+FinalAnswerView.hidden {
+    display: none;
+}
+
+FinalAnswerView #final_header {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: $panel;
+    border-bottom: solid $success;
+}
+
+FinalAnswerView #final_header_title {
+    width: 100%;
+    text-align: center;
+    color: $success;
+    text-style: bold;
+}
+
+FinalAnswerView #final_content_container {
+    width: 100%;
+    height: 1fr;
+    padding: 1 2;
+    background: $background;
+    overflow-y: auto;
+}
+
+FinalAnswerView #final_content {
+    width: 100%;
+    height: auto;
+    color: $text;
+}
+
+FinalAnswerView #final_footer {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: $surface;
+    border-top: solid $surface-lighten-1;
+}
+
+FinalAnswerView #final_metadata {
+    width: 100%;
+    height: 1;
+    color: $text-muted;
+    text-align: center;
+    padding: 0 1;
+}
+
+FinalAnswerView #final_buttons {
+    width: 100%;
+    height: 3;
+    align: center middle;
+}
+
+FinalAnswerView #final_buttons Button {
+    margin: 0 1;
+    min-width: 14;
+}
+
+FinalAnswerView #copy_btn {
+    background: $success;
+    color: white;
+}
+
+FinalAnswerView #copy_btn:hover {
+    background: $primary-lighten-1;
+}
+
+FinalAnswerView #workspace_btn {
+    background: $panel;
+    color: $text;
+}
+
+FinalAnswerView #workspace_btn:hover {
+    background: $surface;
+}
+
+FinalAnswerView #voting_btn {
+    background: $panel;
+    color: $text;
+}
+
+FinalAnswerView #voting_btn:hover {
+    background: $surface;
+}
+
+FinalAnswerView #continue_hint {
+    width: 100%;
+    height: 1;
+    color: $primary;
+    text-align: center;
+    text-style: italic;
+    padding: 0 1;
+}
+
+FinalAnswerView .separator {
+    width: 100%;
+    height: 1;
+    color: $surface-lighten-1;
+}
+
+/* Round selector in AgentStatusRibbon - Final answer state */
+AgentStatusRibbon #round_selector.final-answer-view {
+    color: $success;
+    text-style: bold;
+}
+
+AgentStatusRibbon #round_selector.final-answer-view:hover {
+    color: $success;
+}
+
+/* === Plan Options Popover === */
+/* Dropdown overlay for plan mode configuration */
+PlanOptionsPopover {
+    layer: overlay;
+    dock: bottom;
+    width: auto;
+    min-width: 35;
+    max-width: 50;
+    height: auto;
+    max-height: 25;
+    background: $surface;
+    border: solid $primary;
+    padding: 1;
+    margin-bottom: 3;
+    margin-left: 1;
+    display: none;
+}
+
+PlanOptionsPopover.visible {
+    display: block;
+}
+
+PlanOptionsPopover #popover_title {
+    text-style: bold;
+    color: $text;
+    margin-bottom: 1;
+}
+
+PlanOptionsPopover #popover_content {
+    width: 100%;
+    height: auto;
+}
+
+PlanOptionsPopover .section-label {
+    color: $text-muted;
+    margin-top: 1;
+    margin-bottom: 0;
+    height: 1;
+}
+
+PlanOptionsPopover Select {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+PlanOptionsPopover #close_btn {
+    margin-top: 1;
+    width: 100%;
+    background: $panel;
+}
+
+PlanOptionsPopover #close_btn:hover {
+    background: $surface;
+}
+
+/* Plan settings button in mode bar - matches ModeToggle style */
+#plan_settings_btn {
+    width: auto;
+    height: 2;
+    min-width: 3;
+    background: transparent;
+    color: $text-muted;
+    border: none;
+    border-bottom: tall $surface-lighten-2;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+#plan_settings_btn:hover {
+    background: transparent;
+    color: $primary;
+    border-bottom: tall $primary;
+}
+
+#plan_settings_btn.hidden {
+    display: none;
+}
+
+/* Plan status label in mode bar */
+#plan_status {
+    color: $text-muted;
+    text-style: italic;
+    padding: 0 1;
+}
+
+#plan_status.hidden {
+    display: none;
+}
+
+/* === Toast Notifications === */
+ToastRack {
+    margin-bottom: 8;  /* Push up above tab bar and input */
+}
+
+Toast.-information {
+    border-left: thick $secondary;
+}
+
+Toast.-warning {
+    border-left: thick $warning;
+}
+
+Toast.-error {
+    border-left: thick $error;
+}
+
+Toast.-success {
+    border-left: thick $success;
+}
+
+/* ============================================================
+ * SUBAGENT SCREEN - Full-screen subagent view with TUI parity
+ * ============================================================ */
+
+SubagentScreen, SubagentView {
+    width: 100%;
+    height: 100%;
+    background: $background;
+}
+
+SubagentScreen #subagent-content,
+SubagentView #subagent-content {
+    width: 100%;
+    height: 1fr;
+}
+
+/* Header bar with back button and subagent info */
+SubagentHeader {
+    dock: top;
+    height: 1;
+    background: $surface;
+    padding: 0 2;
+}
+
+SubagentHeader .back-button {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    border: none;
+    background: transparent;
+    color: $text-muted;
+    margin-right: 1;
+}
+
+SubagentHeader .back-button:hover {
+    color: $primary;
+    text-style: bold;
+}
+
+SubagentHeader .subagent-title {
+    width: 1fr;
+    color: $primary;
+    text-style: bold;
+}
+
+SubagentHeader .model-info {
+    width: auto;
+    color: $text-muted;
+}
+
+/* Footer with action buttons */
+SubagentFooter {
+    dock: bottom;
+    height: 1;
+    background: $surface;
+    padding: 0 2;
+    align: center middle;
+}
+
+SubagentFooter _FooterAction {
+    width: auto;
+    height: 1;
+    color: $text-muted;
+    padding: 0 2;
+}
+
+SubagentFooter _FooterAction:hover {
+    color: $primary;
+    text-style: bold;
+}
+
+/* Status line showing execution status */
+SubagentStatusLine {
+    height: 1;
+    width: 100%;
+    background: $surface;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+SubagentStatusLine.running {
+    color: $warning;
+}
+
+SubagentStatusLine.completed {
+    color: $success;
+}
+
+SubagentStatusLine.error {
+    color: $error;
+}
+
+/* Content panel */
+SubagentPanel {
+    width: 100%;
+    height: 1fr;
+    background: $background;
+}
+
+SubagentPanel TimelineSection {
+    width: 100%;
+    height: 1fr;
+    padding: 0 2 1 2;
+    overflow-y: auto;
+    background: $background;
+}
+
+/* Tab bar in subagent screen */
+SubagentScreen AgentTabBar,
+SubagentView AgentTabBar {
+    border-bottom: solid $surface-lighten-1;
+}
+
+/* Status ribbon in subagent screen */
+SubagentScreen AgentStatusRibbon,
+SubagentView AgentStatusRibbon {
+    border-top: solid $surface-lighten-1;
+}
+
+/* ============================================
+   Enhanced Focus Styles for Wizards
+   ============================================ */
+
+/* Strong focus ring for all interactive elements */
+WizardModal Input:focus,
+WizardModal Select:focus,
+WizardModal TextArea:focus,
+WizardModal OptionList:focus,
+WizardModal Checkbox:focus {
+    border: solid $primary;
+}
+
+/* OptionList specific focus and selection */
+WizardModal OptionList:focus > .option-list--option-highlighted {
+    background: $primary 15%;
+    border-left: thick $primary;
+    color: white;
+    text-style: bold;
+}
+
+WizardModal OptionList > .option-list--option-highlighted {
+    background: $primary 15%;
+    border-left: thick $primary;
+    color: white;
+    text-style: bold;
+}
+
+/* Hover state for OptionList items */
+WizardModal OptionList > .option-list--option:hover {
+    background: $surface-lighten-2;
+    border-left: thick $primary-lighten-1;
+}
+
+/* Selected item in OptionList */
+WizardModal .step-option-list {
+    border: solid $surface-lighten-1;
+    background: $surface;
+    padding: 0;
+}
+
+/* Checkbox focus and states */
+WizardModal Checkbox {
+    background: transparent;
+    border: none;
+    border-left: thick transparent;
+    height: auto;
+    padding: 0 1;
+    margin: 0;
+}
+
+WizardModal Checkbox:focus {
+    background: transparent;
+    border: none;
+    border-left: thick $primary;
+    color: $text;
+    text-style: none;
+}
+
+WizardModal Checkbox > .toggle--label {
+    text-style: none;
+}
+
+WizardModal Checkbox:focus > .toggle--label {
+    text-style: none;
+    color: $text;
+}
+
+WizardModal Checkbox:hover {
+    background: $surface-darken-1;
+    border: none;
+    border-left: thick $primary-lighten-1;
+}
+
+WizardModal .multi-select-checkbox,
+WizardModal .provider-checkbox {
+    margin: 0;
+    padding: 0 1;
+}
+
+/* Checkbox list container */
+WizardModal .checkbox-list,
+WizardModal .provider-checkbox-list {
+    padding: 0;
+    background: transparent;
+}
+
+/* Configured provider label */
+WizardModal .configured-label {
+    color: $success;
+    text-style: italic;
+    padding: 0 1;
+    margin: 0;
+}
+
+/* Input and TextArea enhanced focus */
+WizardModal Input:focus {
+    border: solid $primary;
+    background: $panel;
+}
+
+WizardModal TextArea:focus {
+    border: solid $primary;
+    background: $panel;
+}
+
+/* Select widget focus */
+WizardModal Select:focus {
+    border: solid $primary;
+    background: $panel;
+}
+
+/* (Wizard progress bar styles consolidated in primary block above) */
+
+/* =============================================================================
+ * Widget CSS (moved from DEFAULT_CSS in Python files for theme support)
+ * =============================================================================
+ */
+
+/* === Plan Approval Modal === */
+PlanApprovalModal {
+    align: center middle;
+}
+
+PlanApprovalModal > Container {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 70%;
+    background: $panel;
+    border: solid $secondary;
+    padding: 1 2;
+}
+
+PlanApprovalModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+PlanApprovalModal .header-row {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+PlanApprovalModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $secondary;
+}
+
+PlanApprovalModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+PlanApprovalModal .modal-close:hover {
+    color: $text;
+}
+
+PlanApprovalModal .modal-stats {
+    height: auto;
+    width: 100%;
+    padding: 1;
+    margin-bottom: 1;
+    background: $background;
+    border: solid $surface-lighten-1;
+}
+
+PlanApprovalModal .stat-item {
+    width: auto;
+    padding-right: 3;
+}
+
+PlanApprovalModal .modal-body {
+    height: 1fr;
+    max-height: 30;
+    overflow-y: auto;
+    padding: 0 1;
+}
+
+PlanApprovalModal .task-row {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 0;
+}
+
+PlanApprovalModal .task-row:hover {
+    background: $surface;
+}
+
+PlanApprovalModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+    padding-top: 1;
+    border-top: solid $surface-lighten-1;
+}
+
+PlanApprovalModal .footer-buttons {
+    width: auto;
+    height: auto;
+}
+
+PlanApprovalModal .execute-button {
+    margin-right: 2;
+}
+
+/* === Queued Input Banner === */
+QueuedInputBanner {
+    height: auto;
+    max-height: 5;
+    background: $panel;
+    border: solid $surface-lighten-1;
+    border-left: thick $primary;
+    padding: 0 1;
+    margin-bottom: 0;
+    margin-left: 1;
+    display: none;
+}
+
+QueuedInputBanner.visible {
+    display: block;
+}
+
+QueuedInputBanner:hover {
+    background: $surface-lighten-2;
+}
+
+/* === Subagent Final Answer Card === */
+SubagentFinalAnswerCard {
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+    padding: 0;
+    border: solid $success;
+    background: $success 30%;
+}
+
+SubagentFinalAnswerCard #final_answer_header {
+    width: 100%;
+    height: 1;
+    padding: 0 1;
+    background: $success 30%;
+    color: $success;
+    text-style: bold;
+}
+
+SubagentFinalAnswerCard #final_answer_content {
+    width: 100%;
+    height: auto;
+    max-height: 20;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+SubagentFinalAnswerCard #final_answer_content Markdown {
+    background: transparent;
+}
+
+/* === Subagent TUI Modal === */
+SubagentTuiModal {
+    align: center middle;
+}
+
+SubagentTuiModal > Container {
+    width: 95%;
+    max-width: 140;
+    height: 90%;
+    max-height: 50;
+    background: $panel;
+    border: solid $secondary;
+    padding: 0;
+}
+
+SubagentTuiModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 1 2;
+    background: $background;
+    border-bottom: solid $surface-lighten-1;
+}
+
+SubagentTuiModal .header-row {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+SubagentTuiModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $secondary;
+}
+
+SubagentTuiModal .modal-status {
+    width: auto;
+    padding-right: 2;
+}
+
+SubagentTuiModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+SubagentTuiModal .modal-close:hover {
+    color: $text;
+}
+
+SubagentTuiModal .metadata-row {
+    height: auto;
+    width: 100%;
+    color: $text-muted;
+}
+
+/* Timeline section inside modal */
+SubagentTuiModal #subagent-timeline {
+    width: 100%;
+    height: 1fr;
+    padding: 1 2;
+    margin: 0;
+    overflow-y: auto;
+    background: $panel;
+}
+
+SubagentTuiModal .status-ribbon {
+    height: auto;
+    width: 100%;
+    padding: 0 2;
+    background: $background;
+    border-top: solid $surface-lighten-1;
+}
+
+SubagentTuiModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    padding: 1 2;
+    background: $background;
+    border-top: solid $surface-lighten-1;
+}
+
+SubagentTuiModal .footer-buttons {
+    layout: horizontal;
+    height: auto;
+    width: auto;
+}
+
+SubagentTuiModal .footer-button {
+    width: auto;
+    min-width: 16;
+    margin: 0 1;
+}
+
+SubagentTuiModal .empty-timeline {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+SubagentTuiModal .subagent-nav {
+    height: auto;
+    width: 100%;
+    padding: 0 2 1 2;
+    background: $background;
+    layout: horizontal;
+    align: center middle;
+}
+
+SubagentTuiModal .nav-button {
+    width: auto;
+    min-width: 5;
+    background: $surface;
+    border: solid $surface-lighten-1;
+    margin: 0 1;
+}
+
+SubagentTuiModal .nav-button:hover {
+    background: $panel;
+}
+
+SubagentTuiModal #nav-text {
+    width: auto;
+    text-align: center;
+    color: $text-muted;
+}
+
+/* Round separator styling */
+SubagentTuiModal .round-separator {
+    width: 100%;
+    height: 1;
+    padding: 0;
+    margin: 1 0;
+    color: $primary-lighten-1;
+}
+
+/* Thinking/reasoning text styling */
+SubagentTuiModal .timeline-thinking {
+    width: 100%;
+    padding: 0 0 1 0;
+    color: $text-muted;
+    border-left: thick $primary-lighten-1;
+    padding-left: 1;
+}
+
+/* Regular text content */
+SubagentTuiModal .timeline-text {
+    width: 100%;
+    padding: 0 0 1 0;
+    color: $text;
+}
+
+/* Status messages */
+SubagentTuiModal .timeline-status {
+    width: 100%;
+    padding: 0 0 1 0;
+    color: $primary;
+}
+
+/* === Final Answer View === */
+FinalAnswerView {
+    width: 100%;
+    height: 1fr;
+    padding: 0;
+    margin: 0;
+    background: $surface;
+}
+
+FinalAnswerView.hidden {
+    display: none;
+}
+
+FinalAnswerView #final_header {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: $success 30%;
+    border-bottom: solid $success;
+}
+
+FinalAnswerView #final_header_title {
+    width: 100%;
+    text-align: center;
+    color: $success;
+    text-style: bold;
+}
+
+FinalAnswerView #final_content_container {
+    width: 100%;
+    height: 1fr;
+    padding: 1 2;
+    background: $surface;
+    overflow-y: auto;
+}
+
+FinalAnswerView #final_content {
+    width: 100%;
+    height: auto;
+    color: $text;
+}
+
+FinalAnswerView #final_footer {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: $panel;
+    border-top: solid $surface-lighten-1;
+}
+
+FinalAnswerView #final_metadata {
+    width: 100%;
+    height: 1;
+    color: $text-muted;
+    text-align: center;
+    padding: 0 1;
+}
+
+FinalAnswerView #final_buttons {
+    width: 100%;
+    height: 3;
+    align: center middle;
+}
+
+FinalAnswerView #final_buttons Button {
+    margin: 0 1;
+    min-width: 14;
+}
+
+FinalAnswerView #copy_btn {
+    background: $primary;
+    color: $background;
+}
+
+FinalAnswerView #copy_btn:hover {
+    background: $primary-lighten-1;
+}
+
+FinalAnswerView #workspace_btn {
+    background: $surface-lighten-2;
+    color: $background;
+}
+
+FinalAnswerView #workspace_btn:hover {
+    background: $primary-lighten-1;
+}
+
+FinalAnswerView #voting_btn {
+    background: $surface-lighten-2;
+    color: $background;
+}
+
+FinalAnswerView #voting_btn:hover {
+    background: $primary-lighten-1;
+}
+
+FinalAnswerView #continue_hint {
+    width: 100%;
+    height: 1;
+    color: $primary;
+    text-align: center;
+    text-style: italic;
+    padding: 0 1;
+}
+
+/* === Background Task Detail Modal === */
+BackgroundTaskDetailModal {
+    align: center middle;
+}
+
+BackgroundTaskDetailModal > Container {
+    width: 95%;
+    max-width: 140;
+    height: 85%;
+    background: $panel;
+    border: solid $warning;
+    padding: 1 2;
+}
+
+BackgroundTaskDetailModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+BackgroundTaskDetailModal .header-row {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+BackgroundTaskDetailModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $warning;
+}
+
+BackgroundTaskDetailModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+BackgroundTaskDetailModal .modal-close:hover {
+    color: $text;
+}
+
+BackgroundTaskDetailModal .info-section {
+    height: auto;
+    width: 100%;
+    padding: 1;
+    margin-bottom: 1;
+    background: $background;
+    border-left: solid $warning;
+}
+
+BackgroundTaskDetailModal .output-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+BackgroundTaskDetailModal .output-section {
+    height: 1fr;
+    width: 100%;
+    background: $background;
+    border: solid $surface-lighten-1;
+    padding: 1;
+    overflow-y: auto;
+}
+
+BackgroundTaskDetailModal .output-content {
+    height: auto;
+    width: 100%;
+}
+
+BackgroundTaskDetailModal .modal-footer {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+    align: center middle;
+    margin-top: 1;
+    padding-top: 1;
+    border-top: solid $surface-lighten-1;
+}
+
+BackgroundTaskDetailModal .footer-button {
+    width: auto;
+    min-width: 16;
+    margin: 0 1;
+}
+
+BackgroundTaskDetailModal .status-running {
+    color: $warning;
+}
+
+BackgroundTaskDetailModal .status-stopped {
+    color: $success;
+}
+
+BackgroundTaskDetailModal .status-failed {
+    color: $error;
+}
+
+BackgroundTaskDetailModal .no-output {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* === Background Tasks Modal === */
+BackgroundTasksModal {
+    align: center middle;
+}
+
+BackgroundTasksModal > Container {
+    width: 90%;
+    max-width: 100;
+    height: auto;
+    max-height: 70%;
+    background: $panel;
+    border: solid $warning;
+    padding: 1 2;
+}
+
+BackgroundTasksModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+BackgroundTasksModal .header-row {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+BackgroundTasksModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $warning;
+}
+
+BackgroundTasksModal .modal-stats {
+    width: auto;
+    padding-right: 2;
+}
+
+BackgroundTasksModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+BackgroundTasksModal .modal-close:hover {
+    color: $text;
+}
+
+BackgroundTasksModal .modal-body {
+    height: 1fr;
+    max-height: 35;
+    overflow-y: auto;
+    padding: 0;
+}
+
+BackgroundTasksModal BackgroundTaskRow {
+    height: auto;
+    width: 100%;
+    padding: 1;
+    margin-bottom: 1;
+    background: $background;
+    border-left: solid $warning;
+}
+
+BackgroundTasksModal BackgroundTaskRow:hover {
+    background: $surface;
+}
+
+BackgroundTasksModal BackgroundTaskRow:focus {
+    background: $panel;
+    border-left: solid $primary;
+}
+
+BackgroundTasksModal .task-content {
+    height: auto;
+    width: 100%;
+}
+
+BackgroundTasksModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+    padding-top: 1;
+    border-top: solid $surface-lighten-1;
+}
+
+BackgroundTasksModal .close-button {
+    width: auto;
+    min-width: 16;
+}
+
+BackgroundTasksModal .empty-message {
+    padding: 2;
+    text-align: center;
+    color: $text-muted;
+}
+
+/* === Content Sections (from content_sections.py) === */
+
+/* Tool Section */
+ToolSection {
+    height: auto;
+    max-height: 40%;
+    margin: 0 0 1 0;
+    padding: 0;
+}
+
+ToolSection.collapsed {
+    height: 3;
+    overflow: hidden;
+}
+
+ToolSection.hidden {
+    display: none;
+}
+
+ToolSection .section-header {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+}
+
+ToolSection #tool_container {
+    height: auto;
+    max-height: 100%;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+/* Reasoning Section */
+ReasoningSection {
+    height: auto;
+    max-height: 30%;
+    margin: 0 0 1 0;
+    padding: 0;
+    border: solid $surface-lighten-1;
+    border-left: thick $primary-lighten-1;
+    background: $surface;
+}
+
+ReasoningSection.collapsed #reasoning_content {
+    max-height: 2;
+    overflow: hidden;
+}
+
+ReasoningSection.hidden {
+    display: none;
+}
+
+ReasoningSection #reasoning_header {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: $panel;
+    color: $text-muted;
+}
+
+ReasoningSection #reasoning_header:hover {
+    background: $surface-lighten-2;
+}
+
+ReasoningSection #reasoning_content {
+    height: auto;
+    max-height: 100%;
+    padding: 0 1;
+    overflow-y: auto;
+    background: $background;
+}
+
+ReasoningSection .reasoning-text {
+    width: 100%;
+    padding: 0;
+    color: $text-muted;
+}
+
+/* Timeline Section */
+TimelineSection {
+    width: 100%;
+    height: 1fr;
+    padding: 0 2 1 2;
+    margin: 0;
+    overflow-y: auto;
+    scrollbar-size: 1 3;
+    scrollbar-gutter: stable;
+}
+
+TimelineSection .timeline-text {
+    width: 100%;
+    padding: 1 1;
+    margin: 1 0;
+}
+
+TimelineSection .timeline-text.status {
+    color: $primary;
+}
+
+TimelineSection .timeline-text.thinking {
+    color: $text-muted;
+}
+
+TimelineSection .timeline-text.response {
+    color: $secondary;
+}
+
+TimelineSection .timeline-text.coordination {
+    color: $text-muted;
+    background: $surface;
+}
+
+TimelineSection .timeline-text.reasoning-inline {
+    color: $text-muted;
+    border-left: thick $primary-lighten-1;
+    padding-left: 1;
+}
+
+TimelineSection .scroll-arrow-indicator {
+    width: 100%;
+    height: 1;
+    text-align: center;
+    color: $text-muted;
+    background: transparent;
+}
+
+TimelineSection .scroll-arrow-indicator.hidden {
+    display: none;
+}
+
+TimelineSection #scroll_top_indicator {
+    dock: top;
+}
+
+TimelineSection #scroll_bottom_indicator {
+    dock: bottom;
+}
+
+/* Phase 12: Generic hidden rule for round-based visibility */
+TimelineSection .hidden {
+    display: none;
+}
+
+/* Answer lock mode: final card fills the space */
+TimelineSection.answer-locked {
+    overflow-y: hidden;
+    padding: 0;
+}
+
+/* Hidden class for non-locked items */
+TimelineSection .answer-lock-hidden {
+    display: none;
+}
+
+/* ARCH-001: Viewport culling - hide items outside visible area */
+TimelineSection .viewport-culled {
+    display: none;
+}
+
+/* Locked final card fills available space */
+TimelineSection FinalPresentationCard.final-card-locked {
+    height: 1fr;
+    margin: 0;
+    min-height: 10;
+}
+
+TimelineSection FinalPresentationCard.final-card-locked #final_card_body {
+    height: 1fr;
+    max-height: 999;
+}
+
+TimelineSection FinalPresentationCard.final-card-locked #final_card_content {
+    height: 1fr;
+    max-height: 999;
+    overflow-y: auto;
+}
+
+/* Compact mode for small terminals */
+TimelineSection FinalPresentationCard.final-card-compact {
+    height: 3;
+    min-height: 3;
+    max-height: 3;
+    margin: 0;
+}
+
+TimelineSection FinalPresentationCard.final-card-compact #final_card_content {
+    display: none;
+}
+
+TimelineSection FinalPresentationCard.final-card-compact #final_card_header {
+    height: 1;
+}
+
+/* Winner hint - separator line style */
+TimelineSection .winner-hint {
+    width: 100%;
+    height: 1;
+    text-align: center;
+    color: $primary-lighten-1;
+    background: transparent;
+    padding: 0;
+    margin: 1 0;
+    border: none;
+}
+
+TimelineSection .winner-hint.hidden {
+    display: none;
+}
+
+/* Thinking Section */
+ThinkingSection {
+    height: auto;
+    max-height: 50%;
+    padding: 0;
+    margin: 0 0 1 0;
+    border-left: thick $primary-lighten-1;
+    background: $surface;
+}
+
+ThinkingSection.hidden {
+    display: none;
+}
+
+ThinkingSection #thinking_header {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: $panel;
+    color: $text-muted;
+}
+
+ThinkingSection #thinking_header:hover {
+    background: $surface-lighten-2;
+    color: $text;
+}
+
+ThinkingSection #thinking_content {
+    height: auto;
+    max-height: 100%;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+ThinkingSection.collapsed #thinking_content {
+    max-height: 3;
+    overflow: hidden;
+}
+
+ThinkingSection #thinking_log {
+    height: auto;
+    padding: 0;
+}
+
+/* =============================================================================
+   Response Section (from content_sections.py)
+   ============================================================================= */
+
+ResponseSection {
+    height: auto;
+    max-height: 50%;
+    margin: 1 0;
+    padding: 0;
+    border: round $secondary;
+    background: $surface;
+}
+
+ResponseSection.hidden {
+    display: none;
+}
+
+ResponseSection #response_header {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    background: $panel;
+    color: $text;
+}
+
+ResponseSection #response_content {
+    height: auto;
+    max-height: 100%;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+ResponseSection #response_content Static {
+    width: 100%;
+}
+
+/* =============================================================================
+   Status Badge (from content_sections.py)
+   ============================================================================= */
+
+StatusBadge {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    text-align: right;
+}
+
+StatusBadge.status-connected {
+    color: $success;
+}
+
+StatusBadge.status-working {
+    color: $warning;
+}
+
+StatusBadge.status-streaming {
+    color: $secondary;
+}
+
+StatusBadge.status-completed {
+    color: $success;
+}
+
+StatusBadge.status-error {
+    color: $error;
+}
+
+StatusBadge.status-waiting {
+    color: $text-muted;
+}
+
+/* =============================================================================
+   Completion Footer (from content_sections.py)
+   ============================================================================= */
+
+CompletionFooter {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+    text-align: center;
+}
+
+CompletionFooter.hidden {
+    display: none;
+}
+
+CompletionFooter.status-completed {
+    color: $success;
+}
+
+CompletionFooter.status-error {
+    color: $error;
+}
+
+/* =============================================================================
+   Restart Banner (from content_sections.py)
+   ============================================================================= */
+
+RestartBanner {
+    width: 100%;
+    height: 1;
+    margin: 1 0;
+    padding: 0;
+    background: transparent;
+}
+
+RestartBanner.hidden {
+    display: none;
+}
+
+/* =============================================================================
+   Final Presentation Card (from content_sections.py)
+   ============================================================================= */
+
+FinalPresentationCard {
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+    padding: 0;
+    border: solid $warning;
+    background: transparent;
+}
+
+FinalPresentationCard.streaming {
+    border: double $warning;
+}
+
+FinalPresentationCard.completed {
+    border: solid $success;
+    background: transparent;
+}
+
+/* Hide post_eval and context_paths in completed mode when they have hidden class */
+FinalPresentationCard.completed #final_card_post_eval.hidden,
+FinalPresentationCard.completed #final_card_context_paths.hidden {
+    display: none;
+    height: 0;
+    padding: 0;
+    margin: 0;
+}
+
+FinalPresentationCard #final_card_header {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    background: transparent;
+}
+
+FinalPresentationCard.completed #final_card_header {
+    background: transparent;
+}
+
+FinalPresentationCard #final_card_title {
+    color: $warning;
+    text-style: bold;
+}
+
+FinalPresentationCard.completed #final_card_title {
+    color: $success;
+}
+
+FinalPresentationCard #final_card_votes {
+    color: $text-muted;
+    height: 1;
+    border-bottom: solid $surface-lighten-1;
+    padding-bottom: 1;
+    margin-bottom: 1;
+}
+
+FinalPresentationCard #final_card_body {
+    width: 100%;
+    height: auto;
+    max-height: 30;
+    layout: horizontal;
+}
+
+FinalPresentationCard #final_card_content {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    max-height: 30;
+    padding: 1 2 0 2;
+    background: transparent;
+    overflow-y: auto;
+}
+
+FinalPresentationCard #final_card_text {
+    width: 100%;
+    height: auto;
+    background: transparent;
+    color: $text;
+    margin: 0 1;
+}
+
+FinalPresentationCard #final_card_text MarkdownH1,
+FinalPresentationCard #final_card_text MarkdownH2,
+FinalPresentationCard #final_card_text MarkdownH3 {
+    background: transparent;
+    color: $warning;
+    margin: 1 0 0 0;
+}
+
+FinalPresentationCard #final_card_text MarkdownFence {
+    background: $panel;
+    margin: 1 0;
+}
+
+FinalPresentationCard #final_card_post_eval {
+    width: 100%;
+    height: auto;
+    padding: 0;
+    background: $panel;
+    border-top: dashed $surface-lighten-1;
+}
+
+FinalPresentationCard #final_card_post_eval.hidden {
+    display: none;
+}
+
+FinalPresentationCard #post_eval_header {
+    width: 100%;
+    height: 2;
+    padding: 0 2;
+    background: $panel;
+}
+
+FinalPresentationCard #post_eval_status {
+    color: $success;
+    width: auto;
+}
+
+FinalPresentationCard #post_eval_status.evaluating {
+    color: $secondary;
+}
+
+FinalPresentationCard #post_eval_toggle {
+    color: $text-muted;
+    width: auto;
+    text-align: right;
+    margin-left: 1;
+}
+
+FinalPresentationCard #post_eval_toggle:hover {
+    color: $text;
+    text-style: underline;
+}
+
+FinalPresentationCard #post_eval_details {
+    width: 100%;
+    height: auto;
+    max-height: 10;
+    padding: 0 2 1 2;
+    overflow-y: auto;
+}
+
+FinalPresentationCard #post_eval_details.collapsed {
+    display: none;
+}
+
+FinalPresentationCard #post_eval_content {
+    color: $text-muted;
+    height: auto;
+}
+
+FinalPresentationCard #final_card_context_paths {
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+    background: $panel;
+    border-top: dashed $surface-lighten-1;
+}
+
+FinalPresentationCard #final_card_context_paths.hidden {
+    display: none;
+}
+
+FinalPresentationCard #context_paths_header {
+    color: $secondary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+FinalPresentationCard #context_paths_list {
+    height: auto;
+}
+
+FinalPresentationCard .context-path-new {
+    color: $success;
+}
+
+FinalPresentationCard .context-path-modified {
+    color: $warning;
+}
+
+FinalPresentationCard #final_card_footer {
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+    background: transparent;
+}
+
+FinalPresentationCard #final_card_footer.hidden {
+    display: none;
+}
+
+FinalPresentationCard #final_card_buttons {
+    width: 100%;
+    height: 1;
+}
+
+/* Footer links - consistent clickable link style */
+FinalPresentationCard .footer-link {
+    width: auto;
+    height: 1;
+    color: $primary;
+    text-style: underline;
+    padding: 0 1;
+}
+
+FinalPresentationCard .footer-link:hover {
+    color: $primary-lighten-1;
+    text-style: bold underline;
+}
+
+/* Verified indicator - faded, non-clickable, hidden by default */
+FinalPresentationCard .verified-indicator {
+    display: none;
+    width: auto;
+    height: 1;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+FinalPresentationCard #continue_message {
+    display: none;
+}
+
+/* Full-width mode - fills available vertical space */
+FinalPresentationCard.full-width-mode {
+    height: 1fr;
+    min-height: 20;
+}
+
+FinalPresentationCard.full-width-mode #final_card_content {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+/* Enhanced prominence styling for full-width mode */
+FinalPresentationCard.full-width-mode.streaming {
+    border: double $warning;
+}
+
+FinalPresentationCard.full-width-mode.completed {
+    border: double $success;
+    background: transparent;
+}
+
+FinalPresentationCard.full-width-mode #final_card_header {
+    background: transparent;
+    padding: 0 1;
+}
+
+FinalPresentationCard.full-width-mode #final_card_title {
+    color: $success;
+}
+
+/* Completion-only mode - minimal footer bar */
+/* Content already shown through normal pipeline, just show action buttons */
+FinalPresentationCard.completion-only {
+    border: none;
+    background: transparent;
+    margin: 0;
+    padding: 0;
+}
+
+FinalPresentationCard.completion-only #final_card_header {
+    display: none;
+}
+
+FinalPresentationCard.completion-only #final_card_content {
+    display: none;
+}
+
+FinalPresentationCard.completion-only #final_card_post_eval {
+    display: none;
+}
+
+FinalPresentationCard.completion-only #final_card_context_paths {
+    display: none;
+}
+
+FinalPresentationCard.completion-only #final_card_footer {
+    display: block;
+    background: $panel;
+    border: solid $surface-lighten-1;
+    padding: 1 2;
+}
+
+/* Spacer to push unlock button to the right in footer */
+FinalPresentationCard #final_card_button_spacer {
+    width: 1fr;
+    height: 1;
+}
+
+FinalPresentationCard.locked-mode #final_card_body {
+    height: 1fr;
+    max-height: 999;
+}
+
+FinalPresentationCard.locked-mode #final_card_content {
+    height: 1fr;
+    max-height: 999;
+}
+
+FinalPresentationCard.locked-mode {
+    height: 1fr;
+}
+
+/* =============================================================================
+   Injection Toggle (from tool_card.py)
+   ============================================================================= */
+
+InjectionToggle {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    padding: 0;
+    margin: 0;
+}
+
+InjectionToggle:hover {
+    background: $panel;
+}
+
+InjectionToggle.expanded {
+    min-height: 5;
+    max-height: 20;  /* SPACE-005: Cap expansion to prevent layout thrashing */
+}
+
+/* =============================================================================
+   Task Plan Card (from task_plan_card.py)
+   ============================================================================= */
+
+TaskPlanCard {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    padding: 0 0 0 2;
+    margin: 0 0 0 1;
+    background: transparent;
+    border-left: solid $surface-lighten-1;
+}
+
+TaskPlanCard:hover {
+    border-left: solid $secondary;
+}
+
+TaskPlanCard .task-header {
+    text-style: bold;
+    color: $secondary;
+    margin-bottom: 1;
+}
+
+TaskPlanCard .task-item {
+    height: auto;
+    padding: 0;
+}
+
+TaskPlanCard .task-completed {
+    color: $text-muted;
+}
+
+TaskPlanCard .task-in-progress {
+    color: $primary;
+    text-style: bold;
+}
+
+TaskPlanCard .task-pending {
+    color: $secondary;
+}
+
+TaskPlanCard .task-blocked {
+    color: $text-muted;
+    text-style: italic;
+}
+
+TaskPlanCard .task-focused {
+    background: $primary 20%;
+}
+
+TaskPlanCard .task-count {
+    color: $text-muted;
+    text-style: italic;
+}
+
+TaskPlanCard .task-reminder {
+    background: $warning 20%;
+    color: $warning;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+/* =============================================================================
+   Execution Status Line (from execution_status_line.py)
+   ============================================================================= */
+
+ExecutionStatusLine {
+    dock: bottom;
+    height: 1;
+    width: 100%;
+    background: transparent;
+    color: $text-muted;
+    text-align: center;
+    content-align: center middle;
+}
+
+ExecutionStatusLine.hidden {
+    display: none;
+}
+
+/* =============================================================================
+   Subagent Column (from subagent_card.py)
+   ============================================================================= */
+
+SubagentColumn {
+    width: 1fr;
+    min-width: 32;
+    height: auto;
+    padding: 0 1 0 1;
+    border-right: solid $surface-darken-1;
+}
+
+SubagentColumn:last-of-type {
+    border-right: none;
+    margin-right: 0;
+}
+
+SubagentColumn:hover {
+    background: $panel;
+}
+
+SubagentColumn:focus {
+    background: $panel;
+    border-left: thick $secondary;
+    padding-left: 0;
+}
+
+SubagentColumn .agent-header {
+    text-style: bold;
+    color: $text;
+}
+
+SubagentColumn .task-description {
+    color: $secondary;
+}
+
+SubagentColumn .progress-bar {
+    color: $text-muted;
+}
+
+SubagentColumn .summary-line {
+    color: $text-muted;
+}
+
+SubagentColumn .tool-current {
+    color: $secondary;
+    text-style: bold;
+}
+
+SubagentColumn .tool-recent {
+    color: $text-muted;
+}
+
+/* =============================================================================
+   Subagent Card (from subagent_card.py)
+   ============================================================================= */
+
+SubagentCard {
+    width: 100%;
+    height: auto;
+    min-height: 5;
+    padding: 0 1 0 2;
+    margin: 0 0 1 1;
+    background: $surface;
+    border-left: tall $secondary;
+    border-top: solid $surface-darken-1;
+    border-bottom: solid $background;
+}
+
+SubagentCard.all-completed {
+    border-left: tall $success;
+    background: $success 30%;
+    border-top: solid $success 50%;
+    border-bottom: solid $background;
+}
+
+SubagentCard:hover {
+    background: $panel;
+}
+
+SubagentCard.all-completed:hover {
+    background: $success 50%;
+}
+
+SubagentCard:focus-within {
+    background: $panel;
+}
+
+SubagentCard.appearing {
+    opacity: 0.0;
+}
+
+SubagentCard.appeared {
+    opacity: 1.0;
+}
+
+SubagentCard #subagent-card-title {
+    height: 1;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+SubagentCard #subagent-scroll {
+    width: 100%;
+    height: auto;
+    max-height: 12;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-size: 1 1;
+}
+
+SubagentCard #subagent-columns {
+    layout: horizontal;
+    height: auto;
+    width: 100%;
+}
+
+/* =============================================================================
+   Task Plan Modal (from task_plan_modal.py)
+   ============================================================================= */
+
+TaskPlanModal {
+    align: center middle;
+}
+
+TaskPlanModal > Container {
+    width: 90%;
+    max-width: 120;
+    height: auto;
+    max-height: 85%;
+    background: $surface;
+    border: round $secondary;
+    padding: 1 2;
+}
+
+TaskPlanModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+TaskPlanModal .header-row {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+TaskPlanModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $secondary;
+}
+
+TaskPlanModal .modal-stats {
+    width: auto;
+    padding-right: 2;
+}
+
+TaskPlanModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+TaskPlanModal .modal-close:hover {
+    color: $text;
+}
+
+TaskPlanModal .progress-bar {
+    height: 1;
+    width: 100%;
+    margin-top: 1;
+}
+
+TaskPlanModal .modal-body {
+    height: 1fr;
+    max-height: 45;
+    overflow-y: auto;
+    padding: 0;
+}
+
+TaskPlanModal .task-row {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 0;
+}
+
+TaskPlanModal .task-row:hover {
+    background: $panel;
+}
+
+TaskPlanModal .task-focused {
+    background: $panel;
+    border-left: solid $secondary;
+}
+
+TaskPlanModal .task-header {
+    height: auto;
+    width: 100%;
+}
+
+TaskPlanModal .task-meta {
+    height: auto;
+    width: 100%;
+    margin-top: 0;
+    padding-left: 3;
+}
+
+TaskPlanModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+    padding-top: 1;
+    border-top: solid $surface-lighten-1;
+}
+
+TaskPlanModal .close-button {
+    width: auto;
+    min-width: 16;
+}
+
+/* =============================================================================
+   Tool Detail Modal (from tool_detail_modal.py)
+   ============================================================================= */
+
+ToolDetailModal {
+    align: center middle;
+}
+
+ToolDetailModal > Container {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    background: $panel;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+ToolDetailModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    layout: horizontal;
+}
+
+ToolDetailModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+}
+
+ToolDetailModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+ToolDetailModal .modal-close:hover {
+    color: $text;
+}
+
+ToolDetailModal .modal-divider {
+    height: 1;
+    width: 100%;
+    color: $surface-lighten-1;
+}
+
+ToolDetailModal .modal-body {
+    height: 1fr;
+    max-height: 40;
+    overflow-y: auto;
+}
+
+ToolDetailModal .modal-section-title {
+    height: 1;
+    margin-top: 1;
+    text-style: bold;
+    color: $secondary;
+}
+
+ToolDetailModal .modal-content {
+    height: auto;
+    padding: 0 1;
+}
+
+ToolDetailModal .args-content {
+    color: $text-muted;
+}
+
+ToolDetailModal .result-content {
+    color: $text;
+}
+
+ToolDetailModal .error-content {
+    color: $error;
+}
+
+ToolDetailModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-top: 1;
+}
+
+ToolDetailModal .close-button {
+    width: auto;
+    min-width: 16;
+}
+
+/* =============================================================================
+   File Explorer Panel (from file_explorer_panel.py)
+   ============================================================================= */
+
+FileExplorerPanel {
+    width: 35%;
+    border-left: solid $primary-lighten-1;
+    display: none;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+FileExplorerPanel.visible {
+    display: block;
+}
+
+FileExplorerPanel #file_tree_header {
+    color: $primary;
+    text-style: bold;
+    padding: 0 1;
+    height: 1;
+}
+
+FileExplorerPanel #file_tree {
+    height: auto;
+    max-height: 50%;
+    min-height: 5;
+    padding: 0 1;
+}
+
+FileExplorerPanel #file_preview_header {
+    color: $text-muted;
+    padding: 0 1;
+    height: 1;
+    border-top: solid $primary-lighten-1;
+}
+
+FileExplorerPanel #file_preview {
+    height: 1fr;
+    min-height: 5;
+    padding: 0 1;
+    color: $text;
+    overflow-y: auto;
+}
+
+/* =============================================================================
+   Welcome Step (from wizard_steps.py)
+   ============================================================================= */
+
+WelcomeStep {
+    width: 100%;
+    height: auto;
+    padding: 0 2;
+}
+
+WelcomeStep .wizard-welcome {
+    width: 100%;
+    height: auto;
+    padding: 1 0;
+}
+
+WelcomeStep .wizard-welcome-intro {
+    color: $text-muted;
+    width: 100%;
+    margin-bottom: 0;
+}
+
+WelcomeStep .wizard-welcome-feature {
+    color: $success;
+    width: 100%;
+    margin-bottom: 0;
+    padding-left: 2;
+}
+
+WelcomeStep .wizard-welcome-hint {
+    color: $text-muted;
+    text-style: italic;
+    width: 100%;
+    margin-top: 1;
+    text-align: center;
+}
+
+/* =============================================================================
+   Subagent Modal (from subagent_modal.py)
+   ============================================================================= */
+
+SubagentModal {
+    align: center middle;
+}
+
+SubagentModal > Container {
+    width: 95%;
+    max-width: 140;
+    height: 90%;
+    max-height: 50;
+    background: $panel;
+    border: solid $secondary;
+    padding: 1 2;
+}
+
+SubagentModal .modal-header {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+SubagentModal .header-row {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+SubagentModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $secondary;
+}
+
+SubagentModal .modal-status {
+    width: auto;
+    padding-right: 2;
+}
+
+SubagentModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+SubagentModal .modal-close:hover {
+    color: $text;
+}
+
+SubagentModal .metadata-section {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: $background;
+}
+
+SubagentModal .progress-bar {
+    height: 1;
+    width: 100%;
+    margin-top: 1;
+}
+
+SubagentModal .log-section {
+    height: 1fr;
+    min-height: 15;
+    max-height: 25;
+    width: 100%;
+    border: solid $surface-lighten-1;
+    margin-bottom: 1;
+}
+
+SubagentModal .log-header {
+    height: auto;
+    background: $background;
+    padding: 0 1;
+}
+
+SubagentModal .log-content {
+    height: 1fr;
+    padding: 0 1;
+}
+
+SubagentModal RichLog {
+    height: 1fr;
+    width: 100%;
+    scrollbar-gutter: stable;
+}
+
+SubagentModal .workspace-section {
+    height: auto;
+    max-height: 6;
+    width: 100%;
+    border: solid $surface-lighten-1;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+SubagentModal .answer-section {
+    height: auto;
+    max-height: 10;
+    width: 100%;
+    border: solid $surface-lighten-1;
+    margin-bottom: 1;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+SubagentModal .section-title {
+    background: $background;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+SubagentModal .modal-footer {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    padding-top: 1;
+    border-top: solid $surface-lighten-1;
+}
+
+SubagentModal .footer-buttons {
+    layout: horizontal;
+    height: auto;
+    width: auto;
+}
+
+SubagentModal .footer-button {
+    width: auto;
+    min-width: 16;
+    margin: 0 1;
+}
+
+SubagentModal .subagent-nav {
+    height: auto;
+    width: 100%;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: $background;
+    layout: horizontal;
+    align: center middle;
+}
+
+SubagentModal .nav-button {
+    width: auto;
+    min-width: 5;
+    background: $surface;
+    border: solid $surface-lighten-1;
+    margin: 0 1;
+}
+
+SubagentModal .nav-button:hover {
+    background: $panel;
+}
+
+SubagentModal .nav-button:disabled {
+    opacity: 0.3;
+}
+
+SubagentModal #nav-text {
+    width: auto;
+    text-align: center;
+    color: $text-muted;
+}

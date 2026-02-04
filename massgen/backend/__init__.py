@@ -9,6 +9,7 @@ Supports multiple LLM providers with standardized StreamChunk interface:
 - Claude (Messages API with multi-tool support)
 - Gemini (structured output for coordination)
 - Claude Code (claude-code-sdk streaming integration)
+- Codex (OpenAI Codex CLI with OAuth support)
 
 TODO:
 
@@ -24,6 +25,7 @@ from .claude import ClaudeBackend
 # from .claude_code_cli import ClaudeCodeCLIBackend  # File removed
 from .claude_code import ClaudeCodeBackend
 from .cli_base import CLIBackend
+from .codex import CodexBackend
 from .gemini import GeminiBackend
 from .grok import GrokBackend
 from .lmstudio import LMStudioBackend
@@ -52,6 +54,7 @@ __all__ = [
     "GeminiBackend",
     "CLIBackend",
     "ClaudeCodeBackend",
+    "CodexBackend",
     # "GeminiCLIBackend",
 ]
 

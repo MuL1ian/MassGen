@@ -37,6 +37,7 @@ class TimelineEventAdapter:
         self._round_number = 1
         self._tool_count = 0
         self._final_answer: Optional[str] = None
+        self._final_answer_received = False  # Track when definitive final_answer event received
         self._last_separator_round = 0
         self._on_output_applied = on_output_applied
 
@@ -54,6 +55,7 @@ class TimelineEventAdapter:
         self._round_number = 1
         self._tool_count = 0
         self._final_answer = None
+        self._final_answer_received = False
         self._last_separator_round = 0
 
     def set_round_number(self, round_number: int) -> None:
@@ -62,6 +64,9 @@ class TimelineEventAdapter:
 
     def handle_event(self, event: MassGenEvent) -> None:
         """Process a MassGen event and update the timeline."""
+        tui_log(
+            f"[EVENT_DEBUG] handle_event: type={event.event_type} " f"event_round={event.round_number} adapter_round={self._round_number}",
+        )
         output = self._processor.process_event(event, self._round_number)
         if not output:
             return
@@ -126,6 +131,11 @@ class TimelineEventAdapter:
             # Skip "Evaluation complete" status — already shown in FinalPresentationCard header
             if output.text_class == "status" and "Evaluation complete" in output.text_content:
                 return
+            # Capture text during final presentation as the final answer
+            # (only if we haven't received the definitive final_answer event yet)
+            if output.output_type == "text" and getattr(self, "_pending_final_card_meta", None) and not getattr(self, "_final_answer_received", False):
+                tui_log(f"[FINAL_CARD] Capturing text as final_answer: {output.text_content[:50] if output.text_content else None}...")
+                self._final_answer = output.text_content
             try:
                 timeline.add_text(
                     output.text_content,
@@ -176,21 +186,36 @@ class TimelineEventAdapter:
         elif output.output_type == "separator":
             round_number = output.round_number or self._round_number
             label = output.separator_label or ""
-            if label.startswith("Round ") and round_number <= self._last_separator_round:
-                return
             if label.startswith("Round "):
+                if round_number <= self._last_separator_round:
+                    tui_log(
+                        f"[EVENT_DEBUG] separator: skipping duplicate round={round_number} " f"(last={self._last_separator_round})",
+                    )
+                    return
+                tui_log(
+                    f"[EVENT_DEBUG] separator: updating adapter round from " f"{self._round_number} to {round_number}",
+                )
                 self._last_separator_round = round_number
-            self._round_number = round_number
-            if hasattr(self._panel, "start_new_round"):
-                try:
-                    self._panel.start_new_round(self._round_number, is_context_reset=False)
-                except Exception as e:
-                    tui_log(f"[TimelineEventAdapter] {e}")
+                self._round_number = round_number
+                if hasattr(self._panel, "start_new_round"):
+                    try:
+                        self._panel.start_new_round(self._round_number, is_context_reset=False, defer_banner=True)
+                    except Exception as e:
+                        tui_log(f"[TimelineEventAdapter] {e}")
+                else:
+                    try:
+                        timeline.add_separator(
+                            output.separator_label,
+                            round_number=self._round_number,
+                            subtitle=output.separator_subtitle,
+                        )
+                    except Exception as e:
+                        tui_log(f"[TimelineEventAdapter] {e}")
             else:
                 try:
                     timeline.add_separator(
                         output.separator_label,
-                        round_number=self._round_number,
+                        round_number=round_number,
                         subtitle=output.separator_subtitle,
                     )
                 except Exception as e:
@@ -199,6 +224,9 @@ class TimelineEventAdapter:
             # Store for retrieval but don't render inline — a dedicated
             # final answer card handles display separately.
             self._final_answer = output.text_content
+            # Mark that we've received the definitive final_answer event
+            # so post-evaluation TEXT events don't overwrite it
+            self._final_answer_received = True
         elif output.output_type == "final_presentation_start":
             self._apply_final_presentation_start(output, round_number, timeline)
         elif output.output_type == "final_presentation_chunk":
@@ -289,18 +317,37 @@ class TimelineEventAdapter:
                 except Exception:
                     existing = None
 
-                if existing is None:
+                # Avoid duplicating tools that already live inside a batch
+                in_batch = output.batch_action == "update_batch"
+                if not in_batch:
+                    try:
+                        in_batch = timeline.get_tool_batch(tool_data.tool_id) is not None
+                    except Exception:
+                        in_batch = False
+
+                if in_batch:
+                    updated = None
+                    try:
+                        updated = timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
+                    except Exception as e:
+                        tui_log(f"[TimelineEventAdapter] {e}")
+                        updated = False  # Mark as failed on exception
+                    # Treat None as success (some implementations don't return a value)
+                    if updated is not False:
+                        pass
+                    elif existing is None:
+                        # Batch missing — fall back to standalone rendering
+                        timeline.add_tool(tool_data, round_number=round_number)
+                        timeline.update_tool(tool_data.tool_id, tool_data)
+                    else:
+                        timeline.update_tool(tool_data.tool_id, tool_data)
+                elif existing is None:
                     # Tool arrived already completed (e.g., coordination events
                     # like workspace/vote and workspace/new_answer). Add it
                     # and immediately update so it shows the correct status
                     # (green checkmark) instead of staying at "running" (orange dot).
                     timeline.add_tool(tool_data, round_number=round_number)
                     timeline.update_tool(tool_data.tool_id, tool_data)
-                elif output.batch_action == "update_batch":
-                    try:
-                        timeline.update_tool_in_batch(tool_data.tool_id, tool_data)
-                    except Exception:
-                        timeline.update_tool(tool_data.tool_id, tool_data)
                 else:
                     timeline.update_tool(tool_data.tool_id, tool_data)
 
@@ -356,6 +403,8 @@ class TimelineEventAdapter:
         answer_labels = extra.get("answer_labels", {})
         is_tie = extra.get("is_tie", False)
 
+        tui_log(f"[FINAL_CARD] _apply_final_presentation_start: agent_id={agent_id}, round={round_number}")
+
         self._pending_final_card_meta = {
             "agent_id": agent_id,
             "vote_counts": vote_counts,
@@ -370,7 +419,7 @@ class TimelineEventAdapter:
         # the direct display path (AgentPanel.start_final_presentation) already
         # adds this banner, so skip if the panel signals it was handled.
         already_handled = getattr(self._panel, "_is_final_presentation_round", False)
-        if timeline and hasattr(timeline, "add_separator") and not already_handled:
+        if timeline and hasattr(timeline, "add_separator"):
             subtitle = ""
             if vote_counts:
                 sorted_votes = sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)
@@ -381,11 +430,18 @@ class TimelineEventAdapter:
                 subtitle = f"Votes: {', '.join(vote_parts)}"
             try:
                 new_round = round_number + 1
-                timeline.add_separator(
-                    "FINAL PRESENTATION",
-                    round_number=new_round,
-                    subtitle=subtitle,
-                )
+                has_banner = False
+                if hasattr(timeline, "_has_round_banner"):
+                    try:
+                        has_banner = timeline._has_round_banner(new_round)
+                    except Exception:
+                        has_banner = False
+                if not already_handled and not has_banner:
+                    timeline.add_separator(
+                        "FINAL PRESENTATION",
+                        round_number=new_round,
+                        subtitle=subtitle,
+                    )
                 # Update round tracking so subsequent content (tool calls,
                 # text, thinking) is tagged with the final-presentation round
                 self._round_number = new_round
@@ -473,17 +529,35 @@ class TimelineEventAdapter:
         if self._final_answer:
             try:
                 card.append_chunk(self._final_answer)
-                card.set_post_eval_status("verified")
                 card.complete()
             except Exception as e:
                 tui_log(f"[TimelineEventAdapter] {e}")
 
     def _apply_answer_locked(self, output: ContentOutput, timeline: Any) -> None:
         """Create the FinalPresentationCard (if deferred) and lock the timeline."""
+        tui_log(f"[FINAL_CARD] _apply_answer_locked called, _final_answer={self._final_answer[:50] if self._final_answer else None}...")
+
+        # Check if card already exists (may have been created by another code path)
+        if getattr(self, "_final_presentation_card", None) is None:
+            try:
+                # Use query to find all matches, avoiding NoMatches exception
+                existing_cards = list(timeline.query("#final_presentation_card"))
+                if existing_cards:
+                    tui_log(f"[FINAL_CARD] Card already exists ({len(existing_cards)} found), reusing first one")
+                    self._final_presentation_card = existing_cards[0]
+                    # Populate existing card with final answer if it doesn't have content
+                    card = self._final_presentation_card
+                    if self._final_answer and not getattr(card, "_final_content", []):
+                        tui_log(f"[FINAL_CARD] Populating existing card with final_answer length={len(self._final_answer)}")
+                        card.append_chunk(self._final_answer)
+            except Exception as e:
+                tui_log(f"[FINAL_CARD] Error checking for existing card: {e}")
+
         # Create card now if it doesn't exist yet (deferred from _apply_final_presentation_start)
         if getattr(self, "_final_presentation_card", None) is None:
             meta = getattr(self, "_pending_final_card_meta", None)
             tl = getattr(self, "_pending_final_card_timeline", None) or timeline
+            tui_log(f"[FINAL_CARD] Creating card: meta={meta is not None}, tl={tl is not None}")
             if meta and tl:
                 try:
                     from .textual_widgets.content_sections import FinalPresentationCard
@@ -511,17 +585,20 @@ class TimelineEventAdapter:
 
                     # Populate with full final answer content
                     if self._final_answer:
-                        card.append_content(self._final_answer)
+                        tui_log(f"[FINAL_CARD] Populating card with final_answer length={len(self._final_answer)}")
+                        card.append_chunk(self._final_answer)
+                    else:
+                        tui_log("[FINAL_CARD] WARNING: No final_answer content available!")
 
                     tl.mount(card)
                     self._final_presentation_card = card
+                    tui_log("[FINAL_CARD] Card mounted successfully")
                 except Exception as e:
-                    tui_log(f"[TimelineEventAdapter] {e}")
+                    tui_log(f"[FINAL_CARD] ERROR creating card: {e}")
 
         card = getattr(self, "_final_presentation_card", None)
         try:
             if card:
-                card.set_post_eval_status("verified")
                 card.complete()
                 if hasattr(card, "set_locked_mode"):
                     card.set_locked_mode(True)

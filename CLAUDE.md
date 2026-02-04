@@ -291,6 +291,7 @@ Use `--verbose` flag to show detailed output (injection content, message formats
 Detailed documentation for specific modules lives in `docs/modules/`. **Always check these before working on a module, and update them when making changes.**
 
 - `docs/modules/subagents.md` - Subagent spawning, logging architecture, TUI integration
+- `docs/modules/interactive_mode.md` - Interactive mode architecture, launch_run MCP, system prompts, project workspace
 
 ## MassGen Skills
 

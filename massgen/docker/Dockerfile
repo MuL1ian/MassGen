@@ -63,7 +63,8 @@ RUN pip install --no-cache-dir ast-grep-cli
 
 # Install openskills CLI for skills management
 # Anthropic skills are installed manually beforehand and added as a volume at runtime
-RUN npm install -g openskills
+# Also install any agent CLI tools
+RUN npm install -g openskills @openai/codex
 
 # Fix MCP filesystem server schema issue
 # The latest @modelcontextprotocol/server-filesystem (2025.8.21) has a Zod version conflict:

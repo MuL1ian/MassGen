@@ -76,12 +76,18 @@ class BaseTUILayoutMixin:
     # Round management
     # -------------------------------------------------------------------------
 
-    def start_new_round(self, round_number: int, is_context_reset: bool = False) -> None:
+    def start_new_round(
+        self,
+        round_number: int,
+        is_context_reset: bool = False,
+        defer_banner: bool = False,
+    ) -> None:
         """Start a new round - update tracking and switch visibility.
 
         Args:
             round_number: The new round number
             is_context_reset: Whether this round started with a context reset
+            defer_banner: If True, defer the round banner until first content
         """
         # Update round tracking
         self._current_round = round_number
@@ -97,16 +103,23 @@ class BaseTUILayoutMixin:
             if hasattr(timeline, "clear_tools_tracking"):
                 timeline.clear_tools_tracking()
 
-            # Add "Round X" banner
+            # Add (or defer) "Round X" banner
             if round_number >= 1:
                 subtitle = "Restart" if round_number > 1 else None
                 if is_context_reset:
                     subtitle = (subtitle or "") + " • Context cleared"
-                timeline.add_separator(
-                    f"Round {round_number}",
-                    round_number=round_number,
-                    subtitle=subtitle if subtitle else None,
-                )
+                if defer_banner and hasattr(timeline, "defer_round_banner"):
+                    timeline.defer_round_banner(
+                        round_number,
+                        f"Round {round_number}",
+                        subtitle if subtitle else None,
+                    )
+                else:
+                    timeline.add_separator(
+                        f"Round {round_number}",
+                        round_number=round_number,
+                        subtitle=subtitle if subtitle else None,
+                    )
         except Exception as e:
             tui_log(f"start_new_round error: {e}")
 

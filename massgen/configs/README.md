@@ -227,22 +227,34 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.46 - Latest
+### v0.1.47 - Latest
+**New Features:** Codex Backend, TUI Theme Refactoring, Per-agent Voting Sensitivity
+
+**Key Features:**
+- **Codex Backend**: Run OpenAI Codex CLI as a MassGen backend with local and Docker execution
+- **TUI Theme System**: Palette-based theming with dark and light variants
+- **Per-agent Voting Sensitivity**: Set different voting standards (strict/balanced/lenient) for each agent
+- **Claude Code Refactored**: Shared NativeToolMixin for native tool handling across CLI-based backends
+
+**Try It:**
+```bash
+# First install codex with `npm install -g @openai/codex`, then authenticate and run the below.
+uv run massgen --config @examples/configs/providers/openai/codex/codex_local.yaml "Create a website about Bob Dylan"
+uv run massgen --config @examples/configs/providers/openai/codex/codex_docker.yaml "Create a website about Bob Dylan"
+```
+
+### v0.1.46
 **New Features:** Subagent TUI Streaming, Enhanced Final Presentation, TUI Architecture Refactor
 
 **Key Features:**
 - **Subagent TUI Streaming**: Interactive preview cards that expand to full timeline views with real-time event streaming
 - **Enhanced Final Presentation**: Final answer display with workspace visualization and winning agent highlighting
 - **TUI Architecture Refactor**: Unified event pipeline with single source of truth for display creation
-- **Bug Fixes**: Fixed banner display, tool call ID handling, and round tracking logic
 
 **Try It:**
 ```bash
 # Experience subagent TUI streaming with async execution
 uv run massgen --config @examples/configs/features/test_subagent_orchestrator_code_mode.yaml "Use subagents to research bob dylan"
-
-# Click on preview cards in the TUI to expand subagent timelines
-# Watch real-time event streaming from background subagents
 ```
 
 ### v0.1.45

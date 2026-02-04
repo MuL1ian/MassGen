@@ -19,48 +19,8 @@ class FileExplorerPanel(Vertical):
     When context_paths is empty, scans workspace_path for all files instead.
     """
 
-    DEFAULT_CSS = """
-    FileExplorerPanel {
-        width: 35%;
-        border-left: solid #45475a;
-        display: none;
-        height: 1fr;
-        overflow-y: auto;
-    }
-
-    FileExplorerPanel.visible {
-        display: block;
-    }
-
-    FileExplorerPanel #file_tree_header {
-        color: #58a6ff;
-        text-style: bold;
-        padding: 0 1;
-        height: 1;
-    }
-
-    FileExplorerPanel #file_tree {
-        height: auto;
-        max-height: 50%;
-        min-height: 5;
-        padding: 0 1;
-    }
-
-    FileExplorerPanel #file_preview_header {
-        color: #8b949e;
-        padding: 0 1;
-        height: 1;
-        border-top: solid #45475a;
-    }
-
-    FileExplorerPanel #file_preview {
-        height: 1fr;
-        min-height: 5;
-        padding: 0 1;
-        color: #e6e6e6;
-        overflow-y: auto;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(
         self,

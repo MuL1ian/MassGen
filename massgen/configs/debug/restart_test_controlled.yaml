@@ -32,10 +32,10 @@ agents:
       # model: "claude-sonnet-4-5-20250929"
       # cwd: "workspace1"
 
-  - id: "agent_b"
-    backend:
-      type: "openai"
-      model: "gpt-5-nano"
+  # - id: "agent_b"
+  #   backend:
+  #     type: "openai"
+  #     model: "gpt-5-nano"
 
 orchestrator:
   snapshot_storage: "snapshots"

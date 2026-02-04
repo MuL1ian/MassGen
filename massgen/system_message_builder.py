@@ -96,6 +96,7 @@ class SystemMessageBuilder:
         human_qa_history: Optional[List[Dict[str, str]]] = None,
         vote_only: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
+        voting_sensitivity_override: Optional[str] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -116,6 +117,8 @@ class SystemMessageBuilder:
             agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            voting_sensitivity_override: Per-agent voting sensitivity override. If provided,
+                                        takes precedence over the orchestrator-level setting.
 
         Returns:
             Complete system prompt string with XML structure
@@ -149,7 +152,8 @@ class SystemMessageBuilder:
         builder.add_section(OutputFirstVerificationSection())
 
         # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer primitives
-        voting_sensitivity = self.message_templates._voting_sensitivity
+        # Use per-agent override if provided, otherwise fall back to orchestrator default
+        voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
         answer_novelty_requirement = self.message_templates._answer_novelty_requirement
         builder.add_section(
             EvaluationSection(
@@ -329,11 +333,12 @@ class SystemMessageBuilder:
             )
             builder.add_section(TaskPlanningSection(filesystem_mode=filesystem_mode))
 
-        # PRIORITY 10 (MEDIUM): Evolving Skills (when auto-discovery is enabled)
+        # PRIORITY 10 (MEDIUM): Evolving Skills (when auto-discovery AND task planning are both enabled)
+        # Both gates must be true: evolving skills are structured work plans that complement task planning
         auto_discover_enabled = False
         if hasattr(agent, "backend") and hasattr(agent.backend, "config"):
             auto_discover_enabled = agent.backend.config.get("auto_discover_custom_tools", False)
-        if auto_discover_enabled:
+        if auto_discover_enabled and enable_task_planning:
             # Check for plan.json to provide plan-aware guidance
             plan_context = None
             if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
@@ -570,6 +575,15 @@ This makes the work reusable for similar future tasks."""
 
         return "\n\n".join(parts)
 
+    @staticmethod
+    def _get_tool_category_overrides(agent) -> Dict[str, str]:
+        """Get tool_category_overrides for an agent's backend."""
+        from massgen.backend.native_tool_mixin import NativeToolBackendMixin
+
+        if hasattr(agent, "backend") and isinstance(agent.backend, NativeToolBackendMixin):
+            return agent.backend.get_tool_category_overrides()
+        return {}
+
     def _build_filesystem_sections(
         self,
         agent,  # ChatAgent
@@ -614,6 +628,10 @@ This makes the work reusable for similar future tasks."""
         # Get code-based tools flag from agent
         enable_code_based_tools = agent.backend.filesystem_manager.enable_code_based_tools
 
+        # Check if backend has native file tools
+        overrides = self._get_tool_category_overrides(agent)
+        has_native_tools = overrides.get("filesystem") == "skip"
+
         # Build filesystem operations section
         fs_ops = FilesystemOperationsSection(
             main_workspace=main_workspace,
@@ -624,6 +642,7 @@ This makes the work reusable for similar future tasks."""
             agent_answers=all_answers,
             enable_command_execution=enable_command_execution,
             agent_mapping=agent_mapping,
+            has_native_tools=has_native_tools,
         )
 
         # Build filesystem best practices section

@@ -231,3 +231,4 @@ webui/dist/
 webui/mockups/
 
 node_modules/
+.sandbox_test/
