@@ -13,10 +13,8 @@ agents:
 
   - id: "agent_b"
     backend:
-      # type: "gemini"
-      # model: "gemini-3-flash-preview"
-      type: "claude_code"
-      model: "claude-haiku-4-5"
+      type: "gemini"
+      model: "gemini-3-flash-preview"
       cwd: "workspace2"  # Required for filesystem mode
       enable_mcp_command_line: true
       command_line_execution_mode: "docker"
