@@ -31,6 +31,7 @@ try:
     from textual.message import Message
     from textual.reactive import reactive
     from textual.screen import ModalScreen
+    from textual.theme import Theme
     from textual.widget import Widget
     from textual.widgets import Button, Footer, Input, Label, RichLog, Static, TextArea
 
@@ -2263,7 +2264,118 @@ if TEXTUAL_AVAILABLE:
         """Main Textual application for MassGen coordination."""
 
         THEMES_DIR = Path(__file__).parent / "textual_themes"
-        CSS_PATH = str(THEMES_DIR / "dark.tcss")
+        PALETTES_DIR = THEMES_DIR / "palettes"
+        CSS_PATH = str(THEMES_DIR / "dark.tcss")  # Legacy - now using combined CSS
+
+        # Map theme names to palette files
+        # Core themes cycle via Ctrl+Shift+T; others available via config only
+        PALETTE_MAP = {
+            "dark": "_dark.tcss",
+            "light": "_light.tcss",
+            "catppuccin_mocha": "_catppuccin_mocha.tcss",
+            "catppuccin_latte": "_catppuccin_latte.tcss",
+        }
+
+        # Themes that cycle with Ctrl+Shift+T
+        CORE_THEMES = ["dark", "light"]
+
+        # Custom Textual themes with proper color palettes
+        # These are registered at app startup and provide consistent styling
+        CUSTOM_THEMES = {
+            "dark": Theme(
+                name="massgen-dark",
+                primary="#58a6ff",  # Blue
+                secondary="#a371f7",  # Purple
+                accent="#f0883e",  # Orange
+                foreground="#e6edf3",  # Light text
+                background="#0d1117",  # Dark bg
+                surface="#161b22",  # Elevated surface
+                panel="#21262d",  # Panel bg
+                success="#3fb950",
+                warning="#d29922",
+                error="#f85149",
+                dark=True,
+            ),
+            "light": Theme(
+                name="massgen-light",
+                primary="#0969da",  # Strong blue
+                secondary="#8250df",  # Purple
+                accent="#bf8700",  # Amber
+                foreground="#1f2328",  # Dark text (high contrast)
+                background="#ffffff",  # White bg
+                surface="#f6f8fa",  # Light gray surface
+                panel="#ffffff",  # White panel
+                success="#1a7f37",  # Dark green (readable)
+                warning="#9a6700",  # Dark amber
+                error="#cf222e",  # Dark red
+                dark=False,
+            ),
+        }
+
+        # Map internal theme names to Textual registered theme names
+        THEME_NAME_MAP = {
+            "dark": "massgen-dark",
+            "light": "massgen-light",
+        }
+
+        # Cache for combined CSS files
+        _combined_css_cache: Dict[str, Path] = {}
+
+        @classmethod
+        def _get_combined_css_path(cls, theme: str) -> Path:
+            """Get path to combined CSS (palette + base) for a theme.
+
+            Textual CSS variables must be defined before they're used, so we
+            concatenate the palette file (which defines variables like $bg-base)
+            with the base file (which uses those variables).
+
+            Args:
+                theme: Theme name (e.g., "dark", "light")
+
+            Returns:
+                Path to the combined CSS file
+            """
+            # Get palette file for this theme
+            palette_file = cls.PALETTE_MAP.get(theme, "_dark.tcss")
+            palette_path = cls.PALETTES_DIR / palette_file
+            base_path = cls.THEMES_DIR / "base.tcss"
+
+            # Create combined CSS in a cache directory
+            import tempfile
+
+            cache_dir = Path(tempfile.gettempdir()) / "massgen_themes"
+            cache_dir.mkdir(exist_ok=True)
+            combined_path = cache_dir / f"{theme}_combined.tcss"
+
+            # Check if cache is valid (exists and newer than source files)
+            # Check both in-memory cache dict AND the on-disk file (from previous session)
+            cache_valid = False
+            if combined_path.exists():
+                # Check modification times - regenerate if sources are newer
+                cache_mtime = combined_path.stat().st_mtime
+                palette_mtime = palette_path.stat().st_mtime if palette_path.exists() else 0
+                base_mtime = base_path.stat().st_mtime if base_path.exists() else 0
+                source_mtime = max(palette_mtime, base_mtime)
+                cache_valid = cache_mtime >= source_mtime
+
+            if cache_valid:
+                # Ensure in-memory cache is up to date
+                cls._combined_css_cache[theme] = combined_path
+                return combined_path
+
+            # Read and concatenate files
+            palette_css = palette_path.read_text() if palette_path.exists() else ""
+            base_css = base_path.read_text() if base_path.exists() else ""
+
+            combined_css = f"/* Combined theme: {theme} */\n"
+            combined_css += f"/* Palette from: {palette_file} */\n\n"
+            combined_css += palette_css
+            combined_css += "\n\n/* Base component styles */\n\n"
+            combined_css += base_css
+
+            combined_path.write_text(combined_css)
+            cls._combined_css_cache[theme] = combined_path
+            return combined_path
 
         # Minimal bindings - most features accessed via /slash commands
         # Only canonical shortcuts that users expect
@@ -2300,14 +2412,12 @@ if TEXTUAL_AVAILABLE:
             buffer_lock: threading.Lock,
             buffer_flush_interval: float,
         ):
-            # Determine CSS path based on theme (dark, light, or transparent)
-            if display.theme == "light":
-                css_path = self.THEMES_DIR / "light.tcss"
-            elif display.theme == "transparent":
-                css_path = self.THEMES_DIR / "transparent.tcss"
-            else:
-                css_path = self.THEMES_DIR / "dark.tcss"
-            super().__init__(css_path=str(css_path))
+            # Build combined CSS from palette + base
+            # Textual CSS variables must be defined before use, so we concatenate
+            # the palette (variables) with the base (component styles)
+            theme = display.theme if display.theme in self.PALETTE_MAP else "dark"
+            combined_css_path = self._get_combined_css_path(theme)
+            super().__init__(css_path=str(combined_css_path))
             self.coordination_display = display
             self.question = question
             self._buffers = buffers
@@ -2599,6 +2709,15 @@ if TEXTUAL_AVAILABLE:
 
         async def on_mount(self):
             """Set up periodic buffer flushing when app starts."""
+            # Register custom themes for proper color palette support
+            for theme in self.CUSTOM_THEMES.values():
+                self.register_theme(theme)
+
+            # Set initial theme based on coordination_display.theme
+            initial_theme = self.coordination_display.theme
+            if initial_theme in self.THEME_NAME_MAP:
+                self.theme = self.THEME_NAME_MAP[initial_theme]
+
             self._thread_id = threading.get_ident()
             self.coordination_display._app_ready.set()
             self._register_event_listener()
@@ -2802,7 +2921,7 @@ if TEXTUAL_AVAILABLE:
             try:
                 theme_widget = self.query_one("#status_theme", Static)
                 theme = self.coordination_display.theme
-                icon_map = {"dark": "D", "light": "L", "transparent": "T"}
+                icon_map = {"dark": "D", "light": "L"}
                 icon = f"[dim]{icon_map.get(theme, 'D')}[/]"
                 theme_widget.update(icon)
             except Exception as e:
@@ -4184,7 +4303,8 @@ Type your question and press Enter to ask the agents.
 
                 # Set the answer content and mark as complete
                 def set_content_and_complete():
-                    if answer:
+                    # Only add content if card is empty (streaming may have already populated it)
+                    if answer and not getattr(card, "_final_content", []):
                         card.append_chunk(answer)
                     card.complete()
                     try:
@@ -5798,42 +5918,24 @@ Type your question and press Enter to ask the agents.
                 self.agent_widgets[self._active_agent_id].toggle_task_plan()
 
         def action_toggle_theme(self) -> None:
-            """Toggle between dark, light, and transparent themes (Ctrl+Shift+T binding)."""
-            from textual.css.stylesheet import Stylesheet
-
+            """Toggle between dark and light themes (Ctrl+Shift+T binding)."""
             current = self.coordination_display.theme
-            # Cycle: dark -> light -> transparent -> dark
-            theme_cycle = {"dark": "light", "light": "transparent", "transparent": "dark"}
-            new_theme = theme_cycle.get(current, "dark")
-
-            # Load and apply new CSS
-            css_path = self.THEMES_DIR / f"{new_theme}.tcss"
-            if not css_path.exists():
-                self.notify(f"Theme file not found: {css_path}", severity="error")
-                return
+            # Cycle through core themes only: dark -> light -> dark
+            try:
+                current_idx = self.CORE_THEMES.index(current)
+                next_idx = (current_idx + 1) % len(self.CORE_THEMES)
+                new_theme = self.CORE_THEMES[next_idx]
+            except ValueError:
+                # Current theme not in core themes, reset to dark
+                new_theme = "dark"
 
             try:
-                # Create a fresh stylesheet with the new CSS
-                new_stylesheet = Stylesheet(variables=self.get_css_variables())
-                new_stylesheet.read(css_path)
-                new_stylesheet.parse()
+                # Use our custom registered themes for proper color palette support
+                textual_theme_name = self.THEME_NAME_MAP.get(new_theme, "massgen-dark")
+                self.theme = textual_theme_name
 
-                # Replace the app's stylesheet (this is what refresh_css uses)
-                self.stylesheet = new_stylesheet
-
-                # Update the theme state AFTER successfully loading CSS
+                # Update the theme state
                 self.coordination_display.theme = new_theme
-
-                # Now refresh_css will use the new stylesheet
-                # It calls: stylesheet.set_variables(), reparse(), update()
-                self.refresh_css(animate=False)
-
-                # Force full repaint of all widgets
-                self.refresh(repaint=True, layout=True)
-
-                # Also refresh the screen
-                if self.screen.is_mounted:
-                    self.screen.refresh(repaint=True, layout=True)
 
             except Exception as e:
                 self.notify(f"Theme error: {e}", severity="error", timeout=3)

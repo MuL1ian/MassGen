@@ -66,6 +66,9 @@ class CollapsibleTextCard(Static):
         """Remove reasoning markers from content, preserve spacing."""
         return FILTER_REGEX.sub("", content)
 
+    # Debounce interval for batched refresh (seconds)
+    _REFRESH_DEBOUNCE_MS = 50
+
     def __init__(
         self,
         content: str,
@@ -92,6 +95,9 @@ class CollapsibleTextCard(Static):
         self.add_class(f"label-{label.lower()}")
         # Appearance animation state
         self.add_class("appearing")
+        # Performance: debounced refresh tracking
+        self._refresh_pending = False
+        self._refresh_timer = None
 
     def on_mount(self) -> None:
         """Complete appearance animation after mounting."""
@@ -251,6 +257,25 @@ class CollapsibleTextCard(Static):
         """Get the total number of chunks."""
         return len(self._chunks)
 
+    def _flush_pending_refresh(self) -> None:
+        """Flush pending refresh after debounce interval."""
+        self._refresh_pending = False
+        self._refresh_timer = None
+        self.refresh()
+
+    def _schedule_refresh(self) -> None:
+        """Schedule a debounced refresh to batch multiple updates."""
+        if not self._refresh_pending:
+            self._refresh_pending = True
+            try:
+                self._refresh_timer = self.set_timer(
+                    self._REFRESH_DEBOUNCE_MS / 1000.0,
+                    self._flush_pending_refresh,
+                )
+            except Exception:
+                # Widget not mounted yet - refresh directly
+                self.refresh()
+
     def append_content(self, new_content: str, streaming: bool = False) -> None:
         """Append additional content to the card.
 
@@ -259,6 +284,9 @@ class CollapsibleTextCard(Static):
             streaming: If True, concatenate directly to the last chunk (for
                 token-by-token streaming). If False, add as a new visually
                 separated chunk.
+
+        Performance: Uses debounced refresh to batch multiple streaming chunks
+        into a single render cycle.
         """
         # Clean and validate content
         cleaned = self._clean_content(new_content)
@@ -273,4 +301,6 @@ class CollapsibleTextCard(Static):
             # Add as new separated chunk
             self._chunks.append(cleaned)
             self._content += "\n" + self.CHUNK_SEPARATOR + "\n" + cleaned
-        self.refresh()
+
+        # Schedule debounced refresh
+        self._schedule_refresh()

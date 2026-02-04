@@ -1681,38 +1681,32 @@ Note: All your other tools are still available to help you evaluate answers. The
 
         # Determine evaluation criteria based on voting sensitivity
         if self.voting_sensitivity == "strict":
-            evaluation_section = """Critically examine existing answers for flaws (be skeptical, not charitable),
-verify claims by checking actual files/outputs, and consider if you can build on or combine the best elements.
+            evaluation_section = """**CRITICAL EVALUATION REQUIRED**
 
-Does the best CURRENT ANSWER address the ORIGINAL MESSAGE exceptionally well? Consider:
-- Is it comprehensive, addressing ALL aspects and edge cases?
-- Is it technically accurate and well-reasoned?
-- Does it provide clear explanations and proper justification?
-- Is it complete with no significant gaps or weaknesses?
-- Could it serve as a reference-quality solution?
+Before you can vote, you MUST complete this analysis:
 
-**Before voting, ask: Can I CREATE A BETTER ANSWER by:**
-- Combining strengths from multiple answers (e.g., Agent 1's visuals + Agent 2's content)?
-- Fixing errors or gaps you identified in the best answer?
-- Adding missing elements that would make it more complete?
+**Step 1: Identify Weaknesses (REQUIRED)**
+List 2-3 specific weaknesses, gaps, or areas for improvement in the best existing answer.
 
-If YES to any of these, produce a `new_answer` instead of voting.
-Only vote if the best answer is truly excellent AND you cannot improve it."""
+**Step 2: For EACH weakness, choose ONE:**
+- "I can fix this" -> You MUST provide a `new_answer`
+- "Another answer addresses this" -> Combine answers to shore up the weakness
+- "I cannot fix this because: [specific reason]" -> Explain why (outside your capabilities, requires info you don't have, etc.)
+
+**Step 3: Decision**
+- If you can fix OR combine to address ANY weakness -> `new_answer`
+- If you explained why you cannot fix ALL weaknesses -> `vote`
+
+You may NOT vote without first explaining why each weakness is unfixable by you."""
         elif self.voting_sensitivity == "balanced":
-            evaluation_section = """Critically examine existing answers for flaws,
-verify claims by checking actual files/outputs, and consider if you can build on or combine approaches.
+            evaluation_section = """Critically examine existing answers for flaws and opportunities.
 
-Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well? Consider:
-- Is it comprehensive, accurate, and complete?
-- Could it be meaningfully improved, refined, or expanded?
-- Are there weaknesses, gaps, or better approaches?
+**Before voting:**
+1. Identify at least 1 weakness in the best answer
+2. Can you fix it or combine with another answer to address it? If not, explain why.
 
-**Before voting, ask: Can I CREATE A BETTER ANSWER by:**
-- Combining strengths from multiple answers (e.g., one agent's structure + another's execution)?
-- Fixing errors or gaps you identified?
-- Adding missing elements?
-
-If YES, produce a `new_answer`. Only vote if you genuinely cannot add meaningful value."""
+If you CAN fix or combine to address any weakness, produce a `new_answer`.
+Only vote after explaining why identified weaknesses are unfixable by you."""
         else:
             # Default to lenient (including explicit "lenient" or any other value)
             evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well?

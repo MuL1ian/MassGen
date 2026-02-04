@@ -192,6 +192,19 @@ def set_log_attempt(attempt: int) -> None:
         _STREAMING_DEBUG_HANDLER_ID = None
 
 
+def reset_logging_session() -> None:
+    """Reset logging session state to allow creating a new log directory.
+
+    Call this before each massgen.run() to ensure a fresh log directory
+    is created for each run.
+    """
+    global _LOG_BASE_SESSION_DIR, _LOG_SESSION_DIR, _CURRENT_TURN, _CURRENT_ATTEMPT
+    _LOG_BASE_SESSION_DIR = None
+    _LOG_SESSION_DIR = None
+    _CURRENT_TURN = None
+    _CURRENT_ATTEMPT = None
+
+
 def set_log_base_session_dir(log_dir: str) -> None:
     """Set the base log session directory to an existing directory.
 
@@ -940,6 +953,7 @@ __all__ = [
     "set_log_attempt",
     "set_log_base_session_dir",
     "set_log_base_session_dir_absolute",
+    "reset_logging_session",
     "save_execution_metadata",
     "log_orchestrator_activity",
     "log_agent_message",

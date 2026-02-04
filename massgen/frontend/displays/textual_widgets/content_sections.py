@@ -59,36 +59,8 @@ class ToolSection(Vertical):
     is_collapsed = reactive(False)  # Default expanded to show tool activity
     tool_count = reactive(0)
 
-    DEFAULT_CSS = """
-    ToolSection {
-        height: auto;
-        max-height: 40%;
-        margin: 0 0 1 0;
-        padding: 0;
-    }
-
-    ToolSection.collapsed {
-        height: 3;
-        overflow: hidden;
-    }
-
-    ToolSection.hidden {
-        display: none;
-    }
-
-    ToolSection .section-header {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-    }
-
-    ToolSection #tool_container {
-        height: auto;
-        max-height: 100%;
-        padding: 0 1;
-        overflow-y: auto;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -280,52 +252,8 @@ class ReasoningSection(Vertical):
     COLLAPSE_THRESHOLD = 5  # Auto-collapse after this many items
     PREVIEW_LINES = 2  # Show this many lines when collapsed
 
-    DEFAULT_CSS = """
-    ReasoningSection {
-        height: auto;
-        max-height: 30%;
-        margin: 0 0 1 0;
-        padding: 0;
-        border: solid #30363d;
-        border-left: thick #484f58;
-        background: #161b22;
-    }
-
-    ReasoningSection.collapsed #reasoning_content {
-        max-height: 2;
-        overflow: hidden;
-    }
-
-    ReasoningSection.hidden {
-        display: none;
-    }
-
-    ReasoningSection #reasoning_header {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-        background: #21262d;
-        color: #8b949e;
-    }
-
-    ReasoningSection #reasoning_header:hover {
-        background: #30363d;
-    }
-
-    ReasoningSection #reasoning_content {
-        height: auto;
-        max-height: 100%;
-        padding: 0 1;
-        overflow-y: auto;
-        background: #0d1117;
-    }
-
-    ReasoningSection .reasoning-text {
-        width: 100%;
-        padding: 0;
-        color: #8b949e;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -472,140 +400,8 @@ class TimelineSection(ScrollableContainer):
     ```
     """
 
-    DEFAULT_CSS = """
-    TimelineSection {
-        width: 100%;
-        height: 1fr;
-        padding: 0 2 1 2;
-        margin: 0;
-        overflow-y: auto;
-        scrollbar-size: 1 3;
-        scrollbar-gutter: stable;
-    }
-
-    TimelineSection .timeline-text {
-        width: 100%;
-        padding: 1 1;
-        margin: 1 0;
-    }
-
-    TimelineSection .timeline-text.status {
-        color: #569cd6;
-    }
-
-    TimelineSection .timeline-text.thinking {
-        color: #9ca3af;
-    }
-
-    TimelineSection .timeline-text.response {
-        color: #4ec9b0;
-    }
-
-    TimelineSection .timeline-text.coordination {
-        color: #858585;
-        background: $surface-darken-1;
-        /* Inherit base padding/margin for consistency */
-    }
-
-    TimelineSection .timeline-text.reasoning-inline {
-        color: #8b949e;
-        border-left: thick #484f58;
-        padding-left: 1;
-        /* Inherit base margin (1 0) for consistent spacing */
-    }
-
-    /* Phase 11.2: Scroll arrow indicators */
-    TimelineSection .scroll-arrow-indicator {
-        width: 100%;
-        height: 1;
-        text-align: center;
-        color: #8b949e;
-        background: transparent;
-    }
-
-    TimelineSection .scroll-arrow-indicator.hidden {
-        display: none;
-    }
-
-    TimelineSection #scroll_top_indicator {
-        dock: top;
-    }
-
-    TimelineSection #scroll_bottom_indicator {
-        dock: bottom;
-    }
-
-    /* Phase 12: Generic hidden rule for round-based visibility */
-    TimelineSection .hidden {
-        display: none;
-    }
-
-    /* Answer lock mode: final card fills the space */
-    TimelineSection.answer-locked {
-        overflow-y: hidden;
-        padding: 0;
-    }
-
-    /* Hidden class for non-locked items */
-    TimelineSection .answer-lock-hidden {
-        display: none;
-    }
-
-    /* ARCH-001: Viewport culling - hide items outside visible area */
-    TimelineSection .viewport-culled {
-        display: none;
-    }
-
-    /* Locked final card fills available space */
-    TimelineSection FinalPresentationCard.final-card-locked {
-        height: 1fr;
-        margin: 0;
-        min-height: 10;
-    }
-
-    TimelineSection FinalPresentationCard.final-card-locked #final_card_body {
-        height: 1fr;
-        max-height: 999;
-    }
-
-    TimelineSection FinalPresentationCard.final-card-locked #final_card_content {
-        height: 1fr;
-        max-height: 999;
-        overflow-y: auto;
-    }
-
-    /* Compact mode for small terminals */
-    TimelineSection FinalPresentationCard.final-card-compact {
-        height: 3;
-        min-height: 3;
-        max-height: 3;
-        margin: 0;
-    }
-
-    TimelineSection FinalPresentationCard.final-card-compact #final_card_content {
-        display: none;
-    }
-
-    TimelineSection FinalPresentationCard.final-card-compact #final_card_header {
-        height: 1;
-    }
-
-    /* Winner hint - separator line style at bottom of non-winning timelines */
-    TimelineSection .winner-hint {
-        width: 100%;
-        height: 1;
-        text-align: center;
-        color: #484f58;
-        background: transparent;
-        padding: 0;
-        margin: 1 0;
-        border: none;
-    }
-
-    TimelineSection .winner-hint.hidden {
-        display: none;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     # Maximum number of items to keep in timeline (prevents memory/performance issues)
     MAX_TIMELINE_ITEMS = 30  # Viewport culling threshold
@@ -2073,50 +1869,8 @@ class ThinkingSection(Vertical):
 
     is_collapsed = reactive(False)
 
-    DEFAULT_CSS = """
-    ThinkingSection {
-        height: auto;
-        max-height: 50%;
-        padding: 0;
-        margin: 0 0 1 0;
-        border-left: thick #484f58;
-        background: #161b22;
-    }
-
-    ThinkingSection.hidden {
-        display: none;
-    }
-
-    ThinkingSection #thinking_header {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-        background: #21262d;
-        color: #8b949e;
-    }
-
-    ThinkingSection #thinking_header:hover {
-        background: #30363d;
-        color: #c9d1d9;
-    }
-
-    ThinkingSection #thinking_content {
-        height: auto;
-        max-height: 100%;
-        padding: 0 1;
-        overflow-y: auto;
-    }
-
-    ThinkingSection.collapsed #thinking_content {
-        max-height: 3;
-        overflow: hidden;
-    }
-
-    ThinkingSection #thinking_log {
-        height: auto;
-        padding: 0;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -2285,39 +2039,8 @@ class ResponseSection(Vertical):
     ```
     """
 
-    DEFAULT_CSS = """
-    ResponseSection {
-        height: auto;
-        max-height: 50%;
-        margin: 1 0;
-        padding: 0;
-        border: round $primary-lighten-2;
-        background: $surface;
-    }
-
-    ResponseSection.hidden {
-        display: none;
-    }
-
-    ResponseSection #response_header {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-        background: $primary-darken-2;
-        color: $text;
-    }
-
-    ResponseSection #response_content {
-        height: auto;
-        max-height: 100%;
-        padding: 1 2;
-        overflow-y: auto;
-    }
-
-    ResponseSection #response_content Static {
-        width: 100%;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -2387,38 +2110,8 @@ class StatusBadge(Static):
     Design: `● Connected` or `⟳ Working` - small, not prominent.
     """
 
-    DEFAULT_CSS = """
-    StatusBadge {
-        width: auto;
-        height: 1;
-        padding: 0 1;
-        text-align: right;
-    }
-
-    StatusBadge.status-connected {
-        color: #4ec9b0;
-    }
-
-    StatusBadge.status-working {
-        color: #dcdcaa;
-    }
-
-    StatusBadge.status-streaming {
-        color: #569cd6;
-    }
-
-    StatusBadge.status-completed {
-        color: #4ec9b0;
-    }
-
-    StatusBadge.status-error {
-        color: #f44747;
-    }
-
-    StatusBadge.status-waiting {
-        color: #858585;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     status = reactive("waiting")
 
@@ -2466,26 +2159,8 @@ class CompletionFooter(Static):
     Design: `────────────────────────────────────── ✓ Complete ───`
     """
 
-    DEFAULT_CSS = """
-    CompletionFooter {
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-        text-align: center;
-    }
-
-    CompletionFooter.hidden {
-        display: none;
-    }
-
-    CompletionFooter.status-completed {
-        color: #4ec9b0;
-    }
-
-    CompletionFooter.status-error {
-        color: #f44747;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     is_visible = reactive(False)
     status = reactive("completed")
@@ -2545,19 +2220,8 @@ class RestartBanner(Static):
     ```
     """
 
-    DEFAULT_CSS = """
-    RestartBanner {
-        width: 100%;
-        height: 1;
-        margin: 1 0;
-        padding: 0;
-        background: transparent;
-    }
-
-    RestartBanner.hidden {
-        display: none;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(self, label: str = "", subtitle: str = "", id: Optional[str] = None) -> None:
         super().__init__(id=id)
@@ -2666,312 +2330,11 @@ class FinalPresentationCard(Vertical):
     ```
     """
 
-    DEFAULT_CSS = """
-    FinalPresentationCard {
-        width: 100%;
-        height: auto;
-        margin: 1 0;
-        padding: 0;
-        border: solid #fab387;
-        background: transparent;
-    }
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
-    FinalPresentationCard.streaming {
-        border: double #fab387;
-    }
-
-    FinalPresentationCard.completed {
-        border: solid #a6e3a1;
-        background: transparent;
-    }
-
-    /* Hide post_eval and context_paths in completed mode when they have hidden class */
-    FinalPresentationCard.completed #final_card_post_eval.hidden,
-    FinalPresentationCard.completed #final_card_context_paths.hidden {
-        display: none;
-        height: 0;
-        padding: 0;
-        margin: 0;
-    }
-
-    FinalPresentationCard #final_card_header {
-        width: 100%;
-        height: auto;
-        padding: 0 1;
-        background: transparent;
-    }
-
-    FinalPresentationCard.completed #final_card_header {
-        background: transparent;
-    }
-
-    FinalPresentationCard #final_card_title {
-        color: #fab387;
-        text-style: bold;
-    }
-
-    FinalPresentationCard.completed #final_card_title {
-        color: #a6e3a1;
-    }
-
-    FinalPresentationCard #final_card_votes {
-        color: #8b949e;
-        height: 1;
-        border-bottom: solid #45475a;
-        padding-bottom: 1;
-        margin-bottom: 1;
-    }
-
-    FinalPresentationCard #final_card_body {
-        width: 100%;
-        height: auto;
-        max-height: 30;
-        layout: horizontal;
-    }
-
-    FinalPresentationCard #final_card_content {
-        width: 1fr;
-        min-width: 0;
-        height: auto;
-        max-height: 30;
-        padding: 1 2 0 2;
-        background: transparent;
-        overflow-y: auto;
-    }
-
-    FinalPresentationCard #final_card_text {
-        width: 100%;
-        height: auto;
-        background: transparent;
-        color: #e6e6e6;
-        margin: 0 1;
-    }
-
-    FinalPresentationCard #final_card_text MarkdownH1,
-    FinalPresentationCard #final_card_text MarkdownH2,
-    FinalPresentationCard #final_card_text MarkdownH3 {
-        background: transparent;
-        color: #fab387;
-        margin: 1 0 0 0;
-    }
-
-    FinalPresentationCard #final_card_text MarkdownFence {
-        background: #161b22;
-        margin: 1 0;
-    }
-
-    FinalPresentationCard #final_card_post_eval {
-        width: 100%;
-        height: auto;
-        padding: 0;
-        background: #161b22;
-        border-top: dashed #30363d;
-    }
-
-    FinalPresentationCard #final_card_post_eval.hidden {
-        display: none;
-    }
-
-    FinalPresentationCard #post_eval_header {
-        width: 100%;
-        height: 2;
-        padding: 0 2;
-        background: #161b22;
-    }
-
-    FinalPresentationCard #post_eval_status {
-        color: #3fb950;
-        width: auto;
-    }
-
-    FinalPresentationCard #post_eval_status.evaluating {
-        color: #58a6ff;
-    }
-
-    FinalPresentationCard #post_eval_toggle {
-        color: #8b949e;
-        width: auto;
-        text-align: right;
-        margin-left: 1;
-    }
-
-    FinalPresentationCard #post_eval_toggle:hover {
-        color: #c9d1d9;
-        text-style: underline;
-    }
-
-    FinalPresentationCard #post_eval_details {
-        width: 100%;
-        height: auto;
-        max-height: 10;
-        padding: 0 2 1 2;
-        overflow-y: auto;
-    }
-
-    FinalPresentationCard #post_eval_details.collapsed {
-        display: none;
-    }
-
-    FinalPresentationCard #post_eval_content {
-        color: #8b949e;
-        height: auto;
-    }
-
-    FinalPresentationCard #final_card_context_paths {
-        width: 100%;
-        height: auto;
-        padding: 1 2;
-        background: #161b22;
-        border-top: dashed #30363d;
-    }
-
-    FinalPresentationCard #final_card_context_paths.hidden {
-        display: none;
-    }
-
-    FinalPresentationCard #context_paths_header {
-        color: #58a6ff;
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    FinalPresentationCard #context_paths_list {
-        height: auto;
-    }
-
-    FinalPresentationCard .context-path-new {
-        color: #3fb950;
-    }
-
-    FinalPresentationCard .context-path-modified {
-        color: #d29922;
-    }
-
-    FinalPresentationCard #final_card_footer {
-        width: 100%;
-        height: auto;
-        padding: 1 2;
-        background: transparent;
-    }
-
-    FinalPresentationCard #final_card_footer.hidden {
-        display: none;
-    }
-
-    FinalPresentationCard #final_card_buttons {
-        width: 100%;
-        height: 1;
-    }
-
-    /* Footer links - consistent clickable link style */
-    FinalPresentationCard .footer-link {
-        width: auto;
-        height: 1;
-        color: #89b4fa;
-        text-style: underline;
-        padding: 0 1;
-    }
-
-    FinalPresentationCard .footer-link:hover {
-        color: #b4befe;
-        text-style: bold underline;
-    }
-
-    /* Verified indicator - faded, non-clickable, hidden by default */
-    FinalPresentationCard .verified-indicator {
-        display: none;
-        width: auto;
-        height: 1;
-        color: #585b70;
-        padding: 0 1;
-    }
-
-    FinalPresentationCard #continue_message {
-        display: none;
-    }
-
-    /* Full-width mode - fills available vertical space */
-    FinalPresentationCard.full-width-mode {
-        height: 1fr;
-        min-height: 20;
-    }
-
-    FinalPresentationCard.full-width-mode #final_card_content {
-        height: 1fr;
-        overflow-y: auto;
-    }
-
-    /* Enhanced prominence styling for full-width mode */
-    FinalPresentationCard.full-width-mode.streaming {
-        border: double #fab387;
-    }
-
-    FinalPresentationCard.full-width-mode.completed {
-        border: double #a6e3a1;
-        background: transparent;
-    }
-
-    FinalPresentationCard.full-width-mode #final_card_header {
-        background: transparent;
-        padding: 0 1;
-    }
-
-    FinalPresentationCard.full-width-mode #final_card_title {
-        color: #a6e3a1;
-    }
-
-    /* Completion-only mode - minimal footer bar */
-    /* Content already shown through normal pipeline, just show action buttons */
-    FinalPresentationCard.completion-only {
-        border: none;
-        background: transparent;
-        margin: 0;
-        padding: 0;
-    }
-
-    FinalPresentationCard.completion-only #final_card_header {
-        display: none;
-    }
-
-    FinalPresentationCard.completion-only #final_card_content {
-        display: none;
-    }
-
-    FinalPresentationCard.completion-only #final_card_post_eval {
-        display: none;
-    }
-
-    FinalPresentationCard.completion-only #final_card_context_paths {
-        display: none;
-    }
-
-    FinalPresentationCard.completion-only #final_card_footer {
-        display: block;
-        background: #161b22;
-        border: solid #30363d;
-        padding: 1 2;
-    }
-
-    /* Spacer to push unlock button to the right in footer */
-    FinalPresentationCard #final_card_button_spacer {
-        width: 1fr;
-        height: 1;
-    }
-
-    FinalPresentationCard.locked-mode #final_card_body {
-        height: 1fr;
-        max-height: 999;
-    }
-
-    FinalPresentationCard.locked-mode #final_card_content {
-        height: 1fr;
-        max-height: 999;
-    }
-
-    FinalPresentationCard.locked-mode {
-        height: 1fr;
-    }
-    """
+    # Debounce interval for batched updates (seconds)
+    _UPDATE_DEBOUNCE_MS = 50
 
     def __init__(
         self,
@@ -2995,6 +2358,10 @@ class FinalPresentationCard(Vertical):
         self._post_eval_expanded = False
         self._post_eval_status = "none"  # none, evaluating, verified
         self._text_widget: Optional[Static] = None  # Direct reference to text widget
+        # Performance: track pending updates for debouncing
+        self._update_pending = False
+        self._update_timer = None
+        self._cached_full_text: Optional[str] = None  # Cache to avoid repeated joins
         if completion_only:
             self.add_class("completion-only")
         else:
@@ -3090,29 +2457,49 @@ class FinalPresentationCard(Vertical):
 
         Args:
             chunk: Text chunk to append
+
+        Performance: Uses debounced updates to batch multiple chunks into
+        a single render cycle, avoiding O(n²) string joining and expensive
+        Markdown re-renders on every chunk.
         """
         if not chunk:
             return
 
-        # Always accumulate content first (even if widget not ready yet)
+        # Accumulate content and invalidate cache
         self._final_content.append(chunk)
+        self._cached_full_text = None  # Invalidate cache
 
-        # Try to update the widget directly
-        if not self._try_update_text():
-            # Widget not ready - compose might not have run yet
-            # Try to force recompose and schedule retry
+        # Schedule debounced update if not already pending
+        if not self._update_pending:
+            self._update_pending = True
             try:
-                if self._text_widget is None:
-                    # Compose hasn't run - try to trigger it
-                    self.recompose()
-                self.set_timer(0.1, self._try_update_text)
-            except Exception as e:
-                tui_log(f"[ContentSections] {e}")  # Ignore if timer/recompose can't be set
+                self._update_timer = self.set_timer(
+                    self._UPDATE_DEBOUNCE_MS / 1000.0,
+                    self._flush_pending_update,
+                )
+            except Exception:
+                # Widget not mounted yet - will flush on mount
+                pass
+
+    def _flush_pending_update(self) -> None:
+        """Flush pending chunks to the text widget.
+
+        Called by the debounce timer to batch multiple chunks into one render.
+        """
+        self._update_pending = False
+        self._update_timer = None
+        self._try_update_text()
+
+    def _get_full_text(self) -> str:
+        """Get the full accumulated text, using cache when available."""
+        if self._cached_full_text is None:
+            self._cached_full_text = "".join(self._final_content)
+        return self._cached_full_text
 
     def _try_update_text(self) -> bool:
         """Try to update the text widget with accumulated content.
 
-        Called after each chunk arrives. Silently fails if widget not ready yet.
+        Called by the debounce timer. Silently fails if widget not ready yet.
 
         Returns:
             True if update succeeded, False if widget not ready.
@@ -3120,13 +2507,13 @@ class FinalPresentationCard(Vertical):
         if not self._final_content:
             return True  # Nothing to update
 
-        full_text = "".join(self._final_content)
+        full_text = self._get_full_text()
 
         # Use direct reference if available (set in compose)
         if self._text_widget is not None:
             try:
                 self._text_widget.update(full_text)
-                self._text_widget.refresh()
+                # Note: No explicit refresh() - update() schedules its own refresh
                 return True
             except Exception as e:
                 tui_log(f"[ContentSections] {e}")
@@ -3137,7 +2524,6 @@ class FinalPresentationCard(Vertical):
 
             text_widget = self.query_one("#final_card_text", Markdown)
             text_widget.update(full_text)
-            text_widget.refresh()
             return True
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
@@ -3158,6 +2544,12 @@ class FinalPresentationCard(Vertical):
 
     def on_mount(self) -> None:
         """Flush any pending content when the widget is mounted."""
+        # Cancel any pending debounce timer and flush immediately
+        self._update_pending = False
+        if self._update_timer:
+            self._update_timer.stop()
+            self._update_timer = None
+
         # Flush any buffered content that arrived before mount
         self._try_update_text()
 
@@ -3183,6 +2575,13 @@ class FinalPresentationCard(Vertical):
 
         self._is_streaming = False
 
+        # Flush any pending debounced updates immediately
+        self._update_pending = False
+        if self._update_timer:
+            self._update_timer.stop()
+            self._update_timer = None
+        self._try_update_text()
+
         # Update styling
         self.remove_class("streaming")
         # Only add completed class if not in completion-only mode
@@ -3206,8 +2605,7 @@ class FinalPresentationCard(Vertical):
 
     def get_content(self) -> str:
         """Get the full content for copy operation."""
-        # Join chunks directly since they may already contain newlines
-        return "".join(self._final_content)
+        return self._get_full_text()
 
     def on_click(self, event) -> None:
         """Handle clicks on footer links and post-eval toggle."""

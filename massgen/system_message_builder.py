@@ -96,6 +96,7 @@ class SystemMessageBuilder:
         human_qa_history: Optional[List[Dict[str, str]]] = None,
         vote_only: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
+        voting_sensitivity_override: Optional[str] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -116,6 +117,8 @@ class SystemMessageBuilder:
             agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            voting_sensitivity_override: Per-agent voting sensitivity override. If provided,
+                                        takes precedence over the orchestrator-level setting.
 
         Returns:
             Complete system prompt string with XML structure
@@ -149,7 +152,8 @@ class SystemMessageBuilder:
         builder.add_section(OutputFirstVerificationSection())
 
         # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer primitives
-        voting_sensitivity = self.message_templates._voting_sensitivity
+        # Use per-agent override if provided, otherwise fall back to orchestrator default
+        voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
         answer_novelty_requirement = self.message_templates._answer_novelty_requirement
         builder.add_section(
             EvaluationSection(

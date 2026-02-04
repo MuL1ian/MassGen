@@ -1,0 +1,89 @@
+/* =============================================================================
+ * MassGen TUI - Palette Variables Reference
+ * =============================================================================
+ * This file documents ALL variables that must be defined in a palette file
+ * for it to work with base.tcss.
+ *
+ * To create a new theme:
+ * 1. Copy any palette file (e.g., _dark.tcss) to _yourtheme.tcss
+ * 2. Edit the color values below
+ * 3. Add to PALETTE_MAP in textual_terminal_display.py
+ *
+ * The combined CSS (palette + base) is created at runtime.
+ * =============================================================================
+ */
+
+/* =============================================================================
+ * REQUIRED VARIABLES - These must be defined in every palette
+ * =============================================================================
+ */
+
+/* --- Background Colors --- */
+$bg-base: #000000;           /* Main app background */
+$bg-surface: #111111;        /* Elevated surfaces (panels, headers) */
+$bg-surface-2: #222222;      /* Secondary elevation (cards, buttons) */
+$bg-surface-3: #333333;      /* Tertiary elevation (hover states) */
+$bg-card: #111111;           /* Card backgrounds */
+$bg-elevated: #333333;       /* Hover states, nested content */
+
+/* --- Foreground/Text Colors --- */
+$fg-primary: #ffffff;        /* Primary text - high contrast */
+$fg-muted: #aaaaaa;          /* Secondary text - medium contrast */
+$fg-subtle: #888888;         /* Tertiary text - low contrast */
+$fg-on-accent: #ffffff;      /* Text on accent backgrounds */
+
+/* --- Border Colors --- */
+$border-default: #444444;    /* Standard borders */
+$border-highlight: #666666;  /* Highlighted/focused borders */
+$border-muted: #333333;      /* Subtle borders */
+$border-soft: #333333;       /* Very subtle borders */
+$border-accent: #555555;     /* Accent borders */
+$border-subtle: #333333;     /* Subtle dividers */
+$border-focus: #5599ff;      /* Focus rings */
+
+/* --- Semantic Accent Colors --- */
+$accent-primary: #5599ff;    /* Primary actions, links, focus */
+$accent-success: #55aa55;    /* Success, completion, positive */
+$accent-warning: #ddaa33;    /* Warning, pending, attention */
+$accent-error: #dd5555;      /* Error, danger, destructive */
+$accent-info: #55aaaa;       /* Information, neutral accent */
+$accent-special: #aa77dd;    /* Special highlights, premium */
+
+/* --- Agent Colors --- */
+/* Each agent gets a unique accent color and subtle background */
+$agent-1: #5599ff;           /* Blue - Agent 1 */
+$agent-1-bg: #112233;
+$agent-2: #55aa55;           /* Green - Agent 2 */
+$agent-2-bg: #113311;
+$agent-3: #aa77dd;           /* Purple - Agent 3 */
+$agent-3-bg: #221133;
+$agent-4: #ff8844;           /* Orange - Agent 4 */
+$agent-4-bg: #332211;
+$agent-5: #55aaaa;           /* Cyan - Agent 5 */
+$agent-5-bg: #113333;
+$agent-6: #dd77aa;           /* Pink - Agent 6 */
+$agent-6-bg: #331122;
+$agent-7: #ddaa33;           /* Yellow - Agent 7 */
+$agent-7-bg: #332211;
+$agent-8: #dd5555;           /* Red - Agent 8 */
+$agent-8-bg: #331111;
+
+/* =============================================================================
+ * OPTIONAL VARIABLES - These have reasonable defaults if not defined
+ * =============================================================================
+ */
+
+/* Component-Specific (used by catppuccin themes, may be used in future) */
+/* $modal-backdrop: rgba(0, 0, 0, 0.7); */
+/* $scrollbar-track: $bg-surface; */
+/* $scrollbar-thumb: $border-default; */
+/* $scrollbar-thumb-hover: $border-highlight; */
+
+/* Focus Ring styling */
+/* $focus-ring-color: $accent-primary; */
+/* $focus-ring-width: 2; */
+
+/* Button variants */
+/* $btn-primary-bg: $accent-primary; */
+/* $btn-primary-fg: $bg-base; */
+/* etc... */

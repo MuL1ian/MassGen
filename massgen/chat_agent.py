@@ -151,6 +151,7 @@ class SingleAgent(ChatAgent):
         context_monitor: Optional[Any] = None,
         record_all_tool_calls: bool = False,
         record_reasoning: bool = False,
+        voting_sensitivity: Optional[str] = None,
     ):
         """
         Initialize single agent.
@@ -165,6 +166,8 @@ class SingleAgent(ChatAgent):
             context_monitor: Optional context window monitor for tracking token usage
             record_all_tool_calls: If True, record ALL tool calls to memory (including intermediate MCP tools)
             record_reasoning: If True, record reasoning/thinking chunks to memory
+            voting_sensitivity: Per-agent voting sensitivity override (lenient, balanced, strict).
+                               If None, uses orchestrator-level default.
         """
         super().__init__(session_id, conversation_memory, persistent_memory)
         self.backend = backend
@@ -172,6 +175,7 @@ class SingleAgent(ChatAgent):
         self.system_message = system_message
         self.context_monitor = context_monitor
         self._turn_number = 0
+        self.voting_sensitivity = voting_sensitivity  # Per-agent override (None = use orchestrator default)
 
         # Track orchestrator turn number (for turn-aware memory)
         self._orchestrator_turn = None
@@ -948,6 +952,7 @@ class ConfigurableAgent(SingleAgent):
         context_monitor: Optional[Any] = None,
         record_all_tool_calls: bool = False,
         record_reasoning: bool = False,
+        voting_sensitivity: Optional[str] = None,
     ):
         """
         Initialize configurable agent.
@@ -961,6 +966,8 @@ class ConfigurableAgent(SingleAgent):
             context_monitor: Optional context window monitor for tracking token usage
             record_all_tool_calls: If True, record ALL tool calls to memory (including intermediate MCP tools)
             record_reasoning: If True, record reasoning/thinking chunks to memory
+            voting_sensitivity: Per-agent voting sensitivity override (lenient, balanced, strict).
+                               If None, uses orchestrator-level default.
         """
         # Extract system message without triggering deprecation warning
         system_message = None
@@ -977,6 +984,7 @@ class ConfigurableAgent(SingleAgent):
             context_monitor=context_monitor,
             record_all_tool_calls=record_all_tool_calls,
             record_reasoning=record_reasoning,
+            voting_sensitivity=voting_sensitivity,
         )
         self.config = config
 

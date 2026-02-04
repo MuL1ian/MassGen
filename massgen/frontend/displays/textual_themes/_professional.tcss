@@ -78,7 +78,7 @@ $tool-default: #9d9d9d;      /* Default/other */
  */
 
 Screen {
-    background: initial;  /* Use terminal's native background */
+    background: $bg-base;
     color: $fg-primary;
     layers: base overlay;
 }
@@ -92,7 +92,7 @@ Screen {
     width: 100%;
     height: 1fr;
     align: center middle;
-    background: initial;  /* Use terminal's native background */
+    background: $bg-base;
 }
 
 #welcome_screen Label, #welcome_screen Static {

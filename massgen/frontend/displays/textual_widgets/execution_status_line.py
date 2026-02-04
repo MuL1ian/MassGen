@@ -40,21 +40,8 @@ class ExecutionStatusLine(Widget):
     # Pulse state for animation
     _pulse_frame = reactive(0)
 
-    DEFAULT_CSS = """
-    ExecutionStatusLine {
-        dock: bottom;
-        height: 1;
-        width: 100%;
-        background: transparent;
-        color: #8b949e;
-        text-align: center;
-        content-align: center middle;
-    }
-
-    ExecutionStatusLine.hidden {
-        display: none;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(
         self,

@@ -44,56 +44,8 @@ class _PlanCache:
 class SubagentColumn(Vertical, can_focus=True):
     """Single subagent column inside the overview card."""
 
-    DEFAULT_CSS = """
-    SubagentColumn {
-        width: 1fr;
-        min-width: 32;
-        height: auto;
-        padding: 0 1 0 1;
-        border-right: solid #21262d;
-    }
-
-    SubagentColumn:last-of-type {
-        border-right: none;
-        margin-right: 0;
-    }
-
-    SubagentColumn:hover {
-        background: #1a1f2e;
-    }
-
-    SubagentColumn:focus {
-        background: #1c2333;
-        border-left: thick #a371f7;
-        padding-left: 0;
-    }
-
-    SubagentColumn .agent-header {
-        text-style: bold;
-        color: #e6edf3;
-    }
-
-    SubagentColumn .task-description {
-        color: #c9d1d9;
-    }
-
-    SubagentColumn .progress-bar {
-        color: #8b949e;
-    }
-
-    SubagentColumn .summary-line {
-        color: #8b949e;
-    }
-
-    SubagentColumn .tool-current {
-        color: #a371f7;
-        text-style: bold;
-    }
-
-    SubagentColumn .tool-recent {
-        color: #6e7681;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     def __init__(
         self,
@@ -287,67 +239,8 @@ class SubagentCard(Vertical, can_focus=True):
             self.all_subagents = all_subagents
             super().__init__()
 
-    DEFAULT_CSS = """
-    SubagentCard {
-        width: 100%;
-        height: auto;
-        min-height: 5;
-        padding: 0 1 0 2;
-        margin: 0 0 1 1;
-        background: #161b22;
-        border-left: tall #7c3aed;
-        border-top: solid #21262d;
-        border-bottom: solid #0d1117;
-    }
-
-    SubagentCard.all-completed {
-        border-left: tall #7ee787;
-        background: #131a16;
-        border-top: solid #1c2e22;
-        border-bottom: solid #0a0f0a;
-    }
-
-    SubagentCard:hover {
-        background: #1c2333;
-    }
-
-    SubagentCard.all-completed:hover {
-        background: #182019;
-    }
-
-    SubagentCard:focus-within {
-        background: #1a1f2e;
-    }
-
-    SubagentCard.appearing {
-        opacity: 0.0;
-    }
-
-    SubagentCard.appeared {
-        opacity: 1.0;
-    }
-
-    SubagentCard #subagent-card-title {
-        height: 1;
-        margin-bottom: 1;
-        padding: 0 1;
-    }
-
-    SubagentCard #subagent-scroll {
-        width: 100%;
-        height: auto;
-        max-height: 12;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scrollbar-size: 1 1;
-    }
-
-    SubagentCard #subagent-columns {
-        layout: horizontal;
-        height: auto;
-        width: 100%;
-    }
-    """
+    # CSS moved to base.tcss for theme support
+    DEFAULT_CSS = ""
 
     STATUS_ICONS = {
         "completed": "✓",

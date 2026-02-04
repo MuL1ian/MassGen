@@ -99,6 +99,8 @@ MODEL_MAPPINGS = {
         "claude-3-opus-20240229",
     ],
     "gemini": [
+        "gemini-3-flash-preview",
+        "gemini-3-pro-preview",
         "gemini-2.5-flash",
         "gemini-2.5-pro",
     ],

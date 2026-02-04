@@ -1820,6 +1820,9 @@ def create_agents_from_config(
         record_all_tool_calls = recording_config.get("record_all_tool_calls", False)
         record_reasoning = recording_config.get("record_reasoning", False)
 
+        # Get per-agent voting sensitivity (if specified)
+        agent_voting_sensitivity = agent_data.get("voting_sensitivity")
+
         # Create agent
         agent = ConfigurableAgent(
             config=agent_config,
@@ -1829,6 +1832,7 @@ def create_agents_from_config(
             context_monitor=context_monitor,
             record_all_tool_calls=record_all_tool_calls,
             record_reasoning=record_reasoning,
+            voting_sensitivity=agent_voting_sensitivity,
         )
 
         # Configure retrieval settings from YAML (if memory is enabled)

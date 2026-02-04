@@ -364,7 +364,14 @@ async def run(
         run_question_with_history,
         run_single_question,
     )
-    from .logger_config import save_execution_metadata, setup_logging
+    from .logger_config import (
+        reset_logging_session,
+        save_execution_metadata,
+        setup_logging,
+    )
+
+    # Reset logging state to ensure fresh log directory for each run
+    reset_logging_session()
     from .utils import get_backend_type_from_model
 
     # Initialize logging for programmatic API

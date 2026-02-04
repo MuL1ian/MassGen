@@ -354,6 +354,17 @@ class ConfigValidator:
                         "Use a string for the system message",
                     )
 
+            # Validate optional field: voting_sensitivity (per-agent override)
+            if "voting_sensitivity" in agent_config:
+                voting_sensitivity = agent_config["voting_sensitivity"]
+                if voting_sensitivity not in self.VALID_VOTING_SENSITIVITY:
+                    valid_values = ", ".join(sorted(self.VALID_VOTING_SENSITIVITY))
+                    result.add_error(
+                        f"Invalid voting_sensitivity: '{voting_sensitivity}'",
+                        f"{agent_location}.voting_sensitivity",
+                        f"Use one of: {valid_values}",
+                    )
+
     def _validate_backend(self, backend_config: Dict[str, Any], location: str, result: ValidationResult) -> None:
         """Validate backend configuration (Level 3)."""
         if not isinstance(backend_config, dict):

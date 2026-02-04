@@ -5842,6 +5842,7 @@ Your answer:"""
                 human_qa_history=human_qa_history,
                 vote_only=vote_only_for_system_message,
                 agent_mapping=self.coordination_tracker.get_reverse_agent_mapping(),
+                voting_sensitivity_override=getattr(agent, "voting_sensitivity", None),
             )
 
             # Inject phase-appropriate persona if enabled
