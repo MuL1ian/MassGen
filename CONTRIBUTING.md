@@ -36,6 +36,8 @@ massgen/
 │   ├── azure_openai.py     # Azure OpenAI backend
 │   ├── claude.py           # Anthropic Claude backend
 │   ├── claude_code.py      # Claude Code CLI backend
+│   ├── codex.py            # OpenAI Codex CLI backend
+│   ├── native_tool_mixin.py # Native tool backend mixin
 │   ├── gemini.py           # Google Gemini backend
 │   ├── grok.py             # xAI Grok backend
 │   ├── lmstudio.py         # LMStudio backend
@@ -52,6 +54,8 @@ massgen/
 │   ├── security.py         # Security validation and sanitization
 │   ├── filesystem_manager.py # Workspace and snapshot management
 │   ├── hooks.py            # Function hooks for permission management
+│   ├── custom_tools_server.py # Custom tools MCP server for CLI backends
+│   ├── workflow_tools_server.py # Workflow tools MCP server
 │   ├── workspace_copy_server.py # MCP server for file copying operations
 │   └── *.md                # Individual component documentation
 ├── frontend/               # User interface components
@@ -345,7 +349,7 @@ Create a `.env` file in the `massgen` directory as described in [README](README.
 
 ## 🔧 Development Workflow
 
-> **Important**: Our next version is v0.1.34. If you want to contribute, please contribute to the `dev/v0.1.34` branch (or `main` if dev/v0.1.34 doesn't exist yet).
+> **Important**: Our next version is v0.1.48. If you want to contribute, please contribute to the `dev/v0.1.48` branch (or `main` if dev/v0.1.48 doesn't exist yet).
 
 ### 1. Create Feature Branch
 
@@ -353,8 +357,8 @@ Create a `.env` file in the `massgen` directory as described in [README](README.
 # Fetch latest changes from upstream
 git fetch upstream
 
-# Create feature branch from dev/v0.1.34 (or main if dev branch doesn't exist yet)
-git checkout -b feature/your-feature-name upstream/dev/v0.1.34
+# Create feature branch from dev/v0.1.48 (or main if dev branch doesn't exist yet)
+git checkout -b feature/your-feature-name upstream/dev/v0.1.48
 ```
 
 ### 2. Make Your Changes
@@ -484,7 +488,7 @@ git push origin feature/your-feature-name
 ```
 
 Then create a pull request on GitHub:
-- Base branch: `dev/v0.1.34` (or `main` if dev branch doesn't exist yet)
+- Base branch: `dev/v0.1.48` (or `main` if dev branch doesn't exist yet)
 - Compare branch: `feature/your-feature-name`
 - Add clear description of changes
 - Link any related issues
@@ -590,7 +594,7 @@ Have a significant feature idea not covered by existing tracks?
 - [ ] Tests pass locally
 - [ ] Documentation is updated if needed
 - [ ] Commit messages follow convention
-- [ ] PR targets `dev/v0.1.34` branch (or `main` if dev branch doesn't exist yet)
+- [ ] PR targets `dev/v0.1.48` branch (or `main` if dev branch doesn't exist yet)
 
 ### PR Description Should Include
 

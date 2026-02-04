@@ -1,4 +1,4 @@
- # MassGen v0.1.46 Release Announcement
+# MassGen v0.1.47 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.46, featuring real-time subagent TUI streaming! 🚀 Subagents now display in interactive preview cards that expand to full timeline views, with a major TUI event architecture refactor for better maintainability and consistency.
+We're excited to release MassGen v0.1.47, adding Codex Backend Support! 🚀 OpenAI Codex CLI is now a fully supported backend with local and Docker execution, OAuth and API key authentication. A new NativeToolMixin provides shared native tool handling across CLI-based backends (Codex and Claude Code). Plus: TUI theme system refactored to palette-based architecture and per-agent voting sensitivity.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.46
+pip install massgen==0.1.47
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.46
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.47
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,39 +29,26 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.46, featuring real-time subagent TUI streaming! 🚀
+We're excited to release MassGen v0.1.47, adding Codex Backend Support! 🚀 OpenAI Codex CLI is now a fully supported backend with local and Docker execution, OAuth and API key authentication. A new NativeToolMixin provides shared native tool handling across CLI-based backends (Codex and Claude Code). Plus: TUI theme system refactored to palette-based architecture, per-agent voting sensitivity, and bug fixes.
 
-**Subagent TUI Streaming**
-- Clickable preview cards show subagent status and progress in the main TUI
-- Click any card to expand to full timeline view with real-time event streaming
-- Unified display components ensure identical tool displays between main and subagents
-- Subagent rounds tracking with visual status indicators
+**Key Features:**
 
-**Enhanced Final Presentation**
-- Final answer display now includes workspace visualization
-- Winning agent clearly highlighted with visual indicator
-- Improved formatting with better reasoning/answer separation
+**Codex Backend** - New `codex` backend type for OpenAI Codex CLI:
+- Local and Docker execution modes with workspace mounting
+- OAuth and API key authentication
+- Custom and workflow MCP servers for exposing MassGen tools to CLI-based backends
+- NativeToolMixin abstract mixin shared between Codex and Claude Code
 
-**TUI Architecture Refactor**
-- Major refactor to structured event emission pipeline
-- Single source of truth for display creation shared across agent types
-- Improved maintainability and consistency
-- Better debugging support with enhanced logging
+**TUI Theme Refactoring** - Palette-based architecture with unified base styles:
+- Semantic CSS variables for consistent cross-component theming
+- Theme palette files for dark and light variants
 
-**Bug Fixes**
-- Fixed banner display issues for first coordination round
-- Fixed tool call ID handling for models like kimi2.5
-- Improved round tracking logic for accurate status display
+**Per-agent Voting Sensitivity** - Per-agent override for voting evaluation criteria (strict/balanced/lenient)
 
-**Documentation Updates**
-- New tutorial video GIF previews for better visual guidance
-- Comprehensive subagent architecture documentation
-- Updated video tutorial links opening in new tabs
+**Claude Code Backend Refactored** - Now uses NativeToolMixin with native filesystem support and OS-level sandbox
 
-Try subagent streaming: `uv run massgen --config @examples/configs/features/test_subagent_orchestrator_code_mode.yaml "Use subagents to research bob dylan"`
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.47
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.46
+Feature highlights:
 
 <!-- Paste feature-highlights.md content here -->
-
----

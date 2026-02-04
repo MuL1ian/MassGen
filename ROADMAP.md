@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.46
+**Current Version:** v0.1.47
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** February 2, 2026
+**Last Updated:** February 4, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,19 +42,16 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.47** | 02/04/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization ([#739](https://github.com/massgen/MassGen/issues/739)) |
+| **v0.1.48** | 02/06/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization ([#739](https://github.com/massgen/MassGen/issues/739)) |
 | | | Add Model Selector for Log Analysis | @ncrispino | Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766)) |
-| | | TUI event throttling | @ncrispino | Improve TUI performance with event throttling ([#776](https://github.com/massgen/MassGen/issues/776)) |
-| **v0.1.48** | 02/07/26 | Fix TUI Scrolling Problem | @ncrispino | Fix blank space issues and timeline truncation in TUI ([#824](https://github.com/Leezekun/MassGen/issues/824)) |
-| | | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
-| **v0.1.49** | 02/10/26 | [FEATURE] Support dragging screenshots into TUI bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
-| | | Screenshot upload functionality | @ncrispino | Add screenshot upload capability to TUI ([#832](https://github.com/massgen/MassGen/issues/832)) |
+| **v0.1.49** | 02/09/26 | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
+| **v0.1.50** | 02/11/26 | Support dragging screenshots into TUI bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.47 - OpenAI Compact Endpoint & Log Analysis Model Selector
+## 📋 v0.1.48 - OpenAI Compact Endpoint & Log Analysis Model Selector
 
 ### Features
 
@@ -70,31 +67,17 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Configurable model selection for different analysis requirements
 - **Use Case**: Flexibility in choosing analysis model based on cost/quality tradeoffs
 
-**3. TUI Event Throttling**
-- Issue: [#776](https://github.com/massgen/MassGen/issues/776)
-- Improve TUI performance with event throttling mechanism
-- Reduce unnecessary re-renders and improve responsiveness
-- **Use Case**: Better TUI performance during high-frequency event streams
-
 ### Success Criteria
 - ✅ OpenAI compact endpoint integration working
 - ✅ Model selector working for log analysis command
-- ✅ TUI event throttling reduces CPU usage and improves responsiveness
 
 ---
 
-## 📋 v0.1.48 - TUI Scrolling & Targeted Agent Queries
+## 📋 v0.1.49 - Targeted Agent Queries
 
 ### Features
 
-**1. Fix TUI Scrolling Problem** (@ncrispino)
-- Issue: [#824](https://github.com/Leezekun/MassGen/issues/824)
-- Fix blank space issues when TUI truncates older items after reaching item limit
-- Ensure proper rendering of final presentation box without empty space
-- Improve timeline management to handle long-running agent sessions
-- **Use Case**: Better TUI experience with proper scrolling and space management
-
-**2. Refactor ask_others for Targeted Agent Queries** (@ncrispino)
+**1. Refactor ask_others for Targeted Agent Queries** (@ncrispino)
 - Issue: [#809](https://github.com/massgen/MassGen/issues/809)
 - Support targeted queries to specific agents via subagent spawning
 - Three modes: broadcast to all, selective broadcast with per-agent prompts, targeted ask about past answer
@@ -102,12 +85,23 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - **Use Case**: More efficient coordination by querying specific agents rather than broadcasting to all
 
 ### Success Criteria
-- ✅ No blank space left when timeline items are truncated
-- ✅ Final presentation box displays correctly without being pushed down
-- ✅ Smooth scrolling experience in long-running sessions
 - ✅ Targeted `ask_others(target_agent_id="Agent-1", question="...")` working
 - ✅ Selective broadcast with `agent_prompts` dict functional
 - ✅ Improved context passing via streaming buffer
+
+---
+
+## 📋 v0.1.50 - TUI Screenshot Support
+
+### Features
+
+**1. Support Dragging Screenshots into TUI Bar on Mac** (@ncrispino)
+- Issue: [#831](https://github.com/massgen/MassGen/issues/831)
+- Enable drag-and-drop screenshot functionality in TUI input bar
+- **Use Case**: Quick image sharing for multimodal agent coordination
+
+### Success Criteria
+- ✅ Drag-and-drop screenshots into TUI input bar working on Mac
 
 ---
 
@@ -652,7 +646,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#739](https://github.com/massgen/MassGen/issues/739)
 - Use OpenAI's native `/compact` endpoint instead of custom summarization
 - Leverage API-level context compression for better efficiency
-- **Target:** v0.1.47
+- **Target:** v0.1.48
 
 ### Track: Improve Logging (@ncrispino, nickcrispino)
 - Issue: [#683](https://github.com/massgen/MassGen/issues/683)
@@ -665,7 +659,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#766](https://github.com/massgen/MassGen/issues/766)
 - Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - Configurable model selection for different analysis requirements
-- **Target:** v0.1.47
+- **Target:** v0.1.48
 
 ### Track: General Hook Framework (@ncrispino, nickcrispino)
 - Issue: [#745](https://github.com/massgen/MassGen/issues/745)
@@ -686,20 +680,20 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#722](https://github.com/massgen/MassGen/issues/722)
 - Enhanced log sharing workflows
 - Improved analysis tools and visualizations
-- **Target:** v0.1.47+
+- **Target:** v0.1.48+
 
 ### Track: Claude Code Plugin for MassGen Agents (@ncrispino, nickcrispino)
 - Issue: [#773](https://github.com/massgen/MassGen/issues/773)
 - Plugin/extension for spawning MassGen agents directly from Claude Code interface
 - Seamless integration with Claude Code workflows
-- **Target:** v0.1.47+
+- **Target:** v0.1.48+
 
 ### Track: Refactor ask_others for Targeted Agent Queries (@ncrispino, nickcrispino)
 - Issue: [#809](https://github.com/massgen/MassGen/issues/809)
 - Support targeted queries to specific agents via subagent spawning
 - Three modes: broadcast to all, selective broadcast, targeted ask
 - Pass full `_streaming_buffer` to shadow agents for improved context
-- **Target:** v0.1.48
+- **Target:** v0.1.49
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -782,5 +776,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** January 31, 2026
+**Last Updated:** February 4, 2026
 **Maintained By:** MassGen Team
