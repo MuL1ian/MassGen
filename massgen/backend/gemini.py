@@ -934,9 +934,15 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                         if provider_calls:
                             # Convert provider calls to tool_calls format for orchestrator
                             workflow_tool_calls = []
+                            hallucinated_mcp_calls = []  # Track MCP-prefixed tools that don't exist
                             for call in provider_calls:
                                 tool_name = call.get("name", "")
                                 tool_args_str = call.get("arguments", "{}")
+
+                                # Check for hallucinated MCP tools
+                                if tool_name.startswith("mcp__") and tool_name not in self._mcp_functions:
+                                    hallucinated_mcp_calls.append(call)
+                                    continue
 
                                 # Parse arguments if they're a string
                                 if isinstance(tool_args_str, str):
@@ -968,6 +974,36 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                         },
                                     },
                                 )
+
+                            # Handle hallucinated MCP calls - return error for retry
+                            if hallucinated_mcp_calls:
+                                for bad_call in hallucinated_mcp_calls:
+                                    bad_tool_name = bad_call.get("name", "")
+                                    parts = bad_tool_name.split("__")
+                                    actual_tool_name = parts[-1] if len(parts) >= 3 else bad_tool_name
+
+                                    error_msg = f"Tool '{bad_tool_name}' does not exist. " f"Use the direct tool '{actual_tool_name}' instead (without MCP prefix)."
+                                    logger.warning(f"[Gemini] Hallucinated MCP tool in structured output: {bad_tool_name} -> suggesting {actual_tool_name}")
+
+                                    self._append_tool_error_message(
+                                        messages,
+                                        bad_call,
+                                        error_msg,
+                                        "mcp",
+                                    )
+
+                                    yield StreamChunk(
+                                        type="mcp_status",
+                                        status="mcp_tool_error",
+                                        content=f"❌ {error_msg}",
+                                        source="mcp_tools",
+                                    )
+
+                                # If only hallucinated calls, add them to captured_function_calls
+                                # so the continuation loop can retry
+                                if not workflow_tool_calls and not captured_function_calls:
+                                    # No valid workflow calls and no custom calls - continue to allow retry
+                                    pass  # Fall through - don't return early
 
                             # Emit tool_calls chunk for orchestrator to process
                             if workflow_tool_calls:
@@ -1012,9 +1048,16 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                 if provider_calls:
                     # Convert provider calls to tool_calls format for orchestrator
                     workflow_tool_calls = []
+                    hallucinated_mcp_calls = []  # Track MCP-prefixed tools that don't exist
                     for call in provider_calls:
                         tool_name = call.get("name", "")
                         tool_args_str = call.get("arguments", "{}")
+
+                        # Check for hallucinated MCP tools - tools that look like MCP calls
+                        # but aren't in our registered MCP functions
+                        if tool_name.startswith("mcp__") and tool_name not in self._mcp_functions:
+                            hallucinated_mcp_calls.append(call)
+                            continue  # Don't add to workflow_tool_calls
 
                         # Parse arguments if they're a string
                         if isinstance(tool_args_str, str):
@@ -1047,6 +1090,35 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                             },
                         )
 
+                    # Handle hallucinated MCP calls - return error and continue for retry
+                    if hallucinated_mcp_calls:
+                        for bad_call in hallucinated_mcp_calls:
+                            bad_tool_name = bad_call.get("name", "")
+                            # Extract the actual tool name from MCP prefix (e.g., "mcp__planning_agent_a__new_answer" -> "new_answer")
+                            parts = bad_tool_name.split("__")
+                            actual_tool_name = parts[-1] if len(parts) >= 3 else bad_tool_name
+
+                            error_msg = f"Tool '{bad_tool_name}' does not exist. " f"Use the direct tool '{actual_tool_name}' instead (without MCP prefix)."
+                            logger.warning(f"[Gemini] Hallucinated MCP tool: {bad_tool_name} -> suggesting {actual_tool_name}")
+
+                            # Add error to messages for retry
+                            self._append_tool_error_message(
+                                messages,
+                                bad_call,
+                                error_msg,
+                                "mcp",
+                            )
+
+                            yield StreamChunk(
+                                type="mcp_status",
+                                status="mcp_tool_error",
+                                content=f"❌ {error_msg}",
+                                source="mcp_tools",
+                            )
+
+                        # Don't return - continue streaming to allow agent to retry
+                        # Fall through to execute any other pending tools or continue generation
+
                     # Emit tool_calls chunk for orchestrator to process
                     if workflow_tool_calls:
                         log_stream_chunk("backend.gemini", "tool_calls", workflow_tool_calls, agent_id)
@@ -1056,19 +1128,24 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                             source="gemini",
                         )
 
-                    # Track tokens before returning
-                    track_usage_from_chunk(last_response_with_candidates)
+                        # Track tokens before returning
+                        track_usage_from_chunk(last_response_with_candidates)
 
-                    if mcp_used:
-                        yield StreamChunk(
-                            type="mcp_status",
-                            status="mcp_session_complete",
-                            content="✅ [MCP] Session completed",
-                            source="mcp_tools",
-                        )
+                        if mcp_used:
+                            yield StreamChunk(
+                                type="mcp_status",
+                                status="mcp_session_complete",
+                                content="✅ [MCP] Session completed",
+                                source="mcp_tools",
+                            )
 
-                    yield StreamChunk(type="done")
-                    return
+                        yield StreamChunk(type="done")
+                        return
+
+                    # If only hallucinated calls (no valid workflow calls), continue to let agent retry
+                    if hallucinated_mcp_calls and not workflow_tool_calls:
+                        # Continue streaming - agent should retry with correct tool name
+                        pass  # Fall through to continuation logic
 
                 # Initialize for execution
                 updated_messages = messages.copy()
@@ -1509,9 +1586,15 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                     if cont_provider_calls:
                                         # Convert provider calls to tool_calls format for orchestrator
                                         workflow_tool_calls = []
+                                        hallucinated_mcp_calls = []  # Track MCP-prefixed tools that don't exist
                                         for call in cont_provider_calls:
                                             tool_name = call.get("name", "")
                                             tool_args_str = call.get("arguments", "{}")
+
+                                            # Check for hallucinated MCP tools
+                                            if tool_name.startswith("mcp__") and tool_name not in self._mcp_functions:
+                                                hallucinated_mcp_calls.append(call)
+                                                continue
 
                                             # Parse arguments if they're a string
                                             if isinstance(tool_args_str, str):
@@ -1544,6 +1627,34 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                                 },
                                             )
 
+                                        # Handle hallucinated MCP calls - return error for retry
+                                        if hallucinated_mcp_calls:
+                                            for bad_call in hallucinated_mcp_calls:
+                                                bad_tool_name = bad_call.get("name", "")
+                                                parts = bad_tool_name.split("__")
+                                                actual_tool_name = parts[-1] if len(parts) >= 3 else bad_tool_name
+
+                                                error_msg = f"Tool '{bad_tool_name}' does not exist. " f"Use the direct tool '{actual_tool_name}' instead (without MCP prefix)."
+                                                logger.warning(f"[Gemini] Hallucinated MCP tool in continuation structured output: {bad_tool_name} -> suggesting {actual_tool_name}")
+
+                                                self._append_tool_error_message(
+                                                    updated_messages,
+                                                    bad_call,
+                                                    error_msg,
+                                                    "mcp",
+                                                )
+
+                                                yield StreamChunk(
+                                                    type="mcp_status",
+                                                    status="mcp_tool_error",
+                                                    content=f"❌ {error_msg}",
+                                                    source="mcp_tools",
+                                                )
+
+                                            # If only hallucinated calls, continue the loop to allow retry
+                                            if not workflow_tool_calls:
+                                                continue  # Continue the continuation loop
+
                                         # Emit tool_calls chunk for orchestrator to process
                                         if workflow_tool_calls:
                                             log_stream_chunk("backend.gemini", "tool_calls", workflow_tool_calls, agent_id)
@@ -1553,19 +1664,19 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                                 source="gemini",
                                             )
 
-                                        # Track tokens before returning
-                                        track_usage_from_chunk(last_continuation_chunk)
+                                            # Track tokens before returning
+                                            track_usage_from_chunk(last_continuation_chunk)
 
-                                        if mcp_used:
-                                            yield StreamChunk(
-                                                type="mcp_status",
-                                                status="mcp_session_complete",
-                                                content="✅ [MCP] Session completed",
-                                                source="mcp_tools",
-                                            )
+                                            if mcp_used:
+                                                yield StreamChunk(
+                                                    type="mcp_status",
+                                                    status="mcp_session_complete",
+                                                    content="✅ [MCP] Session completed",
+                                                    source="mcp_tools",
+                                                )
 
-                                        yield StreamChunk(type="done")
-                                        return
+                                            yield StreamChunk(type="done")
+                                            return
 
                         # No structured output found, break continuation loop
                         break
@@ -1575,9 +1686,15 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                     # Handle provider calls emitted during continuation
                     if provider_calls:
                         workflow_tool_calls = []
+                        hallucinated_mcp_calls = []  # Track MCP-prefixed tools that don't exist
                         for call in provider_calls:
                             tool_name = call.get("name", "")
                             tool_args_str = call.get("arguments", "{}")
+
+                            # Check for hallucinated MCP tools
+                            if tool_name.startswith("mcp__") and tool_name not in self._mcp_functions:
+                                hallucinated_mcp_calls.append(call)
+                                continue
 
                             if isinstance(tool_args_str, str):
                                 try:
@@ -1607,6 +1724,34 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                 },
                             )
 
+                        # Handle hallucinated MCP calls - return error for retry
+                        if hallucinated_mcp_calls:
+                            for bad_call in hallucinated_mcp_calls:
+                                bad_tool_name = bad_call.get("name", "")
+                                parts = bad_tool_name.split("__")
+                                actual_tool_name = parts[-1] if len(parts) >= 3 else bad_tool_name
+
+                                error_msg = f"Tool '{bad_tool_name}' does not exist. " f"Use the direct tool '{actual_tool_name}' instead (without MCP prefix)."
+                                logger.warning(f"[Gemini] Hallucinated MCP tool in continuation: {bad_tool_name} -> suggesting {actual_tool_name}")
+
+                                self._append_tool_error_message(
+                                    updated_messages,
+                                    bad_call,
+                                    error_msg,
+                                    "mcp",
+                                )
+
+                                yield StreamChunk(
+                                    type="mcp_status",
+                                    status="mcp_tool_error",
+                                    content=f"❌ {error_msg}",
+                                    source="mcp_tools",
+                                )
+
+                            # If only hallucinated calls, continue to let agent retry
+                            if not workflow_tool_calls:
+                                continue  # Continue the continuation loop
+
                         if workflow_tool_calls:
                             log_stream_chunk("backend.gemini", "tool_calls", workflow_tool_calls, agent_id)
                             yield StreamChunk(
@@ -1615,19 +1760,19 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                                 source="gemini",
                             )
 
-                        # Track tokens before returning
-                        track_usage_from_chunk(last_continuation_chunk)
+                            # Track tokens before returning
+                            track_usage_from_chunk(last_continuation_chunk)
 
-                        if mcp_used:
-                            yield StreamChunk(
-                                type="mcp_status",
-                                status="mcp_session_complete",
-                                content="✅ [MCP] Session completed",
-                                source="mcp_tools",
-                            )
+                            if mcp_used:
+                                yield StreamChunk(
+                                    type="mcp_status",
+                                    status="mcp_session_complete",
+                                    content="✅ [MCP] Session completed",
+                                    source="mcp_tools",
+                                )
 
-                        yield StreamChunk(type="done")
-                        return
+                            yield StreamChunk(type="done")
+                            return
 
                     new_tool_results: Dict[str, str] = {}
                     self._active_tool_result_store = new_tool_results

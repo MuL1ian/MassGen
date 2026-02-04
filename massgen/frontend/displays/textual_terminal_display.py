@@ -85,6 +85,7 @@ try:
         TaskPlanModal,
         TasksClicked,
         TimelineSection,
+        ToolBatchCard,
         ToolCallCard,
         ToolDetailModal,
         ToolSection,
@@ -2268,7 +2269,7 @@ if TEXTUAL_AVAILABLE:
         # Only canonical shortcuts that users expect
         BINDINGS = [
             # Agent navigation
-            Binding("w", "go_to_winner", "Go to Winner", show=False),
+            Binding("f", "go_to_winner", "Go to Winner", show=False),
             Binding("tab", "next_agent", "Next Agent"),
             Binding("left", "prev_agent", "Prev Agent", show=False),
             Binding("right", "next_agent", "Next Agent", show=False),
@@ -3144,6 +3145,7 @@ if TEXTUAL_AVAILABLE:
 
                 # Show winner panel, hide others
                 self._winner_agent_id = winner_id
+                self._update_winner_hints(winner_id)
                 if winner_id in self.agent_widgets:
                     if self._active_agent_id and self._active_agent_id in self.agent_widgets:
                         self.agent_widgets[self._active_agent_id].add_class("hidden")
@@ -3153,6 +3155,7 @@ if TEXTUAL_AVAILABLE:
             elif event.event_type == "final_presentation_start":
                 agent_id = event.agent_id or ""
                 self._winner_agent_id = agent_id
+                self._update_winner_hints(agent_id)
                 # Switch to winner tab if not already
                 if self._tab_bar:
                     self._tab_bar.set_active(agent_id)
@@ -3889,6 +3892,20 @@ Type your question and press Enter to ask the agents.
             timestamp = datetime.now().strftime("%H:%M:%S")
             self._orchestrator_events.append(f"{timestamp} {event}")
 
+        def _update_winner_hints(self, winner_id: str) -> None:
+            """Update winner hints on all agent timelines.
+
+            Shows the hint on non-winning agents, hides on the winner.
+            """
+            for agent_id, panel in self.agent_widgets.items():
+                try:
+                    timeline = panel._get_timeline()
+                    if timeline:
+                        # Show hint on non-winners, hide on winner
+                        timeline.show_winner_hint(show=(agent_id != winner_id))
+                except Exception:
+                    pass
+
         def show_subagent_card_from_spawn(
             self,
             agent_id: str,
@@ -4005,6 +4022,7 @@ Type your question and press Enter to ask the agents.
 
             # Track the winner
             self._winner_agent_id = selected_agent
+            self._update_winner_hints(selected_agent)
 
             # Mark the winning answer(s) in tracked answers and extract workspace_path
             winner_workspace_path = None
@@ -4121,13 +4139,21 @@ Type your question and press Enter to ask the agents.
                     if hasattr(orch, "get_context_path_writes_categorized"):
                         context_paths = orch.get_context_path_writes_categorized()
 
-                # Remove any existing completion card to avoid duplicate ID issues
-                try:
-                    existing_card = timeline.query_one("#final_presentation_card", FinalPresentationCard)
-                    existing_card.remove()
-                except Exception as e:
-                    tui_log(f"[TextualDisplay] {e}")  # No existing card, that's fine
+                # Check if card already exists (may have been created by event pipeline)
+                existing_cards = list(timeline.query("#final_presentation_card"))
+                if existing_cards:
+                    tui_log("[TextualDisplay] Final card already exists, reusing it")
+                    card = existing_cards[0]
+                    self._final_presentation_card = card
+                    # Still need to do the lock and complete
+                    if answer and not getattr(card, "_final_content", []):
+                        card.append_chunk(answer)
+                    card.complete()
+                    timeline.lock_to_final_answer("final_presentation_card")
+                    card.set_locked_mode(True)
+                    return
 
+                tui_log("[TextualDisplay] Creating new final presentation card")
                 # Create the final answer card with content
                 card = FinalPresentationCard(
                     agent_id=agent_id,
@@ -4140,7 +4166,9 @@ Type your question and press Enter to ask the agents.
                 current_round = getattr(panel, "_current_round", 1)
                 card.add_class(f"round-{current_round}")
 
-                timeline.add_widget(card)
+                # Use mount() directly to ensure card is always at the END of timeline
+                # (add_widget uses round-based insertion which can place card before later content)
+                timeline.mount(card)
                 self._final_presentation_card = card
 
                 # Stop the round timer - final presentation is the end state
@@ -4384,6 +4412,14 @@ Type your question and press Enter to ask the agents.
                     timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
                     self._final_stream_timeline = timeline
 
+                    # Check if card already exists (may have been created by event pipeline)
+                    existing_cards = list(timeline.query("#final_presentation_card"))
+                    if existing_cards:
+                        tui_log("[TextualDisplay] begin_final_stream: card already exists, reusing")
+                        self._final_presentation_card = existing_cards[0]
+                        timeline.scroll_to_widget("final_presentation_card")
+                        return
+
                     # Get coordination_tracker for answer label lookup
                     tracker = None
                     if hasattr(self.coordination_display, "orchestrator") and self.coordination_display.orchestrator:
@@ -4412,6 +4448,7 @@ Type your question and press Enter to ask the agents.
                         "is_tie": is_tie,
                     }
 
+                    tui_log("[TextualDisplay] begin_final_stream: creating new card")
                     # Create the unified card
                     card = FinalPresentationCard(
                         agent_id=agent_id,
@@ -4423,7 +4460,8 @@ Type your question and press Enter to ask the agents.
                     card.add_class(f"round-{current_round}")
                     # Note: Removed full-width-mode to allow tool cards to be visible
                     # during final presentation (was causing content cutoff issue)
-                    timeline.add_widget(card)
+                    # Use mount() directly to ensure card is always at the END of timeline
+                    timeline.mount(card)
                     self._final_presentation_card = card
 
                     # Scroll to show the card
@@ -4566,7 +4604,8 @@ Type your question and press Enter to ask the agents.
                     card.add_class(f"round-{self._current_round}")
                     # Use completion-only mode - content already in timeline via normal pipeline
                     card.add_class("completion-only")
-                    timeline.add_widget(card)
+                    # Use mount() directly to ensure card is always at the END of timeline
+                    timeline.mount(card)
                     self._final_presentation_card = card
 
                     # Auto-lock timeline to show only final answer
@@ -5037,9 +5076,9 @@ Type your question and press Enter to ask the agents.
                 self._active_agent_id = agent_id
                 tui_log(f"  Switch complete to: {agent_id}")
 
-                # Notify if navigating away from winner
+                # Show winner hint separator on non-winner timelines
                 if self._winner_agent_id and agent_id != self._winner_agent_id:
-                    self.notify("Press W to go to winner agent", timeout=4)
+                    self._update_winner_hints(self._winner_agent_id)
 
                 # Update current_agent_index for compatibility with existing methods
                 try:
@@ -5598,6 +5637,24 @@ Type your question and press Enter to ask the agents.
                 args=card.params,
                 result=card.result,
                 error=card.error,
+            )
+            self.push_screen(modal)
+            event.stop()
+
+        def on_tool_batch_card_tool_in_batch_clicked(
+            self,
+            event: ToolBatchCard.ToolInBatchClicked,
+        ) -> None:
+            """Handle tool-in-batch click - show detail modal."""
+            tool = event.tool_item
+            modal = ToolDetailModal(
+                tool_name=tool.display_name,
+                icon="🔧",  # Generic tool icon
+                status=tool.status,
+                elapsed=f"{tool.elapsed_seconds:.1f}s" if tool.elapsed_seconds else None,
+                args=tool.args_full,
+                result=tool.result_full,
+                error=tool.error,
             )
             self.push_screen(modal)
             event.stop()

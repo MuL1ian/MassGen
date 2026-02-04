@@ -129,6 +129,10 @@ class TimelineEventAdapter:
             # Skip "Evaluation complete" status — already shown in FinalPresentationCard header
             if output.text_class == "status" and "Evaluation complete" in output.text_content:
                 return
+            # Capture text during final presentation as the final answer
+            if output.output_type == "text" and getattr(self, "_pending_final_card_meta", None):
+                tui_log(f"[FINAL_CARD] Capturing text as final_answer: {output.text_content[:50] if output.text_content else None}...")
+                self._final_answer = output.text_content
             try:
                 timeline.add_text(
                     output.text_content,
@@ -391,6 +395,8 @@ class TimelineEventAdapter:
         answer_labels = extra.get("answer_labels", {})
         is_tie = extra.get("is_tie", False)
 
+        tui_log(f"[FINAL_CARD] _apply_final_presentation_start: agent_id={agent_id}, round={round_number}")
+
         self._pending_final_card_meta = {
             "agent_id": agent_id,
             "vote_counts": vote_counts,
@@ -515,17 +521,35 @@ class TimelineEventAdapter:
         if self._final_answer:
             try:
                 card.append_chunk(self._final_answer)
-                card.set_post_eval_status("verified")
                 card.complete()
             except Exception as e:
                 tui_log(f"[TimelineEventAdapter] {e}")
 
     def _apply_answer_locked(self, output: ContentOutput, timeline: Any) -> None:
         """Create the FinalPresentationCard (if deferred) and lock the timeline."""
+        tui_log(f"[FINAL_CARD] _apply_answer_locked called, _final_answer={self._final_answer[:50] if self._final_answer else None}...")
+
+        # Check if card already exists (may have been created by another code path)
+        if getattr(self, "_final_presentation_card", None) is None:
+            try:
+                # Use query to find all matches, avoiding NoMatches exception
+                existing_cards = list(timeline.query("#final_presentation_card"))
+                if existing_cards:
+                    tui_log(f"[FINAL_CARD] Card already exists ({len(existing_cards)} found), reusing first one")
+                    self._final_presentation_card = existing_cards[0]
+                    # Populate existing card with final answer if it doesn't have content
+                    card = self._final_presentation_card
+                    if self._final_answer and not getattr(card, "_final_content", []):
+                        tui_log(f"[FINAL_CARD] Populating existing card with final_answer length={len(self._final_answer)}")
+                        card.append_chunk(self._final_answer)
+            except Exception as e:
+                tui_log(f"[FINAL_CARD] Error checking for existing card: {e}")
+
         # Create card now if it doesn't exist yet (deferred from _apply_final_presentation_start)
         if getattr(self, "_final_presentation_card", None) is None:
             meta = getattr(self, "_pending_final_card_meta", None)
             tl = getattr(self, "_pending_final_card_timeline", None) or timeline
+            tui_log(f"[FINAL_CARD] Creating card: meta={meta is not None}, tl={tl is not None}")
             if meta and tl:
                 try:
                     from .textual_widgets.content_sections import FinalPresentationCard
@@ -553,17 +577,20 @@ class TimelineEventAdapter:
 
                     # Populate with full final answer content
                     if self._final_answer:
-                        card.append_content(self._final_answer)
+                        tui_log(f"[FINAL_CARD] Populating card with final_answer length={len(self._final_answer)}")
+                        card.append_chunk(self._final_answer)
+                    else:
+                        tui_log("[FINAL_CARD] WARNING: No final_answer content available!")
 
                     tl.mount(card)
                     self._final_presentation_card = card
+                    tui_log("[FINAL_CARD] Card mounted successfully")
                 except Exception as e:
-                    tui_log(f"[TimelineEventAdapter] {e}")
+                    tui_log(f"[FINAL_CARD] ERROR creating card: {e}")
 
         card = getattr(self, "_final_presentation_card", None)
         try:
             if card:
-                card.set_post_eval_status("verified")
                 card.complete()
                 if hasattr(card, "set_locked_mode"):
                     card.set_locked_mode(True)

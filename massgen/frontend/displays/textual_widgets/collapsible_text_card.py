@@ -178,13 +178,15 @@ class CollapsibleTextCard(Static):
                         # Blank line between content chunks for readability
                         text.append("\n")
         else:
-            # MINIMAL (0) or PREVIEW (1): Show limited chunks with truncation
+            # MINIMAL (0) or PREVIEW (1): Show limited chunks
             if self._expansion_level == 0:
                 chunk_count = self.MINIMAL_CHUNK_COUNT
                 max_lines = self.MINIMAL_MAX_LINES
+                truncate_lines = True  # Minimal: truncate long lines at 120 chars
             else:
                 chunk_count = self.PREVIEW_CHUNK_COUNT
                 max_lines = self.PREVIEW_MAX_LINES
+                truncate_lines = False  # Preview: show full line length
 
             # Show "(+N chunks above)" at TOP if truncated
             if total_chunks > chunk_count:
@@ -201,7 +203,7 @@ class CollapsibleTextCard(Static):
                     else:
                         # Blank line between content chunks for readability
                         text.append("\n")
-                self._render_chunk_truncated(text, chunk, max_lines, truncate_lines=True)
+                self._render_chunk_truncated(text, chunk, max_lines, truncate_lines=truncate_lines)
 
         return text
 

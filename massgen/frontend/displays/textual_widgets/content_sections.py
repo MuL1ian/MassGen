@@ -557,9 +557,53 @@ class TimelineSection(ScrollableContainer):
     }
 
     /* Locked final card fills available space */
-    TimelineSection .final-card-locked {
+    TimelineSection FinalPresentationCard.final-card-locked {
         height: 1fr;
         margin: 0;
+        min-height: 10;
+    }
+
+    TimelineSection FinalPresentationCard.final-card-locked #final_card_body {
+        height: 1fr;
+        max-height: 999;
+    }
+
+    TimelineSection FinalPresentationCard.final-card-locked #final_card_content {
+        height: 1fr;
+        max-height: 999;
+        overflow-y: auto;
+    }
+
+    /* Compact mode for small terminals */
+    TimelineSection FinalPresentationCard.final-card-compact {
+        height: 3;
+        min-height: 3;
+        max-height: 3;
+        margin: 0;
+    }
+
+    TimelineSection FinalPresentationCard.final-card-compact #final_card_content {
+        display: none;
+    }
+
+    TimelineSection FinalPresentationCard.final-card-compact #final_card_header {
+        height: 1;
+    }
+
+    /* Winner hint - separator line style at bottom of non-winning timelines */
+    TimelineSection .winner-hint {
+        width: 100%;
+        height: 1;
+        text-align: center;
+        color: #484f58;
+        background: transparent;
+        padding: 0;
+        margin: 1 0;
+        border: none;
+    }
+
+    TimelineSection .winner-hint.hidden {
+        display: none;
     }
     """
 
@@ -617,6 +661,25 @@ class TimelineSection(ScrollableContainer):
         # Scroll mode indicator (hidden by default)
         yield Static("", id="scroll_mode_indicator", classes="scroll-indicator hidden")
         # Content is mounted directly into TimelineSection (no nested container)
+        # Winner hint is mounted dynamically at the end when needed
+
+    def show_winner_hint(self, show: bool = True) -> None:
+        """Show or hide the winner navigation hint at the bottom of the timeline."""
+        try:
+            hint = self.query_one("#winner_hint", Static)
+            if show:
+                hint.remove_class("hidden")
+            else:
+                hint.add_class("hidden")
+        except Exception:
+            # Hint doesn't exist yet - mount it if we need to show it
+            if show:
+                hint = Static(
+                    "─────────────── Press f to see final answer ───────────────",
+                    id="winner_hint",
+                    classes="winner-hint",
+                )
+                self.mount(hint)  # Mounts at end of children
 
     def _ensure_round_1_shown(self) -> None:
         """Ensure Round 1 banner is shown before any content."""
@@ -956,6 +1019,10 @@ class TimelineSection(ScrollableContainer):
         Args:
             card_id: The ID of the FinalPresentationCard to lock to
         """
+        from massgen.frontend.displays.shared.tui_debug import tui_log
+
+        tui_log(f"[LOCK] lock_to_final_answer called: card_id={card_id}, already_locked={self._answer_lock_mode}")
+
         if self._answer_lock_mode:
             return  # Already locked
 
@@ -966,22 +1033,40 @@ class TimelineSection(ScrollableContainer):
         self.add_class("answer-locked")
 
         # Hide all children except the final card
-        for child in self.children:
+        children = list(self.children)
+        tui_log(f"[LOCK] Found {len(children)} children, timeline height={self.size.height}")
+        card_found = False
+        for child in children:
             child_id = getattr(child, "id", None)
             if child_id != card_id:
                 child.add_class("answer-lock-hidden")
             else:
-                child.add_class("final-card-locked")
+                card_found = True
+                # Check if terminal is too small for full presentation
+                if self.size.height < 15:
+                    tui_log(f"[LOCK] Using compact mode (height={self.size.height})")
+                    child.add_class("final-card-compact")
+                else:
+                    tui_log(f"[LOCK] Using locked mode (height={self.size.height})")
+                    child.add_class("final-card-locked")
+
+        if not card_found:
+            tui_log(f"[LOCK] WARNING: Card with id={card_id} not found among children!")
 
     def unlock_final_answer(self) -> None:
         """Unlock timeline to show all content.
 
         Restores normal timeline view with all tools and text visible.
         """
+        from massgen.frontend.displays.shared.tui_debug import tui_log
+
         if not self._answer_lock_mode:
             return  # Already unlocked
 
+        tui_log(f"[LOCK] unlock_final_answer called, locked_card_id={self._locked_card_id}")
+
         self._answer_lock_mode = False
+        card_id = self._locked_card_id
 
         # Remove lock mode class from timeline
         self.remove_class("answer-locked")
@@ -990,11 +1075,35 @@ class TimelineSection(ScrollableContainer):
         for child in self.children:
             child.remove_class("answer-lock-hidden")
             child.remove_class("final-card-locked")
+            child.remove_class("final-card-compact")
 
         self._locked_card_id = None
 
-        # Scroll to show the final card
-        self._scroll_to_end(animate=False, force=True)
+        # Scroll to show the final card (scroll to it specifically, not just end)
+        if card_id:
+            try:
+                card = self.query_one(f"#{card_id}")
+                card.scroll_visible(animate=True, top=True)
+                tui_log(f"[LOCK] Scrolled to card {card_id}")
+            except Exception as e:
+                tui_log(f"[LOCK] Could not scroll to card: {e}")
+                self._scroll_to_end(animate=False, force=True)
+        else:
+            self._scroll_to_end(animate=False, force=True)
+
+    def on_resize(self, event) -> None:
+        """Handle resize events to switch between compact and full modes."""
+        if self._answer_lock_mode and self._locked_card_id:
+            try:
+                card = self.query_one(f"#{self._locked_card_id}")
+                if self.size.height < 15:
+                    card.remove_class("final-card-locked")
+                    card.add_class("final-card-compact")
+                else:
+                    card.remove_class("final-card-compact")
+                    card.add_class("final-card-locked")
+            except Exception:
+                pass
 
     def _trim_old_items(self) -> None:
         """ARCH-001: Cull items outside viewport using visibility toggling.
@@ -2768,6 +2877,15 @@ class FinalPresentationCard(Vertical):
         text-style: bold underline;
     }
 
+    /* Verified indicator - faded, non-clickable, hidden by default */
+    FinalPresentationCard .verified-indicator {
+        display: none;
+        width: auto;
+        height: 1;
+        color: #585b70;
+        padding: 0 1;
+    }
+
     FinalPresentationCard #continue_message {
         display: none;
     }
@@ -2934,6 +3052,9 @@ class FinalPresentationCard(Vertical):
             with Horizontal(id="final_card_buttons"):
                 yield Static("📋 Copy", id="final_card_copy_btn", classes="footer-link")
                 yield Static("📂 Workspace", id="final_card_workspace_btn", classes="footer-link")
+                # Verified indicator - faded, shown when post-eval verified
+                verified = Static("✓ Verified", id="final_card_verified", classes="verified-indicator")
+                yield verified
                 # Spacer to push unlock button to the right
                 yield Static("", id="final_card_button_spacer")
                 # Unlock button - hidden initially, shown when locked
@@ -3336,31 +3457,39 @@ class FinalPresentationCard(Vertical):
         self._post_eval_status = status
 
         try:
-            # Show the post-eval section
-            post_eval_section = self.query_one("#final_card_post_eval")
-            post_eval_section.remove_class("hidden")
+            # Update the faded verified indicator in the footer
+            try:
+                verified_indicator = self.query_one("#final_card_verified", Static)
+                if status == "verified":
+                    verified_indicator.display = True
+                else:
+                    verified_indicator.display = False
+            except Exception:
+                pass
 
-            # Update status label
-            status_label = self.query_one("#post_eval_status", Label)
-            toggle_label = self.query_one("#post_eval_toggle", Label)
-
-            if status == "evaluating":
-                status_label.update("🔍 Evaluating...")
-                status_label.add_class("evaluating")
-                toggle_label.update("")
-            elif status == "verified":
-                status_label.update("✓ Verified by Post-Evaluation")
-                status_label.remove_class("evaluating")
-                if self._post_eval_content:
-                    toggle_label.update("▸ Show Details")
-            elif status == "restart":
-                status_label.update("🔄 Restart Requested")
-                status_label.remove_class("evaluating")
-                if self._post_eval_content:
-                    toggle_label.update("▸ Show Details")
-
-            # Add content if provided
+            # Show the post-eval section only if there's content to show
             if content and content.strip():
+                post_eval_section = self.query_one("#final_card_post_eval")
+                post_eval_section.remove_class("hidden")
+
+                # Update status label in post-eval section
+                status_label = self.query_one("#post_eval_status", Label)
+                toggle_label = self.query_one("#post_eval_toggle", Label)
+
+                if status == "evaluating":
+                    status_label.update("🔍 Evaluating...")
+                    status_label.add_class("evaluating")
+                    toggle_label.update("")
+                elif status == "verified":
+                    status_label.update("✓ Verified")
+                    status_label.remove_class("evaluating")
+                    toggle_label.update("▸ Show Details")
+                elif status == "restart":
+                    status_label.update("🔄 Restart Requested")
+                    status_label.remove_class("evaluating")
+                    toggle_label.update("▸ Show Details")
+
+                # Add content
                 self._post_eval_content.append(content)
                 post_eval_static = self.query_one("#post_eval_content", Static)
                 full_content = "\n".join(self._post_eval_content)
