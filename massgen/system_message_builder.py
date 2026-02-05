@@ -155,11 +155,13 @@ class SystemMessageBuilder:
         # Use per-agent override if provided, otherwise fall back to orchestrator default
         voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
         answer_novelty_requirement = self.message_templates._answer_novelty_requirement
+        round_number = len(previous_turns) + 1 if previous_turns else 1
         builder.add_section(
             EvaluationSection(
                 voting_sensitivity=voting_sensitivity,
                 answer_novelty_requirement=answer_novelty_requirement,
                 vote_only=vote_only,
+                round_number=round_number,
             ),
         )
 

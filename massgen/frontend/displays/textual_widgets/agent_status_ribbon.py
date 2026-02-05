@@ -484,7 +484,8 @@ class AgentStatusRibbon(Widget):
         logger.info(f"[AgentStatusRibbon] reset_round_state_for_agent() called for {agent_id}")
         logger.info(f"[AgentStatusRibbon] Before reset: _rounds={self._rounds.get(agent_id, [])}, _current_round={self._current_round.get(agent_id)}, _viewed_round={self._viewed_round.get(agent_id)}")
 
-        self._rounds[agent_id] = []
+        # Seed with Round 1 so the ribbon shows R1 at the start of each turn
+        self._rounds[agent_id] = [(1, False)]
         self._current_round[agent_id] = 1
         self._viewed_round[agent_id] = 1
 

@@ -6115,6 +6115,14 @@ FinalPresentationCard #final_card_content {
     overflow-y: auto;
 }
 
+FinalPresentationCard #final_card_stream {
+    width: 100%;
+    height: auto;
+    background: transparent;
+    color: $text;
+    margin: 0 1;
+}
+
 FinalPresentationCard #final_card_text {
     width: 100%;
     height: auto;

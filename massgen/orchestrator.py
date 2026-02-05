@@ -445,18 +445,7 @@ class Orchestrator(ChatAgent):
                 _setup_agent_orchestration(agent_id, agent)
 
         # Create workspace symlinks in the log directory for easy inspection
-        try:
-            log_dir = get_log_session_dir()
-            for agent_id, agent in self.agents.items():
-                if agent.backend.filesystem_manager and agent.backend.filesystem_manager.cwd:
-                    agent_log_dir = log_dir / agent_id
-                    agent_log_dir.mkdir(parents=True, exist_ok=True)
-                    workspace_link = agent_log_dir / "workspace"
-                    if not workspace_link.exists():
-                        workspace_link.symlink_to(Path(agent.backend.filesystem_manager.cwd).resolve())
-                        logger.info(f"[Orchestrator] Symlinked {workspace_link} → {agent.backend.filesystem_manager.cwd}")
-        except Exception as e:
-            logger.debug(f"[Orchestrator] Failed to create workspace symlinks: {e}")
+        self.ensure_workspace_symlinks()
 
         # Initialize broadcast channel for agent-to-agent communication
         self.broadcast_channel = BroadcastChannel(self)
@@ -527,6 +516,28 @@ class Orchestrator(ChatAgent):
 
         # Initialize broadcast tools (independent of NLIP)
         self._init_broadcast_tools()
+
+    def ensure_workspace_symlinks(self) -> None:
+        """Ensure per-agent workspace symlinks exist in the current log directory."""
+        try:
+            from massgen.logger_config import get_log_session_dir_base
+
+            log_dirs = {get_log_session_dir(), get_log_session_dir_base()}
+            for log_dir in log_dirs:
+                for agent_id, agent in self.agents.items():
+                    if not agent.backend.filesystem_manager or not agent.backend.filesystem_manager.cwd:
+                        continue
+                    agent_log_dir = log_dir / agent_id
+                    agent_log_dir.mkdir(parents=True, exist_ok=True)
+                    workspace_link = agent_log_dir / "workspace"
+                    if workspace_link.exists():
+                        continue
+                    workspace_link.symlink_to(Path(agent.backend.filesystem_manager.cwd).resolve())
+                    logger.info(
+                        f"[Orchestrator] Symlinked {workspace_link} → {agent.backend.filesystem_manager.cwd}",
+                    )
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Failed to create workspace symlinks: {e}")
 
     def _init_nlip_routing(self) -> None:
         """Initialize NLIP routing for all agents."""

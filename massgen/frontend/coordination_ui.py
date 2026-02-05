@@ -253,6 +253,10 @@ class CoordinationUI:
 
         elif chunk_type == "final_presentation_start":
             data = self._parse_chunk_data(chunk, content)
+            # Set flag IMMEDIATELY to prevent race with content chunks
+            # (content chunks may arrive before the event is processed)
+            if self.display and hasattr(self.display, "_in_final_presentation"):
+                self.display._in_final_presentation = True
             # When the unified event pipeline is active, emit the structured event
             # so the pipeline can render the final presentation banner.
             # When NOT active, use the direct display path instead.
@@ -817,6 +821,12 @@ class CoordinationUI:
         self.orchestrator = orchestrator
         # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
         orchestrator.coordination_ui = self
+        # Ensure workspace symlinks exist for the current turn/attempt log directory
+        if hasattr(orchestrator, "ensure_workspace_symlinks"):
+            try:
+                orchestrator.ensure_workspace_symlinks()
+            except Exception as e:
+                coord_logger.warning(f"[CoordinationUI] Failed to create workspace symlinks: {e}")
 
         # Auto-detect agent IDs if not provided
         # Sort for consistent anonymous mapping with coordination_tracker
@@ -1445,6 +1455,12 @@ class CoordinationUI:
         self.orchestrator = orchestrator
         # Set bidirectional reference so orchestrator can access UI (for broadcast prompts)
         orchestrator.coordination_ui = self
+        # Ensure workspace symlinks exist for the current turn/attempt log directory
+        if hasattr(orchestrator, "ensure_workspace_symlinks"):
+            try:
+                orchestrator.ensure_workspace_symlinks()
+            except Exception as e:
+                coord_logger.warning(f"[CoordinationUI] Failed to create workspace symlinks: {e}")
 
         # Auto-detect agent IDs if not provided
         # Sort for consistent anonymous mapping with coordination_tracker

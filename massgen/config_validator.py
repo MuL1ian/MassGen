@@ -139,7 +139,20 @@ class ConfigValidator:
     VALID_DISPLAY_TYPES = {"rich_terminal", "simple", "textual_terminal"}
 
     # Valid voting sensitivity levels
-    VALID_VOTING_SENSITIVITY = {"lenient", "balanced", "strict"}
+    VALID_VOTING_SENSITIVITY = {
+        "lenient",
+        "balanced",
+        "strict",
+        "roi",
+        "roi_conservative",
+        "roi_balanced",
+        "roi_aggressive",
+        "sequential",
+        "adversarial",
+        "consistency",
+        "diversity",
+        "reflective",
+    }
 
     # Valid answer novelty requirements
     VALID_ANSWER_NOVELTY = {"lenient", "balanced", "strict"}

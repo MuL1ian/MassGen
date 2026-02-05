@@ -1646,9 +1646,10 @@ class EvaluationSection(SystemPromptSection):
     vote tool, new_answer tool, and coordination mechanics.
 
     Args:
-        voting_sensitivity: Controls evaluation strictness ('lenient', 'balanced', 'strict')
+        voting_sensitivity: Controls evaluation strictness ('lenient', 'balanced', 'strict', 'roi', 'sequential', 'adversarial', 'consistency', 'diversity', 'reflective')
         answer_novelty_requirement: Controls novelty requirements ('lenient', 'balanced', 'strict')
         vote_only: If True, agent has reached max answers and can only vote (no new_answer)
+        round_number: Current round of coordination (used for sequential sensitivity)
     """
 
     def __init__(
@@ -1656,6 +1657,7 @@ class EvaluationSection(SystemPromptSection):
         voting_sensitivity: str = "lenient",
         answer_novelty_requirement: str = "lenient",
         vote_only: bool = False,
+        round_number: int = 1,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -1665,6 +1667,7 @@ class EvaluationSection(SystemPromptSection):
         self.voting_sensitivity = voting_sensitivity
         self.answer_novelty_requirement = answer_novelty_requirement
         self.vote_only = vote_only
+        self.round_number = round_number
 
     def build_content(self) -> str:
         import time
@@ -1681,34 +1684,133 @@ Note: All your other tools are still available to help you evaluate answers. The
 
 *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
 
-        # Determine evaluation criteria based on voting sensitivity
-        if self.voting_sensitivity == "strict":
-            evaluation_section = """**CRITICAL EVALUATION REQUIRED**
+        # Handle sequential sensitivity: reverse order (strict -> balanced -> lenient)
+        effective_sensitivity = self.voting_sensitivity
+        phase_context = ""
+        if self.voting_sensitivity == "sequential":
+            if self.round_number <= 1:
+                effective_sensitivity = "strict"
+                coordination_phase = "EXPLORATION (Round 1): High-rigor phase to ensure diverse and robust initial solutions. Avoid voting unless the answer is exceptional."
+            elif self.round_number <= 2:
+                effective_sensitivity = "balanced"
+                coordination_phase = "CONVERGENCE (Round 2): Balanced evaluation to identify gaps and begin merging the best components of existing answers."
+            else:
+                effective_sensitivity = "lenient"
+                coordination_phase = f"FINALIZATION (Round {self.round_number}): Lean evaluation to ensure timely delivery of the polished final result."
 
-Before you can vote, you MUST complete this analysis:
+            phase_context = f"\n**COORDINATION STRATEGY**: {coordination_phase}\n"
 
-**Step 1: Identify Weaknesses (REQUIRED)**
-List 2-3 specific weaknesses, gaps, or areas for improvement in the best existing answer.
+        # Determine evaluation criteria based on effective sensitivity
+        if effective_sensitivity == "strict":
+            evaluation_section = """**CRITICAL RUBRIC-BASED EVALUATION (STRICT)**
 
-**Step 2: For EACH weakness, choose ONE:**
-- "I can fix this" -> You MUST provide a `new_answer`
-- "Another answer addresses this" -> Combine answers to shore up the weakness
-- "I cannot fix this because: [specific reason]" -> Explain why (outside your capabilities, requires info you don't have, etc.)
+Before you can vote, you MUST evaluate the best answer against this rubric:
+1. **Correctness & Robustness**: Is the logic sound? Does it handle edge cases and potential errors?
+2. **Completeness & Optimization**: Does it address ALL requirements efficiently without bloat?
+3. **Clarity & Quality**: Is it production-grade with crystal clear explanations?
 
-**Step 3: Decision**
-- If you can fix OR combine to address ANY weakness -> `new_answer`
-- If you explained why you cannot fix ALL weaknesses -> `vote`
+**Scoring Guide (Internal):**
+- 3: Excellent (No room for improvement)
+- 2: Good (Minor gaps)
+- 1: Fair (Significant gaps)
+- 0: Poor (Fails criterion)
 
-You may NOT vote without first explaining why each weakness is unfixable by you."""
-        elif self.voting_sensitivity == "balanced":
-            evaluation_section = """Critically examine existing answers for flaws and opportunities.
+**Step 1: Identify Weaknesses**
+List specific gaps in the rubric above.
+
+**Step 2: Decision**
+- If you can improve ANY rubric item's score -> `new_answer`
+- If the answer already scores 3/3 on all items -> `vote`
+
+You may NOT vote if you can provide a substantively better solution."""
+        elif effective_sensitivity == "balanced":
+            evaluation_section = """**RUBRIC-BASED EVALUATION (BALANCED)**
+
+Critically examine existing answers against these criteria:
+1. **Alignment**: Does the answer directly and fully address the user's intent?
+2. **Accuracy**: Are tool calls, parameters, and logic correct?
+3. **Completeness**: Are there any missing steps or information?
 
 **Before voting:**
-1. Identify at least 1 weakness in the best answer
-2. Can you fix it or combine with another answer to address it? If not, explain why.
+1. Identify at least 1 weakness or missed opportunity.
+2. Can you fix it or combine with another answer to address it?
 
-If you CAN fix or combine to address any weakness, produce a `new_answer`.
-Only vote after explaining why identified weaknesses are unfixable by you."""
+If you CAN improve the answer's alignment, accuracy, or completeness, produce a `new_answer`."""
+        elif effective_sensitivity.startswith("roi"):
+            threshold = 15
+            if effective_sensitivity == "roi_conservative":
+                threshold = 30
+            elif effective_sensitivity == "roi_aggressive":
+                threshold = 5
+
+            evaluation_section = f"""**ROI-BASED EVALUATION (DELTA vs COST)**
+
+Evaluate the **Marginal Utility (Delta)** of providing a new answer against the **Cost (Compute/Wait Time)** of another round.
+
+**Step 1: Assess Current Quality**
+Rate the best existing answer: 0-100%
+
+**Step 2: Estimate Improvement Potential**
+How much better (% improvement) would YOUR new answer be?
+- Consider: New insights, better tools, or logic corrections.
+
+**Decision Framework:**
+- If Potential Improvement > {threshold}% OR fixes a critical failure -> `new_answer`
+- If Potential Improvement < {threshold}% (cosmetic/minor) -> `vote`
+
+Prioritize \"Good Enough\" and timely delivery over perfectionism unless the task is mission-critical."""
+        elif effective_sensitivity == "adversarial":
+            evaluation_section = """**ADVERSARIAL EVALUATION (INTERNAL RED-TEAMING)**
+
+You are a skeptic. Before voting YES, you MUST perform a 'pre-mortem' on the best answer.
+
+**The Pre-Mortem Challenge:**
+1. Imagine the current best answer has been delivered and **FAILED** completely.
+2. What is the most likely cause of that failure? (e.g., hidden edge case, missing dependency, logical flaw, security risk).
+3. If you can identify a plausible failure mode, you MUST provide a `new_answer` that hardens the solution against it.
+
+**Decision Rule:**
+- If you find a way to 'break' the solution -> `new_answer`
+- If the solution is resilient to your most aggressive attempts to find flaws -> `vote`"""
+        elif effective_sensitivity == "consistency":
+            evaluation_section = """**LOGICAL CONSISTENCY CHECK**
+
+Before voting, you MUST independently re-derive the logic of the best answer.
+
+**The Verification Process:**
+1. **Re-derive**: Without looking at the answer's steps, how would YOU solve this?
+2. **Compare**: Where does the best answer differ from your re-derivation?
+3. **Validate**: Is the difference an improvement, or a potential logical error?
+
+**Decision Rule:**
+- If you find a logical inconsistency or a more sound path -> `new_answer`
+- If the answer's logic is sound and matches your independent derivation -> `vote`"""
+        elif effective_sensitivity == "diversity":
+            evaluation_section = """**DIVERSITY-AWARE SYNTHESIS**
+
+Your goal is to ensure the final solution incorporates the best unique insights from ALL existing answers.
+
+**The Synthesis Challenge:**
+1. List the unique strengths of **at least two** different existing answers.
+2. Does the current best answer capture all of these strengths?
+3. Can you combine these insights into a single, more powerful solution?
+
+**Decision Rule:**
+- If you can synthesize a more comprehensive answer by combining insights -> `new_answer`
+- If the best answer already achieves the best possible synthesis -> `vote`"""
+        elif effective_sensitivity == "reflective":
+            evaluation_section = """**REFLECTIVE USER-INTENT EVALUATION**
+
+Before evaluating, you must explicitly restate and reflect on the user's ultimate goal.
+
+**Reflection Steps:**
+1. **Restate Intent**: "The user's core intent is..."
+2. **Success Criteria**: Define 3 specific criteria that must be met for the user to be delighted.
+3. **Gap Analysis**: Does the best answer meet all 3 criteria perfectly?
+
+**Decision Rule:**
+- If there is any gap between the answer and the user's delight criteria -> `new_answer`
+- If the answer perfectly fulfills the refined success criteria -> `vote`"""
         else:
             # Default to lenient (including explicit "lenient" or any other value)
             evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well?
@@ -1733,7 +1835,7 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
 
         return f"""You are evaluating answers from multiple agents for final response to a message.
 Different agents may have different builtin tools and capabilities.
-{evaluation_section}
+{phase_context}{evaluation_section}
 Otherwise, digest existing answers, combine their strengths, and do additional work to address their weaknesses,
 then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.{novelty_section}
 Make sure you actually call `vote` or `new_answer` (in tool call format).
