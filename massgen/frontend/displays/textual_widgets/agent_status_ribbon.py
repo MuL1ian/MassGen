@@ -56,6 +56,20 @@ class RoundSelected(Message):
         super().__init__()
 
 
+class ContextPathsClicked(Message):
+    """Message emitted when context paths icon is clicked."""
+
+
+class ContextPathsLabel(Label):
+    """Clickable context paths icon that emits ContextPathsClicked when clicked."""
+
+    can_focus = True
+
+    async def on_click(self) -> None:
+        """Handle click on context paths label."""
+        self.post_message(ContextPathsClicked())
+
+
 class TasksClicked(Message):
     """Message emitted when tasks section is clicked."""
 
@@ -362,6 +376,16 @@ class AgentStatusRibbon(Widget):
         width: auto;
     }
 
+    AgentStatusRibbon #context_paths_btn {
+        color: $text-muted;
+        width: auto;
+    }
+
+    AgentStatusRibbon #context_paths_btn:hover {
+        color: $primary;
+        text-style: underline;
+    }
+
     AgentStatusRibbon #tasks_display {
         color: $text-muted;
         width: auto;
@@ -444,6 +468,8 @@ class AgentStatusRibbon(Widget):
             # Spacer
             yield Static("", classes="spacer")
             # Right: Stats (anchored right)
+            yield ContextPathsLabel("📂", id="context_paths_btn", classes="ribbon-section")
+            yield Static("│", classes="ribbon-divider", id="context_divider")
             yield TasksLabel(agent_id=self.current_agent, id="tasks_display", classes="ribbon-section")
             yield Static("│", classes="ribbon-divider", id="tasks_divider")
             yield Label("⏱ --:--", id="timeout_display", classes="ribbon-section")
@@ -484,7 +510,8 @@ class AgentStatusRibbon(Widget):
         logger.info(f"[AgentStatusRibbon] reset_round_state_for_agent() called for {agent_id}")
         logger.info(f"[AgentStatusRibbon] Before reset: _rounds={self._rounds.get(agent_id, [])}, _current_round={self._current_round.get(agent_id)}, _viewed_round={self._viewed_round.get(agent_id)}")
 
-        self._rounds[agent_id] = []
+        # Seed with Round 1 so the ribbon shows R1 at the start of each turn
+        self._rounds[agent_id] = [(1, False)]
         self._current_round[agent_id] = 1
         self._viewed_round[agent_id] = 1
 

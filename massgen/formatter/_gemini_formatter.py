@@ -107,11 +107,12 @@ class GeminiFormatter(FormatterBase):
     # Coordination helpers
 
     def has_coordination_tools(self, tools: List[Dict[str, Any]]) -> bool:
-        """Detect if tools contain vote/new_answer coordination tools.
+        """Detect if tools contain vote/stop/new_answer coordination tools.
 
         Returns True if:
         - Both vote AND new_answer are present (normal coordination mode)
         - Only vote is present (vote-only mode - agent reached answer limit)
+        - stop is present (decomposition mode)
         """
         if not tools:
             return False
@@ -126,8 +127,8 @@ class GeminiFormatter(FormatterBase):
 
         # Normal mode: both vote and new_answer present
         # Vote-only mode: only vote present (new_answer removed when agent reached limit)
-        # In both cases, having vote means we're in coordination mode
-        return "vote" in tool_names
+        # Decomposition mode: stop replaces vote
+        return "vote" in tool_names or "stop" in tool_names
 
     def has_post_evaluation_tools(self, tools: List[Dict[str, Any]]) -> bool:
         """Detect if tools contain submit/restart_orchestration post-evaluation tools."""
@@ -150,6 +151,7 @@ class GeminiFormatter(FormatterBase):
         valid_agent_ids: Optional[List[str]] = None,
         broadcast_enabled: bool = False,
         vote_only: bool = False,
+        decomposition_mode: bool = False,
     ) -> str:
         """Build prompt that encourages structured output for coordination.
 
@@ -158,6 +160,7 @@ class GeminiFormatter(FormatterBase):
             valid_agent_ids: List of valid agent IDs for voting
             broadcast_enabled: Whether ask_others is available
             vote_only: If True, only include vote option (agent reached answer limit)
+            decomposition_mode: If True, use stop instead of vote
         """
         agent_list = ""
         if valid_agent_ids:
@@ -180,6 +183,33 @@ You must VOTE for the best existing agent's answer:
 }}
 
 Make your decision about which agent to vote for and include the vote JSON at the very end of your response."""
+
+        # In decomposition mode, use stop instead of vote
+        if decomposition_mode:
+            return f"""{base_content}
+
+IMPORTANT: You must respond with a structured JSON decision at the end of your response.
+
+If you want to signal your subtask is COMPLETE (or blocked):
+{{
+  "action_type": "stop",
+  "stop_data": {{
+    "action": "stop",
+    "summary": "What you accomplished and how it connects to other agents' work",
+    "status": "complete"
+  }}
+}}
+
+If you want to provide a NEW or IMPROVED ANSWER for your subtask:
+{{
+  "action_type": "new_answer",
+  "answer_data": {{
+    "action": "new_answer",
+    "content": "Your complete improved answer here"
+  }}
+}}
+
+Make your decision and include the JSON at the very end of your response."""
 
         # Build ask_others section conditionally
         ask_others_section = ""
@@ -366,6 +396,21 @@ Make your decision and include the JSON at the very end of your response."""
                         {
                             "agent_id": vote_data.get("agent_id", ""),
                             "reason": vote_data.get("reason", ""),
+                        },
+                    ),
+                },
+            ]
+
+        elif action_type == "stop":
+            stop_data = structured_response.get("stop_data", {})
+            return [
+                {
+                    "call_id": f"stop_{abs(hash(str(stop_data))) % 10000 + 1}",
+                    "name": "stop",
+                    "arguments": json.dumps(
+                        {
+                            "summary": stop_data.get("summary", ""),
+                            "status": stop_data.get("status", "complete"),
                         },
                     ),
                 },

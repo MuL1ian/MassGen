@@ -20,6 +20,7 @@ class ToolType(Enum):
 WORKFLOW_TOOL_NAMES = [
     "new_answer",
     "vote",
+    "stop",
     "submit",
     "restart_orchestration",
     "ask_others",

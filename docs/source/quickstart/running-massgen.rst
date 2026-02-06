@@ -137,6 +137,26 @@ MassGen is designed for multi-agent collaboration - multiple agents working toge
 
 The agents work in parallel, share observations, vote for solutions, and converge on the best answer.
 
+Decomposition Mode
+~~~~~~~~~~~~~~~~~~
+
+Use decomposition mode when each agent owns a subtask and one presenter combines results:
+
+.. code-block:: bash
+
+   uv run massgen \
+     --config @examples/basic/multi/decomposition_quickstart \
+     "Build a small full-stack todo app"
+
+Recommended decomposition defaults:
+
+* ``max_new_answers_per_agent: 2-3`` (consecutive cap; resets after unseen external updates are injected)
+* ``max_new_answers_global`` set to an overall budget (for example ``9`` with three agents)
+* If a decomposition agent hits its cap, it should stop instead of running a wasteful extra round
+* With GPT-5x models, quickstart lets you pick ``reasoning.effort`` (Codex GPT-5 models include ``xhigh``)
+
+Unless you need different behavior, keep these defaults.
+
 Interactive Multi-Turn Mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -186,7 +206,7 @@ First-Time Setup
 On first launch, the WebUI automatically guides you through setup:
 
 1. **Setup Page** - Configure API keys, Docker, and skills
-2. **Quickstart Wizard** - Create your first agent configuration
+2. **Quickstart Wizard** - Create your first agent configuration, including decomposition mode, presenter selection, GPT-5x reasoning selection, and recommended answer-control defaults
 
 This makes ``uv run massgen --web`` the easiest way to get started with MassGen.
 
@@ -199,7 +219,7 @@ Key Features
 * **Answer Browser** - Browse all agent answers with version history
 * **Workspace Explorer** - View and examine files created by agents during execution
 * **Multi-Turn Conversations** - Continue sessions with follow-up questions
-* **Quickstart Wizard** - Guided setup for configuring agents without manual YAML editing
+* **Quickstart Wizard** - Guided setup for configuring agents without manual YAML editing, including decomposition controls
 
 See :doc:`../user_guide/webui` for the complete WebUI guide.
 

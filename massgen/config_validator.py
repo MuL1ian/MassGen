@@ -139,10 +139,26 @@ class ConfigValidator:
     VALID_DISPLAY_TYPES = {"rich_terminal", "simple", "textual_terminal"}
 
     # Valid voting sensitivity levels
-    VALID_VOTING_SENSITIVITY = {"lenient", "balanced", "strict"}
+    VALID_VOTING_SENSITIVITY = {
+        "lenient",
+        "balanced",
+        "strict",
+        "roi",
+        "roi_conservative",
+        "roi_balanced",
+        "roi_aggressive",
+        "sequential",
+        "adversarial",
+        "consistency",
+        "diversity",
+        "reflective",
+    }
 
     # Valid answer novelty requirements
     VALID_ANSWER_NOVELTY = {"lenient", "balanced", "strict"}
+
+    # Valid write modes for isolated write contexts
+    VALID_WRITE_MODES = {"auto", "worktree", "isolated", "legacy"}
 
     def __init__(self):
         """Initialize the validator."""
@@ -363,6 +379,16 @@ class ConfigValidator:
                         f"Invalid voting_sensitivity: '{voting_sensitivity}'",
                         f"{agent_location}.voting_sensitivity",
                         f"Use one of: {valid_values}",
+                    )
+
+            # Validate optional field: subtask (decomposition mode)
+            if "subtask" in agent_config:
+                subtask = agent_config["subtask"]
+                if not isinstance(subtask, str):
+                    result.add_error(
+                        f"Agent 'subtask' must be a string, got {type(subtask).__name__}",
+                        f"{agent_location}.subtask",
+                        "Use a string describing the agent's subtask",
                     )
 
     def _validate_backend(self, backend_config: Dict[str, Any], location: str, result: ValidationResult) -> None:
@@ -736,6 +762,27 @@ class ConfigValidator:
             )
             return
 
+        # Validate coordination_mode if present
+        if "coordination_mode" in orchestrator_config:
+            coordination_mode = orchestrator_config["coordination_mode"]
+            valid_modes = ["voting", "decomposition"]
+            if coordination_mode not in valid_modes:
+                result.add_error(
+                    f"Invalid coordination_mode: '{coordination_mode}'",
+                    f"{location}.coordination_mode",
+                    f"Use one of: {', '.join(valid_modes)}",
+                )
+
+        # Validate presenter_agent if present
+        if "presenter_agent" in orchestrator_config:
+            presenter = orchestrator_config["presenter_agent"]
+            if not isinstance(presenter, str):
+                result.add_error(
+                    f"'presenter_agent' must be a string, got {type(presenter).__name__}",
+                    f"{location}.presenter_agent",
+                    "Use an agent ID string like 'integrator'",
+                )
+
         # Validate context_paths if present
         if "context_paths" in orchestrator_config:
             context_paths = orchestrator_config["context_paths"]
@@ -794,6 +841,20 @@ class ConfigValidator:
                                 f"{location}.coordination.{field_name}",
                                 "Use 'true' or 'false'",
                             )
+
+                # Deprecation warning for use_two_tier_workspace
+                if coordination.get("use_two_tier_workspace"):
+                    write_mode = coordination.get("write_mode")
+                    if write_mode:
+                        result.add_warning(
+                            "'use_two_tier_workspace' is deprecated and ignored when 'write_mode' is set. " "Remove 'use_two_tier_workspace' from your config.",
+                            f"{location}.coordination.use_two_tier_workspace",
+                        )
+                    else:
+                        result.add_warning(
+                            "'use_two_tier_workspace' is deprecated. " "Migrate to 'write_mode: auto' for the same functionality with git worktree isolation.",
+                            f"{location}.coordination.use_two_tier_workspace",
+                        )
 
                 # Validate integer fields
                 if "max_orchestration_restarts" in coordination:
@@ -879,6 +940,17 @@ class ConfigValidator:
                                             "Use a value like 300 (seconds)",
                                         )
 
+                # Validate write_mode if present
+                if "write_mode" in coordination:
+                    write_mode = coordination["write_mode"]
+                    if write_mode not in self.VALID_WRITE_MODES:
+                        valid_values = ", ".join(sorted(self.VALID_WRITE_MODES))
+                        result.add_error(
+                            f"Invalid write_mode: '{write_mode}'",
+                            f"{location}.coordination.write_mode",
+                            f"Use one of: {valid_values}",
+                        )
+
         # Validate voting_sensitivity if present
         if "voting_sensitivity" in orchestrator_config:
             voting_sensitivity = orchestrator_config["voting_sensitivity"]
@@ -899,6 +971,20 @@ class ConfigValidator:
                     f"Invalid answer_novelty_requirement: '{answer_novelty}'",
                     f"{location}.answer_novelty_requirement",
                     f"Use one of: {valid_values}",
+                )
+
+        # Validate answer cap fields if present (null means unlimited)
+        for field_name in ("max_new_answers_per_agent", "max_new_answers_global"):
+            if field_name not in orchestrator_config:
+                continue
+            value = orchestrator_config[field_name]
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                result.add_error(
+                    f"'{field_name}' must be a positive integer or null, got {type(value).__name__}",
+                    f"{location}.{field_name}",
+                    "Use null (unlimited) or a positive integer like 1, 2, or 3",
                 )
 
         # Validate timeout if present
@@ -1207,3 +1293,32 @@ class ConfigValidator:
 
             # Warning: Check for deprecated fields (add as needed)
             # This is a placeholder for future deprecations
+
+        # Cross-validation: decomposition mode
+        orchestrator_cfg = config.get("orchestrator", {})
+        if isinstance(orchestrator_cfg, dict):
+            coordination_mode = orchestrator_cfg.get("coordination_mode")
+            if coordination_mode == "decomposition":
+                # Collect agent IDs
+                agent_ids = []
+                for agent_config in agents:
+                    if isinstance(agent_config, dict) and "id" in agent_config:
+                        agent_ids.append(agent_config["id"])
+
+                # Validate presenter_agent references a valid agent
+                presenter = orchestrator_cfg.get("presenter_agent")
+                if presenter and presenter not in agent_ids:
+                    result.add_error(
+                        f"presenter_agent '{presenter}' does not match any agent ID",
+                        "orchestrator.presenter_agent",
+                        f"Use one of: {', '.join(agent_ids)}",
+                    )
+
+                # Warn if no subtasks defined (runtime decomposition subagent will be used)
+                has_subtasks = any(isinstance(a, dict) and "subtask" in a for a in agents)
+                if not has_subtasks:
+                    result.add_warning(
+                        "No explicit 'subtask' fields defined on agents in decomposition mode",
+                        "orchestrator.coordination_mode",
+                        "MassGen will spawn a decomposition subagent at runtime to assign subtasks. Add 'subtask' per agent for deterministic assignments.",
+                    )

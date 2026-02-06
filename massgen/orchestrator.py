@@ -22,6 +22,7 @@ import asyncio
 import concurrent.futures
 import json
 import os
+import secrets
 import shutil
 import time
 import traceback
@@ -39,6 +40,7 @@ from .coordination_tracker import CoordinationTracker
 
 if TYPE_CHECKING:
     from .dspy_paraphraser import QuestionParaphraser
+    from .filesystem_manager import IsolationContextManager
     from .subagent.models import SubagentResult
 
 from .logger_config import get_log_session_dir  # Import to get log directory
@@ -76,6 +78,7 @@ from .structured_logging import (
 )
 from .system_message_builder import SystemMessageBuilder
 from .tool import get_post_evaluation_tools, get_workflow_tools
+from .tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
 from .utils import ActionType, AgentStatus, CoordinationStage
 
 
@@ -95,6 +98,10 @@ class AgentState:
         round_start_time: Timestamp when current round started (for per-round timeouts)
         round_timeout_hooks: Tuple of (post_hook, pre_hook) for per-round timeouts, or None
         round_timeout_state: Shared state for timeout hooks (tracks consecutive denials)
+        decomposition_answer_streak: Number of consecutive new answers submitted by this
+            agent without seeing unseen external answer revisions (decomposition mode).
+        seen_answer_counts: Per-agent snapshot of answer revision counts this agent has
+            already seen in its context.
     """
 
     answer: Optional[str] = None
@@ -109,9 +116,14 @@ class AgentState:
     injection_count: int = 0  # Track injections received for mid-stream injection timing
     restart_count: int = 0  # Track full restarts (TUI round = restart_count + 1)
     known_answer_ids: set = field(default_factory=set)  # Agent IDs whose answers this agent has seen
+    decomposition_answer_streak: int = 0  # Decomposition mode: consecutive answers since unseen external updates
+    seen_answer_counts: Dict[str, int] = field(default_factory=dict)  # agent_id -> number of answer revisions seen
     round_start_time: Optional[float] = None  # For per-round timeouts
     round_timeout_hooks: Optional[tuple] = None  # (post_hook, pre_hook) for resetting on new round
     round_timeout_state: Optional["RoundTimeoutState"] = None  # Shared timeout state
+    # Decomposition mode fields
+    stop_summary: Optional[str] = None  # Summary from stop tool
+    stop_status: Optional[str] = None  # "complete" or "blocked"
 
 
 class Orchestrator(ChatAgent):
@@ -228,10 +240,14 @@ class Orchestrator(ChatAgent):
         )
         # Create system message builder for all phases (coordination, presentation, post-evaluation)
         self._system_message_builder: Optional[SystemMessageBuilder] = None  # Lazy initialization
+        # Decomposition mode: per-agent subtask assignments
+        self._agent_subtasks: Dict[str, Optional[str]] = {}
+
         # Create workflow tools for agents (vote, new_answer, and optionally broadcast)
         # Will be updated with broadcast tools after coordination config is set
         # Sort agent IDs for consistent anonymous mapping (agent1, agent2, etc.)
         # This ensures consistency with coordination_tracker.get_anonymous_agent_mapping()
+        _is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
         self.workflow_tools = get_workflow_tools(
             valid_agent_ids=sorted(agents.keys()),
             template_overrides=getattr(
@@ -243,6 +259,7 @@ class Orchestrator(ChatAgent):
             orchestrator=self,  # Pass self for broadcast tools
             broadcast_mode=False,  # Will be updated if broadcasts enabled
             broadcast_wait_by_default=True,
+            decomposition_mode=_is_decomposition,
         )
 
         # Client-provided tools (OpenAI-style). These are passed through to backends
@@ -287,6 +304,19 @@ class Orchestrator(ChatAgent):
         # Coordination state tracking for cleanup
         self._active_streams: Dict = {}
         self._active_tasks: Dict = {}
+
+        # Per-round worktree tracking: {agent_id: branch_name}
+        # Each agent has exactly ONE branch alive at a time (one-branch-per-agent invariant)
+        self._agent_current_branches: Dict[str, str] = {}
+        # Per-round isolation managers: {agent_id: IsolationContextManager}
+        self._round_isolation_managers: Dict[str, "IsolationContextManager"] = {}
+        # Per-round worktree path mappings: {agent_id: {isolated_path: original_path}}
+        self._round_worktree_paths: Dict[str, Dict[str, str]] = {}
+
+        # Presentation-phase isolation state (used by _handle_presentation_phase / _review_isolated_changes)
+        self._isolation_manager: Optional["IsolationContextManager"] = None
+        self._isolation_worktree_paths: Dict[str, str] = {}  # worktree_path -> original_path
+        self._isolation_removed_paths: Dict = {}  # original_path -> ManagedPath
 
         # Human input hook for injecting user input during execution
         # Shared across all agents (one per orchestration session)
@@ -445,18 +475,7 @@ class Orchestrator(ChatAgent):
                 _setup_agent_orchestration(agent_id, agent)
 
         # Create workspace symlinks in the log directory for easy inspection
-        try:
-            log_dir = get_log_session_dir()
-            for agent_id, agent in self.agents.items():
-                if agent.backend.filesystem_manager and agent.backend.filesystem_manager.cwd:
-                    agent_log_dir = log_dir / agent_id
-                    agent_log_dir.mkdir(parents=True, exist_ok=True)
-                    workspace_link = agent_log_dir / "workspace"
-                    if not workspace_link.exists():
-                        workspace_link.symlink_to(Path(agent.backend.filesystem_manager.cwd).resolve())
-                        logger.info(f"[Orchestrator] Symlinked {workspace_link} → {agent.backend.filesystem_manager.cwd}")
-        except Exception as e:
-            logger.debug(f"[Orchestrator] Failed to create workspace symlinks: {e}")
+        self.ensure_workspace_symlinks()
 
         # Initialize broadcast channel for agent-to-agent communication
         self.broadcast_channel = BroadcastChannel(self)
@@ -527,6 +546,28 @@ class Orchestrator(ChatAgent):
 
         # Initialize broadcast tools (independent of NLIP)
         self._init_broadcast_tools()
+
+    def ensure_workspace_symlinks(self) -> None:
+        """Ensure per-agent workspace symlinks exist in the current log directory."""
+        try:
+            from massgen.logger_config import get_log_session_dir_base
+
+            log_dirs = {get_log_session_dir(), get_log_session_dir_base()}
+            for log_dir in log_dirs:
+                for agent_id, agent in self.agents.items():
+                    if not agent.backend.filesystem_manager or not agent.backend.filesystem_manager.cwd:
+                        continue
+                    agent_log_dir = log_dir / agent_id
+                    agent_log_dir.mkdir(parents=True, exist_ok=True)
+                    workspace_link = agent_log_dir / "workspace"
+                    if workspace_link.exists():
+                        continue
+                    workspace_link.symlink_to(Path(agent.backend.filesystem_manager.cwd).resolve())
+                    logger.info(
+                        f"[Orchestrator] Symlinked {workspace_link} → {agent.backend.filesystem_manager.cwd}",
+                    )
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Failed to create workspace symlinks: {e}")
 
     def _init_nlip_routing(self) -> None:
         """Initialize NLIP routing for all agents."""
@@ -628,6 +669,7 @@ class Orchestrator(ChatAgent):
 
                 # Recreate workflow tools with broadcast enabled
                 # Sort agent IDs for consistent anonymous mapping with coordination_tracker
+                _is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
                 self.workflow_tools = get_workflow_tools(
                     valid_agent_ids=sorted(self.agents.keys()),
                     template_overrides=getattr(
@@ -639,6 +681,7 @@ class Orchestrator(ChatAgent):
                     orchestrator=self,
                     broadcast_mode=broadcast_mode,
                     broadcast_wait_by_default=wait_by_default,
+                    decomposition_mode=_is_decomposition,
                 )
                 tool_names = [t.get("function", {}).get("name", "unknown") for t in self.workflow_tools]
                 logger.info(
@@ -1005,12 +1048,16 @@ class Orchestrator(ChatAgent):
             args.append("--memory-enabled")
 
         # Enable git commits on task completion if two-tier workspace is enabled
+        # Suppressed when write_mode is active (write_mode replaces the old two-tier structure)
         coordination_config = getattr(self.config, "coordination_config", None)
-        use_two_tier_workspace = bool(
-            getattr(coordination_config, "use_two_tier_workspace", False),
-        )
+        write_mode = getattr(coordination_config, "write_mode", None) if coordination_config else None
+        use_two_tier_workspace = False
+        if not (write_mode and write_mode != "legacy"):
+            use_two_tier_workspace = bool(
+                getattr(coordination_config, "use_two_tier_workspace", False),
+            )
         logger.info(
-            f"[Orchestrator] use_two_tier_workspace value for {agent_id}: {use_two_tier_workspace}",
+            f"[Orchestrator] use_two_tier_workspace value for {agent_id}: {use_two_tier_workspace} (write_mode={write_mode})",
         )
         if use_two_tier_workspace:
             args.append("--use-two-tier-workspace")
@@ -2945,6 +2992,146 @@ Your answer:"""
             )
         await self._generate_and_inject_personas()
 
+        # Auto-decompose task if in decomposition mode with no explicit subtasks
+        if (
+            getattr(self.config, "coordination_mode", "voting") == "decomposition"
+            and not any(self._agent_subtasks.values())
+            and hasattr(self.config, "coordination_config")
+            and hasattr(self.config.coordination_config, "task_decomposer")
+            and self.config.coordination_config.task_decomposer.enabled
+        ):
+            yield StreamChunk(
+                type="preparation_status",
+                status="Decomposing task...",
+                detail="Spawning decomposition subagent to assign per-agent subtasks",
+            )
+            from .task_decomposer import TaskDecomposer
+
+            decomposer = TaskDecomposer(self.config.coordination_config.task_decomposer)
+            existing_sys_msgs = {}
+            parent_configs = []
+            for aid, agent in self.agents.items():
+                existing_sys_msgs[aid] = agent.get_configurable_system_message()
+                backend_config = getattr(getattr(agent, "backend", None), "config", None)
+                if isinstance(backend_config, dict):
+                    parent_configs.append({"id": aid, "backend": backend_config})
+
+            parent_workspace = ""
+            if self.agents:
+                first_agent = next(iter(self.agents.values()))
+                fs_manager = getattr(getattr(first_agent, "backend", None), "filesystem_manager", None)
+                if fs_manager:
+                    parent_workspace = str(fs_manager.agent_temporary_workspace or fs_manager.cwd or "")
+
+            log_directory = None
+            try:
+                log_directory = str(get_log_session_dir())
+            except Exception:
+                log_directory = None
+
+            display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+            decomposition_anchor_agent = next(iter(self.agents.keys()), None)
+            decomposition_call_id = "decomposition_task_decomposition"
+
+            def _on_decomposition_subagent_started(
+                subagent_id: str,
+                subagent_task: str,
+                timeout_seconds: int,
+                status_callback: Any,
+                log_path: Optional[str],
+            ) -> None:
+                if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_started"):
+                    try:
+                        display.notify_runtime_subagent_started(
+                            agent_id=decomposition_anchor_agent,
+                            subagent_id=subagent_id,
+                            task=subagent_task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=decomposition_call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                        )
+                    except Exception:
+                        pass
+
+            try:
+                self._agent_subtasks = await decomposer.generate_decomposition_via_subagent(
+                    task=self.current_task or "",
+                    agent_ids=list(self.agents.keys()),
+                    existing_system_messages=existing_sys_msgs,
+                    parent_agent_configs=parent_configs,
+                    parent_workspace=parent_workspace,
+                    orchestrator_id=self.orchestrator_id,
+                    log_directory=log_directory,
+                    on_subagent_started=_on_decomposition_subagent_started,
+                )
+
+                source = getattr(decomposer, "last_generation_source", "unknown")
+                if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
+                    try:
+                        if source == "subagent":
+                            subtask_preview = " | ".join(f"{aid}: {subtask}" for aid, subtask in list(self._agent_subtasks.items())[:2])[:400]
+                            display.notify_runtime_subagent_completed(
+                                agent_id=decomposition_anchor_agent,
+                                subagent_id="task_decomposition",
+                                call_id=decomposition_call_id,
+                                status="completed",
+                                answer_preview=subtask_preview or "Subtasks generated successfully.",
+                            )
+                        else:
+                            display.notify_runtime_subagent_completed(
+                                agent_id=decomposition_anchor_agent,
+                                subagent_id="task_decomposition",
+                                call_id=decomposition_call_id,
+                                status="failed",
+                                error="Used fallback decomposition subtasks.",
+                            )
+                    except Exception:
+                        pass
+
+                if source == "subagent":
+                    yield StreamChunk(
+                        type="preparation_status",
+                        status="Decomposition ready",
+                        detail=("Subtasks generated by decomposition subagent for " f"{len(self._agent_subtasks)} agent(s)"),
+                    )
+                else:
+                    yield StreamChunk(
+                        type="preparation_status",
+                        status="Decomposition fallback",
+                        detail="Subagent decomposition unavailable; using fallback subtasks",
+                    )
+
+                logger.info(
+                    f"[Orchestrator] Auto-decomposed task into {len(self._agent_subtasks)} subtasks " f"(source={source})",
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[Orchestrator] Auto-decomposition failed: {e}, agents will work without explicit subtasks",
+                )
+                if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
+                    try:
+                        display.notify_runtime_subagent_completed(
+                            agent_id=decomposition_anchor_agent,
+                            subagent_id="task_decomposition",
+                            call_id=decomposition_call_id,
+                            status="failed",
+                            error=str(e),
+                        )
+                    except Exception:
+                        pass
+
+        # Notify TUI of subtask assignments (from config or auto-decomposition)
+        if self._agent_subtasks and any(self._agent_subtasks.values()):
+            try:
+                display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+                if display and hasattr(display, "set_agent_subtasks"):
+                    display.set_agent_subtasks(
+                        {k: v for k, v in self._agent_subtasks.items() if v},
+                    )
+            except Exception:
+                pass  # TUI notification is non-critical
+
         # Check if we should skip coordination rounds (debug/test mode)
         if self.config.skip_coordination_rounds:
             log_stream_chunk(
@@ -3051,12 +3238,16 @@ Your answer:"""
         ):
             yield chunk
 
-        # Determine final agent based on votes
+        # Determine final agent
         current_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
-        self._selected_agent = self._determine_final_agent_from_votes(
-            votes,
-            current_answers,
-        )
+        if getattr(self.config, "coordination_mode", "voting") == "decomposition":
+            # Decomposition mode: use config-designated presenter or last agent
+            self._selected_agent = getattr(self.config, "presenter_agent", None) or list(self.agents.keys())[-1]
+        else:
+            self._selected_agent = self._determine_final_agent_from_votes(
+                votes,
+                current_answers,
+            )
 
         # Emit voting complete status for TUI event pipeline
 
@@ -3179,6 +3370,11 @@ Your answer:"""
                 if self._is_waiting_for_all_answers(agent_id):
                     continue
 
+                # In decomposition mode, hitting max_new_answers_per_agent should auto-stop
+                # without spawning a fresh model round.
+                if self._apply_decomposition_auto_stop_if_needed(agent_id):
+                    continue
+
                 if agent_id not in active_streams and not self.agent_states[agent_id].has_voted and not self.agent_states[agent_id].is_killed:
                     # Apply rate limiting before starting agent
                     await self._apply_agent_startup_rate_limit(agent_id)
@@ -3189,6 +3385,8 @@ Your answer:"""
 
                     # Track which answers this agent knows about (for vote validation)
                     self.agent_states[agent_id].known_answer_ids = set(current_answers.keys())
+                    # Mark that this agent has received the current answer revision set.
+                    self._sync_decomposition_answer_visibility(agent_id)
 
                     active_streams[agent_id] = self._stream_agent_execution(
                         agent_id,
@@ -3325,8 +3523,6 @@ Your answer:"""
                                 status="completed",
                                 content="",
                             )
-                        await self._close_agent_stream(agent_id, active_streams)
-
                         if result_type == "answer":
                             # Agent provided an answer (initial or improved)
                             agent = self.agents.get(agent_id)
@@ -3351,6 +3547,13 @@ Your answer:"""
                                 result_data,
                                 snapshot_timestamp=answer_timestamp,
                             )
+                            if self._is_decomposition_mode():
+                                self.agent_states[agent_id].decomposition_answer_streak += 1
+                                # Agent has produced a new self revision; keep its own seen
+                                # revision count in sync without marking external updates as seen.
+                                self.agent_states[agent_id].seen_answer_counts[agent_id] = len(
+                                    self.coordination_tracker.answers_by_agent.get(agent_id, []),
+                                )
                             # End round token tracking with "answer" outcome
                             if agent and hasattr(agent.backend, "end_round_tracking"):
                                 agent.backend.end_round_tracking("answer")
@@ -3476,52 +3679,72 @@ Your answer:"""
                                         "after voting",
                                     )
                                 voted_agents[agent_id] = result_data
-                                # Pass timestamp to coordination_tracker for mapping
-                                self.coordination_tracker.add_agent_vote(
-                                    agent_id,
-                                    result_data,
-                                    snapshot_timestamp=vote_timestamp,
-                                )
+
+                                # Check if this is a stop (decomposition mode) vs a vote
+                                is_stop = result_data.get("_is_stop", False)
+                                if is_stop:
+                                    # Store stop metadata on AgentState
+                                    self.agent_states[agent_id].stop_summary = result_data.get("stop_summary")
+                                    self.agent_states[agent_id].stop_status = result_data.get("stop_status", "complete")
+                                    # Record stop event in coordination tracker
+                                    self.coordination_tracker.add_agent_stop(
+                                        agent_id,
+                                        result_data,
+                                    )
+                                else:
+                                    # Pass timestamp to coordination_tracker for mapping
+                                    self.coordination_tracker.add_agent_vote(
+                                        agent_id,
+                                        result_data,
+                                        snapshot_timestamp=vote_timestamp,
+                                    )
                                 # End round token tracking with "vote" outcome
                                 if agent and hasattr(
                                     agent.backend,
                                     "end_round_tracking",
                                 ):
                                     agent.backend.end_round_tracking("vote")
-                                # Notify web display about the vote
-                                logger.debug(
-                                    f"Vote recorded - checking for coordination_ui: hasattr={hasattr(self, 'coordination_ui')}, coordination_ui={self.coordination_ui}",
-                                )
-                                if hasattr(self, "coordination_ui") and self.coordination_ui:
-                                    display = getattr(
-                                        self.coordination_ui,
-                                        "display",
-                                        None,
-                                    )
+                                # Notify web display about the vote (not applicable for stop)
+                                if not is_stop:
                                     logger.debug(
-                                        f"Got display: {display}, has update_vote_target: {hasattr(display, 'update_vote_target') if display else 'N/A'}",
+                                        f"Vote recorded - checking for coordination_ui: hasattr={hasattr(self, 'coordination_ui')}, coordination_ui={self.coordination_ui}",
                                     )
-                                    if display and hasattr(
-                                        display,
-                                        "update_vote_target",
-                                    ):
-                                        logger.debug(
-                                            f"Calling update_vote_target({agent_id}, {result_data.get('agent_id', '')}, ...)",
+                                    if hasattr(self, "coordination_ui") and self.coordination_ui:
+                                        display = getattr(
+                                            self.coordination_ui,
+                                            "display",
+                                            None,
                                         )
-                                        display.update_vote_target(
+                                        logger.debug(
+                                            f"Got display: {display}, has update_vote_target: {hasattr(display, 'update_vote_target') if display else 'N/A'}",
+                                        )
+                                        if display and hasattr(
+                                            display,
+                                            "update_vote_target",
+                                        ):
+                                            logger.debug(
+                                                f"Calling update_vote_target({agent_id}, {result_data.get('agent_id', '')}, ...)",
+                                            )
+                                            display.update_vote_target(
+                                                voter_id=agent_id,
+                                                target_id=result_data.get("agent_id", ""),
+                                                reason=result_data.get("reason", ""),
+                                            )
+                                # Emit event (unified pipeline for main + subagent TUI)
+                                _emitter = get_event_emitter()
+                                if _emitter:
+                                    if is_stop:
+                                        _emitter.emit_stop(
+                                            agent_id=agent_id,
+                                            summary=result_data.get("stop_summary", ""),
+                                            status=result_data.get("stop_status", "complete"),
+                                        )
+                                    else:
+                                        _emitter.emit_vote(
                                             voter_id=agent_id,
                                             target_id=result_data.get("agent_id", ""),
                                             reason=result_data.get("reason", ""),
                                         )
-                                # Emit vote event (unified pipeline for main + subagent TUI)
-
-                                _emitter = get_event_emitter()
-                                if _emitter:
-                                    _emitter.emit_vote(
-                                        voter_id=agent_id,
-                                        target_id=result_data.get("agent_id", ""),
-                                        reason=result_data.get("reason", ""),
-                                    )
                                 # Update status file for real-time monitoring
                                 # Run in executor to avoid blocking event loop
                                 log_session_dir = get_log_session_dir()
@@ -3535,20 +3758,41 @@ Your answer:"""
                                         self,
                                     )
 
-                                # Track vote event for logging only
-                                # Note: The TUI displays votes via notify_vote tool card,
+                                # Track event for logging only
+                                # Note: The TUI displays votes/stops via tool cards,
                                 # so we use agent_status type to avoid duplicate display
-                                log_stream_chunk(
-                                    "orchestrator",
-                                    "agent_status",
-                                    f"✅ Vote recorded for [{result_data['agent_id']}]",
-                                    agent_id,
-                                )
-                                yield StreamChunk(
-                                    type="agent_status",  # Always agent_status - TUI shows vote via tool card
-                                    content=f"✅ Vote recorded for [{result_data['agent_id']}]",
-                                    source=agent_id,
-                                )
+                                if is_stop:
+                                    stop_status_str = result_data.get("stop_status", "complete")
+                                    log_stream_chunk(
+                                        "orchestrator",
+                                        "agent_status",
+                                        f"✅ Agent stopped ({stop_status_str})",
+                                        agent_id,
+                                    )
+                                    yield StreamChunk(
+                                        type="agent_status",
+                                        content=f"✅ Agent stopped ({stop_status_str})",
+                                        source=agent_id,
+                                    )
+                                else:
+                                    log_stream_chunk(
+                                        "orchestrator",
+                                        "agent_status",
+                                        f"✅ Vote recorded for [{result_data['agent_id']}]",
+                                        agent_id,
+                                    )
+                                    yield StreamChunk(
+                                        type="agent_status",
+                                        content=f"✅ Vote recorded for [{result_data['agent_id']}]",
+                                        source=agent_id,
+                                    )
+
+                        # IMPORTANT: close stream after snapshotting answer/vote.
+                        # Closing the stream triggers _stream_agent_execution.finally, which may run
+                        # round cleanup (including branch switch in write_mode workspace isolation).
+                        # If we close first, snapshots can capture the post-cleanup workspace instead
+                        # of the agent's round output.
+                        await self._close_agent_stream(agent_id, active_streams)
 
                     elif chunk_type == "error":
                         # Agent error
@@ -3691,10 +3935,12 @@ Your answer:"""
 
             # Apply all state changes atomically after processing all results
             if reset_signal:
-                # Reset all agents' has_voted to False (any new answer invalidates all votes)
+                # Reset all agents' has_voted to False (any new answer invalidates all votes/stops)
                 for state in self.agent_states.values():
                     state.has_voted = False
                     state.votes = {}  # Clear stale vote data
+                    state.stop_summary = None  # Clear stop metadata (wakes up stopped agents)
+                    state.stop_status = None
                 votes.clear()
 
                 # Skip restart signaling when injection is disabled (multi-agent refinement OFF)
@@ -3732,7 +3978,12 @@ Your answer:"""
                         AgentStatus.ANSWERED,
                     )
                 elif agent_id in voted_agents:
-                    self.coordination_tracker.change_status(agent_id, AgentStatus.VOTED)
+                    # Check if this was a stop (decomposition mode) vs a vote
+                    is_stop = voted_agents[agent_id].get("_is_stop", False)
+                    if is_stop:
+                        self.coordination_tracker.change_status(agent_id, AgentStatus.STOPPED)
+                    else:
+                        self.coordination_tracker.change_status(agent_id, AgentStatus.VOTED)
                 # Errors and timeouts are already tracked via track_agent_action
 
         # Cancel any remaining tasks and close streams, as all agents have voted (no more new answers)
@@ -3993,12 +4244,24 @@ Your answer:"""
                     is_final=is_final,
                 )
 
-                # Clear workspace after saving snapshot (but not for final snapshots)
+                # Clear workspace after saving snapshot (but not for final snapshots).
+                # In write_mode with active round isolation, defer clear until round cleanup
+                # so cleanup_round() can auto-commit the actual round output.
                 if not is_final:
-                    agent.backend.filesystem_manager.clear_workspace()
-                    logger.info(
-                        f"[Orchestrator._save_agent_snapshot] Cleared workspace for {agent_id} after saving snapshot",
+                    pending_round_cleanup = agent_id in getattr(
+                        self,
+                        "_round_isolation_managers",
+                        {},
                     )
+                    if pending_round_cleanup:
+                        logger.info(
+                            f"[Orchestrator._save_agent_snapshot] Deferred workspace clear for {agent_id} " "(pending round isolation cleanup)",
+                        )
+                    else:
+                        agent.backend.filesystem_manager.clear_workspace()
+                        logger.info(
+                            f"[Orchestrator._save_agent_snapshot] Cleared workspace for {agent_id} after saving snapshot",
+                        )
                 else:
                     # Final snapshot: restore workspace from snapshot_storage so
                     # post-evaluator can see the files
@@ -4292,34 +4555,60 @@ Your answer:"""
         else:
             header = f"[UPDATE: {', '.join(new_agents)} submitted new answer(s)]"
 
-        injection_parts = [
-            "",
-            "=" * 60,
-            "⚠️  IMPORTANT: NEW ANSWER RECEIVED - ACTION REQUIRED",
-            "=" * 60,
-            "",
-            header,
-            "",
-            *lines,
-            "=" * 60,
-            "REQUIRED ACTION - You MUST do one of the following:",
-            "=" * 60,
-            "",
-            "1. **ADD A TASK** to your plan: 'Evaluate agent answer(s) and decide next action'",
-            "   - Use update_task_status or create a new task to track this evaluation",
-            "   - Read their workspace files (paths above) to understand their solution",
-            "   - Read their execution_trace.md to see their full tool usage and reasoning",
-            "   - Compare their approach to yours",
-            "",
-            "2. **THEN CHOOSE ONE**:",
-            "   a) VOTE for their answer if it's complete and correct (use vote tool)",
-            "   b) BUILD on their work - improve/extend it and submit YOUR enhanced answer",
-            "   c) MERGE approaches - combine the best parts of their work with yours",
-            "   d) CONTINUE your own approach if you believe it's better",
-            "",
-            "DO NOT ignore this update - you must explicitly evaluate and decide!",
-            "=" * 60,
-        ]
+        # Use different framing for decomposition mode vs voting mode
+        is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+
+        if is_decomposition:
+            injection_parts = [
+                "",
+                "=" * 60,
+                "UPDATE: ANOTHER AGENT SUBMITTED WORK",
+                "=" * 60,
+                "",
+                header,
+                "",
+                *lines,
+                "=" * 60,
+                "RECOMMENDED ACTIONS:",
+                "=" * 60,
+                "",
+                "1. Read and understand their full work — maintain awareness of the entire project state",
+                "2. Actively integrate parts that touch your subtask (interfaces, contracts, dependencies)",
+                "3. Continue refining your own work — fix issues, improve quality, incorporate insights",
+                "4. Submit `new_answer` if you made any changes or improvements (this shares your work)",
+                "5. Call `stop` only when you've reviewed everything and are satisfied — no new work to share",
+                "",
+                "=" * 60,
+            ]
+        else:
+            injection_parts = [
+                "",
+                "=" * 60,
+                "⚠️  IMPORTANT: NEW ANSWER RECEIVED - ACTION REQUIRED",
+                "=" * 60,
+                "",
+                header,
+                "",
+                *lines,
+                "=" * 60,
+                "REQUIRED ACTION - You MUST do one of the following:",
+                "=" * 60,
+                "",
+                "1. **ADD A TASK** to your plan: 'Evaluate agent answer(s) and decide next action'",
+                "   - Use update_task_status or create a new task to track this evaluation",
+                "   - Read their workspace files (paths above) to understand their solution",
+                "   - Read their execution_trace.md to see their full tool usage and reasoning",
+                "   - Compare their approach to yours",
+                "",
+                "2. **THEN CHOOSE ONE**:",
+                "   a) VOTE for their answer if it's complete and correct (use vote tool)",
+                "   b) BUILD on their work - improve/extend it and submit YOUR enhanced answer",
+                "   c) MERGE approaches - combine the best parts of their work with yours",
+                "   d) CONTINUE your own approach if you believe it's better",
+                "",
+                "DO NOT ignore this update - you must explicitly evaluate and decide!",
+                "=" * 60,
+            ]
 
         return "\n".join(injection_parts)
 
@@ -4553,6 +4842,7 @@ Your answer:"""
 
             # Update known_answer_ids so vote validation knows this agent has seen these
             self.agent_states[agent_id].known_answer_ids.update(new_answers.keys())
+            self._sync_decomposition_answer_visibility(agent_id)
 
             # Track the injection
             logger.info(
@@ -4711,10 +5001,14 @@ Your answer:"""
         timeout_state = RoundTimeoutState()
 
         # Get two-tier workspace setting from coordination config
+        # Suppressed when write_mode is active (write_mode replaces the old two-tier structure)
         coordination_config = getattr(self.config, "coordination_config", None)
-        use_two_tier_workspace = bool(
-            getattr(coordination_config, "use_two_tier_workspace", False),
-        )
+        write_mode = getattr(coordination_config, "write_mode", None) if coordination_config else None
+        use_two_tier_workspace = False
+        if not (write_mode and write_mode != "legacy"):
+            use_two_tier_workspace = bool(
+                getattr(coordination_config, "use_two_tier_workspace", False),
+            )
 
         # Create soft timeout hook (POST_TOOL_USE - injects warning)
         post_hook = RoundTimeoutPostHook(
@@ -4839,6 +5133,7 @@ Your answer:"""
 
             # Update known_answer_ids so vote validation knows this agent has seen these
             self.agent_states[agent_id].known_answer_ids.update(new_answers.keys())
+            self._sync_decomposition_answer_visibility(agent_id)
 
             # Emit injection_received event for TUI
 
@@ -5191,17 +5486,17 @@ Your answer:"""
             return (True, None)
 
         # Determine threshold based on setting
+        is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+        terminal_action = "call `stop`" if is_decomposition else "vote for an existing answer"
         if self.config.answer_novelty_requirement == "strict":
             threshold = 0.50  # Reject if >50% overlap (strict)
-            error_msg = (
-                "Your answer is too similar to existing answers (>50% overlap). Please use a fundamentally different approach, employ different tools/techniques, or vote for an existing answer."
-            )
+            error_msg = f"Your answer is too similar to existing answers (>50% overlap). Please use a fundamentally different approach, employ different tools/techniques, or {terminal_action}."
         else:  # balanced
             threshold = 0.70  # Reject if >70% overlap (balanced)
             error_msg = (
-                "Your answer is too similar to existing answers (>70% overlap). "
-                "Please provide a meaningfully different solution with new insights, "
-                "approaches, or tools, or vote for an existing answer."
+                f"Your answer is too similar to existing answers (>70% overlap). "
+                f"Please provide a meaningfully different solution with new insights, "
+                f"approaches, or tools, or {terminal_action}."
             )
 
         # Check similarity against all existing answers
@@ -5216,6 +5511,58 @@ Your answer:"""
         # Answer is sufficiently novel
         return (True, None)
 
+    def _is_decomposition_mode(self) -> bool:
+        """Return True when orchestration is running in decomposition mode."""
+        return getattr(self.config, "coordination_mode", "voting") == "decomposition"
+
+    def _get_answer_revision_counts(self) -> Dict[str, int]:
+        """Get current answer revision counts for all orchestrated agents."""
+        return {aid: len(self.coordination_tracker.answers_by_agent.get(aid, [])) for aid in self.agents.keys()}
+
+    def _sync_decomposition_answer_visibility(self, agent_id: str) -> None:
+        """Update seen-answer revision snapshot and reset streak on unseen external updates.
+
+        In decomposition mode, per-agent answer limits are tracked as consecutive
+        answers since the agent last saw any external answer update.
+        """
+        if not self._is_decomposition_mode():
+            return
+
+        state = self.agent_states.get(agent_id)
+        if not state:
+            return
+
+        current_counts = self._get_answer_revision_counts()
+        saw_unseen_external_update = any(other_id != agent_id and current_count > state.seen_answer_counts.get(other_id, 0) for other_id, current_count in current_counts.items())
+
+        if saw_unseen_external_update and state.decomposition_answer_streak > 0:
+            logger.info(
+                "[Orchestrator] Reset decomposition answer streak for %s after seeing external answer updates",
+                agent_id,
+            )
+            state.decomposition_answer_streak = 0
+
+        state.seen_answer_counts = current_counts
+
+    def _get_agent_answer_count_for_limit(self, agent_id: str) -> int:
+        """Get answer count used for per-agent answer limit enforcement."""
+        if self._is_decomposition_mode():
+            state = self.agent_states.get(agent_id)
+            if state:
+                return state.decomposition_answer_streak
+        return len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
+
+    def _get_total_answer_count(self) -> int:
+        """Get total number of answer revisions across all agents."""
+        return sum(len(answer_revisions) for answer_revisions in self.coordination_tracker.answers_by_agent.values())
+
+    def _is_global_answer_limit_reached(self) -> bool:
+        """Check whether the optional global answer cap has been reached."""
+        global_limit = getattr(self.config, "max_new_answers_global", None)
+        if global_limit is None:
+            return False
+        return self._get_total_answer_count() >= global_limit
+
     def _check_answer_count_limit(self, agent_id: str) -> tuple[bool, Optional[str]]:
         """Check if agent has reached their answer count limit.
 
@@ -5225,27 +5572,57 @@ Your answer:"""
         Returns:
             Tuple of (can_answer, error_message). can_answer=True if agent can provide another answer.
         """
-        # No limit set
+        is_decomposition = self._is_decomposition_mode()
+
+        # Enforce optional global cap first.
+        if self._is_global_answer_limit_reached():
+            total_answer_count = self._get_total_answer_count()
+            global_limit = self.config.max_new_answers_global
+            if is_decomposition:
+                error_msg = f"The global maximum of {global_limit} new answer(s) has been reached " "across all agents. Please call `stop` to signal you are done."
+            else:
+                error_msg = f"The global maximum of {global_limit} new answer(s) has been reached " "across all agents. Please vote for the best existing answer using the `vote` tool."
+            logger.info(
+                "[Orchestrator] Answer rejected: global answer limit reached (%s/%s), attempted by %s",
+                total_answer_count,
+                global_limit,
+                agent_id,
+            )
+            return (False, error_msg)
+
+        # No per-agent limit set
         if self.config.max_new_answers_per_agent is None:
             return (True, None)
 
-        # Count how many answers this agent has provided
-        answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
+        # In voting mode this is total answers by agent; in decomposition mode this is
+        # the consecutive streak since the agent last saw external updates.
+        answer_count = self._get_agent_answer_count_for_limit(agent_id)
 
         if answer_count >= self.config.max_new_answers_per_agent:
-            error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} new answer(s). Please vote for the best existing answer using the `vote` tool."
+            if is_decomposition:
+                error_msg = (
+                    f"You've reached the maximum of {self.config.max_new_answers_per_agent} " "consecutive new answer(s) without seeing external updates. " "Please call `stop` to signal you are done."
+                )
+            else:
+                error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} " "new answer(s). Please vote for the best existing answer using the `vote` tool."
             logger.info(
-                f"[Orchestrator] Answer rejected: {agent_id} has reached limit ({answer_count}/{self.config.max_new_answers_per_agent})",
+                "[Orchestrator] Answer rejected: %s has reached per-agent limit (%s/%s)",
+                agent_id,
+                answer_count,
+                self.config.max_new_answers_per_agent,
             )
             return (False, error_msg)
 
         return (True, None)
 
     def _is_vote_only_mode(self, agent_id: str) -> bool:
-        """Check if agent has exhausted their answer limit and must vote.
+        """Check if agent has exhausted their answer limit and must vote (or auto-stop).
 
         When an agent reaches max_new_answers_per_agent, they should only
         have the vote tool available (no new_answer or broadcast tools).
+
+        In decomposition mode, hitting the limit auto-stops the agent instead
+        of switching to vote-only tools.
 
         When defer_voting_until_all_answered=True, also requires ALL agents
         to have answered before voting is allowed.
@@ -5256,16 +5633,41 @@ Your answer:"""
         Returns:
             True if agent must vote (has hit answer limit AND can vote now), False otherwise.
         """
-        if self.config.max_new_answers_per_agent is None:
-            return False
-        answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
-        hit_answer_limit = answer_count >= self.config.max_new_answers_per_agent
+        per_agent_limit = self.config.max_new_answers_per_agent
+        answer_count = self._get_agent_answer_count_for_limit(agent_id)
+        hit_answer_limit = per_agent_limit is not None and answer_count >= per_agent_limit
+        hit_global_limit = self._is_global_answer_limit_reached()
 
-        if not hit_answer_limit:
+        if not hit_answer_limit and not hit_global_limit:
             return False
+
+        # Decomposition mode: auto-stop the agent instead of switching to vote-only
+        if self._is_decomposition_mode():
+            if not self.agent_states[agent_id].has_voted:
+                last_answer = self.agent_states[agent_id].answer or ""
+                if hit_global_limit:
+                    total_answers = self._get_total_answer_count()
+                    global_limit = self.config.max_new_answers_global
+                    stop_reason = f"reached global answer limit ({total_answers}/{global_limit})"
+                else:
+                    stop_reason = f"reached per-agent consecutive answer limit ({answer_count}/{per_agent_limit})"
+                self.agent_states[agent_id].has_voted = True
+                self.agent_states[agent_id].stop_summary = f"Auto-stopped: {stop_reason}. Last work: {last_answer[:200]}"
+                self.agent_states[agent_id].stop_status = "complete"
+                self.coordination_tracker.add_agent_stop(
+                    agent_id,
+                    {"summary": self.agent_states[agent_id].stop_summary, "status": "complete"},
+                )
+                logger.info(
+                    "[Orchestrator] Auto-stopped agent %s in decomposition mode (%s)",
+                    agent_id,
+                    stop_reason,
+                )
+            return False  # Don't switch to vote-only tools, agent is already stopped
 
         # If defer_voting_until_all_answered is enabled, also check that all agents have answered
-        if self.config.defer_voting_until_all_answered:
+        # unless global answer cap has already been reached.
+        if self.config.defer_voting_until_all_answered and not hit_global_limit:
             all_answered = all(state.answer is not None for state in self.agent_states.values())
             if not all_answered:
                 # Agent hit their limit but others haven't answered yet
@@ -5273,6 +5675,30 @@ Your answer:"""
                 return False
 
         return True
+
+    def _apply_decomposition_auto_stop_if_needed(self, agent_id: str) -> bool:
+        """Apply decomposition auto-stop gate after refreshing answer visibility.
+
+        Returns True when the agent is currently considered done/stopped and
+        should be skipped for execution in this coordination iteration.
+        """
+        if not self._is_decomposition_mode():
+            return False
+
+        state = self.agent_states[agent_id]
+        # Refresh seen revision counts before evaluating streak limits so agents
+        # can resume after peers submit newer answers.
+        self._sync_decomposition_answer_visibility(agent_id)
+
+        was_voted = state.has_voted
+        self._is_vote_only_mode(agent_id)  # applies decomposition auto-stop side effect
+        if not was_voted and state.has_voted:
+            self.coordination_tracker.change_status(agent_id, AgentStatus.STOPPED)
+            logger.info(
+                f"[Orchestrator] Skipping execution for {agent_id} (auto-stopped at answer limit)",
+            )
+
+        return state.has_voted
 
     def _is_waiting_for_all_answers(self, agent_id: str) -> bool:
         """Check if agent is waiting for all agents to answer before voting.
@@ -5289,10 +5715,14 @@ Your answer:"""
         if not self.config.defer_voting_until_all_answered:
             return False
 
+        # If global answer cap is reached, unblock voting immediately to avoid deadlock.
+        if self._is_global_answer_limit_reached():
+            return False
+
         if self.config.max_new_answers_per_agent is None:
             return False
 
-        answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
+        answer_count = self._get_agent_answer_count_for_limit(agent_id)
         hit_answer_limit = answer_count >= self.config.max_new_answers_per_agent
 
         if not hit_answer_limit:
@@ -5476,6 +5906,39 @@ Your answer:"""
                 enforcement_msgs.append(neutral_msg)
 
         return enforcement_msgs
+
+    def _split_disallowed_workflow_tool_calls(
+        self,
+        agent: "ChatAgent",
+        tool_calls: List[Dict[str, Any]],
+        allowed_workflow_tool_names: Set[str],
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]]:
+        """Split tool calls into allowed and disallowed workflow calls for this round.
+
+        Args:
+            agent: Agent used to extract tool names from backend-specific call objects.
+            tool_calls: Raw tool calls returned by model/backend.
+            allowed_workflow_tool_names: Workflow tools available in this round.
+
+        Returns:
+            Tuple of:
+            - allowed_calls: Calls that can be processed this round
+            - disallowed_calls: Workflow calls not available this round
+            - disallowed_names: Ordered list of disallowed workflow tool names
+        """
+        allowed_calls: List[Dict[str, Any]] = []
+        disallowed_calls: List[Dict[str, Any]] = []
+        disallowed_names: List[str] = []
+
+        for tool_call in tool_calls:
+            tool_name = agent.backend.extract_tool_name(tool_call)
+            if tool_name in WORKFLOW_TOOL_NAMES and tool_name not in allowed_workflow_tool_names:
+                disallowed_calls.append(tool_call)
+                disallowed_names.append(tool_name)
+                continue
+            allowed_calls.append(tool_call)
+
+        return allowed_calls, disallowed_calls, disallowed_names
 
     def _load_rate_limits_from_config(self) -> Dict[str, Dict[str, int]]:
         """
@@ -5780,6 +6243,60 @@ Your answer:"""
         # Set the round context for nested tool calls to use
         set_current_round(current_round, round_type)
 
+        # Per-round worktree setup: create isolated worktree for this agent's round
+        round_worktree_paths: Optional[Dict[str, str]] = None
+        write_mode = None
+        if self.config.coordination_config:
+            write_mode = getattr(self.config.coordination_config, "write_mode", None)
+        if write_mode and write_mode != "legacy" and agent.backend.filesystem_manager:
+            try:
+                from .filesystem_manager import IsolationContextManager
+
+                workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                round_suffix = secrets.token_hex(4)
+                previous_branch = self._agent_current_branches.get(agent_id)
+
+                round_isolation_mgr = IsolationContextManager(
+                    session_id=f"{self.session_id}-{round_suffix}",
+                    write_mode=write_mode,
+                    workspace_path=workspace_path,
+                    previous_branch=previous_branch,
+                )
+
+                # Check for explicit context paths to create worktrees for
+                ppm = agent.backend.filesystem_manager.path_permission_manager
+                context_paths = ppm.get_context_paths() if ppm else []
+                round_worktree_paths = {}
+
+                if context_paths:
+                    # Has context paths: create worktrees for each
+                    for ctx_config in context_paths:
+                        ctx_path = ctx_config.get("path", "")
+                        if ctx_path:
+                            isolated = round_isolation_mgr.initialize_context(ctx_path, agent_id)
+                            round_worktree_paths[isolated] = ctx_path
+                else:
+                    # No context paths: use workspace itself with scratch + branches
+                    round_isolation_mgr.setup_workspace_scratch(workspace_path, agent_id)
+                    round_worktree_paths[workspace_path] = workspace_path
+
+                # Track the new branch name
+                for ctx_info in round_isolation_mgr.list_contexts():
+                    branch = ctx_info.get("branch_name") if ctx_info else None
+                    if branch:
+                        self._agent_current_branches[agent_id] = branch
+                        break
+
+                # Store for cleanup in finally block
+                self._round_isolation_managers[agent_id] = round_isolation_mgr
+                self._round_worktree_paths[agent_id] = round_worktree_paths
+                logger.info(
+                    f"[Orchestrator] Created per-round worktree for {agent_id}: {round_worktree_paths}",
+                )
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Failed to create per-round worktree for {agent_id}: {e}")
+                round_worktree_paths = None
+
         # Track outcome for span attributes (set in finally block)
         _agent_outcome = None  # "vote", "answer", or "error"
         _agent_voted_for = None  # Only set for votes
@@ -5835,6 +6352,12 @@ Your answer:"""
                     f"[Orchestrator] Agent {agent_id} in vote-only mode for system message (answer limit reached)",
                 )
 
+            # Compute branch info for this agent's system prompt
+            agent_branch = self._agent_current_branches.get(agent_id)
+            # Map other agents' branches to anonymous IDs (e.g. {"agent1": "massgen/abc123"})
+            _branch_agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+            other_agent_branches = {_branch_agent_mapping.get(aid, aid): branch for aid, branch in self._agent_current_branches.items() if aid != agent_id and branch}
+
             system_message = self._get_system_message_builder().build_coordination_message(
                 agent=agent,
                 agent_id=agent_id,
@@ -5852,6 +6375,11 @@ Your answer:"""
                 vote_only=vote_only_for_system_message,
                 agent_mapping=self.coordination_tracker.get_reverse_agent_mapping(),
                 voting_sensitivity_override=getattr(agent, "voting_sensitivity", None),
+                coordination_mode=getattr(self.config, "coordination_mode", "voting"),
+                agent_subtask=self._agent_subtasks.get(agent_id),
+                worktree_paths=round_worktree_paths,
+                branch_name=agent_branch,
+                other_branches=other_agent_branches if other_agent_branches else None,
             )
 
             # Inject phase-appropriate persona if enabled
@@ -5875,6 +6403,7 @@ Your answer:"""
             sorted_answer_ids = sorted(normalized_answers.keys()) if normalized_answers else None
             # Get global agent mapping for consistent anonymous IDs across all components
             agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+            _is_decomp = getattr(self.config, "coordination_mode", "voting") == "decomposition"
             if conversation_context and conversation_context.get(
                 "conversation_history",
             ):
@@ -5890,6 +6419,7 @@ Your answer:"""
                     base_system_message=system_message,  # Use NEW structured message
                     paraphrase=paraphrase,
                     agent_mapping=agent_mapping,
+                    decomposition_mode=_is_decomp,
                 )
             else:
                 # Fallback to standard conversation building
@@ -5900,6 +6430,7 @@ Your answer:"""
                     base_system_message=system_message,  # Use NEW structured message
                     paraphrase=paraphrase,
                     agent_mapping=agent_mapping,
+                    decomposition_mode=_is_decomp,
                 )
 
             # Inject restart context if this is a restart attempt (like multi-turn context)
@@ -5911,11 +6442,20 @@ Your answer:"""
                     ws = agent_obj.backend.filesystem_manager.get_current_workspace()
                     if ws and ws.exists() and any(ws.iterdir()):
                         workspace_populated = True
+                # Compute branch info for restart context (with anonymous labels)
+                branch_info = None
+                if self._agent_current_branches:
+                    _restart_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+                    branch_info = {
+                        "own_branch": self._agent_current_branches.get(agent_id),
+                        "other_branches": {_restart_mapping.get(aid, aid): b for aid, b in self._agent_current_branches.items() if aid != agent_id and b},
+                    }
                 restart_context = self.message_templates.format_restart_context(
                     self.restart_reason,
                     self.restart_instructions,
                     previous_answer=self.previous_attempt_answer,
                     workspace_populated=workspace_populated,
+                    branch_info=branch_info,
                 )
                 # Prepend restart context to user message
                 conversation["user_message"] = restart_context + "\n\n" + conversation["user_message"]
@@ -6004,6 +6544,19 @@ Your answer:"""
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": conversation["user_message"]},
             ]
+
+            # In decomposition mode, wrap the user message with subtask scope
+            if getattr(self.config, "coordination_mode", "voting") == "decomposition":
+                subtask = self._agent_subtasks.get(agent_id)
+                if subtask:
+                    original_msg = conversation_messages[1]["content"]
+                    conversation_messages[1]["content"] = (
+                        f"[YOUR ASSIGNED SUBTASK: {subtask}]\n"
+                        f"You MUST focus ONLY on your subtask. "
+                        f"There may be overlap with other agents' existing work in your area; "
+                        f"you may refine/integrate that overlap, but do NOT implement unrelated parts.\n\n"
+                        f"{original_msg}"
+                    )
 
             # Inject shared memory context
             conversation_messages = await self._inject_shared_memory_context(
@@ -6378,6 +6931,17 @@ Your answer:"""
                                 # Don't yield UI message here - backend streams its own status messages
                                 continue
 
+                            # Tool exists but is unavailable this round (e.g., new_answer in vote-only mode)
+                            if tool_name and tool_name in WORKFLOW_TOOL_NAMES and tool_name not in internal_tool_names:
+                                logger.info(
+                                    f"[Orchestrator] Agent {agent_id} called unavailable workflow tool '{tool_name}' for this round",
+                                )
+                                yield self._trace_tuple(
+                                    f"⚠️ Tool unavailable this round: {tool_name}",
+                                    kind="coordination",
+                                )
+                                continue
+
                             # Unknown tools (not workflow, not MCP, not custom, not external): log warning
                             # This handles hallucinated tool names or model prefixes like "default_api:"
                             if tool_name and tool_name not in internal_tool_names:
@@ -6430,6 +6994,21 @@ Your answer:"""
                                 yield (
                                     "coordination" if self.trace_classification == "strict" else "content",
                                     f"🗳️ Voting for [{real_agent_id}] (options: {', '.join(options_anon)}) : {reason}",
+                                )
+                            elif tool_name == "stop":
+                                # Decomposition mode stop tool
+                                summary = tool_args.get("summary", "")
+                                status = tool_args.get("status", "complete")
+                                log_tool_call(
+                                    agent_id,
+                                    "stop",
+                                    {"summary": summary, "status": status},
+                                    None,
+                                    backend_name,
+                                )
+                                yield (
+                                    "coordination" if self.trace_classification == "strict" else "content",
+                                    f"🛑 Stopping ({status}): {summary[:100]}",
                                 )
                             elif tool_name == "ask_others":
                                 # Broadcast tool - handled as custom tool by backend
@@ -6558,6 +7137,68 @@ Your answer:"""
                     logger.info(
                         f"[Orchestrator] Agent {agent_id} made {num_votes} votes - using last vote: {final_voted_agent}",
                     )
+
+                # Filter workflow tool calls that are not allowed in this round.
+                # This enforces vote-only/stop-only modes at execution time in case a model
+                # emits stale tool names from previous context.
+                (
+                    tool_calls,
+                    disallowed_workflow_calls,
+                    disallowed_workflow_names,
+                ) = self._split_disallowed_workflow_tool_calls(
+                    agent,
+                    tool_calls,
+                    internal_tool_names,
+                )
+                if disallowed_workflow_calls:
+                    disallowed_unique = sorted(set(disallowed_workflow_names))
+                    allowed_workflow_unique = sorted(name for name in internal_tool_names if name)
+                    allowed_display = ", ".join(allowed_workflow_unique) if allowed_workflow_unique else "none"
+                    is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+                    if vote_only and "new_answer" in disallowed_unique:
+                        if is_decomposition:
+                            error_msg = "You have reached your answer limit. The `new_answer` tool is disabled. " "You MUST call `stop` now."
+                        else:
+                            error_msg = "You have reached your answer limit. The `new_answer` tool is disabled. " "You MUST use the `vote` tool now."
+                        enforcement_reason = "answer_limit"
+                    else:
+                        error_msg = f"Tool(s) not available this round: {', '.join(disallowed_unique)}. " f"Available workflow tool(s): {allowed_display}."
+                        enforcement_reason = "no_workflow_tool"
+
+                    if attempt < max_attempts - 1:
+                        yield (
+                            "content",
+                            f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}",
+                        )
+
+                        # Track enforcement event before retry
+                        buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                        self.coordination_tracker.track_enforcement_event(
+                            agent_id=agent_id,
+                            reason=enforcement_reason,
+                            attempt=attempt + 1,
+                            max_attempts=max_attempts,
+                            tool_calls=disallowed_unique,
+                            error_message=error_msg,
+                            buffer_preview=buffer_preview,
+                            buffer_chars=buffer_chars,
+                        )
+
+                        # Return tool errors for the unavailable workflow tool calls
+                        enforcement_msg = self._create_tool_error_messages(
+                            agent,
+                            disallowed_workflow_calls,
+                            error_msg,
+                        )
+                        attempt += 1  # Error counts as an attempt
+                        continue
+                    else:
+                        yield (
+                            "error",
+                            f"Agent used unavailable workflow tool(s) after {max_attempts} attempts: {', '.join(disallowed_unique)}",
+                        )
+                        yield ("done", None)
+                        return
 
                 # Check for mixed new_answer and vote calls - violates binary decision framework
                 new_answer_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) == "new_answer"]
@@ -6751,6 +7392,45 @@ Your answer:"""
                             yield (
                                 "result",
                                 ("vote", {"agent_id": voted_agent, "reason": reason}),
+                            )
+                            yield ("done", None)
+                            return
+
+                        elif tool_name == "stop":
+                            workflow_tool_found = True
+                            # Decomposition mode: agent signals subtask is complete
+                            summary = tool_args.get("summary", "")
+                            status = tool_args.get("status", "complete")
+                            log_tool_call(
+                                agent_id,
+                                "stop",
+                                {"summary": summary, "status": status},
+                                None,
+                                backend_name,
+                            )
+
+                            # Record to shared memory
+                            stop_message = f"Stopped ({status}): {summary}"
+                            await self._record_to_shared_memory(
+                                agent_id=agent_id,
+                                content=stop_message,
+                                role="assistant",
+                            )
+
+                            # Reuse the vote result pipeline — orchestrator processes
+                            # stop the same way as vote (sets has_voted = True)
+                            yield (
+                                "result",
+                                (
+                                    "vote",
+                                    {
+                                        "agent_id": agent_id,
+                                        "reason": summary,
+                                        "stop_summary": summary,
+                                        "stop_status": status,
+                                        "_is_stop": True,
+                                    },
+                                ),
                             )
                             yield ("done", None)
                             return
@@ -7003,17 +7683,29 @@ Your answer:"""
                     # Note: restart_pending is handled by mid-stream callback on next tool call
                     if attempt < max_attempts - 1:
                         # Determine enforcement reason and message
+                        is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
                         if tool_calls:
-                            # Use vote-only enforcement message if agent has hit answer limit
+                            # Use vote-only/stop-only enforcement message if agent has hit answer limit
                             if vote_only:
-                                error_msg = "You have reached your answer limit. You MUST use the `vote` tool now to vote for the best existing answer. The `new_answer` tool is no longer available."
+                                if is_decomposition:
+                                    error_msg = "You have reached your answer limit. You MUST call `stop` now to signal you are done."
+                                else:
+                                    error_msg = (
+                                        "You have reached your answer limit. You MUST use the `vote` tool now to vote for the best existing answer. The `new_answer` tool is no longer available."
+                                    )
                             else:
-                                error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
+                                if is_decomposition:
+                                    error_msg = "You must use workflow tools (stop or new_answer) to complete the task."
+                                else:
+                                    error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
                             enforcement_reason = "no_workflow_tool"
                             tool_names_called = [agent.backend.extract_tool_name(tc) for tc in tool_calls]
                         else:
                             # No tool calls, just a plain text response - use default enforcement
-                            error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
+                            if is_decomposition:
+                                error_msg = "You must use workflow tools (stop or new_answer) to complete the task."
+                            else:
+                                error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
                             enforcement_reason = "no_tool_calls"
                             tool_names_called = []
 
@@ -7128,6 +7820,23 @@ Your answer:"""
                 # The span is still closed, just the context token can't be detached
                 if "context" not in str(e).lower() and "detach" not in str(e).lower():
                     logger.debug(f"Unexpected ValueError closing agent span: {e}")
+
+            # Per-round worktree cleanup: move scratch, remove worktree, keep branch
+            if agent_id in self._round_isolation_managers:
+                round_iso = self._round_isolation_managers.pop(agent_id)
+                # Use anonymous ID for human-readable archive directory name
+                _agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+                _archive_label = _agent_mapping.get(agent_id, agent_id)
+                for ctx_info in list(round_iso.list_contexts()):
+                    ctx_path = ctx_info.get("original_path") if ctx_info else None
+                    if not ctx_path:
+                        continue
+                    try:
+                        round_iso.move_scratch_to_workspace(ctx_path, archive_label=_archive_label)
+                        round_iso.cleanup_round(ctx_path)
+                    except Exception as _cleanup_err:
+                        logger.warning(f"[Orchestrator] Round worktree cleanup failed for {agent_id}: {_cleanup_err}")
+                self._round_worktree_paths.pop(agent_id, None)
 
             # Clear the round context
             clear_current_round()
@@ -7426,6 +8135,27 @@ Your answer:"""
                 ):
                     selected_agent.backend.end_round_tracking("post_evaluation")
 
+        # Review isolated changes if write_mode isolation was enabled
+        # Runs AFTER post-evaluation so the user sees the full picture before approving files
+        if self._isolation_manager:
+            selected_agent = self.agents.get(self._selected_agent)
+            if selected_agent:
+                # Re-add removed context paths so ChangeApplier can write back
+                ppm = selected_agent.backend.filesystem_manager.path_permission_manager
+                for orig_path, removed_mp in self._isolation_removed_paths.items():
+                    ppm.re_add_context_path(removed_mp)
+
+                async for chunk in self._review_isolated_changes(
+                    agent=selected_agent,
+                    isolation_manager=self._isolation_manager,
+                    selected_agent_id=self._selected_agent,
+                ):
+                    yield chunk
+            # Clear the references after review
+            self._isolation_manager = None
+            self._isolation_worktree_paths = {}
+            self._isolation_removed_paths = {}
+
             # Check if restart was requested
             if self.restart_pending and self.current_attempt < (self.max_attempts - 1):
                 # Show restart banner
@@ -7688,6 +8418,70 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             # Snapshot context paths BEFORE enabling write access (for tracking what gets written)
             agent.backend.filesystem_manager.path_permission_manager.snapshot_writable_context_paths()
 
+            # Initialize isolated write context if write_mode is enabled
+            # Creates worktree inside agent workspace and demotes original to read-only
+            self._isolation_manager = None
+            self._isolation_worktree_paths = {}  # worktree_path -> original_path
+            write_mode = None
+            if self.config.coordination_config:
+                write_mode = getattr(self.config.coordination_config, "write_mode", None)
+
+            logger.info(f"[Orchestrator] write_mode check: coordination_config={bool(self.config.coordination_config)}, write_mode={write_mode}")
+
+            if write_mode and write_mode != "legacy":
+                from .filesystem_manager import IsolationContextManager
+
+                try:
+                    workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                    # Use winner's branch as base for the worktree so final presentation
+                    # starts from the winner's committed work (not empty HEAD)
+                    winner_branch = self._agent_current_branches.get(selected_agent_id)
+                    self._isolation_manager = IsolationContextManager(
+                        session_id=self.session_id,
+                        write_mode=write_mode,
+                        workspace_path=workspace_path,
+                        base_commit=winner_branch,
+                        branch_label="presenter",
+                    )
+
+                    # Initialize isolated contexts for writable context paths
+                    # Remove the original from PPM so the agent only sees the worktree
+                    ppm = agent.backend.filesystem_manager.path_permission_manager
+                    self._isolation_removed_paths = {}  # original_path -> ManagedPath (for re-adding after review)
+                    logger.info(f"[Orchestrator] Checking {len(ppm.managed_paths)} managed paths for isolation")
+                    for managed_path in list(ppm.managed_paths):  # copy list since we modify
+                        logger.debug(f"[Orchestrator] Checking path: {managed_path.path}, type={managed_path.path_type}, will_be_writable={managed_path.will_be_writable}")
+                        if managed_path.path_type == "context" and managed_path.will_be_writable:
+                            original_path = str(managed_path.path)
+                            isolated_path = self._isolation_manager.initialize_context(
+                                original_path,
+                                agent_id=selected_agent_id,
+                            )
+                            # Remove original from PPM — agent only sees the worktree in workspace
+                            removed_mp = ppm.remove_context_path(original_path)
+                            if removed_mp:
+                                self._isolation_removed_paths[original_path] = removed_mp
+                            self._isolation_worktree_paths[isolated_path] = original_path
+                            logger.info(
+                                f"[Orchestrator] Isolation: worktree at {isolated_path}, " f"original removed from agent view: {original_path}",
+                            )
+
+                except Exception as e:
+                    logger.warning(f"[Orchestrator] Failed to initialize isolated context: {e}, falling back to direct writes")
+                    # Re-add any paths we removed before the failure
+                    if self._isolation_removed_paths:
+                        ppm = agent.backend.filesystem_manager.path_permission_manager
+                        for orig_path, removed_mp in self._isolation_removed_paths.items():
+                            ppm.re_add_context_path(removed_mp)
+                        self._isolation_removed_paths = {}
+                    if self._isolation_manager:
+                        try:
+                            self._isolation_manager.cleanup_all()
+                        except Exception:
+                            pass
+                    self._isolation_manager = None
+                    self._isolation_worktree_paths = {}
+
             # Recreate Docker container with write access to context paths
             # The original container was created with read-only mounts for context paths
             # (to prevent race conditions during coordination). For final presentation,
@@ -7705,10 +8499,16 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                             "load_previous_session_skills",
                             False,
                         )
+                # Build extra mounts for worktree isolation in Docker mode
+                extra_mounts = None
+                if self._isolation_worktree_paths:
+                    extra_mounts = [(wt_path, wt_path, "rw") for wt_path in self._isolation_worktree_paths]
+
                 agent.backend.filesystem_manager.recreate_container_for_write_access(
                     skills_directory=skills_directory,
                     massgen_skills=massgen_skills,
                     load_previous_session_skills=load_previous_session_skills,
+                    extra_mount_paths=extra_mounts,
                 )
 
             # Enable write access in PathPermissionManager (for MCP filesystem tools)
@@ -7761,13 +8561,64 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             selected_agent_id,
         )
 
-        # Use MessageTemplates to build the presentation message
-        presentation_content = self.message_templates.build_final_presentation_message(
-            original_task=self.current_task or "Task coordination",
-            vote_summary=normalized_voting_summary,
-            all_answers=normalized_all_answers,
-            selected_agent_id=selected_agent_id,
-        )
+        # Build the presentation message
+        is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+        if is_decomposition:
+            # Decomposition mode: presenter synthesizes all agents' work
+            agent_work_sections = []
+            for aid, answer in normalized_all_answers.items():
+                subtask = self._agent_subtasks.get(aid, "No specific subtask assigned")
+                stop_summary = self.agent_states[aid].stop_summary or "No stop summary"
+                agent_work_sections.append(
+                    f"**{aid}** (subtask: {subtask})\n" f"Stop summary: {stop_summary}\n" f"Work: {answer}\n",
+                )
+            presentation_content = (
+                f"ORIGINAL TASK:\n{self.current_task or 'Task coordination'}\n\n"
+                f"AGENT WORK SUMMARIES:\n{''.join(agent_work_sections)}\n\n"
+                "Your job is to assemble the final deliverable from the work each agent produced. "
+                "Ensure quality, fill any gaps, resolve conflicts, and answer the original query comprehensively."
+            )
+        else:
+            presentation_content = self.message_templates.build_final_presentation_message(
+                original_task=self.current_task or "Task coordination",
+                vote_summary=normalized_voting_summary,
+                all_answers=normalized_all_answers,
+                selected_agent_id=selected_agent_id,
+            )
+
+        # Add worktree location to presentation message
+        # The agent only sees the worktree — the original context path has been
+        # removed from its view, so we just tell it where the project is.
+        if self._isolation_worktree_paths:
+            worktree_instructions = "\n\nPROJECT PATHS:\n"
+            for wt_path, orig_path in self._isolation_worktree_paths.items():
+                # Compute the specific subdirectory within the worktree
+                # that corresponds to the original context path
+                import os as _os
+
+                ctx_info = self._isolation_manager.get_context_info(orig_path) if self._isolation_manager else None
+                repo_root = ctx_info.get("repo_root") if ctx_info else None
+                if repo_root and repo_root != orig_path:
+                    relative = _os.path.relpath(orig_path, repo_root)
+                    target_dir = _os.path.join(wt_path, relative)
+                    worktree_instructions += (
+                        f"The project files are at `{target_dir}` " f"(inside worktree at `{wt_path}`). " f"Write all your changes there. " f"Changes will be reviewed before being applied.\n"
+                    )
+                else:
+                    worktree_instructions += f"The project is checked out at `{wt_path}`. " f"Write all your changes there. " f"Changes will be reviewed before being applied.\n"
+
+            # Add scratch and branch info for final presentation
+            worktree_instructions += "\n**Scratch Space**: `.massgen_scratch/` inside the checkout is git-excluded and invisible to reviewers.\n"
+            # Show other agents' latest branches with anonymous labels
+            _pres_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+            other_branches = {_pres_mapping.get(aid, aid): branch for aid, branch in self._agent_current_branches.items() if aid != selected_agent_id and branch}
+            if other_branches:
+                worktree_instructions += "\n**Other agents' code branches** (latest only):\n"
+                for label, branch in other_branches.items():
+                    worktree_instructions += f"- {label}: `{branch}`\n"
+                worktree_instructions += "Use `git diff <branch>` to compare, `git merge <branch>` to incorporate.\n"
+
+            presentation_content += worktree_instructions
 
         # Get agent's configurable system message using the standard interface
         agent.get_configurable_system_message()
@@ -8397,6 +9248,226 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             clear_current_round()
 
         # Don't yield done here - let _present_final_answer handle final done after post-evaluation
+
+    async def _review_isolated_changes(
+        self,
+        agent: "ChatAgent",
+        isolation_manager: "IsolationContextManager",
+        selected_agent_id: str,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Review and apply changes from isolated write context.
+
+        This method collects changes from the isolated context, shows a review
+        modal to the user (if TUI is available), and applies approved changes
+        to the original context paths.
+
+        Args:
+            agent: The presenting agent
+            isolation_manager: IsolationContextManager with active contexts
+            selected_agent_id: ID of the selected agent
+        """
+        from .filesystem_manager import ChangeApplier, ReviewResult
+
+        logger.info(f"[Orchestrator] Starting _review_isolated_changes for {selected_agent_id}")
+
+        def _count_diff_files(diff_text: str) -> int:
+            if not diff_text:
+                return 0
+            return sum(1 for line in diff_text.splitlines() if line.startswith("diff --git "))
+
+        def _normalize_approved_files_by_context(metadata: Any) -> Dict[str, List[str]]:
+            if not isinstance(metadata, dict):
+                return {}
+            raw_mapping = metadata.get("approved_files_by_context")
+            if not isinstance(raw_mapping, dict):
+                return {}
+
+            normalized: Dict[str, List[str]] = {}
+            for context_path, approved_paths in raw_mapping.items():
+                if not isinstance(context_path, str):
+                    continue
+                if not isinstance(approved_paths, list):
+                    continue
+                normalized[os.path.abspath(context_path)] = [path for path in approved_paths if isinstance(path, str)]
+            return normalized
+
+        def _is_in_context_prefix(rel_path: str, context_prefix: str) -> bool:
+            normalized_rel = rel_path.replace("\\", "/").strip("/")
+            normalized_prefix = context_prefix.replace("\\", "/").strip("/")
+            if normalized_prefix in ("", "."):
+                return True
+            return normalized_rel == normalized_prefix or normalized_rel.startswith(f"{normalized_prefix}/")
+
+        # 1. Collect all changes from isolated contexts
+        all_changes = []
+        for ctx_info in isolation_manager.list_contexts():
+            if not ctx_info:
+                continue
+            original_path = ctx_info.get("original_path")
+            if not original_path:
+                continue
+
+            changes = isolation_manager.get_changes(original_path)
+            diff = isolation_manager.get_diff(original_path)
+
+            if changes or diff:
+                # For worktree mode, repo_root may differ from original_path
+                # (context path can be a subdirectory of the git root).
+                repo_root = os.path.abspath(ctx_info.get("repo_root") or original_path)
+                original_abs = os.path.abspath(original_path)
+                context_prefix = "."
+                try:
+                    if os.path.commonpath([original_abs, repo_root]) == repo_root:
+                        context_prefix = os.path.relpath(original_abs, repo_root)
+                    else:
+                        # Fail closed: if context is outside repo_root, apply nothing.
+                        context_prefix = "__massgen_out_of_scope__"
+                        logger.warning(
+                            "[Orchestrator] Context path is outside repo_root; " "writes will be blocked for this context: " f"context={original_abs}, repo_root={repo_root}",
+                        )
+                except ValueError:
+                    context_prefix = "__massgen_out_of_scope__"
+                    logger.warning(
+                        "[Orchestrator] Could not compare context path and repo_root; " "writes will be blocked for this context: " f"context={original_abs}, repo_root={repo_root}",
+                    )
+
+                filtered_changes = [change for change in changes if isinstance(change, dict) and isinstance(change.get("path"), str) and _is_in_context_prefix(change["path"], context_prefix)]
+
+                # Preserve diff-only contexts (e.g., staged-only workflows where
+                # change enumeration can occasionally be empty).
+                has_relevant_changes = bool(filtered_changes) or (not changes and bool(diff))
+                if not has_relevant_changes:
+                    continue
+
+                all_changes.append(
+                    {
+                        "original_path": original_abs,
+                        "isolated_path": ctx_info.get("isolated_path"),
+                        "repo_root": repo_root,
+                        "context_prefix": context_prefix,
+                        "changes": filtered_changes,
+                        "diff": diff,
+                    },
+                )
+
+        # 2. If no changes, skip review and cleanup
+        if not all_changes:
+            logger.info("[Orchestrator] No isolated changes to review")
+            # Move scratch to archive before cleanup
+            for ctx_path in list(isolation_manager._contexts.keys()):
+                isolation_manager.move_scratch_to_workspace(ctx_path)
+            isolation_manager.cleanup_session()
+            return
+
+        # 3. Yield status chunk to inform user about review phase
+        total_changes = sum(len(c.get("changes", [])) or _count_diff_files(c.get("diff", "")) for c in all_changes)
+        yield StreamChunk(
+            type="status",
+            content=f"Reviewing {total_changes} file change(s) from isolated context...",
+            source=selected_agent_id,
+        )
+
+        # 4. Show review modal (TUI) or auto-approve (non-TUI)
+        review_result = ReviewResult(approved=True, approved_files=None)
+
+        # Get display via coordination_ui (orchestrator doesn't have a display attr directly)
+        display = None
+        if hasattr(self, "coordination_ui") and self.coordination_ui:
+            display = getattr(self.coordination_ui, "display", None)
+
+        logger.info(f"[Orchestrator] Review phase: display={display}, has_modal={hasattr(display, 'show_change_review_modal') if display else False}")
+
+        if display and hasattr(display, "show_change_review_modal"):
+            try:
+                logger.info("[Orchestrator] Showing review modal...")
+                review_result = await display.show_change_review_modal(all_changes)
+                logger.info(f"[Orchestrator] Review modal returned: approved={review_result.approved}")
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Review modal failed: {e}, auto-approving")
+                review_result = ReviewResult(approved=True, approved_files=None)
+        else:
+            # Non-TUI mode: auto-approve all changes
+            logger.info("[Orchestrator] Non-TUI mode: auto-approving isolated changes")
+
+        # 5. Apply approved changes
+        if review_result.approved:
+            applier = ChangeApplier()
+            applied_files = []
+            approved_files_by_context = _normalize_approved_files_by_context(review_result.metadata)
+
+            logger.info(
+                f"[Orchestrator] Applying approved changes: " f"approved_files={review_result.approved_files}, " f"contexts={len(all_changes)}",
+            )
+
+            for ctx in all_changes:
+                try:
+                    context_path = os.path.abspath(ctx["original_path"])
+                    target = context_path
+                    context_prefix = ctx.get("context_prefix")
+                    approved_files_for_context: Optional[List[str]]
+
+                    if review_result.approved_files is None:
+                        approved_files_for_context = None
+                    elif context_path in approved_files_by_context:
+                        approved_files_for_context = approved_files_by_context[context_path]
+                    else:
+                        # Backward compatibility: support both legacy flat paths
+                        # and context-keyed entries ("{context}::{path}").
+                        approved_files_for_context = []
+                        for approved_entry in review_result.approved_files:
+                            if not isinstance(approved_entry, str):
+                                continue
+                            if "::" in approved_entry:
+                                approved_context, approved_path = approved_entry.split("::", 1)
+                                if os.path.abspath(approved_context) == context_path and approved_path:
+                                    approved_files_for_context.append(approved_path)
+                            else:
+                                approved_files_for_context.append(approved_entry)
+
+                    logger.info(
+                        "[Orchestrator] ChangeApplier: " f"source={ctx['isolated_path']}, " f"target={target}, " f"context_prefix={context_prefix}",
+                    )
+                    files = applier.apply_changes(
+                        source_path=ctx["isolated_path"],
+                        target_path=target,
+                        approved_files=approved_files_for_context,
+                        context_prefix=context_prefix,
+                    )
+                    applied_files.extend(files)
+                except Exception as e:
+                    logger.error(f"[Orchestrator] Failed to apply changes to {ctx['original_path']}: {e}")
+                    yield StreamChunk(
+                        type="error",
+                        error=f"Failed to apply some changes: {e}",
+                        source=selected_agent_id,
+                    )
+
+            if applied_files:
+                yield StreamChunk(
+                    type="status",
+                    content=f"Applied {len(applied_files)} file change(s): {', '.join(applied_files)}",
+                    source=selected_agent_id,
+                )
+                logger.info(f"[Orchestrator] Applied isolated changes: {applied_files}")
+            else:
+                logger.warning("[Orchestrator] Review approved but no files were applied (empty change set)")
+                yield StreamChunk(
+                    type="status",
+                    content="Review approved but no changed files were found to apply",
+                    source=selected_agent_id,
+                )
+        else:
+            yield StreamChunk(
+                type="status",
+                content="Changes rejected - no files were modified",
+                source=selected_agent_id,
+            )
+            logger.info("[Orchestrator] User rejected isolated changes")
+
+        # 6. Move scratch to archive and cleanup all isolated contexts + branches
+        for ctx_path in list(isolation_manager._contexts.keys()):
+            isolation_manager.move_scratch_to_workspace(ctx_path)
+        isolation_manager.cleanup_session()
 
     async def post_evaluate_answer(
         self,
@@ -9533,6 +10604,10 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.injection_count = 0
             state.restart_count = 0
             state.known_answer_ids = set()
+            state.decomposition_answer_streak = 0
+            state.seen_answer_counts = {}
+            state.stop_summary = None
+            state.stop_status = None
 
         # Reset orchestrator timeout tracking
         self.total_tokens = 0

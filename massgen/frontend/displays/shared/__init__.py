@@ -25,7 +25,7 @@ from .tool_registry import (
     format_tool_display_name,
     get_tool_category,
 )
-from .tui_debug import get_tui_debug_logger, tui_log
+from .tui_debug import get_tui_debug_logger, tui_debug_enabled, tui_log
 
 __all__ = [
     # Tool registry
@@ -45,5 +45,6 @@ __all__ = [
     "render_file_preview",
     # Debug utilities
     "get_tui_debug_logger",
+    "tui_debug_enabled",
     "tui_log",
 ]

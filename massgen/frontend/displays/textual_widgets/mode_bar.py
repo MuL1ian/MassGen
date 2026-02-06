@@ -3,7 +3,7 @@
 Mode Bar Widget for MassGen TUI.
 
 Provides a horizontal bar with mode toggles for plan mode, agent mode,
-refinement mode, and override functionality.
+coordination mode, refinement mode, and override functionality.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -25,7 +25,7 @@ class ModeChanged(Message):
         """Initialize the message.
 
         Args:
-            mode_type: The type of mode changed ("plan", "agent", "refinement").
+            mode_type: The type of mode changed ("plan", "agent", "coordination", "refinement").
             value: The new value of the mode.
         """
         self.mode_type = mode_type
@@ -54,6 +54,14 @@ class OverrideRequested(Message):
 
 class PlanSettingsClicked(Message):
     """Message emitted when plan settings button is clicked."""
+
+
+class ModeHelpClicked(Message):
+    """Message emitted when mode bar help button is clicked."""
+
+
+class SubtasksClicked(Message):
+    """Message emitted when subtasks button is clicked."""
 
 
 def _mode_log(msg: str) -> None:
@@ -85,6 +93,7 @@ class ModeToggle(Static):
     ICONS = {
         "plan": {"normal": "○", "plan": "◉", "execute": "◉"},
         "agent": {"multi": "◉", "single": "○"},
+        "coordination": {"parallel": "◉", "decomposition": "○"},
         "refinement": {"on": "◉", "off": "○"},
     }
 
@@ -92,6 +101,7 @@ class ModeToggle(Static):
     LABELS = {
         "plan": {"normal": "Normal", "plan": "Planning", "execute": "Executing"},
         "agent": {"multi": "Multi-Agent", "single": "Single"},
+        "coordination": {"parallel": "Parallel", "decomposition": "Decomposition"},
         "refinement": {"on": "Refine", "off": "Refine OFF"},
     }
 
@@ -107,7 +117,7 @@ class ModeToggle(Static):
         """Initialize the mode toggle.
 
         Args:
-            mode_type: The type of mode ("plan", "agent", "refinement").
+            mode_type: The type of mode ("plan", "agent", "coordination", "refinement").
             initial_state: The initial state value.
             states: List of valid states to cycle through.
             id: Optional DOM ID.
@@ -200,6 +210,9 @@ class ModeBar(Widget):
     - Plan mode: normal → plan → execute
     - Agent mode: multi ↔ single
     - Refinement mode: on ↔ off
+    - Coordination mode: parallel ↔ decomposition
+    - Subtasks button (shown in decomposition mode)
+    - Help button for mode bar explanations
     - Override button (shown when override is available)
     """
 
@@ -219,7 +232,10 @@ class ModeBar(Widget):
         super().__init__(id=id, classes=classes)
         self._plan_toggle: Optional[ModeToggle] = None
         self._agent_toggle: Optional[ModeToggle] = None
+        self._coordination_toggle: Optional[ModeToggle] = None
         self._refinement_toggle: Optional[ModeToggle] = None
+        self._subtasks_btn: Optional[Button] = None
+        self._mode_help_btn: Optional[Button] = None
         self._override_btn: Optional[Button] = None
         self._plan_info: Optional[Label] = None
         self._plan_settings_btn: Optional[Button] = None
@@ -254,10 +270,28 @@ class ModeBar(Widget):
         )
         yield self._refinement_toggle
 
+        # Coordination mode toggle (parallel voting vs decomposition subtasks)
+        self._coordination_toggle = ModeToggle(
+            mode_type="coordination",
+            initial_state="parallel",
+            states=["parallel", "decomposition"],
+            id="coordination_toggle",
+        )
+        yield self._coordination_toggle
+
+        # Subtasks editor button (decomposition mode only)
+        self._subtasks_btn = Button("Subtasks", id="subtasks_btn", variant="default")
+        self._subtasks_btn.add_class("hidden")
+        yield self._subtasks_btn
+
         # Plan settings button (hidden when plan mode is "normal")
         self._plan_settings_btn = Button("⋮", id="plan_settings_btn", variant="default")
         self._plan_settings_btn.add_class("hidden")
         yield self._plan_settings_btn
+
+        # Mode bar help button
+        self._mode_help_btn = Button("?", id="mode_help_btn", variant="default")
+        yield self._mode_help_btn
 
         # Plan info (shown when executing plan)
         self._plan_info = Label("", id="plan_info")
@@ -323,6 +357,25 @@ class ModeBar(Widget):
         if self._refinement_toggle:
             self._refinement_toggle.set_state("on" if enabled else "off")
 
+    def set_coordination_mode(self, mode: str) -> None:
+        """Set the coordination mode state.
+
+        Args:
+            mode: "parallel" or "decomposition".
+        """
+        if self._coordination_toggle:
+            self._coordination_toggle.set_state(mode)
+        self._update_subtasks_button(mode)
+
+    def _update_subtasks_button(self, mode: str) -> None:
+        """Show subtasks editor button only in decomposition mode."""
+        if not self._subtasks_btn:
+            return
+        if mode == "decomposition":
+            self._subtasks_btn.remove_class("hidden")
+        else:
+            self._subtasks_btn.add_class("hidden")
+
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable all mode toggles.
 
@@ -333,8 +386,12 @@ class ModeBar(Widget):
             self._plan_toggle.set_enabled(enabled)
         if self._agent_toggle:
             self._agent_toggle.set_enabled(enabled)
+        if self._coordination_toggle:
+            self._coordination_toggle.set_enabled(enabled)
         if self._refinement_toggle:
             self._refinement_toggle.set_enabled(enabled)
+        if self._subtasks_btn:
+            self._subtasks_btn.disabled = not enabled
 
     def get_plan_mode(self) -> str:
         """Get current plan mode."""
@@ -343,6 +400,10 @@ class ModeBar(Widget):
     def get_agent_mode(self) -> str:
         """Get current agent mode."""
         return self._agent_toggle.get_state() if self._agent_toggle else "multi"
+
+    def get_coordination_mode(self) -> str:
+        """Get current coordination mode."""
+        return self._coordination_toggle.get_state() if self._coordination_toggle else "parallel"
 
     def get_refinement_enabled(self) -> bool:
         """Get current refinement mode."""
@@ -370,8 +431,16 @@ class ModeBar(Widget):
         elif event.button.id == "plan_settings_btn":
             _mode_log("ModeBar: Plan settings button pressed")
             self.post_message(PlanSettingsClicked())
+        elif event.button.id == "mode_help_btn":
+            _mode_log("ModeBar: Help button pressed")
+            self.post_message(ModeHelpClicked())
+        elif event.button.id == "subtasks_btn":
+            _mode_log("ModeBar: Subtasks button pressed")
+            self.post_message(SubtasksClicked())
 
     def on_mode_changed(self, event: ModeChanged) -> None:
         """Let mode change messages bubble to parent."""
         _mode_log(f"ModeBar.on_mode_changed: {event.mode_type}={event.value}")
+        if event.mode_type == "coordination":
+            self._update_subtasks_button(event.value)
         # Don't stop - let it bubble to TextualApp

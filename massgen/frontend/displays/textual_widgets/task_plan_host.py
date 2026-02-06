@@ -107,6 +107,11 @@ class TaskPlanHost(Container):
         """Clear task plan state and hide the host."""
         self._active_task_plan_id = None
         self._active_task_plan_tasks = None
+        if self._ribbon:
+            try:
+                self._ribbon.set_tasks(self._agent_id, 0, 0)
+            except Exception:
+                pass
         try:
             self.remove_children()
         except Exception:

@@ -4,7 +4,7 @@
 
 try:
     from textual.app import ComposeResult
-    from textual.containers import Container, Horizontal
+    from textual.containers import Container, Horizontal, VerticalScroll
     from textual.widgets import Button, Label, Static
 
     TEXTUAL_AVAILABLE = True
@@ -21,54 +21,61 @@ class KeyboardShortcutsModal(BaseModal):
         with Container(id="shortcuts_modal_container"):
             yield Label("📖  Commands & Shortcuts", id="shortcuts_modal_header")
             yield Label("Press Esc to unfocus input, then use single keys", id="shortcuts_hint")
-            # Two-column layout for wide terminals
+
             with Horizontal(id="shortcuts_columns"):
-                # Left column - Quick keys and navigation
-                with Container(id="shortcuts_col_left", classes="shortcuts-column"):
+                with VerticalScroll(id="shortcuts_col_left", classes="shortcuts-column"):
                     yield Static(
                         "[bold cyan]Quick Keys[/] [dim](when not typing)[/]\n"
-                        "  [yellow]q[/]        Cancel/stop execution\n"
-                        "  [yellow]w[/]        Workspace browser\n"
-                        "  [yellow]v[/]        Vote results\n"
-                        "  [yellow]a[/]        Answer browser\n"
-                        "  [yellow]t[/]        Timeline\n"
-                        "  [yellow]h[/]        Conversation history\n"
-                        "  [yellow]c[/]        Cost breakdown\n"
-                        "  [yellow]m[/]        MCP status / metrics\n"
-                        "  [yellow]s[/]        System status\n"
-                        "  [yellow]o[/]        Agent output (full)\n"
-                        "  [yellow]?[/]        This help\n"
-                        "  [yellow]1-9[/]      Switch to agent N\n"
+                        "  [yellow]q[/]      Cancel/stop execution\n"
+                        "  [yellow]w[/]      Workspace browser\n"
+                        "  [yellow]v[/]      Vote results\n"
+                        "  [yellow]a[/]      Answer browser\n"
+                        "  [yellow]t[/]      Timeline\n"
+                        "  [yellow]h[/]      Conversation history\n"
+                        "  [yellow]c[/]      Cost breakdown\n"
+                        "  [yellow]m[/]      MCP status / metrics\n"
+                        "  [yellow]s[/]      System status\n"
+                        "  [yellow]o[/]      Agent output (full)\n"
+                        "  [yellow]?[/]      This help\n"
+                        "  [yellow]1-9[/]    Switch to agent N\n"
                         "\n"
                         "[bold cyan]Focus[/]\n"
-                        "  [yellow]Esc[/]      Unfocus input\n"
+                        "  [yellow]Esc[/]    Unfocus input\n"
                         "  [yellow]i[/] or [yellow]/[/]  Focus input",
                         markup=True,
                     )
-                # Right column - Input and commands
-                with Container(id="shortcuts_col_right", classes="shortcuts-column"):
+
+                with VerticalScroll(id="shortcuts_col_right", classes="shortcuts-column"):
                     yield Static(
                         "[bold cyan]Input[/]\n"
                         "  [yellow]Enter[/]       Submit question\n"
                         "  [yellow]Shift+Enter[/] New line\n"
-                        "  [yellow]Ctrl+P[/]      File access (off→read→write)\n"
+                        "  [yellow]Ctrl+P[/]      File access (off/read/write)\n"
                         "  [yellow]Tab[/]         Next agent\n"
-                        "  [yellow]Shift+Tab[/]   Cycle plan mode (normal→plan→execute)\n"
+                        "  [yellow]Shift+Tab[/]   Cycle plan mode\n"
                         "\n"
-                        "[bold cyan]Quit[/]\n"
-                        "  [yellow]Ctrl+C[/]      Exit MassGen\n"
-                        "  [yellow]q[/]           Cancel current turn\n"
+                        "[bold cyan]Mode Bar[/]\n"
+                        "  [yellow]Plan[/]          Normal / Plan / Execute\n"
+                        "  [yellow]Multi-Agent[/]   All agents vs one\n"
+                        "  [yellow]Refine[/]        Iterative refinement\n"
+                        "  [yellow]Parallel[/]      Same task + voting (default)\n"
+                        "  [yellow]Decomposition[/] Independent subtasks\n"
+                        "  [yellow]Subtasks[/]      Edit per-agent subtasks\n"
+                        "  [yellow]⋮[/]             Plan settings + selector\n"
+                        "  [yellow]?[/]             Open mode bar guide\n"
+                        "  [yellow]Override[/]      Manual winner selection\n"
                         "\n"
                         "[bold cyan]Slash Commands[/]\n"
                         "  [yellow]/history[/]    Conversation history\n"
                         "  [yellow]/context[/]    Manage context paths\n"
                         "  [yellow]/vim[/]        Toggle vim mode\n"
                         "\n"
-                        "[bold cyan]Tips[/]\n"
-                        "  [dim]Click tool cards for details[/]\n"
-                        "  [dim]Type /help for more commands[/]",
+                        "[bold cyan]Quit[/]\n"
+                        "  [yellow]Ctrl+C[/]      Exit MassGen\n"
+                        "  [yellow]q[/]           Cancel current turn",
                         markup=True,
                     )
+
             yield Button("Close (ESC)", id="close_shortcuts_button")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

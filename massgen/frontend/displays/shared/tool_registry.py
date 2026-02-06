@@ -38,6 +38,7 @@ TOOL_CATEGORIES = {
             "read_text_file",
             "write_text_file",
             "list_allowed_directories",
+            "codex_file_edit",
         ],
     },
     "web": {
@@ -57,6 +58,8 @@ TOOL_CATEGORIES = {
             "mcp__brave",
             "mcp__web",
             "mcp__fetch",
+            "codex_web_search",
+            "codex_image_view",
         ],
     },
     "code": {
@@ -76,6 +79,7 @@ TOOL_CATEGORIES = {
             "mcp__code",
             "mcp__shell",
             "mcp__terminal",
+            "codex_shell",
         ],
     },
     "database": {

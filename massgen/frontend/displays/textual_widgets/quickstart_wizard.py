@@ -24,6 +24,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
+from .setup_wizard import DockerSetupStep
 from .wizard_base import StepComponent, WizardModal, WizardState, WizardStep
 from .wizard_steps import LaunchOptionsStep, WelcomeStep
 
@@ -217,6 +218,10 @@ class ProviderModelStep(StepComponent):
         self._provider_env_var: Dict[str, str] = {}
         self._current_provider: Optional[str] = None
         self._current_model: Optional[str] = None
+        self._current_reasoning_effort: Optional[str] = None
+        self._reasoning_hint: Optional[Label] = None
+        self._reasoning_label: Optional[Label] = None
+        self._reasoning_select: Optional[Select] = None
 
     def _load_providers(self) -> None:
         """Load all providers from ConfigBuilder, tracking which have keys."""
@@ -275,6 +280,54 @@ class ProviderModelStep(StepComponent):
             self._key_input.display = False
 
     @staticmethod
+    def _get_reasoning_profile(provider_id: Optional[str], model: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Return quickstart reasoning options for the current provider/model."""
+        if not provider_id or not model:
+            return None
+        try:
+            from massgen.config_builder import ConfigBuilder
+
+            return ConfigBuilder.get_quickstart_reasoning_profile(provider_id, model)
+        except Exception:
+            return None
+
+    def _set_reasoning_visibility(self, visible: bool) -> None:
+        for widget in [self._reasoning_hint, self._reasoning_label, self._reasoning_select]:
+            if widget is not None:
+                widget.display = visible
+
+    def _update_reasoning_input(self) -> None:
+        """Show/hide and populate reasoning selector based on provider/model."""
+        if not self._reasoning_select:
+            return
+
+        profile = self._get_reasoning_profile(self._current_provider, self._current_model)
+        if not profile:
+            self._current_reasoning_effort = None
+            self._set_reasoning_visibility(False)
+            return
+
+        choices = profile.get("choices", [])
+        default_effort = profile.get("default_effort", "medium")
+        valid_efforts = {value for _, value in choices}
+        selected_effort = self._current_reasoning_effort if self._current_reasoning_effort in valid_efforts else default_effort
+
+        self._current_reasoning_effort = selected_effort
+        if not self.is_mounted:
+            return
+
+        try:
+            self._reasoning_select.set_options(choices)
+            self._reasoning_select.value = selected_effort
+        except Exception as e:
+            _quickstart_log(f"ProviderModelStep._update_reasoning_input error: {e}")
+            return
+
+        if self._reasoning_hint:
+            self._reasoning_hint.update(profile.get("description", ""))
+        self._set_reasoning_visibility(True)
+
+    @staticmethod
     def _save_api_key(env_var: str, key: str) -> None:
         """Save API key to .env file."""
         env_path = Path(".env")
@@ -331,7 +384,28 @@ class ProviderModelStep(StepComponent):
         )
         yield self._model_select
 
+        self._reasoning_hint = Label("", classes="password-hint")
+        self._reasoning_hint.display = False
+        yield self._reasoning_hint
+
+        self._reasoning_label = Label("Reasoning effort:", classes="text-input-label")
+        self._reasoning_label.display = False
+        yield self._reasoning_label
+
+        self._reasoning_select = Select(
+            [("Medium (recommended)", "medium")],
+            value="medium",
+            id="reasoning_select",
+        )
+        self._reasoning_select.display = False
+        yield self._reasoning_select
+
         self._update_key_input()
+        self._update_reasoning_input()
+
+    async def on_mount(self) -> None:
+        self._update_key_input()
+        self._update_reasoning_input()
 
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle provider selection change to update model list."""
@@ -349,15 +423,24 @@ class ProviderModelStep(StepComponent):
                 if models:
                     self._model_select.value = models[0]
                     self._current_model = models[0]
+                else:
+                    self._current_model = None
+            self._update_reasoning_input()
 
         elif event.select.id == "model_select" and event.value != Select.BLANK:
             self._current_model = str(event.value)
+            self._update_reasoning_input()
+        elif event.select.id == "reasoning_select" and event.value != Select.BLANK:
+            self._current_reasoning_effort = str(event.value)
 
     def get_value(self) -> Dict[str, str]:
-        return {
+        value = {
             "provider": self._current_provider or "",
             "model": self._current_model or "",
         }
+        if self._current_reasoning_effort:
+            value["reasoning_effort"] = self._current_reasoning_effort
+        return value
 
     def set_value(self, value: Any) -> None:
         if isinstance(value, dict):
@@ -367,6 +450,9 @@ class ProviderModelStep(StepComponent):
             if "model" in value and self._model_select:
                 self._current_model = value["model"]
                 self._model_select.value = value["model"]
+            if "reasoning_effort" in value:
+                self._current_reasoning_effort = value["reasoning_effort"]
+            self._update_reasoning_input()
 
     def validate(self) -> Optional[str]:
         if not self._current_provider:
@@ -410,6 +496,9 @@ class TabbedProviderModelStep(StepComponent):
         self._model_selects: Dict[str, Select] = {}
         self._key_inputs: Dict[str, Input] = {}
         self._key_labels: Dict[str, Label] = {}
+        self._reasoning_hints: Dict[str, Label] = {}
+        self._reasoning_labels: Dict[str, Label] = {}
+        self._reasoning_selects: Dict[str, Select] = {}
 
     def _load_providers(self) -> None:
         """Load all providers from ConfigBuilder, tracking which have keys."""
@@ -458,6 +547,61 @@ class TabbedProviderModelStep(StepComponent):
             key_label.display = False
             key_input.display = False
 
+    @staticmethod
+    def _get_reasoning_profile(provider_id: Optional[str], model: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not provider_id or not model:
+            return None
+        try:
+            from massgen.config_builder import ConfigBuilder
+
+            return ConfigBuilder.get_quickstart_reasoning_profile(provider_id, model)
+        except Exception:
+            return None
+
+    def _set_reasoning_visibility(self, agent_key: str, visible: bool) -> None:
+        for widget in [
+            self._reasoning_hints.get(agent_key),
+            self._reasoning_labels.get(agent_key),
+            self._reasoning_selects.get(agent_key),
+        ]:
+            if widget is not None:
+                widget.display = visible
+
+    def _update_reasoning_input(self, agent_key: str, provider_id: Optional[str], model: Optional[str]) -> None:
+        """Show/hide and populate reasoning selector for one agent tab."""
+        reasoning_select = self._reasoning_selects.get(agent_key)
+        if reasoning_select is None:
+            return
+
+        profile = self._get_reasoning_profile(provider_id, model)
+        if not profile:
+            self._tab_selections.setdefault(agent_key, {})["reasoning_effort"] = None
+            self._set_reasoning_visibility(agent_key, False)
+            return
+
+        choices = profile.get("choices", [])
+        default_effort = profile.get("default_effort", "medium")
+        valid_efforts = {value for _, value in choices}
+        selected_effort = self._tab_selections.get(agent_key, {}).get("reasoning_effort")
+        if selected_effort not in valid_efforts:
+            selected_effort = default_effort
+
+        self._tab_selections.setdefault(agent_key, {})["reasoning_effort"] = selected_effort
+        if not self.is_mounted:
+            return
+
+        try:
+            reasoning_select.set_options(choices)
+            reasoning_select.value = selected_effort
+        except Exception as e:
+            _quickstart_log(f"TabbedProviderModelStep._update_reasoning_input error: {e}")
+            return
+
+        hint = self._reasoning_hints.get(agent_key)
+        if hint:
+            hint.update(profile.get("description", ""))
+        self._set_reasoning_visibility(agent_key, True)
+
     def compose(self) -> ComposeResult:
         self._load_providers()
 
@@ -476,6 +620,7 @@ class TabbedProviderModelStep(StepComponent):
                 self._tab_selections[letter] = {
                     "provider": default_provider,
                     "model": default_model,
+                    "reasoning_effort": None,
                 }
 
                 with TabPane(f"Agent {letter.upper()}", id=f"tab_agent_{letter}"):
@@ -515,6 +660,25 @@ class TabbedProviderModelStep(StepComponent):
                         self._model_selects[letter] = m_select
                         yield m_select
 
+                        reasoning_hint = Label("", classes="password-hint")
+                        reasoning_hint.display = False
+                        self._reasoning_hints[letter] = reasoning_hint
+                        yield reasoning_hint
+
+                        reasoning_label = Label("Reasoning effort:", classes="text-input-label")
+                        reasoning_label.display = False
+                        self._reasoning_labels[letter] = reasoning_label
+                        yield reasoning_label
+
+                        reasoning_select = Select(
+                            [("Medium (recommended)", "medium")],
+                            value="medium",
+                            id=f"reasoning_{letter}",
+                        )
+                        reasoning_select.display = False
+                        self._reasoning_selects[letter] = reasoning_select
+                        yield reasoning_select
+
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle provider/model changes per tab."""
         sel_id = event.select.id or ""
@@ -540,18 +704,35 @@ class TabbedProviderModelStep(StepComponent):
                 if models:
                     m_select.value = models[0]
                     self._tab_selections[agent_key]["model"] = models[0]
+                else:
+                    self._tab_selections[agent_key]["model"] = None
+            self._update_reasoning_input(
+                agent_key,
+                self._tab_selections[agent_key].get("provider"),
+                self._tab_selections[agent_key].get("model"),
+            )
         elif kind == "model":
             self._tab_selections[agent_key]["model"] = str(event.value)
+            self._update_reasoning_input(
+                agent_key,
+                self._tab_selections[agent_key].get("provider"),
+                self._tab_selections[agent_key].get("model"),
+            )
+        elif kind == "reasoning":
+            self._tab_selections[agent_key]["reasoning_effort"] = str(event.value)
 
     def get_value(self) -> Dict[str, Any]:
         # Store per-agent configs in wizard state
         for agent_key, sel in self._tab_selections.items():
+            agent_config = {
+                "provider": sel.get("provider", ""),
+                "model": sel.get("model", ""),
+            }
+            if sel.get("reasoning_effort"):
+                agent_config["reasoning_effort"] = sel.get("reasoning_effort")
             self.wizard_state.set(
                 f"agent_{agent_key}_config",
-                {
-                    "provider": sel.get("provider", ""),
-                    "model": sel.get("model", ""),
-                },
+                agent_config,
             )
         return {"agent_configs": dict(self._tab_selections)}
 
@@ -565,6 +746,31 @@ class TabbedProviderModelStep(StepComponent):
                     p_select.value = sel["provider"]
                 if m_select and sel.get("model"):
                     m_select.value = sel["model"]
+                self._update_reasoning_input(
+                    agent_key,
+                    sel.get("provider"),
+                    sel.get("model"),
+                )
+                reasoning_select = self._reasoning_selects.get(agent_key)
+                reasoning_effort = sel.get("reasoning_effort")
+                if reasoning_select and reasoning_effort:
+                    try:
+                        reasoning_select.value = reasoning_effort
+                    except Exception:
+                        pass
+
+    async def on_mount(self) -> None:
+        for i in range(self._agent_count):
+            letter = _agent_letter(i)
+            sel = self._tab_selections.get(letter, {})
+            provider = sel.get("provider")
+            if provider:
+                self._update_key_input(letter, provider)
+            self._update_reasoning_input(
+                letter,
+                provider,
+                sel.get("model"),
+            )
 
     def _get_active_tab_index(self) -> int:
         """Return the 0-based index of the currently active tab."""
@@ -724,6 +930,238 @@ class ContextPathStep(StepComponent):
             self._input.value = value
 
 
+class CoordinationModeStep(StepComponent):
+    """Step for choosing coordination mode and decomposition answer controls."""
+
+    OPTIONS = [
+        (
+            "voting",
+            "Parallel Voting (Default)",
+            "Traditional multi-agent voting with standard defaults",
+        ),
+        (
+            "decomposition",
+            "Decomposition",
+            "Subtask ownership + presenter with lower per-agent answer caps",
+        ),
+    ]
+
+    def __init__(
+        self,
+        wizard_state: WizardState,
+        *,
+        id: Optional[str] = None,
+        classes: Optional[str] = None,
+    ) -> None:
+        super().__init__(wizard_state, id=id, classes=classes)
+        self._selected_mode: str = "voting"
+        self._option_list: Optional[OptionList] = None
+        self._presenter_label: Optional[Label] = None
+        self._presenter_select: Optional[Select] = None
+        self._per_agent_label: Optional[Label] = None
+        self._per_agent_input: Optional[Input] = None
+        self._global_label: Optional[Label] = None
+        self._global_input: Optional[Input] = None
+        self._novelty_label: Optional[Label] = None
+        self._novelty_select: Optional[Select] = None
+
+    def _agent_ids(self) -> List[str]:
+        agent_count = self.wizard_state.get("agent_count", 3)
+        return [f"agent_{_agent_letter(i)}" for i in range(agent_count)]
+
+    def _recommended_global_cap(self) -> int:
+        return max(3, len(self._agent_ids()) * 3)
+
+    def _set_decomposition_visibility(self, visible: bool) -> None:
+        for widget in [
+            self._presenter_label,
+            self._presenter_select,
+            self._per_agent_label,
+            self._per_agent_input,
+            self._global_label,
+            self._global_input,
+            self._novelty_label,
+            self._novelty_select,
+        ]:
+            if widget is not None:
+                widget.display = visible
+
+    def compose(self) -> ComposeResult:
+        yield Label("Select coordination mode:", classes="text-input-label")
+
+        textual_options = []
+        for value, label, description in self.OPTIONS:
+            option_text = f"[bold]{label}[/bold]\n[dim]{description}[/dim]"
+            textual_options.append(Option(option_text, id=value))
+
+        self._option_list = OptionList(
+            *textual_options,
+            id="coordination_mode_list",
+            classes="step-option-list",
+        )
+        yield self._option_list
+
+        if self._option_list:
+            self._option_list.highlighted = 0
+
+        yield Label(
+            "Decomposition recommended defaults: per-agent 2 (recommended range 2-3), " "global cap = 3 x agents, novelty = balanced.",
+            classes="password-hint",
+        )
+
+        presenter_options = [(agent_id, agent_id) for agent_id in self._agent_ids()]
+        default_presenter = presenter_options[-1][1] if presenter_options else "agent_a"
+
+        self._presenter_label = Label("Presenter agent:", classes="text-input-label")
+        yield self._presenter_label
+        self._presenter_select = Select(
+            presenter_options if presenter_options else [("agent_a", "agent_a")],
+            value=default_presenter,
+            id="presenter_agent_select",
+        )
+        yield self._presenter_select
+
+        self._per_agent_label = Label(
+            "Max new answers per agent (recommended 2-3):",
+            classes="text-input-label",
+        )
+        yield self._per_agent_label
+        self._per_agent_input = Input(
+            value="2",
+            placeholder="2",
+            classes="text-input",
+            id="decomp_per_agent_input",
+        )
+        yield self._per_agent_input
+
+        self._global_label = Label(
+            "Max new answers globally (all agents combined):",
+            classes="text-input-label",
+        )
+        yield self._global_label
+        self._global_input = Input(
+            value=str(self._recommended_global_cap()),
+            placeholder=str(self._recommended_global_cap()),
+            classes="text-input",
+            id="decomp_global_input",
+        )
+        yield self._global_input
+
+        self._novelty_label = Label(
+            "Answer novelty requirement:",
+            classes="text-input-label",
+        )
+        yield self._novelty_label
+        self._novelty_select = Select(
+            [
+                ("Lenient", "lenient"),
+                ("Balanced", "balanced"),
+                ("Strict", "strict"),
+            ],
+            value="balanced",
+            id="decomp_novelty_select",
+        )
+        yield self._novelty_select
+
+        self._set_decomposition_visibility(False)
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option and event.option.id:
+            self._selected_mode = str(event.option.id)
+            self._set_decomposition_visibility(self._selected_mode == "decomposition")
+
+    def get_value(self) -> Dict[str, Any]:
+        if self._selected_mode != "decomposition":
+            return {"coordination_mode": "voting"}
+
+        presenter_value: Optional[str] = None
+        if self._presenter_select and self._presenter_select.value != Select.BLANK:
+            presenter_value = str(self._presenter_select.value)
+
+        max_per_agent = 2
+        if self._per_agent_input and self._per_agent_input.value.strip():
+            try:
+                parsed = int(self._per_agent_input.value.strip())
+                if parsed > 0:
+                    max_per_agent = parsed
+            except ValueError:
+                pass
+
+        max_global = self._recommended_global_cap()
+        if self._global_input and self._global_input.value.strip():
+            try:
+                parsed = int(self._global_input.value.strip())
+                if parsed > 0:
+                    max_global = parsed
+            except ValueError:
+                pass
+
+        novelty = "balanced"
+        if self._novelty_select and self._novelty_select.value != Select.BLANK:
+            novelty = str(self._novelty_select.value)
+
+        return {
+            "coordination_mode": "decomposition",
+            "presenter_agent": presenter_value,
+            "max_new_answers_per_agent": max_per_agent,
+            "max_new_answers_global": max_global,
+            "answer_novelty_requirement": novelty,
+        }
+
+    def set_value(self, value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+
+        mode = value.get("coordination_mode", "voting")
+        self._selected_mode = "decomposition" if mode == "decomposition" else "voting"
+        if self._option_list:
+            self._option_list.highlighted = 1 if self._selected_mode == "decomposition" else 0
+
+        if self._selected_mode == "decomposition":
+            presenter_agent = value.get("presenter_agent")
+            if presenter_agent and self._presenter_select:
+                self._presenter_select.value = presenter_agent
+
+            per_agent = value.get("max_new_answers_per_agent")
+            if per_agent and self._per_agent_input:
+                self._per_agent_input.value = str(per_agent)
+
+            max_global = value.get("max_new_answers_global")
+            if max_global and self._global_input:
+                self._global_input.value = str(max_global)
+
+            novelty = value.get("answer_novelty_requirement")
+            if novelty and self._novelty_select:
+                self._novelty_select.value = novelty
+
+        self._set_decomposition_visibility(self._selected_mode == "decomposition")
+
+    def validate(self) -> Optional[str]:
+        if self._selected_mode != "decomposition":
+            return None
+
+        if not self._presenter_select or self._presenter_select.value == Select.BLANK:
+            return "Please select a presenter agent for decomposition mode"
+
+        if self._per_agent_input:
+            try:
+                value = int(self._per_agent_input.value.strip())
+                if value <= 0:
+                    return "Max answers per agent must be a positive integer"
+            except ValueError:
+                return "Max answers per agent must be a positive integer"
+
+        if self._global_input:
+            try:
+                value = int(self._global_input.value.strip())
+                if value <= 0:
+                    return "Max global answers must be a positive integer"
+            except ValueError:
+                return "Max global answers must be a positive integer"
+
+        return None
+
+
 class ConfigLocationStep(StepComponent):
     """Step for choosing where to save the generated config."""
 
@@ -837,38 +1275,46 @@ class ConfigPreviewStep(StepComponent):
                 provider_model = self.wizard_state.get("provider_model", {})
                 provider = provider_model.get("provider", "openai")
                 model = provider_model.get("model", "gpt-4o-mini")
+                reasoning_effort = provider_model.get("reasoning_effort")
 
                 for i in range(agent_count):
-                    agents_config.append(
-                        {
-                            "id": f"agent_{_agent_letter(i)}",
-                            "type": provider,
-                            "model": model,
-                        },
-                    )
+                    agent_spec = {
+                        "id": f"agent_{_agent_letter(i)}",
+                        "type": provider,
+                        "model": model,
+                    }
+                    if reasoning_effort:
+                        agent_spec["reasoning_effort"] = reasoning_effort
+                    agents_config.append(agent_spec)
             else:
                 # Different provider/model per agent
                 for i in range(agent_count):
                     letter = _agent_letter(i)
                     agent_config = self.wizard_state.get(f"agent_{letter}_config", {})
-                    agents_config.append(
-                        {
-                            "id": f"agent_{letter}",
-                            "type": agent_config.get("provider", "openai"),
-                            "model": agent_config.get("model", "gpt-4o-mini"),
-                        },
-                    )
+                    agent_spec = {
+                        "id": f"agent_{letter}",
+                        "type": agent_config.get("provider", "openai"),
+                        "model": agent_config.get("model", "gpt-4o-mini"),
+                    }
+                    if agent_config.get("reasoning_effort"):
+                        agent_spec["reasoning_effort"] = agent_config.get("reasoning_effort")
+                    agents_config.append(agent_spec)
 
             # Build context paths
             context_paths = None
             if context_path:
                 context_paths = [{"path": context_path, "permission": "write"}]
 
+            coordination_settings = self.wizard_state.get("coordination_mode_settings", {})
+            if not isinstance(coordination_settings, dict):
+                coordination_settings = {}
+
             # Generate config
             config = builder._generate_quickstart_config(
                 agents_config=agents_config,
                 context_paths=context_paths,
                 use_docker=use_docker,
+                coordination_settings=coordination_settings,
             )
 
             return yaml.dump(config, default_flow_style=False, sort_keys=False)
@@ -943,10 +1389,12 @@ class QuickstartWizard(WizardModal):
     3. Setup mode (same/different) - skipped if 1 agent
     4. Provider/model selection
     5. Execution mode
-    6. Context path
-    7. Preview
-    8. Launch options
-    9. Complete
+    6. Docker setup - skipped if local mode selected
+    7. Context path
+    8. Coordination mode (multi-agent only)
+    9. Preview
+    10. Launch options
+    11. Complete
     """
 
     def __init__(
@@ -996,10 +1444,24 @@ class QuickstartWizard(WizardModal):
                 component_class=ExecutionModeStep,
             ),
             WizardStep(
+                id="docker_setup",
+                title="Docker Setup",
+                description="Check Docker status and pull images",
+                component_class=DockerSetupStep,
+                skip_condition=lambda state: not state.get("execution_mode", True),
+            ),
+            WizardStep(
                 id="context_path",
                 title="Context Path",
                 description="Optional workspace directory",
                 component_class=ContextPathStep,
+            ),
+            WizardStep(
+                id="coordination_mode_settings",
+                title="Coordination",
+                description="Parallel voting or decomposition presenter mode",
+                component_class=CoordinationModeStep,
+                skip_condition=lambda state: state.get("agent_count", 3) == 1,
             ),
             WizardStep(
                 id="config_location",
@@ -1116,15 +1578,17 @@ class QuickstartWizard(WizardModal):
                 provider_model = self.state.get("provider_model", {})
                 provider = provider_model.get("provider", "openai")
                 model = provider_model.get("model", "gpt-4o-mini")
+                reasoning_effort = provider_model.get("reasoning_effort")
 
                 for i in range(agent_count):
-                    agents_config.append(
-                        {
-                            "id": f"agent_{_agent_letter(i)}",
-                            "type": provider,
-                            "model": model,
-                        },
-                    )
+                    agent_spec = {
+                        "id": f"agent_{_agent_letter(i)}",
+                        "type": provider,
+                        "model": model,
+                    }
+                    if reasoning_effort:
+                        agent_spec["reasoning_effort"] = reasoning_effort
+                    agents_config.append(agent_spec)
             else:
                 for i in range(agent_count):
                     letter = _agent_letter(i)
@@ -1135,25 +1599,32 @@ class QuickstartWizard(WizardModal):
                         agent_config = {
                             "provider": provider_model.get("provider", "openai"),
                             "model": provider_model.get("model", "gpt-4o-mini"),
+                            "reasoning_effort": provider_model.get("reasoning_effort"),
                         }
-                    agents_config.append(
-                        {
-                            "id": f"agent_{letter}",
-                            "type": agent_config.get("provider", "openai"),
-                            "model": agent_config.get("model", "gpt-4o-mini"),
-                        },
-                    )
+                    agent_spec = {
+                        "id": f"agent_{letter}",
+                        "type": agent_config.get("provider", "openai"),
+                        "model": agent_config.get("model", "gpt-4o-mini"),
+                    }
+                    if agent_config.get("reasoning_effort"):
+                        agent_spec["reasoning_effort"] = agent_config.get("reasoning_effort")
+                    agents_config.append(agent_spec)
 
             # Build context paths
             context_paths = None
             if context_path:
                 context_paths = [{"path": context_path, "permission": "write"}]
 
+            coordination_settings = self.state.get("coordination_mode_settings", {})
+            if not isinstance(coordination_settings, dict):
+                coordination_settings = {}
+
             # Generate config
             config = builder._generate_quickstart_config(
                 agents_config=agents_config,
                 context_paths=context_paths,
                 use_docker=use_docker,
+                coordination_settings=coordination_settings,
             )
 
             # Save config to chosen location
