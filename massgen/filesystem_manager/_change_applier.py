@@ -153,8 +153,10 @@ class ChangeApplier:
         # Walk source directory and compare with target
         for src_file in source.rglob("*"):
             if src_file.is_file():
-                # Skip .git directory
+                # Skip .git directory and .massgen_scratch
                 if ".git" in src_file.parts:
+                    continue
+                if ".massgen_scratch" in src_file.parts:
                     continue
 
                 rel_path = str(src_file.relative_to(source))

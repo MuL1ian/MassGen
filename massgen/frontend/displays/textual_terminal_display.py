@@ -69,6 +69,7 @@ try:
         AgentTabChanged,
         BroadcastModeChanged,
         CompletionFooter,
+        ContextPathsClicked,
         ExecutionStatusLine,
         FinalPresentationCard,
         ModeBar,
@@ -1862,6 +1863,9 @@ if TEXTUAL_AVAILABLE:
     class StatusBarThemeClicked(Message):
         """Message emitted when the theme indicator in StatusBar is clicked."""
 
+    class StatusBarContextClicked(Message):
+        """Message emitted when the context paths indicator in StatusBar is clicked."""
+
     class StatusBar(Widget):
         """Persistent status bar showing orchestration state at the bottom of the TUI."""
 
@@ -1925,6 +1929,8 @@ if TEXTUAL_AVAILABLE:
             cwd = Path.cwd()
             cwd_short = f"~/{cwd.name}" if len(str(cwd)) > 30 else str(cwd)
             yield Static(f"[dim]📁[/] {cwd_short}", id="status_cwd", classes="clickable")
+            # Context paths - clickable to open context paths modal
+            yield Static("[dim]CTX[/]", id="status_context", classes="clickable")
             yield Static("📋 0 events", id="status_events", classes="clickable")
             yield Static("[dim]?:help[/]", id="status_hints")  # Always visible, shows q:cancel during coordination
             yield Static("⏱️ 0:00", id="status_timer")
@@ -1943,6 +1949,8 @@ if TEXTUAL_AVAILABLE:
                     self.toggle_cwd_auto_include()
                 elif widget.id == "status_theme":
                     self.post_message(StatusBarThemeClicked())
+                elif widget.id == "status_context":
+                    self.post_message(StatusBarContextClicked())
 
         def toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode and update display."""
@@ -6145,6 +6153,11 @@ Type your question and press Enter to ask the agents.
                     self.push_screen(modal)
             event.stop()
 
+        def on_context_paths_clicked(self, event: ContextPathsClicked) -> None:
+            """Handle context paths icon click in ribbon - open context paths modal."""
+            self._show_context_modal()
+            event.stop()
+
         def on_button_pressed(self, event: Button.Pressed) -> None:
             """Handle button clicks in main app."""
             if event.button.id == "cancel_button":
@@ -6577,6 +6590,10 @@ Type your question and press Enter to ask the agents.
         def on_status_bar_theme_clicked(self, event: StatusBarThemeClicked) -> None:
             """Handle theme toggle from status bar click."""
             self.action_toggle_theme()
+
+        def on_status_bar_context_clicked(self, event: StatusBarContextClicked) -> None:
+            """Handle click on status bar context indicator - opens context paths modal."""
+            self._show_context_modal()
 
         def _toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode: off → read → write → off (Ctrl+P)."""

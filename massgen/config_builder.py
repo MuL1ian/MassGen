@@ -4847,7 +4847,7 @@ class ConfigBuilder:
                     "enable_agent_task_planning": True,
                     "task_planning_filesystem_mode": True,
                     "enable_memory_filesystem_mode": True,
-                    "use_two_tier_workspace": True,
+                    "write_mode": "auto",
                 },
             }
         else:
@@ -4867,7 +4867,7 @@ class ConfigBuilder:
                     "enable_agent_task_planning": True,
                     "task_planning_filesystem_mode": True,
                     "enable_memory_filesystem_mode": True,
-                    "use_two_tier_workspace": True,
+                    "write_mode": "auto",
                 },
             }
 

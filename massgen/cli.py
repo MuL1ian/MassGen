@@ -1468,6 +1468,11 @@ def create_agents_from_config(
         if coordination_settings_for_injection.get("use_two_tier_workspace", False):
             backend_config["use_two_tier_workspace"] = True
 
+        # Inject write_mode so FilesystemManager knows to suppress Docker context mounts
+        write_mode_setting = coordination_settings_for_injection.get("write_mode")
+        if write_mode_setting:
+            backend_config["write_mode"] = write_mode_setting
+
         # Inject session mount parameters for multi-turn Docker support
         # This enables the session directory to be pre-mounted so all turn
         # workspaces are automatically visible without container recreation

@@ -115,12 +115,10 @@ class CoordinationConfig:
                         - injection_strategy: str (default "tool_result") - How to inject results:
                           - "tool_result": Append result to next tool call output
                           - "user_message": Inject as separate user message
-        use_two_tier_workspace: If True, agent workspaces are structured with two directories:
-                               - scratch/: Working files, experiments, intermediate results, evaluation scripts
-                               - deliverable/: Final outputs to showcase to voters
-                               When enabled, git versioning is automatically initialized in the workspace
-                               for audit trails and history tracking. Both directories are shared with
-                               other agents during voting/coordination phases.
+        use_two_tier_workspace: DEPRECATED - Use write_mode instead.
+                               If True, agent workspaces are structured with scratch/ and deliverable/
+                               directories. Superseded by write_mode which provides git worktree
+                               isolation with in-worktree scratch space.
         write_mode: Controls how agent file writes are isolated during coordination.
                    - "auto": Automatically detect (worktree for git repos, shadow for non-git)
                    - "worktree": Use git worktrees for isolation (requires git repo)

@@ -8,7 +8,6 @@ Optional vim mode for vim-style editing.
 Supports @ path autocomplete integration.
 """
 
-import time
 from typing import List, Optional, Tuple
 
 from textual import events
@@ -145,10 +144,6 @@ class MultiLineInput(TextArea):
         # Paste summarization state
         self._pasted_blocks: List[Tuple[int, str, int]] = []  # (paste_id, full_text, line_count)
         self._paste_counter: int = 0
-        # Paste deduplication tracking (fix double-paste bug)
-        self._last_paste_text: str = ""
-        self._last_paste_time: float = 0.0
-        self._PASTE_DEDUP_WINDOW: float = 0.1  # 100ms dedup window
 
         # Ctrl+C double-press tracking for quit
         self._awaiting_quit_confirm: bool = False  # True after first Ctrl+C on empty input
@@ -199,6 +194,12 @@ class MultiLineInput(TextArea):
         When a large paste is detected (exceeds line or character thresholds),
         the pasted content is stored and replaced with a placeholder like
         '[Pasted text #1 +15 lines]'. The full text is expanded on submission.
+
+        For small pastes, we do nothing here and let Textual's MRO dispatch
+        call TextArea._on_paste naturally. We must NOT call super()._on_paste()
+        because Textual dispatches _on_ handlers for each class in the MRO
+        independently — calling super() would cause TextArea._on_paste to run
+        twice (once explicitly, once via MRO dispatch), doubling the paste.
         """
         pasted_text = event.text
         # Normalize line endings and count lines properly
@@ -226,19 +227,12 @@ class MultiLineInput(TextArea):
                     self.move_cursor(result.end_location)
                     self.focus()
 
-            # Stop event - don't let parent TextArea insert the full text
+            # Stop event and prevent default — this stops Textual's MRO dispatch
+            # from also calling TextArea._on_paste (which would insert the raw text)
             event.stop()
             event.prevent_default()
-            # Update last paste tracking for deduplication
-            self._last_paste_text = pasted_text
-            self._last_paste_time = time.time()
-        else:
-            # Small paste - let TextArea handle normally
-            await super()._on_paste(event)
-
-            # Update last paste tracking for deduplication
-            self._last_paste_text = pasted_text
-            self._last_paste_time = time.time()
+        # For small pastes: do nothing. Textual's MRO dispatch will call
+        # TextArea._on_paste which handles the insertion.
 
     def get_full_text_for_submission(self) -> str:
         """Get the full text, expanding any paste placeholders.

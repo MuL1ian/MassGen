@@ -203,7 +203,11 @@ class FilesystemManager:
         """
         self.agent_id = None  # Will be set by orchestrator via setup_orchestration_paths
         self.write_mode = write_mode
-        self.use_two_tier_workspace = use_two_tier_workspace
+        # write_mode replaces the old two-tier workspace — suppress it when write_mode is active
+        if write_mode and write_mode != "legacy":
+            self.use_two_tier_workspace = False
+        else:
+            self.use_two_tier_workspace = use_two_tier_workspace
         self.instance_id = instance_id  # Unique instance ID for parallel execution
         self.enable_image_generation = enable_image_generation
         self.enable_mcp_command_line = enable_mcp_command_line
@@ -404,6 +408,26 @@ class FilesystemManager:
         if self.docker_manager and self.agent_id:
             context_paths = self.path_permission_manager.get_context_paths()
 
+            # When write_mode is active, worktrees (inside workspace) replace original
+            # context paths. Don't mount the originals — mount only .git/ dirs so
+            # worktree git operations (commit, branch) can resolve references.
+            extra_mount_paths = None
+            if self.write_mode and self.write_mode != "legacy" and context_paths:
+                extra_mount_paths = []
+                for ctx_path_config in context_paths:
+                    ctx_path = ctx_path_config.get("path", "")
+                    git_dir = os.path.join(ctx_path, ".git")
+                    if ctx_path and os.path.isdir(git_dir):
+                        extra_mount_paths.append((git_dir, git_dir, "rw"))
+                        logger.info(
+                            f"[FilesystemManager] write_mode: mounting .git/ dir for worktree refs: {git_dir}",
+                        )
+                # Clear context_paths so originals are not mounted
+                context_paths = []
+                logger.info(
+                    "[FilesystemManager] write_mode: suppressed original context path mounts " f"(worktrees in workspace replace them), {len(extra_mount_paths)} .git/ mounts added",
+                )
+
             # Get session mount config if session manager is initialized
             session_mount = None
             if self.session_mount_manager:
@@ -420,8 +444,19 @@ class FilesystemManager:
                 massgen_skills=massgen_skills,
                 shared_tools_directory=self.shared_tools_base,
                 load_previous_session_skills=load_previous_session_skills,
+                extra_mount_paths=extra_mount_paths,
             )
             logger.info(f"[FilesystemManager] Docker container created for agent {self.agent_id}")
+
+            # Log context path mount summary for debugging
+            original_context_paths = self.path_permission_manager.get_context_paths() if self.path_permission_manager else []
+            logger.info(
+                f"[FilesystemManager] Docker mount summary for {self.agent_id}: "
+                f"original_context_paths={[p.get('path', '') for p in original_context_paths]}, "
+                f"mounted_context_paths={[p.get('path', '') for p in context_paths]}, "
+                f"extra_mount_paths={extra_mount_paths}, "
+                f"write_mode={self.write_mode}",
+            )
 
             # Add Docker skills directory to allowed paths if created
             if docker_skills_dir:

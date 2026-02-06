@@ -202,6 +202,8 @@ class LLMBackend(ABC):
                     "session_storage_base": kwargs.get("session_storage_base"),
                     # Two-tier workspace (scratch/deliverable) + git versioning
                     "use_two_tier_workspace": kwargs.get("use_two_tier_workspace", False),
+                    # Write mode for worktree isolation (suppresses Docker context mounts)
+                    "write_mode": kwargs.get("write_mode"),
                 }
 
                 # Create FilesystemManager

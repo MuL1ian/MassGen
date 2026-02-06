@@ -97,6 +97,7 @@ class SystemMessageBuilder:
         vote_only: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
         voting_sensitivity_override: Optional[str] = None,
+        worktree_paths: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -233,18 +234,39 @@ class SystemMessageBuilder:
             context_paths = agent.backend.filesystem_manager.path_permission_manager.get_context_paths() if agent.backend.filesystem_manager.path_permission_manager else []
 
             # Check if two-tier workspace is enabled
+            # Note: use_two_tier_workspace is already suppressed (set to False) on the
+            # filesystem manager when write_mode is active, so no extra check needed here
             use_two_tier_workspace = False
             if hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
                 use_two_tier_workspace = getattr(agent.backend.filesystem_manager, "use_two_tier_workspace", False)
 
             # Add project instructions section (CLAUDE.md / AGENTS.md discovery)
             # This comes BEFORE workspace structure so project context is established first
-            if context_paths:
-                logger.info(f"[SystemMessageBuilder] Checking for project instructions in {len(context_paths)} context paths")
-                builder.add_section(ProjectInstructionsSection(context_paths, workspace_root=main_workspace))
+            # When worktree_paths is set, discover from worktrees (full checkouts with CLAUDE.md)
+            # instead of original context paths (which may not be mounted in Docker)
+            discovery_paths = context_paths
+            if worktree_paths:
+                discovery_paths = [{"path": wt_path} for wt_path in worktree_paths]
+            if discovery_paths:
+                logger.info(f"[SystemMessageBuilder] Checking for project instructions in {len(discovery_paths)} {'worktree' if worktree_paths else 'context'} paths")
+                builder.add_section(ProjectInstructionsSection(discovery_paths, workspace_root=main_workspace))
 
             # Add workspace structure section (critical paths)
-            builder.add_section(WorkspaceStructureSection(main_workspace, [p.get("path", "") for p in context_paths], use_two_tier_workspace=use_two_tier_workspace))
+            context_path_strs = [p.get("path", "") for p in context_paths]
+            logger.info(
+                f"[SystemMessageBuilder] System prompt paths: "
+                f"context_paths={context_path_strs}, "
+                f"worktree_paths={list(worktree_paths.keys()) if worktree_paths else None}, "
+                f"discovery_paths={[p.get('path', '') for p in discovery_paths] if discovery_paths else None}",
+            )
+            builder.add_section(
+                WorkspaceStructureSection(
+                    main_workspace,
+                    context_path_strs,
+                    use_two_tier_workspace=use_two_tier_workspace,
+                    worktree_paths=worktree_paths,
+                ),
+            )
 
             # Check command execution settings
             enable_command_execution = False
@@ -621,6 +643,15 @@ This makes the work reusable for similar future tasks."""
         main_workspace = str(agent.backend.filesystem_manager.get_current_workspace())
         temp_workspace = str(agent.backend.filesystem_manager.agent_temporary_workspace) if agent.backend.filesystem_manager.agent_temporary_workspace else None
         context_paths = agent.backend.filesystem_manager.path_permission_manager.get_context_paths() if agent.backend.filesystem_manager.path_permission_manager else []
+
+        # When write_mode is active (not legacy), worktrees replace original context paths.
+        # Don't show original paths in filesystem operations — the agent works in the worktree.
+        write_mode = getattr(agent.backend.filesystem_manager, "write_mode", None)
+        if write_mode and write_mode != "legacy":
+            logger.info(
+                f"[SystemMessageBuilder] FilesystemOps: suppressing context_paths " f"{[p.get('path', '') for p in context_paths]} (write_mode={write_mode})",
+            )
+            context_paths = []
 
         # Calculate previous turns context
         current_turn_num = len(previous_turns) + 1 if previous_turns else 1

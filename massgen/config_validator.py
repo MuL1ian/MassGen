@@ -811,6 +811,20 @@ class ConfigValidator:
                                 "Use 'true' or 'false'",
                             )
 
+                # Deprecation warning for use_two_tier_workspace
+                if coordination.get("use_two_tier_workspace"):
+                    write_mode = coordination.get("write_mode")
+                    if write_mode:
+                        result.add_warning(
+                            "'use_two_tier_workspace' is deprecated and ignored when 'write_mode' is set. " "Remove 'use_two_tier_workspace' from your config.",
+                            f"{location}.coordination.use_two_tier_workspace",
+                        )
+                    else:
+                        result.add_warning(
+                            "'use_two_tier_workspace' is deprecated. " "Migrate to 'write_mode: auto' for the same functionality with git worktree isolation.",
+                            f"{location}.coordination.use_two_tier_workspace",
+                        )
+
                 # Validate integer fields
                 if "max_orchestration_restarts" in coordination:
                     value = coordination["max_orchestration_restarts"]

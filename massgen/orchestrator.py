@@ -289,6 +289,14 @@ class Orchestrator(ChatAgent):
         self._active_streams: Dict = {}
         self._active_tasks: Dict = {}
 
+        # Per-round worktree tracking: {agent_id: branch_name}
+        # Each agent has exactly ONE branch alive at a time (one-branch-per-agent invariant)
+        self._agent_current_branches: Dict[str, str] = {}
+        # Per-round isolation managers: {agent_id: IsolationContextManager}
+        self._round_isolation_managers: Dict[str, "IsolationContextManager"] = {}
+        # Per-round worktree path mappings: {agent_id: {isolated_path: original_path}}
+        self._round_worktree_paths: Dict[str, Dict[str, str]] = {}
+
         # Human input hook for injecting user input during execution
         # Shared across all agents (one per orchestration session)
         self._human_input_hook: Optional[HumanInputHook] = None
@@ -1017,12 +1025,16 @@ class Orchestrator(ChatAgent):
             args.append("--memory-enabled")
 
         # Enable git commits on task completion if two-tier workspace is enabled
+        # Suppressed when write_mode is active (write_mode replaces the old two-tier structure)
         coordination_config = getattr(self.config, "coordination_config", None)
-        use_two_tier_workspace = bool(
-            getattr(coordination_config, "use_two_tier_workspace", False),
-        )
+        write_mode = getattr(coordination_config, "write_mode", None) if coordination_config else None
+        use_two_tier_workspace = False
+        if not (write_mode and write_mode != "legacy"):
+            use_two_tier_workspace = bool(
+                getattr(coordination_config, "use_two_tier_workspace", False),
+            )
         logger.info(
-            f"[Orchestrator] use_two_tier_workspace value for {agent_id}: {use_two_tier_workspace}",
+            f"[Orchestrator] use_two_tier_workspace value for {agent_id}: {use_two_tier_workspace} (write_mode={write_mode})",
         )
         if use_two_tier_workspace:
             args.append("--use-two-tier-workspace")
@@ -4723,10 +4735,14 @@ Your answer:"""
         timeout_state = RoundTimeoutState()
 
         # Get two-tier workspace setting from coordination config
+        # Suppressed when write_mode is active (write_mode replaces the old two-tier structure)
         coordination_config = getattr(self.config, "coordination_config", None)
-        use_two_tier_workspace = bool(
-            getattr(coordination_config, "use_two_tier_workspace", False),
-        )
+        write_mode = getattr(coordination_config, "write_mode", None) if coordination_config else None
+        use_two_tier_workspace = False
+        if not (write_mode and write_mode != "legacy"):
+            use_two_tier_workspace = bool(
+                getattr(coordination_config, "use_two_tier_workspace", False),
+            )
 
         # Create soft timeout hook (POST_TOOL_USE - injects warning)
         post_hook = RoundTimeoutPostHook(
@@ -5792,6 +5808,62 @@ Your answer:"""
         # Set the round context for nested tool calls to use
         set_current_round(current_round, round_type)
 
+        # Per-round worktree setup: create isolated worktree for this agent's round
+        round_worktree_paths: Optional[Dict[str, str]] = None
+        write_mode = None
+        if self.config.coordination_config:
+            write_mode = getattr(self.config.coordination_config, "write_mode", None)
+        if write_mode and write_mode != "legacy" and agent.backend.filesystem_manager:
+            try:
+                from .filesystem_manager import IsolationContextManager
+
+                workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                import secrets as _secrets
+
+                round_suffix = _secrets.token_hex(4)
+                previous_branch = self._agent_current_branches.get(agent_id)
+
+                round_isolation_mgr = IsolationContextManager(
+                    session_id=f"{self.session_id}-{round_suffix}",
+                    write_mode=write_mode,
+                    workspace_path=workspace_path,
+                    previous_branch=previous_branch,
+                )
+
+                # Check for explicit context paths to create worktrees for
+                ppm = agent.backend.filesystem_manager.path_permission_manager
+                context_paths = ppm.get_context_paths() if ppm else []
+                round_worktree_paths = {}
+
+                if context_paths:
+                    # Has context paths: create worktrees for each
+                    for ctx_config in context_paths:
+                        ctx_path = ctx_config.get("path", "")
+                        if ctx_path:
+                            isolated = round_isolation_mgr.initialize_context(ctx_path, agent_id)
+                            round_worktree_paths[isolated] = ctx_path
+                else:
+                    # No context paths: use workspace itself with scratch + branches
+                    round_isolation_mgr.setup_workspace_scratch(workspace_path, agent_id)
+                    round_worktree_paths[workspace_path] = workspace_path
+
+                # Track the new branch name
+                for ctx_path_key in round_isolation_mgr._contexts:
+                    branch = round_isolation_mgr._contexts[ctx_path_key].get("branch_name")
+                    if branch:
+                        self._agent_current_branches[agent_id] = branch
+                        break
+
+                # Store for cleanup in finally block
+                self._round_isolation_managers[agent_id] = round_isolation_mgr
+                self._round_worktree_paths[agent_id] = round_worktree_paths
+                logger.info(
+                    f"[Orchestrator] Created per-round worktree for {agent_id}: {round_worktree_paths}",
+                )
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Failed to create per-round worktree for {agent_id}: {e}")
+                round_worktree_paths = None
+
         # Track outcome for span attributes (set in finally block)
         _agent_outcome = None  # "vote", "answer", or "error"
         _agent_voted_for = None  # Only set for votes
@@ -5864,6 +5936,7 @@ Your answer:"""
                 vote_only=vote_only_for_system_message,
                 agent_mapping=self.coordination_tracker.get_reverse_agent_mapping(),
                 voting_sensitivity_override=getattr(agent, "voting_sensitivity", None),
+                worktree_paths=round_worktree_paths,
             )
 
             # Inject phase-appropriate persona if enabled
@@ -7141,6 +7214,17 @@ Your answer:"""
                 if "context" not in str(e).lower() and "detach" not in str(e).lower():
                     logger.debug(f"Unexpected ValueError closing agent span: {e}")
 
+            # Per-round worktree cleanup: move scratch, remove worktree, keep branch
+            if agent_id in self._round_isolation_managers:
+                round_iso = self._round_isolation_managers.pop(agent_id)
+                for ctx_path in list(round_iso._contexts.keys()):
+                    try:
+                        round_iso.move_scratch_to_workspace(ctx_path)
+                        round_iso.cleanup_round(ctx_path)
+                    except Exception as _cleanup_err:
+                        logger.warning(f"[Orchestrator] Round worktree cleanup failed for {agent_id}: {_cleanup_err}")
+                self._round_worktree_paths.pop(agent_id, None)
+
             # Clear the round context
             clear_current_round()
 
@@ -7736,6 +7820,8 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
                 try:
                     workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                    # Use winner's branch as base for the worktree if available
+                    self._agent_current_branches.get(selected_agent_id)
                     self._isolation_manager = IsolationContextManager(
                         session_id=self.session_id,
                         write_mode=write_mode,
@@ -7887,6 +7973,16 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     )
                 else:
                     worktree_instructions += f"The project is checked out at `{wt_path}`. " f"Write all your changes there. " f"Changes will be reviewed before being applied.\n"
+
+            # Add scratch and branch info for final presentation
+            worktree_instructions += "\n**Scratch Space**: `.massgen_scratch/` inside the checkout is git-excluded and invisible to reviewers.\n"
+            # Show other agents' latest branches (one per agent, parity with answers)
+            other_branches = {aid: branch for aid, branch in self._agent_current_branches.items() if aid != selected_agent_id and branch}
+            if other_branches:
+                worktree_instructions += "\nOther agents' code branches (latest only):\n"
+                worktree_instructions += "Use `git branch` to list, `git diff <branch>` to compare.\n"
+                worktree_instructions += "You may merge or cherry-pick useful changes.\n"
+
             presentation_content += worktree_instructions
 
         # Get agent's configurable system message using the standard interface
@@ -8570,7 +8666,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         # 2. If no changes, skip review and cleanup
         if not any(c.get("changes") for c in all_changes):
             logger.info("[Orchestrator] No isolated changes to review")
-            isolation_manager.cleanup_all()
+            # Move scratch to archive before cleanup
+            for ctx_path in list(isolation_manager._contexts.keys()):
+                isolation_manager.move_scratch_to_workspace(ctx_path)
+            isolation_manager.cleanup_session()
             return
 
         # 3. Yield status chunk to inform user about review phase
@@ -8656,8 +8755,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             )
             logger.info("[Orchestrator] User rejected isolated changes")
 
-        # 6. Cleanup isolated contexts
-        isolation_manager.cleanup_all()
+        # 6. Move scratch to archive and cleanup all isolated contexts + branches
+        for ctx_path in list(isolation_manager._contexts.keys()):
+            isolation_manager.move_scratch_to_workspace(ctx_path)
+        isolation_manager.cleanup_session()
 
     async def post_evaluate_answer(
         self,

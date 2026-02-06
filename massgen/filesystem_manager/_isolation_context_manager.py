@@ -5,10 +5,16 @@ Isolation Context Manager for MassGen - Manages isolated write contexts for agen
 This module provides isolated write environments using git worktrees (for git repos)
 or shadow repositories (for non-git directories). This enables safe review and
 approval workflows before changes are applied to the original context.
+
+Each coordination round, agents get a fresh worktree with a `.massgen_scratch/`
+directory (git-excluded) for experiments. Branches are preserved across rounds
+so agents can see each other's work via `git branch` / `git diff`.
 """
 
 import logging
 import os
+import secrets
+import shutil
 import tempfile
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +22,9 @@ from ..infrastructure import ShadowRepo, WorktreeManager, is_git_repo
 
 # Use module-level logger
 log = logging.getLogger(__name__)
+
+# Name of the scratch directory inside worktrees (git-excluded)
+SCRATCH_DIR_NAME = ".massgen_scratch"
 
 
 class IsolationContextManager:
@@ -29,6 +38,11 @@ class IsolationContextManager:
     Supports two isolation modes:
     - Worktree: Uses git worktrees for git repositories (efficient, branch-based)
     - Shadow: Creates temporary git repos for non-git directories (full copy)
+
+    Branch lifecycle (one branch per agent at a time):
+    - On initialize_context(): if previous_branch is set, delete it first
+    - cleanup_round(): removes worktree, keeps branch (for cross-agent visibility)
+    - cleanup_session(): removes worktrees AND all remaining branches
     """
 
     def __init__(
@@ -37,6 +51,7 @@ class IsolationContextManager:
         write_mode: str = "auto",
         temp_base: Optional[str] = None,
         workspace_path: Optional[str] = None,
+        previous_branch: Optional[str] = None,
     ):
         """
         Initialize the IsolationContextManager.
@@ -48,17 +63,23 @@ class IsolationContextManager:
             workspace_path: Optional agent workspace path. When set, worktrees are
                 created inside {workspace_path}/.worktree/ instead of temp directories.
                 This makes the worktree accessible to the agent as a workspace subdirectory.
+            previous_branch: Optional branch name from this agent's previous round.
+                Will be deleted during initialize_context() to maintain one-branch-per-agent.
         """
         self.session_id = session_id
         self.write_mode = write_mode
         self.temp_base = temp_base
         self.workspace_path = workspace_path
+        self.previous_branch = previous_branch
 
         # Track active contexts: original_path -> context info
         self._contexts: Dict[str, Dict[str, Any]] = {}
 
         # Track WorktreeManager instances by repo root
         self._worktree_managers: Dict[str, WorktreeManager] = {}
+
+        # Track all branch names created in this session (for cleanup_session)
+        self._session_branches: List[str] = []
 
         # Counter for unique branch names
         self._branch_counter = 0
@@ -68,6 +89,9 @@ class IsolationContextManager:
     def initialize_context(self, context_path: str, agent_id: Optional[str] = None) -> str:
         """
         Initialize an isolated context for the given path.
+
+        If previous_branch was provided at construction, it will be deleted
+        before creating the new branch (one-branch-per-agent invariant).
 
         Args:
             context_path: Original path to create isolated context for
@@ -95,6 +119,10 @@ class IsolationContextManager:
             }
             return context_path
 
+        # Delete previous branch if provided (one-branch-per-agent)
+        if self.previous_branch:
+            self._delete_previous_branch(context_path)
+
         # Determine actual mode for "auto"
         actual_mode = self._determine_mode(context_path)
 
@@ -116,6 +144,27 @@ class IsolationContextManager:
         # Note: _create_worktree_context and _create_shadow_context set self._contexts
         log.info(f"Created isolated context: {context_path} -> {isolated_path} (mode={actual_mode})")
         return isolated_path
+
+    def _delete_previous_branch(self, context_path: str) -> None:
+        """Delete the previous branch for one-branch-per-agent invariant."""
+        if not self.previous_branch:
+            return
+
+        try:
+            from ..utils.git_utils import get_git_root
+
+            repo_root = get_git_root(context_path)
+            if repo_root:
+                if repo_root not in self._worktree_managers:
+                    self._worktree_managers[repo_root] = WorktreeManager(repo_root)
+                wm = self._worktree_managers[repo_root]
+                wm._delete_branch(self.previous_branch, force=True)
+                log.info(f"Deleted previous branch: {self.previous_branch}")
+                # Remove from session tracking if present
+                if self.previous_branch in self._session_branches:
+                    self._session_branches.remove(self.previous_branch)
+        except Exception as e:
+            log.warning(f"Failed to delete previous branch {self.previous_branch}: {e}")
 
     def _determine_mode(self, context_path: str) -> str:
         """Determine the actual isolation mode based on write_mode and path type."""
@@ -153,10 +202,10 @@ class IsolationContextManager:
 
         wm = self._worktree_managers[repo_root]
 
-        # Generate unique branch name
+        # Generate unique branch name with random suffix (no agent ID or round number)
         self._branch_counter += 1
-        agent_suffix = f"-{agent_id}" if agent_id else ""
-        branch_name = f"massgen-{self.session_id}{agent_suffix}-{self._branch_counter}"
+        random_suffix = secrets.token_hex(4)
+        branch_name = f"massgen/{self.session_id}/{random_suffix}"
 
         # Create worktree path - prefer workspace if available
         if self.workspace_path:
@@ -192,6 +241,12 @@ class IsolationContextManager:
                 "agent_id": agent_id,
             }
 
+            # Track branch for session cleanup
+            self._session_branches.append(branch_name)
+
+            # Setup scratch directory inside worktree
+            self._setup_scratch_in_worktree(isolated_path, context_path)
+
             return isolated_path
 
         except Exception as e:
@@ -212,11 +267,343 @@ class IsolationContextManager:
                 "agent_id": agent_id,
             }
 
+            # Setup scratch directory inside shadow repo
+            self._setup_scratch_in_worktree(isolated_path, context_path)
+
             return isolated_path
 
         except Exception as e:
             log.error(f"Failed to create shadow repo: {e}")
             raise RuntimeError(f"Failed to create shadow context: {e}")
+
+    def _setup_scratch_in_worktree(self, isolated_path: str, context_path: str) -> None:
+        """Create .massgen_scratch/ inside worktree and git-exclude it.
+
+        Args:
+            isolated_path: Path to the worktree or shadow repo
+            context_path: Original context path (key in self._contexts)
+        """
+        scratch_path = os.path.join(isolated_path, SCRATCH_DIR_NAME)
+        os.makedirs(scratch_path, exist_ok=True)
+
+        # Git-exclude the scratch directory
+        try:
+            from git import Repo
+
+            repo = Repo(isolated_path)
+            # For worktrees, info/exclude must be in the COMMON git dir (not worktree-specific).
+            # Use --git-common-dir to get the shared .git directory.
+            try:
+                common_dir = repo.git.rev_parse("--git-common-dir")
+            except Exception:
+                common_dir = repo.git.rev_parse("--git-dir")
+            # --git-common-dir may return a relative path (e.g. ".git") for non-worktree repos
+            if not os.path.isabs(common_dir):
+                common_dir = os.path.join(repo.working_dir, common_dir)
+            exclude_file = os.path.join(common_dir, "info", "exclude")
+            os.makedirs(os.path.dirname(exclude_file), exist_ok=True)
+
+            # Check if already excluded
+            exclude_entry = f"/{SCRATCH_DIR_NAME}/"
+            existing_content = ""
+            if os.path.exists(exclude_file):
+                with open(exclude_file) as f:
+                    existing_content = f.read()
+
+            if exclude_entry not in existing_content:
+                with open(exclude_file, "a") as f:
+                    if existing_content and not existing_content.endswith("\n"):
+                        f.write("\n")
+                    f.write(f"{exclude_entry}\n")
+
+            log.info(f"Created scratch directory at {scratch_path}")
+        except Exception as e:
+            log.warning(f"Failed to git-exclude scratch directory: {e}")
+
+        # Store scratch path in context
+        context_path = os.path.abspath(context_path)
+        if context_path in self._contexts:
+            self._contexts[context_path]["scratch_path"] = scratch_path
+
+    def get_scratch_path(self, context_path: str) -> Optional[str]:
+        """Get the scratch directory path for a context.
+
+        Args:
+            context_path: Original context path
+
+        Returns:
+            Path to .massgen_scratch/ inside the worktree, or None
+        """
+        context_path = os.path.abspath(context_path)
+        if context_path in self._contexts:
+            return self._contexts[context_path].get("scratch_path")
+        return None
+
+    def get_branch_name(self, context_path: str) -> Optional[str]:
+        """Get the branch name for a context.
+
+        Args:
+            context_path: Original context path
+
+        Returns:
+            Branch name or None
+        """
+        context_path = os.path.abspath(context_path)
+        if context_path in self._contexts:
+            return self._contexts[context_path].get("branch_name")
+        return None
+
+    def get_all_branch_names(self) -> List[str]:
+        """Get all branch names created in this session.
+
+        Returns:
+            List of branch names
+        """
+        return list(self._session_branches)
+
+    def _is_own_git_root(self, path: str) -> bool:
+        """Check if path is the root of its own git repo (has .git/ directly in it).
+
+        This is different from is_git_repo() which returns True for any path
+        inside a git repo. We need this distinction because workspaces may live
+        inside the user's project repo (e.g. .massgen/workspaces/) but should
+        NOT create branches on the parent project.
+        """
+        return os.path.isdir(os.path.join(path, ".git"))
+
+    def setup_workspace_scratch(self, workspace_path: str, agent_id: Optional[str] = None) -> str:
+        """Set up scratch + git branch in the workspace itself (no external context_paths).
+
+        When there are no context_paths, the workspace IS the agent's project.
+        This method:
+        1. Git-inits the workspace as its own repo (even if inside a parent repo)
+        2. Creates a branch for this round
+        3. Creates .massgen_scratch/ (git-excluded)
+
+        Args:
+            workspace_path: Path to the agent's workspace
+            agent_id: Optional agent ID
+
+        Returns:
+            Path to the scratch directory
+        """
+        workspace_path = os.path.abspath(workspace_path)
+
+        # Git-init workspace if it's not its own repo root.
+        # Important: use _is_own_git_root, NOT is_git_repo(). The workspace may be
+        # inside the user's project repo (e.g. .massgen/workspaces/), but we must NOT
+        # create branches on the parent project — we need a standalone repo.
+        if not self._is_own_git_root(workspace_path):
+            from git import Repo
+
+            repo = Repo.init(workspace_path)
+            with repo.config_writer() as config:
+                config.set_value("user", "email", "massgen@agent.local")
+                config.set_value("user", "name", "MassGen Agent")
+            # Create initial commit so branches can be created
+            repo.index.commit("[INIT] MassGen workspace")
+            log.info(f"Git-initialized workspace at {workspace_path}")
+
+        # Delete previous branch if set (one-branch-per-agent)
+        if self.previous_branch:
+            self._delete_previous_branch(workspace_path)
+
+        # Create a branch for this round
+        random_suffix = secrets.token_hex(4)
+        branch_name = f"massgen/{self.session_id}/{random_suffix}"
+
+        if workspace_path not in self._worktree_managers:
+            self._worktree_managers[workspace_path] = WorktreeManager(workspace_path)
+        wm = self._worktree_managers[workspace_path]
+
+        try:
+            from git import Repo
+
+            repo = Repo(workspace_path)
+            # Create and checkout the branch (no worktree - we're working in-place)
+            repo.git.checkout("-b", branch_name)
+            self._session_branches.append(branch_name)
+            log.info(f"Created workspace branch: {branch_name}")
+        except Exception as e:
+            log.warning(f"Failed to create workspace branch: {e}")
+            branch_name = None
+
+        # Track as a context so cleanup/archive works
+        self._contexts[workspace_path] = {
+            "isolated_path": workspace_path,
+            "original_path": workspace_path,
+            "mode": "workspace",
+            "manager": wm if branch_name else None,
+            "branch_name": branch_name,
+            "agent_id": agent_id,
+        }
+
+        # Setup scratch
+        self._setup_scratch_in_worktree(workspace_path, workspace_path)
+
+        scratch_path = os.path.join(workspace_path, SCRATCH_DIR_NAME)
+        return scratch_path
+
+    def move_scratch_to_workspace(self, context_path: str) -> Optional[str]:
+        """Move .massgen_scratch/ to {workspace}/.scratch_archive/{random_suffix}/.
+
+        This preserves scratch files after worktree teardown. The archive
+        lives in the workspace (sibling of .worktree/), so it gets included
+        in workspace snapshots shared with other agents.
+
+        Args:
+            context_path: Original context path
+
+        Returns:
+            Path to the archive directory, or None if no scratch to move
+        """
+        context_path = os.path.abspath(context_path)
+        if context_path not in self._contexts:
+            return None
+
+        ctx = self._contexts[context_path]
+        scratch_path = ctx.get("scratch_path")
+        if not scratch_path or not os.path.exists(scratch_path):
+            return None
+
+        # Check if scratch has any content
+        if not os.listdir(scratch_path):
+            log.debug(f"Scratch directory empty, skipping archive: {scratch_path}")
+            return None
+
+        # Use the random suffix from the branch name for archive directory
+        branch_name = ctx.get("branch_name", "")
+        # Extract the random suffix (last component of branch path)
+        random_suffix = branch_name.rsplit("/", 1)[-1] if "/" in branch_name else secrets.token_hex(4)
+
+        # Determine archive location
+        workspace = self.workspace_path
+        if not workspace:
+            log.warning("No workspace_path set, cannot archive scratch")
+            return None
+
+        archive_dir = os.path.join(workspace, ".scratch_archive", random_suffix)
+        os.makedirs(os.path.dirname(archive_dir), exist_ok=True)
+
+        try:
+            shutil.move(scratch_path, archive_dir)
+            log.info(f"Moved scratch to archive: {scratch_path} -> {archive_dir}")
+            return archive_dir
+        except Exception as e:
+            log.warning(f"Failed to move scratch to archive: {e}")
+            return None
+
+    def cleanup_round(self, context_path: str) -> None:
+        """Remove worktree but keep the branch (for cross-agent visibility).
+
+        This is used between coordination rounds. The branch is preserved
+        so other agents can see it via `git branch` / `git diff`.
+
+        Args:
+            context_path: Original context path
+        """
+        context_path = os.path.abspath(context_path)
+        if context_path not in self._contexts:
+            return
+
+        ctx = self._contexts[context_path]
+        mode = ctx.get("mode")
+
+        if mode == "worktree":
+            manager = ctx.get("manager")
+            isolated_path = ctx.get("isolated_path")
+            if isinstance(manager, WorktreeManager) and isolated_path:
+                try:
+                    # Remove worktree but keep branch (delete_branch=False)
+                    manager.remove_worktree(isolated_path, force=True, delete_branch=False)
+                    log.info(f"Removed worktree (kept branch): {isolated_path}")
+                except Exception as e:
+                    log.warning(f"Failed to cleanup worktree {isolated_path}: {e}")
+
+        elif mode == "workspace":
+            # Workspace mode: switch back to main/master but keep the branch
+            try:
+                from git import Repo
+
+                repo = Repo(context_path)
+                # Find the default branch (main or master)
+                default_branch = None
+                for name in ("main", "master"):
+                    if name in [b.name for b in repo.branches]:
+                        default_branch = name
+                        break
+                if default_branch:
+                    repo.git.checkout(default_branch)
+                    log.info(f"Switched workspace back to {default_branch} (kept branch)")
+            except Exception as e:
+                log.warning(f"Failed to switch workspace branch: {e}")
+
+        elif mode == "shadow":
+            manager = ctx.get("manager")
+            if isinstance(manager, ShadowRepo):
+                manager.cleanup()
+
+        del self._contexts[context_path]
+
+    def cleanup_session(self) -> None:
+        """Full cleanup: remove all worktrees AND all remaining branches.
+
+        This is called at the end of a session (after final presentation)
+        to clean up everything.
+        """
+        # First remove all worktrees
+        paths = list(self._contexts.keys())
+        for context_path in paths:
+            ctx = self._contexts[context_path]
+            mode = ctx.get("mode")
+
+            if mode == "worktree":
+                manager = ctx.get("manager")
+                isolated_path = ctx.get("isolated_path")
+                if isinstance(manager, WorktreeManager) and isolated_path:
+                    try:
+                        manager.remove_worktree(isolated_path, force=True, delete_branch=True)
+                    except Exception as e:
+                        log.warning(f"Failed to cleanup worktree {isolated_path}: {e}")
+            elif mode == "workspace":
+                # Workspace mode: switch back to default branch, branch will be
+                # deleted by the session branch cleanup below
+                try:
+                    from git import Repo
+
+                    repo = Repo(context_path)
+                    for name in ("main", "master"):
+                        if name in [b.name for b in repo.branches]:
+                            repo.git.checkout(name)
+                            break
+                except Exception as e:
+                    log.warning(f"Failed to switch workspace branch: {e}")
+            elif mode == "shadow":
+                manager = ctx.get("manager")
+                if isinstance(manager, ShadowRepo):
+                    manager.cleanup()
+
+            del self._contexts[context_path]
+
+        # Delete any remaining session branches that weren't cleaned up with worktrees
+        for branch_name in self._session_branches:
+            for wm in self._worktree_managers.values():
+                try:
+                    wm._delete_branch(branch_name, force=True)
+                    log.info(f"Cleaned up session branch: {branch_name}")
+                except Exception:
+                    pass
+        self._session_branches.clear()
+
+        # Prune any stale worktree metadata
+        for wm in self._worktree_managers.values():
+            try:
+                wm.prune()
+            except Exception:
+                pass
+
+        self._worktree_managers.clear()
+        log.info("Cleaned up all isolated contexts and session branches")
 
     def get_isolated_path(self, original_path: str) -> Optional[str]:
         """
@@ -393,6 +780,8 @@ class IsolationContextManager:
                 "mode": ctx.get("mode"),
                 "agent_id": ctx.get("agent_id"),
                 "repo_root": ctx.get("repo_root"),
+                "branch_name": ctx.get("branch_name"),
+                "scratch_path": ctx.get("scratch_path"),
             }
         return None
 

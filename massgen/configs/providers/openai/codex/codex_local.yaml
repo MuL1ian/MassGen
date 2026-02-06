@@ -18,7 +18,7 @@ orchestrator:
     enable_agent_task_planning: true
     task_planning_filesystem_mode: true
     enable_memory_filesystem_mode: true
-    use_two_tier_workspace: true
+    write_mode: auto  # Git worktree isolation with in-worktree scratch space
   context_paths: []
 timeout_settings:
   orchestrator_timeout_seconds: 1800

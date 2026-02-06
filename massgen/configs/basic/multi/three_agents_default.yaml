@@ -39,7 +39,7 @@ orchestrator:
   agent_temporary_workspace: temp_workspaces
   max_new_answers_per_agent: 5
   coordination:
-    use_two_tier_workspace: true  # Enable scratch/deliverable workspace structure with git versioning
+    write_mode: auto  # Git worktree isolation with in-worktree scratch space
     max_orchestration_restarts: 2
     enable_agent_task_planning: true
     task_planning_filesystem_mode: true

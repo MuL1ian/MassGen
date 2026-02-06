@@ -214,6 +214,32 @@ class PathPermissionManager:
                 return removed
         return None
 
+    def update_context_path_permission(self, path_str: str, new_permission: str) -> bool:
+        """Update the permission of a context path.
+
+        Args:
+            path_str: The context path to update
+            new_permission: New permission value ("read" or "write")
+
+        Returns:
+            True if the path was found and updated, False otherwise
+        """
+        resolved = Path(path_str).resolve()
+        try:
+            perm = Permission(new_permission.lower())
+        except ValueError:
+            logger.warning(f"[PathPermissionManager] Invalid permission '{new_permission}', ignoring update")
+            return False
+
+        for mp in self.managed_paths:
+            if mp.path.resolve() == resolved and mp.path_type == "context":
+                mp.permission = perm
+                mp.will_be_writable = perm == Permission.WRITE
+                self._permission_cache.clear()
+                logger.info(f"[PathPermissionManager] Updated context path permission: {path_str} -> {new_permission}")
+                return True
+        return False
+
     def re_add_context_path(self, managed_path: "ManagedPath") -> None:
         """Re-add a previously removed context path.
 

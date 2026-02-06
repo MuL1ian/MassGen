@@ -2973,6 +2973,18 @@ StatusBar.consensus-reached #status_votes {
     text-style: underline;
 }
 
+/* StatusBar Context paths indicator */
+#status_context {
+    width: auto;
+    color: #57606a;
+    margin-left: 2;
+}
+
+#status_context:hover {
+    color: #1a6bb8;
+    text-style: underline;
+}
+
 /* === Answer Browser Modal === */
 #answer_browser_container {
     width: 95%;

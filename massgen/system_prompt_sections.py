@@ -915,7 +915,13 @@ class WorkspaceStructureSection(SystemPromptSection):
         use_two_tier_workspace: If True, include documentation for scratch/deliverable structure
     """
 
-    def __init__(self, workspace_path: str, context_paths: List[str], use_two_tier_workspace: bool = False):
+    def __init__(
+        self,
+        workspace_path: str,
+        context_paths: List[str],
+        use_two_tier_workspace: bool = False,
+        worktree_paths: Optional[Dict[str, str]] = None,
+    ):
         super().__init__(
             title="Workspace Structure",
             priority=Priority.HIGH,
@@ -924,6 +930,7 @@ class WorkspaceStructureSection(SystemPromptSection):
         self.workspace_path = workspace_path
         self.context_paths = context_paths
         self.use_two_tier_workspace = use_two_tier_workspace
+        self.worktree_paths = worktree_paths  # {worktree_path: original_path}
 
     def build_content(self) -> str:
         """Build workspace structure documentation."""
@@ -935,8 +942,33 @@ class WorkspaceStructureSection(SystemPromptSection):
             "\nThis is your primary working directory where you should create " "and manage files for this task.\n",
         )
 
-        # Add two-tier workspace documentation if enabled
-        if self.use_two_tier_workspace:
+        # Worktree-based workspace (new unified model) takes precedence
+        if self.worktree_paths:
+            for wt_path in self.worktree_paths:
+                content_parts.append("### Project Checkout\n")
+                content_parts.append(f"The project is checked out at `{wt_path}`. Full read/write access.\n")
+                content_parts.append("**Scratch Space**: `.massgen_scratch/` inside the checkout")
+                content_parts.append("- For experiments, eval scripts, notes")
+                content_parts.append("- Git-excluded, invisible to reviewers")
+                content_parts.append("- Can import from project naturally (e.g., `from src.foo import bar`)\n")
+                content_parts.append("### Working with Git Branches\n")
+                content_parts.append("Previous work from this session is preserved on git branches (one per round).")
+                content_parts.append("You start on a fresh branch each round, but previous branches remain available.\n")
+                content_parts.append("**Viewing previous work:**")
+                content_parts.append("- `git branch` — list all branches from this session")
+                content_parts.append("- `git log <branch> --oneline` — see what was done on a branch")
+                content_parts.append("- `git diff <branch>` — compare current state against a previous branch")
+                content_parts.append("- `git diff <branch> -- path/to/file` — compare a specific file\n")
+                content_parts.append("**Building on previous work:**")
+                content_parts.append("- `git merge <branch>` — merge all changes from a previous branch into your current work")
+                content_parts.append("- `git cherry-pick <commit>` — apply a specific commit from a previous branch")
+                content_parts.append("- `git checkout <branch> -- path/to/file` — grab a specific file from a previous branch\n")
+                content_parts.append("**Best practice**: Before starting new work, check `git branch` to see if previous rounds ")
+                content_parts.append("made progress you can build on. Merging useful previous work avoids duplicating effort.\n")
+                content_parts.append("All tracked changes in the checkout will be reviewed during final presentation.\n")
+
+        # Legacy two-tier workspace (deprecated, skipped when worktree_paths set)
+        elif self.use_two_tier_workspace:
             content_parts.append("### Two-Tier Workspace Structure\n")
             content_parts.append("Your workspace has two directories for organizing your work:\n")
             content_parts.append("- **`scratch/`** - Use for working files, experiments, intermediate results, evaluation scripts")
@@ -961,7 +993,7 @@ class WorkspaceStructureSection(SystemPromptSection):
             content_parts.append("- Find when specific changes were made")
             content_parts.append("- Recover previous versions if needed\n")
 
-        if self.context_paths:
+        if self.context_paths and not self.worktree_paths:
             content_parts.append("**Context paths**:")
             for path in self.context_paths:
                 content_parts.append(f"- `{path}`")
@@ -1232,8 +1264,8 @@ class FilesystemOperationsSection(SystemPromptSection):
         parts.append(
             "Your working directory is set to your workspace, so all relative paths in your file "
             "operations will be resolved from there. This ensures each agent works in isolation "
-            "while having access to shared references. Only include in your workspace files that "
-            "should be used in your answer.\n",
+            "while having access to shared references. Move intermediate files to scratch space "
+            "rather than deleting them.\n",
         )
 
         if self.main_workspace:
@@ -1406,11 +1438,12 @@ class FilesystemBestPracticesSection(SystemPromptSection):
             "`npm install`, `pip install`, or build commands. Copying them breaks symlinks and "
             "causes errors. Instead, include proper dependency files (`package.json`, "
             "`requirements.txt`) and let users reinstall.\n"
-            "- **Cleanup**: Remove any temporary files, intermediate artifacts, test scripts, or "
-            "unused files copied from another agent before submitting `new_answer`. Your workspace "
-            "should contain only the files that are part of your final deliverable. For example, "
-            "if you created `test_output.txt` for debugging or `old_version.py` before "
-            "refactoring, delete them.\n"
+            "- **Cleanup**: Move temporary files, intermediate artifacts, test scripts, or "
+            "unused files to scratch space (`.massgen_scratch/` or `scratch/`) before submitting "
+            "`new_answer`. Your workspace should contain only the files that are part of your "
+            "final deliverable. For example, move `test_output.txt` or `old_version.py` to scratch. "
+            "**Never delete system-managed directories**: `.worktree/`, `.git/`, symlinks to shared "
+            "tools, or any directory you did not create.\n"
             "- **Organization**: Keep files logically organized. If you're combining work from "
             "multiple agents, structure the result clearly.\n",
         )
