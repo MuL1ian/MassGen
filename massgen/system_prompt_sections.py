@@ -10,6 +10,7 @@ maintainability.
 Design Document: docs/dev_notes/system_prompt_architecture_redesign.md
 """
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -1713,8 +1714,6 @@ class EvaluationSection(SystemPromptSection):
         self.round_number = round_number
 
     def build_content(self) -> str:
-        import time
-
         # Vote-only mode: agent has exhausted their answer limit
         if self.vote_only:
             return f"""You are evaluating existing solutions to determine the best answer.
@@ -1725,7 +1724,7 @@ Analyze the existing answers carefully, then call the `vote` tool to select the 
 
 Note: All your other tools are still available to help you evaluate answers. The only restriction is that `vote` is your only workflow tool - you cannot submit new answers.
 
-*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
+*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""
 
         # Handle sequential sensitivity: reverse order (strict -> balanced -> lenient)
         effective_sensitivity = self.voting_sensitivity
@@ -1883,7 +1882,7 @@ Otherwise, digest existing answers, combine their strengths, and do additional w
 then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.{novelty_section}
 Make sure you actually call `vote` or `new_answer` (in tool call format).
 
-*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
+*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""
 
 
 class DecompositionSection(SystemPromptSection):
@@ -1909,8 +1908,6 @@ class DecompositionSection(SystemPromptSection):
         self.subtask = subtask
 
     def build_content(self) -> str:
-        import time
-
         subtask_section = ""
         if self.subtask:
             subtask_section = f"""
@@ -1952,7 +1949,7 @@ for verification without changing your actual output.
 
 Make sure you actually call `new_answer` or `stop` (in tool call format).
 
-*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
+*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""
 
 
 class PostEvaluationSection(SystemPromptSection):

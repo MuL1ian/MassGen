@@ -71,6 +71,49 @@ console = Console(theme=custom_theme)
 class ConfigBuilder:
     """Interactive configuration builder for MassGen."""
 
+    @staticmethod
+    def get_quickstart_reasoning_profile(
+        backend_type: Optional[str],
+        model: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Return quickstart reasoning options for GPT-5x models.
+
+        Returns None when no quickstart reasoning selector should be shown.
+        """
+        normalized_backend = (backend_type or "").strip().lower()
+        normalized_model = (model or "").strip().lower()
+
+        if not normalized_model or "gpt-5" not in normalized_model:
+            return None
+
+        supports_xhigh = normalized_backend == "codex" or "codex" in normalized_model
+
+        if normalized_backend not in {"openai", "azure_openai", "codex"}:
+            return None
+
+        default_effort = "low" if "nano" in normalized_model else "medium"
+        if supports_xhigh:
+            return {
+                "choices": [
+                    ("Low (faster)", "low"),
+                    ("Medium (recommended)", "medium"),
+                    ("High (deeper reasoning)", "high"),
+                    ("XHigh (maximum depth)", "xhigh"),
+                ],
+                "default_effort": default_effort,
+                "description": "This GPT-5 Codex model supports extended reasoning.",
+            }
+
+        return {
+            "choices": [
+                ("Low (faster)", "low"),
+                ("Medium (recommended)", "medium"),
+                ("High (deeper reasoning)", "high"),
+            ],
+            "default_effort": default_effort,
+            "description": "This GPT-5 model supports extended reasoning.",
+        }
+
     @property
     def PROVIDERS(self) -> Dict[str, Dict]:
         """Generate provider configurations from the capabilities registry (single source of truth).
@@ -4066,6 +4109,29 @@ class ConfigBuilder:
                 if model is None:
                     raise KeyboardInterrupt
 
+                reasoning_effort = None
+                reasoning_profile = self.get_quickstart_reasoning_profile(
+                    provider_info.get("type", provider_id),
+                    model,
+                )
+                if reasoning_profile:
+                    console.print(f"\n[dim]  {reasoning_profile['description']}[/dim]")
+                    reasoning_effort = questionary.select(
+                        "  Reasoning effort:",
+                        choices=[questionary.Choice(label, value=value) for label, value in reasoning_profile["choices"]],
+                        default=reasoning_profile["default_effort"],
+                        style=questionary.Style(
+                            [
+                                ("selected", "fg:cyan bold"),
+                                ("pointer", "fg:cyan bold"),
+                                ("highlighted", "fg:cyan"),
+                            ],
+                        ),
+                        use_arrow_keys=True,
+                    ).ask()
+                    if reasoning_effort is None:
+                        raise KeyboardInterrupt
+
                 # Per-agent options (applied to all agents in same-provider mode)
                 provider_caps = _get_provider_capabilities(provider_id)
 
@@ -4138,13 +4204,14 @@ class ConfigBuilder:
                 for i in range(num_agents):
                     agent_letter = chr(ord("a") + i)
                     agent_id = f"agent_{agent_letter}"
-                    agents_config.append(
-                        {
-                            "id": agent_id,
-                            "type": provider_info.get("type", provider_id),
-                            "model": model,
-                        },
-                    )
+                    agent_spec = {
+                        "id": agent_id,
+                        "type": provider_info.get("type", provider_id),
+                        "model": model,
+                    }
+                    if reasoning_effort:
+                        agent_spec["reasoning_effort"] = reasoning_effort
+                    agents_config.append(agent_spec)
                     # Track per-agent settings
                     if enable_web_search:
                         agent_tools[agent_id] = {"enable_web_search": True}
@@ -4204,6 +4271,29 @@ class ConfigBuilder:
 
                     agent_id = f"agent_{agent_letter}"
 
+                    reasoning_effort = None
+                    reasoning_profile = self.get_quickstart_reasoning_profile(
+                        provider_info.get("type", provider_id),
+                        model,
+                    )
+                    if reasoning_profile:
+                        console.print(f"\n[dim]    {reasoning_profile['description']}[/dim]")
+                        reasoning_effort = questionary.select(
+                            "    Reasoning effort:",
+                            choices=[questionary.Choice(label, value=value) for label, value in reasoning_profile["choices"]],
+                            default=reasoning_profile["default_effort"],
+                            style=questionary.Style(
+                                [
+                                    ("selected", "fg:cyan bold"),
+                                    ("pointer", "fg:cyan bold"),
+                                    ("highlighted", "fg:cyan"),
+                                ],
+                            ),
+                            use_arrow_keys=True,
+                        ).ask()
+                        if reasoning_effort is None:
+                            raise KeyboardInterrupt
+
                     # Per-agent options
                     provider_caps = _get_provider_capabilities(provider_id)
 
@@ -4229,13 +4319,14 @@ class ConfigBuilder:
                     if system_msg is None:
                         raise KeyboardInterrupt
 
-                    agents_config.append(
-                        {
-                            "id": agent_id,
-                            "type": provider_info.get("type", provider_id),
-                            "model": model,
-                        },
-                    )
+                    agent_spec = {
+                        "id": agent_id,
+                        "type": provider_info.get("type", provider_id),
+                        "model": model,
+                    }
+                    if reasoning_effort:
+                        agent_spec["reasoning_effort"] = reasoning_effort
+                    agents_config.append(agent_spec)
 
                     # Track per-agent settings
                     if enable_web_search:
@@ -4827,7 +4918,8 @@ class ConfigBuilder:
         """Generate a full-featured config from the quickstart agent specifications.
 
         Args:
-            agents_config: List of dicts with 'id', 'type', 'model' for each agent
+            agents_config: List of dicts with 'id', 'type', 'model' for each agent.
+                          Optional key: 'reasoning_effort' for GPT-5x reasoning selection.
             context_path: Deprecated. Optional path to add as context path (avoids runtime prompt)
             context_paths: List of context path dicts with 'path' and 'permission' keys.
                           Each entry: {"path": "/path", "permission": "read" or "write"}
@@ -4852,6 +4944,7 @@ class ConfigBuilder:
         def create_agent_backend(
             agent_type: str,
             model: str,
+            reasoning_effort: Optional[str] = None,
             tools: Optional[Dict] = None,
         ) -> Dict:
             tools = tools or {}
@@ -4924,6 +5017,12 @@ class ConfigBuilder:
                     else:
                         backend["enable_code_execution"] = tools["enable_code_execution"]
 
+            if reasoning_effort:
+                backend["reasoning"] = {
+                    "effort": reasoning_effort,
+                    "summary": "auto",
+                }
+
             return backend
 
         # Build agents list
@@ -4935,6 +5034,7 @@ class ConfigBuilder:
                 "backend": create_agent_backend(
                     agent_spec["type"],
                     agent_spec["model"],
+                    reasoning_effort=agent_spec.get("reasoning_effort"),
                     tools=agent_tools.get(agent_id, {}),
                 ),
             }

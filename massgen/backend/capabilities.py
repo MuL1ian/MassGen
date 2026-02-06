@@ -171,6 +171,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         filesystem_support="mcp",
         models=[
             # Alias notation (recommended for experimentation)
+            "claude-opus-4-6",
             "claude-opus-4-5",
             "claude-sonnet-4-5",
             "claude-haiku-4-5",
@@ -183,7 +184,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "claude-opus-4-1-20250805",
             "claude-sonnet-4-20250514",
         ],
-        default_model="claude-opus-4-5",
+        default_model="claude-opus-4-6",
         env_var="ANTHROPIC_API_KEY",
         notes=(
             "Web search and code execution are built-in tools. "
@@ -193,6 +194,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "date notation (claude-sonnet-4-5-20250929) for production."
         ),
         model_release_dates={
+            "claude-opus-4-6": "2026-02",
             "claude-haiku-4-5": "2025-10",
             "claude-haiku-4-5-20251001": "2025-10",
             "claude-sonnet-4-5": "2025-09",
@@ -234,6 +236,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         filesystem_support="native",
         models=[
             # Alias notation (recommended for experimentation)
+            "claude-opus-4-6",
             "claude-sonnet-4-5",
             "claude-opus-4-5",
             "claude-opus-4",
@@ -244,7 +247,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "claude-opus-4-1-20250805",
             "claude-sonnet-4-20250514",
         ],
-        default_model="claude-opus-4-5",
+        default_model="claude-opus-4-6",
         env_var="ANTHROPIC_API_KEY",
         notes=(
             "⚠️ Works with local Claude Code CLI login (`claude login`), CLAUDE_CODE_API_KEY, or ANTHROPIC_API_KEY. "

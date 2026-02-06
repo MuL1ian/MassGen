@@ -382,7 +382,7 @@ class IsolationContextManager:
         inside the user's project repo (e.g. .massgen/workspaces/) but should
         NOT create branches on the parent project.
         """
-        return os.path.isdir(os.path.join(path, ".git"))
+        return os.path.exists(os.path.join(path, ".git"))
 
     def setup_workspace_scratch(self, workspace_path: str, agent_id: Optional[str] = None) -> str:
         """Set up scratch + git branch in the workspace itself (no external context_paths).
@@ -652,10 +652,14 @@ class IsolationContextManager:
                     pass
         self._session_branches.clear()
 
-        # Prune any stale worktree metadata
+        # Prune any stale worktree metadata and close Repo FDs
         for wm in self._worktree_managers.values():
             try:
                 wm.prune()
+            except Exception:
+                pass
+            try:
+                wm.close()
             except Exception:
                 pass
 
@@ -808,10 +812,14 @@ class IsolationContextManager:
         for context_path in paths:
             self._cleanup_single_context(context_path)
 
-        # Prune any stale worktree metadata
+        # Prune any stale worktree metadata and close Repo FDs
         for wm in self._worktree_managers.values():
             try:
                 wm.prune()
+            except Exception:
+                pass
+            try:
+                wm.close()
             except Exception:
                 pass
 

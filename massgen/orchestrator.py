@@ -22,6 +22,7 @@ import asyncio
 import concurrent.futures
 import json
 import os
+import secrets
 import shutil
 import time
 import traceback
@@ -311,6 +312,11 @@ class Orchestrator(ChatAgent):
         self._round_isolation_managers: Dict[str, "IsolationContextManager"] = {}
         # Per-round worktree path mappings: {agent_id: {isolated_path: original_path}}
         self._round_worktree_paths: Dict[str, Dict[str, str]] = {}
+
+        # Presentation-phase isolation state (used by _handle_presentation_phase / _review_isolated_changes)
+        self._isolation_manager: Optional["IsolationContextManager"] = None
+        self._isolation_worktree_paths: Dict[str, str] = {}  # worktree_path -> original_path
+        self._isolation_removed_paths: Dict = {}  # original_path -> ManagedPath
 
         # Human input hook for injecting user input during execution
         # Shared across all agents (one per orchestration session)
@@ -6247,9 +6253,7 @@ Your answer:"""
                 from .filesystem_manager import IsolationContextManager
 
                 workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
-                import secrets as _secrets
-
-                round_suffix = _secrets.token_hex(4)
+                round_suffix = secrets.token_hex(4)
                 previous_branch = self._agent_current_branches.get(agent_id)
 
                 round_isolation_mgr = IsolationContextManager(
@@ -6277,8 +6281,8 @@ Your answer:"""
                     round_worktree_paths[workspace_path] = workspace_path
 
                 # Track the new branch name
-                for ctx_path_key in round_isolation_mgr._contexts:
-                    branch = round_isolation_mgr._contexts[ctx_path_key].get("branch_name")
+                for ctx_info in round_isolation_mgr.list_contexts():
+                    branch = ctx_info.get("branch_name") if ctx_info else None
                     if branch:
                         self._agent_current_branches[agent_id] = branch
                         break
@@ -7823,7 +7827,10 @@ Your answer:"""
                 # Use anonymous ID for human-readable archive directory name
                 _agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
                 _archive_label = _agent_mapping.get(agent_id, agent_id)
-                for ctx_path in list(round_iso._contexts.keys()):
+                for ctx_info in list(round_iso.list_contexts()):
+                    ctx_path = ctx_info.get("original_path") if ctx_info else None
+                    if not ctx_path:
+                        continue
                     try:
                         round_iso.move_scratch_to_workspace(ctx_path, archive_label=_archive_label)
                         round_iso.cleanup_round(ctx_path)
@@ -8130,12 +8137,12 @@ Your answer:"""
 
         # Review isolated changes if write_mode isolation was enabled
         # Runs AFTER post-evaluation so the user sees the full picture before approving files
-        if hasattr(self, "_isolation_manager") and self._isolation_manager:
+        if self._isolation_manager:
             selected_agent = self.agents.get(self._selected_agent)
             if selected_agent:
                 # Re-add removed context paths so ChangeApplier can write back
                 ppm = selected_agent.backend.filesystem_manager.path_permission_manager
-                for orig_path, removed_mp in getattr(self, "_isolation_removed_paths", {}).items():
+                for orig_path, removed_mp in self._isolation_removed_paths.items():
                     ppm.re_add_context_path(removed_mp)
 
                 async for chunk in self._review_isolated_changes(
@@ -8462,7 +8469,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 except Exception as e:
                     logger.warning(f"[Orchestrator] Failed to initialize isolated context: {e}, falling back to direct writes")
                     # Re-add any paths we removed before the failure
-                    if hasattr(self, "_isolation_removed_paths"):
+                    if self._isolation_removed_paths:
                         ppm = agent.backend.filesystem_manager.path_permission_manager
                         for orig_path, removed_mp in self._isolation_removed_paths.items():
                             ppm.re_add_context_path(removed_mp)
@@ -8494,7 +8501,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         )
                 # Build extra mounts for worktree isolation in Docker mode
                 extra_mounts = None
-                if hasattr(self, "_isolation_worktree_paths") and self._isolation_worktree_paths:
+                if self._isolation_worktree_paths:
                     extra_mounts = [(wt_path, wt_path, "rw") for wt_path in self._isolation_worktree_paths]
 
                 agent.backend.filesystem_manager.recreate_container_for_write_access(
@@ -8582,7 +8589,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         # Add worktree location to presentation message
         # The agent only sees the worktree — the original context path has been
         # removed from its view, so we just tell it where the project is.
-        if hasattr(self, "_isolation_worktree_paths") and self._isolation_worktree_paths:
+        if self._isolation_worktree_paths:
             worktree_instructions = "\n\nPROJECT PATHS:\n"
             for wt_path, orig_path in self._isolation_worktree_paths.items():
                 # Compute the specific subdirectory within the worktree
@@ -9263,6 +9270,34 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
         logger.info(f"[Orchestrator] Starting _review_isolated_changes for {selected_agent_id}")
 
+        def _count_diff_files(diff_text: str) -> int:
+            if not diff_text:
+                return 0
+            return sum(1 for line in diff_text.splitlines() if line.startswith("diff --git "))
+
+        def _normalize_approved_files_by_context(metadata: Any) -> Dict[str, List[str]]:
+            if not isinstance(metadata, dict):
+                return {}
+            raw_mapping = metadata.get("approved_files_by_context")
+            if not isinstance(raw_mapping, dict):
+                return {}
+
+            normalized: Dict[str, List[str]] = {}
+            for context_path, approved_paths in raw_mapping.items():
+                if not isinstance(context_path, str):
+                    continue
+                if not isinstance(approved_paths, list):
+                    continue
+                normalized[os.path.abspath(context_path)] = [path for path in approved_paths if isinstance(path, str)]
+            return normalized
+
+        def _is_in_context_prefix(rel_path: str, context_prefix: str) -> bool:
+            normalized_rel = rel_path.replace("\\", "/").strip("/")
+            normalized_prefix = context_prefix.replace("\\", "/").strip("/")
+            if normalized_prefix in ("", "."):
+                return True
+            return normalized_rel == normalized_prefix or normalized_rel.startswith(f"{normalized_prefix}/")
+
         # 1. Collect all changes from isolated contexts
         all_changes = []
         for ctx_info in isolation_manager.list_contexts():
@@ -9278,21 +9313,45 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             if changes or diff:
                 # For worktree mode, repo_root may differ from original_path
                 # (context path can be a subdirectory of the git root).
-                # The ChangeApplier needs repo_root as target since git paths
-                # are relative to the repo root.
-                repo_root = ctx_info.get("repo_root") or original_path
+                repo_root = os.path.abspath(ctx_info.get("repo_root") or original_path)
+                original_abs = os.path.abspath(original_path)
+                context_prefix = "."
+                try:
+                    if os.path.commonpath([original_abs, repo_root]) == repo_root:
+                        context_prefix = os.path.relpath(original_abs, repo_root)
+                    else:
+                        # Fail closed: if context is outside repo_root, apply nothing.
+                        context_prefix = "__massgen_out_of_scope__"
+                        logger.warning(
+                            "[Orchestrator] Context path is outside repo_root; " "writes will be blocked for this context: " f"context={original_abs}, repo_root={repo_root}",
+                        )
+                except ValueError:
+                    context_prefix = "__massgen_out_of_scope__"
+                    logger.warning(
+                        "[Orchestrator] Could not compare context path and repo_root; " "writes will be blocked for this context: " f"context={original_abs}, repo_root={repo_root}",
+                    )
+
+                filtered_changes = [change for change in changes if isinstance(change, dict) and isinstance(change.get("path"), str) and _is_in_context_prefix(change["path"], context_prefix)]
+
+                # Preserve diff-only contexts (e.g., staged-only workflows where
+                # change enumeration can occasionally be empty).
+                has_relevant_changes = bool(filtered_changes) or (not changes and bool(diff))
+                if not has_relevant_changes:
+                    continue
+
                 all_changes.append(
                     {
-                        "original_path": original_path,
+                        "original_path": original_abs,
                         "isolated_path": ctx_info.get("isolated_path"),
                         "repo_root": repo_root,
-                        "changes": changes,
+                        "context_prefix": context_prefix,
+                        "changes": filtered_changes,
                         "diff": diff,
                     },
                 )
 
         # 2. If no changes, skip review and cleanup
-        if not any(c.get("changes") for c in all_changes):
+        if not all_changes:
             logger.info("[Orchestrator] No isolated changes to review")
             # Move scratch to archive before cleanup
             for ctx_path in list(isolation_manager._contexts.keys()):
@@ -9301,7 +9360,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             return
 
         # 3. Yield status chunk to inform user about review phase
-        total_changes = sum(len(c.get("changes", [])) for c in all_changes)
+        total_changes = sum(len(c.get("changes", [])) or _count_diff_files(c.get("diff", "")) for c in all_changes)
         yield StreamChunk(
             type="status",
             content=f"Reviewing {total_changes} file change(s) from isolated context...",
@@ -9334,6 +9393,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         if review_result.approved:
             applier = ChangeApplier()
             applied_files = []
+            approved_files_by_context = _normalize_approved_files_by_context(review_result.metadata)
 
             logger.info(
                 f"[Orchestrator] Applying approved changes: " f"approved_files={review_result.approved_files}, " f"contexts={len(all_changes)}",
@@ -9341,16 +9401,37 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
             for ctx in all_changes:
                 try:
-                    # Use repo_root as target since git paths are relative
-                    # to the repo root (not the context subdirectory)
-                    target = ctx.get("repo_root", ctx["original_path"])
+                    context_path = os.path.abspath(ctx["original_path"])
+                    target = context_path
+                    context_prefix = ctx.get("context_prefix")
+                    approved_files_for_context: Optional[List[str]]
+
+                    if review_result.approved_files is None:
+                        approved_files_for_context = None
+                    elif context_path in approved_files_by_context:
+                        approved_files_for_context = approved_files_by_context[context_path]
+                    else:
+                        # Backward compatibility: support both legacy flat paths
+                        # and context-keyed entries ("{context}::{path}").
+                        approved_files_for_context = []
+                        for approved_entry in review_result.approved_files:
+                            if not isinstance(approved_entry, str):
+                                continue
+                            if "::" in approved_entry:
+                                approved_context, approved_path = approved_entry.split("::", 1)
+                                if os.path.abspath(approved_context) == context_path and approved_path:
+                                    approved_files_for_context.append(approved_path)
+                            else:
+                                approved_files_for_context.append(approved_entry)
+
                     logger.info(
-                        f"[Orchestrator] ChangeApplier: source={ctx['isolated_path']}, " f"target={target}",
+                        "[Orchestrator] ChangeApplier: " f"source={ctx['isolated_path']}, " f"target={target}, " f"context_prefix={context_prefix}",
                     )
                     files = applier.apply_changes(
                         source_path=ctx["isolated_path"],
                         target_path=target,
-                        approved_files=review_result.approved_files,
+                        approved_files=approved_files_for_context,
+                        context_prefix=context_prefix,
                     )
                     applied_files.extend(files)
                 except Exception as e:

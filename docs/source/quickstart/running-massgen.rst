@@ -153,6 +153,7 @@ Recommended decomposition defaults:
 * ``max_new_answers_per_agent: 2-3`` (consecutive cap; resets after unseen external updates are injected)
 * ``max_new_answers_global`` set to an overall budget (for example ``9`` with three agents)
 * If a decomposition agent hits its cap, it should stop instead of running a wasteful extra round
+* With GPT-5x models, quickstart lets you pick ``reasoning.effort`` (Codex GPT-5 models include ``xhigh``)
 
 Unless you need different behavior, keep these defaults.
 
@@ -205,7 +206,7 @@ First-Time Setup
 On first launch, the WebUI automatically guides you through setup:
 
 1. **Setup Page** - Configure API keys, Docker, and skills
-2. **Quickstart Wizard** - Create your first agent configuration, including decomposition mode, presenter selection, and recommended answer-control defaults
+2. **Quickstart Wizard** - Create your first agent configuration, including decomposition mode, presenter selection, GPT-5x reasoning selection, and recommended answer-control defaults
 
 This makes ``uv run massgen --web`` the easiest way to get started with MassGen.
 

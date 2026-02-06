@@ -264,6 +264,7 @@ The `--setup` command will:
 The `--quickstart` command will:
 - Ask how many agents you want (1-5, default 3)
 - Ask which backend/model for each agent
+- For GPT-5x models, ask for `reasoning.effort` (`low|medium|high`; Codex GPT-5 models also include `xhigh`)
 - Auto-detect Docker availability and configure execution mode
 - Create a ready-to-use config and launch into interactive TUI mode
 

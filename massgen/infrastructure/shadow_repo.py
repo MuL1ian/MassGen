@@ -11,6 +11,8 @@ from typing import Dict, List, Optional
 
 from git import GitCommandError, Repo
 
+from ..utils.git_utils import get_changes as git_get_changes
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,23 +82,7 @@ class ShadowRepo:
         """
         if not self.is_initialized or not self.repo:
             return []
-
-        changes = []
-
-        # Unstaged changes (working tree vs index)
-        for diff in self.repo.index.diff(None):
-            changes.append(
-                {
-                    "status": diff.change_type[0].upper(),  # M, A, D, R
-                    "path": diff.a_path or diff.b_path,
-                },
-            )
-
-        # Untracked files
-        for path in self.repo.untracked_files:
-            changes.append({"status": "?", "path": path})
-
-        return changes
+        return git_get_changes(self.repo)
 
     def get_diff(self, staged: bool = False) -> str:
         """

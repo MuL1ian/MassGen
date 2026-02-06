@@ -218,6 +218,10 @@ class ProviderModelStep(StepComponent):
         self._provider_env_var: Dict[str, str] = {}
         self._current_provider: Optional[str] = None
         self._current_model: Optional[str] = None
+        self._current_reasoning_effort: Optional[str] = None
+        self._reasoning_hint: Optional[Label] = None
+        self._reasoning_label: Optional[Label] = None
+        self._reasoning_select: Optional[Select] = None
 
     def _load_providers(self) -> None:
         """Load all providers from ConfigBuilder, tracking which have keys."""
@@ -276,6 +280,54 @@ class ProviderModelStep(StepComponent):
             self._key_input.display = False
 
     @staticmethod
+    def _get_reasoning_profile(provider_id: Optional[str], model: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Return quickstart reasoning options for the current provider/model."""
+        if not provider_id or not model:
+            return None
+        try:
+            from massgen.config_builder import ConfigBuilder
+
+            return ConfigBuilder.get_quickstart_reasoning_profile(provider_id, model)
+        except Exception:
+            return None
+
+    def _set_reasoning_visibility(self, visible: bool) -> None:
+        for widget in [self._reasoning_hint, self._reasoning_label, self._reasoning_select]:
+            if widget is not None:
+                widget.display = visible
+
+    def _update_reasoning_input(self) -> None:
+        """Show/hide and populate reasoning selector based on provider/model."""
+        if not self._reasoning_select:
+            return
+
+        profile = self._get_reasoning_profile(self._current_provider, self._current_model)
+        if not profile:
+            self._current_reasoning_effort = None
+            self._set_reasoning_visibility(False)
+            return
+
+        choices = profile.get("choices", [])
+        default_effort = profile.get("default_effort", "medium")
+        valid_efforts = {value for _, value in choices}
+        selected_effort = self._current_reasoning_effort if self._current_reasoning_effort in valid_efforts else default_effort
+
+        self._current_reasoning_effort = selected_effort
+        if not self.is_mounted:
+            return
+
+        try:
+            self._reasoning_select.set_options(choices)
+            self._reasoning_select.value = selected_effort
+        except Exception as e:
+            _quickstart_log(f"ProviderModelStep._update_reasoning_input error: {e}")
+            return
+
+        if self._reasoning_hint:
+            self._reasoning_hint.update(profile.get("description", ""))
+        self._set_reasoning_visibility(True)
+
+    @staticmethod
     def _save_api_key(env_var: str, key: str) -> None:
         """Save API key to .env file."""
         env_path = Path(".env")
@@ -332,7 +384,28 @@ class ProviderModelStep(StepComponent):
         )
         yield self._model_select
 
+        self._reasoning_hint = Label("", classes="password-hint")
+        self._reasoning_hint.display = False
+        yield self._reasoning_hint
+
+        self._reasoning_label = Label("Reasoning effort:", classes="text-input-label")
+        self._reasoning_label.display = False
+        yield self._reasoning_label
+
+        self._reasoning_select = Select(
+            [("Medium (recommended)", "medium")],
+            value="medium",
+            id="reasoning_select",
+        )
+        self._reasoning_select.display = False
+        yield self._reasoning_select
+
         self._update_key_input()
+        self._update_reasoning_input()
+
+    async def on_mount(self) -> None:
+        self._update_key_input()
+        self._update_reasoning_input()
 
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle provider selection change to update model list."""
@@ -350,15 +423,24 @@ class ProviderModelStep(StepComponent):
                 if models:
                     self._model_select.value = models[0]
                     self._current_model = models[0]
+                else:
+                    self._current_model = None
+            self._update_reasoning_input()
 
         elif event.select.id == "model_select" and event.value != Select.BLANK:
             self._current_model = str(event.value)
+            self._update_reasoning_input()
+        elif event.select.id == "reasoning_select" and event.value != Select.BLANK:
+            self._current_reasoning_effort = str(event.value)
 
     def get_value(self) -> Dict[str, str]:
-        return {
+        value = {
             "provider": self._current_provider or "",
             "model": self._current_model or "",
         }
+        if self._current_reasoning_effort:
+            value["reasoning_effort"] = self._current_reasoning_effort
+        return value
 
     def set_value(self, value: Any) -> None:
         if isinstance(value, dict):
@@ -368,6 +450,9 @@ class ProviderModelStep(StepComponent):
             if "model" in value and self._model_select:
                 self._current_model = value["model"]
                 self._model_select.value = value["model"]
+            if "reasoning_effort" in value:
+                self._current_reasoning_effort = value["reasoning_effort"]
+            self._update_reasoning_input()
 
     def validate(self) -> Optional[str]:
         if not self._current_provider:
@@ -411,6 +496,9 @@ class TabbedProviderModelStep(StepComponent):
         self._model_selects: Dict[str, Select] = {}
         self._key_inputs: Dict[str, Input] = {}
         self._key_labels: Dict[str, Label] = {}
+        self._reasoning_hints: Dict[str, Label] = {}
+        self._reasoning_labels: Dict[str, Label] = {}
+        self._reasoning_selects: Dict[str, Select] = {}
 
     def _load_providers(self) -> None:
         """Load all providers from ConfigBuilder, tracking which have keys."""
@@ -459,6 +547,61 @@ class TabbedProviderModelStep(StepComponent):
             key_label.display = False
             key_input.display = False
 
+    @staticmethod
+    def _get_reasoning_profile(provider_id: Optional[str], model: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not provider_id or not model:
+            return None
+        try:
+            from massgen.config_builder import ConfigBuilder
+
+            return ConfigBuilder.get_quickstart_reasoning_profile(provider_id, model)
+        except Exception:
+            return None
+
+    def _set_reasoning_visibility(self, agent_key: str, visible: bool) -> None:
+        for widget in [
+            self._reasoning_hints.get(agent_key),
+            self._reasoning_labels.get(agent_key),
+            self._reasoning_selects.get(agent_key),
+        ]:
+            if widget is not None:
+                widget.display = visible
+
+    def _update_reasoning_input(self, agent_key: str, provider_id: Optional[str], model: Optional[str]) -> None:
+        """Show/hide and populate reasoning selector for one agent tab."""
+        reasoning_select = self._reasoning_selects.get(agent_key)
+        if reasoning_select is None:
+            return
+
+        profile = self._get_reasoning_profile(provider_id, model)
+        if not profile:
+            self._tab_selections.setdefault(agent_key, {})["reasoning_effort"] = None
+            self._set_reasoning_visibility(agent_key, False)
+            return
+
+        choices = profile.get("choices", [])
+        default_effort = profile.get("default_effort", "medium")
+        valid_efforts = {value for _, value in choices}
+        selected_effort = self._tab_selections.get(agent_key, {}).get("reasoning_effort")
+        if selected_effort not in valid_efforts:
+            selected_effort = default_effort
+
+        self._tab_selections.setdefault(agent_key, {})["reasoning_effort"] = selected_effort
+        if not self.is_mounted:
+            return
+
+        try:
+            reasoning_select.set_options(choices)
+            reasoning_select.value = selected_effort
+        except Exception as e:
+            _quickstart_log(f"TabbedProviderModelStep._update_reasoning_input error: {e}")
+            return
+
+        hint = self._reasoning_hints.get(agent_key)
+        if hint:
+            hint.update(profile.get("description", ""))
+        self._set_reasoning_visibility(agent_key, True)
+
     def compose(self) -> ComposeResult:
         self._load_providers()
 
@@ -477,6 +620,7 @@ class TabbedProviderModelStep(StepComponent):
                 self._tab_selections[letter] = {
                     "provider": default_provider,
                     "model": default_model,
+                    "reasoning_effort": None,
                 }
 
                 with TabPane(f"Agent {letter.upper()}", id=f"tab_agent_{letter}"):
@@ -516,6 +660,25 @@ class TabbedProviderModelStep(StepComponent):
                         self._model_selects[letter] = m_select
                         yield m_select
 
+                        reasoning_hint = Label("", classes="password-hint")
+                        reasoning_hint.display = False
+                        self._reasoning_hints[letter] = reasoning_hint
+                        yield reasoning_hint
+
+                        reasoning_label = Label("Reasoning effort:", classes="text-input-label")
+                        reasoning_label.display = False
+                        self._reasoning_labels[letter] = reasoning_label
+                        yield reasoning_label
+
+                        reasoning_select = Select(
+                            [("Medium (recommended)", "medium")],
+                            value="medium",
+                            id=f"reasoning_{letter}",
+                        )
+                        reasoning_select.display = False
+                        self._reasoning_selects[letter] = reasoning_select
+                        yield reasoning_select
+
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle provider/model changes per tab."""
         sel_id = event.select.id or ""
@@ -541,18 +704,35 @@ class TabbedProviderModelStep(StepComponent):
                 if models:
                     m_select.value = models[0]
                     self._tab_selections[agent_key]["model"] = models[0]
+                else:
+                    self._tab_selections[agent_key]["model"] = None
+            self._update_reasoning_input(
+                agent_key,
+                self._tab_selections[agent_key].get("provider"),
+                self._tab_selections[agent_key].get("model"),
+            )
         elif kind == "model":
             self._tab_selections[agent_key]["model"] = str(event.value)
+            self._update_reasoning_input(
+                agent_key,
+                self._tab_selections[agent_key].get("provider"),
+                self._tab_selections[agent_key].get("model"),
+            )
+        elif kind == "reasoning":
+            self._tab_selections[agent_key]["reasoning_effort"] = str(event.value)
 
     def get_value(self) -> Dict[str, Any]:
         # Store per-agent configs in wizard state
         for agent_key, sel in self._tab_selections.items():
+            agent_config = {
+                "provider": sel.get("provider", ""),
+                "model": sel.get("model", ""),
+            }
+            if sel.get("reasoning_effort"):
+                agent_config["reasoning_effort"] = sel.get("reasoning_effort")
             self.wizard_state.set(
                 f"agent_{agent_key}_config",
-                {
-                    "provider": sel.get("provider", ""),
-                    "model": sel.get("model", ""),
-                },
+                agent_config,
             )
         return {"agent_configs": dict(self._tab_selections)}
 
@@ -566,6 +746,31 @@ class TabbedProviderModelStep(StepComponent):
                     p_select.value = sel["provider"]
                 if m_select and sel.get("model"):
                     m_select.value = sel["model"]
+                self._update_reasoning_input(
+                    agent_key,
+                    sel.get("provider"),
+                    sel.get("model"),
+                )
+                reasoning_select = self._reasoning_selects.get(agent_key)
+                reasoning_effort = sel.get("reasoning_effort")
+                if reasoning_select and reasoning_effort:
+                    try:
+                        reasoning_select.value = reasoning_effort
+                    except Exception:
+                        pass
+
+    async def on_mount(self) -> None:
+        for i in range(self._agent_count):
+            letter = _agent_letter(i)
+            sel = self._tab_selections.get(letter, {})
+            provider = sel.get("provider")
+            if provider:
+                self._update_key_input(letter, provider)
+            self._update_reasoning_input(
+                letter,
+                provider,
+                sel.get("model"),
+            )
 
     def _get_active_tab_index(self) -> int:
         """Return the 0-based index of the currently active tab."""
@@ -1070,27 +1275,30 @@ class ConfigPreviewStep(StepComponent):
                 provider_model = self.wizard_state.get("provider_model", {})
                 provider = provider_model.get("provider", "openai")
                 model = provider_model.get("model", "gpt-4o-mini")
+                reasoning_effort = provider_model.get("reasoning_effort")
 
                 for i in range(agent_count):
-                    agents_config.append(
-                        {
-                            "id": f"agent_{_agent_letter(i)}",
-                            "type": provider,
-                            "model": model,
-                        },
-                    )
+                    agent_spec = {
+                        "id": f"agent_{_agent_letter(i)}",
+                        "type": provider,
+                        "model": model,
+                    }
+                    if reasoning_effort:
+                        agent_spec["reasoning_effort"] = reasoning_effort
+                    agents_config.append(agent_spec)
             else:
                 # Different provider/model per agent
                 for i in range(agent_count):
                     letter = _agent_letter(i)
                     agent_config = self.wizard_state.get(f"agent_{letter}_config", {})
-                    agents_config.append(
-                        {
-                            "id": f"agent_{letter}",
-                            "type": agent_config.get("provider", "openai"),
-                            "model": agent_config.get("model", "gpt-4o-mini"),
-                        },
-                    )
+                    agent_spec = {
+                        "id": f"agent_{letter}",
+                        "type": agent_config.get("provider", "openai"),
+                        "model": agent_config.get("model", "gpt-4o-mini"),
+                    }
+                    if agent_config.get("reasoning_effort"):
+                        agent_spec["reasoning_effort"] = agent_config.get("reasoning_effort")
+                    agents_config.append(agent_spec)
 
             # Build context paths
             context_paths = None
@@ -1370,15 +1578,17 @@ class QuickstartWizard(WizardModal):
                 provider_model = self.state.get("provider_model", {})
                 provider = provider_model.get("provider", "openai")
                 model = provider_model.get("model", "gpt-4o-mini")
+                reasoning_effort = provider_model.get("reasoning_effort")
 
                 for i in range(agent_count):
-                    agents_config.append(
-                        {
-                            "id": f"agent_{_agent_letter(i)}",
-                            "type": provider,
-                            "model": model,
-                        },
-                    )
+                    agent_spec = {
+                        "id": f"agent_{_agent_letter(i)}",
+                        "type": provider,
+                        "model": model,
+                    }
+                    if reasoning_effort:
+                        agent_spec["reasoning_effort"] = reasoning_effort
+                    agents_config.append(agent_spec)
             else:
                 for i in range(agent_count):
                     letter = _agent_letter(i)
@@ -1389,14 +1599,16 @@ class QuickstartWizard(WizardModal):
                         agent_config = {
                             "provider": provider_model.get("provider", "openai"),
                             "model": provider_model.get("model", "gpt-4o-mini"),
+                            "reasoning_effort": provider_model.get("reasoning_effort"),
                         }
-                    agents_config.append(
-                        {
-                            "id": f"agent_{letter}",
-                            "type": agent_config.get("provider", "openai"),
-                            "model": agent_config.get("model", "gpt-4o-mini"),
-                        },
-                    )
+                    agent_spec = {
+                        "id": f"agent_{letter}",
+                        "type": agent_config.get("provider", "openai"),
+                        "model": agent_config.get("model", "gpt-4o-mini"),
+                    }
+                    if agent_config.get("reasoning_effort"):
+                        agent_spec["reasoning_effort"] = agent_config.get("reasoning_effort")
+                    agents_config.append(agent_spec)
 
             # Build context paths
             context_paths = None

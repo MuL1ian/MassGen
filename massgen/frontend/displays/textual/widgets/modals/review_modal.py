@@ -11,6 +11,7 @@ right panel with green/red/cyan coloring for added/removed/hunk lines.
 """
 
 import re
+from hashlib import sha1
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -85,6 +86,7 @@ class GitDiffReviewModal(BaseModal):
         ("up", "select_previous_file", "Previous File"),
         ("down", "select_next_file", "Next File"),
     ]
+    FILE_KEY_SEPARATOR = "::"
 
     def __init__(self, changes: List[Dict[str, Any]], **kwargs):
         """
@@ -100,32 +102,44 @@ class GitDiffReviewModal(BaseModal):
         super().__init__(**kwargs)
         self.changes = changes
         self.file_approvals: Dict[str, bool] = {}
+        self._file_key_to_context: Dict[str, str] = {}
+        self._file_key_to_path: Dict[str, str] = {}
         self._checkbox_to_path: Dict[str, str] = {}
+        self._file_key_to_checkbox: Dict[str, str] = {}
         self._all_file_paths: List[str] = []
         self._per_file_diffs: Dict[str, str] = {}
         self._selected_file: Optional[str] = None
 
         # Build file list, approval map, and per-file diffs
         for ctx in changes:
+            context_path = ctx.get("original_path", "")
             combined_diff = ctx.get("diff", "")
             parsed_diffs = self._parse_per_file_diffs(combined_diff)
 
             for change in ctx.get("changes", []):
                 file_path = change.get("path", "")
                 if file_path:
-                    self.file_approvals[file_path] = True
-                    self._all_file_paths.append(file_path)
-                    checkbox_id = self._make_checkbox_id(file_path)
-                    self._checkbox_to_path[checkbox_id] = file_path
+                    file_key = self._make_file_key(context_path, file_path)
+                    if file_key in self.file_approvals:
+                        continue
+
+                    self.file_approvals[file_key] = True
+                    self._file_key_to_context[file_key] = context_path
+                    self._file_key_to_path[file_key] = file_path
+                    self._all_file_paths.append(file_key)
+
+                    checkbox_id = self._make_checkbox_id(file_key)
+                    self._checkbox_to_path[checkbox_id] = file_key
+                    self._file_key_to_checkbox[file_key] = checkbox_id
 
                     # Try to find this file's diff from parsed output
-                    if file_path not in self._per_file_diffs:
+                    if file_key not in self._per_file_diffs:
                         matched_diff = self._find_file_diff(file_path, parsed_diffs)
                         if matched_diff:
-                            self._per_file_diffs[file_path] = matched_diff
+                            self._per_file_diffs[file_key] = matched_diff
                         else:
                             status = change.get("status", "?")
-                            self._per_file_diffs[file_path] = self._make_placeholder_diff(file_path, status)
+                            self._per_file_diffs[file_key] = self._make_placeholder_diff(file_path, status)
 
         # Default to first file selected
         if self._all_file_paths:
@@ -194,9 +208,10 @@ class GitDiffReviewModal(BaseModal):
                         )
 
                     with VerticalScroll(id="file_list_scroll"):
+                        rendered_keys = set()
                         for ctx in self.changes:
-                            context_path = ctx.get("original_path", "Unknown")
-                            context_name = Path(context_path).name
+                            context_path = ctx.get("original_path", "")
+                            context_name = Path(context_path).name if context_path else "Unknown"
                             if len(self.changes) > 1:
                                 yield Static(
                                     f"[bold dim]{context_name}[/]",
@@ -207,36 +222,43 @@ class GitDiffReviewModal(BaseModal):
                             for change in ctx.get("changes", []):
                                 status = change.get("status", "?")
                                 file_path = change.get("path", "")
-                                if file_path:
-                                    status_badge = self._get_status_badge(status)
-                                    entry_id = self._make_checkbox_id(file_path)
-                                    display_name = Path(file_path).name
-                                    if "/" in file_path:
-                                        display_name = str(Path(file_path).parent.name) + "/" + display_name
+                                if not file_path:
+                                    continue
 
-                                    is_selected = file_path == self._selected_file
-                                    approved = self.file_approvals.get(file_path, True)
+                                file_key = self._make_file_key(context_path, file_path)
+                                if file_key in rendered_keys:
+                                    continue
+                                rendered_keys.add(file_key)
 
-                                    row_classes = "review-file-row"
-                                    if is_selected:
-                                        row_classes += " review-file-selected"
+                                status_badge = self._get_status_badge(status)
+                                entry_id = self._file_key_to_checkbox.get(file_key, self._make_checkbox_id(file_key))
+                                display_name = Path(file_path).name
+                                if "/" in file_path:
+                                    display_name = str(Path(file_path).parent.name) + "/" + display_name
 
-                                    with Horizontal(
-                                        classes=row_classes,
-                                        id=f"row_{entry_id}",
-                                    ):
-                                        yield _ApprovalToggle(
-                                            file_path=file_path,
-                                            approved=approved,
-                                            classes="review-toggle-indicator" + (" review-approved" if approved else ""),
-                                            id=f"toggle_{entry_id}",
-                                        )
-                                        yield _FileEntry(
-                                            file_path=file_path,
-                                            display_label=(f"{status_badge} {display_name}"),
-                                            classes="review-file-entry",
-                                            id=f"entry_{entry_id}",
-                                        )
+                                is_selected = file_key == self._selected_file
+                                approved = self.file_approvals.get(file_key, True)
+
+                                row_classes = "review-file-row"
+                                if is_selected:
+                                    row_classes += " review-file-selected"
+
+                                with Horizontal(
+                                    classes=row_classes,
+                                    id=f"row_{entry_id}",
+                                ):
+                                    yield _ApprovalToggle(
+                                        file_path=file_key,
+                                        approved=approved,
+                                        classes="review-toggle-indicator" + (" review-approved" if approved else ""),
+                                        id=f"toggle_{entry_id}",
+                                    )
+                                    yield _FileEntry(
+                                        file_path=file_key,
+                                        display_label=(f"{status_badge} {display_name}"),
+                                        classes="review-file-entry",
+                                        id=f"entry_{entry_id}",
+                                    )
 
                 # ---- Right panel: Diff viewer ----
                 with Vertical(id="review_diff_panel", classes="review-diff-panel"):
@@ -384,7 +406,12 @@ class GitDiffReviewModal(BaseModal):
     def _make_diff_header_text(self) -> str:
         """Build the diff panel header text showing the selected file."""
         if self._selected_file:
-            return f"[bold]Diff:[/] [italic]{self._selected_file}[/]"
+            file_path = self._file_key_to_path.get(self._selected_file, self._selected_file)
+            context_path = self._file_key_to_context.get(self._selected_file, "")
+            if len(self.changes) > 1:
+                context_name = Path(context_path).name if context_path else "context"
+                return f"[bold]Diff:[/] " f"[italic]{self._escape_markup(context_name)}:{self._escape_markup(file_path)}[/]"
+            return f"[bold]Diff:[/] [italic]{self._escape_markup(file_path)}[/]"
         return "[bold]Diff Preview[/]"
 
     def _build_summary_markup(
@@ -461,10 +488,15 @@ class GitDiffReviewModal(BaseModal):
     # Checkbox ID mapping
     # =========================================================================
 
+    @classmethod
+    def _make_file_key(cls, context_path: str, file_path: str) -> str:
+        """Create a unique key for a file scoped to its context path."""
+        return f"{context_path}{cls.FILE_KEY_SEPARATOR}{file_path}"
+
     def _make_checkbox_id(self, file_path: str) -> str:
         """Create a valid widget ID from a file path."""
-        safe_id = file_path.replace("/", "_").replace(".", "_").replace("-", "_").replace(" ", "_")
-        return f"file_cb_{safe_id}"
+        digest = sha1(file_path.encode("utf-8")).hexdigest()[:12]
+        return f"file_cb_{digest}"
 
     def _path_from_checkbox_id(self, checkbox_id: str) -> Optional[str]:
         """Look up the original file path from a checkbox ID."""
@@ -543,7 +575,7 @@ class GitDiffReviewModal(BaseModal):
             for row in self.query(".review-file-row"):
                 row.remove_class("review-file-selected")
 
-            entry_id = self._make_checkbox_id(file_path)
+            entry_id = self._file_key_to_checkbox.get(file_path, self._make_checkbox_id(file_path))
             try:
                 target = self.query_one(f"#row_{entry_id}")
                 target.add_class("review-file-selected")
@@ -581,7 +613,7 @@ class GitDiffReviewModal(BaseModal):
 
     def _refresh_toggle(self, file_path: str) -> None:
         """Update the approval toggle indicator for a file."""
-        entry_id = self._make_checkbox_id(file_path)
+        entry_id = self._file_key_to_checkbox.get(file_path, self._make_checkbox_id(file_path))
         approved = self.file_approvals.get(file_path, True)
         try:
             toggle = self.query_one(f"#toggle_{entry_id}", _ApprovalToggle)
@@ -600,11 +632,22 @@ class GitDiffReviewModal(BaseModal):
     def _approve_selected(self) -> None:
         """Approve only selected (checked) files and dismiss."""
         approved_files = [path for path, approved in self.file_approvals.items() if approved]
+        approved_files_by_context: Dict[str, List[str]] = {}
+        for file_key in approved_files:
+            context_path = self._file_key_to_context.get(file_key)
+            file_path = self._file_key_to_path.get(file_key)
+            if not context_path or not file_path:
+                continue
+            approved_files_by_context.setdefault(context_path, []).append(file_path)
+
         self.dismiss(
             ReviewResult(
                 approved=True,
                 approved_files=approved_files,
-                metadata={"selection_mode": "selected"},
+                metadata={
+                    "selection_mode": "selected",
+                    "approved_files_by_context": approved_files_by_context,
+                },
             ),
         )
 

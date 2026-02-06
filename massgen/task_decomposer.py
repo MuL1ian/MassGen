@@ -29,6 +29,7 @@ class TaskDecomposerConfig:
 
     enabled: bool = True
     decomposition_guidelines: Optional[str] = None
+    timeout_seconds: int = 300
 
 
 class TaskDecomposer:
@@ -166,7 +167,7 @@ Requirements:
                 orchestrator_id=orchestrator_id,
                 parent_agent_configs=simplified_configs,
                 max_concurrent=1,
-                default_timeout=180,
+                default_timeout=self.config.timeout_seconds,
                 subagent_orchestrator_config=subagent_orch_config,
                 log_directory=log_directory,
             )
@@ -185,7 +186,7 @@ Requirements:
                     on_subagent_started(
                         "task_decomposition",
                         prompt,
-                        180,
+                        self.config.timeout_seconds,
                         _status_callback,
                         subagent_log_path,
                     )
@@ -195,7 +196,7 @@ Requirements:
             result = await manager.spawn_subagent(
                 task=prompt,
                 subagent_id="task_decomposition",
-                timeout_seconds=180,
+                timeout_seconds=self.config.timeout_seconds,
                 refine=False,
             )
 
@@ -300,11 +301,12 @@ Requirements:
             if isinstance(value, str) and value.strip():
                 cleaned[aid] = value.strip()
 
-        # If partial, fill missing entries with lightweight deterministic fallbacks.
+        # If partial, fill missing entries with role-aware fallbacks.
         if cleaned and len(cleaned) < len(agent_ids):
+            existing_subtasks = ", ".join(f"{k}: {v[:60]}" for k, v in cleaned.items())
             for idx, aid in enumerate(agent_ids):
                 if aid not in cleaned:
-                    cleaned[aid] = f"Own subtask {idx + 1} of {len(agent_ids)}; focus on a unique, non-overlapping portion."
+                    cleaned[aid] = f"Handle aspects of the task not covered by other agents " f"({existing_subtasks}). Focus on complementary work as agent '{aid}'."
 
         return cleaned
 

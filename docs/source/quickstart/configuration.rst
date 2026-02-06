@@ -516,6 +516,21 @@ Sensible defaults guidance:
 Quickstart note:
 
 * The Quickstart flows (``uv run massgen --quickstart`` and the Web/TUI quickstart wizard) expose decomposition mode, presenter selection, and these defaults directly.
+* For GPT-5x models, Quickstart also exposes ``reasoning.effort`` selection.
+  OpenAI GPT-5 models support ``low|medium|high`` and Codex GPT-5 models include ``xhigh``.
+
+Example:
+
+.. code-block:: yaml
+
+   agents:
+     - id: "agent_a"
+       backend:
+         type: "codex"
+         model: "gpt-5.3-codex"
+         reasoning:
+           effort: "xhigh"
+           summary: "auto"
 
 Advanced Configuration
 ----------------------

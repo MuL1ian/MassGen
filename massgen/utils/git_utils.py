@@ -116,19 +116,35 @@ def get_changes(repo: Repo) -> List[Dict[str, str]]:
     Returns:
         List of dicts with 'status' and 'path' keys
     """
-    changes = []
+    changes_by_path: Dict[str, str] = {}
+
+    def _record_name_status(diff_output: str) -> None:
+        for line in diff_output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+            status = parts[0][:1].upper()
+            rel_path = parts[-1]
+            if rel_path:
+                changes_by_path[rel_path] = status
+
+    # Staged changes (index vs HEAD)
+    try:
+        _record_name_status(repo.git.diff("--name-status", "--cached"))
+    except Exception:
+        pass
 
     # Unstaged changes (working tree vs index)
-    for diff in repo.index.diff(None):
-        changes.append(
-            {
-                "status": diff.change_type[0].upper(),  # M, A, D, R, etc.
-                "path": diff.a_path or diff.b_path,
-            },
-        )
+    try:
+        _record_name_status(repo.git.diff("--name-status"))
+    except Exception:
+        pass
 
     # Untracked files
     for path in repo.untracked_files:
-        changes.append({"status": "?", "path": path})
+        changes_by_path[path] = "?"
 
-    return changes
+    return [{"status": status, "path": path} for path, status in changes_by_path.items()]

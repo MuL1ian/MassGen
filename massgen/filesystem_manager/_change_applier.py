@@ -45,6 +45,7 @@ class ChangeApplier:
         source_path: str,
         target_path: str,
         approved_files: Optional[List[str]] = None,
+        context_prefix: Optional[str] = None,
     ) -> List[str]:
         """
         Apply changes from source (isolated) to target (original).
@@ -53,6 +54,9 @@ class ChangeApplier:
             source_path: Isolated context path (worktree or shadow repo)
             target_path: Original context path
             approved_files: List of relative paths to apply (None = all changes)
+            context_prefix: Optional repo-relative path prefix that constrains
+                which changed files are eligible to apply. Use this to enforce
+                context-path boundaries when source is a full repo checkout.
 
         Returns:
             List of applied file paths (relative to target)
@@ -71,11 +75,21 @@ class ChangeApplier:
 
         try:
             # Try to use git to get accurate change list
-            applied = self._apply_git_changes(source, target, approved_files)
+            applied = self._apply_git_changes(
+                source,
+                target,
+                approved_files,
+                context_prefix=context_prefix,
+            )
         except Exception as e:
             log.warning(f"Git-based change detection failed: {e}, falling back to file comparison")
             # Fallback to file comparison if git fails
-            applied = self._apply_file_changes(source, target, approved_files)
+            applied = self._apply_file_changes(
+                source,
+                target,
+                approved_files,
+                context_prefix=context_prefix,
+            )
 
         return applied
 
@@ -84,6 +98,7 @@ class ChangeApplier:
         source: Path,
         target: Path,
         approved_files: Optional[List[str]],
+        context_prefix: Optional[str] = None,
     ) -> List[str]:
         """Apply changes using git diff detection."""
         from git import InvalidGitRepositoryError, Repo
@@ -95,46 +110,52 @@ class ChangeApplier:
         except InvalidGitRepositoryError:
             raise ValueError(f"Source is not a git repository: {source}")
 
-        # Get all changed files
-        changed_files: Dict[str, str] = {}  # path -> change_type (M, A, D, ?)
-
-        # Unstaged changes (working tree vs index)
-        for diff in repo.index.diff(None):
-            rel_path = diff.a_path or diff.b_path
-            if rel_path:
-                changed_files[rel_path] = diff.change_type[0].upper()
-
-        # Untracked files (new files)
-        for rel_path in repo.untracked_files:
-            changed_files[rel_path] = "A"  # Treat untracked as added
+        changed_files = self._collect_git_changed_files(repo)
+        normalized_prefix = self._normalize_context_prefix(context_prefix)
 
         # Apply each change
         for rel_path, change_type in changed_files.items():
+            # Skip .git and .massgen_scratch paths (matches _apply_file_changes filter)
+            norm_parts = rel_path.replace("\\", "/").split("/")
+            if ".git" in norm_parts or ".massgen_scratch" in norm_parts:
+                continue
+
+            mapped_path = self._map_context_path(rel_path, normalized_prefix)
+            if mapped_path is None:
+                log.debug(f"Skipping file outside context prefix '{normalized_prefix}': {rel_path}")
+                continue
+
             # Filter by approved files if specified
-            if approved_files is not None and rel_path not in approved_files:
+            if not self._is_approved_path(
+                repo_relative_path=rel_path,
+                context_relative_path=mapped_path,
+                approved_files=approved_files,
+            ):
                 log.debug(f"Skipping unapproved file: {rel_path}")
                 continue
 
             src_file = source / rel_path
-            dst_file = target / rel_path
+            dst_file = target / mapped_path if mapped_path else target
 
             try:
-                if change_type in ("M", "A"):  # Modified or Added
+                if change_type in ("M", "A", "R", "C"):  # Modified, Added, Renamed, Copied
                     if src_file.exists():
                         dst_file.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(src_file, dst_file)
-                        applied.append(rel_path)
-                        log.info(f"Applied {change_type}: {rel_path}")
+                        applied_path = mapped_path or str(target.name)
+                        applied.append(applied_path)
+                        log.info(f"Applied {change_type}: {applied_path}")
                     else:
                         log.warning(f"Source file missing for {change_type}: {rel_path}")
 
                 elif change_type == "D":  # Deleted
                     if dst_file.exists():
                         dst_file.unlink()
-                        applied.append(rel_path)
-                        log.info(f"Applied D: {rel_path}")
+                        applied_path = mapped_path or str(target.name)
+                        applied.append(applied_path)
+                        log.info(f"Applied D: {applied_path}")
                     else:
-                        log.debug(f"File already deleted: {rel_path}")
+                        log.debug(f"File already deleted: {mapped_path or str(target.name)}")
 
             except Exception as e:
                 log.error(f"Failed to apply change for {rel_path}: {e}")
@@ -146,9 +167,11 @@ class ChangeApplier:
         source: Path,
         target: Path,
         approved_files: Optional[List[str]],
+        context_prefix: Optional[str] = None,
     ) -> List[str]:
         """Fallback: Apply changes by comparing file contents."""
         applied: List[str] = []
+        normalized_prefix = self._normalize_context_prefix(context_prefix)
 
         # Walk source directory and compare with target
         for src_file in source.rglob("*"):
@@ -160,12 +183,19 @@ class ChangeApplier:
                     continue
 
                 rel_path = str(src_file.relative_to(source))
-
-                # Filter by approved files if specified
-                if approved_files is not None and rel_path not in approved_files:
+                mapped_path = self._map_context_path(rel_path, normalized_prefix)
+                if mapped_path is None:
                     continue
 
-                dst_file = target / rel_path
+                # Filter by approved files if specified
+                if not self._is_approved_path(
+                    repo_relative_path=rel_path,
+                    context_relative_path=mapped_path,
+                    approved_files=approved_files,
+                ):
+                    continue
+
+                dst_file = target / mapped_path if mapped_path else target
 
                 try:
                     # Check if file is new or modified
@@ -182,13 +212,84 @@ class ChangeApplier:
                     if should_copy:
                         dst_file.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(src_file, dst_file)
-                        applied.append(rel_path)
-                        log.info(f"Applied change: {rel_path}")
+                        applied_path = mapped_path or str(target.name)
+                        applied.append(applied_path)
+                        log.info(f"Applied change: {applied_path}")
 
                 except Exception as e:
                     log.error(f"Failed to apply {rel_path}: {e}")
 
         return applied
+
+    @staticmethod
+    def _normalize_context_prefix(context_prefix: Optional[str]) -> Optional[str]:
+        """Normalize repo-relative context prefix for path filtering."""
+        if context_prefix is None:
+            return None
+        normalized = context_prefix.replace("\\", "/").strip("/")
+        if normalized in ("", "."):
+            return None
+        return normalized
+
+    @staticmethod
+    def _map_context_path(rel_path: str, context_prefix: Optional[str]) -> Optional[str]:
+        """Map repo-relative path to context-relative path, or None if out of scope."""
+        normalized_rel = rel_path.replace("\\", "/").strip("/")
+        if not context_prefix:
+            return normalized_rel
+
+        if normalized_rel == context_prefix:
+            return ""
+
+        prefix_with_sep = f"{context_prefix}/"
+        if not normalized_rel.startswith(prefix_with_sep):
+            return None
+
+        return normalized_rel[len(prefix_with_sep) :]
+
+    @staticmethod
+    def _is_approved_path(
+        repo_relative_path: str,
+        context_relative_path: str,
+        approved_files: Optional[List[str]],
+    ) -> bool:
+        """Check whether a changed file is included in the approved set."""
+        if approved_files is None:
+            return True
+        return repo_relative_path in approved_files or context_relative_path in approved_files
+
+    @staticmethod
+    def _collect_git_changed_files(repo) -> Dict[str, str]:
+        """Collect staged, unstaged, and untracked changes."""
+        changed_files: Dict[str, str] = {}  # path -> change_type (M, A, D, R, C)
+
+        def _record_name_status(diff_output: str) -> None:
+            for line in diff_output.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split("\t")
+                if len(parts) < 2:
+                    continue
+                status = parts[0][:1].upper()
+                rel_path = parts[-1]
+                if rel_path:
+                    changed_files[rel_path] = status
+
+        try:
+            _record_name_status(repo.git.diff("--name-status", "--cached"))
+        except Exception:
+            pass
+
+        try:
+            _record_name_status(repo.git.diff("--name-status"))
+        except Exception:
+            pass
+
+        for rel_path in repo.untracked_files:
+            changed_files[rel_path] = "A"  # Treat untracked as added
+
+        return changed_files
 
     def get_changes_summary(
         self,

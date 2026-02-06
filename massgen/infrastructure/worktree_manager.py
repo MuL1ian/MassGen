@@ -124,6 +124,11 @@ class WorktreeManager:
                 return wt.get("branch")
         return None
 
+    def close(self) -> None:
+        """Close the underlying Repo object to release file descriptors."""
+        if hasattr(self, "repo") and self.repo:
+            self.repo.close()
+
     def _delete_branch(self, branch_name: str, force: bool = False) -> None:
         """Delete a git branch."""
         try:
@@ -132,5 +137,5 @@ class WorktreeManager:
             else:
                 self.repo.git.branch("-d", branch_name)
             logger.info(f"Deleted branch {branch_name}")
-        except GitCommandError:
-            pass
+        except GitCommandError as e:
+            logger.debug(f"Failed to delete branch {branch_name}: {e}")

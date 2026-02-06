@@ -100,6 +100,18 @@ class TestGitUtils:
         status = get_git_status(str(tmp_path))
         assert status["has_untracked"] is True
 
+    def test_get_changes_includes_staged_changes(self, tmp_path):
+        """Test get_changes detects files that are staged but not unstaged."""
+        from massgen.utils.git_utils import get_changes
+
+        repo = init_test_repo(tmp_path)
+        (tmp_path / "file.txt").write_text("staged update")
+        repo.git.add("file.txt")
+
+        changes = get_changes(repo)
+        changed_paths = {change["path"] for change in changes}
+        assert "file.txt" in changed_paths
+
 
 class TestWorktreeManager:
     """Tests for WorktreeManager."""
@@ -491,6 +503,38 @@ class TestChangeApplier:
 
         icm.cleanup_all()
 
+    def test_apply_changes_respects_context_prefix(self, tmp_path):
+        """Test apply_changes only writes files inside the configured context prefix."""
+        from massgen.filesystem_manager import ChangeApplier, IsolationContextManager
+
+        init_test_repo(tmp_path)
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        (subdir / "inner.txt").write_text("inner original")
+
+        repo = Repo(tmp_path)
+        repo.index.add(["subdir/inner.txt"])
+        repo.index.commit("add subdir file")
+
+        icm = IsolationContextManager(session_id="test-session", write_mode="auto")
+        isolated_path = icm.initialize_context(str(tmp_path))
+
+        (Path(isolated_path) / "subdir" / "inner.txt").write_text("inner updated")
+        (Path(isolated_path) / "file.txt").write_text("root updated")
+
+        applier = ChangeApplier()
+        applied = applier.apply_changes(
+            isolated_path,
+            str(subdir),
+            context_prefix="subdir",
+        )
+
+        assert applied == ["inner.txt"]
+        assert (subdir / "inner.txt").read_text() == "inner updated"
+        assert (tmp_path / "file.txt").read_text() == "content"
+
+        icm.cleanup_all()
+
     def test_apply_changes_nested_directory(self, tmp_path):
         """Test applying changes in nested directories."""
         from massgen.filesystem_manager import ChangeApplier, IsolationContextManager
@@ -764,53 +808,38 @@ class TestPPMRemoveReAdd:
 class TestReviewModalCheckboxPathMapping:
     """Tests for review modal checkbox-to-path mapping."""
 
-    def test_checkbox_to_path_dict(self):
-        """_checkbox_to_path dict maps checkbox IDs to file paths correctly."""
-        # We test the logic without needing a running Textual app
-        # by directly testing the init and mapping methods
-
+    def test_context_namespacing_prevents_cross_context_collisions(self):
+        """Files with same relative path in different contexts stay distinct."""
         changes = [
             {
-                "original_path": "/project",
-                "isolated_path": "/tmp/worktree",
-                "changes": [
-                    {"status": "M", "path": "src/main.py"},
-                    {"status": "A", "path": "src/new_file.py"},
-                    {"status": "?", "path": "docs/readme.md"},
-                ],
-                "diff": "some diff",
+                "original_path": "/repo_one",
+                "changes": [{"status": "M", "path": "README.md"}],
+            },
+            {
+                "original_path": "/repo_two",
+                "changes": [{"status": "M", "path": "README.md"}],
             },
         ]
 
-        # Test the checkbox ID generation and mapping logic directly
-        # (without instantiating the full Textual widget)
         file_approvals = {}
-        checkbox_to_path = {}
-
         for ctx in changes:
-            for change in ctx.get("changes", []):
-                file_path = change.get("path", "")
-                if file_path:
-                    file_approvals[file_path] = True
-                    # Reproduce _make_checkbox_id logic
-                    safe_id = file_path.replace("/", "_").replace(".", "_").replace("-", "_")
-                    checkbox_id = f"file_cb_{safe_id}"
-                    checkbox_to_path[checkbox_id] = file_path
+            context_path = ctx["original_path"]
+            for change in ctx["changes"]:
+                file_path = change["path"]
+                file_key = f"{context_path}::" + file_path
+                file_approvals[file_key] = True
 
-        # Verify all files are tracked
-        assert len(file_approvals) == 3
-        assert len(checkbox_to_path) == 3
+        assert len(file_approvals) == 2
+        assert "/repo_one::README.md" in file_approvals
+        assert "/repo_two::README.md" in file_approvals
 
-        # Verify specific mappings
-        assert checkbox_to_path["file_cb_src_main_py"] == "src/main.py"
-        assert checkbox_to_path["file_cb_src_new_file_py"] == "src/new_file.py"
-        assert checkbox_to_path["file_cb_docs_readme_md"] == "docs/readme.md"
+    def test_hashed_checkbox_ids_are_unique_for_namespaced_keys(self):
+        """Checkbox IDs remain unique even when relative paths are identical."""
+        from hashlib import sha1
 
-    def test_path_with_special_characters(self):
-        """Checkbox mapping handles paths with hyphens and dots."""
-        file_path = "my-module/some.config.yaml"
-        safe_id = file_path.replace("/", "_").replace(".", "_").replace("-", "_")
-        checkbox_id = f"file_cb_{safe_id}"
+        key_one = "/repo_one::README.md"
+        key_two = "/repo_two::README.md"
+        id_one = f"file_cb_{sha1(key_one.encode('utf-8')).hexdigest()[:12]}"
+        id_two = f"file_cb_{sha1(key_two.encode('utf-8')).hexdigest()[:12]}"
 
-        checkbox_to_path = {checkbox_id: file_path}
-        assert checkbox_to_path.get(checkbox_id) == file_path
+        assert id_one != id_two

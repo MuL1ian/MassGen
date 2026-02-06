@@ -497,5 +497,58 @@ class TestQuickstartDecompositionSettings:
         assert config["orchestrator"]["max_new_answers_global"] == 7
 
 
+class TestQuickstartReasoningSettings:
+    """Test quickstart reasoning selector behavior and config output."""
+
+    @pytest.fixture
+    def builder(self):
+        return ConfigBuilder()
+
+    def test_reasoning_profile_for_openai_gpt5(self):
+        profile = ConfigBuilder.get_quickstart_reasoning_profile("openai", "gpt-5.2")
+        assert profile is not None
+        assert profile["default_effort"] == "medium"
+        efforts = [value for _, value in profile["choices"]]
+        assert efforts == ["low", "medium", "high"]
+
+    def test_reasoning_profile_for_codex_includes_xhigh(self):
+        profile = ConfigBuilder.get_quickstart_reasoning_profile("codex", "gpt-5.3-codex")
+        assert profile is not None
+        efforts = [value for _, value in profile["choices"]]
+        assert efforts == ["low", "medium", "high", "xhigh"]
+
+    def test_reasoning_profile_ignored_for_non_gpt5_models(self):
+        profile = ConfigBuilder.get_quickstart_reasoning_profile("openai", "gpt-4o")
+        assert profile is None
+
+    def test_quickstart_reasoning_effort_written_to_backend(self, builder):
+        config = builder._generate_quickstart_config(
+            agents_config=[
+                {
+                    "id": "agent_a",
+                    "type": "openai",
+                    "model": "gpt-5.2",
+                    "reasoning_effort": "high",
+                },
+                {
+                    "id": "agent_b",
+                    "type": "codex",
+                    "model": "gpt-5.3-codex",
+                    "reasoning_effort": "xhigh",
+                },
+            ],
+            use_docker=False,
+        )
+
+        assert config["agents"][0]["backend"]["reasoning"] == {
+            "effort": "high",
+            "summary": "auto",
+        }
+        assert config["agents"][1]["backend"]["reasoning"] == {
+            "effort": "xhigh",
+            "summary": "auto",
+        }
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

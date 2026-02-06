@@ -46,6 +46,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from .agent_config import CoordinationConfig
     from .plan_storage import PlanSession
 
 import questionary
@@ -2030,6 +2031,78 @@ def validate_context_paths(config: Dict[str, Any]) -> None:
         raise ConfigurationError("\n".join(errors))
 
 
+def _parse_coordination_config(coord_cfg: Dict[str, Any]) -> "CoordinationConfig":
+    """Parse a coordination config dict into a CoordinationConfig object.
+
+    Centralizes the parsing logic used by run_question_with_history,
+    run_single_question, and run_textual_interactive_mode.
+    """
+    from .agent_config import CoordinationConfig
+    from .persona_generator import PersonaGeneratorConfig
+    from .subagent.models import SubagentOrchestratorConfig
+    from .task_decomposer import TaskDecomposerConfig
+
+    # Parse persona_generator config if present
+    persona_generator_config = PersonaGeneratorConfig()
+    if "persona_generator" in coord_cfg:
+        pg_cfg = coord_cfg["persona_generator"]
+        persona_generator_config = PersonaGeneratorConfig(
+            enabled=pg_cfg.get("enabled", False),
+            diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
+            persona_guidelines=pg_cfg.get("persona_guidelines"),
+            persist_across_turns=pg_cfg.get("persist_across_turns", False),
+        )
+
+    # Parse task_decomposer config if present
+    task_decomposer_config = TaskDecomposerConfig()
+    if "task_decomposer" in coord_cfg:
+        td_cfg = coord_cfg["task_decomposer"]
+        task_decomposer_config = TaskDecomposerConfig(
+            enabled=td_cfg.get("enabled", True),
+            decomposition_guidelines=td_cfg.get("decomposition_guidelines"),
+            timeout_seconds=td_cfg.get("timeout_seconds", 300),
+        )
+
+    # Parse subagent_orchestrator config if present
+    subagent_orchestrator_config = None
+    if "subagent_orchestrator" in coord_cfg:
+        so_cfg = coord_cfg["subagent_orchestrator"]
+        subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
+
+    return CoordinationConfig(
+        enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
+        planning_mode_instruction=coord_cfg.get(
+            "planning_mode_instruction",
+            "During coordination, describe what you would do without actually executing actions. Only provide concrete implementation details without calling external APIs or tools.",
+        ),
+        max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
+        enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
+        max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
+        broadcast=coord_cfg.get("broadcast", False),
+        broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
+        response_depth=coord_cfg.get("response_depth", "medium"),
+        broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
+        broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
+        max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
+        task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
+        enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
+        compression_target_ratio=coord_cfg.get("compression_target_ratio", 0.20),
+        use_skills=coord_cfg.get("use_skills", False),
+        massgen_skills=coord_cfg.get("massgen_skills", []),
+        skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
+        load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
+        persona_generator=persona_generator_config,
+        enable_subagents=coord_cfg.get("enable_subagents", False),
+        subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
+        subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
+        subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
+        subagent_orchestrator=subagent_orchestrator_config,
+        use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
+        task_decomposer=task_decomposer_config,
+        write_mode=coord_cfg.get("write_mode"),
+    )
+
+
 def inject_prompt_context_paths(
     prompt: str,
     config: Dict[str, Any],
@@ -2340,92 +2413,9 @@ async def run_question_with_history(
 
     # Parse coordination config if present
     if "coordination" in orchestrator_cfg:
-        from .agent_config import CoordinationConfig
-        from .persona_generator import PersonaGeneratorConfig
-        from .subagent.models import SubagentOrchestratorConfig
-
         coord_cfg = orchestrator_cfg["coordination"]
         logger.info(f"[CLI] coord_cfg keys: {list(coord_cfg.keys())}")
-
-        # Parse persona_generator config if present
-        persona_generator_config = PersonaGeneratorConfig()
-        if "persona_generator" in coord_cfg:
-            pg_cfg = coord_cfg["persona_generator"]
-            logger.info(f"[CLI] persona_generator raw config: {pg_cfg}")
-            persona_generator_config = PersonaGeneratorConfig(
-                enabled=pg_cfg.get("enabled", False),
-                diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
-                persona_guidelines=pg_cfg.get("persona_guidelines"),
-                persist_across_turns=pg_cfg.get("persist_across_turns", False),
-            )
-            logger.info(
-                f"[CLI] Created PersonaGeneratorConfig: enabled={persona_generator_config.enabled}",
-            )
-
-        # Parse task_decomposer config if present
-        from .task_decomposer import TaskDecomposerConfig
-
-        task_decomposer_config = TaskDecomposerConfig()
-        if "task_decomposer" in coord_cfg:
-            td_cfg = coord_cfg["task_decomposer"]
-            task_decomposer_config = TaskDecomposerConfig(
-                enabled=td_cfg.get("enabled", True),
-                decomposition_guidelines=td_cfg.get("decomposition_guidelines"),
-            )
-
-        # Parse subagent_orchestrator config if present
-        subagent_orchestrator_config = None
-        if "subagent_orchestrator" in coord_cfg:
-            so_cfg = coord_cfg["subagent_orchestrator"]
-            subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
-
-        orchestrator_config.coordination_config = CoordinationConfig(
-            enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
-            planning_mode_instruction=coord_cfg.get(
-                "planning_mode_instruction",
-                "During coordination, describe what you would do without actually executing actions. Only provide concrete implementation details without calling external APIs or tools.",
-            ),
-            max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
-            enable_agent_task_planning=coord_cfg.get(
-                "enable_agent_task_planning",
-                False,
-            ),
-            max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
-            broadcast=coord_cfg.get("broadcast", False),
-            broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
-            response_depth=coord_cfg.get("response_depth", "medium"),
-            broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
-            broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
-            max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
-            task_planning_filesystem_mode=coord_cfg.get(
-                "task_planning_filesystem_mode",
-                False,
-            ),
-            enable_memory_filesystem_mode=coord_cfg.get(
-                "enable_memory_filesystem_mode",
-                False,
-            ),
-            compression_target_ratio=coord_cfg.get(
-                "compression_target_ratio",
-                0.20,
-            ),
-            use_skills=coord_cfg.get("use_skills", False),
-            massgen_skills=coord_cfg.get("massgen_skills", []),
-            skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
-            load_previous_session_skills=coord_cfg.get(
-                "load_previous_session_skills",
-                False,
-            ),
-            persona_generator=persona_generator_config,
-            enable_subagents=coord_cfg.get("enable_subagents", False),
-            subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
-            subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
-            subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
-            subagent_orchestrator=subagent_orchestrator_config,
-            use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
-            task_decomposer=task_decomposer_config,
-            write_mode=coord_cfg.get("write_mode"),
-        )
+        orchestrator_config.coordination_config = _parse_coordination_config(coord_cfg)
 
     # Get session_id from session_info (will be generated in save_final_state if not exists)
     session_id = session_info.get("session_id")
@@ -3097,95 +3087,8 @@ async def run_single_question(
 
         # Parse coordination config if present
         if "coordination" in orchestrator_cfg:
-            from .agent_config import CoordinationConfig
-            from .persona_generator import PersonaGeneratorConfig
-            from .subagent.models import SubagentOrchestratorConfig
-
             coord_cfg = orchestrator_cfg["coordination"]
-
-            # Parse persona_generator config if present
-            persona_generator_config = PersonaGeneratorConfig()
-            if "persona_generator" in coord_cfg:
-                pg_cfg = coord_cfg["persona_generator"]
-                persona_generator_config = PersonaGeneratorConfig(
-                    enabled=pg_cfg.get("enabled", False),
-                    diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
-                    persona_guidelines=pg_cfg.get("persona_guidelines"),
-                    persist_across_turns=pg_cfg.get("persist_across_turns", False),
-                )
-
-            # Parse subagent_orchestrator config if present
-            subagent_orchestrator_config = None
-            if "subagent_orchestrator" in coord_cfg:
-                so_cfg = coord_cfg["subagent_orchestrator"]
-                subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(
-                    so_cfg,
-                )
-
-            # Parse task_decomposer config if present
-            from .task_decomposer import TaskDecomposerConfig
-
-            task_decomposer_config = TaskDecomposerConfig()
-            if "task_decomposer" in coord_cfg:
-                td_cfg = coord_cfg["task_decomposer"]
-                task_decomposer_config = TaskDecomposerConfig(
-                    enabled=td_cfg.get("enabled", True),
-                    decomposition_guidelines=td_cfg.get("decomposition_guidelines"),
-                )
-
-            orchestrator_config.coordination_config = CoordinationConfig(
-                enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
-                planning_mode_instruction=coord_cfg.get(
-                    "planning_mode_instruction",
-                    "During coordination, describe what you would do without actually executing actions. Only provide concrete implementation details without calling external APIs or tools.",
-                ),
-                max_orchestration_restarts=coord_cfg.get(
-                    "max_orchestration_restarts",
-                    0,
-                ),
-                enable_agent_task_planning=coord_cfg.get(
-                    "enable_agent_task_planning",
-                    False,
-                ),
-                max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
-                broadcast=coord_cfg.get("broadcast", False),
-                broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
-                response_depth=coord_cfg.get("response_depth", "medium"),
-                broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
-                broadcast_wait_by_default=coord_cfg.get(
-                    "broadcast_wait_by_default",
-                    True,
-                ),
-                max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
-                task_planning_filesystem_mode=coord_cfg.get(
-                    "task_planning_filesystem_mode",
-                    False,
-                ),
-                enable_memory_filesystem_mode=coord_cfg.get(
-                    "enable_memory_filesystem_mode",
-                    False,
-                ),
-                compression_target_ratio=coord_cfg.get(
-                    "compression_target_ratio",
-                    0.20,
-                ),
-                use_skills=coord_cfg.get("use_skills", False),
-                massgen_skills=coord_cfg.get("massgen_skills", []),
-                skills_directory=coord_cfg.get("skills_directory", ".agent/skills"),
-                load_previous_session_skills=coord_cfg.get(
-                    "load_previous_session_skills",
-                    False,
-                ),
-                persona_generator=persona_generator_config,
-                enable_subagents=coord_cfg.get("enable_subagents", False),
-                subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
-                subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
-                subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
-                subagent_orchestrator=subagent_orchestrator_config,
-                task_decomposer=task_decomposer_config,
-                use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
-                write_mode=coord_cfg.get("write_mode"),
-            )
+            orchestrator_config.coordination_config = _parse_coordination_config(coord_cfg)
 
         orchestrator = Orchestrator(
             agents=agents,
@@ -5560,69 +5463,8 @@ async def run_textual_interactive_mode(
 
                 # Parse coordination config if present
                 if "coordination" in orchestrator_cfg:
-                    from .agent_config import CoordinationConfig
-                    from .persona_generator import PersonaGeneratorConfig
-                    from .subagent.models import SubagentOrchestratorConfig
-                    from .task_decomposer import TaskDecomposerConfig
-
                     coord_cfg = orchestrator_cfg["coordination"]
-
-                    # Parse persona_generator config if present
-                    persona_generator_config = PersonaGeneratorConfig()
-                    if "persona_generator" in coord_cfg:
-                        pg_cfg = coord_cfg["persona_generator"]
-                        persona_generator_config = PersonaGeneratorConfig(
-                            enabled=pg_cfg.get("enabled", False),
-                            diversity_mode=pg_cfg.get("diversity_mode", "perspective"),
-                            persona_guidelines=pg_cfg.get("persona_guidelines"),
-                            persist_across_turns=pg_cfg.get("persist_across_turns", False),
-                        )
-
-                    # Parse subagent_orchestrator config if present
-                    subagent_orchestrator_config = None
-                    if "subagent_orchestrator" in coord_cfg:
-                        so_cfg = coord_cfg["subagent_orchestrator"]
-                        subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
-
-                    # Parse task_decomposer config if present
-                    task_decomposer_config = TaskDecomposerConfig()
-                    if "task_decomposer" in coord_cfg:
-                        td_cfg = coord_cfg["task_decomposer"]
-                        task_decomposer_config = TaskDecomposerConfig(
-                            enabled=td_cfg.get("enabled", True),
-                            decomposition_guidelines=td_cfg.get("decomposition_guidelines"),
-                        )
-
-                    orchestrator_config.coordination_config = CoordinationConfig(
-                        enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
-                        planning_mode_instruction=coord_cfg.get(
-                            "planning_mode_instruction",
-                            "During coordination, describe what you would do without actually executing actions. Only provide concrete implementation details without calling external APIs or tools.",
-                        ),
-                        max_orchestration_restarts=coord_cfg.get("max_orchestration_restarts", 0),
-                        enable_agent_task_planning=coord_cfg.get("enable_agent_task_planning", False),
-                        max_tasks_per_plan=coord_cfg.get("max_tasks_per_plan", 10),
-                        broadcast=coord_cfg.get("broadcast", False),
-                        broadcast_sensitivity=coord_cfg.get("broadcast_sensitivity", "medium"),
-                        response_depth=coord_cfg.get("response_depth", "medium"),
-                        broadcast_timeout=coord_cfg.get("broadcast_timeout", 300),
-                        broadcast_wait_by_default=coord_cfg.get("broadcast_wait_by_default", True),
-                        max_broadcasts_per_agent=coord_cfg.get("max_broadcasts_per_agent", 10),
-                        task_planning_filesystem_mode=coord_cfg.get("task_planning_filesystem_mode", False),
-                        enable_memory_filesystem_mode=coord_cfg.get("enable_memory_filesystem_mode", False),
-                        use_skills=coord_cfg.get("use_skills", False),
-                        skills_directory=coord_cfg.get("skills_directory"),
-                        load_previous_session_skills=coord_cfg.get("load_previous_session_skills", False),
-                        persona_generator=persona_generator_config,
-                        enable_subagents=coord_cfg.get("enable_subagents", False),
-                        subagent_default_timeout=coord_cfg.get("subagent_default_timeout", 300),
-                        subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
-                        subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
-                        subagent_orchestrator=subagent_orchestrator_config,
-                        task_decomposer=task_decomposer_config,
-                        use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
-                        write_mode=coord_cfg.get("write_mode"),
-                    )
+                    orchestrator_config.coordination_config = _parse_coordination_config(coord_cfg)
 
             # Set timeout config if provided
             timeout_config = kwargs.get("timeout_config")
