@@ -400,6 +400,47 @@ class TestDecompositionAnswerLimits:
         assert state.decomposition_answer_streak == 0
         assert state.seen_answer_counts["backend"] == 2
 
+    def test_decomposition_auto_stop_refreshes_streak_before_limit_check(self):
+        config = AgentConfig()
+        config.coordination_mode = "decomposition"
+        config.max_new_answers_per_agent = 2
+        orchestrator = Orchestrator(
+            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
+            config=config,
+        )
+
+        frontend = orchestrator.agent_states["frontend"]
+        frontend.decomposition_answer_streak = 2
+        frontend.seen_answer_counts = {"frontend": 2, "backend": 0}
+        orchestrator.coordination_tracker.answers_by_agent["frontend"] = self._answers(2)
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answers(1)
+
+        should_skip = orchestrator._apply_decomposition_auto_stop_if_needed("frontend")
+
+        assert should_skip is False
+        assert frontend.has_voted is False
+        assert frontend.decomposition_answer_streak == 0
+
+    def test_decomposition_auto_stop_stops_agent_when_no_new_external_updates(self):
+        config = AgentConfig()
+        config.coordination_mode = "decomposition"
+        config.max_new_answers_per_agent = 2
+        orchestrator = Orchestrator(
+            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
+            config=config,
+        )
+
+        frontend = orchestrator.agent_states["frontend"]
+        frontend.decomposition_answer_streak = 2
+        frontend.seen_answer_counts = {"frontend": 2, "backend": 1}
+        orchestrator.coordination_tracker.answers_by_agent["frontend"] = self._answers(2)
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answers(1)
+
+        should_skip = orchestrator._apply_decomposition_auto_stop_if_needed("frontend")
+
+        assert should_skip is True
+        assert frontend.has_voted is True
+
     def test_global_limit_auto_stops_in_decomposition_mode(self):
         config = AgentConfig()
         config.coordination_mode = "decomposition"

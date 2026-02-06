@@ -3342,16 +3342,8 @@ Your answer:"""
 
                 # In decomposition mode, hitting max_new_answers_per_agent should auto-stop
                 # without spawning a fresh model round.
-                if getattr(self.config, "coordination_mode", "voting") == "decomposition":
-                    was_voted = self.agent_states[agent_id].has_voted
-                    self._is_vote_only_mode(agent_id)  # applies auto-stop side effect in decomposition mode
-                    if not was_voted and self.agent_states[agent_id].has_voted:
-                        self.coordination_tracker.change_status(agent_id, AgentStatus.STOPPED)
-                        logger.info(
-                            f"[Orchestrator] Skipping execution for {agent_id} (auto-stopped at answer limit)",
-                        )
-                    if self.agent_states[agent_id].has_voted:
-                        continue
+                if self._apply_decomposition_auto_stop_if_needed(agent_id):
+                    continue
 
                 if agent_id not in active_streams and not self.agent_states[agent_id].has_voted and not self.agent_states[agent_id].is_killed:
                     # Apply rate limiting before starting agent
@@ -5633,6 +5625,30 @@ Your answer:"""
 
         return True
 
+    def _apply_decomposition_auto_stop_if_needed(self, agent_id: str) -> bool:
+        """Apply decomposition auto-stop gate after refreshing answer visibility.
+
+        Returns True when the agent is currently considered done/stopped and
+        should be skipped for execution in this coordination iteration.
+        """
+        if not self._is_decomposition_mode():
+            return False
+
+        state = self.agent_states[agent_id]
+        # Refresh seen revision counts before evaluating streak limits so agents
+        # can resume after peers submit newer answers.
+        self._sync_decomposition_answer_visibility(agent_id)
+
+        was_voted = state.has_voted
+        self._is_vote_only_mode(agent_id)  # applies decomposition auto-stop side effect
+        if not was_voted and state.has_voted:
+            self.coordination_tracker.change_status(agent_id, AgentStatus.STOPPED)
+            logger.info(
+                f"[Orchestrator] Skipping execution for {agent_id} (auto-stopped at answer limit)",
+            )
+
+        return state.has_voted
+
     def _is_waiting_for_all_answers(self, agent_id: str) -> bool:
         """Check if agent is waiting for all agents to answer before voting.
 
@@ -6412,7 +6428,11 @@ Your answer:"""
                 if subtask:
                     original_msg = conversation_messages[1]["content"]
                     conversation_messages[1]["content"] = (
-                        f"[YOUR ASSIGNED SUBTASK: {subtask}]\n" f"You MUST focus ONLY on your subtask. " f"Do NOT implement other agents' parts.\n\n" f"{original_msg}"
+                        f"[YOUR ASSIGNED SUBTASK: {subtask}]\n"
+                        f"You MUST focus ONLY on your subtask. "
+                        f"There may be overlap with other agents' existing work in your area; "
+                        f"you may refine/integrate that overlap, but do NOT implement unrelated parts.\n\n"
+                        f"{original_msg}"
                     )
 
             # Inject shared memory context

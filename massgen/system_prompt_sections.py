@@ -1790,6 +1790,7 @@ class DecompositionSection(SystemPromptSection):
 {subtask_section}
 **CRITICAL: STAY IN YOUR LANE.** You MUST only work on YOUR assigned subtask above.
 Do NOT implement other agents' subtasks — other team members are handling those. Focus exclusively on delivering your piece.
+There may be overlap with what other agents already did near your area; you may review/refine/integrate that overlap, but do NOT take over unrelated subtasks.
 
 **HOW DECOMPOSITION MODE WORKS:**
 
