@@ -116,6 +116,12 @@ repos:
         args: [.]
   - repo: local
     hooks:
+      - id: sync-agent-instructions
+        name: Keep CLAUDE.md and AGENTS.md synchronized
+        entry: python scripts/precommit_sync_agent_instructions.py
+        language: system
+        files: ^(CLAUDE|AGENTS)\.md$
+        pass_filenames: false
       # Need to fix locally
       # - id: validate-configs
       #   name: Validate MassGen configuration files
