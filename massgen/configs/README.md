@@ -227,7 +227,22 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.47 - Latest
+### v0.1.48 - Latest
+**New Features:** Decomposition Mode, Worktree Isolation, Quickstart Docker Setup
+
+**Key Features:**
+- **Decomposition Mode**: New coordination mode that decomposes tasks into subtasks assigned to individual agents
+- **Worktree Isolation**: Git worktree-based isolation for agent file writes with review modal
+- **Quickstart Docker Setup**: Docker setup step in quickstart wizard with animated pull progress
+- **Stop Tool**: Agents can signal completion and exit workflows
+
+**Try It:**
+```bash
+# Launch the quickstart wizard and select Decomposition mode
+uv run massgen
+```
+
+### v0.1.47
 **New Features:** Codex Backend, TUI Theme Refactoring, Per-agent Voting Sensitivity
 
 **Key Features:**
