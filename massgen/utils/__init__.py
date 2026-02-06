@@ -42,6 +42,7 @@ class CoordinationStage(Enum):
     ENFORCEMENT = "enforcement"
     PRESENTATION = "presentation"
     POST_EVALUATION = "post_evaluation"  # post-evaluation phase (MCP tools enabled)
+    REVIEWING = "reviewing"  # Git-based change review stage
 
 
 MODEL_MAPPINGS = {

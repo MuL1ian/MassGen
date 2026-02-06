@@ -104,7 +104,11 @@ class TimelineEventAdapter:
             except Exception as e:
                 tui_log(f"[TimelineEventAdapter] {e}")
 
-        round_number = output.round_number or self._round_number
+        raw_round_number = output.round_number or self._round_number
+        try:
+            round_number = max(1, int(raw_round_number))
+        except Exception:
+            round_number = 1
 
         if output.output_type == "tool" and output.tool_data:
             self._apply_tool_output(output, round_number, timeline)
@@ -133,9 +137,20 @@ class TimelineEventAdapter:
                 return
             # Capture text during final presentation as the final answer
             # (only if we haven't received the definitive final_answer event yet)
-            if output.output_type == "text" and getattr(self, "_pending_final_card_meta", None) and not getattr(self, "_final_answer_received", False):
+            # Don't add to timeline - the FinalPresentationCard will display it
+            # Check both adapter flag (_pending_final_card_meta) AND panel flag (_is_final_presentation_round)
+            # since the panel flag may be set before the adapter receives the event
+            is_final_presentation = getattr(self, "_pending_final_card_meta", None) or getattr(self._panel, "_is_final_presentation_round", False)
+            if output.output_type == "text" and is_final_presentation and not getattr(self, "_final_answer_received", False):
                 tui_log(f"[FINAL_CARD] Capturing text as final_answer: {output.text_content[:50] if output.text_content else None}...")
                 self._final_answer = output.text_content
+                # Call callback before returning (don't add to timeline - card will show it)
+                if self._on_output_applied:
+                    try:
+                        self._on_output_applied(output)
+                    except Exception as e:
+                        tui_log(f"[TimelineEventAdapter] {e}")
+                return
             try:
                 timeline.add_text(
                     output.text_content,
@@ -184,7 +199,11 @@ class TimelineEventAdapter:
                 except Exception as e:
                     tui_log(f"[TimelineEventAdapter] {e}")
         elif output.output_type == "separator":
-            round_number = output.round_number or self._round_number
+            raw_round_number = output.round_number or self._round_number
+            try:
+                round_number = max(1, int(raw_round_number))
+            except Exception:
+                round_number = 1
             label = output.separator_label or ""
             if label.startswith("Round "):
                 if round_number <= self._last_separator_round:

@@ -174,10 +174,6 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         # Verify Codex CLI is available (skip in docker mode — resolved inside container)
         if self._docker_execution:
             self._codex_path = "codex"
-            # Auto-enable mounting ~/.codex/ for OAuth tokens
-            if self.filesystem_manager and self.filesystem_manager.docker_manager:
-                self.filesystem_manager.docker_manager.mount_codex_config = True
-            logger.info("Codex backend: docker execution mode — CLI will be resolved inside container")
         else:
             self._codex_path = self._find_codex_cli()
             if not self._codex_path:
@@ -535,8 +531,6 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             self._write_toml_fallback(config, config_path)
 
         self._workspace_config_written = True
-        logger.info(f"Wrote Codex workspace config: {config_path}")
-        logger.info(f"Codex workspace config contents: {config}")
 
     @staticmethod
     def _toml_value(v: Any) -> str:

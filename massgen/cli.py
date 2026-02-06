@@ -1468,6 +1468,11 @@ def create_agents_from_config(
         if coordination_settings_for_injection.get("use_two_tier_workspace", False):
             backend_config["use_two_tier_workspace"] = True
 
+        # Inject write_mode so FilesystemManager knows to suppress Docker context mounts
+        write_mode_setting = coordination_settings_for_injection.get("write_mode")
+        if write_mode_setting:
+            backend_config["write_mode"] = write_mode_setting
+
         # Inject session mount parameters for multi-turn Docker support
         # This enables the session directory to be pre-mounted so all turn
         # workspaces are automatically visible without container recreation
@@ -2419,6 +2424,7 @@ async def run_question_with_history(
             subagent_orchestrator=subagent_orchestrator_config,
             use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
             task_decomposer=task_decomposer_config,
+            write_mode=coord_cfg.get("write_mode"),
         )
 
     # Get session_id from session_info (will be generated in save_final_state if not exists)
@@ -2587,6 +2593,7 @@ async def run_question_with_history(
                     "use_two_tier_workspace",
                     False,
                 ),
+                write_mode=coordination_settings.get("write_mode"),
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
@@ -3038,6 +3045,11 @@ async def run_single_question(
                     "subagent_round_timeouts",
                 ),
                 subagent_orchestrator=subagent_orchestrator_config,
+                use_two_tier_workspace=coordination_settings.get(
+                    "use_two_tier_workspace",
+                    False,
+                ),
+                write_mode=coordination_settings.get("write_mode"),
             )
 
         # Get orchestrator parameters from config
@@ -3171,6 +3183,8 @@ async def run_single_question(
                 subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
                 subagent_orchestrator=subagent_orchestrator_config,
                 task_decomposer=task_decomposer_config,
+                use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
+                write_mode=coord_cfg.get("write_mode"),
             )
 
         orchestrator = Orchestrator(
@@ -5606,6 +5620,8 @@ async def run_textual_interactive_mode(
                         subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
                         subagent_orchestrator=subagent_orchestrator_config,
                         task_decomposer=task_decomposer_config,
+                        use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
+                        write_mode=coord_cfg.get("write_mode"),
                     )
 
             # Set timeout config if provided

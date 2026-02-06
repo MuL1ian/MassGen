@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Set, Tuple
 
 if TYPE_CHECKING:
+    from massgen.filesystem_manager import ReviewResult
     from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
         PlanApprovalResult,
     )
 
 from massgen.logger_config import get_event_emitter, get_log_session_dir, logger
+from massgen.user_settings import get_user_settings
 
 from .terminal_display import TerminalDisplay
 
@@ -69,6 +71,7 @@ try:
         AgentTabChanged,
         BroadcastModeChanged,
         CompletionFooter,
+        ContextPathsClicked,
         ExecutionStatusLine,
         FinalPresentationCard,
         ModeBar,
@@ -258,7 +261,8 @@ class TextualTerminalDisplay(TerminalDisplay):
         # Agent models mapping (agent_id -> model name) for display
         self.agent_models: Dict[str, str] = kwargs.get("agent_models", {})
 
-        self.theme = kwargs.get("theme", "dark")
+        # Load theme from user settings if not explicitly provided
+        self.theme = kwargs.get("theme") or get_user_settings().theme
         self.refresh_rate = kwargs.get("refresh_rate")
         self.enable_syntax_highlighting = kwargs.get("enable_syntax_highlighting", True)
         self.show_timestamps = kwargs.get("show_timestamps", True)
@@ -301,6 +305,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._final_stream_buffer: str = ""
         self._final_presentation_agent: Optional[str] = None
         self._routing_to_post_eval_card = False  # Bug 2 fix: prevent timeline routing during post-eval
+        self._in_final_presentation = False  # Prevent duplicate timeline content during final presentation
 
         self._app_ready = threading.Event()
         self._input_handler: Optional[Callable[[str], None]] = None
@@ -368,6 +373,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._final_presentation_agent = None
         self._final_stream_active = False
         self._routing_to_post_eval_card = False
+        self._in_final_presentation = False
 
         # Post-evaluation content - clear for new turn
         self._post_evaluation_lines.clear()
@@ -608,6 +614,12 @@ class TextualTerminalDisplay(TerminalDisplay):
         # But allow tool content through - tools should be displayed during post-evaluation
         if hasattr(self, "_routing_to_post_eval_card") and self._routing_to_post_eval_card:
             if content_type != "tool":
+                return
+
+        # Skip timeline updates during final presentation - content goes to FinalPresentationCard
+        # Allow tools through since they should still be displayed
+        if hasattr(self, "_in_final_presentation") and self._in_final_presentation:
+            if content_type not in ("tool", "thinking"):
                 return
 
         if not content:
@@ -1145,6 +1157,8 @@ class TextualTerminalDisplay(TerminalDisplay):
             vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
             answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
         """
+        # Skip direct content updates during final presentation - event pipeline handles it
+        self._in_final_presentation = True
         if self._app:
             self._call_app_method("show_final_presentation_start", agent_id, vote_counts, answer_labels)
 
@@ -1712,6 +1726,76 @@ class TextualTerminalDisplay(TerminalDisplay):
             # Can't notify via app if call_from_thread failed
             logger.error("[PlanApproval] Failed to dispatch modal to main thread")
 
+    async def show_change_review_modal(
+        self,
+        changes: List[Dict[str, Any]],
+    ) -> "ReviewResult":
+        """Show modal for reviewing changes before applying.
+
+        This method displays a modal that shows git diffs from isolated write
+        contexts and allows the user to approve or reject changes before they
+        are applied to the original context paths.
+
+        Args:
+            changes: List of context change dicts with keys:
+                - original_path: Original context path
+                - isolated_path: Isolated context path
+                - changes: List of file changes [{status, path}, ...]
+                - diff: Git diff output string
+
+        Returns:
+            ReviewResult with approval status and selected files
+        """
+        import asyncio
+
+        from massgen.filesystem_manager import ReviewResult
+
+        if not self._app:
+            logger.warning("[ChangeReview] Cannot show modal - no app instance")
+            return ReviewResult(approved=False, metadata={"error": "no_app"})
+
+        from .textual.widgets.modals.review_modal import GitDiffReviewModal
+
+        loop = asyncio.get_running_loop()
+        result_future: asyncio.Future[ReviewResult] = loop.create_future()
+
+        def show_modal():
+            try:
+                modal = GitDiffReviewModal(changes=changes)
+
+                def handle_result(result: ReviewResult) -> None:
+                    # Must use call_soon_threadsafe because this callback runs
+                    # on the Textual thread, not the asyncio event loop thread.
+                    if not result_future.done():
+                        loop.call_soon_threadsafe(result_future.set_result, result)
+
+                self._app.push_screen(modal, handle_result)
+            except Exception as e:
+                logger.exception(f"[ChangeReview] Error showing modal: {e}")
+                if not result_future.done():
+                    loop.call_soon_threadsafe(
+                        result_future.set_result,
+                        ReviewResult(approved=False, metadata={"error": str(e)}),
+                    )
+
+        try:
+            self._app.call_from_thread(show_modal)
+        except Exception as e:
+            logger.exception(f"[ChangeReview] call_from_thread failed: {e}")
+            return ReviewResult(approved=False, metadata={"error": str(e)})
+
+        try:
+            # Wait for user decision with 5 minute timeout
+            return await asyncio.wait_for(result_future, timeout=300)
+        except asyncio.TimeoutError:
+            logger.warning("[ChangeReview] Modal timed out after 5 minutes")
+            # Try to dismiss the modal on timeout
+            try:
+                self._app.call_from_thread(self._app.pop_screen)
+            except Exception:
+                pass
+            return ReviewResult(approved=False, metadata={"error": "timeout"})
+
     def _execute_approved_plan(
         self,
         approval: "PlanApprovalResult",
@@ -1854,6 +1938,9 @@ if TEXTUAL_AVAILABLE:
     class StatusBarThemeClicked(Message):
         """Message emitted when the theme indicator in StatusBar is clicked."""
 
+    class StatusBarContextClicked(Message):
+        """Message emitted when the context paths indicator in StatusBar is clicked."""
+
     class StatusBar(Widget):
         """Persistent status bar showing orchestration state at the bottom of the TUI."""
 
@@ -1917,6 +2004,8 @@ if TEXTUAL_AVAILABLE:
             cwd = Path.cwd()
             cwd_short = f"~/{cwd.name}" if len(str(cwd)) > 30 else str(cwd)
             yield Static(f"[dim]📁[/] {cwd_short}", id="status_cwd", classes="clickable")
+            # Context paths - clickable to open context paths modal
+            yield Static("[dim]CTX[/]", id="status_context", classes="clickable")
             yield Static("📋 0 events", id="status_events", classes="clickable")
             yield Static("[dim]?:help[/]", id="status_hints")  # Always visible, shows q:cancel during coordination
             yield Static("⏱️ 0:00", id="status_timer")
@@ -1935,6 +2024,8 @@ if TEXTUAL_AVAILABLE:
                     self.toggle_cwd_auto_include()
                 elif widget.id == "status_theme":
                     self.post_message(StatusBarThemeClicked())
+                elif widget.id == "status_context":
+                    self.post_message(StatusBarContextClicked())
 
         def toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode and update display."""
@@ -2456,40 +2547,63 @@ if TEXTUAL_AVAILABLE:
             base_path = cls.THEMES_DIR / "base.tcss"
 
             # Create combined CSS in a cache directory
+            import hashlib
             import tempfile
 
             cache_dir = Path(tempfile.gettempdir()) / "massgen_themes"
             cache_dir.mkdir(exist_ok=True)
-            combined_path = cache_dir / f"{theme}_combined.tcss"
-
-            # Check if cache is valid (exists and newer than source files)
-            # Check both in-memory cache dict AND the on-disk file (from previous session)
-            cache_valid = False
-            if combined_path.exists():
-                # Check modification times - regenerate if sources are newer
-                cache_mtime = combined_path.stat().st_mtime
-                palette_mtime = palette_path.stat().st_mtime if palette_path.exists() else 0
-                base_mtime = base_path.stat().st_mtime if base_path.exists() else 0
-                source_mtime = max(palette_mtime, base_mtime)
-                cache_valid = cache_mtime >= source_mtime
-
-            if cache_valid:
-                # Ensure in-memory cache is up to date
-                cls._combined_css_cache[theme] = combined_path
-                return combined_path
 
             # Read and concatenate files
             palette_css = palette_path.read_text() if palette_path.exists() else ""
             base_css = base_path.read_text() if base_path.exists() else ""
 
+            # Import modal base CSS (shared styles for all modal dialogs)
+            from .textual.widgets.modal_base import MODAL_BASE_CSS
+
+            # Split palette into variables and component overrides
+            # Variables must come first, but component overrides should come last
+            palette_lines = palette_css.split("\n")
+            palette_vars = []
+            palette_overrides = []
+            in_overrides = False
+            for line in palette_lines:
+                if "Component Overrides" in line:
+                    in_overrides = True
+                if in_overrides:
+                    palette_overrides.append(line)
+                else:
+                    palette_vars.append(line)
+
+            # Order: palette vars → modal base CSS → base.tcss → palette overrides
             combined_css = f"/* Combined theme: {theme} */\n"
-            combined_css += f"/* Palette from: {palette_file} */\n\n"
-            combined_css += palette_css
+            combined_css += f"/* Palette variables from: {palette_file} */\n\n"
+            combined_css += "\n".join(palette_vars)
+            combined_css += "\n\n/* Modal base styles */\n\n"
+            combined_css += MODAL_BASE_CSS
             combined_css += "\n\n/* Base component styles */\n\n"
             combined_css += base_css
+            if palette_overrides:
+                combined_css += "\n\n/* Theme-specific component overrides */\n\n"
+                combined_css += "\n".join(palette_overrides)
 
-            combined_path.write_text(combined_css)
+            # Use a content hash in the filename so stale cached files are never reused.
+            # This avoids mismatches when the CSS assembly logic changes across runs.
+            css_hash = hashlib.sha256(combined_css.encode("utf-8")).hexdigest()[:12]
+            combined_path = cache_dir / f"{theme}_combined_{css_hash}.tcss"
+
+            if not combined_path.exists():
+                combined_path.write_text(combined_css)
+
             cls._combined_css_cache[theme] = combined_path
+
+            # Best-effort cleanup of stale combined CSS files for this theme.
+            for stale_path in cache_dir.glob(f"{theme}_combined*.tcss"):
+                if stale_path != combined_path:
+                    try:
+                        stale_path.unlink()
+                    except OSError:
+                        pass
+
             return combined_path
 
         # Minimal bindings - most features accessed via /slash commands
@@ -2530,7 +2644,11 @@ if TEXTUAL_AVAILABLE:
             # Build combined CSS from palette + base
             # Textual CSS variables must be defined before use, so we concatenate
             # the palette (variables) with the base (component styles)
-            theme = display.theme if display.theme in self.PALETTE_MAP else "dark"
+            # Load user settings for theme preference
+            user_settings = get_user_settings()
+            theme = user_settings.theme
+            if theme not in self.PALETTE_MAP:
+                theme = "dark"
             combined_css_path = self._get_combined_css_path(theme)
             super().__init__(css_path=str(combined_css_path))
             self.coordination_display = display
@@ -2853,6 +2971,19 @@ if TEXTUAL_AVAILABLE:
             initial_theme = self.coordination_display.theme
             if initial_theme in self.THEME_NAME_MAP:
                 self.theme = self.THEME_NAME_MAP[initial_theme]
+            # Set initial theme class for CSS-based theme switching
+            if initial_theme == "light":
+                self.add_class("theme-light")
+            else:
+                self.add_class("theme-dark")
+            # Apply saved vim mode preference
+            try:
+                user_settings = get_user_settings()
+                if self.question_input:
+                    self.question_input.vim_mode = user_settings.vim_mode
+                    self._update_vim_indicator(None if not user_settings.vim_mode else False)
+            except Exception:
+                pass
 
             self._thread_id = threading.get_ident()
             self.coordination_display._app_ready.set()
@@ -2871,77 +3002,78 @@ if TEXTUAL_AVAILABLE:
             if self.question_input:
                 self.question_input.focus()
 
-            # DEBUG: Log widget state to file
-            import json
+            # DEBUG: Log widget state to file (opt-in)
+            if os.environ.get("MASSGEN_TUI_LAYOUT_DEBUG", "").lower() in ("1", "true", "yes", "on"):
+                import json
 
-            debug_info = {
-                "header_widget": {
-                    "exists": self.header_widget is not None,
-                    "id": getattr(self.header_widget, "id", None) if self.header_widget else None,
-                    "display": str(self.header_widget.display) if self.header_widget else None,
-                    "visible": self.header_widget.visible if self.header_widget else None,
-                    "classes": list(self.header_widget.classes) if self.header_widget else None,
-                    "styles_dock": str(self.header_widget.styles.dock) if self.header_widget else None,
-                    "styles_height": str(self.header_widget.styles.height) if self.header_widget else None,
-                    "styles_display": str(self.header_widget.styles.display) if self.header_widget else None,
-                },
-                "status_bar": {
-                    "exists": self._status_bar is not None,
-                    "id": getattr(self._status_bar, "id", None) if self._status_bar else None,
-                    "display": str(self._status_bar.display) if self._status_bar else None,
-                    "visible": self._status_bar.visible if self._status_bar else None,
-                    "classes": list(self._status_bar.classes) if self._status_bar else None,
-                    "styles_dock": str(self._status_bar.styles.dock) if self._status_bar else None,
-                    "styles_height": str(self._status_bar.styles.height) if self._status_bar else None,
-                    "styles_display": str(self._status_bar.styles.display) if self._status_bar else None,
-                },
-                "tab_bar": {
-                    "exists": self._tab_bar is not None,
-                    "id": getattr(self._tab_bar, "id", None) if self._tab_bar else None,
-                    "classes": list(self._tab_bar.classes) if self._tab_bar else None,
-                    "styles_dock": str(self._tab_bar.styles.dock) if self._tab_bar else None,
-                },
-            }
-            # Add execution_bar and cancel_button info
-            try:
-                execution_bar = self.query_one("#execution_bar")
-                debug_info["execution_bar"] = {
-                    "exists": True,
-                    "id": execution_bar.id,
-                    "classes": list(execution_bar.classes),
-                    "display": str(execution_bar.styles.display),
-                    "visible": execution_bar.visible,
+                debug_info = {
+                    "header_widget": {
+                        "exists": self.header_widget is not None,
+                        "id": getattr(self.header_widget, "id", None) if self.header_widget else None,
+                        "display": str(self.header_widget.display) if self.header_widget else None,
+                        "visible": self.header_widget.visible if self.header_widget else None,
+                        "classes": list(self.header_widget.classes) if self.header_widget else None,
+                        "styles_dock": str(self.header_widget.styles.dock) if self.header_widget else None,
+                        "styles_height": str(self.header_widget.styles.height) if self.header_widget else None,
+                        "styles_display": str(self.header_widget.styles.display) if self.header_widget else None,
+                    },
+                    "status_bar": {
+                        "exists": self._status_bar is not None,
+                        "id": getattr(self._status_bar, "id", None) if self._status_bar else None,
+                        "display": str(self._status_bar.display) if self._status_bar else None,
+                        "visible": self._status_bar.visible if self._status_bar else None,
+                        "classes": list(self._status_bar.classes) if self._status_bar else None,
+                        "styles_dock": str(self._status_bar.styles.dock) if self._status_bar else None,
+                        "styles_height": str(self._status_bar.styles.height) if self._status_bar else None,
+                        "styles_display": str(self._status_bar.styles.display) if self._status_bar else None,
+                    },
+                    "tab_bar": {
+                        "exists": self._tab_bar is not None,
+                        "id": getattr(self._tab_bar, "id", None) if self._tab_bar else None,
+                        "classes": list(self._tab_bar.classes) if self._tab_bar else None,
+                        "styles_dock": str(self._tab_bar.styles.dock) if self._tab_bar else None,
+                    },
                 }
-            except Exception as e:
-                debug_info["execution_bar"] = {"exists": False, "error": str(e)}
+                # Add execution_bar and cancel_button info
+                try:
+                    execution_bar = self.query_one("#execution_bar")
+                    debug_info["execution_bar"] = {
+                        "exists": True,
+                        "id": execution_bar.id,
+                        "classes": list(execution_bar.classes),
+                        "display": str(execution_bar.styles.display),
+                        "visible": execution_bar.visible,
+                    }
+                except Exception as e:
+                    debug_info["execution_bar"] = {"exists": False, "error": str(e)}
 
-            try:
-                cancel_btn = self.query_one("#cancel_button")
-                debug_info["cancel_button"] = {
-                    "exists": True,
-                    "id": cancel_btn.id,
-                    "classes": list(cancel_btn.classes),
-                    "display": str(cancel_btn.styles.display),
-                    "visible": cancel_btn.visible,
-                }
-            except Exception as e:
-                debug_info["cancel_button"] = {"exists": False, "error": str(e)}
+                try:
+                    cancel_btn = self.query_one("#cancel_button")
+                    debug_info["cancel_button"] = {
+                        "exists": True,
+                        "id": cancel_btn.id,
+                        "classes": list(cancel_btn.classes),
+                        "display": str(cancel_btn.styles.display),
+                        "visible": cancel_btn.visible,
+                    }
+                except Exception as e:
+                    debug_info["cancel_button"] = {"exists": False, "error": str(e)}
 
-            try:
-                input_area = self.query_one("#input_area")
-                debug_info["input_area"] = {
-                    "exists": True,
-                    "id": input_area.id,
-                    "classes": list(input_area.classes),
-                    "display": str(input_area.styles.display),
-                }
-            except Exception as e:
-                debug_info["input_area"] = {"exists": False, "error": str(e)}
+                try:
+                    input_area = self.query_one("#input_area")
+                    debug_info["input_area"] = {
+                        "exists": True,
+                        "id": input_area.id,
+                        "classes": list(input_area.classes),
+                        "display": str(input_area.styles.display),
+                    }
+                except Exception as e:
+                    debug_info["input_area"] = {"exists": False, "error": str(e)}
 
-            with open("/tmp/textual_debug.json", "w") as f:
-                json.dump(debug_info, f, indent=2, default=str)
-            self.log("DEBUG: Widget info written to /tmp/textual_debug.json")
-            tui_log("TUI mounted - debug info written to /tmp/textual_debug.json")
+                with open("/tmp/textual_debug.json", "w") as f:
+                    json.dump(debug_info, f, indent=2, default=str)
+                self.log("DEBUG: Widget info written to /tmp/textual_debug.json")
+                tui_log("TUI mounted - debug info written to /tmp/textual_debug.json")
 
         def _dump_widget_sizes(self) -> None:
             """Dump full widget tree with sizes for debugging layout issues."""
@@ -3430,6 +3562,14 @@ if TEXTUAL_AVAILABLE:
                 agent_id = event.agent_id or ""
                 self._winner_agent_id = agent_id
                 self._update_winner_hints(agent_id)
+                # Pause background UI timers to keep final answer responsive
+                if hasattr(self, "_execution_status_timer") and self._execution_status_timer:
+                    self._execution_status_timer.stop()
+                    self._execution_status_timer = None
+                self._stop_all_pulses()
+                # Skip direct content updates during final presentation - event pipeline handles it
+                if hasattr(self.coordination_display, "_in_final_presentation"):
+                    self.coordination_display._in_final_presentation = True
                 # Switch to winner tab if not already
                 if self._tab_bar:
                     self._tab_bar.set_active(agent_id)
@@ -3440,6 +3580,9 @@ if TEXTUAL_AVAILABLE:
 
             elif event.event_type == "answer_locked":
                 agent_id = event.agent_id or ""
+                # Clear final presentation flag - content can now flow normally
+                if hasattr(self.coordination_display, "_in_final_presentation"):
+                    self.coordination_display._in_final_presentation = False
                 # Update input placeholder
                 if hasattr(self, "question_input"):
                     self.question_input.placeholder = "Type your follow-up question..."
@@ -3703,10 +3846,10 @@ if TEXTUAL_AVAILABLE:
                 self._toggle_vim_mode()
                 return True
 
-            # TODO: Re-enable /theme command when additional themes are ready
-            # if cmd == "/theme":
-            #     self.action_toggle_theme()
-            #     return True
+            # /theme command enabled with user settings
+            if cmd == "/theme":
+                self.action_toggle_theme()
+                return True
 
             return False
 
@@ -3830,6 +3973,12 @@ if TEXTUAL_AVAILABLE:
                 self.question_input._vim_normal = False
                 self.question_input.remove_class("vim-normal")
                 self._update_vim_indicator(None)  # None = vim mode off
+            # Save vim mode preference
+            try:
+                user_settings = get_user_settings()
+                user_settings.vim_mode = self.question_input.vim_mode
+            except Exception:
+                pass
 
         def _update_vim_indicator(self, vim_normal: bool | None) -> None:
             """Update the vim mode indicator.
@@ -5473,6 +5622,14 @@ Type your question and press Enter to ask the agents.
             self.clear_winner_state()
             logger.info("[TUI-App] Winner state cleared")
 
+            # Reset status indicators so they animate for the new turn
+            if self._status_bar:
+                for agent_id in self._status_bar._agent_order:
+                    self._status_bar.set_agent_activity(agent_id, "thinking")
+            if self._execution_status_line:
+                for agent_id in self._execution_status_line._agent_ids:
+                    self._execution_status_line.set_agent_state(agent_id, "working")
+
             # Clear timeline content from all agent panels
             logger.info(f"[TUI-App] Clearing timelines for {len(self.agent_widgets)} agent panels")
             for agent_id, panel in self.agent_widgets.items():
@@ -5486,51 +5643,94 @@ Type your question and press Enter to ask the agents.
 
                     # Add a turn separator banner if this is turn 2+
                     if turn > 1:
-                        logger.info(f"[TUI-App] Adding turn {turn} banner for {agent_id}")
-                        from massgen.frontend.displays.textual_widgets.content_sections import (
-                            RestartBanner,
-                        )
-
-                        # CRITICAL: Suppress auto Round 1 insertion before adding turn banner.
-                        # add_widget() calls _ensure_round_banner() which would add Round 1
-                        # ABOVE the turn banner. We add Round 1 explicitly BELOW it instead.
-                        timeline._round_1_shown = True
-
-                        # Create a turn separator that shows context from previous turn
-                        separator_label = f"══════ Turn {turn} ══════"
-                        turn_banner = RestartBanner(
-                            label=separator_label,
-                            id=f"turn_{turn}_separator",
-                        )
-                        timeline.add_widget(turn_banner)
-                        logger.info(f"[TUI-App] Turn banner added to timeline for {agent_id}")
-
-                        # If we have a previous answer summary, show it collapsed
-                        if previous_answer:
-                            logger.info(f"[TUI-App] Adding previous answer context for {agent_id}")
-                            from textual.widgets import Static
-
-                            summary = previous_answer[:200] + "..." if len(previous_answer) > 200 else previous_answer
-                            context_widget = Static(
-                                f"[dim]Previous: {summary}[/]",
-                                id=f"turn_{turn}_context",
-                                markup=True,
+                        # Defer banner insertion until after clear() is fully processed.
+                        # Textual removes children asynchronously, so immediate mounts can collide on IDs.
+                        def _add_turn_banner(
+                            agent_id: str = agent_id,
+                            timeline: TimelineSection = timeline,
+                            previous_answer: Optional[str] = previous_answer,
+                            turn: int = turn,
+                        ) -> None:
+                            logger.info(f"[TUI-App] Adding turn {turn} banner for {agent_id}")
+                            from massgen.frontend.displays.textual_widgets.content_sections import (
+                                RestartBanner,
                             )
-                            timeline.add_widget(context_widget)
 
-                        # CRITICAL: Add Round 1 separator BELOW the turn banner (and optional context)
-                        # This ensures proper order: Turn X → [Context] → Round 1 → Content
-                        logger.info(f"[TUI-App] Adding Round 1 separator for {agent_id}")
-                        timeline.add_separator("Round 1", round_number=1)
-                        timeline._round_1_shown = True  # Prevent _ensure_round_banner() from adding it again
-                        logger.info("[TUI-App] Round 1 separator added, _round_1_shown set to True")
+                            # Create a turn separator that shows context from previous turn
+                            separator_label = f"══════ Turn {turn} ══════"
+                            turn_banner = RestartBanner(
+                                label=separator_label,
+                                id=f"turn_{turn}_separator",
+                            )
+                            turn_banner.add_class("turn-banner")
+                            indicator = None
+                            try:
+                                from textual.widgets import Static
 
-                        # Scroll to the turn banner to show the new turn at the top
-                        try:
-                            turn_banner.scroll_visible()
-                            logger.info(f"[TUI-App] Scrolled to turn banner for {agent_id}")
-                        except Exception as e:
-                            logger.warning(f"[TUI-App] Failed to scroll to turn banner for {agent_id}: {e}")
+                                indicator = timeline.query_one("#scroll_mode_indicator", Static)
+                            except Exception:
+                                indicator = None
+                            timeline.mount(turn_banner, after=indicator)
+                            logger.info(f"[TUI-App] Turn banner added to timeline for {agent_id}")
+
+                            # If we have a previous answer summary, show it collapsed
+                            insert_after = turn_banner
+                            if previous_answer:
+                                logger.info(f"[TUI-App] Adding previous answer context for {agent_id}")
+                                from textual.widgets import Static
+
+                                summary = previous_answer[:200] + "..." if len(previous_answer) > 200 else previous_answer
+                                context_widget = Static(
+                                    f"[dim]Previous: {summary}[/]",
+                                    id=f"turn_{turn}_context",
+                                    markup=True,
+                                )
+                                context_widget.add_class("turn-context")
+                                timeline.mount(context_widget, after=insert_after)
+                                insert_after = context_widget
+
+                            # CRITICAL: Add Round 1 separator BELOW the turn banner (and optional context)
+                            # This ensures proper order: Turn X → [Context] → Round 1 → Content
+                            logger.info(f"[TUI-App] Adding Round 1 separator for {agent_id}")
+                            try:
+                                if hasattr(timeline, "_pending_round_separators"):
+                                    timeline._pending_round_separators.discard(1)
+                                if hasattr(timeline, "_shown_round_banners"):
+                                    timeline._shown_round_banners.discard(1)
+                                if hasattr(timeline, "_round_1_shown"):
+                                    timeline._round_1_shown = False
+                            except Exception:
+                                pass
+                            try:
+                                timeline.add_separator("Round 1", round_number=1, after=insert_after)
+                                logger.info("[TUI-App] Round 1 separator added after turn banner/context")
+                            except Exception as e:
+                                logger.warning(f"[TUI-App] Failed to add Round 1 separator: {e}")
+                                try:
+                                    round_banner = RestartBanner(
+                                        label="Round 1",
+                                        id=f"turn_{turn}_round_1_separator",
+                                    )
+                                    round_banner.add_class("round-1")
+                                    timeline.mount(round_banner, after=insert_after)
+                                    if hasattr(timeline, "_shown_round_banners"):
+                                        timeline._shown_round_banners.add(1)
+                                    if hasattr(timeline, "_last_round_shown"):
+                                        timeline._last_round_shown = max(timeline._last_round_shown, 1)
+                                    if hasattr(timeline, "_round_1_shown"):
+                                        timeline._round_1_shown = True
+                                    logger.info("[TUI-App] Forced Round 1 separator mount (fallback)")
+                                except Exception as e2:
+                                    logger.warning(f"[TUI-App] Failed to force-mount Round 1 separator: {e2}")
+
+                            # Scroll to the turn banner to show the new turn at the top
+                            try:
+                                turn_banner.scroll_visible()
+                                logger.info(f"[TUI-App] Scrolled to turn banner for {agent_id}")
+                            except Exception as e:
+                                logger.warning(f"[TUI-App] Failed to scroll to turn banner for {agent_id}: {e}")
+
+                        timeline.call_after_refresh(_add_turn_banner)
 
                 except Exception as e:
                     logger.error(f"[TUI-App] Failed to prepare timeline for {agent_id}: {e}", exc_info=True)
@@ -5639,6 +5839,16 @@ Type your question and press Enter to ask the agents.
                         logger.info(f"[TUI] Calling reset_round_state() on panel for agent {agent_id}")
                         widget.reset_round_state()
                         logger.info(f"[TUI] After reset: panel._current_round={widget._current_round}, panel._viewed_round={widget._viewed_round}")
+
+                # CRITICAL: Reset per-agent event adapters so new turn starts at Round 1
+                if hasattr(self, "_event_adapters") and self._event_adapters:
+                    logger.info(f"[TUI] Resetting {len(self._event_adapters)} TimelineEventAdapters for new turn")
+                    for agent_id, adapter in self._event_adapters.items():
+                        try:
+                            adapter.reset()
+                            adapter.set_round_number(1)
+                        except Exception as e:
+                            logger.warning(f"[TUI] Failed to reset adapter for {agent_id}: {e}")
 
                 # CRITICAL: Reset status ribbon for all agents
                 # The ribbon is at app level, not inside panels, so reset it directly
@@ -5776,8 +5986,7 @@ Type your question and press Enter to ask the agents.
             if panel:
                 # Use start_new_round which handles timeline visibility and ribbon update
                 panel.start_new_round(round_num, is_context_reset=False)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: MassGenApp.show_agent_restart called panel.start_new_round\n")
+                tui_log("DEBUG: MassGenApp.show_agent_restart called panel.start_new_round")
                 adapter = self._event_adapters.get(agent_id)
                 if adapter:
                     try:
@@ -6691,6 +6900,11 @@ Type your question and press Enter to ask the agents.
                     self.push_screen(modal)
             event.stop()
 
+        def on_context_paths_clicked(self, event: ContextPathsClicked) -> None:
+            """Handle context paths icon click in ribbon - open context paths modal."""
+            self._show_context_modal()
+            event.stop()
+
         def on_button_pressed(self, event: Button.Pressed) -> None:
             """Handle button clicks in main app."""
             if event.button.id == "cancel_button":
@@ -6784,6 +6998,21 @@ Type your question and press Enter to ask the agents.
                 # Update the theme state
                 self.coordination_display.theme = new_theme
 
+                # Toggle theme classes on the app for CSS-based theme switching
+                # This allows theme-specific styles to update dynamically
+                if new_theme == "light":
+                    self.add_class("theme-light")
+                    self.remove_class("theme-dark")
+                else:
+                    self.add_class("theme-dark")
+                    self.remove_class("theme-light")
+
+                # Save the new theme to user preferences
+                try:
+                    user_settings = get_user_settings()
+                    user_settings.theme = new_theme
+                except Exception:
+                    pass
             except Exception as e:
                 self.notify(f"Theme error: {e}", severity="error", timeout=3)
                 logger.exception(f"Failed to toggle theme: {e}")
@@ -7108,6 +7337,10 @@ Type your question and press Enter to ask the agents.
         def on_status_bar_theme_clicked(self, event: StatusBarThemeClicked) -> None:
             """Handle theme toggle from status bar click."""
             self.action_toggle_theme()
+
+        def on_status_bar_context_clicked(self, event: StatusBarContextClicked) -> None:
+            """Handle click on status bar context indicator - opens context paths modal."""
+            self._show_context_modal()
 
         def _toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode: off → read → write → off (Ctrl+P)."""
@@ -8076,7 +8309,7 @@ Type your question and press Enter to ask the agents.
             """Refresh widgets when the terminal window is resized with debounce."""
             if self._resize_debounce_handle:
                 try:
-                    self._resize_debounce_handle.cancel()
+                    self._resize_debounce_handle.stop()
                 except Exception as e:
                     tui_log(f"[TextualDisplay] {e}")
 
@@ -8288,6 +8521,13 @@ Type your question and press Enter to ask the agents.
             self._final_answer_metadata = None
 
             logger.info(f"[AgentPanel] After reset: _current_round={self._current_round}, _viewed_round={self._viewed_round}")
+
+            # Clear task plan state for the new turn (new workspace starts empty)
+            try:
+                if hasattr(self, "_task_plan_host") and self._task_plan_host:
+                    self._task_plan_host.clear()
+            except Exception as e:
+                logger.warning(f"[AgentPanel] Failed to clear task plan for {self.agent_id}: {e}")
 
             # Reset round state in child widgets
             try:
@@ -8565,7 +8805,6 @@ Type your question and press Enter to ask the agents.
 
             # Reset per-attempt UI state
             self._hide_completion_footer()
-            self._tool_handler.reset()
             self._batch_tracker.reset()
             self._reasoning_header_shown = False
 

@@ -39,6 +39,7 @@ from .coordination_tracker import CoordinationTracker
 
 if TYPE_CHECKING:
     from .dspy_paraphraser import QuestionParaphraser
+    from .filesystem_manager import IsolationContextManager
     from .subagent.models import SubagentResult
 
 from .logger_config import get_log_session_dir  # Import to get log directory
@@ -303,6 +304,14 @@ class Orchestrator(ChatAgent):
         self._active_streams: Dict = {}
         self._active_tasks: Dict = {}
 
+        # Per-round worktree tracking: {agent_id: branch_name}
+        # Each agent has exactly ONE branch alive at a time (one-branch-per-agent invariant)
+        self._agent_current_branches: Dict[str, str] = {}
+        # Per-round isolation managers: {agent_id: IsolationContextManager}
+        self._round_isolation_managers: Dict[str, "IsolationContextManager"] = {}
+        # Per-round worktree path mappings: {agent_id: {isolated_path: original_path}}
+        self._round_worktree_paths: Dict[str, Dict[str, str]] = {}
+
         # Human input hook for injecting user input during execution
         # Shared across all agents (one per orchestration session)
         self._human_input_hook: Optional[HumanInputHook] = None
@@ -460,18 +469,7 @@ class Orchestrator(ChatAgent):
                 _setup_agent_orchestration(agent_id, agent)
 
         # Create workspace symlinks in the log directory for easy inspection
-        try:
-            log_dir = get_log_session_dir()
-            for agent_id, agent in self.agents.items():
-                if agent.backend.filesystem_manager and agent.backend.filesystem_manager.cwd:
-                    agent_log_dir = log_dir / agent_id
-                    agent_log_dir.mkdir(parents=True, exist_ok=True)
-                    workspace_link = agent_log_dir / "workspace"
-                    if not workspace_link.exists():
-                        workspace_link.symlink_to(Path(agent.backend.filesystem_manager.cwd).resolve())
-                        logger.info(f"[Orchestrator] Symlinked {workspace_link} → {agent.backend.filesystem_manager.cwd}")
-        except Exception as e:
-            logger.debug(f"[Orchestrator] Failed to create workspace symlinks: {e}")
+        self.ensure_workspace_symlinks()
 
         # Initialize broadcast channel for agent-to-agent communication
         self.broadcast_channel = BroadcastChannel(self)
@@ -542,6 +540,28 @@ class Orchestrator(ChatAgent):
 
         # Initialize broadcast tools (independent of NLIP)
         self._init_broadcast_tools()
+
+    def ensure_workspace_symlinks(self) -> None:
+        """Ensure per-agent workspace symlinks exist in the current log directory."""
+        try:
+            from massgen.logger_config import get_log_session_dir_base
+
+            log_dirs = {get_log_session_dir(), get_log_session_dir_base()}
+            for log_dir in log_dirs:
+                for agent_id, agent in self.agents.items():
+                    if not agent.backend.filesystem_manager or not agent.backend.filesystem_manager.cwd:
+                        continue
+                    agent_log_dir = log_dir / agent_id
+                    agent_log_dir.mkdir(parents=True, exist_ok=True)
+                    workspace_link = agent_log_dir / "workspace"
+                    if workspace_link.exists():
+                        continue
+                    workspace_link.symlink_to(Path(agent.backend.filesystem_manager.cwd).resolve())
+                    logger.info(
+                        f"[Orchestrator] Symlinked {workspace_link} → {agent.backend.filesystem_manager.cwd}",
+                    )
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Failed to create workspace symlinks: {e}")
 
     def _init_nlip_routing(self) -> None:
         """Initialize NLIP routing for all agents."""
@@ -1022,12 +1042,16 @@ class Orchestrator(ChatAgent):
             args.append("--memory-enabled")
 
         # Enable git commits on task completion if two-tier workspace is enabled
+        # Suppressed when write_mode is active (write_mode replaces the old two-tier structure)
         coordination_config = getattr(self.config, "coordination_config", None)
-        use_two_tier_workspace = bool(
-            getattr(coordination_config, "use_two_tier_workspace", False),
-        )
+        write_mode = getattr(coordination_config, "write_mode", None) if coordination_config else None
+        use_two_tier_workspace = False
+        if not (write_mode and write_mode != "legacy"):
+            use_two_tier_workspace = bool(
+                getattr(coordination_config, "use_two_tier_workspace", False),
+            )
         logger.info(
-            f"[Orchestrator] use_two_tier_workspace value for {agent_id}: {use_two_tier_workspace}",
+            f"[Orchestrator] use_two_tier_workspace value for {agent_id}: {use_two_tier_workspace} (write_mode={write_mode})",
         )
         if use_two_tier_workspace:
             args.append("--use-two-tier-workspace")
@@ -3493,8 +3517,6 @@ Your answer:"""
                                 status="completed",
                                 content="",
                             )
-                        await self._close_agent_stream(agent_id, active_streams)
-
                         if result_type == "answer":
                             # Agent provided an answer (initial or improved)
                             agent = self.agents.get(agent_id)
@@ -3758,6 +3780,13 @@ Your answer:"""
                                         content=f"✅ Vote recorded for [{result_data['agent_id']}]",
                                         source=agent_id,
                                     )
+
+                        # IMPORTANT: close stream after snapshotting answer/vote.
+                        # Closing the stream triggers _stream_agent_execution.finally, which may run
+                        # round cleanup (including branch switch in write_mode workspace isolation).
+                        # If we close first, snapshots can capture the post-cleanup workspace instead
+                        # of the agent's round output.
+                        await self._close_agent_stream(agent_id, active_streams)
 
                     elif chunk_type == "error":
                         # Agent error
@@ -4209,12 +4238,24 @@ Your answer:"""
                     is_final=is_final,
                 )
 
-                # Clear workspace after saving snapshot (but not for final snapshots)
+                # Clear workspace after saving snapshot (but not for final snapshots).
+                # In write_mode with active round isolation, defer clear until round cleanup
+                # so cleanup_round() can auto-commit the actual round output.
                 if not is_final:
-                    agent.backend.filesystem_manager.clear_workspace()
-                    logger.info(
-                        f"[Orchestrator._save_agent_snapshot] Cleared workspace for {agent_id} after saving snapshot",
+                    pending_round_cleanup = agent_id in getattr(
+                        self,
+                        "_round_isolation_managers",
+                        {},
                     )
+                    if pending_round_cleanup:
+                        logger.info(
+                            f"[Orchestrator._save_agent_snapshot] Deferred workspace clear for {agent_id} " "(pending round isolation cleanup)",
+                        )
+                    else:
+                        agent.backend.filesystem_manager.clear_workspace()
+                        logger.info(
+                            f"[Orchestrator._save_agent_snapshot] Cleared workspace for {agent_id} after saving snapshot",
+                        )
                 else:
                     # Final snapshot: restore workspace from snapshot_storage so
                     # post-evaluator can see the files
@@ -4954,10 +4995,14 @@ Your answer:"""
         timeout_state = RoundTimeoutState()
 
         # Get two-tier workspace setting from coordination config
+        # Suppressed when write_mode is active (write_mode replaces the old two-tier structure)
         coordination_config = getattr(self.config, "coordination_config", None)
-        use_two_tier_workspace = bool(
-            getattr(coordination_config, "use_two_tier_workspace", False),
-        )
+        write_mode = getattr(coordination_config, "write_mode", None) if coordination_config else None
+        use_two_tier_workspace = False
+        if not (write_mode and write_mode != "legacy"):
+            use_two_tier_workspace = bool(
+                getattr(coordination_config, "use_two_tier_workspace", False),
+            )
 
         # Create soft timeout hook (POST_TOOL_USE - injects warning)
         post_hook = RoundTimeoutPostHook(
@@ -6192,6 +6237,62 @@ Your answer:"""
         # Set the round context for nested tool calls to use
         set_current_round(current_round, round_type)
 
+        # Per-round worktree setup: create isolated worktree for this agent's round
+        round_worktree_paths: Optional[Dict[str, str]] = None
+        write_mode = None
+        if self.config.coordination_config:
+            write_mode = getattr(self.config.coordination_config, "write_mode", None)
+        if write_mode and write_mode != "legacy" and agent.backend.filesystem_manager:
+            try:
+                from .filesystem_manager import IsolationContextManager
+
+                workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                import secrets as _secrets
+
+                round_suffix = _secrets.token_hex(4)
+                previous_branch = self._agent_current_branches.get(agent_id)
+
+                round_isolation_mgr = IsolationContextManager(
+                    session_id=f"{self.session_id}-{round_suffix}",
+                    write_mode=write_mode,
+                    workspace_path=workspace_path,
+                    previous_branch=previous_branch,
+                )
+
+                # Check for explicit context paths to create worktrees for
+                ppm = agent.backend.filesystem_manager.path_permission_manager
+                context_paths = ppm.get_context_paths() if ppm else []
+                round_worktree_paths = {}
+
+                if context_paths:
+                    # Has context paths: create worktrees for each
+                    for ctx_config in context_paths:
+                        ctx_path = ctx_config.get("path", "")
+                        if ctx_path:
+                            isolated = round_isolation_mgr.initialize_context(ctx_path, agent_id)
+                            round_worktree_paths[isolated] = ctx_path
+                else:
+                    # No context paths: use workspace itself with scratch + branches
+                    round_isolation_mgr.setup_workspace_scratch(workspace_path, agent_id)
+                    round_worktree_paths[workspace_path] = workspace_path
+
+                # Track the new branch name
+                for ctx_path_key in round_isolation_mgr._contexts:
+                    branch = round_isolation_mgr._contexts[ctx_path_key].get("branch_name")
+                    if branch:
+                        self._agent_current_branches[agent_id] = branch
+                        break
+
+                # Store for cleanup in finally block
+                self._round_isolation_managers[agent_id] = round_isolation_mgr
+                self._round_worktree_paths[agent_id] = round_worktree_paths
+                logger.info(
+                    f"[Orchestrator] Created per-round worktree for {agent_id}: {round_worktree_paths}",
+                )
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Failed to create per-round worktree for {agent_id}: {e}")
+                round_worktree_paths = None
+
         # Track outcome for span attributes (set in finally block)
         _agent_outcome = None  # "vote", "answer", or "error"
         _agent_voted_for = None  # Only set for votes
@@ -6247,6 +6348,12 @@ Your answer:"""
                     f"[Orchestrator] Agent {agent_id} in vote-only mode for system message (answer limit reached)",
                 )
 
+            # Compute branch info for this agent's system prompt
+            agent_branch = self._agent_current_branches.get(agent_id)
+            # Map other agents' branches to anonymous IDs (e.g. {"agent1": "massgen/abc123"})
+            _branch_agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+            other_agent_branches = {_branch_agent_mapping.get(aid, aid): branch for aid, branch in self._agent_current_branches.items() if aid != agent_id and branch}
+
             system_message = self._get_system_message_builder().build_coordination_message(
                 agent=agent,
                 agent_id=agent_id,
@@ -6266,6 +6373,9 @@ Your answer:"""
                 voting_sensitivity_override=getattr(agent, "voting_sensitivity", None),
                 coordination_mode=getattr(self.config, "coordination_mode", "voting"),
                 agent_subtask=self._agent_subtasks.get(agent_id),
+                worktree_paths=round_worktree_paths,
+                branch_name=agent_branch,
+                other_branches=other_agent_branches if other_agent_branches else None,
             )
 
             # Inject phase-appropriate persona if enabled
@@ -6328,11 +6438,20 @@ Your answer:"""
                     ws = agent_obj.backend.filesystem_manager.get_current_workspace()
                     if ws and ws.exists() and any(ws.iterdir()):
                         workspace_populated = True
+                # Compute branch info for restart context (with anonymous labels)
+                branch_info = None
+                if self._agent_current_branches:
+                    _restart_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+                    branch_info = {
+                        "own_branch": self._agent_current_branches.get(agent_id),
+                        "other_branches": {_restart_mapping.get(aid, aid): b for aid, b in self._agent_current_branches.items() if aid != agent_id and b},
+                    }
                 restart_context = self.message_templates.format_restart_context(
                     self.restart_reason,
                     self.restart_instructions,
                     previous_answer=self.previous_attempt_answer,
                     workspace_populated=workspace_populated,
+                    branch_info=branch_info,
                 )
                 # Prepend restart context to user message
                 conversation["user_message"] = restart_context + "\n\n" + conversation["user_message"]
@@ -7698,6 +7817,20 @@ Your answer:"""
                 if "context" not in str(e).lower() and "detach" not in str(e).lower():
                     logger.debug(f"Unexpected ValueError closing agent span: {e}")
 
+            # Per-round worktree cleanup: move scratch, remove worktree, keep branch
+            if agent_id in self._round_isolation_managers:
+                round_iso = self._round_isolation_managers.pop(agent_id)
+                # Use anonymous ID for human-readable archive directory name
+                _agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+                _archive_label = _agent_mapping.get(agent_id, agent_id)
+                for ctx_path in list(round_iso._contexts.keys()):
+                    try:
+                        round_iso.move_scratch_to_workspace(ctx_path, archive_label=_archive_label)
+                        round_iso.cleanup_round(ctx_path)
+                    except Exception as _cleanup_err:
+                        logger.warning(f"[Orchestrator] Round worktree cleanup failed for {agent_id}: {_cleanup_err}")
+                self._round_worktree_paths.pop(agent_id, None)
+
             # Clear the round context
             clear_current_round()
 
@@ -7995,6 +8128,27 @@ Your answer:"""
                 ):
                     selected_agent.backend.end_round_tracking("post_evaluation")
 
+        # Review isolated changes if write_mode isolation was enabled
+        # Runs AFTER post-evaluation so the user sees the full picture before approving files
+        if hasattr(self, "_isolation_manager") and self._isolation_manager:
+            selected_agent = self.agents.get(self._selected_agent)
+            if selected_agent:
+                # Re-add removed context paths so ChangeApplier can write back
+                ppm = selected_agent.backend.filesystem_manager.path_permission_manager
+                for orig_path, removed_mp in getattr(self, "_isolation_removed_paths", {}).items():
+                    ppm.re_add_context_path(removed_mp)
+
+                async for chunk in self._review_isolated_changes(
+                    agent=selected_agent,
+                    isolation_manager=self._isolation_manager,
+                    selected_agent_id=self._selected_agent,
+                ):
+                    yield chunk
+            # Clear the references after review
+            self._isolation_manager = None
+            self._isolation_worktree_paths = {}
+            self._isolation_removed_paths = {}
+
             # Check if restart was requested
             if self.restart_pending and self.current_attempt < (self.max_attempts - 1):
                 # Show restart banner
@@ -8257,6 +8411,70 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             # Snapshot context paths BEFORE enabling write access (for tracking what gets written)
             agent.backend.filesystem_manager.path_permission_manager.snapshot_writable_context_paths()
 
+            # Initialize isolated write context if write_mode is enabled
+            # Creates worktree inside agent workspace and demotes original to read-only
+            self._isolation_manager = None
+            self._isolation_worktree_paths = {}  # worktree_path -> original_path
+            write_mode = None
+            if self.config.coordination_config:
+                write_mode = getattr(self.config.coordination_config, "write_mode", None)
+
+            logger.info(f"[Orchestrator] write_mode check: coordination_config={bool(self.config.coordination_config)}, write_mode={write_mode}")
+
+            if write_mode and write_mode != "legacy":
+                from .filesystem_manager import IsolationContextManager
+
+                try:
+                    workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                    # Use winner's branch as base for the worktree so final presentation
+                    # starts from the winner's committed work (not empty HEAD)
+                    winner_branch = self._agent_current_branches.get(selected_agent_id)
+                    self._isolation_manager = IsolationContextManager(
+                        session_id=self.session_id,
+                        write_mode=write_mode,
+                        workspace_path=workspace_path,
+                        base_commit=winner_branch,
+                        branch_label="presenter",
+                    )
+
+                    # Initialize isolated contexts for writable context paths
+                    # Remove the original from PPM so the agent only sees the worktree
+                    ppm = agent.backend.filesystem_manager.path_permission_manager
+                    self._isolation_removed_paths = {}  # original_path -> ManagedPath (for re-adding after review)
+                    logger.info(f"[Orchestrator] Checking {len(ppm.managed_paths)} managed paths for isolation")
+                    for managed_path in list(ppm.managed_paths):  # copy list since we modify
+                        logger.debug(f"[Orchestrator] Checking path: {managed_path.path}, type={managed_path.path_type}, will_be_writable={managed_path.will_be_writable}")
+                        if managed_path.path_type == "context" and managed_path.will_be_writable:
+                            original_path = str(managed_path.path)
+                            isolated_path = self._isolation_manager.initialize_context(
+                                original_path,
+                                agent_id=selected_agent_id,
+                            )
+                            # Remove original from PPM — agent only sees the worktree in workspace
+                            removed_mp = ppm.remove_context_path(original_path)
+                            if removed_mp:
+                                self._isolation_removed_paths[original_path] = removed_mp
+                            self._isolation_worktree_paths[isolated_path] = original_path
+                            logger.info(
+                                f"[Orchestrator] Isolation: worktree at {isolated_path}, " f"original removed from agent view: {original_path}",
+                            )
+
+                except Exception as e:
+                    logger.warning(f"[Orchestrator] Failed to initialize isolated context: {e}, falling back to direct writes")
+                    # Re-add any paths we removed before the failure
+                    if hasattr(self, "_isolation_removed_paths"):
+                        ppm = agent.backend.filesystem_manager.path_permission_manager
+                        for orig_path, removed_mp in self._isolation_removed_paths.items():
+                            ppm.re_add_context_path(removed_mp)
+                        self._isolation_removed_paths = {}
+                    if self._isolation_manager:
+                        try:
+                            self._isolation_manager.cleanup_all()
+                        except Exception:
+                            pass
+                    self._isolation_manager = None
+                    self._isolation_worktree_paths = {}
+
             # Recreate Docker container with write access to context paths
             # The original container was created with read-only mounts for context paths
             # (to prevent race conditions during coordination). For final presentation,
@@ -8274,10 +8492,16 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                             "load_previous_session_skills",
                             False,
                         )
+                # Build extra mounts for worktree isolation in Docker mode
+                extra_mounts = None
+                if hasattr(self, "_isolation_worktree_paths") and self._isolation_worktree_paths:
+                    extra_mounts = [(wt_path, wt_path, "rw") for wt_path in self._isolation_worktree_paths]
+
                 agent.backend.filesystem_manager.recreate_container_for_write_access(
                     skills_directory=skills_directory,
                     massgen_skills=massgen_skills,
                     load_previous_session_skills=load_previous_session_skills,
+                    extra_mount_paths=extra_mounts,
                 )
 
             # Enable write access in PathPermissionManager (for MCP filesystem tools)
@@ -8354,6 +8578,40 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 all_answers=normalized_all_answers,
                 selected_agent_id=selected_agent_id,
             )
+
+        # Add worktree location to presentation message
+        # The agent only sees the worktree — the original context path has been
+        # removed from its view, so we just tell it where the project is.
+        if hasattr(self, "_isolation_worktree_paths") and self._isolation_worktree_paths:
+            worktree_instructions = "\n\nPROJECT PATHS:\n"
+            for wt_path, orig_path in self._isolation_worktree_paths.items():
+                # Compute the specific subdirectory within the worktree
+                # that corresponds to the original context path
+                import os as _os
+
+                ctx_info = self._isolation_manager.get_context_info(orig_path) if self._isolation_manager else None
+                repo_root = ctx_info.get("repo_root") if ctx_info else None
+                if repo_root and repo_root != orig_path:
+                    relative = _os.path.relpath(orig_path, repo_root)
+                    target_dir = _os.path.join(wt_path, relative)
+                    worktree_instructions += (
+                        f"The project files are at `{target_dir}` " f"(inside worktree at `{wt_path}`). " f"Write all your changes there. " f"Changes will be reviewed before being applied.\n"
+                    )
+                else:
+                    worktree_instructions += f"The project is checked out at `{wt_path}`. " f"Write all your changes there. " f"Changes will be reviewed before being applied.\n"
+
+            # Add scratch and branch info for final presentation
+            worktree_instructions += "\n**Scratch Space**: `.massgen_scratch/` inside the checkout is git-excluded and invisible to reviewers.\n"
+            # Show other agents' latest branches with anonymous labels
+            _pres_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+            other_branches = {_pres_mapping.get(aid, aid): branch for aid, branch in self._agent_current_branches.items() if aid != selected_agent_id and branch}
+            if other_branches:
+                worktree_instructions += "\n**Other agents' code branches** (latest only):\n"
+                for label, branch in other_branches.items():
+                    worktree_instructions += f"- {label}: `{branch}`\n"
+                worktree_instructions += "Use `git diff <branch>` to compare, `git merge <branch>` to incorporate.\n"
+
+            presentation_content += worktree_instructions
 
         # Get agent's configurable system message using the standard interface
         agent.get_configurable_system_message()
@@ -8983,6 +9241,152 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             clear_current_round()
 
         # Don't yield done here - let _present_final_answer handle final done after post-evaluation
+
+    async def _review_isolated_changes(
+        self,
+        agent: "ChatAgent",
+        isolation_manager: "IsolationContextManager",
+        selected_agent_id: str,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Review and apply changes from isolated write context.
+
+        This method collects changes from the isolated context, shows a review
+        modal to the user (if TUI is available), and applies approved changes
+        to the original context paths.
+
+        Args:
+            agent: The presenting agent
+            isolation_manager: IsolationContextManager with active contexts
+            selected_agent_id: ID of the selected agent
+        """
+        from .filesystem_manager import ChangeApplier, ReviewResult
+
+        logger.info(f"[Orchestrator] Starting _review_isolated_changes for {selected_agent_id}")
+
+        # 1. Collect all changes from isolated contexts
+        all_changes = []
+        for ctx_info in isolation_manager.list_contexts():
+            if not ctx_info:
+                continue
+            original_path = ctx_info.get("original_path")
+            if not original_path:
+                continue
+
+            changes = isolation_manager.get_changes(original_path)
+            diff = isolation_manager.get_diff(original_path)
+
+            if changes or diff:
+                # For worktree mode, repo_root may differ from original_path
+                # (context path can be a subdirectory of the git root).
+                # The ChangeApplier needs repo_root as target since git paths
+                # are relative to the repo root.
+                repo_root = ctx_info.get("repo_root") or original_path
+                all_changes.append(
+                    {
+                        "original_path": original_path,
+                        "isolated_path": ctx_info.get("isolated_path"),
+                        "repo_root": repo_root,
+                        "changes": changes,
+                        "diff": diff,
+                    },
+                )
+
+        # 2. If no changes, skip review and cleanup
+        if not any(c.get("changes") for c in all_changes):
+            logger.info("[Orchestrator] No isolated changes to review")
+            # Move scratch to archive before cleanup
+            for ctx_path in list(isolation_manager._contexts.keys()):
+                isolation_manager.move_scratch_to_workspace(ctx_path)
+            isolation_manager.cleanup_session()
+            return
+
+        # 3. Yield status chunk to inform user about review phase
+        total_changes = sum(len(c.get("changes", [])) for c in all_changes)
+        yield StreamChunk(
+            type="status",
+            content=f"Reviewing {total_changes} file change(s) from isolated context...",
+            source=selected_agent_id,
+        )
+
+        # 4. Show review modal (TUI) or auto-approve (non-TUI)
+        review_result = ReviewResult(approved=True, approved_files=None)
+
+        # Get display via coordination_ui (orchestrator doesn't have a display attr directly)
+        display = None
+        if hasattr(self, "coordination_ui") and self.coordination_ui:
+            display = getattr(self.coordination_ui, "display", None)
+
+        logger.info(f"[Orchestrator] Review phase: display={display}, has_modal={hasattr(display, 'show_change_review_modal') if display else False}")
+
+        if display and hasattr(display, "show_change_review_modal"):
+            try:
+                logger.info("[Orchestrator] Showing review modal...")
+                review_result = await display.show_change_review_modal(all_changes)
+                logger.info(f"[Orchestrator] Review modal returned: approved={review_result.approved}")
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Review modal failed: {e}, auto-approving")
+                review_result = ReviewResult(approved=True, approved_files=None)
+        else:
+            # Non-TUI mode: auto-approve all changes
+            logger.info("[Orchestrator] Non-TUI mode: auto-approving isolated changes")
+
+        # 5. Apply approved changes
+        if review_result.approved:
+            applier = ChangeApplier()
+            applied_files = []
+
+            logger.info(
+                f"[Orchestrator] Applying approved changes: " f"approved_files={review_result.approved_files}, " f"contexts={len(all_changes)}",
+            )
+
+            for ctx in all_changes:
+                try:
+                    # Use repo_root as target since git paths are relative
+                    # to the repo root (not the context subdirectory)
+                    target = ctx.get("repo_root", ctx["original_path"])
+                    logger.info(
+                        f"[Orchestrator] ChangeApplier: source={ctx['isolated_path']}, " f"target={target}",
+                    )
+                    files = applier.apply_changes(
+                        source_path=ctx["isolated_path"],
+                        target_path=target,
+                        approved_files=review_result.approved_files,
+                    )
+                    applied_files.extend(files)
+                except Exception as e:
+                    logger.error(f"[Orchestrator] Failed to apply changes to {ctx['original_path']}: {e}")
+                    yield StreamChunk(
+                        type="error",
+                        error=f"Failed to apply some changes: {e}",
+                        source=selected_agent_id,
+                    )
+
+            if applied_files:
+                yield StreamChunk(
+                    type="status",
+                    content=f"Applied {len(applied_files)} file change(s): {', '.join(applied_files)}",
+                    source=selected_agent_id,
+                )
+                logger.info(f"[Orchestrator] Applied isolated changes: {applied_files}")
+            else:
+                logger.warning("[Orchestrator] Review approved but no files were applied (empty change set)")
+                yield StreamChunk(
+                    type="status",
+                    content="Review approved but no changed files were found to apply",
+                    source=selected_agent_id,
+                )
+        else:
+            yield StreamChunk(
+                type="status",
+                content="Changes rejected - no files were modified",
+                source=selected_agent_id,
+            )
+            logger.info("[Orchestrator] User rejected isolated changes")
+
+        # 6. Move scratch to archive and cleanup all isolated contexts + branches
+        for ctx_path in list(isolation_manager._contexts.keys()):
+            isolation_manager.move_scratch_to_workspace(ctx_path)
+        isolation_manager.cleanup_session()
 
     async def post_evaluate_answer(
         self,

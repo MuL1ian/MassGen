@@ -562,6 +562,10 @@ class ContentProcessor:
     ) -> Optional[ContentOutput]:
         """Handle agent_restart event."""
         agent_round = event.data.get("restart_round", round_number)
+        try:
+            agent_round = max(1, int(agent_round))
+        except Exception:
+            agent_round = 1
 
         # Extract restart reason from event data
         restart_reason = event.data.get("restart_reason", "")

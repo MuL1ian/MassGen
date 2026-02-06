@@ -3397,6 +3397,18 @@ StatusBar.consensus-reached #status_votes {
     text-style: underline;
 }
 
+/* StatusBar Context paths indicator */
+#status_context {
+    width: auto;
+    color: $fg-muted;
+    margin-left: 2;
+}
+
+#status_context:hover {
+    color: $accent-primary;
+    text-style: underline;
+}
+
 /* StatusBar Cancel button */
 #status_cancel {
     width: auto;

@@ -42,7 +42,7 @@ orchestrator:
   video_generation_backend: openai
   audio_generation_backend: openai
   coordination:
-    use_two_tier_workspace: true  # Enable scratch/deliverable workspace structure with git versioning
+    write_mode: auto  # Git worktree isolation with in-worktree scratch space
     max_orchestration_restarts: 0
     use_skills: true
     skills_directory: .agent/skills

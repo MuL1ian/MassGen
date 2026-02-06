@@ -139,10 +139,26 @@ class ConfigValidator:
     VALID_DISPLAY_TYPES = {"rich_terminal", "simple", "textual_terminal"}
 
     # Valid voting sensitivity levels
-    VALID_VOTING_SENSITIVITY = {"lenient", "balanced", "strict"}
+    VALID_VOTING_SENSITIVITY = {
+        "lenient",
+        "balanced",
+        "strict",
+        "roi",
+        "roi_conservative",
+        "roi_balanced",
+        "roi_aggressive",
+        "sequential",
+        "adversarial",
+        "consistency",
+        "diversity",
+        "reflective",
+    }
 
     # Valid answer novelty requirements
     VALID_ANSWER_NOVELTY = {"lenient", "balanced", "strict"}
+
+    # Valid write modes for isolated write contexts
+    VALID_WRITE_MODES = {"auto", "worktree", "isolated", "legacy"}
 
     def __init__(self):
         """Initialize the validator."""
@@ -826,6 +842,20 @@ class ConfigValidator:
                                 "Use 'true' or 'false'",
                             )
 
+                # Deprecation warning for use_two_tier_workspace
+                if coordination.get("use_two_tier_workspace"):
+                    write_mode = coordination.get("write_mode")
+                    if write_mode:
+                        result.add_warning(
+                            "'use_two_tier_workspace' is deprecated and ignored when 'write_mode' is set. " "Remove 'use_two_tier_workspace' from your config.",
+                            f"{location}.coordination.use_two_tier_workspace",
+                        )
+                    else:
+                        result.add_warning(
+                            "'use_two_tier_workspace' is deprecated. " "Migrate to 'write_mode: auto' for the same functionality with git worktree isolation.",
+                            f"{location}.coordination.use_two_tier_workspace",
+                        )
+
                 # Validate integer fields
                 if "max_orchestration_restarts" in coordination:
                     value = coordination["max_orchestration_restarts"]
@@ -909,6 +939,17 @@ class ConfigValidator:
                                             f"{location}.coordination.subagent_round_timeouts.{field_name}",
                                             "Use a value like 300 (seconds)",
                                         )
+
+                # Validate write_mode if present
+                if "write_mode" in coordination:
+                    write_mode = coordination["write_mode"]
+                    if write_mode not in self.VALID_WRITE_MODES:
+                        valid_values = ", ".join(sorted(self.VALID_WRITE_MODES))
+                        result.add_error(
+                            f"Invalid write_mode: '{write_mode}'",
+                            f"{location}.coordination.write_mode",
+                            f"Use one of: {valid_values}",
+                        )
 
         # Validate voting_sensitivity if present
         if "voting_sensitivity" in orchestrator_config:

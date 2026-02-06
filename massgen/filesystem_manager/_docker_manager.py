@@ -498,6 +498,7 @@ class DockerManager:
         massgen_skills: Optional[List[str]] = None,
         shared_tools_directory: Optional[Path] = None,
         load_previous_session_skills: bool = False,
+        extra_mount_paths: Optional[List[tuple]] = None,
     ) -> Optional[Path]:
         """
         Create and start a persistent Docker container for an agent.
@@ -652,6 +653,14 @@ class DockerManager:
         massgen_package_dir = Path(__file__).parent.parent.resolve()
         volumes[str(massgen_package_dir)] = {"bind": str(massgen_package_dir), "mode": "ro"}
         mount_info.append(f"      {massgen_package_dir} ← {massgen_package_dir} (ro, massgen package)")
+
+        # Mount extra paths (e.g., worktree isolation paths)
+        if extra_mount_paths:
+            for host_path, container_path, mode in extra_mount_paths:
+                host_path_resolved = str(Path(host_path).resolve())
+                container_path_str = str(Path(container_path).resolve())
+                volumes[host_path_resolved] = {"bind": container_path_str, "mode": mode}
+                mount_info.append(f"      {host_path_resolved} ← {container_path_str} ({mode}, extra)")
 
         # Create merged skills directory (user skills + massgen skills)
         # openskills expects skills in ~/.agent/skills

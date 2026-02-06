@@ -24,6 +24,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
+from .setup_wizard import DockerSetupStep
 from .wizard_base import StepComponent, WizardModal, WizardState, WizardStep
 from .wizard_steps import LaunchOptionsStep, WelcomeStep
 
@@ -1180,11 +1181,12 @@ class QuickstartWizard(WizardModal):
     3. Setup mode (same/different) - skipped if 1 agent
     4. Provider/model selection
     5. Execution mode
-    6. Context path
-    7. Coordination mode (multi-agent only)
-    8. Preview
-    9. Launch options
-    10. Complete
+    6. Docker setup - skipped if local mode selected
+    7. Context path
+    8. Coordination mode (multi-agent only)
+    9. Preview
+    10. Launch options
+    11. Complete
     """
 
     def __init__(
@@ -1232,6 +1234,13 @@ class QuickstartWizard(WizardModal):
                 title="Execution Mode",
                 description="Docker or local execution?",
                 component_class=ExecutionModeStep,
+            ),
+            WizardStep(
+                id="docker_setup",
+                title="Docker Setup",
+                description="Check Docker status and pull images",
+                component_class=DockerSetupStep,
+                skip_condition=lambda state: not state.get("execution_mode", True),
             ),
             WizardStep(
                 id="context_path",
