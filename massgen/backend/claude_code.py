@@ -367,6 +367,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "Bash(chown*)",
             # Not useful in MassGen context
             "Task",  # we have our own version of subagents
+            "Skill",  # we have our own version of skills
             "TodoWrite",
             "ExitPlanMode",
             "mcp__ide__getDiagnostics",

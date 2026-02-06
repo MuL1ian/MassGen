@@ -377,7 +377,7 @@ Codex Backend
      - id: "codex_agent"
        backend:
          type: "codex"
-         model: "gpt-5.2-codex"
+         model: "gpt-5.3-codex"
          cwd: "workspace"
 
 **Authentication:**
@@ -387,7 +387,23 @@ The Codex backend supports flexible authentication:
 * **API key**: Set ``OPENAI_API_KEY`` environment variable
 * **ChatGPT subscription**: If no API key, uses OAuth via ``codex login``
 
-**Supported Models:** gpt-5.2-codex (default), gpt-5.1-codex, gpt-5-codex, gpt-4.1
+**Supported Models:** gpt-5.3-codex (default), gpt-5.2-codex, gpt-5.1-codex, gpt-5-codex, gpt-4.1
+
+**Reasoning Effort Configuration:**
+
+.. code-block:: yaml
+
+   agents:
+     - id: "codex_reasoning"
+       backend:
+         type: "codex"
+         model: "gpt-5.3-codex"
+         model_reasoning_effort: "high"  # low | medium | high | xhigh
+         # reasoning:
+         #   effort: "high"             # OpenAI-style alias (also supported)
+
+If both ``model_reasoning_effort`` and ``reasoning.effort`` are provided,
+``model_reasoning_effort`` takes precedence.
 
 **Special Features:**
 
@@ -411,7 +427,7 @@ The Codex backend supports flexible authentication:
      - id: "secure_codex"
        backend:
          type: "codex"
-         model: "gpt-5.2-codex"
+         model: "gpt-5.3-codex"
          cwd: "workspace"
          enable_mcp_command_line: true
          command_line_execution_mode: "docker"
@@ -873,7 +889,7 @@ Claude Code vs Codex Comparison
      - API key (OPENAI_API_KEY) or ChatGPT subscription (OAuth)
    * - Models
      - Claude Sonnet 4, Claude Opus 4
-     - GPT-5.2-Codex, GPT-5.1-Codex, GPT-5-Codex
+     - GPT-5.3-Codex, GPT-5.2-Codex, GPT-5.1-Codex, GPT-5-Codex
    * - Native Tools
      - Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch
      - shell, apply_patch, web_search, image_view
@@ -913,7 +929,7 @@ isolation via container boundaries:
      - id: "secure_codex"
        backend:
          type: "codex"
-         model: "gpt-5.2-codex"
+         model: "gpt-5.3-codex"
          cwd: "workspace"
          enable_mcp_command_line: true
          command_line_execution_mode: "docker"

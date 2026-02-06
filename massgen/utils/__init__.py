@@ -15,6 +15,7 @@ class ActionType(Enum):
     NEW_ANSWER = "answer"
     VOTE = "vote"
     VOTE_IGNORED = "vote_ignored"  # Vote was cast but ignored due to restart
+    STOP = "stop"  # Agent stopped in decomposition mode (subtask complete)
     UPDATE_INJECTED = "update_injected"  # Agent received update and continued working (preempt-not-restart)
     ERROR = "error"
     TIMEOUT = "timeout"
@@ -26,6 +27,7 @@ class AgentStatus(Enum):
 
     STREAMING = "streaming"  # actively streaming content/reasoning
     VOTED = "voted"  # has cast their vote for this round
+    STOPPED = "stopped"  # has stopped in decomposition mode (subtask complete)
     ANSWERED = "answered"  # has provided an answer this round
     RESTARTING = "restarting"  # restarting due to new answer from another agent
     ERROR = "error"  # encountered an error
@@ -40,6 +42,7 @@ class CoordinationStage(Enum):
     ENFORCEMENT = "enforcement"
     PRESENTATION = "presentation"
     POST_EVALUATION = "post_evaluation"  # post-evaluation phase (MCP tools enabled)
+    REVIEWING = "reviewing"  # Git-based change review stage
 
 
 MODEL_MAPPINGS = {
@@ -74,6 +77,7 @@ MODEL_MAPPINGS = {
     ],
     "claude": [
         # Claude 4.5 variants
+        "claude-opus-4-6",
         "claude-sonnet-4-5",
         "claude-sonnet-4-5-20250929",
         "claude-opus-4-5",

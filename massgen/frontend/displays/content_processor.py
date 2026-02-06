@@ -207,6 +207,8 @@ class ContentProcessor:
             return self._handle_event_answer_submitted(event, round_number)
         elif event.event_type == EventType.VOTE:
             return self._handle_event_vote(event, round_number)
+        elif event.event_type == EventType.AGENT_STOPPED:
+            return self._handle_event_agent_stopped(event, round_number)
         elif event.event_type == EventType.WINNER_SELECTED:
             return self._handle_event_winner_selected(event, round_number)
         elif event.event_type == EventType.CONTEXT_RECEIVED:
@@ -505,8 +507,8 @@ class ContentProcessor:
         """Handle workspace_action event."""
         action_type = event.data.get("action_type", "unknown")
         params = event.data.get("params")
-        # Suppress vote/new_answer actions (rendered via dedicated tool cards)
-        if action_type in {"vote", "new_answer"}:
+        # Suppress vote/new_answer/stop actions (rendered via dedicated tool cards)
+        if action_type in {"vote", "new_answer", "stop"}:
             return None
         label = f"workspace/{action_type}"
         if params:
@@ -560,6 +562,10 @@ class ContentProcessor:
     ) -> Optional[ContentOutput]:
         """Handle agent_restart event."""
         agent_round = event.data.get("restart_round", round_number)
+        try:
+            agent_round = max(1, int(agent_round))
+        except Exception:
+            agent_round = 1
 
         # Extract restart reason from event data
         restart_reason = event.data.get("restart_reason", "")
@@ -789,6 +795,55 @@ class ContentProcessor:
             args_summary=f'voted_for="{target}"',
             args_full=f'voted_for="{target}", reason="{reason}"',
             result_summary=f"Voted for {target}",
+            result_full=result_text,
+            elapsed_seconds=0.0,
+        )
+
+        self._batch_tracker.mark_content_arrived()
+        return ContentOutput(
+            output_type="tool",
+            round_number=event_round,
+            tool_data=tool_data,
+            batch_action="standalone",
+        )
+
+    def _handle_event_agent_stopped(
+        self,
+        event: MassGenEvent,
+        round_number: int,
+    ) -> Optional[ContentOutput]:
+        """Handle agent_stopped coordination event (decomposition mode).
+
+        Creates a workspace/stop tool card for the subagent TUI parity.
+        """
+        event_round = event.round_number if event.round_number > 0 else 1
+
+        agent_id = event.agent_id or "unknown"
+        summary = event.data.get("summary", "")
+        stop_status = event.data.get("status", "complete")
+
+        tool_id = f"stop_{agent_id}_{id(event)}"
+        now = datetime.fromisoformat(event.timestamp) if event.timestamp else datetime.now()
+
+        status_emoji = "\u2705" if stop_status == "complete" else "\u26a0\ufe0f"
+        result_text = f"Stopped ({stop_status})"
+        if summary:
+            result_text += f"\nSummary: {summary}"
+
+        tool_data = ToolDisplayData(
+            tool_id=tool_id,
+            tool_name="workspace/stop",
+            display_name="Workspace/Stop",
+            tool_type="workspace",
+            category="workspace",
+            icon=status_emoji,
+            color="#3fb950",
+            status="success",
+            start_time=now,
+            end_time=now,
+            args_summary=f'status="{stop_status}"',
+            args_full=f'status="{stop_status}", summary="{summary}"',
+            result_summary=f"Stopped ({stop_status})",
             result_full=result_text,
             elapsed_seconds=0.0,
         )

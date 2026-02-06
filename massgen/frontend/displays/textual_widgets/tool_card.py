@@ -331,6 +331,8 @@ class ToolCallCard(Static):
         voted_for = None
         reason = None
         answer_preview = None
+        stop_summary = None
+        stop_status = None
 
         # Try to get full params first, fall back to summary
         params_str = self._params_full or self._params
@@ -344,6 +346,9 @@ class ToolCallCard(Static):
                     reason = params.get("reason")
                     # For new_answer, try to get a preview
                     answer_preview = params.get("answer") or params.get("content")
+                    # For stop tool
+                    stop_summary = params.get("summary")
+                    stop_status = params.get("status")
             except (json.JSONDecodeError, TypeError):
                 # Not JSON - try to parse key="value" format
                 # e.g., voted_for="agent_a", reason="some reason here"
@@ -359,10 +364,38 @@ class ToolCallCard(Static):
                 if answer_match:
                     answer_preview = answer_match.group(1)
 
+                summary_match = re.search(r'summary="([^"]*)"', params_str)
+                if summary_match:
+                    stop_summary = summary_match.group(1)
+
+                status_match = re.search(r'status="([^"]*)"', params_str)
+                if status_match:
+                    stop_status = status_match.group(1)
+
         # Display key info prominently
         tool_lower = self.tool_name.lower()
 
-        if "vote" in tool_lower:
+        if "stop" in tool_lower and "vote" not in tool_lower:
+            # Decomposition mode stop tool
+            if stop_status:
+                text.append("\n  ")
+                text.append("Status: ", style="dim")
+                status_style = "bold green" if stop_status == "complete" else "bold yellow"
+                text.append(str(stop_status), style=status_style)
+
+            if stop_summary:
+                text.append("\n  ")
+                text.append("Summary: ", style="dim")
+                summary_text = str(stop_summary)
+                if len(summary_text) > 120:
+                    summary_text = summary_text[:117] + "..."
+                text.append(summary_text, style="italic #c9d1d9")
+            elif params_str and not stop_status:
+                text.append("\n  ")
+                args_display = self._truncate_params_display(params_str, 100)
+                text.append(args_display, style="dim")
+
+        elif "vote" in tool_lower:
             if voted_for:
                 text.append("\n  ")
                 text.append("Voted for: ", style="dim")

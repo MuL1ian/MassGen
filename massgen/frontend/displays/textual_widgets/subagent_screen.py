@@ -40,7 +40,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
 from textual.widgets import Button, Static
 
@@ -116,6 +116,103 @@ class SubagentHeader(Horizontal):
             self.query_one("#header_title", Static).update(f"Subagent: {subagent.id}")
         except Exception as e:
             tui_log(f"[SubagentScreen] {e}")
+
+
+class ReturnToMainPromptModal(ModalScreen[bool]):
+    """Prompt to return from decomposition subagent view to the main screen."""
+
+    BINDINGS = [
+        ("escape", "stay_here", "Stay Here"),
+    ]
+
+    DEFAULT_CSS = """
+    ReturnToMainPromptModal {
+        align: center middle;
+    }
+
+    ReturnToMainPromptModal #return_prompt_container {
+        width: 74;
+        max-width: 96%;
+        height: auto;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    ReturnToMainPromptModal #return_prompt_title {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    ReturnToMainPromptModal #return_prompt_message {
+        margin-bottom: 1;
+    }
+
+    ReturnToMainPromptModal #return_prompt_countdown {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    ReturnToMainPromptModal #return_prompt_actions {
+        height: auto;
+    }
+
+    ReturnToMainPromptModal #return_prompt_actions Button {
+        margin-right: 1;
+    }
+    """
+
+    def __init__(self, timeout_seconds: int = 8) -> None:
+        super().__init__()
+        self._remaining_seconds = max(1, int(timeout_seconds))
+        self._countdown_timer: Optional[Timer] = None
+
+    def compose(self) -> ComposeResult:
+        with Container(id="return_prompt_container"):
+            yield Static("Decomposition complete", id="return_prompt_title")
+            yield Static(
+                "Subtasks are ready. Return to the main agent screen?",
+                id="return_prompt_message",
+            )
+            yield Static("", id="return_prompt_countdown")
+            with Horizontal(id="return_prompt_actions"):
+                yield Button("Back to Main", id="return_prompt_back", variant="primary")
+                yield Button("Stay Here", id="return_prompt_stay")
+
+    def on_mount(self) -> None:
+        self._update_countdown()
+        self._countdown_timer = self.set_interval(1.0, self._tick_countdown)
+
+    def on_unmount(self) -> None:
+        if self._countdown_timer:
+            self._countdown_timer.stop()
+            self._countdown_timer = None
+
+    def _update_countdown(self) -> None:
+        try:
+            self.query_one("#return_prompt_countdown", Static).update(
+                f"Auto-return in {self._remaining_seconds}s",
+            )
+        except Exception as e:
+            tui_log(f"[SubagentScreen] {e}")
+
+    def _tick_countdown(self) -> None:
+        self._remaining_seconds -= 1
+        if self._remaining_seconds <= 0:
+            self.dismiss(True)
+            return
+        self._update_countdown()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "return_prompt_back":
+            self.dismiss(True)
+            return
+        if event.button.id == "return_prompt_stay":
+            self.dismiss(False)
+
+    def action_stay_here(self) -> None:
+        self.dismiss(False)
 
 
 class _FooterAction(Static, can_focus=True):
@@ -561,6 +658,9 @@ class SubagentView(Container):
         subagent: SubagentDisplayData,
         all_subagents: Optional[List[SubagentDisplayData]] = None,
         status_callback: Optional[Callable[[str], Optional[SubagentDisplayData]]] = None,
+        auto_return_on_completion: bool = False,
+        auto_return_prompt_delay_seconds: float = 2.0,
+        auto_return_timeout_seconds: int = 8,
         id: Optional[str] = None,
     ) -> None:
         """Initialize the subagent screen.
@@ -607,6 +707,12 @@ class SubagentView(Container):
         self._inner_agent_models: Dict[str, str] = {}
         self._current_inner_agent: Optional[str] = None
         self._tool_call_agent_map: Dict[str, str] = {}
+        self._auto_return_on_completion = auto_return_on_completion
+        self._auto_return_prompt_delay_seconds = max(0.0, float(auto_return_prompt_delay_seconds))
+        self._auto_return_timeout_seconds = max(1, int(auto_return_timeout_seconds))
+        self._auto_return_prompt_timer: Optional[Timer] = None
+        self._auto_return_prompt_shown = False
+        self._auto_return_prompt_cancelled = False
 
     def compose(self) -> ComposeResult:
         # Build agent IDs and models for tab bar
@@ -718,6 +824,9 @@ class SubagentView(Container):
         if self._poll_timer is not None:
             self._poll_timer.stop()
             self._poll_timer = None
+        if self._auto_return_prompt_timer is not None:
+            self._auto_return_prompt_timer.stop()
+            self._auto_return_prompt_timer = None
 
     def _detect_inner_agents(self) -> tuple[List[str], Dict[str, str]]:
         """Detect agent IDs and models from the subagent's logs.
@@ -900,6 +1009,57 @@ class SubagentView(Container):
             self._round_number = adapter.round_number
             self._final_answer = adapter.final_answer
 
+    def _has_final_answer_content(self) -> bool:
+        """Return True when any final answer content is available."""
+        if self._final_answer_locked:
+            return True
+        if self._final_answer and str(self._final_answer).strip():
+            return True
+        preview = getattr(self._subagent, "answer_preview", None)
+        return bool(str(preview).strip()) if preview else False
+
+    def _show_auto_return_prompt(self) -> None:
+        """Show delayed prompt to return to main view after decomposition completion."""
+        self._auto_return_prompt_timer = None
+
+        if not self._auto_return_on_completion or self._auto_return_prompt_cancelled or self._auto_return_prompt_shown:
+            return
+        if self._subagent.status in ("running", "pending"):
+            return
+        if not self._has_final_answer_content():
+            return
+
+        self._auto_return_prompt_shown = True
+        modal = ReturnToMainPromptModal(timeout_seconds=self._auto_return_timeout_seconds)
+
+        def _on_dismiss(result: Optional[bool]) -> None:
+            if result is False:
+                self._auto_return_prompt_cancelled = True
+                return
+            self._request_close()
+
+        try:
+            self.app.push_screen(modal, _on_dismiss)
+        except Exception as e:
+            tui_log(f"[SubagentScreen] Failed to open return prompt: {e}")
+            self._request_close()
+
+    def _maybe_schedule_auto_return_prompt(self) -> None:
+        """Schedule the delayed return prompt once completion + final answer are present."""
+        if not self._auto_return_on_completion or self._auto_return_prompt_cancelled or self._auto_return_prompt_shown:
+            return
+        if self._auto_return_prompt_timer is not None:
+            return
+        if self._subagent.status in ("running", "pending"):
+            return
+        if not self._has_final_answer_content():
+            return
+
+        self._auto_return_prompt_timer = self.set_timer(
+            self._auto_return_prompt_delay_seconds,
+            self._show_auto_return_prompt,
+        )
+
     def _detect_and_apply_winner(self, events: List[MassGenEvent]) -> None:
         """Scan events for presentation_start/final_presentation_start and apply winner crown."""
         for event in events:
@@ -947,6 +1107,8 @@ class SubagentView(Container):
                 # Check if any agent got a final answer
                 for agent_id in list(self._agents_loaded):
                     self._maybe_lock_final_answer(agent_id)
+
+        self._maybe_schedule_auto_return_prompt()
 
         # Stop polling if completed
         if self._subagent.status not in ("running", "pending"):
@@ -1157,29 +1319,54 @@ class SubagentView(Container):
         except Exception:
             return
 
-        card_id = f"final_presentation_card_{agent_id}"
+        is_running = self._subagent.status in ("running", "pending")
+        card: Optional[FinalPresentationCard] = None
+        card_id: Optional[str] = None
 
-        # Remove any existing card to avoid duplicates
+        # Prefer card created by TimelineEventAdapter answer_locked flow.
+        adapter_card = getattr(adapter, "_final_presentation_card", None)
+        if isinstance(adapter_card, FinalPresentationCard):
+            card = adapter_card
+            card_id = card.id or "final_presentation_card"
+
+        # Fallback to any existing final presentation card in this timeline.
+        if card is None:
+            try:
+                existing_cards = list(timeline.query(FinalPresentationCard))
+                if existing_cards:
+                    card = existing_cards[-1]
+                    card_id = card.id or "final_presentation_card"
+            except Exception as e:
+                tui_log(f"[SubagentScreen] {e}")
+
+        # While still running, avoid synthesizing a fallback card.
+        # The canonical final card is created by answer_locked flow.
+        if card is None and is_running:
+            return
+
+        # Last resort: synthesize a completion-only card from final_answer text.
+        if card is None:
+            card_id = f"final_presentation_card_{agent_id}"
+            card = FinalPresentationCard(
+                agent_id=agent_id,
+                id=card_id,
+            )
+            timeline.add_widget(card)
+
+        # Ensure card has final answer text.
         try:
-            existing = timeline.query_one(f"#{card_id}", FinalPresentationCard)
-            existing.remove()
+            if adapter.final_answer and not getattr(card, "_final_content", []):
+                card.append_chunk(adapter.final_answer)
+            card.complete()
         except Exception as e:
             tui_log(f"[SubagentScreen] {e}")
 
-        # Create the final answer card
-        card = FinalPresentationCard(
-            agent_id=agent_id,
-            id=card_id,
-        )
-
-        # Add to timeline, set content, and mark complete
-        timeline.add_widget(card)
-        card.append_chunk(adapter.final_answer)
-        card.complete()
-
-        # Lock timeline to show only the final answer card
-        timeline.lock_to_final_answer(card_id)
-        card.set_locked_mode(True)
+        # Lock timeline to show only the final answer card.
+        try:
+            timeline.lock_to_final_answer(card_id or "final_presentation_card")
+            card.set_locked_mode(True)
+        except Exception as e:
+            tui_log(f"[SubagentScreen] {e}")
 
         # Auto-collapse task plan when final answer shows
         tph = self._panel._task_plan_hosts.get(agent_id) if self._panel else None
@@ -1270,10 +1457,14 @@ class SubagentView(Container):
         try:
             from massgen.frontend.displays.textual import TextContentModal
 
+            content = ""
+            if event.subtask:
+                content += f"Subtask: {event.subtask}\n\n"
+            content += event.question or "(No prompt)"
             self.app.push_screen(
                 TextContentModal(
                     title=f"Turn {event.turn} • Prompt",
-                    content=event.question or "(No prompt)",
+                    content=content,
                 ),
             )
         except Exception as e:
@@ -1563,17 +1754,20 @@ class SubagentScreen(Screen):
         subagent: SubagentDisplayData,
         all_subagents: Optional[List[SubagentDisplayData]] = None,
         status_callback: Optional[Callable[[str], Optional[SubagentDisplayData]]] = None,
+        auto_return_on_completion: bool = False,
     ) -> None:
         super().__init__()
         self._subagent = subagent
         self._all_subagents = all_subagents
         self._status_callback = status_callback
+        self._auto_return_on_completion = auto_return_on_completion
 
     def compose(self) -> ComposeResult:
         yield SubagentView(
             subagent=self._subagent,
             all_subagents=self._all_subagents,
             status_callback=self._status_callback,
+            auto_return_on_completion=self._auto_return_on_completion,
             id="subagent-view",
         )
 

@@ -124,6 +124,7 @@ class EventType:
     # Coordination events (emitted by orchestrator for subagent TUI parity)
     ANSWER_SUBMITTED = "answer_submitted"
     VOTE = "vote"
+    AGENT_STOPPED = "agent_stopped"  # Decomposition mode: agent signaled stop
     WINNER_SELECTED = "winner_selected"
     CONTEXT_RECEIVED = "context_received"
 
@@ -567,6 +568,20 @@ class EventEmitter:
             reason=reason,
             vote_label=vote_label,
             voted_for_label=voted_for_label,
+        )
+
+    def emit_stop(
+        self,
+        agent_id: str,
+        summary: str = "",
+        status: str = "complete",
+    ) -> None:
+        """Emit an agent_stopped coordination event (decomposition mode)."""
+        self.emit_raw(
+            EventType.AGENT_STOPPED,
+            agent_id=agent_id,
+            summary=summary,
+            status=status,
         )
 
     def emit_winner_selected(

@@ -49,7 +49,11 @@ def main():
         print(f"❌ Directory not found: {configs_dir}")
         sys.exit(1)
 
+    # Data-only YAML files that are not MassGen agent configs
+    EXCLUDED_FILES = {"rate_limits.yaml"}
+
     config_files = sorted(configs_dir.rglob("*.yaml")) + sorted(configs_dir.rglob("*.yml"))
+    config_files = [f for f in config_files if f.name not in EXCLUDED_FILES]
 
     if not config_files:
         print(f"❌ No config files found in {configs_dir}")

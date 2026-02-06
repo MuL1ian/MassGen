@@ -1,0 +1,38 @@
+# DEBUG config for testing write_mode isolation (worktree + review modal)
+# Skips coordination and goes straight to final presentation with write_mode: auto
+#
+# Run with:
+#   uv run massgen --automation --config @debug/test_write_mode_isolation "Create a file called hello.py that prints hello world"
+#
+# Expected behavior:
+# 1. Agent enters final presentation mode
+# 2. Worktree is created inside agent workspace at .worktree/ctx_1
+# 3. Agent writes changes to the worktree
+# 4. Review modal appears showing the diff
+# 5. User approves/rejects → changes applied to original context path
+
+agents:
+  - id: "test_agent"
+    backend:
+      type: "claude_code"
+      model: "claude-4-5-haiku"
+      cwd: "workspace1"
+
+orchestrator:
+  snapshot_storage: "snapshots"
+  agent_temporary_workspace: "temp_workspaces"
+
+  context_paths:
+    - path: "massgen/configs/resources/v0.0.21-example"
+      permission: "write"
+
+  # Skip coordination - go straight to final presentation
+  skip_coordination_rounds: true
+
+  coordination:
+    # Enable worktree isolation for file writes
+    write_mode: auto
+
+ui:
+  display_type: "textual_terminal"
+  logging_enabled: true

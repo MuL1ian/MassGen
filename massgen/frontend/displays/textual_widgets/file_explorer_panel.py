@@ -5,6 +5,7 @@ Shows workspace file changes (new/modified) in a tree with click-to-preview.
 Falls back to scanning the workspace directory when no explicit context_paths are provided.
 """
 
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -34,11 +35,17 @@ class FileExplorerPanel(Vertical):
         self._all_paths: Dict[str, str] = {}  # display path -> status ("new"/"modified"/"workspace")
         self._path_lookup: Dict[str, str] = {}  # display path -> absolute path
 
-        # Populate from explicit context_paths first
-        for path in self.context_paths.get("new", []):
-            self._add_path(path, "new")
-        for path in self.context_paths.get("modified", []):
-            self._add_path(path, "modified")
+        # Populate from explicit context_paths first, but cap entries for responsiveness.
+        context_entries: List[tuple[str, str]] = []
+        context_entries.extend((path, "new") for path in self.context_paths.get("new", []))
+        context_entries.extend((path, "modified") for path in self.context_paths.get("modified", []))
+        if context_entries:
+            max_entries = self._MAX_FILES
+            for display_path, status in context_entries[:max_entries]:
+                self._add_path(display_path, status)
+            remaining = len(context_entries) - max_entries
+            if remaining > 0:
+                self._add_path(f"... ({remaining} more files)", "workspace", absolute_path="")
 
         # If no context_paths but workspace exists, scan it
         if not self._all_paths and self.workspace_path:
@@ -85,6 +92,9 @@ class FileExplorerPanel(Vertical):
     )
     _MAX_DEPTH = 3
     _MAX_FILES = 50
+    _MAX_PREVIEW_LINES = 100
+    _MAX_PREVIEW_CHARS = 100_000
+    _BINARY_CHECK_BYTES = 2048
 
     def _scan_workspace(self) -> None:
         """Scan workspace directory and populate _all_paths with found files."""
@@ -95,25 +105,72 @@ class FileExplorerPanel(Vertical):
         try:
             added = 0
             truncated = False
-            for f in sorted(ws.rglob("*")):
-                if added >= self._MAX_FILES:
-                    truncated = True
-                    break
-                # Skip filtered directories
-                if any(part in self._SKIP_DIRS for part in f.relative_to(ws).parts):
+            # Use os.walk with pruning so large ignored dirs don't block the TUI.
+            for root, dirs, files in os.walk(ws, topdown=True):
+                root_path = Path(root)
+                try:
+                    rel_root = root_path.relative_to(ws)
+                except ValueError:
                     continue
-                # Enforce depth limit
-                rel = f.relative_to(ws)
-                if len(rel.parts) > self._MAX_DEPTH:
-                    continue
-                if f.is_file():
-                    display_path = str(rel)
-                    self._add_path(display_path, "workspace", absolute_path=str(f))
+
+                root_depth = 0 if str(rel_root) == "." else len(rel_root.parts)
+
+                # Prune ignored and over-depth directories before descending.
+                dirs[:] = [d for d in dirs if d not in self._SKIP_DIRS and root_depth < self._MAX_DEPTH]
+
+                if root_depth >= self._MAX_DEPTH:
+                    files = []
+
+                for filename in files:
+                    if added >= self._MAX_FILES:
+                        truncated = True
+                        break
+
+                    file_path = root_path / filename
+                    rel_file = file_path.relative_to(ws)
+                    if len(rel_file.parts) > self._MAX_DEPTH:
+                        continue
+
+                    display_path = str(rel_file)
+                    self._add_path(display_path, "workspace", absolute_path=str(file_path))
                     added += 1
+
+                if truncated:
+                    break
             if truncated:
                 self._add_path("... (more files)", "workspace", absolute_path="")
         except Exception:
             pass
+
+    @classmethod
+    def _is_binary_file(cls, filepath: Path) -> bool:
+        """Return True when a file looks binary based on an initial byte sample."""
+        try:
+            with filepath.open("rb") as f:
+                sample = f.read(cls._BINARY_CHECK_BYTES)
+            return b"\x00" in sample
+        except Exception:
+            return False
+
+    @classmethod
+    def _read_preview_content(cls, filepath: Path) -> str:
+        """Read a bounded text preview without scanning the entire file."""
+        with filepath.open("rb") as f:
+            raw = f.read(cls._MAX_PREVIEW_CHARS + 1)
+        truncated = len(raw) > cls._MAX_PREVIEW_CHARS
+        if truncated:
+            raw = raw[: cls._MAX_PREVIEW_CHARS]
+
+        content = raw.decode("utf-8", errors="replace")
+        lines = content.splitlines()
+        if len(lines) > cls._MAX_PREVIEW_LINES:
+            lines = lines[: cls._MAX_PREVIEW_LINES]
+            truncated = True
+        if truncated:
+            lines.append("")
+            lines.append("... (preview truncated)")
+
+        return "\n".join(lines)
 
     def has_files(self) -> bool:
         """Return True if there are any files to display."""
@@ -216,11 +273,10 @@ class FileExplorerPanel(Vertical):
             preview_header.update(f"── {p.name} ──")
             if p.exists() and p.is_file():
                 try:
-                    content = p.read_text(errors="replace")
-                    lines = content.splitlines()[:100]
-                    if len(content.splitlines()) > 100:
-                        lines.append(f"\n... ({len(content.splitlines()) - 100} more lines)")
-                    preview_widget.update("\n".join(lines))
+                    if self._is_binary_file(p):
+                        preview_widget.update("(binary file preview unavailable)")
+                    else:
+                        preview_widget.update(self._read_preview_content(p))
                 except Exception:
                     preview_widget.update(f"(unable to read {filepath})")
             else:

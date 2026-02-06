@@ -472,6 +472,66 @@ Control workspace sharing and project integration:
        - path: "/absolute/path/to/project"
          permission: "read"                     # read or write
 
+Decomposition Mode Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use decomposition mode when agents own subtasks and one presenter synthesizes:
+
+.. code-block:: yaml
+
+   agents:
+     - id: "frontend"
+       subtask: "Implement UI and client behavior"
+       backend:
+         type: "openai"
+         model: "gpt-5-nano"
+
+     - id: "backend"
+       subtask: "Implement API and persistence"
+       backend:
+         type: "openai"
+         model: "gpt-5-nano"
+
+     - id: "integrator"
+       subtask: "Integrate and present final output"
+       backend:
+         type: "openai"
+         model: "gpt-5-nano"
+
+   orchestrator:
+     coordination_mode: "decomposition"
+     presenter_agent: "integrator"
+     # Recommended decomposition defaults:
+     max_new_answers_per_agent: 2  # Recommended range: 2-3
+     max_new_answers_global: 9     # Team-wide cumulative cap across all agents
+     answer_novelty_requirement: "balanced"
+
+Sensible defaults guidance:
+
+* By default, use ``max_new_answers_per_agent: 2-3`` in decomposition mode.
+* Usually this is lower than fully parallel voting mode settings.
+* Add ``max_new_answers_global`` for deterministic total coordination budget.
+* Keep other answer-control parameters at defaults unless you need stricter behavior.
+
+Quickstart note:
+
+* The Quickstart flows (``uv run massgen --quickstart`` and the Web/TUI quickstart wizard) expose decomposition mode, presenter selection, and these defaults directly.
+* For GPT-5x models, Quickstart also exposes ``reasoning.effort`` selection.
+  OpenAI GPT-5 models support ``low|medium|high`` and Codex GPT-5 models include ``xhigh``.
+
+Example:
+
+.. code-block:: yaml
+
+   agents:
+     - id: "agent_a"
+       backend:
+         type: "codex"
+         model: "gpt-5.3-codex"
+         reasoning:
+           effort: "xhigh"
+           summary: "auto"
+
 Advanced Configuration
 ----------------------
 
@@ -644,6 +704,8 @@ All configuration examples are in ``@examples/``:
 
 * ``@examples/basic/single/single_gpt5nano`` - Single agent configuration
 * ``@examples/basic/multi/three_agents_default`` - Multi-agent collaboration
+* ``@examples/basic/multi/decomposition_quickstart`` - Decomposition mode with recommended defaults
+* ``@examples/basic/multi/decomposition_example`` - Decomposition mode with richer role setup
 * ``@examples/tools/mcp/*`` - MCP integration examples
 * ``@examples/tools/filesystem/*`` - File operation examples
 * ``@examples/ag2/*`` - AG2 framework integration

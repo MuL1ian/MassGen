@@ -52,6 +52,7 @@ class TuiModeState:
     Manages state for:
     - Plan mode: normal → plan → execute workflow
     - Agent mode: single vs multi-agent
+    - Coordination mode: parallel voting vs decomposition subtasks
     - Refinement mode: enable/disable voting
     - Override state: human override of final answer selection
     """
@@ -79,6 +80,15 @@ class TuiModeState:
     # Agent mode: "multi" | "single"
     agent_mode: str = "multi"
     selected_single_agent: Optional[str] = None
+
+    # Coordination mode shown in TUI:
+    # - "parallel" -> orchestrator coordination_mode="voting"
+    # - "decomposition" -> orchestrator coordination_mode="decomposition"
+    coordination_mode: str = "parallel"
+    # Set to True after the user explicitly changes the coordination toggle
+    coordination_mode_user_set: bool = False
+    # Optional per-agent subtask overrides for decomposition mode
+    decomposition_subtasks: Dict[str, str] = field(default_factory=dict)
 
     # Refinement mode: True = normal voting, False = disabled
     refinement_enabled: bool = True
@@ -115,6 +125,7 @@ class TuiModeState:
             Dictionary of config overrides to apply to the orchestrator.
 
         Behavior matrix:
+        - Coordination: parallel -> voting, decomposition -> decomposition
         - Single agent + refinement ON: Keep voting (vote = "I'm done refining")
         - Single agent + refinement OFF: max_new_answers_per_agent=1, skip_voting=True,
           skip_final_presentation=True (quick mode: one answer → done, no extra LLM call)
@@ -124,6 +135,9 @@ class TuiModeState:
           (quick mode: agents work independently, vote once after all answered)
         """
         overrides: Dict[str, Any] = {}
+
+        # Coordination mode mapping from TUI labels to orchestrator config values
+        overrides["coordination_mode"] = "decomposition" if self.coordination_mode == "decomposition" else "voting"
 
         # Refinement disabled = quick mode
         if not self.refinement_enabled:
@@ -259,6 +273,10 @@ class TuiModeState:
             parts.append(f"Agent: {agent_name}")
         else:
             parts.append("Agents: Multi")
+
+        # Coordination mode
+        if self.coordination_mode == "decomposition":
+            parts.append("Coord: Decomposition")
 
         # Refinement mode
         if not self.refinement_enabled:

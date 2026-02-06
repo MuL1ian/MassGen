@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Set, Tuple
 
 if TYPE_CHECKING:
+    from massgen.filesystem_manager import ReviewResult
     from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
         PlanApprovalResult,
     )
 
 from massgen.logger_config import get_event_emitter, get_log_session_dir, logger
+from massgen.user_settings import get_user_settings
 
 from .terminal_display import TerminalDisplay
 
@@ -49,6 +51,8 @@ try:
         ConversationHistoryModal,
         CoordinationTableModal,
         CostBreakdownModal,
+        DecompositionGenerationModal,
+        DecompositionSubtasksModal,
         FileInspectionModal,
         KeyboardShortcutsModal,
         MCPStatusModal,
@@ -67,10 +71,12 @@ try:
         AgentTabChanged,
         BroadcastModeChanged,
         CompletionFooter,
+        ContextPathsClicked,
         ExecutionStatusLine,
         FinalPresentationCard,
         ModeBar,
         ModeChanged,
+        ModeHelpClicked,
         MultiLineInput,
         OverrideRequested,
         PathSuggestionDropdown,
@@ -82,6 +88,7 @@ try:
         SessionInfoClicked,
         SubagentCard,
         SubagentScreen,
+        SubtasksClicked,
         TaskPlanCard,
         TaskPlanModal,
         TasksClicked,
@@ -254,7 +261,8 @@ class TextualTerminalDisplay(TerminalDisplay):
         # Agent models mapping (agent_id -> model name) for display
         self.agent_models: Dict[str, str] = kwargs.get("agent_models", {})
 
-        self.theme = kwargs.get("theme", "dark")
+        # Load theme from user settings if not explicitly provided
+        self.theme = kwargs.get("theme") or get_user_settings().theme
         self.refresh_rate = kwargs.get("refresh_rate")
         self.enable_syntax_highlighting = kwargs.get("enable_syntax_highlighting", True)
         self.show_timestamps = kwargs.get("show_timestamps", True)
@@ -262,6 +270,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self.max_web_search_lines = kwargs.get("max_web_search_lines", 4)
         self.truncate_web_on_status_change = kwargs.get("truncate_web_on_status_change", True)
         self.max_web_lines_on_status_change = kwargs.get("max_web_lines_on_status_change", 3)
+        self.default_coordination_mode = kwargs.get("default_coordination_mode", "parallel")
         # Runtime toggle to ignore hotkeys/key handling when enabled
         self.safe_keyboard_mode = kwargs.get("safe_keyboard_mode", False)
         self.max_buffer_batch = kwargs.get("max_buffer_batch", 50)
@@ -296,6 +305,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._final_stream_buffer: str = ""
         self._final_presentation_agent: Optional[str] = None
         self._routing_to_post_eval_card = False  # Bug 2 fix: prevent timeline routing during post-eval
+        self._in_final_presentation = False  # Prevent duplicate timeline content during final presentation
 
         self._app_ready = threading.Event()
         self._input_handler: Optional[Callable[[str], None]] = None
@@ -363,6 +373,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self._final_presentation_agent = None
         self._final_stream_active = False
         self._routing_to_post_eval_card = False
+        self._in_final_presentation = False
 
         # Post-evaluation content - clear for new turn
         self._post_evaluation_lines.clear()
@@ -510,6 +521,17 @@ class TextualTerminalDisplay(TerminalDisplay):
             # App is no longer running (e.g., early cancellation)
             pass
 
+    def _emit(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Emit web-style display events into Textual app handlers.
+
+        CoordinationUI uses this hook for preparation status events. Textual
+        consumes those to keep progress UI in sync with orchestrator setup.
+        """
+        if event_type == "preparation_status":
+            status = data.get("status", "") if isinstance(data, dict) else ""
+            detail = data.get("detail", "") if isinstance(data, dict) else ""
+            self._call_app_method("handle_preparation_status", status, detail)
+
     def set_input_handler(self, handler: Callable[[str], None]) -> None:
         """Set the callback for user-submitted input (questions or commands)"""
         self._input_handler = handler
@@ -592,6 +614,12 @@ class TextualTerminalDisplay(TerminalDisplay):
         # But allow tool content through - tools should be displayed during post-evaluation
         if hasattr(self, "_routing_to_post_eval_card") and self._routing_to_post_eval_card:
             if content_type != "tool":
+                return
+
+        # Skip timeline updates during final presentation - content goes to FinalPresentationCard
+        # Allow tools through since they should still be displayed
+        if hasattr(self, "_in_final_presentation") and self._in_final_presentation:
+            if content_type not in ("tool", "thinking"):
                 return
 
         if not content:
@@ -702,6 +730,56 @@ class TextualTerminalDisplay(TerminalDisplay):
         """
         if self._app:
             self._call_app_method("show_subagent_card_from_spawn", agent_id, args, call_id)
+
+    def notify_runtime_subagent_started(
+        self,
+        agent_id: str,
+        subagent_id: str,
+        task: str,
+        timeout_seconds: int = 300,
+        call_id: Optional[str] = None,
+        status_callback: Optional[Callable[[str], Optional[Any]]] = None,
+        log_path: Optional[str] = None,
+    ) -> None:
+        """Show a subagent card for orchestrator-owned runtime subagents.
+
+        Used for decomposition/persona generation style subagents that are
+        spawned directly by orchestrator code (not via tool cards).
+        """
+        if not self._app:
+            return
+        self._call_app_method(
+            "show_runtime_subagent_card",
+            agent_id,
+            subagent_id,
+            task,
+            timeout_seconds,
+            call_id or subagent_id,
+            status_callback,
+            log_path,
+        )
+
+    def notify_runtime_subagent_completed(
+        self,
+        agent_id: str,
+        subagent_id: str,
+        call_id: str,
+        status: str = "completed",
+        answer_preview: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Update a runtime subagent card when orchestration completes."""
+        if not self._app:
+            return
+        self._call_app_method(
+            "update_runtime_subagent_card",
+            agent_id,
+            subagent_id,
+            call_id,
+            status,
+            answer_preview,
+            error,
+        )
 
     def update_hook_execution(
         self,
@@ -1079,6 +1157,8 @@ class TextualTerminalDisplay(TerminalDisplay):
             vote_counts: Optional dict of {agent_id: vote_count} for vote summary display
             answer_labels: Optional dict of {agent_id: label} for display (e.g., {"agent1": "A1.1"})
         """
+        # Skip direct content updates during final presentation - event pipeline handles it
+        self._in_final_presentation = True
         if self._app:
             self._call_app_method("show_final_presentation_start", agent_id, vote_counts, answer_labels)
 
@@ -1165,6 +1245,15 @@ class TextualTerminalDisplay(TerminalDisplay):
             self._write_to_agent_file(agent_id, separator)
 
         self._write_to_system_file(f"\n=== TURN {turn} ===\nQuestion: {question}\n")
+
+    def set_agent_subtasks(self, subtasks: Dict[str, str]) -> None:
+        """Pass agent subtask assignments to the TUI for display in the tab bar.
+
+        Args:
+            subtasks: Mapping of agent_id to subtask description.
+        """
+        if self._app:
+            self._call_app_method("set_agent_subtasks", subtasks)
 
     def begin_restart(
         self,
@@ -1637,6 +1726,76 @@ class TextualTerminalDisplay(TerminalDisplay):
             # Can't notify via app if call_from_thread failed
             logger.error("[PlanApproval] Failed to dispatch modal to main thread")
 
+    async def show_change_review_modal(
+        self,
+        changes: List[Dict[str, Any]],
+    ) -> "ReviewResult":
+        """Show modal for reviewing changes before applying.
+
+        This method displays a modal that shows git diffs from isolated write
+        contexts and allows the user to approve or reject changes before they
+        are applied to the original context paths.
+
+        Args:
+            changes: List of context change dicts with keys:
+                - original_path: Original context path
+                - isolated_path: Isolated context path
+                - changes: List of file changes [{status, path}, ...]
+                - diff: Git diff output string
+
+        Returns:
+            ReviewResult with approval status and selected files
+        """
+        import asyncio
+
+        from massgen.filesystem_manager import ReviewResult
+
+        if not self._app:
+            logger.warning("[ChangeReview] Cannot show modal - no app instance")
+            return ReviewResult(approved=False, metadata={"error": "no_app"})
+
+        from .textual.widgets.modals.review_modal import GitDiffReviewModal
+
+        loop = asyncio.get_running_loop()
+        result_future: asyncio.Future[ReviewResult] = loop.create_future()
+
+        def show_modal():
+            try:
+                modal = GitDiffReviewModal(changes=changes)
+
+                def handle_result(result: ReviewResult) -> None:
+                    # Must use call_soon_threadsafe because this callback runs
+                    # on the Textual thread, not the asyncio event loop thread.
+                    if not result_future.done():
+                        loop.call_soon_threadsafe(result_future.set_result, result)
+
+                self._app.push_screen(modal, handle_result)
+            except Exception as e:
+                logger.exception(f"[ChangeReview] Error showing modal: {e}")
+                if not result_future.done():
+                    loop.call_soon_threadsafe(
+                        result_future.set_result,
+                        ReviewResult(approved=False, metadata={"error": str(e)}),
+                    )
+
+        try:
+            self._app.call_from_thread(show_modal)
+        except Exception as e:
+            logger.exception(f"[ChangeReview] call_from_thread failed: {e}")
+            return ReviewResult(approved=False, metadata={"error": str(e)})
+
+        try:
+            # Wait for user decision with 5 minute timeout
+            return await asyncio.wait_for(result_future, timeout=300)
+        except asyncio.TimeoutError:
+            logger.warning("[ChangeReview] Modal timed out after 5 minutes")
+            # Try to dismiss the modal on timeout
+            try:
+                self._app.call_from_thread(self._app.pop_screen)
+            except Exception:
+                pass
+            return ReviewResult(approved=False, metadata={"error": "timeout"})
+
     def _execute_approved_plan(
         self,
         approval: "PlanApprovalResult",
@@ -1779,6 +1938,9 @@ if TEXTUAL_AVAILABLE:
     class StatusBarThemeClicked(Message):
         """Message emitted when the theme indicator in StatusBar is clicked."""
 
+    class StatusBarContextClicked(Message):
+        """Message emitted when the context paths indicator in StatusBar is clicked."""
+
     class StatusBar(Widget):
         """Persistent status bar showing orchestration state at the bottom of the TUI."""
 
@@ -1842,6 +2004,8 @@ if TEXTUAL_AVAILABLE:
             cwd = Path.cwd()
             cwd_short = f"~/{cwd.name}" if len(str(cwd)) > 30 else str(cwd)
             yield Static(f"[dim]📁[/] {cwd_short}", id="status_cwd", classes="clickable")
+            # Context paths - clickable to open context paths modal
+            yield Static("[dim]CTX[/]", id="status_context", classes="clickable")
             yield Static("📋 0 events", id="status_events", classes="clickable")
             yield Static("[dim]?:help[/]", id="status_hints")  # Always visible, shows q:cancel during coordination
             yield Static("⏱️ 0:00", id="status_timer")
@@ -1860,6 +2024,8 @@ if TEXTUAL_AVAILABLE:
                     self.toggle_cwd_auto_include()
                 elif widget.id == "status_theme":
                     self.post_message(StatusBarThemeClicked())
+                elif widget.id == "status_context":
+                    self.post_message(StatusBarContextClicked())
 
         def toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode and update display."""
@@ -2381,40 +2547,63 @@ if TEXTUAL_AVAILABLE:
             base_path = cls.THEMES_DIR / "base.tcss"
 
             # Create combined CSS in a cache directory
+            import hashlib
             import tempfile
 
             cache_dir = Path(tempfile.gettempdir()) / "massgen_themes"
             cache_dir.mkdir(exist_ok=True)
-            combined_path = cache_dir / f"{theme}_combined.tcss"
-
-            # Check if cache is valid (exists and newer than source files)
-            # Check both in-memory cache dict AND the on-disk file (from previous session)
-            cache_valid = False
-            if combined_path.exists():
-                # Check modification times - regenerate if sources are newer
-                cache_mtime = combined_path.stat().st_mtime
-                palette_mtime = palette_path.stat().st_mtime if palette_path.exists() else 0
-                base_mtime = base_path.stat().st_mtime if base_path.exists() else 0
-                source_mtime = max(palette_mtime, base_mtime)
-                cache_valid = cache_mtime >= source_mtime
-
-            if cache_valid:
-                # Ensure in-memory cache is up to date
-                cls._combined_css_cache[theme] = combined_path
-                return combined_path
 
             # Read and concatenate files
             palette_css = palette_path.read_text() if palette_path.exists() else ""
             base_css = base_path.read_text() if base_path.exists() else ""
 
+            # Import modal base CSS (shared styles for all modal dialogs)
+            from .textual.widgets.modal_base import MODAL_BASE_CSS
+
+            # Split palette into variables and component overrides
+            # Variables must come first, but component overrides should come last
+            palette_lines = palette_css.split("\n")
+            palette_vars = []
+            palette_overrides = []
+            in_overrides = False
+            for line in palette_lines:
+                if "Component Overrides" in line:
+                    in_overrides = True
+                if in_overrides:
+                    palette_overrides.append(line)
+                else:
+                    palette_vars.append(line)
+
+            # Order: palette vars → modal base CSS → base.tcss → palette overrides
             combined_css = f"/* Combined theme: {theme} */\n"
-            combined_css += f"/* Palette from: {palette_file} */\n\n"
-            combined_css += palette_css
+            combined_css += f"/* Palette variables from: {palette_file} */\n\n"
+            combined_css += "\n".join(palette_vars)
+            combined_css += "\n\n/* Modal base styles */\n\n"
+            combined_css += MODAL_BASE_CSS
             combined_css += "\n\n/* Base component styles */\n\n"
             combined_css += base_css
+            if palette_overrides:
+                combined_css += "\n\n/* Theme-specific component overrides */\n\n"
+                combined_css += "\n".join(palette_overrides)
 
-            combined_path.write_text(combined_css)
+            # Use a content hash in the filename so stale cached files are never reused.
+            # This avoids mismatches when the CSS assembly logic changes across runs.
+            css_hash = hashlib.sha256(combined_css.encode("utf-8")).hexdigest()[:12]
+            combined_path = cache_dir / f"{theme}_combined_{css_hash}.tcss"
+
+            if not combined_path.exists():
+                combined_path.write_text(combined_css)
+
             cls._combined_css_cache[theme] = combined_path
+
+            # Best-effort cleanup of stale combined CSS files for this theme.
+            for stale_path in cache_dir.glob(f"{theme}_combined*.tcss"):
+                if stale_path != combined_path:
+                    try:
+                        stale_path.unlink()
+                    except OSError:
+                        pass
+
             return combined_path
 
         # Minimal bindings - most features accessed via /slash commands
@@ -2455,7 +2644,11 @@ if TEXTUAL_AVAILABLE:
             # Build combined CSS from palette + base
             # Textual CSS variables must be defined before use, so we concatenate
             # the palette (variables) with the base (component styles)
-            theme = display.theme if display.theme in self.PALETTE_MAP else "dark"
+            # Load user settings for theme preference
+            user_settings = get_user_settings()
+            theme = user_settings.theme
+            if theme not in self.PALETTE_MAP:
+                theme = "dark"
             combined_css_path = self._get_combined_css_path(theme)
             super().__init__(css_path=str(combined_css_path))
             self.coordination_display = display
@@ -2534,7 +2727,19 @@ if TEXTUAL_AVAILABLE:
 
             # TUI Mode State (plan mode, agent mode, refinement mode, override)
             self._mode_state = TuiModeState()
+            if self.coordination_display.default_coordination_mode == "decomposition":
+                self._mode_state.coordination_mode = "decomposition"
             self._mode_bar: Optional[ModeBar] = None
+
+            # Runtime decomposition generation UI state
+            self._decomposition_generation_modal: Optional[DecompositionGenerationModal] = None
+            self._runtime_decomposition_subtasks: Dict[str, str] = {}
+            self._decomposition_completion_source: str = "subagent"
+            self._decomposition_runtime_subagent_call_id: Optional[str] = None
+            self._decomposition_runtime_subagent_agent_id: Optional[str] = None
+            self._decomposition_runtime_subagent_data: Optional[Any] = None
+            self._decomposition_runtime_status_callback: Optional[Callable[[str], Optional[Any]]] = None
+            self._decomposition_runtime_auto_opened: bool = False
 
             if not self._keyboard_interactive_mode:
                 self.BINDINGS = []
@@ -2592,6 +2797,15 @@ if TEXTUAL_AVAILABLE:
             # Final presentation state - clear winner's presentation
             self._final_presentation_agent = None
             self._final_presentation_card = None
+
+            # Decomposition generation modal/runtime state
+            self._runtime_decomposition_subtasks = {}
+            self._dismiss_decomposition_generation_modal()
+            self._decomposition_runtime_subagent_call_id = None
+            self._decomposition_runtime_subagent_agent_id = None
+            self._decomposition_runtime_subagent_data = None
+            self._decomposition_runtime_status_callback = None
+            self._decomposition_runtime_auto_opened = False
 
         def compose(self) -> ComposeResult:
             """Compose the UI layout with adaptive agent arrangement."""
@@ -2757,6 +2971,19 @@ if TEXTUAL_AVAILABLE:
             initial_theme = self.coordination_display.theme
             if initial_theme in self.THEME_NAME_MAP:
                 self.theme = self.THEME_NAME_MAP[initial_theme]
+            # Set initial theme class for CSS-based theme switching
+            if initial_theme == "light":
+                self.add_class("theme-light")
+            else:
+                self.add_class("theme-dark")
+            # Apply saved vim mode preference
+            try:
+                user_settings = get_user_settings()
+                if self.question_input:
+                    self.question_input.vim_mode = user_settings.vim_mode
+                    self._update_vim_indicator(None if not user_settings.vim_mode else False)
+            except Exception:
+                pass
 
             self._thread_id = threading.get_ident()
             self.coordination_display._app_ready.set()
@@ -2769,81 +2996,84 @@ if TEXTUAL_AVAILABLE:
                 )
             self._update_safe_indicator()
             self._update_theme_indicator()
+            if self._mode_bar:
+                self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
 
-            # DEBUG: Log widget state to file
-            import json
+            # DEBUG: Log widget state to file (opt-in)
+            if os.environ.get("MASSGEN_TUI_LAYOUT_DEBUG", "").lower() in ("1", "true", "yes", "on"):
+                import json
 
-            debug_info = {
-                "header_widget": {
-                    "exists": self.header_widget is not None,
-                    "id": getattr(self.header_widget, "id", None) if self.header_widget else None,
-                    "display": str(self.header_widget.display) if self.header_widget else None,
-                    "visible": self.header_widget.visible if self.header_widget else None,
-                    "classes": list(self.header_widget.classes) if self.header_widget else None,
-                    "styles_dock": str(self.header_widget.styles.dock) if self.header_widget else None,
-                    "styles_height": str(self.header_widget.styles.height) if self.header_widget else None,
-                    "styles_display": str(self.header_widget.styles.display) if self.header_widget else None,
-                },
-                "status_bar": {
-                    "exists": self._status_bar is not None,
-                    "id": getattr(self._status_bar, "id", None) if self._status_bar else None,
-                    "display": str(self._status_bar.display) if self._status_bar else None,
-                    "visible": self._status_bar.visible if self._status_bar else None,
-                    "classes": list(self._status_bar.classes) if self._status_bar else None,
-                    "styles_dock": str(self._status_bar.styles.dock) if self._status_bar else None,
-                    "styles_height": str(self._status_bar.styles.height) if self._status_bar else None,
-                    "styles_display": str(self._status_bar.styles.display) if self._status_bar else None,
-                },
-                "tab_bar": {
-                    "exists": self._tab_bar is not None,
-                    "id": getattr(self._tab_bar, "id", None) if self._tab_bar else None,
-                    "classes": list(self._tab_bar.classes) if self._tab_bar else None,
-                    "styles_dock": str(self._tab_bar.styles.dock) if self._tab_bar else None,
-                },
-            }
-            # Add execution_bar and cancel_button info
-            try:
-                execution_bar = self.query_one("#execution_bar")
-                debug_info["execution_bar"] = {
-                    "exists": True,
-                    "id": execution_bar.id,
-                    "classes": list(execution_bar.classes),
-                    "display": str(execution_bar.styles.display),
-                    "visible": execution_bar.visible,
+                debug_info = {
+                    "header_widget": {
+                        "exists": self.header_widget is not None,
+                        "id": getattr(self.header_widget, "id", None) if self.header_widget else None,
+                        "display": str(self.header_widget.display) if self.header_widget else None,
+                        "visible": self.header_widget.visible if self.header_widget else None,
+                        "classes": list(self.header_widget.classes) if self.header_widget else None,
+                        "styles_dock": str(self.header_widget.styles.dock) if self.header_widget else None,
+                        "styles_height": str(self.header_widget.styles.height) if self.header_widget else None,
+                        "styles_display": str(self.header_widget.styles.display) if self.header_widget else None,
+                    },
+                    "status_bar": {
+                        "exists": self._status_bar is not None,
+                        "id": getattr(self._status_bar, "id", None) if self._status_bar else None,
+                        "display": str(self._status_bar.display) if self._status_bar else None,
+                        "visible": self._status_bar.visible if self._status_bar else None,
+                        "classes": list(self._status_bar.classes) if self._status_bar else None,
+                        "styles_dock": str(self._status_bar.styles.dock) if self._status_bar else None,
+                        "styles_height": str(self._status_bar.styles.height) if self._status_bar else None,
+                        "styles_display": str(self._status_bar.styles.display) if self._status_bar else None,
+                    },
+                    "tab_bar": {
+                        "exists": self._tab_bar is not None,
+                        "id": getattr(self._tab_bar, "id", None) if self._tab_bar else None,
+                        "classes": list(self._tab_bar.classes) if self._tab_bar else None,
+                        "styles_dock": str(self._tab_bar.styles.dock) if self._tab_bar else None,
+                    },
                 }
-            except Exception as e:
-                debug_info["execution_bar"] = {"exists": False, "error": str(e)}
+                # Add execution_bar and cancel_button info
+                try:
+                    execution_bar = self.query_one("#execution_bar")
+                    debug_info["execution_bar"] = {
+                        "exists": True,
+                        "id": execution_bar.id,
+                        "classes": list(execution_bar.classes),
+                        "display": str(execution_bar.styles.display),
+                        "visible": execution_bar.visible,
+                    }
+                except Exception as e:
+                    debug_info["execution_bar"] = {"exists": False, "error": str(e)}
 
-            try:
-                cancel_btn = self.query_one("#cancel_button")
-                debug_info["cancel_button"] = {
-                    "exists": True,
-                    "id": cancel_btn.id,
-                    "classes": list(cancel_btn.classes),
-                    "display": str(cancel_btn.styles.display),
-                    "visible": cancel_btn.visible,
-                }
-            except Exception as e:
-                debug_info["cancel_button"] = {"exists": False, "error": str(e)}
+                try:
+                    cancel_btn = self.query_one("#cancel_button")
+                    debug_info["cancel_button"] = {
+                        "exists": True,
+                        "id": cancel_btn.id,
+                        "classes": list(cancel_btn.classes),
+                        "display": str(cancel_btn.styles.display),
+                        "visible": cancel_btn.visible,
+                    }
+                except Exception as e:
+                    debug_info["cancel_button"] = {"exists": False, "error": str(e)}
 
-            try:
-                input_area = self.query_one("#input_area")
-                debug_info["input_area"] = {
-                    "exists": True,
-                    "id": input_area.id,
-                    "classes": list(input_area.classes),
-                    "display": str(input_area.styles.display),
-                }
-            except Exception as e:
-                debug_info["input_area"] = {"exists": False, "error": str(e)}
+                try:
+                    input_area = self.query_one("#input_area")
+                    debug_info["input_area"] = {
+                        "exists": True,
+                        "id": input_area.id,
+                        "classes": list(input_area.classes),
+                        "display": str(input_area.styles.display),
+                    }
+                except Exception as e:
+                    debug_info["input_area"] = {"exists": False, "error": str(e)}
 
-            with open("/tmp/textual_debug.json", "w") as f:
-                json.dump(debug_info, f, indent=2, default=str)
-            self.log("DEBUG: Widget info written to /tmp/textual_debug.json")
-            tui_log("TUI mounted - debug info written to /tmp/textual_debug.json")
+                with open("/tmp/textual_debug.json", "w") as f:
+                    json.dump(debug_info, f, indent=2, default=str)
+                self.log("DEBUG: Widget info written to /tmp/textual_debug.json")
+                tui_log("TUI mounted - debug info written to /tmp/textual_debug.json")
 
         def _dump_widget_sizes(self) -> None:
             """Dump full widget tree with sizes for debugging layout issues."""
@@ -3290,6 +3520,23 @@ if TEXTUAL_AVAILABLE:
                 else:
                     self.notify(f"🗳️ {voter} voted for {target}", timeout=3)
 
+            elif event.event_type == "agent_stopped":
+                # Decomposition mode: agent signaled stop (subtask complete)
+                agent_id = event.agent_id or ""
+                summary = event.data.get("summary", "")
+                stop_status = event.data.get("status", "complete")
+
+                model_name = self.coordination_display.agent_models.get(agent_id, "")
+                agent_display = f"{agent_id}" + (f" ({model_name})" if model_name else "")
+
+                status_emoji = "✅" if stop_status == "complete" else "⚠️"
+                self.notify(
+                    f"{status_emoji} [bold]{agent_display}[/] stopped ({stop_status})",
+                    timeout=4,
+                )
+                # Tool card is created by content_processor (unified pipeline),
+                # matching how vote tool cards work. No duplicate card here.
+
             elif event.event_type == "winner_selected":
                 winner_id = event.agent_id or ""
                 # Switch to winner tab and mark with trophy
@@ -3315,6 +3562,14 @@ if TEXTUAL_AVAILABLE:
                 agent_id = event.agent_id or ""
                 self._winner_agent_id = agent_id
                 self._update_winner_hints(agent_id)
+                # Pause background UI timers to keep final answer responsive
+                if hasattr(self, "_execution_status_timer") and self._execution_status_timer:
+                    self._execution_status_timer.stop()
+                    self._execution_status_timer = None
+                self._stop_all_pulses()
+                # Skip direct content updates during final presentation - event pipeline handles it
+                if hasattr(self.coordination_display, "_in_final_presentation"):
+                    self.coordination_display._in_final_presentation = True
                 # Switch to winner tab if not already
                 if self._tab_bar:
                     self._tab_bar.set_active(agent_id)
@@ -3325,6 +3580,9 @@ if TEXTUAL_AVAILABLE:
 
             elif event.event_type == "answer_locked":
                 agent_id = event.agent_id or ""
+                # Clear final presentation flag - content can now flow normally
+                if hasattr(self.coordination_display, "_in_final_presentation"):
+                    self.coordination_display._in_final_presentation = False
                 # Update input placeholder
                 if hasattr(self, "question_input"):
                     self.question_input.placeholder = "Type your follow-up question..."
@@ -3588,10 +3846,10 @@ if TEXTUAL_AVAILABLE:
                 self._toggle_vim_mode()
                 return True
 
-            # TODO: Re-enable /theme command when additional themes are ready
-            # if cmd == "/theme":
-            #     self.action_toggle_theme()
-            #     return True
+            # /theme command enabled with user settings
+            if cmd == "/theme":
+                self.action_toggle_theme()
+                return True
 
             return False
 
@@ -3715,6 +3973,12 @@ if TEXTUAL_AVAILABLE:
                 self.question_input._vim_normal = False
                 self.question_input.remove_class("vim-normal")
                 self._update_vim_indicator(None)  # None = vim mode off
+            # Save vim mode preference
+            try:
+                user_settings = get_user_settings()
+                user_settings.vim_mode = self.question_input.vim_mode
+            except Exception:
+                pass
 
         def _update_vim_indicator(self, vim_normal: bool | None) -> None:
             """Update the vim mode indicator.
@@ -3787,6 +4051,16 @@ MODAL SHORTCUTS (when not typing):
   i               - Agent selector
   c               - Coordination table
   v               - Vote results
+
+MODE BAR:
+  Plan            - Normal → Planning → Execute
+  Agents          - Multi-agent or single-agent runs
+  Coordination    - Parallel (vote) or decomposition (independent subtasks)
+  Subtasks        - Define per-agent subtasks (decomposition mode)
+  Refine          - Keep iterative refinement/voting on or off
+  ⋮               - Plan settings (depth, broadcast, plan selector)
+  ?               - Open mode bar help
+  Override        - Manually pick final presenter (when available)
 
 TOOL CARDS:
   Click           - Expand/collapse tool card
@@ -3881,6 +4155,66 @@ Type your question and press Enter to ask the agents.
                 await self.push_screen(modal)
 
             self.call_later(lambda: self.run_worker(_show()))
+
+        def _show_decomposition_generation_modal(self, status: str, detail: str = "") -> None:
+            """Open (or update) runtime decomposition progress modal."""
+            if self._decomposition_generation_modal:
+                self._decomposition_generation_modal.update_progress(status, detail)
+                return
+
+            modal = DecompositionGenerationModal(status=status, detail=detail)
+            self._decomposition_generation_modal = modal
+            self._runtime_decomposition_subtasks = {}
+            self._decomposition_completion_source = "subagent"
+
+            def _on_dismiss(_result: Any = None) -> None:
+                self._decomposition_generation_modal = None
+
+            self.push_screen(modal, _on_dismiss)
+
+        def _dismiss_decomposition_generation_modal(self) -> None:
+            """Dismiss decomposition progress modal if present."""
+            if not self._decomposition_generation_modal:
+                return
+            try:
+                self._decomposition_generation_modal.dismiss()
+            except Exception:
+                pass
+
+        def handle_preparation_status(self, status: str, detail: str = "") -> None:
+            """Handle orchestrator preparation status updates in Textual mode."""
+            message = status if not detail else f"{status} — {detail}"
+            self._update_all_loading_text(message)
+
+            lower_status = (status or "").lower()
+            lower_detail = (detail or "").lower()
+            is_decomposition = "decompos" in lower_status or "decompos" in lower_detail or "subtask" in lower_status or "subtask" in lower_detail
+            if not is_decomposition:
+                return
+
+            if "decomposing task" in lower_status:
+                # Decomposition now uses the dedicated subagent screen path.
+                # Keep loading text in panels, but avoid showing the legacy modal.
+                self._dismiss_decomposition_generation_modal()
+                return
+
+            if lower_status in ("decomposition ready", "decomposition fallback"):
+                if self._decomposition_runtime_subagent_call_id:
+                    self._dismiss_decomposition_generation_modal()
+                    return
+                self._decomposition_completion_source = "subagent" if "ready" in lower_status else "fallback"
+                if self._decomposition_generation_modal:
+                    self._decomposition_generation_modal.update_progress(status, detail)
+                    # If subtasks already arrived, render and auto-dismiss.
+                    if self._runtime_decomposition_subtasks:
+                        self._decomposition_generation_modal.show_subtasks(
+                            self._runtime_decomposition_subtasks,
+                            source=self._decomposition_completion_source,
+                        )
+                        self.set_timer(2.5, self._dismiss_decomposition_generation_modal)
+                    else:
+                        # Guard against stale modals if no explicit subtasks are emitted.
+                        self.set_timer(3.0, self._dismiss_decomposition_generation_modal)
 
         async def update_agent_widget(
             self,
@@ -3980,6 +4314,7 @@ Type your question and press Enter to ask the agents.
                     "custom_tool_response": "working",
                     "voting": "working",
                     "voted": "voted",  # Green checkmark - agent voted
+                    "stopped": "stopped",  # Green checkmark - agent stopped (decomposition)
                     "waiting": "voted",  # Waiting for others after voting
                     "complete": "voted",  # Finished, waiting for consensus
                     "completed": "voted",
@@ -4070,6 +4405,451 @@ Type your question and press Enter to ask the agents.
                         level="debug",
                     )
 
+        def _get_decomposition_runtime_subagent(
+            self,
+            subagent_id: str = "task_decomposition",
+        ) -> Optional[Any]:
+            """Return latest decomposition runtime subagent data."""
+            current = self._decomposition_runtime_subagent_data
+            callback = self._decomposition_runtime_status_callback
+
+            if callback:
+                try:
+                    refreshed = callback(subagent_id)
+                    if refreshed is not None:
+                        self._decomposition_runtime_subagent_data = refreshed
+                        current = refreshed
+                except Exception:
+                    pass
+
+            if current is not None and getattr(current, "id", None) == subagent_id:
+                return current
+            return None
+
+        def _open_decomposition_runtime_subagent_screen(
+            self,
+            auto_return_on_completion: bool = False,
+        ) -> bool:
+            """Open the decomposition runtime subagent screen.
+
+            Returns:
+                True if a screen was opened, False otherwise.
+            """
+            subagent = self._get_decomposition_runtime_subagent()
+            if not subagent:
+                return False
+
+            screen = SubagentScreen(
+                subagent=subagent,
+                all_subagents=[subagent],
+                status_callback=self._get_decomposition_runtime_subagent,
+                auto_return_on_completion=auto_return_on_completion,
+            )
+            self.push_screen(screen)
+            return True
+
+        def _decomposition_subagent_events_ready(self) -> bool:
+            """Return True when decomposition subagent has enough data for full subagent view.
+
+            Readiness requires:
+            - a readable events stream, and
+            - detectable inner-agent identity data (metadata or event agent IDs/sources).
+            """
+            subagent = self._get_decomposition_runtime_subagent()
+            if not subagent:
+                return False
+
+            log_path_raw = getattr(subagent, "log_path", None)
+            if not log_path_raw:
+                return False
+
+            try:
+                from massgen.subagent.models import SubagentResult
+
+                log_path = Path(log_path_raw)
+                if not log_path.is_absolute():
+                    log_path = (Path.cwd() / log_path).resolve()
+
+                events_path: Optional[Path] = None
+                if log_path.is_file():
+                    events_path = log_path
+                elif log_path.is_dir():
+                    resolved = SubagentResult.resolve_events_path(log_path)
+                    if resolved:
+                        events_path = Path(resolved)
+
+                if not events_path or not events_path.exists():
+                    return False
+                if events_path.stat().st_size <= 0:
+                    return False
+
+                # Prefer explicit metadata signal (same source SubagentScreen uses).
+                metadata_candidates = [events_path.parent / "execution_metadata.yaml"]
+                if log_path.is_dir():
+                    metadata_candidates.extend(
+                        [
+                            log_path / "full_logs" / "execution_metadata.yaml",
+                            log_path / "execution_metadata.yaml",
+                        ],
+                    )
+                else:
+                    metadata_candidates.append(log_path.parent / "execution_metadata.yaml")
+
+                for candidate in metadata_candidates:
+                    if not candidate.exists():
+                        continue
+                    try:
+                        import yaml
+
+                        with open(candidate, encoding="utf-8") as f:
+                            metadata = yaml.safe_load(f) or {}
+                        agents_cfg = (metadata.get("config") or {}).get("agents") or []
+                        if isinstance(agents_cfg, list):
+                            agent_ids = [a.get("id") for a in agents_cfg if isinstance(a, dict) and isinstance(a.get("id"), str) and a.get("id")]
+                            if agent_ids:
+                                return True
+                    except Exception:
+                        continue
+
+                # Fallback: scan recent event lines for inner-agent sources.
+                def _is_agent_source(source: Optional[str]) -> bool:
+                    if not source:
+                        return False
+                    lowered = source.lower()
+                    if lowered.startswith("mcp_") or lowered.startswith("mcp__") or "mcp__" in lowered:
+                        return False
+                    if lowered in ("mcp_setup", "mcp_session", "orchestrator", "system", "task_decomposition"):
+                        return False
+                    return True
+
+                try:
+                    import json
+
+                    tail_lines = events_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-400:]
+                    seen_agents: set[str] = set()
+                    for raw in tail_lines:
+                        if not raw.strip():
+                            continue
+                        try:
+                            event = json.loads(raw)
+                        except Exception:
+                            continue
+
+                        agent_id = event.get("agent_id")
+                        if isinstance(agent_id, str) and _is_agent_source(agent_id):
+                            seen_agents.add(agent_id)
+
+                        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+                        source = data.get("source") if isinstance(data, dict) else None
+                        if not source and isinstance(data, dict):
+                            chunk = data.get("chunk")
+                            if isinstance(chunk, dict):
+                                source = chunk.get("source")
+                        if isinstance(source, str) and _is_agent_source(source):
+                            seen_agents.add(source)
+
+                    if seen_agents:
+                        return True
+                except Exception:
+                    return False
+
+                return False
+            except Exception:
+                return False
+
+        def _auto_open_decomposition_runtime_subagent_screen(self, attempt: int = 0) -> None:
+            """Auto-open decomposition subagent screen once event data is available."""
+            if self._decomposition_subagent_events_ready():
+                self._open_decomposition_runtime_subagent_screen(auto_return_on_completion=True)
+                return
+
+            # Retry for a short window; avoid forcing an early empty screen.
+            if attempt >= 120:
+                return
+
+            self.set_timer(
+                0.1,
+                lambda: self._auto_open_decomposition_runtime_subagent_screen(attempt + 1),
+            )
+
+        def show_runtime_subagent_card(
+            self,
+            agent_id: str,
+            subagent_id: str,
+            task: str,
+            timeout_seconds: int,
+            call_id: str,
+            status_callback: Optional[Callable[[str], Optional[Any]]] = None,
+            log_path: Optional[str] = None,
+            _retry_count: int = 0,
+        ) -> None:
+            """Render a subagent card for orchestrator-owned runtime subagents."""
+            from massgen.subagent.models import SubagentDisplayData
+
+            # Decomposition pre-run generation should not appear in the main timeline,
+            # but should be visible immediately in the dedicated subagent screen.
+            if subagent_id == "task_decomposition":
+                trimmed_task = (task or "").strip()
+                if len(trimmed_task) > 300:
+                    trimmed_task = trimmed_task[:297] + "..."
+
+                resolved_log_path = log_path
+                if not resolved_log_path:
+                    try:
+                        log_dir = get_log_session_dir()
+                        if log_dir:
+                            resolved_log_path = str(log_dir / "subagents" / subagent_id)
+                    except Exception:
+                        resolved_log_path = None
+
+                self._decomposition_runtime_subagent_call_id = call_id
+                self._decomposition_runtime_subagent_agent_id = agent_id
+                self._decomposition_runtime_status_callback = status_callback
+                self._decomposition_runtime_subagent_data = SubagentDisplayData(
+                    id=subagent_id,
+                    task=trimmed_task,
+                    status="running",
+                    progress_percent=0,
+                    elapsed_seconds=0.0,
+                    timeout_seconds=float(timeout_seconds or 300),
+                    workspace_path="",
+                    workspace_file_count=0,
+                    last_log_line="Starting...",
+                    error=None,
+                    answer_preview=None,
+                    log_path=resolved_log_path,
+                )
+
+                self._dismiss_decomposition_generation_modal()
+                if not self._decomposition_runtime_auto_opened:
+                    self._decomposition_runtime_auto_opened = True
+                    self.set_timer(0.05, self._auto_open_decomposition_runtime_subagent_screen)
+                return
+
+            target_agent = agent_id if agent_id in self.agent_widgets else None
+            if not target_agent:
+                if self._active_agent_id in self.agent_widgets:
+                    target_agent = self._active_agent_id
+                elif self.coordination_display.agent_ids:
+                    candidate = self.coordination_display.agent_ids[0]
+                    if candidate in self.agent_widgets:
+                        target_agent = candidate
+
+            if not target_agent:
+                if _retry_count < 8:
+                    self.set_timer(
+                        0.1,
+                        lambda: self.show_runtime_subagent_card(
+                            agent_id=agent_id,
+                            subagent_id=subagent_id,
+                            task=task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                            _retry_count=_retry_count + 1,
+                        ),
+                    )
+                return
+
+            trimmed_task = (task or "").strip()
+            if len(trimmed_task) > 300:
+                trimmed_task = trimmed_task[:297] + "..."
+
+            resolved_log_path = log_path
+            if not resolved_log_path:
+                try:
+                    log_dir = get_log_session_dir()
+                    if log_dir:
+                        resolved_log_path = str(log_dir / "subagents" / subagent_id)
+                except Exception:
+                    resolved_log_path = None
+
+            subagent = SubagentDisplayData(
+                id=subagent_id,
+                task=trimmed_task,
+                status="running",
+                progress_percent=0,
+                elapsed_seconds=0.0,
+                timeout_seconds=float(timeout_seconds or 300),
+                workspace_path="",
+                workspace_file_count=0,
+                last_log_line="Starting...",
+                error=None,
+                answer_preview=None,
+                log_path=resolved_log_path,
+            )
+
+            panel = self.agent_widgets.get(target_agent)
+            if not panel:
+                if _retry_count < 8:
+                    self.set_timer(
+                        0.1,
+                        lambda: self.show_runtime_subagent_card(
+                            agent_id=agent_id,
+                            subagent_id=subagent_id,
+                            task=task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                            _retry_count=_retry_count + 1,
+                        ),
+                    )
+                return
+
+            # Ensure timeline cards are visible during prep (not masked by loading panel).
+            try:
+                panel._hide_loading()
+            except Exception:
+                pass
+
+            try:
+                timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
+            except Exception:
+                if _retry_count < 8:
+                    self.set_timer(
+                        0.1,
+                        lambda: self.show_runtime_subagent_card(
+                            agent_id=agent_id,
+                            subagent_id=subagent_id,
+                            task=task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                            _retry_count=_retry_count + 1,
+                        ),
+                    )
+                return
+
+            card_id = f"subagent_{call_id}"
+            card: Optional[SubagentCard] = None
+            try:
+                card = timeline.query_one(f"#{card_id}", SubagentCard)
+            except Exception:
+                card = None
+
+            if card:
+                card.update_subagents([subagent])
+                if status_callback:
+                    card.set_status_callback(status_callback)
+            else:
+                card = SubagentCard(
+                    subagents=[subagent],
+                    tool_call_id=call_id,
+                    status_callback=status_callback,
+                    id=card_id,
+                )
+                timeline.add_widget(card)
+
+        def update_runtime_subagent_card(
+            self,
+            agent_id: str,
+            subagent_id: str,
+            call_id: str,
+            status: str,
+            answer_preview: Optional[str] = None,
+            error: Optional[str] = None,
+        ) -> None:
+            """Update status/result info for an orchestrator-owned runtime subagent."""
+            from massgen.subagent.models import SubagentDisplayData
+
+            # Decomposition pre-run generation is intentionally not rendered in timeline.
+            # Keep status in memory so Ctrl+U and the dedicated subagent screen still work.
+            if subagent_id == "task_decomposition":
+                existing = self._get_decomposition_runtime_subagent(subagent_id) or self._decomposition_runtime_subagent_data
+
+                status_map = {
+                    "running": "running",
+                    "pending": "pending",
+                    "completed": "completed",
+                    "timeout": "timeout",
+                    "failed": "failed",
+                    "error": "error",
+                }
+                normalized_status = status_map.get((status or "").lower(), "failed")
+
+                if existing is not None:
+                    self._decomposition_runtime_subagent_data = SubagentDisplayData(
+                        id=existing.id,
+                        task=existing.task,
+                        status=normalized_status,
+                        progress_percent=100 if normalized_status in ("completed", "timeout", "failed", "error") else existing.progress_percent,
+                        elapsed_seconds=existing.elapsed_seconds,
+                        timeout_seconds=existing.timeout_seconds,
+                        workspace_path=existing.workspace_path,
+                        workspace_file_count=existing.workspace_file_count,
+                        last_log_line=existing.last_log_line,
+                        error=error or existing.error,
+                        answer_preview=answer_preview or existing.answer_preview,
+                        log_path=existing.log_path,
+                    )
+
+                if call_id == self._decomposition_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
+                    self._decomposition_runtime_subagent_call_id = None
+                    self._decomposition_runtime_subagent_agent_id = None
+                return
+
+            status_map = {
+                "running": "running",
+                "pending": "pending",
+                "completed": "completed",
+                "timeout": "timeout",
+                "failed": "failed",
+                "error": "error",
+            }
+            normalized_status = status_map.get((status or "").lower(), "failed")
+
+            target_agent = agent_id
+            if call_id == self._decomposition_runtime_subagent_call_id and self._decomposition_runtime_subagent_agent_id:
+                target_agent = self._decomposition_runtime_subagent_agent_id
+
+            panel = self.agent_widgets.get(target_agent)
+            if not panel:
+                return
+
+            try:
+                timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
+            except Exception:
+                return
+
+            card_id = f"subagent_{call_id}"
+            try:
+                card = timeline.query_one(f"#{card_id}", SubagentCard)
+            except Exception:
+                return
+
+            existing = None
+            for sa in card.subagents:
+                if sa.id == subagent_id:
+                    existing = sa
+                    break
+
+            if existing is None:
+                return
+
+            final_progress = 100 if normalized_status in ("completed", "timeout", "failed", "error") else existing.progress_percent
+            updated = SubagentDisplayData(
+                id=existing.id,
+                task=existing.task,
+                status=normalized_status,
+                progress_percent=final_progress,
+                elapsed_seconds=existing.elapsed_seconds,
+                timeout_seconds=existing.timeout_seconds,
+                workspace_path=existing.workspace_path,
+                workspace_file_count=existing.workspace_file_count,
+                last_log_line=existing.last_log_line,
+                error=error or existing.error,
+                answer_preview=answer_preview or existing.answer_preview,
+                log_path=existing.log_path,
+            )
+            card.update_subagent(subagent_id, updated)
+
+            if call_id == self._decomposition_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
+                self._decomposition_runtime_subagent_call_id = None
+                self._decomposition_runtime_subagent_agent_id = None
+
         def show_subagent_card_from_spawn(
             self,
             agent_id: str,
@@ -4142,6 +4922,10 @@ Type your question and press Enter to ask the agents.
             if agent_id in self.agent_widgets:
                 panel = self.agent_widgets[agent_id]
                 try:
+                    try:
+                        panel._hide_loading()
+                    except Exception:
+                        pass
                     timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
 
                     # Flush any pending tool batch so the card appears
@@ -4838,6 +5622,14 @@ Type your question and press Enter to ask the agents.
             self.clear_winner_state()
             logger.info("[TUI-App] Winner state cleared")
 
+            # Reset status indicators so they animate for the new turn
+            if self._status_bar:
+                for agent_id in self._status_bar._agent_order:
+                    self._status_bar.set_agent_activity(agent_id, "thinking")
+            if self._execution_status_line:
+                for agent_id in self._execution_status_line._agent_ids:
+                    self._execution_status_line.set_agent_state(agent_id, "working")
+
             # Clear timeline content from all agent panels
             logger.info(f"[TUI-App] Clearing timelines for {len(self.agent_widgets)} agent panels")
             for agent_id, panel in self.agent_widgets.items():
@@ -4851,51 +5643,94 @@ Type your question and press Enter to ask the agents.
 
                     # Add a turn separator banner if this is turn 2+
                     if turn > 1:
-                        logger.info(f"[TUI-App] Adding turn {turn} banner for {agent_id}")
-                        from massgen.frontend.displays.textual_widgets.content_sections import (
-                            RestartBanner,
-                        )
-
-                        # CRITICAL: Suppress auto Round 1 insertion before adding turn banner.
-                        # add_widget() calls _ensure_round_banner() which would add Round 1
-                        # ABOVE the turn banner. We add Round 1 explicitly BELOW it instead.
-                        timeline._round_1_shown = True
-
-                        # Create a turn separator that shows context from previous turn
-                        separator_label = f"══════ Turn {turn} ══════"
-                        turn_banner = RestartBanner(
-                            label=separator_label,
-                            id=f"turn_{turn}_separator",
-                        )
-                        timeline.add_widget(turn_banner)
-                        logger.info(f"[TUI-App] Turn banner added to timeline for {agent_id}")
-
-                        # If we have a previous answer summary, show it collapsed
-                        if previous_answer:
-                            logger.info(f"[TUI-App] Adding previous answer context for {agent_id}")
-                            from textual.widgets import Static
-
-                            summary = previous_answer[:200] + "..." if len(previous_answer) > 200 else previous_answer
-                            context_widget = Static(
-                                f"[dim]Previous: {summary}[/]",
-                                id=f"turn_{turn}_context",
-                                markup=True,
+                        # Defer banner insertion until after clear() is fully processed.
+                        # Textual removes children asynchronously, so immediate mounts can collide on IDs.
+                        def _add_turn_banner(
+                            agent_id: str = agent_id,
+                            timeline: TimelineSection = timeline,
+                            previous_answer: Optional[str] = previous_answer,
+                            turn: int = turn,
+                        ) -> None:
+                            logger.info(f"[TUI-App] Adding turn {turn} banner for {agent_id}")
+                            from massgen.frontend.displays.textual_widgets.content_sections import (
+                                RestartBanner,
                             )
-                            timeline.add_widget(context_widget)
 
-                        # CRITICAL: Add Round 1 separator BELOW the turn banner (and optional context)
-                        # This ensures proper order: Turn X → [Context] → Round 1 → Content
-                        logger.info(f"[TUI-App] Adding Round 1 separator for {agent_id}")
-                        timeline.add_separator("Round 1", round_number=1)
-                        timeline._round_1_shown = True  # Prevent _ensure_round_banner() from adding it again
-                        logger.info("[TUI-App] Round 1 separator added, _round_1_shown set to True")
+                            # Create a turn separator that shows context from previous turn
+                            separator_label = f"══════ Turn {turn} ══════"
+                            turn_banner = RestartBanner(
+                                label=separator_label,
+                                id=f"turn_{turn}_separator",
+                            )
+                            turn_banner.add_class("turn-banner")
+                            indicator = None
+                            try:
+                                from textual.widgets import Static
 
-                        # Scroll to the turn banner to show the new turn at the top
-                        try:
-                            turn_banner.scroll_visible()
-                            logger.info(f"[TUI-App] Scrolled to turn banner for {agent_id}")
-                        except Exception as e:
-                            logger.warning(f"[TUI-App] Failed to scroll to turn banner for {agent_id}: {e}")
+                                indicator = timeline.query_one("#scroll_mode_indicator", Static)
+                            except Exception:
+                                indicator = None
+                            timeline.mount(turn_banner, after=indicator)
+                            logger.info(f"[TUI-App] Turn banner added to timeline for {agent_id}")
+
+                            # If we have a previous answer summary, show it collapsed
+                            insert_after = turn_banner
+                            if previous_answer:
+                                logger.info(f"[TUI-App] Adding previous answer context for {agent_id}")
+                                from textual.widgets import Static
+
+                                summary = previous_answer[:200] + "..." if len(previous_answer) > 200 else previous_answer
+                                context_widget = Static(
+                                    f"[dim]Previous: {summary}[/]",
+                                    id=f"turn_{turn}_context",
+                                    markup=True,
+                                )
+                                context_widget.add_class("turn-context")
+                                timeline.mount(context_widget, after=insert_after)
+                                insert_after = context_widget
+
+                            # CRITICAL: Add Round 1 separator BELOW the turn banner (and optional context)
+                            # This ensures proper order: Turn X → [Context] → Round 1 → Content
+                            logger.info(f"[TUI-App] Adding Round 1 separator for {agent_id}")
+                            try:
+                                if hasattr(timeline, "_pending_round_separators"):
+                                    timeline._pending_round_separators.discard(1)
+                                if hasattr(timeline, "_shown_round_banners"):
+                                    timeline._shown_round_banners.discard(1)
+                                if hasattr(timeline, "_round_1_shown"):
+                                    timeline._round_1_shown = False
+                            except Exception:
+                                pass
+                            try:
+                                timeline.add_separator("Round 1", round_number=1, after=insert_after)
+                                logger.info("[TUI-App] Round 1 separator added after turn banner/context")
+                            except Exception as e:
+                                logger.warning(f"[TUI-App] Failed to add Round 1 separator: {e}")
+                                try:
+                                    round_banner = RestartBanner(
+                                        label="Round 1",
+                                        id=f"turn_{turn}_round_1_separator",
+                                    )
+                                    round_banner.add_class("round-1")
+                                    timeline.mount(round_banner, after=insert_after)
+                                    if hasattr(timeline, "_shown_round_banners"):
+                                        timeline._shown_round_banners.add(1)
+                                    if hasattr(timeline, "_last_round_shown"):
+                                        timeline._last_round_shown = max(timeline._last_round_shown, 1)
+                                    if hasattr(timeline, "_round_1_shown"):
+                                        timeline._round_1_shown = True
+                                    logger.info("[TUI-App] Forced Round 1 separator mount (fallback)")
+                                except Exception as e2:
+                                    logger.warning(f"[TUI-App] Failed to force-mount Round 1 separator: {e2}")
+
+                            # Scroll to the turn banner to show the new turn at the top
+                            try:
+                                turn_banner.scroll_visible()
+                                logger.info(f"[TUI-App] Scrolled to turn banner for {agent_id}")
+                            except Exception as e:
+                                logger.warning(f"[TUI-App] Failed to scroll to turn banner for {agent_id}: {e}")
+
+                        timeline.call_after_refresh(_add_turn_banner)
 
                 except Exception as e:
                     logger.error(f"[TUI-App] Failed to prepare timeline for {agent_id}: {e}", exc_info=True)
@@ -5005,6 +5840,16 @@ Type your question and press Enter to ask the agents.
                         widget.reset_round_state()
                         logger.info(f"[TUI] After reset: panel._current_round={widget._current_round}, panel._viewed_round={widget._viewed_round}")
 
+                # CRITICAL: Reset per-agent event adapters so new turn starts at Round 1
+                if hasattr(self, "_event_adapters") and self._event_adapters:
+                    logger.info(f"[TUI] Resetting {len(self._event_adapters)} TimelineEventAdapters for new turn")
+                    for agent_id, adapter in self._event_adapters.items():
+                        try:
+                            adapter.reset()
+                            adapter.set_round_number(1)
+                        except Exception as e:
+                            logger.warning(f"[TUI] Failed to reset adapter for {agent_id}: {e}")
+
                 # CRITICAL: Reset status ribbon for all agents
                 # The ribbon is at app level, not inside panels, so reset it directly
                 if self._status_ribbon:
@@ -5015,6 +5860,23 @@ Type your question and press Enter to ask the agents.
                 # CRITICAL: Reset turn-level state (answers, votes, buffers, etc.)
                 # This ensures clean state for each new turn
                 self.coordination_display.reset_turn_state()
+
+        def set_agent_subtasks(self, subtasks: Dict[str, str]) -> None:
+            """Pass agent subtask assignments to the tab bar for display.
+
+            Args:
+                subtasks: Mapping of agent_id to subtask description.
+            """
+            self._runtime_decomposition_subtasks = dict(subtasks or {})
+            if self._tab_bar:
+                self._tab_bar.set_agent_subtasks(subtasks)
+
+            if self._decomposition_generation_modal:
+                self._decomposition_generation_modal.show_subtasks(
+                    self._runtime_decomposition_subtasks,
+                    source=self._decomposition_completion_source,
+                )
+                self.set_timer(2.5, self._dismiss_decomposition_generation_modal)
 
         def set_input_enabled(self, enabled: bool):
             """Enable or disable mode controls during execution.
@@ -5124,8 +5986,7 @@ Type your question and press Enter to ask the agents.
             if panel:
                 # Use start_new_round which handles timeline visibility and ribbon update
                 panel.start_new_round(round_num, is_context_reset=False)
-                with open("/tmp/tui_debug.log", "a") as f:
-                    f.write("DEBUG: MassGenApp.show_agent_restart called panel.start_new_round\n")
+                tui_log("DEBUG: MassGenApp.show_agent_restart called panel.start_new_round")
                 adapter = self._event_adapters.get(agent_id)
                 if adapter:
                     try:
@@ -5227,6 +6088,10 @@ Type your question and press Enter to ask the agents.
                             return
                 except Exception:
                     continue
+
+            # Fallback: runtime decomposition subagent (hidden from timeline by design)
+            if self._open_decomposition_runtime_subagent_screen():
+                return
 
             self.notify("No active subagents", severity="information", timeout=2)
 
@@ -5354,14 +6219,34 @@ Type your question and press Enter to ask the agents.
         def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
             """Handle click on session info to show full prompt."""
             tui_log(f"on_session_info_clicked: turn={event.turn}")
+            # Build content with optional subtask
+            content = ""
+            if event.subtask:
+                content += f"Subtask: {event.subtask}\n\n"
+            content += event.question or "(No prompt)"
             # Show the full prompt in a text modal
             self.push_screen(
                 TextContentModal(
                     title=f"Turn {event.turn} • Prompt",
-                    content=event.question or "(No prompt)",
+                    content=content,
                 ),
             )
             event.stop()
+
+        def _sync_coordination_mode_toggle(self, mode: str) -> None:
+            """Sync coordination toggle UI state from external config/runtime.
+
+            This is used by the CLI driver to align the mode bar with config defaults
+            before the user explicitly changes the coordination toggle.
+            """
+            self._mode_state.coordination_mode = mode
+            if self._mode_bar:
+                self._mode_bar.set_coordination_mode(mode)
+            if self._tab_bar:
+                if mode == "decomposition":
+                    self._tab_bar.set_agent_subtasks(self._mode_state.decomposition_subtasks)
+                else:
+                    self._tab_bar.set_agent_subtasks({})
 
         # ============================================================
         # Mode Change Handlers
@@ -5384,6 +6269,8 @@ Type your question and press Enter to ask the agents.
                     self._mode_bar.set_plan_mode(self._mode_state.plan_mode)
                 elif event.mode_type == "agent" and self._mode_bar:
                     self._mode_bar.set_agent_mode(self._mode_state.agent_mode)
+                elif event.mode_type == "coordination" and self._mode_bar:
+                    self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
                 elif event.mode_type == "refinement" and self._mode_bar:
                     self._mode_bar.set_refinement_mode(self._mode_state.refinement_enabled)
                 event.stop()
@@ -5393,6 +6280,8 @@ Type your question and press Enter to ask the agents.
                 self._handle_plan_mode_change(event.value)
             elif event.mode_type == "agent":
                 self._handle_agent_mode_change(event.value)
+            elif event.mode_type == "coordination":
+                self._handle_coordination_mode_change(event.value)
             elif event.mode_type == "refinement":
                 self._handle_refinement_mode_change(event.value == "on")
 
@@ -5443,6 +6332,49 @@ Type your question and press Enter to ask the agents.
                 tui_log("  popover does not exist!")
             tui_log("on_plan_settings_clicked - END")
             event.stop()
+
+        def on_mode_help_clicked(self, event: ModeHelpClicked) -> None:
+            """Handle mode bar help button click."""
+            self.action_show_shortcuts()
+            event.stop()
+
+        def on_subtasks_clicked(self, event: SubtasksClicked) -> None:
+            """Handle subtasks editor button click."""
+            if self._mode_state.is_locked():
+                self.notify("Cannot edit subtasks during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+            self._show_subtasks_editor_modal()
+            event.stop()
+
+        def _show_subtasks_editor_modal(self) -> None:
+            """Open decomposition subtasks editor modal."""
+            modal = DecompositionSubtasksModal(
+                agent_ids=self.coordination_display.agent_ids,
+                current_subtasks=self._mode_state.decomposition_subtasks,
+            )
+
+            def _on_subtasks_dismiss(result: Optional[Dict[str, str]]) -> None:
+                # None means cancelled/closed
+                if result is None:
+                    return
+                self._mode_state.decomposition_subtasks = result
+                if self._tab_bar:
+                    self._tab_bar.set_agent_subtasks(result if self._mode_state.coordination_mode == "decomposition" else {})
+                if result:
+                    self.notify(
+                        f"Saved {len(result)} decomposition subtask assignment(s).",
+                        severity="information",
+                        timeout=3,
+                    )
+                else:
+                    self.notify(
+                        "Cleared explicit subtasks. A decomposition subagent will auto-generate them at runtime.",
+                        severity="warning",
+                        timeout=3,
+                    )
+
+            self.push_screen(modal, _on_subtasks_dismiss)
 
         def on_plan_selected(self, event: PlanSelected) -> None:
             """Handle plan selection from popover."""
@@ -5754,6 +6686,33 @@ Type your question and press Enter to ask the agents.
                 self._update_agent_panels_in_use_state(None)
                 self.notify("Multi-Agent Mode", severity="information", timeout=2)
 
+        def _handle_coordination_mode_change(self, mode: str) -> None:
+            """Handle coordination mode toggle.
+
+            Args:
+                mode: "parallel" or "decomposition".
+            """
+            tui_log(f"_handle_coordination_mode_change: {mode}")
+            self._mode_state.coordination_mode = mode
+            self._mode_state.coordination_mode_user_set = True
+
+            if mode == "decomposition":
+                if self._tab_bar:
+                    self._tab_bar.set_agent_subtasks(self._mode_state.decomposition_subtasks)
+                self.notify(
+                    "Coordination: Decomposition (independent subtasks). Use 'Subtasks' to assign manually.",
+                    severity="warning",
+                    timeout=3,
+                )
+            else:
+                if self._tab_bar:
+                    self._tab_bar.set_agent_subtasks({})
+                self.notify(
+                    "Coordination: Parallel (agents solve the same task and vote)",
+                    severity="information",
+                    timeout=3,
+                )
+
         def _update_agent_panels_in_use_state(self, selected_agent: Optional[str]) -> None:
             """Update the 'in use' state for all agent panels.
 
@@ -5941,6 +6900,11 @@ Type your question and press Enter to ask the agents.
                     self.push_screen(modal)
             event.stop()
 
+        def on_context_paths_clicked(self, event: ContextPathsClicked) -> None:
+            """Handle context paths icon click in ribbon - open context paths modal."""
+            self._show_context_modal()
+            event.stop()
+
         def on_button_pressed(self, event: Button.Pressed) -> None:
             """Handle button clicks in main app."""
             if event.button.id == "cancel_button":
@@ -6034,6 +6998,21 @@ Type your question and press Enter to ask the agents.
                 # Update the theme state
                 self.coordination_display.theme = new_theme
 
+                # Toggle theme classes on the app for CSS-based theme switching
+                # This allows theme-specific styles to update dynamically
+                if new_theme == "light":
+                    self.add_class("theme-light")
+                    self.remove_class("theme-dark")
+                else:
+                    self.add_class("theme-dark")
+                    self.remove_class("theme-light")
+
+                # Save the new theme to user preferences
+                try:
+                    user_settings = get_user_settings()
+                    user_settings.theme = new_theme
+                except Exception:
+                    pass
             except Exception as e:
                 self.notify(f"Theme error: {e}", severity="error", timeout=3)
                 logger.exception(f"Failed to toggle theme: {e}")
@@ -6358,6 +7337,10 @@ Type your question and press Enter to ask the agents.
         def on_status_bar_theme_clicked(self, event: StatusBarThemeClicked) -> None:
             """Handle theme toggle from status bar click."""
             self.action_toggle_theme()
+
+        def on_status_bar_context_clicked(self, event: StatusBarContextClicked) -> None:
+            """Handle click on status bar context indicator - opens context paths modal."""
+            self._show_context_modal()
 
         def _toggle_cwd_auto_include(self) -> None:
             """Cycle CWD context mode: off → read → write → off (Ctrl+P)."""
@@ -6782,6 +7765,7 @@ Type your question and press Enter to ask the agents.
                     # Not executing - show normal input
                     tui_log(f"  Phase '{phase}' -> removing execution-mode class")
                     input_area.remove_class("execution-mode")
+                    self._dismiss_decomposition_generation_modal()
                     # Stop execution status update timer
                     if hasattr(self, "_execution_status_timer") and self._execution_status_timer:
                         self._execution_status_timer.stop()
@@ -7325,7 +8309,7 @@ Type your question and press Enter to ask the agents.
             """Refresh widgets when the terminal window is resized with debounce."""
             if self._resize_debounce_handle:
                 try:
-                    self._resize_debounce_handle.cancel()
+                    self._resize_debounce_handle.stop()
                 except Exception as e:
                     tui_log(f"[TextualDisplay] {e}")
 
@@ -7537,6 +8521,13 @@ Type your question and press Enter to ask the agents.
             self._final_answer_metadata = None
 
             logger.info(f"[AgentPanel] After reset: _current_round={self._current_round}, _viewed_round={self._viewed_round}")
+
+            # Clear task plan state for the new turn (new workspace starts empty)
+            try:
+                if hasattr(self, "_task_plan_host") and self._task_plan_host:
+                    self._task_plan_host.clear()
+            except Exception as e:
+                logger.warning(f"[AgentPanel] Failed to clear task plan for {self.agent_id}: {e}")
 
             # Reset round state in child widgets
             try:
@@ -7814,7 +8805,6 @@ Type your question and press Enter to ask the agents.
 
             # Reset per-attempt UI state
             self._hide_completion_footer()
-            self._tool_handler.reset()
             self._batch_tracker.reset()
             self._reasoning_header_shown = False
 

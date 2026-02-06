@@ -47,6 +47,7 @@ from .base_with_custom_tool_and_mcp import (
 )
 from .gemini_utils import (
     CoordinationResponse,
+    DecompositionCoordinationResponse,
     PostEvaluationResponse,
     VoteOnlyCoordinationResponse,
 )
@@ -544,8 +545,9 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
 
             valid_agent_ids = None
 
-            # Check if broadcast tools are available
+            # Check if broadcast tools are available and detect decomposition mode
             broadcast_enabled = False
+            is_decomposition = False
             if is_coordination:
                 # Extract valid agent IDs from vote tool enum if available
                 for tool in tools:
@@ -556,6 +558,8 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                             agent_id_param = func_def.get("parameters", {}).get("properties", {}).get("agent_id", {})
                             if "enum" in agent_id_param:
                                 valid_agent_ids = agent_id_param["enum"]
+                        elif tool_name == "stop":
+                            is_decomposition = True
                         elif tool_name == "ask_others":
                             broadcast_enabled = True
 
@@ -569,9 +573,12 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                     valid_agent_ids,
                     broadcast_enabled=broadcast_enabled,
                     vote_only=vote_only,
+                    decomposition_mode=is_decomposition,
                 )
                 if vote_only:
                     logger.info(f"[Gemini] Using vote-only prompt for agent {agent_id} (answer limit reached)")
+                if is_decomposition:
+                    logger.info(f"[Gemini] Using decomposition prompt for agent {agent_id} (stop instead of vote)")
             elif is_post_evaluation:
                 # For post-evaluation, modify prompt to use structured output
                 full_content = self.formatter.build_post_evaluation_prompt(full_content)
@@ -707,6 +714,9 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                     if vote_only:
                         config["response_schema"] = VoteOnlyCoordinationResponse.model_json_schema()
                         logger.info(f"[Gemini] Using vote-only schema for agent {agent_id} (answer limit reached)")
+                    elif is_decomposition:
+                        config["response_schema"] = DecompositionCoordinationResponse.model_json_schema()
+                        logger.info(f"[Gemini] Using decomposition schema for agent {agent_id} (stop instead of vote)")
                     else:
                         config["response_schema"] = CoordinationResponse.model_json_schema()
                 elif is_post_evaluation:
@@ -1887,7 +1897,7 @@ class GeminiBackend(StreamingBufferMixin, CustomToolAndMCPBackend):
                             user_parts = [
                                 types.Part(
                                     text="Based on the tool results above, please continue with your response. "
-                                    "Remember to use the appropriate coordination action (vote, new_answer, or ask_others) when ready.",
+                                    "Remember to use the appropriate coordination action (vote/stop, new_answer, or ask_others) when ready.",
                                 ),
                             ]
                             conversation_history.append(

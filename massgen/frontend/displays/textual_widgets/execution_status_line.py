@@ -180,8 +180,8 @@ class ExecutionStatusLine(Widget):
             if state in ("working", "streaming", "thinking", "tool_use"):
                 # Pulsing dots for working states - use agent color
                 text.append(pulse_dots, style=f"{agent_color} bold")
-            elif state == "voted":
-                # Green checkmark for voted (waiting for consensus)
+            elif state in ("voted", "stopped"):
+                # Green checkmark for voted/stopped (waiting for consensus/subtask done)
                 text.append("✓  ", style="green")
             elif state == "done":
                 # Dim checkmark for done (final presentation in progress)

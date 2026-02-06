@@ -28,6 +28,10 @@ When planning or creating specs, use AskUserQuestions to ensure you align with t
 
 **IMPORTANT**: When the user asks you to check logs from a MassGen run, assume they ran with the current uncommitted changes unless they explicitly say otherwise. Do NOT assume "the run used an older commit" just because the execution_metadata.yaml shows a different git commit - the user likely ran with local modifications after you suggested changes. Always debug the actual code behavior first.
 
+## Implementation Guidelines
+
+After implementing any feature that involves passing parameters through multiple layers (e.g., backend → manager → component), always verify the full wiring chain end-to-end by tracing the parameter from its origin to its final usage site. Do not rely solely on unit tests passing — add an integration smoke test or assertion that the parameter actually arrives at its destination, not just that the downstream logic works when the parameter is provided.
+
 ## Project Overview
 
 MassGen is a multi-agent system that coordinates multiple AI agents to solve complex tasks through parallel processing, intelligence sharing, and consensus building. Agents work simultaneously, observe each other's progress, and vote to converge on the best solution.
@@ -96,6 +100,13 @@ base.py (abstract interface)
             ├── gemini.py (Google)
             └── grok.py (xAI)
 ```
+
+### Agent Statelessness and Anonymity
+Agents are STATELESS and ANONYMOUS across coordination rounds. Each round:
+- Agent gets a fresh LLM invocation with no memory of previous rounds
+- Agent does not know which agent it is (all identities are anonymous)
+- Cross-agent information (answers, workspaces) is presented anonymously
+- System prompts and branch names must NOT reveal agent identity or round history
 
 ### TUI Design Principles
 
@@ -292,6 +303,7 @@ Detailed documentation for specific modules lives in `docs/modules/`. **Always c
 
 - `docs/modules/subagents.md` - Subagent spawning, logging architecture, TUI integration
 - `docs/modules/interactive_mode.md` - Interactive mode architecture, launch_run MCP, system prompts, project workspace
+- `docs/modules/worktrees.md` - Worktree lifecycle, branch naming, scratch archives, system prompt integration
 
 ## MassGen Skills
 

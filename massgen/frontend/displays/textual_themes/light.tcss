@@ -162,13 +162,13 @@ Screen {
 
 /* === Agent Tab Bar === */
 /* NOTE: No dock: top - flows naturally below HeaderWidget */
-/* Phase 9: Removed border-bottom for edge-to-edge layout */
+/* Light theme: Add subtle separator for visual distinction */
 AgentTabBar {
     height: 2;
     width: 100%;
     layout: horizontal;
-    background: transparent;
-    border-bottom: none;
+    background: $bg-surface;
+    border-bottom: solid $border-default;
     padding: 0 1;
 }
 
@@ -252,6 +252,10 @@ AgentTab.status-voted {
     border-bottom: tall #4caf50;
 }
 
+AgentTab.status-stopped {
+    border-bottom: tall #4caf50;
+}
+
 AgentTab.status-done {
     border-bottom: tall $border-highlight;
     color: $fg-muted;
@@ -283,6 +287,11 @@ AgentTab.active.status-completed {
 }
 
 AgentTab.active.status-voted {
+    background: #e8f5e9;
+    border-bottom: tall #4caf50;
+}
+
+AgentTab.active.status-stopped {
     background: #e8f5e9;
     border-bottom: tall #4caf50;
 }
@@ -336,13 +345,26 @@ AgentTab.disabled:hover {
 }
 
 /* === Mode Bar (above input) === */
+/* Light theme: Add subtle background and border for visual distinction */
+ModeBar {
+    height: 2;
+    width: auto;
+    layout: horizontal;
+    background: $bg-surface;
+    padding: 0;
+    margin-left: 1;
+    align: left middle;
+    border: none;
+}
+
 #mode_bar {
     height: 2;
-    width: 100%;
+    width: auto;
     layout: horizontal;
-    background: transparent;
-    padding: 0 1;
+    background: $bg-surface;
+    padding: 0;
     align: left middle;
+    border: none;
 }
 
 #mode_bar.hidden {
@@ -395,6 +417,17 @@ ModeToggle.state-single {
     color: #856d00;
 }
 
+/* Coordination mode states */
+ModeToggle.state-parallel {
+    background: #e9f2ff;
+    color: #1f5faa;
+}
+
+ModeToggle.state-decomposition {
+    background: #ffe8d6;
+    color: #9a4d00;
+}
+
 /* Refinement mode states - softer muted tones */
 ModeToggle.state-off {
     background: $bg-surface-2;
@@ -413,6 +446,47 @@ ModeToggle.state-off {
 }
 
 #override_btn.hidden {
+    display: none;
+}
+
+/* Mode help button in mode bar */
+#mode_help_btn {
+    width: auto;
+    height: 2;
+    min-width: 3;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall #d5dce7;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+#mode_help_btn:hover {
+    background: transparent;
+    color: #1f5faa;
+    border-bottom: tall #1f5faa;
+}
+
+#subtasks_btn {
+    width: auto;
+    height: 2;
+    min-width: 10;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall #d5dce7;
+    padding: 0 1;
+    margin-left: 0;
+}
+
+#subtasks_btn:hover {
+    background: transparent;
+    color: #9a4d00;
+    border-bottom: tall #9a4d00;
+}
+
+#subtasks_btn.hidden {
     display: none;
 }
 
@@ -717,14 +791,15 @@ HeaderWidget.hidden {
 /* Note: HeaderWidget styling is handled by the class selector above.
    The #header_widget ID selector was removed to avoid CSS conflicts. */
 
-/* Input area container - docks to bottom, transparent for clean look */
+/* Input area container - docks to bottom, with subtle border in light mode */
 #input_area {
     dock: bottom;
     height: auto;
     min-height: 4;
     width: 100%;
     padding: 0 1;
-    background: transparent;
+    background: $bg-surface;
+    border-top: solid $border-default;
 }
 
 /* Execution bar - hidden (keeping input area consistent in all states) */
@@ -1906,10 +1981,11 @@ TaskPlanModal .close-button {
 
 /* === Keyboard Shortcuts Modal === */
 #shortcuts_modal_container {
-    width: auto;
+    width: 94%;
     min-width: 80;
     max-width: 150;
-    height: auto;
+    height: 78%;
+    max-height: 36;
     background: #f5f5f5;
     border: solid #2196f3;
     padding: 1 2;
@@ -1928,21 +2004,96 @@ TaskPlanModal .close-button {
 
 #shortcuts_columns {
     layout: horizontal;
-    height: auto;
+    height: 1fr;
     width: 100%;
+    margin-bottom: 1;
 }
 
 .shortcuts-column {
     width: 1fr;
-    height: auto;
+    height: 1fr;
     background: #ffffff;
     padding: 1;
     margin: 0 1 0 0;
     border: solid #cccccc;
+    overflow-y: auto;
 }
 
 #shortcuts_col_right {
     margin-right: 0;
+}
+
+#shortcuts_modal_container #close_shortcuts_button {
+    dock: bottom;
+    width: 100%;
+}
+
+/* Decomposition subtasks modal */
+#subtasks_modal_container {
+    width: 92%;
+    max-width: 140;
+    height: 80%;
+    background: #f5f5f5;
+    border: solid #2196f3;
+    padding: 1 2;
+}
+
+#subtasks_scroll {
+    height: 1fr;
+    border: solid #cccccc;
+    padding: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#subtasks_modal_container .subtask_row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#subtasks_modal_container .subtask_agent_label {
+    width: 24;
+    color: #666666;
+}
+
+#subtasks_modal_container .subtask_row Input {
+    width: 1fr;
+}
+
+/* Runtime decomposition generation modal */
+#decomposition_generation_container {
+    width: 90%;
+    max-width: 120;
+    height: auto;
+    max-height: 75%;
+    background: #f5f5f5;
+    border: solid #2196f3;
+    padding: 1 2;
+}
+
+#decomposition_generation_status {
+    color: #1f5faa;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#decomposition_generation_detail {
+    color: #666666;
+    margin-bottom: 1;
+}
+
+#decomposition_generation_results {
+    height: auto;
+    max-height: 18;
+    border: solid #cccccc;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+#decomposition_generation_results_content {
+    width: 100%;
+    height: auto;
+    color: #333333;
 }
 
 #shortcuts_content {
@@ -2955,6 +3106,18 @@ StatusBar.consensus-reached #status_votes {
 }
 
 #status_theme:hover {
+    color: #1a6bb8;
+    text-style: underline;
+}
+
+/* StatusBar Context paths indicator */
+#status_context {
+    width: auto;
+    color: #57606a;
+    margin-left: 2;
+}
+
+#status_context:hover {
     color: #1a6bb8;
     text-style: underline;
 }
