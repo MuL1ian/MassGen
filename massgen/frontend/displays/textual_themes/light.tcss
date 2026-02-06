@@ -404,6 +404,17 @@ ModeToggle.state-single {
     color: #856d00;
 }
 
+/* Coordination mode states */
+ModeToggle.state-parallel {
+    background: #e9f2ff;
+    color: #1f5faa;
+}
+
+ModeToggle.state-decomposition {
+    background: #ffe8d6;
+    color: #9a4d00;
+}
+
 /* Refinement mode states - softer muted tones */
 ModeToggle.state-off {
     background: $bg-surface-2;
@@ -422,6 +433,47 @@ ModeToggle.state-off {
 }
 
 #override_btn.hidden {
+    display: none;
+}
+
+/* Mode help button in mode bar */
+#mode_help_btn {
+    width: auto;
+    height: 2;
+    min-width: 3;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall #d5dce7;
+    padding: 0 1;
+    margin-left: 0;
+}
+
+#mode_help_btn:hover {
+    background: transparent;
+    color: #1f5faa;
+    border-bottom: tall #1f5faa;
+}
+
+#subtasks_btn {
+    width: auto;
+    height: 2;
+    min-width: 10;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall #d5dce7;
+    padding: 0 1;
+    margin-left: 0;
+}
+
+#subtasks_btn:hover {
+    background: transparent;
+    color: #9a4d00;
+    border-bottom: tall #9a4d00;
+}
+
+#subtasks_btn.hidden {
     display: none;
 }
 
@@ -1952,6 +2004,38 @@ TaskPlanModal .close-button {
 
 #shortcuts_col_right {
     margin-right: 0;
+}
+
+/* Decomposition subtasks modal */
+#subtasks_modal_container {
+    width: 92%;
+    max-width: 140;
+    height: 80%;
+    background: #f5f5f5;
+    border: solid #2196f3;
+    padding: 1 2;
+}
+
+#subtasks_scroll {
+    height: 1fr;
+    border: solid #cccccc;
+    padding: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#subtasks_modal_container .subtask_row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#subtasks_modal_container .subtask_agent_label {
+    width: 24;
+    color: #666666;
+}
+
+#subtasks_modal_container .subtask_row Input {
+    width: 1fr;
 }
 
 #shortcuts_content {

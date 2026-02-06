@@ -49,6 +49,7 @@ try:
         ConversationHistoryModal,
         CoordinationTableModal,
         CostBreakdownModal,
+        DecompositionSubtasksModal,
         FileInspectionModal,
         KeyboardShortcutsModal,
         MCPStatusModal,
@@ -71,6 +72,7 @@ try:
         FinalPresentationCard,
         ModeBar,
         ModeChanged,
+        ModeHelpClicked,
         MultiLineInput,
         OverrideRequested,
         PathSuggestionDropdown,
@@ -82,6 +84,7 @@ try:
         SessionInfoClicked,
         SubagentCard,
         SubagentScreen,
+        SubtasksClicked,
         TaskPlanCard,
         TaskPlanModal,
         TasksClicked,
@@ -262,6 +265,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self.max_web_search_lines = kwargs.get("max_web_search_lines", 4)
         self.truncate_web_on_status_change = kwargs.get("truncate_web_on_status_change", True)
         self.max_web_lines_on_status_change = kwargs.get("max_web_lines_on_status_change", 3)
+        self.default_coordination_mode = kwargs.get("default_coordination_mode", "voting")
         # Runtime toggle to ignore hotkeys/key handling when enabled
         self.safe_keyboard_mode = kwargs.get("safe_keyboard_mode", False)
         self.max_buffer_batch = kwargs.get("max_buffer_batch", 50)
@@ -2543,6 +2547,8 @@ if TEXTUAL_AVAILABLE:
 
             # TUI Mode State (plan mode, agent mode, refinement mode, override)
             self._mode_state = TuiModeState()
+            if self.coordination_display.default_coordination_mode == "decomposition":
+                self._mode_state.coordination_mode = "decomposition"
             self._mode_bar: Optional[ModeBar] = None
 
             if not self._keyboard_interactive_mode:
@@ -2778,6 +2784,8 @@ if TEXTUAL_AVAILABLE:
                 )
             self._update_safe_indicator()
             self._update_theme_indicator()
+            if self._mode_bar:
+                self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
@@ -3813,6 +3821,16 @@ MODAL SHORTCUTS (when not typing):
   i               - Agent selector
   c               - Coordination table
   v               - Vote results
+
+MODE BAR:
+  Plan            - Normal → Planning → Execute
+  Agents          - Multi-agent or single-agent runs
+  Coordination    - Parallel (vote) or decomposition (independent subtasks)
+  Subtasks        - Define per-agent subtasks (decomposition mode)
+  Refine          - Keep iterative refinement/voting on or off
+  ⋮               - Plan settings (depth, broadcast, plan selector)
+  ?               - Open mode bar help
+  Override        - Manually pick final presenter (when available)
 
 TOOL CARDS:
   Click           - Expand/collapse tool card
@@ -5404,6 +5422,21 @@ Type your question and press Enter to ask the agents.
             )
             event.stop()
 
+        def _sync_coordination_mode_toggle(self, mode: str) -> None:
+            """Sync coordination toggle UI state from external config/runtime.
+
+            This is used by the CLI driver to align the mode bar with config defaults
+            before the user explicitly changes the coordination toggle.
+            """
+            self._mode_state.coordination_mode = mode
+            if self._mode_bar:
+                self._mode_bar.set_coordination_mode(mode)
+            if self._tab_bar:
+                if mode == "decomposition":
+                    self._tab_bar.set_agent_subtasks(self._mode_state.decomposition_subtasks)
+                else:
+                    self._tab_bar.set_agent_subtasks({})
+
         # ============================================================
         # Mode Change Handlers
         # ============================================================
@@ -5425,6 +5458,8 @@ Type your question and press Enter to ask the agents.
                     self._mode_bar.set_plan_mode(self._mode_state.plan_mode)
                 elif event.mode_type == "agent" and self._mode_bar:
                     self._mode_bar.set_agent_mode(self._mode_state.agent_mode)
+                elif event.mode_type == "coordination" and self._mode_bar:
+                    self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
                 elif event.mode_type == "refinement" and self._mode_bar:
                     self._mode_bar.set_refinement_mode(self._mode_state.refinement_enabled)
                 event.stop()
@@ -5434,6 +5469,8 @@ Type your question and press Enter to ask the agents.
                 self._handle_plan_mode_change(event.value)
             elif event.mode_type == "agent":
                 self._handle_agent_mode_change(event.value)
+            elif event.mode_type == "coordination":
+                self._handle_coordination_mode_change(event.value)
             elif event.mode_type == "refinement":
                 self._handle_refinement_mode_change(event.value == "on")
 
@@ -5484,6 +5521,49 @@ Type your question and press Enter to ask the agents.
                 tui_log("  popover does not exist!")
             tui_log("on_plan_settings_clicked - END")
             event.stop()
+
+        def on_mode_help_clicked(self, event: ModeHelpClicked) -> None:
+            """Handle mode bar help button click."""
+            self.action_show_shortcuts()
+            event.stop()
+
+        def on_subtasks_clicked(self, event: SubtasksClicked) -> None:
+            """Handle subtasks editor button click."""
+            if self._mode_state.is_locked():
+                self.notify("Cannot edit subtasks during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+            self._show_subtasks_editor_modal()
+            event.stop()
+
+        def _show_subtasks_editor_modal(self) -> None:
+            """Open decomposition subtasks editor modal."""
+            modal = DecompositionSubtasksModal(
+                agent_ids=self.coordination_display.agent_ids,
+                current_subtasks=self._mode_state.decomposition_subtasks,
+            )
+
+            def _on_subtasks_dismiss(result: Optional[Dict[str, str]]) -> None:
+                # None means cancelled/closed
+                if result is None:
+                    return
+                self._mode_state.decomposition_subtasks = result
+                if self._tab_bar:
+                    self._tab_bar.set_agent_subtasks(result if self._mode_state.coordination_mode == "decomposition" else {})
+                if result:
+                    self.notify(
+                        f"Saved {len(result)} decomposition subtask assignment(s).",
+                        severity="information",
+                        timeout=3,
+                    )
+                else:
+                    self.notify(
+                        "Cleared explicit subtasks. Auto-decomposition will be used.",
+                        severity="warning",
+                        timeout=3,
+                    )
+
+            self.push_screen(modal, _on_subtasks_dismiss)
 
         def on_plan_selected(self, event: PlanSelected) -> None:
             """Handle plan selection from popover."""
@@ -5794,6 +5874,33 @@ Type your question and press Enter to ask the agents.
                 # All panels are in use in multi-agent mode
                 self._update_agent_panels_in_use_state(None)
                 self.notify("Multi-Agent Mode", severity="information", timeout=2)
+
+        def _handle_coordination_mode_change(self, mode: str) -> None:
+            """Handle coordination mode toggle.
+
+            Args:
+                mode: "parallel" or "decomposition".
+            """
+            tui_log(f"_handle_coordination_mode_change: {mode}")
+            self._mode_state.coordination_mode = mode
+            self._mode_state.coordination_mode_user_set = True
+
+            if mode == "decomposition":
+                if self._tab_bar:
+                    self._tab_bar.set_agent_subtasks(self._mode_state.decomposition_subtasks)
+                self.notify(
+                    "Coordination: Decomposition (independent subtasks). Use 'Subtasks' to assign manually.",
+                    severity="warning",
+                    timeout=3,
+                )
+            else:
+                if self._tab_bar:
+                    self._tab_bar.set_agent_subtasks({})
+                self.notify(
+                    "Coordination: Parallel (agents solve the same task and vote)",
+                    severity="information",
+                    timeout=3,
+                )
 
         def _update_agent_panels_in_use_state(self, selected_agent: Optional[str]) -> None:
             """Update the 'in use' state for all agent panels.

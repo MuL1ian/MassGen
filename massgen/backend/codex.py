@@ -145,6 +145,10 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         # Agent ID (needed for Docker container lookup)
         self.agent_id = kwargs.get("agent_id")
 
+        # Tool event tracking (for emit_tool_start/emit_tool_complete)
+        self._tool_start_times: Dict[str, float] = {}
+        self._tool_id_to_name: Dict[str, str] = {}
+
         # Docker execution mode
         self._docker_execution = kwargs.get("command_line_execution_mode") == "docker"
         self._docker_codex_verified = False

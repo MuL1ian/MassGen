@@ -5243,6 +5243,7 @@ async def run_textual_interactive_mode(
     # Create the Textual display with agent model info for welcome screen
     display_kwargs = ui_config.get("display_kwargs", {})
     display_kwargs["agent_models"] = agent_models
+    display_kwargs["default_coordination_mode"] = orchestrator_cfg.get("coordination_mode", "voting") if orchestrator_cfg else "voting"
     display = TextualTerminalDisplay(agent_ids, **display_kwargs)
 
     # Start background MCP registry cache warmup (non-blocking)
@@ -5608,6 +5609,16 @@ async def run_textual_interactive_mode(
             # Apply TUI mode state overrides (single-agent mode, refinement mode, etc.)
             mode_state = display.get_mode_state()
             if mode_state:
+                # Respect config-provided coordination mode until user explicitly changes it in the mode bar.
+                if not mode_state.coordination_mode_user_set:
+                    configured_coordination_mode = getattr(orchestrator_config, "coordination_mode", "voting")
+                    synced_mode = "decomposition" if configured_coordination_mode == "decomposition" else "parallel"
+                    if mode_state.coordination_mode != synced_mode:
+                        mode_state.coordination_mode = synced_mode
+                        logger.info(f"[Textual] Synced coordination mode from config: {synced_mode}")
+                        if display._app:
+                            display._call_app_method("_sync_coordination_mode_toggle", synced_mode)
+
                 mode_overrides = mode_state.get_orchestrator_overrides()
                 if mode_overrides:
                     logger.info(f"[Textual] Applying TUI mode overrides: {mode_overrides}")
@@ -5721,6 +5732,13 @@ async def run_textual_interactive_mode(
                             subtask = agent_data.get("subtask")
                             if subtask:
                                 orchestrator._agent_subtasks[aid] = subtask
+
+                # Apply TUI-provided subtasks (takes precedence over config values)
+                mode_state = display.get_mode_state()
+                if mode_state and mode_state.decomposition_subtasks:
+                    for aid, subtask in mode_state.decomposition_subtasks.items():
+                        if aid in agents and subtask:
+                            orchestrator._agent_subtasks[aid] = subtask
 
             adapter.update_loading_status("🔌 Connecting to tools...")
 

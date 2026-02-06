@@ -76,6 +76,7 @@ from .structured_logging import (
 )
 from .system_message_builder import SystemMessageBuilder
 from .tool import get_post_evaluation_tools, get_workflow_tools
+from .tool.workflow_toolkits.base import WORKFLOW_TOOL_NAMES
 from .utils import ActionType, AgentStatus, CoordinationStage
 
 
@@ -3244,6 +3245,19 @@ Your answer:"""
                 if self._is_waiting_for_all_answers(agent_id):
                     continue
 
+                # In decomposition mode, hitting max_new_answers_per_agent should auto-stop
+                # without spawning a fresh model round.
+                if getattr(self.config, "coordination_mode", "voting") == "decomposition":
+                    was_voted = self.agent_states[agent_id].has_voted
+                    self._is_vote_only_mode(agent_id)  # applies auto-stop side effect in decomposition mode
+                    if not was_voted and self.agent_states[agent_id].has_voted:
+                        self.coordination_tracker.change_status(agent_id, AgentStatus.STOPPED)
+                        logger.info(
+                            f"[Orchestrator] Skipping execution for {agent_id} (auto-stopped at answer limit)",
+                        )
+                    if self.agent_states[agent_id].has_voted:
+                        continue
+
                 if agent_id not in active_streams and not self.agent_states[agent_id].has_voted and not self.agent_states[agent_id].is_killed:
                     # Apply rate limiting before starting agent
                     await self._apply_agent_startup_rate_limit(agent_id)
@@ -5630,6 +5644,39 @@ Your answer:"""
 
         return enforcement_msgs
 
+    def _split_disallowed_workflow_tool_calls(
+        self,
+        agent: "ChatAgent",
+        tool_calls: List[Dict[str, Any]],
+        allowed_workflow_tool_names: Set[str],
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]]:
+        """Split tool calls into allowed and disallowed workflow calls for this round.
+
+        Args:
+            agent: Agent used to extract tool names from backend-specific call objects.
+            tool_calls: Raw tool calls returned by model/backend.
+            allowed_workflow_tool_names: Workflow tools available in this round.
+
+        Returns:
+            Tuple of:
+            - allowed_calls: Calls that can be processed this round
+            - disallowed_calls: Workflow calls not available this round
+            - disallowed_names: Ordered list of disallowed workflow tool names
+        """
+        allowed_calls: List[Dict[str, Any]] = []
+        disallowed_calls: List[Dict[str, Any]] = []
+        disallowed_names: List[str] = []
+
+        for tool_call in tool_calls:
+            tool_name = agent.backend.extract_tool_name(tool_call)
+            if tool_name in WORKFLOW_TOOL_NAMES and tool_name not in allowed_workflow_tool_names:
+                disallowed_calls.append(tool_call)
+                disallowed_names.append(tool_name)
+                continue
+            allowed_calls.append(tool_call)
+
+        return allowed_calls, disallowed_calls, disallowed_names
+
     def _load_rate_limits_from_config(self) -> Dict[str, Dict[str, int]]:
         """
         Load rate limits from centralized configuration file.
@@ -6545,6 +6592,17 @@ Your answer:"""
                                 # Don't yield UI message here - backend streams its own status messages
                                 continue
 
+                            # Tool exists but is unavailable this round (e.g., new_answer in vote-only mode)
+                            if tool_name and tool_name in WORKFLOW_TOOL_NAMES and tool_name not in internal_tool_names:
+                                logger.info(
+                                    f"[Orchestrator] Agent {agent_id} called unavailable workflow tool '{tool_name}' for this round",
+                                )
+                                yield self._trace_tuple(
+                                    f"⚠️ Tool unavailable this round: {tool_name}",
+                                    kind="coordination",
+                                )
+                                continue
+
                             # Unknown tools (not workflow, not MCP, not custom, not external): log warning
                             # This handles hallucinated tool names or model prefixes like "default_api:"
                             if tool_name and tool_name not in internal_tool_names:
@@ -6740,6 +6798,68 @@ Your answer:"""
                     logger.info(
                         f"[Orchestrator] Agent {agent_id} made {num_votes} votes - using last vote: {final_voted_agent}",
                     )
+
+                # Filter workflow tool calls that are not allowed in this round.
+                # This enforces vote-only/stop-only modes at execution time in case a model
+                # emits stale tool names from previous context.
+                (
+                    tool_calls,
+                    disallowed_workflow_calls,
+                    disallowed_workflow_names,
+                ) = self._split_disallowed_workflow_tool_calls(
+                    agent,
+                    tool_calls,
+                    internal_tool_names,
+                )
+                if disallowed_workflow_calls:
+                    disallowed_unique = sorted(set(disallowed_workflow_names))
+                    allowed_workflow_unique = sorted(name for name in internal_tool_names if name)
+                    allowed_display = ", ".join(allowed_workflow_unique) if allowed_workflow_unique else "none"
+                    is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+                    if vote_only and "new_answer" in disallowed_unique:
+                        if is_decomposition:
+                            error_msg = "You have reached your answer limit. The `new_answer` tool is disabled. " "You MUST call `stop` now."
+                        else:
+                            error_msg = "You have reached your answer limit. The `new_answer` tool is disabled. " "You MUST use the `vote` tool now."
+                        enforcement_reason = "answer_limit"
+                    else:
+                        error_msg = f"Tool(s) not available this round: {', '.join(disallowed_unique)}. " f"Available workflow tool(s): {allowed_display}."
+                        enforcement_reason = "no_workflow_tool"
+
+                    if attempt < max_attempts - 1:
+                        yield (
+                            "content",
+                            f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}",
+                        )
+
+                        # Track enforcement event before retry
+                        buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                        self.coordination_tracker.track_enforcement_event(
+                            agent_id=agent_id,
+                            reason=enforcement_reason,
+                            attempt=attempt + 1,
+                            max_attempts=max_attempts,
+                            tool_calls=disallowed_unique,
+                            error_message=error_msg,
+                            buffer_preview=buffer_preview,
+                            buffer_chars=buffer_chars,
+                        )
+
+                        # Return tool errors for the unavailable workflow tool calls
+                        enforcement_msg = self._create_tool_error_messages(
+                            agent,
+                            disallowed_workflow_calls,
+                            error_msg,
+                        )
+                        attempt += 1  # Error counts as an attempt
+                        continue
+                    else:
+                        yield (
+                            "error",
+                            f"Agent used unavailable workflow tool(s) after {max_attempts} attempts: {', '.join(disallowed_unique)}",
+                        )
+                        yield ("done", None)
+                        return
 
                 # Check for mixed new_answer and vote calls - violates binary decision framework
                 new_answer_calls = [tc for tc in tool_calls if agent.backend.extract_tool_name(tc) == "new_answer"]

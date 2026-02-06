@@ -22,6 +22,7 @@ from .modals import (  # Browser modals; Status modals; Coordination modals; Con
     ConversationHistoryModal,
     CoordinationTableModal,
     CostBreakdownModal,
+    DecompositionSubtasksModal,
     FileInspectionModal,
     KeyboardShortcutsModal,
     MCPStatusModal,
@@ -63,6 +64,7 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",
     # Shortcuts modal
     "KeyboardShortcutsModal",

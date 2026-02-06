@@ -598,6 +598,17 @@ ModeToggle.state-multi {
     border-bottom: tall $surface-lighten-2;
 }
 
+/* Coordination mode states */
+ModeToggle.state-parallel {
+    color: $text;
+    border-bottom: tall $surface-lighten-2;
+}
+
+ModeToggle.state-decomposition {
+    color: $warning;
+    border-bottom: tall $warning;
+}
+
 /* Refinement on - default state, not highlighted */
 ModeToggle.state-on {
     color: $text;
@@ -2244,6 +2255,38 @@ TaskPlanModal .close-button {
 
 #shortcuts_col_right {
     margin-right: 0;
+}
+
+/* Decomposition subtasks modal */
+#subtasks_modal_container {
+    width: 92%;
+    max-width: 140;
+    height: 80%;
+    background: $background 90%;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#subtasks_scroll {
+    height: 1fr;
+    border: solid $surface-lighten-1;
+    padding: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#subtasks_modal_container .subtask_row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#subtasks_modal_container .subtask_agent_label {
+    width: 24;
+    color: $text-muted;
+}
+
+#subtasks_modal_container .subtask_row Input {
+    width: 1fr;
 }
 
 #shortcuts_content {
@@ -4787,6 +4830,47 @@ PlanOptionsPopover #close_btn:hover {
 }
 
 #plan_settings_btn.hidden {
+    display: none;
+}
+
+/* Mode help button in mode bar */
+#mode_help_btn {
+    width: auto;
+    height: 2;
+    min-width: 3;
+    background: transparent;
+    color: $text-muted;
+    border: none;
+    border-bottom: tall $surface-lighten-2;
+    padding: 0 1;
+    margin-left: 0;
+}
+
+#mode_help_btn:hover {
+    background: transparent;
+    color: $primary;
+    border-bottom: tall $primary;
+}
+
+#subtasks_btn {
+    width: auto;
+    height: 2;
+    min-width: 10;
+    background: transparent;
+    color: $text-muted;
+    border: none;
+    border-bottom: tall $surface-lighten-2;
+    padding: 0 1;
+    margin-left: 0;
+}
+
+#subtasks_btn:hover {
+    background: transparent;
+    color: $warning;
+    border-bottom: tall $warning;
+}
+
+#subtasks_btn.hidden {
     display: none;
 }
 

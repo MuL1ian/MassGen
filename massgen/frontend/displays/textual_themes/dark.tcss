@@ -642,6 +642,17 @@ ModeToggle.state-multi {
     border-bottom: tall $border-default;
 }
 
+/* Coordination mode states */
+ModeToggle.state-parallel {
+    color: $fg-primary;
+    border-bottom: tall $border-default;
+}
+
+ModeToggle.state-decomposition {
+    color: $accent-warning;
+    border-bottom: tall $accent-warning;
+}
+
 /* Refinement on - default state, not highlighted */
 ModeToggle.state-on {
     color: $fg-primary;
@@ -2283,6 +2294,38 @@ TaskPlanModal .close-button {
 
 #shortcuts_col_right {
     margin-right: 0;
+}
+
+/* Decomposition subtasks modal */
+#subtasks_modal_container {
+    width: 92%;
+    max-width: 140;
+    height: 80%;
+    background: #252526;
+    border: solid #569cd6;
+    padding: 1 2;
+}
+
+#subtasks_scroll {
+    height: 1fr;
+    border: solid #3d4550;
+    padding: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#subtasks_modal_container .subtask_row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#subtasks_modal_container .subtask_agent_label {
+    width: 24;
+    color: #858585;
+}
+
+#subtasks_modal_container .subtask_row Input {
+    width: 1fr;
 }
 
 #shortcuts_content {
@@ -4826,6 +4869,47 @@ PlanOptionsPopover #close_btn:hover {
 }
 
 #plan_settings_btn.hidden {
+    display: none;
+}
+
+/* Mode help button in mode bar */
+#mode_help_btn {
+    width: auto;
+    height: 2;
+    min-width: 3;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall $border-default;
+    padding: 0 1;
+    margin-left: 0;
+}
+
+#mode_help_btn:hover {
+    background: transparent;
+    color: $accent-primary;
+    border-bottom: tall $accent-primary;
+}
+
+#subtasks_btn {
+    width: auto;
+    height: 2;
+    min-width: 10;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall $border-default;
+    padding: 0 1;
+    margin-left: 0;
+}
+
+#subtasks_btn:hover {
+    background: transparent;
+    color: $accent-warning;
+    border-bottom: tall $accent-warning;
+}
+
+#subtasks_btn.hidden {
     display: none;
 }
 

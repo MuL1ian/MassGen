@@ -285,3 +285,76 @@ class StructuredBroadcastPromptModal(BaseModal):
     def action_close(self) -> None:
         """Handle escape key."""
         self.dismiss(None)
+
+
+class DecompositionSubtasksModal(BaseModal):
+    """Modal for editing per-agent subtasks in decomposition mode."""
+
+    def __init__(
+        self,
+        agent_ids: List[str],
+        current_subtasks: Optional[Dict[str, str]] = None,
+    ) -> None:
+        super().__init__()
+        self.agent_ids = agent_ids
+        self.current_subtasks = current_subtasks or {}
+        self._input_ids: Dict[str, str] = {}
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal-container modal-container-wide", id="subtasks_modal_container"):
+            yield Label("🧩  Decomposition Subtasks", classes="modal-title")
+            yield Label(
+                "Assign an optional subtask to each agent. Leave blank to use auto-decomposition.",
+                classes="modal-summary",
+            )
+            with VerticalScroll(id="subtasks_scroll"):
+                for idx, agent_id in enumerate(self.agent_ids):
+                    input_id = f"subtask_input_{idx}"
+                    self._input_ids[input_id] = agent_id
+                    with Horizontal(classes="subtask_row"):
+                        yield Label(f"{agent_id}:", classes="subtask_agent_label")
+                        yield Input(
+                            value=self.current_subtasks.get(agent_id, ""),
+                            placeholder="Optional subtask",
+                            id=input_id,
+                        )
+            with Horizontal(classes="modal-footer"):
+                yield Button("Clear All", id="clear_subtasks_button")
+                yield Button("Cancel", id="cancel_subtasks_button")
+                yield Button("Save", id="save_subtasks_button", variant="primary")
+
+    def on_mount(self) -> None:
+        """Focus the first input."""
+        if not self._input_ids:
+            return
+        first_input_id = next(iter(self._input_ids.keys()))
+        try:
+            self.query_one(f"#{first_input_id}", Input).focus()
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        if event.button.id == "save_subtasks_button":
+            assignments: Dict[str, str] = {}
+            for input_id, agent_id in self._input_ids.items():
+                try:
+                    value = self.query_one(f"#{input_id}", Input).value.strip()
+                except Exception:
+                    value = ""
+                if value:
+                    assignments[agent_id] = value
+            self.dismiss(assignments)
+            return
+
+        if event.button.id == "clear_subtasks_button":
+            for input_id in self._input_ids:
+                try:
+                    self.query_one(f"#{input_id}", Input).value = ""
+                except Exception:
+                    pass
+            return
+
+        if event.button.id == "cancel_subtasks_button":
+            self.dismiss(None)
+            return
