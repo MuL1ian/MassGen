@@ -724,6 +724,238 @@ class ContextPathStep(StepComponent):
             self._input.value = value
 
 
+class CoordinationModeStep(StepComponent):
+    """Step for choosing coordination mode and decomposition answer controls."""
+
+    OPTIONS = [
+        (
+            "voting",
+            "Parallel Voting (Default)",
+            "Traditional multi-agent voting with standard defaults",
+        ),
+        (
+            "decomposition",
+            "Decomposition",
+            "Subtask ownership + presenter with lower per-agent answer caps",
+        ),
+    ]
+
+    def __init__(
+        self,
+        wizard_state: WizardState,
+        *,
+        id: Optional[str] = None,
+        classes: Optional[str] = None,
+    ) -> None:
+        super().__init__(wizard_state, id=id, classes=classes)
+        self._selected_mode: str = "voting"
+        self._option_list: Optional[OptionList] = None
+        self._presenter_label: Optional[Label] = None
+        self._presenter_select: Optional[Select] = None
+        self._per_agent_label: Optional[Label] = None
+        self._per_agent_input: Optional[Input] = None
+        self._global_label: Optional[Label] = None
+        self._global_input: Optional[Input] = None
+        self._novelty_label: Optional[Label] = None
+        self._novelty_select: Optional[Select] = None
+
+    def _agent_ids(self) -> List[str]:
+        agent_count = self.wizard_state.get("agent_count", 3)
+        return [f"agent_{_agent_letter(i)}" for i in range(agent_count)]
+
+    def _recommended_global_cap(self) -> int:
+        return max(3, len(self._agent_ids()) * 3)
+
+    def _set_decomposition_visibility(self, visible: bool) -> None:
+        for widget in [
+            self._presenter_label,
+            self._presenter_select,
+            self._per_agent_label,
+            self._per_agent_input,
+            self._global_label,
+            self._global_input,
+            self._novelty_label,
+            self._novelty_select,
+        ]:
+            if widget is not None:
+                widget.display = visible
+
+    def compose(self) -> ComposeResult:
+        yield Label("Select coordination mode:", classes="text-input-label")
+
+        textual_options = []
+        for value, label, description in self.OPTIONS:
+            option_text = f"[bold]{label}[/bold]\n[dim]{description}[/dim]"
+            textual_options.append(Option(option_text, id=value))
+
+        self._option_list = OptionList(
+            *textual_options,
+            id="coordination_mode_list",
+            classes="step-option-list",
+        )
+        yield self._option_list
+
+        if self._option_list:
+            self._option_list.highlighted = 0
+
+        yield Label(
+            "Decomposition recommended defaults: per-agent 2 (recommended range 2-3), " "global cap = 3 x agents, novelty = balanced.",
+            classes="password-hint",
+        )
+
+        presenter_options = [(agent_id, agent_id) for agent_id in self._agent_ids()]
+        default_presenter = presenter_options[-1][1] if presenter_options else "agent_a"
+
+        self._presenter_label = Label("Presenter agent:", classes="text-input-label")
+        yield self._presenter_label
+        self._presenter_select = Select(
+            presenter_options if presenter_options else [("agent_a", "agent_a")],
+            value=default_presenter,
+            id="presenter_agent_select",
+        )
+        yield self._presenter_select
+
+        self._per_agent_label = Label(
+            "Max new answers per agent (recommended 2-3):",
+            classes="text-input-label",
+        )
+        yield self._per_agent_label
+        self._per_agent_input = Input(
+            value="2",
+            placeholder="2",
+            classes="text-input",
+            id="decomp_per_agent_input",
+        )
+        yield self._per_agent_input
+
+        self._global_label = Label(
+            "Max new answers globally (all agents combined):",
+            classes="text-input-label",
+        )
+        yield self._global_label
+        self._global_input = Input(
+            value=str(self._recommended_global_cap()),
+            placeholder=str(self._recommended_global_cap()),
+            classes="text-input",
+            id="decomp_global_input",
+        )
+        yield self._global_input
+
+        self._novelty_label = Label(
+            "Answer novelty requirement:",
+            classes="text-input-label",
+        )
+        yield self._novelty_label
+        self._novelty_select = Select(
+            [
+                ("Lenient", "lenient"),
+                ("Balanced", "balanced"),
+                ("Strict", "strict"),
+            ],
+            value="balanced",
+            id="decomp_novelty_select",
+        )
+        yield self._novelty_select
+
+        self._set_decomposition_visibility(False)
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option and event.option.id:
+            self._selected_mode = str(event.option.id)
+            self._set_decomposition_visibility(self._selected_mode == "decomposition")
+
+    def get_value(self) -> Dict[str, Any]:
+        if self._selected_mode != "decomposition":
+            return {"coordination_mode": "voting"}
+
+        presenter_value: Optional[str] = None
+        if self._presenter_select and self._presenter_select.value != Select.BLANK:
+            presenter_value = str(self._presenter_select.value)
+
+        max_per_agent = 2
+        if self._per_agent_input and self._per_agent_input.value.strip():
+            try:
+                parsed = int(self._per_agent_input.value.strip())
+                if parsed > 0:
+                    max_per_agent = parsed
+            except ValueError:
+                pass
+
+        max_global = self._recommended_global_cap()
+        if self._global_input and self._global_input.value.strip():
+            try:
+                parsed = int(self._global_input.value.strip())
+                if parsed > 0:
+                    max_global = parsed
+            except ValueError:
+                pass
+
+        novelty = "balanced"
+        if self._novelty_select and self._novelty_select.value != Select.BLANK:
+            novelty = str(self._novelty_select.value)
+
+        return {
+            "coordination_mode": "decomposition",
+            "presenter_agent": presenter_value,
+            "max_new_answers_per_agent": max_per_agent,
+            "max_new_answers_global": max_global,
+            "answer_novelty_requirement": novelty,
+        }
+
+    def set_value(self, value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+
+        mode = value.get("coordination_mode", "voting")
+        self._selected_mode = "decomposition" if mode == "decomposition" else "voting"
+        if self._option_list:
+            self._option_list.highlighted = 1 if self._selected_mode == "decomposition" else 0
+
+        if self._selected_mode == "decomposition":
+            presenter_agent = value.get("presenter_agent")
+            if presenter_agent and self._presenter_select:
+                self._presenter_select.value = presenter_agent
+
+            per_agent = value.get("max_new_answers_per_agent")
+            if per_agent and self._per_agent_input:
+                self._per_agent_input.value = str(per_agent)
+
+            max_global = value.get("max_new_answers_global")
+            if max_global and self._global_input:
+                self._global_input.value = str(max_global)
+
+            novelty = value.get("answer_novelty_requirement")
+            if novelty and self._novelty_select:
+                self._novelty_select.value = novelty
+
+        self._set_decomposition_visibility(self._selected_mode == "decomposition")
+
+    def validate(self) -> Optional[str]:
+        if self._selected_mode != "decomposition":
+            return None
+
+        if not self._presenter_select or self._presenter_select.value == Select.BLANK:
+            return "Please select a presenter agent for decomposition mode"
+
+        if self._per_agent_input:
+            try:
+                value = int(self._per_agent_input.value.strip())
+                if value <= 0:
+                    return "Max answers per agent must be a positive integer"
+            except ValueError:
+                return "Max answers per agent must be a positive integer"
+
+        if self._global_input:
+            try:
+                value = int(self._global_input.value.strip())
+                if value <= 0:
+                    return "Max global answers must be a positive integer"
+            except ValueError:
+                return "Max global answers must be a positive integer"
+
+        return None
+
+
 class ConfigLocationStep(StepComponent):
     """Step for choosing where to save the generated config."""
 
@@ -864,11 +1096,16 @@ class ConfigPreviewStep(StepComponent):
             if context_path:
                 context_paths = [{"path": context_path, "permission": "write"}]
 
+            coordination_settings = self.wizard_state.get("coordination_mode_settings", {})
+            if not isinstance(coordination_settings, dict):
+                coordination_settings = {}
+
             # Generate config
             config = builder._generate_quickstart_config(
                 agents_config=agents_config,
                 context_paths=context_paths,
                 use_docker=use_docker,
+                coordination_settings=coordination_settings,
             )
 
             return yaml.dump(config, default_flow_style=False, sort_keys=False)
@@ -944,9 +1181,10 @@ class QuickstartWizard(WizardModal):
     4. Provider/model selection
     5. Execution mode
     6. Context path
-    7. Preview
-    8. Launch options
-    9. Complete
+    7. Coordination mode (multi-agent only)
+    8. Preview
+    9. Launch options
+    10. Complete
     """
 
     def __init__(
@@ -1000,6 +1238,13 @@ class QuickstartWizard(WizardModal):
                 title="Context Path",
                 description="Optional workspace directory",
                 component_class=ContextPathStep,
+            ),
+            WizardStep(
+                id="coordination_mode_settings",
+                title="Coordination",
+                description="Parallel voting or decomposition presenter mode",
+                component_class=CoordinationModeStep,
+                skip_condition=lambda state: state.get("agent_count", 3) == 1,
             ),
             WizardStep(
                 id="config_location",
@@ -1149,11 +1394,16 @@ class QuickstartWizard(WizardModal):
             if context_path:
                 context_paths = [{"path": context_path, "permission": "write"}]
 
+            coordination_settings = self.state.get("coordination_mode_settings", {})
+            if not isinstance(coordination_settings, dict):
+                coordination_settings = {}
+
             # Generate config
             config = builder._generate_quickstart_config(
                 agents_config=agents_config,
                 context_paths=context_paths,
                 use_docker=use_docker,
+                coordination_settings=coordination_settings,
             )
 
             # Save config to chosen location

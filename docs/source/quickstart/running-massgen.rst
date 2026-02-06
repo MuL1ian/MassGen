@@ -205,7 +205,7 @@ First-Time Setup
 On first launch, the WebUI automatically guides you through setup:
 
 1. **Setup Page** - Configure API keys, Docker, and skills
-2. **Quickstart Wizard** - Create your first agent configuration
+2. **Quickstart Wizard** - Create your first agent configuration, including decomposition mode, presenter selection, and recommended answer-control defaults
 
 This makes ``uv run massgen --web`` the easiest way to get started with MassGen.
 
@@ -218,7 +218,7 @@ Key Features
 * **Answer Browser** - Browse all agent answers with version history
 * **Workspace Explorer** - View and examine files created by agents during execution
 * **Multi-Turn Conversations** - Continue sessions with follow-up questions
-* **Quickstart Wizard** - Guided setup for configuring agents without manual YAML editing
+* **Quickstart Wizard** - Guided setup for configuring agents without manual YAML editing, including decomposition controls
 
 See :doc:`../user_guide/webui` for the complete WebUI guide.
 

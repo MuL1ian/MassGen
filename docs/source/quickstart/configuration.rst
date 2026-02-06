@@ -513,6 +513,10 @@ Sensible defaults guidance:
 * Add ``max_new_answers_global`` for deterministic total coordination budget.
 * Keep other answer-control parameters at defaults unless you need stricter behavior.
 
+Quickstart note:
+
+* The Quickstart flows (``uv run massgen --quickstart`` and the Web/TUI quickstart wizard) expose decomposition mode, presenter selection, and these defaults directly.
+
 Advanced Configuration
 ----------------------
 

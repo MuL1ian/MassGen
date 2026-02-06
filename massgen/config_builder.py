@@ -14,7 +14,7 @@ Usage:
 
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import questionary
 import yaml
@@ -3946,7 +3946,7 @@ class ConfigBuilder:
             # Initialize tracking for per-agent settings
             agent_tools: Dict[str, Dict] = {}
             agent_system_messages: Dict[str, str] = {}
-            coordination_settings: Dict[str, str] = {}
+            coordination_settings: Dict[str, Any] = {}
 
             # Step 1: How many agents?
             num_choices = [
@@ -4349,6 +4349,82 @@ class ConfigBuilder:
 
             # Step 5: Coordination settings (only for multi-agent)
             if num_agents > 1:
+                console.print("\n[bold cyan]Coordination Mode[/bold cyan]")
+                console.print(
+                    "[dim]Parallel voting is the default. Decomposition assigns subtasks and a presenter.[/dim]",
+                )
+
+                coordination_mode = questionary.select(
+                    "Coordination mode:",
+                    choices=[
+                        questionary.Choice(
+                            "Parallel voting (default)",
+                            value="voting",
+                        ),
+                        questionary.Choice(
+                            "Decomposition (subtasks + presenter)",
+                            value="decomposition",
+                        ),
+                    ],
+                    default="voting",
+                    style=questionary.Style(
+                        [
+                            ("selected", "fg:cyan bold"),
+                            ("pointer", "fg:cyan bold"),
+                            ("highlighted", "fg:cyan"),
+                        ],
+                    ),
+                    use_arrow_keys=True,
+                ).ask()
+
+                if coordination_mode is None:
+                    raise KeyboardInterrupt
+
+                if coordination_mode == "decomposition":
+                    coordination_settings["coordination_mode"] = "decomposition"
+
+                    presenter_choices = [questionary.Choice(agent["id"], value=agent["id"]) for agent in agents_config]
+                    default_presenter = agents_config[-1]["id"]
+
+                    presenter_agent = questionary.select(
+                        "Presenter agent (final synthesis):",
+                        choices=presenter_choices,
+                        default=default_presenter,
+                        style=questionary.Style(
+                            [
+                                ("selected", "fg:cyan bold"),
+                                ("pointer", "fg:cyan bold"),
+                                ("highlighted", "fg:cyan"),
+                            ],
+                        ),
+                        use_arrow_keys=True,
+                    ).ask()
+
+                    if presenter_agent is None:
+                        raise KeyboardInterrupt
+
+                    coordination_settings["presenter_agent"] = presenter_agent
+
+                    # Recommended decomposition defaults:
+                    # - lower per-agent consecutive cap (2-3)
+                    # - cumulative global cap for deterministic team budget
+                    coordination_settings["max_new_answers_per_agent"] = 2
+                    coordination_settings["max_new_answers_global"] = max(3, num_agents * 3)
+                    coordination_settings["answer_novelty_requirement"] = "balanced"
+
+                    console.print(
+                        "\n[dim]Using recommended decomposition defaults:[/dim]",
+                    )
+                    console.print(
+                        f"[dim]- max_new_answers_per_agent: {coordination_settings['max_new_answers_per_agent']} (recommended 2-3)[/dim]",
+                    )
+                    console.print(
+                        f"[dim]- max_new_answers_global: {coordination_settings['max_new_answers_global']} (team-wide cumulative)[/dim]",
+                    )
+                    console.print(
+                        f"[dim]- answer_novelty_requirement: {coordination_settings['answer_novelty_requirement']}[/dim]",
+                    )
+
                 # Subagents section (separate from coordination tuning)
                 console.print("\n[bold cyan]Subagents[/bold cyan]")
                 console.print(
@@ -4472,10 +4548,18 @@ class ConfigBuilder:
 
                 # Coordination tuning section (optional, hidden by default)
                 console.print("\n[bold cyan]Coordination Tuning[/bold cyan]")
-                console.print(
-                    "[dim]Fine-tune voting sensitivity, answer novelty, and limits.[/dim]",
-                )
-                console.print("[dim]Default settings (lenient) work well for most tasks.[/dim]")
+                if coordination_mode == "decomposition":
+                    console.print(
+                        "[dim]Fine-tune decomposition defaults (presenter mode, novelty, and answer caps).[/dim]",
+                    )
+                    console.print(
+                        "[dim]Recommended decomposition defaults are already set and usually need no changes.[/dim]",
+                    )
+                else:
+                    console.print(
+                        "[dim]Fine-tune voting sensitivity, answer novelty, and limits.[/dim]",
+                    )
+                    console.print("[dim]Default settings (lenient) work well for most tasks.[/dim]")
 
                 customize_coordination = questionary.confirm(
                     "Customize coordination settings?",
@@ -4487,7 +4571,7 @@ class ConfigBuilder:
                     raise KeyboardInterrupt
 
                 if customize_coordination:
-                    # Voting sensitivity
+                    # Voting sensitivity (still relevant for voting-style coordination phases)
                     voting_choices = [
                         questionary.Choice(
                             "Lenient - Agents accept answers more easily",
@@ -4503,10 +4587,11 @@ class ConfigBuilder:
                         ),
                     ]
 
+                    voting_default = "lenient"
                     voting_sensitivity = questionary.select(
                         "Voting Sensitivity:",
                         choices=voting_choices,
-                        default="lenient",
+                        default=voting_default,
                         style=questionary.Style(
                             [
                                 ("selected", "fg:cyan bold"),
@@ -4538,10 +4623,11 @@ class ConfigBuilder:
                         ),
                     ]
 
+                    novelty_default = coordination_settings.get("answer_novelty_requirement", "lenient")
                     answer_novelty = questionary.select(
                         "Answer Novelty Requirement:",
                         choices=novelty_choices,
-                        default="lenient",
+                        default=novelty_default,
                         style=questionary.Style(
                             [
                                 ("selected", "fg:cyan bold"),
@@ -4558,9 +4644,10 @@ class ConfigBuilder:
                     coordination_settings["answer_novelty_requirement"] = answer_novelty
 
                     # Max answers per agent
+                    max_answers_default = coordination_settings.get("max_new_answers_per_agent")
                     max_answers_input = questionary.text(
                         "Max answers per agent (leave empty for unlimited):",
-                        default="",
+                        default=str(max_answers_default) if max_answers_default else "",
                         style=questionary.Style(
                             [
                                 ("question", "fg:cyan bold"),
@@ -4578,6 +4665,33 @@ class ConfigBuilder:
                                 coordination_settings["max_new_answers_per_agent"] = max_answers
                         except ValueError:
                             pass  # Ignore invalid input, use unlimited
+
+                    if coordination_mode == "decomposition":
+                        # Team-wide cumulative cap gives deterministic upper bound
+                        max_global_default = coordination_settings.get(
+                            "max_new_answers_global",
+                            max(3, num_agents * 3),
+                        )
+                        max_global_input = questionary.text(
+                            "Max answers globally across all agents (leave empty for unlimited):",
+                            default=str(max_global_default) if max_global_default else "",
+                            style=questionary.Style(
+                                [
+                                    ("question", "fg:cyan bold"),
+                                ],
+                            ),
+                        ).ask()
+
+                        if max_global_input is None:
+                            raise KeyboardInterrupt
+
+                        if max_global_input.strip():
+                            try:
+                                max_global = int(max_global_input)
+                                if max_global > 0:
+                                    coordination_settings["max_new_answers_global"] = max_global
+                            except ValueError:
+                                pass  # Ignore invalid input, keep prior/default value
 
                 # Persona Generation (multi-agent only)
                 console.print("\n[bold cyan]Persona Generation[/bold cyan]")
@@ -4723,7 +4837,9 @@ class ConfigBuilder:
             agent_system_messages: Per-agent system messages dict. Keys are agent IDs, values are
                                   the custom system message strings
             coordination_settings: Shared coordination settings dict with keys like
-                                  'voting_sensitivity', 'answer_novelty_requirement'
+                                  'coordination_mode', 'presenter_agent',
+                                  'voting_sensitivity', 'answer_novelty_requirement',
+                                  'max_new_answers_per_agent', 'max_new_answers_global'
 
         Returns:
             Complete configuration dict
@@ -4885,12 +5001,31 @@ class ConfigBuilder:
             orchestrator_config["context_paths"] = []
 
         # Add coordination settings if provided
+        coordination_mode = coordination_settings.get("coordination_mode")
+        if coordination_mode:
+            orchestrator_config["coordination_mode"] = coordination_mode
+
+        if coordination_settings.get("presenter_agent"):
+            orchestrator_config["presenter_agent"] = coordination_settings["presenter_agent"]
+
+        if coordination_mode == "decomposition":
+            if "presenter_agent" not in orchestrator_config and agents:
+                orchestrator_config["presenter_agent"] = agents[-1]["id"]
+            if coordination_settings.get("answer_novelty_requirement") is None:
+                orchestrator_config["answer_novelty_requirement"] = "balanced"
+            if coordination_settings.get("max_new_answers_per_agent") is None:
+                orchestrator_config["max_new_answers_per_agent"] = 2
+            if coordination_settings.get("max_new_answers_global") is None:
+                orchestrator_config["max_new_answers_global"] = max(3, len(agents) * 3)
+
         if coordination_settings.get("voting_sensitivity"):
             orchestrator_config["voting_sensitivity"] = coordination_settings["voting_sensitivity"]
         if coordination_settings.get("answer_novelty_requirement"):
             orchestrator_config["answer_novelty_requirement"] = coordination_settings["answer_novelty_requirement"]
         if coordination_settings.get("max_new_answers_per_agent"):
             orchestrator_config["max_new_answers_per_agent"] = coordination_settings["max_new_answers_per_agent"]
+        if coordination_settings.get("max_new_answers_global"):
+            orchestrator_config["max_new_answers_global"] = coordination_settings["max_new_answers_global"]
         if coordination_settings.get("enable_subagents"):
             orchestrator_config["coordination"]["enable_subagents"] = True
             orchestrator_config["coordination"]["subagent_default_timeout"] = 300  # 5 minutes

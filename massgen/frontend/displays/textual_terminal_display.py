@@ -4277,7 +4277,10 @@ Type your question and press Enter to ask the agents.
                 return current
             return None
 
-        def _open_decomposition_runtime_subagent_screen(self) -> bool:
+        def _open_decomposition_runtime_subagent_screen(
+            self,
+            auto_return_on_completion: bool = False,
+        ) -> bool:
             """Open the decomposition runtime subagent screen.
 
             Returns:
@@ -4291,6 +4294,7 @@ Type your question and press Enter to ask the agents.
                 subagent=subagent,
                 all_subagents=[subagent],
                 status_callback=self._get_decomposition_runtime_subagent,
+                auto_return_on_completion=auto_return_on_completion,
             )
             self.push_screen(screen)
             return True
@@ -4407,7 +4411,7 @@ Type your question and press Enter to ask the agents.
         def _auto_open_decomposition_runtime_subagent_screen(self, attempt: int = 0) -> None:
             """Auto-open decomposition subagent screen once event data is available."""
             if self._decomposition_subagent_events_ready():
-                self._open_decomposition_runtime_subagent_screen()
+                self._open_decomposition_runtime_subagent_screen(auto_return_on_completion=True)
                 return
 
             # Retry for a short window; avoid forcing an early empty screen.

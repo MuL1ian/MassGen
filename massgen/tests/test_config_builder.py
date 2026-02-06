@@ -421,5 +421,81 @@ class TestWorkspaceUniqueness:
         assert agent_c["backend"]["cwd"] == "workspace"
 
 
+class TestQuickstartDecompositionSettings:
+    """Test quickstart config generation for decomposition settings and defaults."""
+
+    @pytest.fixture
+    def builder(self):
+        """Create a ConfigBuilder instance for testing."""
+        return ConfigBuilder()
+
+    @staticmethod
+    def _agents():
+        return [
+            {"id": "agent_a", "type": "openai", "model": "gpt-5"},
+            {"id": "agent_b", "type": "openai", "model": "gpt-5"},
+            {"id": "agent_c", "type": "openai", "model": "gpt-5"},
+        ]
+
+    def test_decomposition_defaults_applied(self, builder):
+        """Decomposition mode gets recommended quickstart defaults when unset."""
+        config = builder._generate_quickstart_config(
+            agents_config=self._agents(),
+            use_docker=False,
+            coordination_settings={"coordination_mode": "decomposition"},
+        )
+
+        orch = config["orchestrator"]
+        assert orch["coordination_mode"] == "decomposition"
+        assert orch["presenter_agent"] == "agent_c"
+        assert orch["max_new_answers_per_agent"] == 2
+        assert orch["max_new_answers_global"] == 9
+        assert orch["answer_novelty_requirement"] == "balanced"
+
+    def test_decomposition_overrides_respected(self, builder):
+        """Explicit decomposition settings should override defaults."""
+        config = builder._generate_quickstart_config(
+            agents_config=self._agents(),
+            use_docker=False,
+            coordination_settings={
+                "coordination_mode": "decomposition",
+                "presenter_agent": "agent_a",
+                "max_new_answers_per_agent": 3,
+                "max_new_answers_global": 12,
+                "answer_novelty_requirement": "strict",
+            },
+        )
+
+        orch = config["orchestrator"]
+        assert orch["coordination_mode"] == "decomposition"
+        assert orch["presenter_agent"] == "agent_a"
+        assert orch["max_new_answers_per_agent"] == 3
+        assert orch["max_new_answers_global"] == 12
+        assert orch["answer_novelty_requirement"] == "strict"
+
+    def test_parallel_defaults_unchanged(self, builder):
+        """Parallel/voting quickstart defaults should remain unchanged."""
+        config = builder._generate_quickstart_config(
+            agents_config=self._agents(),
+            use_docker=False,
+        )
+
+        orch = config["orchestrator"]
+        assert orch["max_new_answers_per_agent"] == 5
+        assert "coordination_mode" not in orch
+        assert "presenter_agent" not in orch
+        assert "max_new_answers_global" not in orch
+
+    def test_global_cap_pass_through_in_parallel(self, builder):
+        """Global cap can still be set explicitly outside decomposition mode."""
+        config = builder._generate_quickstart_config(
+            agents_config=self._agents(),
+            use_docker=False,
+            coordination_settings={"max_new_answers_global": 7},
+        )
+
+        assert config["orchestrator"]["max_new_answers_global"] == 7
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
