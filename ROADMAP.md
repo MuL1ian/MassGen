@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.47
+**Current Version:** v0.1.48
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** February 4, 2026
+**Last Updated:** February 6, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,38 +42,39 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.48** | 02/06/26 | OpenAI Responses /compact Endpoint | @ncrispino | Use OpenAI's native compact endpoint instead of custom summarization ([#739](https://github.com/massgen/MassGen/issues/739)) |
-| | | Add Model Selector for Log Analysis | @ncrispino | Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766)) |
-| **v0.1.49** | 02/09/26 | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
-| **v0.1.50** | 02/11/26 | Support dragging screenshots into TUI bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
+| **v0.1.49** | 02/09/26 | Add Model Selector for Log Analysis | @ncrispino | Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766)) |
+| | | Git Worktree Isolation for Agent Changes | @ncrispino | Worktree isolation improvements for agent file changes ([#853](https://github.com/massgen/MassGen/issues/853)) |
+| **v0.1.50** | 02/11/26 | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
+| | | Curated Recommended Models List for Quickstart Wizard | @ncrispino | Curated model recommendations in quickstart wizard ([#840](https://github.com/massgen/MassGen/issues/840)) |
+| **v0.1.51** | 02/13/26 | Support dragging screenshots into TUI bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
+| | | Fix Rounds Appearing and Log Dir Content in Multi-Turn | @ncrispino | Fix round display and log directory issues in multi-turn sessions ([#848](https://github.com/massgen/MassGen/issues/848)) |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.48 - OpenAI Compact Endpoint & Log Analysis Model Selector
+## 📋 v0.1.49 - Log Analysis Model Selector & Worktree Isolation Improvements
 
 ### Features
 
-**1. OpenAI Responses /compact Endpoint** (@ncrispino)
-- Issue: [#739](https://github.com/massgen/MassGen/issues/739)
-- Use OpenAI's native `/compact` endpoint instead of custom summarization
-- Leverage API-level context compression for better efficiency
-- **Use Case**: Reduce token usage and improve response quality with native compression
-
-**2. Add Model Selector for Log Analysis**
+**1. Add Model Selector for Log Analysis** (@ncrispino)
 - Issue: [#766](https://github.com/massgen/MassGen/issues/766)
 - Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - Configurable model selection for different analysis requirements
 - **Use Case**: Flexibility in choosing analysis model based on cost/quality tradeoffs
 
+**2. Git Worktree Isolation for Agent Changes** (@ncrispino)
+- Issue: [#853](https://github.com/massgen/MassGen/issues/853)
+- Worktree isolation improvements for agent file changes
+- **Use Case**: Safer agent file operations with improved isolation workflow
+
 ### Success Criteria
-- ✅ OpenAI compact endpoint integration working
 - ✅ Model selector working for log analysis command
+- ✅ Worktree isolation improvements functional
 
 ---
 
-## 📋 v0.1.49 - Targeted Agent Queries
+## 📋 v0.1.50 - Targeted Agent Queries & Quickstart Model Curation
 
 ### Features
 
@@ -84,14 +85,20 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Pass full `_streaming_buffer` to shadow agents for improved context
 - **Use Case**: More efficient coordination by querying specific agents rather than broadcasting to all
 
+**2. Curated Recommended Models List for Quickstart Wizard** (@ncrispino)
+- Issue: [#840](https://github.com/massgen/MassGen/issues/840)
+- Curated model recommendations in quickstart wizard
+- **Use Case**: Better first-run experience with recommended model selections
+
 ### Success Criteria
 - ✅ Targeted `ask_others(target_agent_id="Agent-1", question="...")` working
 - ✅ Selective broadcast with `agent_prompts` dict functional
 - ✅ Improved context passing via streaming buffer
+- ✅ Curated model list displayed in quickstart wizard
 
 ---
 
-## 📋 v0.1.50 - TUI Screenshot Support
+## 📋 v0.1.51 - TUI Screenshot Support & Multi-Turn Fixes
 
 ### Features
 
@@ -100,8 +107,15 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Enable drag-and-drop screenshot functionality in TUI input bar
 - **Use Case**: Quick image sharing for multimodal agent coordination
 
+**2. Fix Rounds Appearing and Log Dir Content in Multi-Turn** (@ncrispino)
+- Issue: [#848](https://github.com/massgen/MassGen/issues/848)
+- Fix round display and log directory content issues in multi-turn sessions
+- **Use Case**: Correct round tracking and log organization across turns
+
 ### Success Criteria
 - ✅ Drag-and-drop screenshots into TUI input bar working on Mac
+- ✅ Rounds display correctly in multi-turn sessions
+- ✅ Log directory content correct across turns
 
 ---
 
@@ -646,7 +660,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#739](https://github.com/massgen/MassGen/issues/739)
 - Use OpenAI's native `/compact` endpoint instead of custom summarization
 - Leverage API-level context compression for better efficiency
-- **Target:** v0.1.48
+- **Status:** ✅ Completed in v0.1.48
 
 ### Track: Improve Logging (@ncrispino, nickcrispino)
 - Issue: [#683](https://github.com/massgen/MassGen/issues/683)
@@ -659,7 +673,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#766](https://github.com/massgen/MassGen/issues/766)
 - Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - Configurable model selection for different analysis requirements
-- **Target:** v0.1.48
+- **Target:** v0.1.49
 
 ### Track: General Hook Framework (@ncrispino, nickcrispino)
 - Issue: [#745](https://github.com/massgen/MassGen/issues/745)
@@ -680,20 +694,42 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#722](https://github.com/massgen/MassGen/issues/722)
 - Enhanced log sharing workflows
 - Improved analysis tools and visualizations
-- **Target:** v0.1.48+
+- **Target:** v0.1.49+
 
 ### Track: Claude Code Plugin for MassGen Agents (@ncrispino, nickcrispino)
 - Issue: [#773](https://github.com/massgen/MassGen/issues/773)
 - Plugin/extension for spawning MassGen agents directly from Claude Code interface
 - Seamless integration with Claude Code workflows
-- **Target:** v0.1.48+
+- **Target:** v0.1.49+
 
 ### Track: Refactor ask_others for Targeted Agent Queries (@ncrispino, nickcrispino)
 - Issue: [#809](https://github.com/massgen/MassGen/issues/809)
 - Support targeted queries to specific agents via subagent spawning
 - Three modes: broadcast to all, selective broadcast, targeted ask
 - Pass full `_streaming_buffer` to shadow agents for improved context
-- **Target:** v0.1.49
+- **Target:** v0.1.50
+
+### Track: Decomposition Coordination Mode (@ncrispino, nickcrispino)
+- PR: [#858](https://github.com/massgen/MassGen/pull/858)
+- New coordination mode that decomposes tasks into subtasks assigned to individual agents
+- Task decomposer with presenter agent role for final synthesis
+- TUI mode bar toggle, subtask assignment display, and generation modals
+- **Status:** ✅ Completed in v0.1.48
+
+### Track: Worktree Isolation (@ncrispino, nickcrispino)
+- PR: [#857](https://github.com/massgen/MassGen/pull/857)
+- Linear: MAS-272
+- Git worktree-based isolation for agent file writes with review workflow
+- Review modal for approving/rejecting changes before applying to original paths
+- Shadow repo support for non-git directories
+- **Status:** ✅ Completed in v0.1.48
+
+### Track: Quickstart Wizard Docker Setup (@ncrispino, nickcrispino)
+- PR: [#857](https://github.com/massgen/MassGen/pull/857)
+- Linear: MAS-267
+- Docker setup step in quickstart wizard with animated pull progress
+- Real-time stdout streaming for image downloads
+- **Status:** ✅ Completed in v0.1.48
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -705,7 +741,7 @@ These features are being actively developed on **separate parallel tracks** and 
 ## 🎯 Long-Term Vision (v0.2.0+)
 
 **Advanced Orchestration Patterns**
-- Task/subtask decomposition and parallel coordination
+- Advanced task decomposition strategies and parallel coordination
 - Assignment of agents to specific tasks and increasing of diversity
 - Improvement in voting as tasks continue
 
@@ -776,5 +812,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** February 4, 2026
+**Last Updated:** February 6, 2026
 **Maintained By:** MassGen Team

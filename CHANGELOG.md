@@ -9,16 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
+New decomposition coordination mode decomposes tasks into subtasks assigned to individual agents with a presenter role. Worktree isolation for file writes with review modal for approving changes. Quickstart wizard Docker setup with animated pull progress.
+
 **v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
 New Codex backend for OpenAI Codex CLI with local and Docker execution. TUI theme system refactored to palette-based architecture with unified base styles. Per-agent voting sensitivity configuration. Claude Code backend refactored with shared NativeToolMixin.
 
 **v0.1.46 (February 3, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
 Subagents now stream in real-time with clickable preview cards that expand to full timeline views. Major TUI event architecture refactor with structured event emission pipeline. Improved final presentation display with workspace visualization and winning agent highlighting. Tutorial video GIF previews added to documentation.
 
-**v0.1.45 (January 31, 2026)** - TUI Default & Config Migration
-TUI (Textual Terminal) is now the default display mode for all users. Existing configs with `rich_terminal` auto-migrate with deprecation warning. Setup wizard generates TUI configs. Enhanced documentation and first-run experience highlight TUI benefits. Minor documentation and packaging fixes.
-
 ---
+
+## [0.1.48] - 2026-02-06
+
+### Added
+- **Decomposition Coordination Mode** ([#858](https://github.com/massgen/MassGen/pull/858)): New coordination mode that decomposes tasks into subtasks assigned to individual agents
+  - Task decomposer with presenter agent role for final synthesis
+  - TUI mode bar toggle, subtask assignment display, and generation modals
+  - Quickstart wizard integration for decomposition mode selection
+
+- **Worktree Isolation** ([#857](https://github.com/massgen/MassGen/pull/857)): Git worktree-based isolation for agent file writes with review workflow
+  - New `write_mode` config parameter (`auto`/`worktree`/`isolated`/`legacy`)
+  - `IsolationContextManager` for per-round worktree creation with `.massgen_scratch/` directories
+  - `ChangeApplier` and review modal for approving/rejecting changes before applying to original paths
+  - `WorktreeManager` and `ShadowRepo` infrastructure for git and non-git directories
+  - Deprecation of `use_two_tier_workspace` in favor of `write_mode`
+
+- **Stop Tool** ([#858](https://github.com/massgen/MassGen/pull/858)): New tool enabling agents to signal completion and exit workflows
+
+- **Global Answer Limits** ([#858](https://github.com/massgen/MassGen/pull/858)): Orchestrator-level `max_answers` config alongside existing per-agent controls
+
+### Changed
+- **Quickstart Wizard Docker Setup** ([#857](https://github.com/massgen/MassGen/pull/857)): Docker setup step integrated into quickstart wizard when Docker mode is selected, with animated pull progress and real-time stdout streaming
+
+- **Codex Backend** ([#858](https://github.com/massgen/MassGen/pull/858)): Default model updated from `gpt-5.2-codex` to `gpt-5.3-codex`
+
+### Fixed
+- **Light Theme Visibility** ([#857](https://github.com/massgen/MassGen/pull/857)): Fixed invisible mode bar underlines, separator lines, and toast notifications in light theme with new semantic CSS variables
+- **Subagent Timeout** ([#857](https://github.com/massgen/MassGen/pull/857)): Added timeout exemption for subagent-related MCP tools (`spawn_subagents`, `get_subagent_status`, `cancel_subagents`) that manage their own timeouts
+- **Post-evaluation Restarts** ([#857](https://github.com/massgen/MassGen/pull/857)): Disabled `max_orchestration_restarts` in quickstart defaults to prevent TUI crash on restart
+
+### Documentation, Configurations and Resources
+- **Agent Workspaces Guide**: New `docs/source/user_guide/agent_workspaces.rst` for worktree isolation workflow
+- **Worktrees Module**: New `docs/modules/worktrees.md` with integration examples
+- **Decomposition Configuration**: Updated `docs/source/reference/yaml_schema.rst`, `configuration.rst`, and `running-massgen.rst` with decomposition mode examples
+- **Backends Guide**: Updated `docs/source/user_guide/backends.rst` with Codex model update
+- **Capabilities Registry**: Updated `massgen/backend/capabilities.py` with `gpt-5.3-codex`
+
+### Technical Details
+- **Major Focus**: Decomposition coordination mode, worktree isolation for file writes, quickstart improvements
+- **Files Modified**:
+  - Orchestrator: `massgen/orchestrator.py` (decomposition + worktree isolation logic)
+  - New: `massgen/task_decomposer.py`, `massgen/infrastructure/worktree_manager.py`, `massgen/infrastructure/shadow_repo.py`
+  - New: `massgen/filesystem_manager/_isolation_context_manager.py`, `massgen/filesystem_manager/_change_applier.py`
+  - New: `massgen/frontend/displays/textual/widgets/modals/review_modal.py`, `massgen/frontend/displays/textual/widgets/modals/input_modals.py`
+  - TUI: Mode bar decomposition toggle, subagent decomposition display, quickstart wizard Docker step
+  - Docs: `docs/source/user_guide/agent_workspaces.rst`, `docs/modules/worktrees.md`
+- **Dependencies**: Added `gitpython`
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.47] - 2026-02-04
 

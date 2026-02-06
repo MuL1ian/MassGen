@@ -185,17 +185,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
+
+New decomposition coordination mode decomposes tasks into subtasks assigned to individual agents with a presenter role. Worktree isolation for file writes with review modal for approving changes. Quickstart wizard Docker setup with animated pull progress.
+
 **v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
 
 New Codex backend for OpenAI Codex CLI with local and Docker execution. TUI theme system refactored to palette-based architecture with unified base styles. Per-agent voting sensitivity configuration. Claude Code backend refactored with shared NativeToolMixin.
 
-**v0.1.46 (February 2, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
+**v0.1.46 (February 3, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
 
-Real-time subagent TUI streaming with interactive preview cards that expand to full timeline views. Unified display components ensure identical tool displays between main and subagents. Enhanced final presentation with workspace visualization and winning agent highlighting. Major TUI event architecture refactor with structured emission pipeline.
-
-**v0.1.45 (January 30, 2026)** - TUI as Default & Config Migration
-
-Textual Terminal UI now launches by default for all users with automatic config migration. Setup wizard generates TUI configs by default. Enhanced first-run experience with prominent TUI feature descriptions.
+Subagents now stream in real-time with clickable preview cards that expand to full timeline views. Major TUI event architecture refactor with structured event emission pipeline. Improved final presentation display with workspace visualization and winning agent highlighting.
 
 :doc:`Full changelog → <changelog>`
 
