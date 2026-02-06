@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, Set, Tuple
 
 if TYPE_CHECKING:
+    from massgen.filesystem_manager import ReviewResult
     from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
         PlanApprovalResult,
     )
 
 from massgen.logger_config import get_event_emitter, get_log_session_dir, logger
+from massgen.user_settings import get_user_settings
 
 from .terminal_display import TerminalDisplay
 
@@ -254,7 +256,8 @@ class TextualTerminalDisplay(TerminalDisplay):
         # Agent models mapping (agent_id -> model name) for display
         self.agent_models: Dict[str, str] = kwargs.get("agent_models", {})
 
-        self.theme = kwargs.get("theme", "dark")
+        # Load theme from user settings if not explicitly provided
+        self.theme = kwargs.get("theme") or get_user_settings().theme
         self.refresh_rate = kwargs.get("refresh_rate")
         self.enable_syntax_highlighting = kwargs.get("enable_syntax_highlighting", True)
         self.show_timestamps = kwargs.get("show_timestamps", True)
@@ -1647,6 +1650,76 @@ class TextualTerminalDisplay(TerminalDisplay):
             # Can't notify via app if call_from_thread failed
             logger.error("[PlanApproval] Failed to dispatch modal to main thread")
 
+    async def show_change_review_modal(
+        self,
+        changes: List[Dict[str, Any]],
+    ) -> "ReviewResult":
+        """Show modal for reviewing changes before applying.
+
+        This method displays a modal that shows git diffs from isolated write
+        contexts and allows the user to approve or reject changes before they
+        are applied to the original context paths.
+
+        Args:
+            changes: List of context change dicts with keys:
+                - original_path: Original context path
+                - isolated_path: Isolated context path
+                - changes: List of file changes [{status, path}, ...]
+                - diff: Git diff output string
+
+        Returns:
+            ReviewResult with approval status and selected files
+        """
+        import asyncio
+
+        from massgen.filesystem_manager import ReviewResult
+
+        if not self._app:
+            logger.warning("[ChangeReview] Cannot show modal - no app instance")
+            return ReviewResult(approved=False, metadata={"error": "no_app"})
+
+        from .textual.widgets.modals.review_modal import GitDiffReviewModal
+
+        loop = asyncio.get_running_loop()
+        result_future: asyncio.Future[ReviewResult] = loop.create_future()
+
+        def show_modal():
+            try:
+                modal = GitDiffReviewModal(changes=changes)
+
+                def handle_result(result: ReviewResult) -> None:
+                    # Must use call_soon_threadsafe because this callback runs
+                    # on the Textual thread, not the asyncio event loop thread.
+                    if not result_future.done():
+                        loop.call_soon_threadsafe(result_future.set_result, result)
+
+                self._app.push_screen(modal, handle_result)
+            except Exception as e:
+                logger.exception(f"[ChangeReview] Error showing modal: {e}")
+                if not result_future.done():
+                    loop.call_soon_threadsafe(
+                        result_future.set_result,
+                        ReviewResult(approved=False, metadata={"error": str(e)}),
+                    )
+
+        try:
+            self._app.call_from_thread(show_modal)
+        except Exception as e:
+            logger.exception(f"[ChangeReview] call_from_thread failed: {e}")
+            return ReviewResult(approved=False, metadata={"error": str(e)})
+
+        try:
+            # Wait for user decision with 5 minute timeout
+            return await asyncio.wait_for(result_future, timeout=300)
+        except asyncio.TimeoutError:
+            logger.warning("[ChangeReview] Modal timed out after 5 minutes")
+            # Try to dismiss the modal on timeout
+            try:
+                self._app.call_from_thread(self._app.pop_screen)
+            except Exception:
+                pass
+            return ReviewResult(approved=False, metadata={"error": "timeout"})
+
     def _execute_approved_plan(
         self,
         approval: "PlanApprovalResult",
@@ -2405,7 +2478,10 @@ if TEXTUAL_AVAILABLE:
                 cache_mtime = combined_path.stat().st_mtime
                 palette_mtime = palette_path.stat().st_mtime if palette_path.exists() else 0
                 base_mtime = base_path.stat().st_mtime if base_path.exists() else 0
-                source_mtime = max(palette_mtime, base_mtime)
+                # Also check modal_base.py since MODAL_BASE_CSS is included
+                modal_base_path = Path(__file__).parent / "textual" / "widgets" / "modal_base.py"
+                modal_base_mtime = modal_base_path.stat().st_mtime if modal_base_path.exists() else 0
+                source_mtime = max(palette_mtime, base_mtime, modal_base_mtime)
                 cache_valid = cache_mtime >= source_mtime
 
             if cache_valid:
@@ -2417,11 +2493,34 @@ if TEXTUAL_AVAILABLE:
             palette_css = palette_path.read_text() if palette_path.exists() else ""
             base_css = base_path.read_text() if base_path.exists() else ""
 
+            # Import modal base CSS (shared styles for all modal dialogs)
+            from .textual.widgets.modal_base import MODAL_BASE_CSS
+
+            # Split palette into variables and component overrides
+            # Variables must come first, but component overrides should come last
+            palette_lines = palette_css.split("\n")
+            palette_vars = []
+            palette_overrides = []
+            in_overrides = False
+            for line in palette_lines:
+                if "Component Overrides" in line:
+                    in_overrides = True
+                if in_overrides:
+                    palette_overrides.append(line)
+                else:
+                    palette_vars.append(line)
+
+            # Order: palette vars → modal base CSS → base.tcss → palette overrides
             combined_css = f"/* Combined theme: {theme} */\n"
-            combined_css += f"/* Palette from: {palette_file} */\n\n"
-            combined_css += palette_css
+            combined_css += f"/* Palette variables from: {palette_file} */\n\n"
+            combined_css += "\n".join(palette_vars)
+            combined_css += "\n\n/* Modal base styles */\n\n"
+            combined_css += MODAL_BASE_CSS
             combined_css += "\n\n/* Base component styles */\n\n"
             combined_css += base_css
+            if palette_overrides:
+                combined_css += "\n\n/* Theme-specific component overrides */\n\n"
+                combined_css += "\n".join(palette_overrides)
 
             combined_path.write_text(combined_css)
             cls._combined_css_cache[theme] = combined_path
@@ -2465,7 +2564,11 @@ if TEXTUAL_AVAILABLE:
             # Build combined CSS from palette + base
             # Textual CSS variables must be defined before use, so we concatenate
             # the palette (variables) with the base (component styles)
-            theme = display.theme if display.theme in self.PALETTE_MAP else "dark"
+            # Load user settings for theme preference
+            user_settings = get_user_settings()
+            theme = user_settings.theme
+            if theme not in self.PALETTE_MAP:
+                theme = "dark"
             combined_css_path = self._get_combined_css_path(theme)
             super().__init__(css_path=str(combined_css_path))
             self.coordination_display = display
@@ -2767,6 +2870,19 @@ if TEXTUAL_AVAILABLE:
             initial_theme = self.coordination_display.theme
             if initial_theme in self.THEME_NAME_MAP:
                 self.theme = self.THEME_NAME_MAP[initial_theme]
+            # Set initial theme class for CSS-based theme switching
+            if initial_theme == "light":
+                self.add_class("theme-light")
+            else:
+                self.add_class("theme-dark")
+            # Apply saved vim mode preference
+            try:
+                user_settings = get_user_settings()
+                if self.question_input:
+                    self.question_input.vim_mode = user_settings.vim_mode
+                    self._update_vim_indicator(None if not user_settings.vim_mode else False)
+            except Exception:
+                pass
 
             self._thread_id = threading.get_ident()
             self.coordination_display._app_ready.set()
@@ -3610,10 +3726,10 @@ if TEXTUAL_AVAILABLE:
                 self._toggle_vim_mode()
                 return True
 
-            # TODO: Re-enable /theme command when additional themes are ready
-            # if cmd == "/theme":
-            #     self.action_toggle_theme()
-            #     return True
+            # /theme command enabled with user settings
+            if cmd == "/theme":
+                self.action_toggle_theme()
+                return True
 
             return False
 
@@ -3737,6 +3853,12 @@ if TEXTUAL_AVAILABLE:
                 self.question_input._vim_normal = False
                 self.question_input.remove_class("vim-normal")
                 self._update_vim_indicator(None)  # None = vim mode off
+            # Save vim mode preference
+            try:
+                user_settings = get_user_settings()
+                user_settings.vim_mode = self.question_input.vim_mode
+            except Exception:
+                pass
 
         def _update_vim_indicator(self, vim_normal: bool | None) -> None:
             """Update the vim mode indicator.
@@ -6116,6 +6238,21 @@ Type your question and press Enter to ask the agents.
                 # Update the theme state
                 self.coordination_display.theme = new_theme
 
+                # Toggle theme classes on the app for CSS-based theme switching
+                # This allows theme-specific styles to update dynamically
+                if new_theme == "light":
+                    self.add_class("theme-light")
+                    self.remove_class("theme-dark")
+                else:
+                    self.add_class("theme-dark")
+                    self.remove_class("theme-light")
+
+                # Save the new theme to user preferences
+                try:
+                    user_settings = get_user_settings()
+                    user_settings.theme = new_theme
+                except Exception:
+                    pass
             except Exception as e:
                 self.notify(f"Theme error: {e}", severity="error", timeout=3)
                 logger.exception(f"Failed to toggle theme: {e}")
@@ -7903,7 +8040,6 @@ Type your question and press Enter to ask the agents.
 
             # Reset per-attempt UI state
             self._hide_completion_footer()
-            self._tool_handler.reset()
             self._batch_tracker.reset()
             self._reasoning_header_shown = False
 

@@ -147,6 +147,7 @@ class FilesystemManager:
         filesystem_session_id: Optional[str] = None,
         session_storage_base: Optional[str] = None,
         use_two_tier_workspace: bool = False,
+        write_mode: Optional[str] = None,
     ):
         """
         Initialize FilesystemManager.
@@ -197,8 +198,11 @@ class FilesystemManager:
                                  Required along with filesystem_session_id for session pre-mounting.
             use_two_tier_workspace: If True, create scratch/ and deliverable/ subdirectories in workspace
                                    and initialize git versioning for audit trails.
+            write_mode: Isolation mode for agent writes - "auto", "worktree", "isolated", or "legacy".
+                       When set (not None or "legacy"), creates isolated write contexts for context paths.
         """
         self.agent_id = None  # Will be set by orchestrator via setup_orchestration_paths
+        self.write_mode = write_mode
         self.use_two_tier_workspace = use_two_tier_workspace
         self.instance_id = instance_id  # Unique instance ID for parallel execution
         self.enable_image_generation = enable_image_generation
@@ -344,6 +348,19 @@ class FilesystemManager:
         self._using_temporary = False
         self._original_cwd = self.cwd
 
+        # Initialize isolation context manager if write_mode is set (and not legacy)
+        self.isolation_manager = None
+        if write_mode and write_mode != "legacy":
+            from ._isolation_context_manager import IsolationContextManager
+
+            # Use filesystem_session_id if available, otherwise generate one
+            session_id = filesystem_session_id or f"fm_{id(self)}"
+            self.isolation_manager = IsolationContextManager(
+                session_id=session_id,
+                write_mode=write_mode,
+            )
+            logger.info(f"[FilesystemManager] IsolationContextManager initialized: mode={write_mode}")
+
     def setup_orchestration_paths(
         self,
         agent_id: str,
@@ -422,6 +439,7 @@ class FilesystemManager:
         skills_directory: Optional[str] = None,
         massgen_skills: Optional[List[str]] = None,
         load_previous_session_skills: bool = False,
+        extra_mount_paths: Optional[List[tuple]] = None,
     ) -> None:
         """
         Recreate the Docker container with write access enabled for context paths.
@@ -435,6 +453,8 @@ class FilesystemManager:
             skills_directory: Path to skills directory to mount in Docker
             massgen_skills: List of MassGen built-in skills to enable
             load_previous_session_skills: If True, include evolving skills from previous sessions
+            extra_mount_paths: Optional list of (host_path, container_path, mode) tuples
+                for additional volume mounts (e.g., worktree paths for isolation)
 
         Note:
             This method preserves the agent's workspace and other state - only the
@@ -497,6 +517,7 @@ class FilesystemManager:
             massgen_skills=massgen_skills,
             shared_tools_directory=self.shared_tools_base,
             load_previous_session_skills=load_previous_session_skills,
+            extra_mount_paths=extra_mount_paths,
         )
 
         logger.info(
@@ -2143,6 +2164,14 @@ class FilesystemManager:
 
     def cleanup(self) -> None:
         """Cleanup temporary resources (not the main workspace) and Docker containers."""
+        # Cleanup isolation contexts if manager is active
+        if self.isolation_manager:
+            try:
+                logger.info("[FilesystemManager] Cleaning up isolation contexts")
+                self.isolation_manager.cleanup_all()
+            except Exception as e:
+                logger.warning(f"[FilesystemManager] Failed to cleanup isolation contexts: {e}")
+
         # Cleanup Docker container if Docker mode enabled
         if self.docker_manager and self.agent_id:
             self.docker_manager.cleanup(self.agent_id)

@@ -185,7 +185,6 @@ Screen {
 
 /* === Agent Tab Bar === */
 /* NOTE: No dock: top - flows naturally below HeaderWidget */
-/* Phase 9: Removed border-bottom for edge-to-edge layout */
 AgentTabBar {
     height: 3;
     width: 100%;
@@ -390,8 +389,17 @@ AgentStatusRibbon {
     height: auto;
     min-height: 1;
     background: transparent;
-    border-top: solid $surface-lighten-1;
+    border-top: solid $separator-border;
     padding: 0 1;
+}
+
+/* Theme-class based separator colors for dynamic switching */
+.theme-light AgentStatusRibbon {
+    border-top: solid #eaeef2;
+}
+
+.theme-dark AgentStatusRibbon {
+    border-top: solid #30363d;
 }
 
 AgentStatusRibbon .ribbon-container {
@@ -519,36 +527,39 @@ ModeBar {
     display: none;
 }
 
-/* Mode Toggle buttons - underline style */
+/* Mode Toggle buttons - underline style
+ * Uses semantic variables: $mode-toggle-border, $mode-toggle-active-color, $mode-toggle-inactive-color
+ * These are defined per-theme in palette files for proper visibility in both light and dark modes
+ */
 ModeToggle {
     width: auto;
     height: 2;
     margin: 0 1 0 0;
     padding: 0 1;
     background: transparent;
-    color: $text;
+    color: $mode-toggle-inactive-color;
     border: none;
-    border-bottom: tall $surface-lighten-2;
+    border-bottom: tall $mode-toggle-border;
     outline: none;
 }
 
 ModeToggle:hover {
     background: transparent;
-    color: $text;
-    border-bottom: tall $primary-lighten-1;
+    color: $mode-toggle-active-color;
+    border-bottom: tall $mode-toggle-active-color;
 }
 
 ModeToggle:focus {
     background: transparent;
-    color: $text;
-    border-bottom: tall $primary-lighten-1;
+    color: $mode-toggle-active-color;
+    border-bottom: tall $mode-toggle-active-color;
     outline: none;
 }
 
 ModeToggle.disabled {
     background: transparent;
     color: $text-muted;
-    border-bottom: tall $surface;
+    border-bottom: tall $mode-toggle-border;
     text-style: italic;
 }
 
@@ -579,32 +590,32 @@ ModeToggle.state-execute:focus {
 
 /* Agent mode states - single is muted (reduced mode) */
 ModeToggle.state-single {
-    color: $text-muted;
-    border-bottom: tall $surface-lighten-2;
+    color: $mode-toggle-inactive-color;
+    border-bottom: tall $mode-toggle-border;
 }
 
-/* Multi-agent (default) - normal text */
+/* Multi-agent (default) - highlighted as active state */
 ModeToggle.state-multi {
-    color: $text;
-    border-bottom: tall $surface-lighten-2;
+    color: $mode-toggle-active-color;
+    border-bottom: tall $mode-toggle-active-color;
 }
 
-/* Refinement on - default state, not highlighted */
+/* Refinement on - highlighted as active state */
 ModeToggle.state-on {
-    color: $text;
-    border-bottom: tall $surface-lighten-2;
+    color: $mode-toggle-active-color;
+    border-bottom: tall $mode-toggle-active-color;
 }
 
 /* Refinement off - muted gray (reduced mode) */
 ModeToggle.state-off {
-    color: $text-muted;
-    border-bottom: tall $surface-lighten-2;
+    color: $mode-toggle-inactive-color;
+    border-bottom: tall $mode-toggle-border;
 }
 
 /* Normal (inactive plan) - visible but subdued */
 ModeToggle.state-normal {
-    color: $text;
-    border-bottom: tall $surface-lighten-2;
+    color: $mode-toggle-inactive-color;
+    border-bottom: tall $mode-toggle-border;
 }
 
 /* Override button in mode bar */
@@ -1074,10 +1085,18 @@ SuggestionRow.selected {
     width: 100%;
     margin: 0;
     align: left middle;
-    /* Full-width subtle separator line above mode buttons */
-    border-top: solid $surface-lighten-2;
+    border-top: solid $separator-border;
     padding: 0;
     background: $background;
+}
+
+/* Theme-class based separator colors for dynamic switching */
+.theme-light #input_header {
+    border-top: solid #eaeef2;
+}
+
+.theme-dark #input_header {
+    border-top: solid #30363d;
 }
 
 /* Input hint text - docked to right side */
@@ -2527,7 +2546,7 @@ ToolCallCard.type-subagent.expanded {
 /* Minimalist emphasis: left accent bar only, muted colors */
 ToolCallCard.terminal-tool {
     border: none;
-    border-left: tall $surface-lighten-1;
+    border-left: tall $tool-card-border;
     background: transparent;
     min-height: 3;
     max-height: 12;
@@ -2537,7 +2556,7 @@ ToolCallCard.terminal-tool {
 
 ToolCallCard.terminal-tool.status-running {
     border: none;
-    border-left: tall $surface-lighten-1;
+    border-left: tall $tool-card-border;
     background: transparent;
 }
 
@@ -4797,20 +4816,44 @@ ToastRack {
     margin-bottom: 8;  /* Push up above tab bar and input */
 }
 
+/* Base toast styling - theme-class-based for dynamic switching */
+/* Override Textual's "outer" border which renders outside the box */
+Toast {
+    background: $background;
+    border: solid transparent;
+    border-left: none;
+    overflow: hidden;
+}
+
+/* Light theme toast - matches light background, subtle border */
+.theme-light Toast {
+    background: #ffffff;
+    border: solid #d0d7de;
+    border-left: tall #0969da;
+}
+
+/* Dark theme toast - matches dark background, subtle border */
+.theme-dark Toast {
+    background: #0d1117;
+    border: solid #21262d;
+    border-left: tall #58a6ff;
+}
+
+/* Severity-specific left accent colors (override the theme defaults) */
 Toast.-information {
-    border-left: thick $secondary;
+    border-left: tall $secondary;
 }
 
 Toast.-warning {
-    border-left: thick $warning;
+    border-left: tall $warning;
 }
 
 Toast.-error {
-    border-left: thick $error;
+    border-left: tall $error;
 }
 
 Toast.-success {
-    border-left: thick $success;
+    border-left: tall $success;
 }
 
 /* ============================================================
@@ -4923,13 +4966,13 @@ SubagentPanel TimelineSection {
 /* Tab bar in subagent screen */
 SubagentScreen AgentTabBar,
 SubagentView AgentTabBar {
-    border-bottom: solid $surface-lighten-1;
+    border-bottom: solid $separator-border;
 }
 
 /* Status ribbon in subagent screen */
 SubagentScreen AgentStatusRibbon,
 SubagentView AgentStatusRibbon {
-    border-top: solid $surface-lighten-1;
+    border-top: solid $separator-border;
 }
 
 /* ============================================
@@ -7025,4 +7068,186 @@ SubagentModal #nav-text {
     width: auto;
     text-align: center;
     color: $text-muted;
+}
+
+/* =============================================================================
+ * Review Modal Styles - Git diff review for isolated changes
+ * Two-panel layout: file list (left) + diff viewer (right)
+ * =============================================================================
+ */
+
+/* --- Modal container --- */
+.review-modal {
+    width: 94%;
+    max-width: 160;
+    height: 88%;
+    max-height: 50;
+    padding: 0 1;
+}
+
+/* --- Summary line --- */
+.review-modal .modal-summary {
+    padding: 0 1;
+    margin: 0;
+}
+
+/* --- Instructions hint --- */
+.review-modal .modal-instructions {
+    padding: 0 1;
+    margin: 0;
+    color: $fg-subtle;
+    height: auto;
+}
+
+/* --- Two-panel content area --- */
+.review-modal .review-content {
+    height: 1fr;
+    width: 100%;
+    margin-top: 0;
+}
+
+/* ===== Left panel: file list ===== */
+
+.review-modal .review-file-list {
+    width: 28;
+    min-width: 24;
+    max-width: 36;
+    border-right: solid $border-muted;
+    height: 100%;
+}
+
+/* File list header row with Select All / Deselect All buttons */
+.review-modal .review-file-list-header {
+    height: auto;
+    align: left middle;
+    padding: 0 0 0 1;
+    margin-bottom: 0;
+}
+
+.review-modal .review-file-list-title {
+    width: 1fr;
+    color: $fg-secondary;
+    text-style: bold;
+}
+
+.review-modal .review-toggle-btn {
+    width: auto;
+    min-width: 5;
+    height: 1;
+    margin: 0 0 0 1;
+    border: none;
+    background: transparent;
+    color: $fg-muted;
+    text-style: underline;
+}
+
+.review-modal .review-toggle-btn:hover {
+    color: $accent-primary;
+}
+
+.review-modal .review-file-list #file_list_scroll {
+    height: 1fr;
+    scrollbar-gutter: stable;
+}
+
+/* Context header: project name divider (multi-context only) */
+.review-modal .review-context-header {
+    padding: 0 0 0 1;
+    margin-top: 1;
+    color: $fg-muted;
+}
+
+/* File row: holds toggle indicator + filename */
+.review-modal .review-file-row {
+    height: auto;
+    width: 100%;
+    align: left middle;
+    padding: 0 0 0 1;
+}
+
+.review-modal .review-file-row:hover {
+    background: $bg-surface-2;
+}
+
+/* Selected / active file row highlight */
+.review-modal .review-file-selected {
+    background: $bg-surface-2;
+    border-left: tall $accent-primary;
+}
+
+/* Approval toggle indicator: ✓ or ○ */
+.review-modal .review-toggle-indicator {
+    width: 3;
+    min-width: 3;
+    height: auto;
+    color: $fg-subtle;
+    padding: 0;
+    text-align: center;
+}
+
+.review-modal .review-toggle-indicator:hover {
+    color: $accent-primary;
+    text-style: bold;
+}
+
+.review-modal .review-approved {
+    color: $accent-success;
+    text-style: bold;
+}
+
+/* Clickable file name */
+.review-modal .review-file-entry {
+    width: 1fr;
+    height: auto;
+    padding: 0;
+    color: $fg-secondary;
+}
+
+.review-modal .review-file-entry:hover {
+    color: $accent-primary;
+}
+
+/* ===== Right panel: diff viewer ===== */
+
+.review-modal .review-diff-panel {
+    width: 1fr;
+    padding-left: 1;
+    height: 100%;
+}
+
+/* Diff panel header showing selected file path */
+.review-modal .review-diff-header {
+    height: auto;
+    padding: 0 0 0 1;
+    color: $fg-muted;
+}
+
+/* Scrollable diff content area */
+.review-modal #diff_scroll {
+    height: 1fr;
+    background: $modal-content-bg;
+    border: solid $border-muted;
+    padding: 0 1;
+    scrollbar-gutter: stable;
+}
+
+/* Diff text content: auto-height so it scrolls naturally */
+.review-modal .review-diff-content {
+    width: 100%;
+    height: auto;
+    color: $modal-content-text;
+}
+
+/* --- Footer button refinements --- */
+.review-modal .modal-footer {
+    padding-top: 0;
+}
+
+.review-modal .modal-footer Button {
+    margin-left: 1;
+    min-width: 14;
+}
+
+.review-modal #cancel_btn {
+    color: $fg-muted;
 }

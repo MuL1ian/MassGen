@@ -157,6 +157,9 @@ class ConfigValidator:
     # Valid answer novelty requirements
     VALID_ANSWER_NOVELTY = {"lenient", "balanced", "strict"}
 
+    # Valid write modes for isolated write contexts
+    VALID_WRITE_MODES = {"auto", "worktree", "isolated", "legacy"}
+
     def __init__(self):
         """Initialize the validator."""
 
@@ -891,6 +894,17 @@ class ConfigValidator:
                                             f"{location}.coordination.subagent_round_timeouts.{field_name}",
                                             "Use a value like 300 (seconds)",
                                         )
+
+                # Validate write_mode if present
+                if "write_mode" in coordination:
+                    write_mode = coordination["write_mode"]
+                    if write_mode not in self.VALID_WRITE_MODES:
+                        valid_values = ", ".join(sorted(self.VALID_WRITE_MODES))
+                        result.add_error(
+                            f"Invalid write_mode: '{write_mode}'",
+                            f"{location}.coordination.write_mode",
+                            f"Use one of: {valid_values}",
+                        )
 
         # Validate voting_sensitivity if present
         if "voting_sensitivity" in orchestrator_config:

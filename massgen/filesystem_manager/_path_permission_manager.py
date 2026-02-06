@@ -193,6 +193,40 @@ class PathPermissionManager:
         # Clear permission cache to force recalculation
         self._permission_cache.clear()
 
+    def remove_context_path(self, context_path: str) -> Optional["ManagedPath"]:
+        """Remove a context path from managed paths entirely.
+
+        Used during worktree isolation so the agent only sees the worktree
+        (inside workspace) and never discovers the original context path.
+
+        Args:
+            context_path: The context path to remove
+
+        Returns:
+            The removed ManagedPath (for later re-adding), or None if not found
+        """
+        resolved = Path(context_path).resolve()
+        for i, mp in enumerate(self.managed_paths):
+            if mp.path.resolve() == resolved and mp.path_type == "context":
+                removed = self.managed_paths.pop(i)
+                self._permission_cache.clear()
+                logger.info(f"[PathPermissionManager] Removed context path for isolation: {context_path}")
+                return removed
+        return None
+
+    def re_add_context_path(self, managed_path: "ManagedPath") -> None:
+        """Re-add a previously removed context path.
+
+        Called after review phase so ChangeApplier can copy approved files
+        from the worktree back to the original context path.
+
+        Args:
+            managed_path: The ManagedPath object previously returned by remove_context_path
+        """
+        self.managed_paths.append(managed_path)
+        self._permission_cache.clear()
+        logger.info(f"[PathPermissionManager] Re-added context path after review: {managed_path.path}")
+
     def snapshot_writable_context_paths(self) -> None:
         """
         Take a snapshot of all files in writable context paths.

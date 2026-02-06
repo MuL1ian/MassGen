@@ -8,6 +8,7 @@ Optional vim mode for vim-style editing.
 Supports @ path autocomplete integration.
 """
 
+import time
 from typing import List, Optional, Tuple
 
 from textual import events
@@ -144,6 +145,10 @@ class MultiLineInput(TextArea):
         # Paste summarization state
         self._pasted_blocks: List[Tuple[int, str, int]] = []  # (paste_id, full_text, line_count)
         self._paste_counter: int = 0
+        # Paste deduplication tracking (fix double-paste bug)
+        self._last_paste_text: str = ""
+        self._last_paste_time: float = 0.0
+        self._PASTE_DEDUP_WINDOW: float = 0.1  # 100ms dedup window
 
         # Ctrl+C double-press tracking for quit
         self._awaiting_quit_confirm: bool = False  # True after first Ctrl+C on empty input
@@ -224,9 +229,16 @@ class MultiLineInput(TextArea):
             # Stop event - don't let parent TextArea insert the full text
             event.stop()
             event.prevent_default()
+            # Update last paste tracking for deduplication
+            self._last_paste_text = pasted_text
+            self._last_paste_time = time.time()
         else:
             # Small paste - let TextArea handle normally
             await super()._on_paste(event)
+
+            # Update last paste tracking for deduplication
+            self._last_paste_text = pasted_text
+            self._last_paste_time = time.time()
 
     def get_full_text_for_submission(self) -> str:
         """Get the full text, expanding any paste placeholders.

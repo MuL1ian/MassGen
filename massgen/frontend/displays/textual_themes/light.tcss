@@ -162,13 +162,13 @@ Screen {
 
 /* === Agent Tab Bar === */
 /* NOTE: No dock: top - flows naturally below HeaderWidget */
-/* Phase 9: Removed border-bottom for edge-to-edge layout */
+/* Light theme: Add subtle separator for visual distinction */
 AgentTabBar {
     height: 2;
     width: 100%;
     layout: horizontal;
-    background: transparent;
-    border-bottom: none;
+    background: $bg-surface;
+    border-bottom: solid $border-default;
     padding: 0 1;
 }
 
@@ -336,13 +336,26 @@ AgentTab.disabled:hover {
 }
 
 /* === Mode Bar (above input) === */
+/* Light theme: Add subtle background and border for visual distinction */
+ModeBar {
+    height: 2;
+    width: auto;
+    layout: horizontal;
+    background: $bg-surface;
+    padding: 0;
+    margin-left: 1;
+    align: left middle;
+    border: none;
+}
+
 #mode_bar {
     height: 2;
-    width: 100%;
+    width: auto;
     layout: horizontal;
-    background: transparent;
-    padding: 0 1;
+    background: $bg-surface;
+    padding: 0;
     align: left middle;
+    border: none;
 }
 
 #mode_bar.hidden {
@@ -717,14 +730,15 @@ HeaderWidget.hidden {
 /* Note: HeaderWidget styling is handled by the class selector above.
    The #header_widget ID selector was removed to avoid CSS conflicts. */
 
-/* Input area container - docks to bottom, transparent for clean look */
+/* Input area container - docks to bottom, with subtle border in light mode */
 #input_area {
     dock: bottom;
     height: auto;
     min-height: 4;
     width: 100%;
     padding: 0 1;
-    background: transparent;
+    background: $bg-surface;
+    border-top: solid $border-default;
 }
 
 /* Execution bar - hidden (keeping input area consistent in all states) */

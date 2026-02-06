@@ -103,6 +103,7 @@ class APIParamsHandlerBase(ABC):
             # Coordination parameters (handled by orchestrator, not passed to API)
             "vote_only",  # Vote-only mode flag for coordination
             "use_two_tier_workspace",  # Two-tier workspace (scratch/deliverable) + git versioning
+            "write_mode",  # Isolated write context mode (auto/worktree/isolated/legacy)
             # NLIP configuration belongs to MassGen routing, never provider APIs
             "enable_nlip",
             "nlip",

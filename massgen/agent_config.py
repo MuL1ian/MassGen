@@ -121,6 +121,12 @@ class CoordinationConfig:
                                When enabled, git versioning is automatically initialized in the workspace
                                for audit trails and history tracking. Both directories are shared with
                                other agents during voting/coordination phases.
+        write_mode: Controls how agent file writes are isolated during coordination.
+                   - "auto": Automatically detect (worktree for git repos, shadow for non-git)
+                   - "worktree": Use git worktrees for isolation (requires git repo)
+                   - "isolated": Use shadow repos for full isolation
+                   - "legacy": Use direct writes (no isolation, current behavior)
+                   - None: Disabled (default, same as "legacy")
     """
 
     enable_planning_mode: bool = False
@@ -155,6 +161,7 @@ class CoordinationConfig:
     # Async subagent execution configuration
     async_subagents: Optional[Dict[str, Any]] = None  # {enabled: bool, injection_strategy: str}
     use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
+    write_mode: Optional[str] = None  # "auto" | "worktree" | "isolated" | "legacy"
 
     def __post_init__(self):
         """Validate configuration after initialization."""

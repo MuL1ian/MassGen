@@ -39,6 +39,7 @@ from .coordination_tracker import CoordinationTracker
 
 if TYPE_CHECKING:
     from .dspy_paraphraser import QuestionParaphraser
+    from .filesystem_manager import IsolationContextManager
     from .subagent.models import SubagentResult
 
 from .logger_config import get_log_session_dir  # Import to get log directory
@@ -7437,6 +7438,27 @@ Your answer:"""
                 ):
                     selected_agent.backend.end_round_tracking("post_evaluation")
 
+        # Review isolated changes if write_mode isolation was enabled
+        # Runs AFTER post-evaluation so the user sees the full picture before approving files
+        if hasattr(self, "_isolation_manager") and self._isolation_manager:
+            selected_agent = self.agents.get(self._selected_agent)
+            if selected_agent:
+                # Re-add removed context paths so ChangeApplier can write back
+                ppm = selected_agent.backend.filesystem_manager.path_permission_manager
+                for orig_path, removed_mp in getattr(self, "_isolation_removed_paths", {}).items():
+                    ppm.re_add_context_path(removed_mp)
+
+                async for chunk in self._review_isolated_changes(
+                    agent=selected_agent,
+                    isolation_manager=self._isolation_manager,
+                    selected_agent_id=self._selected_agent,
+                ):
+                    yield chunk
+            # Clear the references after review
+            self._isolation_manager = None
+            self._isolation_worktree_paths = {}
+            self._isolation_removed_paths = {}
+
             # Check if restart was requested
             if self.restart_pending and self.current_attempt < (self.max_attempts - 1):
                 # Show restart banner
@@ -7699,6 +7721,65 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             # Snapshot context paths BEFORE enabling write access (for tracking what gets written)
             agent.backend.filesystem_manager.path_permission_manager.snapshot_writable_context_paths()
 
+            # Initialize isolated write context if write_mode is enabled
+            # Creates worktree inside agent workspace and demotes original to read-only
+            self._isolation_manager = None
+            self._isolation_worktree_paths = {}  # worktree_path -> original_path
+            write_mode = None
+            if self.config.coordination_config:
+                write_mode = getattr(self.config.coordination_config, "write_mode", None)
+
+            logger.info(f"[Orchestrator] write_mode check: coordination_config={bool(self.config.coordination_config)}, write_mode={write_mode}")
+
+            if write_mode and write_mode != "legacy":
+                from .filesystem_manager import IsolationContextManager
+
+                try:
+                    workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
+                    self._isolation_manager = IsolationContextManager(
+                        session_id=self.session_id,
+                        write_mode=write_mode,
+                        workspace_path=workspace_path,
+                    )
+
+                    # Initialize isolated contexts for writable context paths
+                    # Remove the original from PPM so the agent only sees the worktree
+                    ppm = agent.backend.filesystem_manager.path_permission_manager
+                    self._isolation_removed_paths = {}  # original_path -> ManagedPath (for re-adding after review)
+                    logger.info(f"[Orchestrator] Checking {len(ppm.managed_paths)} managed paths for isolation")
+                    for managed_path in list(ppm.managed_paths):  # copy list since we modify
+                        logger.debug(f"[Orchestrator] Checking path: {managed_path.path}, type={managed_path.path_type}, will_be_writable={managed_path.will_be_writable}")
+                        if managed_path.path_type == "context" and managed_path.will_be_writable:
+                            original_path = str(managed_path.path)
+                            isolated_path = self._isolation_manager.initialize_context(
+                                original_path,
+                                agent_id=selected_agent_id,
+                            )
+                            # Remove original from PPM — agent only sees the worktree in workspace
+                            removed_mp = ppm.remove_context_path(original_path)
+                            if removed_mp:
+                                self._isolation_removed_paths[original_path] = removed_mp
+                            self._isolation_worktree_paths[isolated_path] = original_path
+                            logger.info(
+                                f"[Orchestrator] Isolation: worktree at {isolated_path}, " f"original removed from agent view: {original_path}",
+                            )
+
+                except Exception as e:
+                    logger.warning(f"[Orchestrator] Failed to initialize isolated context: {e}, falling back to direct writes")
+                    # Re-add any paths we removed before the failure
+                    if hasattr(self, "_isolation_removed_paths"):
+                        ppm = agent.backend.filesystem_manager.path_permission_manager
+                        for orig_path, removed_mp in self._isolation_removed_paths.items():
+                            ppm.re_add_context_path(removed_mp)
+                        self._isolation_removed_paths = {}
+                    if self._isolation_manager:
+                        try:
+                            self._isolation_manager.cleanup_all()
+                        except Exception:
+                            pass
+                    self._isolation_manager = None
+                    self._isolation_worktree_paths = {}
+
             # Recreate Docker container with write access to context paths
             # The original container was created with read-only mounts for context paths
             # (to prevent race conditions during coordination). For final presentation,
@@ -7716,10 +7797,16 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                             "load_previous_session_skills",
                             False,
                         )
+                # Build extra mounts for worktree isolation in Docker mode
+                extra_mounts = None
+                if hasattr(self, "_isolation_worktree_paths") and self._isolation_worktree_paths:
+                    extra_mounts = [(wt_path, wt_path, "rw") for wt_path in self._isolation_worktree_paths]
+
                 agent.backend.filesystem_manager.recreate_container_for_write_access(
                     skills_directory=skills_directory,
                     massgen_skills=massgen_skills,
                     load_previous_session_skills=load_previous_session_skills,
+                    extra_mount_paths=extra_mounts,
                 )
 
             # Enable write access in PathPermissionManager (for MCP filesystem tools)
@@ -7779,6 +7866,28 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             all_answers=normalized_all_answers,
             selected_agent_id=selected_agent_id,
         )
+
+        # Add worktree location to presentation message
+        # The agent only sees the worktree — the original context path has been
+        # removed from its view, so we just tell it where the project is.
+        if hasattr(self, "_isolation_worktree_paths") and self._isolation_worktree_paths:
+            worktree_instructions = "\n\nPROJECT PATHS:\n"
+            for wt_path, orig_path in self._isolation_worktree_paths.items():
+                # Compute the specific subdirectory within the worktree
+                # that corresponds to the original context path
+                import os as _os
+
+                ctx_info = self._isolation_manager.get_context_info(orig_path) if self._isolation_manager else None
+                repo_root = ctx_info.get("repo_root") if ctx_info else None
+                if repo_root and repo_root != orig_path:
+                    relative = _os.path.relpath(orig_path, repo_root)
+                    target_dir = _os.path.join(wt_path, relative)
+                    worktree_instructions += (
+                        f"The project files are at `{target_dir}` " f"(inside worktree at `{wt_path}`). " f"Write all your changes there. " f"Changes will be reviewed before being applied.\n"
+                    )
+                else:
+                    worktree_instructions += f"The project is checked out at `{wt_path}`. " f"Write all your changes there. " f"Changes will be reviewed before being applied.\n"
+            presentation_content += worktree_instructions
 
         # Get agent's configurable system message using the standard interface
         agent.get_configurable_system_message()
@@ -8408,6 +8517,147 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             clear_current_round()
 
         # Don't yield done here - let _present_final_answer handle final done after post-evaluation
+
+    async def _review_isolated_changes(
+        self,
+        agent: "ChatAgent",
+        isolation_manager: "IsolationContextManager",
+        selected_agent_id: str,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Review and apply changes from isolated write context.
+
+        This method collects changes from the isolated context, shows a review
+        modal to the user (if TUI is available), and applies approved changes
+        to the original context paths.
+
+        Args:
+            agent: The presenting agent
+            isolation_manager: IsolationContextManager with active contexts
+            selected_agent_id: ID of the selected agent
+        """
+        from .filesystem_manager import ChangeApplier, ReviewResult
+
+        logger.info(f"[Orchestrator] Starting _review_isolated_changes for {selected_agent_id}")
+
+        # 1. Collect all changes from isolated contexts
+        all_changes = []
+        for ctx_info in isolation_manager.list_contexts():
+            if not ctx_info:
+                continue
+            original_path = ctx_info.get("original_path")
+            if not original_path:
+                continue
+
+            changes = isolation_manager.get_changes(original_path)
+            diff = isolation_manager.get_diff(original_path)
+
+            if changes or diff:
+                # For worktree mode, repo_root may differ from original_path
+                # (context path can be a subdirectory of the git root).
+                # The ChangeApplier needs repo_root as target since git paths
+                # are relative to the repo root.
+                repo_root = ctx_info.get("repo_root") or original_path
+                all_changes.append(
+                    {
+                        "original_path": original_path,
+                        "isolated_path": ctx_info.get("isolated_path"),
+                        "repo_root": repo_root,
+                        "changes": changes,
+                        "diff": diff,
+                    },
+                )
+
+        # 2. If no changes, skip review and cleanup
+        if not any(c.get("changes") for c in all_changes):
+            logger.info("[Orchestrator] No isolated changes to review")
+            isolation_manager.cleanup_all()
+            return
+
+        # 3. Yield status chunk to inform user about review phase
+        total_changes = sum(len(c.get("changes", [])) for c in all_changes)
+        yield StreamChunk(
+            type="status",
+            content=f"Reviewing {total_changes} file change(s) from isolated context...",
+            source=selected_agent_id,
+        )
+
+        # 4. Show review modal (TUI) or auto-approve (non-TUI)
+        review_result = ReviewResult(approved=True, approved_files=None)
+
+        # Get display via coordination_ui (orchestrator doesn't have a display attr directly)
+        display = None
+        if hasattr(self, "coordination_ui") and self.coordination_ui:
+            display = getattr(self.coordination_ui, "display", None)
+
+        logger.info(f"[Orchestrator] Review phase: display={display}, has_modal={hasattr(display, 'show_change_review_modal') if display else False}")
+
+        if display and hasattr(display, "show_change_review_modal"):
+            try:
+                logger.info("[Orchestrator] Showing review modal...")
+                review_result = await display.show_change_review_modal(all_changes)
+                logger.info(f"[Orchestrator] Review modal returned: approved={review_result.approved}")
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Review modal failed: {e}, auto-approving")
+                review_result = ReviewResult(approved=True, approved_files=None)
+        else:
+            # Non-TUI mode: auto-approve all changes
+            logger.info("[Orchestrator] Non-TUI mode: auto-approving isolated changes")
+
+        # 5. Apply approved changes
+        if review_result.approved:
+            applier = ChangeApplier()
+            applied_files = []
+
+            logger.info(
+                f"[Orchestrator] Applying approved changes: " f"approved_files={review_result.approved_files}, " f"contexts={len(all_changes)}",
+            )
+
+            for ctx in all_changes:
+                try:
+                    # Use repo_root as target since git paths are relative
+                    # to the repo root (not the context subdirectory)
+                    target = ctx.get("repo_root", ctx["original_path"])
+                    logger.info(
+                        f"[Orchestrator] ChangeApplier: source={ctx['isolated_path']}, " f"target={target}",
+                    )
+                    files = applier.apply_changes(
+                        source_path=ctx["isolated_path"],
+                        target_path=target,
+                        approved_files=review_result.approved_files,
+                    )
+                    applied_files.extend(files)
+                except Exception as e:
+                    logger.error(f"[Orchestrator] Failed to apply changes to {ctx['original_path']}: {e}")
+                    yield StreamChunk(
+                        type="error",
+                        error=f"Failed to apply some changes: {e}",
+                        source=selected_agent_id,
+                    )
+
+            if applied_files:
+                yield StreamChunk(
+                    type="status",
+                    content=f"Applied {len(applied_files)} file change(s): {', '.join(applied_files)}",
+                    source=selected_agent_id,
+                )
+                logger.info(f"[Orchestrator] Applied isolated changes: {applied_files}")
+            else:
+                logger.warning("[Orchestrator] Review approved but no files were applied (empty change set)")
+                yield StreamChunk(
+                    type="status",
+                    content="Review approved but no changed files were found to apply",
+                    source=selected_agent_id,
+                )
+        else:
+            yield StreamChunk(
+                type="status",
+                content="Changes rejected - no files were modified",
+                source=selected_agent_id,
+            )
+            logger.info("[Orchestrator] User rejected isolated changes")
+
+        # 6. Cleanup isolated contexts
+        isolation_manager.cleanup_all()
 
     async def post_evaluate_answer(
         self,

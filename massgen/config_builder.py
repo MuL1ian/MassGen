@@ -4841,7 +4841,7 @@ class ConfigBuilder:
                 "video_generation_backend": "openai",  # OpenAI Sora2
                 "audio_generation_backend": "openai",  # OpenAI TTS
                 "coordination": {
-                    "max_orchestration_restarts": 2,
+                    "max_orchestration_restarts": 0,  # Disabled pending MAS-268 fix
                     "use_skills": True,
                     "skills_directory": ".agent/skills",
                     "enable_agent_task_planning": True,
@@ -4863,7 +4863,7 @@ class ConfigBuilder:
                 "video_generation_backend": "openai",  # OpenAI video generation
                 "audio_generation_backend": "openai",  # OpenAI TTS
                 "coordination": {
-                    "max_orchestration_restarts": 2,
+                    "max_orchestration_restarts": 0,  # Disabled pending MAS-268 fix
                     "enable_agent_task_planning": True,
                     "task_planning_filesystem_mode": True,
                     "enable_memory_filesystem_mode": True,

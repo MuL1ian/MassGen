@@ -34,6 +34,7 @@ from .coordination_modals import (
     VoteResultsModal,
 )
 from .input_modals import BroadcastPromptModal, StructuredBroadcastPromptModal
+from .review_modal import GitDiffReviewModal
 from .shortcuts_modal import KeyboardShortcutsModal
 from .status_modals import (
     CostBreakdownModal,
@@ -67,6 +68,8 @@ __all__ = [
     # Input modals
     "BroadcastPromptModal",
     "StructuredBroadcastPromptModal",
+    # Review modal
+    "GitDiffReviewModal",
     # Shortcuts modal
     "KeyboardShortcutsModal",
     # Workspace modals
