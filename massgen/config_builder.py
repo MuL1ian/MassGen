@@ -4909,10 +4909,10 @@ class ConfigBuilder:
             "agents": agents,
             "orchestrator": orchestrator_config,
             "timeout_settings": {
-                "orchestrator_timeout_seconds": 1800,
-                "initial_round_timeout_seconds": 600,  # 10 min for first answer
-                "subsequent_round_timeout_seconds": 300,  # 5 min for rounds with input answers
-                "round_timeout_grace_seconds": 120,  # 2 min grace before hard block
+                "orchestrator_timeout_seconds": 3600,
+                "initial_round_timeout_seconds": 1200,  # 20 min for first answer
+                "subsequent_round_timeout_seconds": 900,  # 15 min for rounds with input answers
+                "round_timeout_grace_seconds": 300,  # 5 min grace before hard block
             },
             "ui": {
                 "display_type": "textual_terminal",

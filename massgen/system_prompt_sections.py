@@ -1801,11 +1801,20 @@ Do NOT implement other agents' subtasks — other team members are handling thos
 
 4. **Dual-purpose new_answer**: Submit `new_answer` when you have meaningful improvements — from self-refinement, integration insights, or both.
 
-5. **Completion**: Call `stop` when your subtask is complete and well-integrated with others' work. Your stop summary should show awareness of the full project.
+5. **Completion**: Call `stop` when you have reviewed the current state of work (yours and others') and are satisfied that your subtask is done. This ends your execution for this round.
+
+**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
+Both are terminal actions that end your round. Choose based on whether you produced new work:
+- `new_answer`: You did work this round — wrote code, updated files, made improvements. Use this to **share your work** with other agents and the presenter.
+- `stop`: You reviewed everything and are satisfied — no further changes needed from you. This signals completion without sharing new work.
+
+**IMPORTANT:** If you improved or updated your deliverable work this round (fixed bugs, updated code, aligned interfaces), \
+use `new_answer` to share those changes. It's fine to call `stop` if you only ran tests or created scratch files \
+for verification without changing your actual output.
 
 **TOOLS:**
-- `new_answer`: Submit your improved work (content = summary of what you did + key deliverables)
-- `stop`: Signal your subtask is complete (summary = what you accomplished and how it connects; status = "complete" or "blocked")
+- `new_answer`: Submit your work (content = summary of what you did + key deliverables)
+- `stop`: Signal you are satisfied and done (summary = what you accomplished and how it connects; status = "complete" or "blocked")
 
 Make sure you actually call `new_answer` or `stop` (in tool call format).
 
@@ -2562,7 +2571,7 @@ Before considering any interactive artifact complete, ask:
 - Use `new_answer` when you produced work or iterated improvements based on **interaction testing**."""
 
         if self.decomposition_mode:
-            base += "\n- Use `stop` only when your subtask is complete and well-tested as a user would experience it."
+            base += "\n- Use `stop` only when you have reviewed everything and are satisfied with your deliverables as-is. If you improved your deliverable work this round, use `new_answer` instead."
         else:
             base += "\n- Use `vote` only when an existing answer already meets the bar after **testing as a user would**."
 

@@ -137,6 +137,7 @@ class AgentTab(Static):
         "waiting": "○",  # Empty dot - idle/waiting
         "working": "◉",  # Filled dot - active
         "voted": "✓",  # Green check - voted (waiting for consensus)
+        "stopped": "✓",  # Green check - stopped in decomposition mode (subtask done)
         "done": "✓",  # Dim check - final presentation in progress
         "error": "✗",  # X mark - error
         "cancelled": "✗",  # X mark - cancelled (yellow when rendered)
@@ -158,6 +159,7 @@ class AgentTab(Static):
         "custom_tool_response": "working",
         "voting": "working",
         "voted": "voted",  # Green checkmark - agent voted
+        "stopped": "stopped",  # Green checkmark - agent stopped (decomposition mode)
         "waiting": "voted",  # Waiting for others after voting
         "complete": "voted",  # Finished, waiting for consensus
         "completed": "voted",
@@ -231,6 +233,7 @@ class AgentTab(Static):
             "status-waiting",
             "status-working",
             "status-voted",
+            "status-stopped",
             "status-done",
             "status-error",
             "status-cancelled",

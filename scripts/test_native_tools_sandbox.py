@@ -55,7 +55,7 @@ BACKEND_CONFIGS = {
     "codex": {
         "module": "massgen.backend.codex",
         "class": "CodexBackend",
-        "model": "gpt-5.2-codex",  # Codex-optimized model (default)
+        "model": "gpt-5.3-codex",  # Codex-optimized model (default)
         "blocks_reads_outside": False,  # OS sandbox only blocks writes, not reads
         "blocks_tmp_writes": False,  # Codex allows /tmp by default
     },

@@ -106,7 +106,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             api_key: OpenAI API key (falls back to OPENAI_API_KEY env var).
                     If None, will attempt OAuth authentication.
             **kwargs: Additional configuration options including:
-                - model: Model name (default: gpt-5.2-codex)
+                - model: Model name (default: gpt-5.3-codex)
                 - model_reasoning_effort: Reasoning effort level (low, medium, high, xhigh)
                 - cwd: Current working directory for Codex
                 - system_prompt: System prompt to prepend
@@ -125,8 +125,16 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         self._session_file: Optional[Path] = None
 
         # Configuration
-        self.model = kwargs.get("model", "gpt-5.2-codex")
+        self.model = kwargs.get("model", "gpt-5.3-codex")
+        # Prefer native Codex setting, but accept OpenAI-style nesting for compatibility:
+        # backend.reasoning.effort -> model_reasoning_effort
         self.model_reasoning_effort = kwargs.get("model_reasoning_effort")  # low, medium, high, xhigh
+        if self.model_reasoning_effort is None:
+            reasoning_cfg = kwargs.get("reasoning")
+            if isinstance(reasoning_cfg, dict):
+                effort = reasoning_cfg.get("effort")
+                if isinstance(effort, str) and effort.strip():
+                    self.model_reasoning_effort = effort.strip()
         self._config_cwd = kwargs.get("cwd")  # May be relative; resolved at execution time
         self.system_prompt = kwargs.get("system_prompt", "")
         self.approval_mode = kwargs.get("approval_mode", "full-auto")

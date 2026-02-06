@@ -3299,6 +3299,23 @@ if TEXTUAL_AVAILABLE:
                 else:
                     self.notify(f"🗳️ {voter} voted for {target}", timeout=3)
 
+            elif event.event_type == "agent_stopped":
+                # Decomposition mode: agent signaled stop (subtask complete)
+                agent_id = event.agent_id or ""
+                summary = event.data.get("summary", "")
+                stop_status = event.data.get("status", "complete")
+
+                model_name = self.coordination_display.agent_models.get(agent_id, "")
+                agent_display = f"{agent_id}" + (f" ({model_name})" if model_name else "")
+
+                status_emoji = "✅" if stop_status == "complete" else "⚠️"
+                self.notify(
+                    f"{status_emoji} [bold]{agent_display}[/] stopped ({stop_status})",
+                    timeout=4,
+                )
+                # Tool card is created by content_processor (unified pipeline),
+                # matching how vote tool cards work. No duplicate card here.
+
             elif event.event_type == "winner_selected":
                 winner_id = event.agent_id or ""
                 # Switch to winner tab and mark with trophy
@@ -3989,6 +4006,7 @@ Type your question and press Enter to ask the agents.
                     "custom_tool_response": "working",
                     "voting": "working",
                     "voted": "voted",  # Green checkmark - agent voted
+                    "stopped": "stopped",  # Green checkmark - agent stopped (decomposition)
                     "waiting": "voted",  # Waiting for others after voting
                     "complete": "voted",  # Finished, waiting for consensus
                     "completed": "voted",

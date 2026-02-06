@@ -3566,40 +3566,47 @@ Your answer:"""
                                     "end_round_tracking",
                                 ):
                                     agent.backend.end_round_tracking("vote")
-                                # Notify web display about the vote
-                                logger.debug(
-                                    f"Vote recorded - checking for coordination_ui: hasattr={hasattr(self, 'coordination_ui')}, coordination_ui={self.coordination_ui}",
-                                )
-                                if hasattr(self, "coordination_ui") and self.coordination_ui:
-                                    display = getattr(
-                                        self.coordination_ui,
-                                        "display",
-                                        None,
-                                    )
+                                # Notify web display about the vote (not applicable for stop)
+                                if not is_stop:
                                     logger.debug(
-                                        f"Got display: {display}, has update_vote_target: {hasattr(display, 'update_vote_target') if display else 'N/A'}",
+                                        f"Vote recorded - checking for coordination_ui: hasattr={hasattr(self, 'coordination_ui')}, coordination_ui={self.coordination_ui}",
                                     )
-                                    if display and hasattr(
-                                        display,
-                                        "update_vote_target",
-                                    ):
-                                        logger.debug(
-                                            f"Calling update_vote_target({agent_id}, {result_data.get('agent_id', '')}, ...)",
+                                    if hasattr(self, "coordination_ui") and self.coordination_ui:
+                                        display = getattr(
+                                            self.coordination_ui,
+                                            "display",
+                                            None,
                                         )
-                                        display.update_vote_target(
+                                        logger.debug(
+                                            f"Got display: {display}, has update_vote_target: {hasattr(display, 'update_vote_target') if display else 'N/A'}",
+                                        )
+                                        if display and hasattr(
+                                            display,
+                                            "update_vote_target",
+                                        ):
+                                            logger.debug(
+                                                f"Calling update_vote_target({agent_id}, {result_data.get('agent_id', '')}, ...)",
+                                            )
+                                            display.update_vote_target(
+                                                voter_id=agent_id,
+                                                target_id=result_data.get("agent_id", ""),
+                                                reason=result_data.get("reason", ""),
+                                            )
+                                # Emit event (unified pipeline for main + subagent TUI)
+                                _emitter = get_event_emitter()
+                                if _emitter:
+                                    if is_stop:
+                                        _emitter.emit_stop(
+                                            agent_id=agent_id,
+                                            summary=result_data.get("stop_summary", ""),
+                                            status=result_data.get("stop_status", "complete"),
+                                        )
+                                    else:
+                                        _emitter.emit_vote(
                                             voter_id=agent_id,
                                             target_id=result_data.get("agent_id", ""),
                                             reason=result_data.get("reason", ""),
                                         )
-                                # Emit vote event (unified pipeline for main + subagent TUI)
-
-                                _emitter = get_event_emitter()
-                                if _emitter:
-                                    _emitter.emit_vote(
-                                        voter_id=agent_id,
-                                        target_id=result_data.get("agent_id", ""),
-                                        reason=result_data.get("reason", ""),
-                                    )
                                 # Update status file for real-time monitoring
                                 # Run in executor to avoid blocking event loop
                                 log_session_dir = get_log_session_dir()
@@ -3613,20 +3620,34 @@ Your answer:"""
                                         self,
                                     )
 
-                                # Track vote event for logging only
-                                # Note: The TUI displays votes via notify_vote tool card,
+                                # Track event for logging only
+                                # Note: The TUI displays votes/stops via tool cards,
                                 # so we use agent_status type to avoid duplicate display
-                                log_stream_chunk(
-                                    "orchestrator",
-                                    "agent_status",
-                                    f"✅ Vote recorded for [{result_data['agent_id']}]",
-                                    agent_id,
-                                )
-                                yield StreamChunk(
-                                    type="agent_status",  # Always agent_status - TUI shows vote via tool card
-                                    content=f"✅ Vote recorded for [{result_data['agent_id']}]",
-                                    source=agent_id,
-                                )
+                                if is_stop:
+                                    stop_status_str = result_data.get("stop_status", "complete")
+                                    log_stream_chunk(
+                                        "orchestrator",
+                                        "agent_status",
+                                        f"✅ Agent stopped ({stop_status_str})",
+                                        agent_id,
+                                    )
+                                    yield StreamChunk(
+                                        type="agent_status",
+                                        content=f"✅ Agent stopped ({stop_status_str})",
+                                        source=agent_id,
+                                    )
+                                else:
+                                    log_stream_chunk(
+                                        "orchestrator",
+                                        "agent_status",
+                                        f"✅ Vote recorded for [{result_data['agent_id']}]",
+                                        agent_id,
+                                    )
+                                    yield StreamChunk(
+                                        type="agent_status",
+                                        content=f"✅ Vote recorded for [{result_data['agent_id']}]",
+                                        source=agent_id,
+                                    )
 
                     elif chunk_type == "error":
                         # Agent error
@@ -4397,8 +4418,8 @@ Your answer:"""
                 "1. Read and understand their full work — maintain awareness of the entire project state",
                 "2. Actively integrate parts that touch your subtask (interfaces, contracts, dependencies)",
                 "3. Continue refining your own work — fix issues, improve quality, incorporate insights",
-                "4. Submit `new_answer` when you have meaningful improvements",
-                "5. Call `stop` when your subtask is complete and well-integrated",
+                "4. Submit `new_answer` if you made any changes or improvements (this shares your work)",
+                "5. Call `stop` only when you've reviewed everything and are satisfied — no new work to share",
                 "",
                 "=" * 60,
             ]
@@ -5302,17 +5323,17 @@ Your answer:"""
             return (True, None)
 
         # Determine threshold based on setting
+        is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+        terminal_action = "call `stop`" if is_decomposition else "vote for an existing answer"
         if self.config.answer_novelty_requirement == "strict":
             threshold = 0.50  # Reject if >50% overlap (strict)
-            error_msg = (
-                "Your answer is too similar to existing answers (>50% overlap). Please use a fundamentally different approach, employ different tools/techniques, or vote for an existing answer."
-            )
+            error_msg = f"Your answer is too similar to existing answers (>50% overlap). Please use a fundamentally different approach, employ different tools/techniques, or {terminal_action}."
         else:  # balanced
             threshold = 0.70  # Reject if >70% overlap (balanced)
             error_msg = (
-                "Your answer is too similar to existing answers (>70% overlap). "
-                "Please provide a meaningfully different solution with new insights, "
-                "approaches, or tools, or vote for an existing answer."
+                f"Your answer is too similar to existing answers (>70% overlap). "
+                f"Please provide a meaningfully different solution with new insights, "
+                f"approaches, or tools, or {terminal_action}."
             )
 
         # Check similarity against all existing answers
@@ -5344,7 +5365,11 @@ Your answer:"""
         answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
 
         if answer_count >= self.config.max_new_answers_per_agent:
-            error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} new answer(s). Please vote for the best existing answer using the `vote` tool."
+            is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+            if is_decomposition:
+                error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} new answer(s). Please call `stop` to signal you are done."
+            else:
+                error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} new answer(s). Please vote for the best existing answer using the `vote` tool."
             logger.info(
                 f"[Orchestrator] Answer rejected: {agent_id} has reached limit ({answer_count}/{self.config.max_new_answers_per_agent})",
             )
@@ -7199,17 +7224,29 @@ Your answer:"""
                     # Note: restart_pending is handled by mid-stream callback on next tool call
                     if attempt < max_attempts - 1:
                         # Determine enforcement reason and message
+                        is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
                         if tool_calls:
-                            # Use vote-only enforcement message if agent has hit answer limit
+                            # Use vote-only/stop-only enforcement message if agent has hit answer limit
                             if vote_only:
-                                error_msg = "You have reached your answer limit. You MUST use the `vote` tool now to vote for the best existing answer. The `new_answer` tool is no longer available."
+                                if is_decomposition:
+                                    error_msg = "You have reached your answer limit. You MUST call `stop` now to signal you are done."
+                                else:
+                                    error_msg = (
+                                        "You have reached your answer limit. You MUST use the `vote` tool now to vote for the best existing answer. The `new_answer` tool is no longer available."
+                                    )
                             else:
-                                error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
+                                if is_decomposition:
+                                    error_msg = "You must use workflow tools (stop or new_answer) to complete the task."
+                                else:
+                                    error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
                             enforcement_reason = "no_workflow_tool"
                             tool_names_called = [agent.backend.extract_tool_name(tc) for tc in tool_calls]
                         else:
                             # No tool calls, just a plain text response - use default enforcement
-                            error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
+                            if is_decomposition:
+                                error_msg = "You must use workflow tools (stop or new_answer) to complete the task."
+                            else:
+                                error_msg = "You must use workflow tools (vote or new_answer) to complete the task."
                             enforcement_reason = "no_tool_calls"
                             tool_names_called = []
 

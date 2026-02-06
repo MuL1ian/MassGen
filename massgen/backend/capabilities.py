@@ -270,12 +270,13 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
         ],
         filesystem_support="native",
         models=[
+            "gpt-5.3-codex",
             "gpt-5.2-codex",
             "gpt-5.1-codex",
             "gpt-5-codex",
             "gpt-4.1",
         ],
-        default_model="gpt-5.2-codex",
+        default_model="gpt-5.3-codex",
         env_var="OPENAI_API_KEY",
         notes=(
             "OpenAI Codex CLI with OAuth support. Works with ChatGPT Plus/Pro subscription "
@@ -285,6 +286,7 @@ BACKEND_CAPABILITIES: Dict[str, BackendCapabilities] = {
             "NOT reads. For security-sensitive workloads, prefer Docker mode for full isolation."
         ),
         model_release_dates={
+            "gpt-5.3-codex": "2026-02",
             "gpt-5.2-codex": "2025-12",
             "gpt-5.1-codex": "2025-12",
             "gpt-5-codex": "2025-09",

@@ -739,6 +739,11 @@ Backend
      - **Codex** (Docker mode)
      - All with MCP support
      - Docker network mode: "bridge", "host", "none". **Required for Codex in Docker mode** (use "bridge").
+   * - ``model_reasoning_effort``
+     - string
+     - No
+     - ``codex``
+     - Codex reasoning effort: "low", "medium", "high", or "xhigh". OpenAI-style ``reasoning.effort`` is also accepted for Codex compatibility.
    * - ``command_line_docker_enable_sudo``
      - boolean
      - No

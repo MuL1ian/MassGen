@@ -282,6 +282,10 @@ AgentTab.status-voted {
     border-bottom: tall $success;
 }
 
+AgentTab.status-stopped {
+    border-bottom: tall $success;
+}
+
 AgentTab.status-done {
     border-bottom: tall $primary-lighten-1;
     color: $text-muted;
@@ -313,6 +317,11 @@ AgentTab.active.status-completed {
 }
 
 AgentTab.active.status-voted {
+    background: $success 15%;
+    border-bottom: tall $success;
+}
+
+AgentTab.active.status-stopped {
     background: $success 15%;
     border-bottom: tall $success;
 }
