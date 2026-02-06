@@ -932,6 +932,20 @@ class ConfigValidator:
                     f"Use one of: {valid_values}",
                 )
 
+        # Validate answer cap fields if present (null means unlimited)
+        for field_name in ("max_new_answers_per_agent", "max_new_answers_global"):
+            if field_name not in orchestrator_config:
+                continue
+            value = orchestrator_config[field_name]
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                result.add_error(
+                    f"'{field_name}' must be a positive integer or null, got {type(value).__name__}",
+                    f"{location}.{field_name}",
+                    "Use null (unlimited) or a positive integer like 1, 2, or 3",
+                )
+
         # Validate timeout if present
         if "timeout" in orchestrator_config:
             timeout = orchestrator_config["timeout"]
@@ -1259,11 +1273,11 @@ class ConfigValidator:
                         f"Use one of: {', '.join(agent_ids)}",
                     )
 
-                # Warn if no subtasks defined (auto-decomposition will be used)
+                # Warn if no subtasks defined (runtime decomposition subagent will be used)
                 has_subtasks = any(isinstance(a, dict) and "subtask" in a for a in agents)
                 if not has_subtasks:
                     result.add_warning(
-                        "No 'subtask' fields defined on agents in decomposition mode",
+                        "No explicit 'subtask' fields defined on agents in decomposition mode",
                         "orchestrator.coordination_mode",
-                        "Auto-decomposition will be used. Define 'subtask' on each agent for explicit control.",
+                        "MassGen will spawn a decomposition subagent at runtime to assign subtasks. Add 'subtask' per agent for deterministic assignments.",
                     )

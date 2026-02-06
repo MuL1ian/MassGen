@@ -24,6 +24,7 @@ from .widgets import (  # Base classes; Browser modals; Status modals; Coordinat
     ConversationHistoryModal,
     CoordinationTableModal,
     CostBreakdownModal,
+    DecompositionGenerationModal,
     DecompositionSubtasksModal,
     FileInspectionModal,
     KeyboardShortcutsModal,
@@ -66,6 +67,7 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "DecompositionGenerationModal",
     "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",
     # Shortcuts modal

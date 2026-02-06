@@ -61,6 +61,8 @@ import asyncio
 import json
 import os
 import shutil
+import time
+import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -69,7 +71,7 @@ try:
 except ImportError:
     tomli_w = None
 
-from ..logger_config import logger
+from ..logger_config import get_event_emitter, logger
 from .base import (
     FilesystemSupport,
     LLMBackend,
@@ -734,8 +736,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
 
         return cmd
 
-    def _parse_codex_event(self, event: Dict[str, Any]) -> Optional[StreamChunk]:
-        """Parse a Codex JSON event into a StreamChunk.
+    def _parse_codex_event(self, event: Dict[str, Any]) -> List[StreamChunk]:
+        """Parse a Codex JSON event into StreamChunks.
 
         Handles both the documented item.started/item.completed wrapper format
         (with nested item.type) and legacy direct event names as fallback.
@@ -744,7 +746,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             event: Parsed JSON event from Codex
 
         Returns:
-            StreamChunk or None if event should be skipped
+            List of StreamChunks (empty list if event should be skipped)
         """
         event_type = event.get("type", "")
 
@@ -752,60 +754,71 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         if event_type == "thread.started":
             self.session_id = event.get("session_id") or event.get("thread_id")
             logger.info(f"Codex session started: {self.session_id}")
-            return StreamChunk(
-                type="agent_status",
-                status="session_started",
-                detail=f"Session: {self.session_id}",
-            )
+            return [
+                StreamChunk(
+                    type="agent_status",
+                    status="session_started",
+                    detail=f"Session: {self.session_id}",
+                ),
+            ]
 
         # Handle item.started / item.completed wrapper format
         # These wrap a nested "item" dict with its own "type" field
         if event_type in ("item.started", "item.completed"):
             item = event.get("item", {})
             item_type = item.get("type", "")
-            return self._parse_item(item_type, item)
+            is_completed = event_type == "item.completed"
+            return self._parse_item(item_type, item, is_completed=is_completed)
 
         # Legacy direct event names (fallback)
         if event_type.startswith("item."):
-            return self._parse_item(event_type, event)
+            return self._parse_item(event_type, event, is_completed=True)
 
         # Handle turn completion
         if event_type == "turn.completed":
             usage = event.get("usage", {})
-            return StreamChunk(
-                type="done",
-                usage={
-                    "prompt_tokens": usage.get("input_tokens", 0),
-                    "completion_tokens": usage.get("output_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0),
-                },
-            )
+            return [
+                StreamChunk(
+                    type="done",
+                    usage={
+                        "prompt_tokens": usage.get("input_tokens", 0),
+                        "completion_tokens": usage.get("output_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0),
+                    },
+                ),
+            ]
 
         if event_type == "turn.started":
-            return StreamChunk(
-                type="agent_status",
-                status="turn_started",
-            )
+            return [
+                StreamChunk(
+                    type="agent_status",
+                    status="turn_started",
+                ),
+            ]
 
         # Handle errors - message is at top level, not nested
         if event_type in ("turn.failed", "error"):
             error_msg = event.get("message") or event.get("error", {}).get("message") or str(event)
-            return StreamChunk(type="error", error=error_msg)
+            return [StreamChunk(type="error", error=error_msg)]
 
         # Skip unknown events
         logger.debug(f"Skipping unknown Codex event type: {event_type}")
-        return None
+        return []
 
-    def _parse_item(self, item_type: str, item: Dict[str, Any]) -> Optional[StreamChunk]:
-        """Parse an item by its type, used by both wrapper and legacy formats.
+    def _parse_item(self, item_type: str, item: Dict[str, Any], *, is_completed: bool = True) -> List[StreamChunk]:
+        """Parse an item by its type, emitting structured tool events.
 
-        Actual Codex v0.92 item types (from JSONL):
-          - agent_message: {text: "..."} — main assistant output
-          - reasoning: {text: "..."} — thinking/reasoning
-          - command_execution: {command, aggregated_output, exit_code, status}
-          - file_write: {path, content} — file creation/modification
-          - tool_call / tool_result — MCP tool usage
+        Returns a list of StreamChunks. Tool items emit mcp_status chunks
+        (for non-Textual displays) and fire emit_tool_start/emit_tool_complete
+        events (for the Textual TUI event pipeline), following the same pattern
+        as claude_code.py.
+
+        Args:
+            item_type: The Codex item type string
+            item: The item dict from the event
+            is_completed: True for item.completed events, False for item.started
         """
+        agent_id = self.agent_id
 
         # Agent message (main content output)
         if item_type in ("agent_message", "message", "item.message"):
@@ -813,103 +826,334 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             if isinstance(text, list):
                 text_parts = [c.get("text", "") for c in text if c.get("type") == "text"]
                 text = "".join(text_parts)
-            return StreamChunk(type="content", content=text)
+            return [StreamChunk(type="content", content=text)]
 
         # Reasoning / thinking
         if item_type in ("reasoning", "item.reasoning"):
-            return StreamChunk(
-                type="reasoning",
-                reasoning_delta=item.get("text") or item.get("content", ""),
-            )
+            return [
+                StreamChunk(
+                    type="reasoning",
+                    reasoning_delta=item.get("text") or item.get("content", ""),
+                ),
+            ]
 
         # Command execution (shell commands)
         if item_type in ("command_execution", "command", "item.command"):
             command = item.get("command", "")
-            output = item.get("aggregated_output") or item.get("output", "")
-            status = item.get("status", "")
-            exit_code = item.get("exit_code")
-            suffix = ""
-            if exit_code is not None and exit_code != 0:
-                suffix = f" (exit {exit_code})"
-            # Only emit for completed commands (skip in_progress)
-            if status == "in_progress":
-                return None
-            return StreamChunk(
-                type="content",
-                content=f"$ {command}{suffix}\n{output}".rstrip(),
-            )
+            item_id = item.get("id") or str(uuid.uuid4())
+            tool_name = "codex_shell"
 
-        # File write / change (docs: fileChange has changes: [{path, kind, diff}])
+            if not is_completed:
+                # item.started — record start time, emit tool_start
+                self._tool_start_times[item_id] = time.time()
+                self._tool_id_to_name[item_id] = tool_name
+                emitter = get_event_emitter()
+                if emitter:
+                    emitter.emit_tool_start(
+                        tool_id=item_id,
+                        tool_name=tool_name,
+                        args={"command": command},
+                        server_name="codex",
+                        agent_id=agent_id,
+                    )
+                return [
+                    StreamChunk(
+                        type="mcp_status",
+                        status="mcp_tool_called",
+                        content=f"Calling {tool_name}...",
+                        source="codex",
+                        tool_call_id=item_id,
+                    ),
+                    StreamChunk(
+                        type="mcp_status",
+                        status="function_call",
+                        content=f"Arguments for Calling {tool_name}: {json.dumps({'command': command})}",
+                        source="codex",
+                        tool_call_id=item_id,
+                    ),
+                ]
+            else:
+                # item.completed — emit tool_complete with result
+                output = item.get("aggregated_output") or item.get("output", "")
+                exit_code = item.get("exit_code")
+                is_error = exit_code is not None and exit_code != 0
+                suffix = f" (exit {exit_code})" if is_error else ""
+                result_str = f"$ {command}{suffix}\n{output}".rstrip()
+
+                elapsed = time.time() - self._tool_start_times.pop(item_id, time.time())
+                self._tool_id_to_name.pop(item_id, None)
+                emitter = get_event_emitter()
+                if emitter:
+                    emitter.emit_tool_complete(
+                        tool_id=item_id,
+                        tool_name=tool_name,
+                        result=result_str,
+                        elapsed_seconds=elapsed,
+                        status="error" if is_error else "success",
+                        is_error=is_error,
+                        agent_id=agent_id,
+                    )
+                return [
+                    StreamChunk(
+                        type="mcp_status",
+                        status="function_call_output",
+                        content=result_str,
+                        source="codex",
+                        tool_call_id=item_id,
+                    ),
+                ]
+
+        # File write / change — only arrives as item.completed
         if item_type in ("file_write", "file_change", "fileChange", "item.file_change"):
+            item_id = item.get("id") or str(uuid.uuid4())
+            tool_name = "codex_file_edit"
+
+            # Build display info from changes list or simple path
             changes = item.get("changes", [])
             if changes:
+                paths = [c.get("path", "unknown") for c in changes]
                 parts = []
                 for change in changes:
                     path = change.get("path", "unknown")
                     kind = change.get("kind", "edit")
-                    diff = change.get("diff", "")
                     parts.append(f"[File {kind}: {path}]")
-                    if diff:
-                        parts.append(diff)
-                return StreamChunk(type="content", content="\n".join(parts))
-            # Fallback for simpler format
-            file_path = item.get("path", "unknown")
-            return StreamChunk(type="content", content=f"[File written: {file_path}]")
+                result_str = "\n".join(parts)
+                args = {"paths": paths}
+            else:
+                file_path = item.get("path", "unknown")
+                result_str = f"[File written: {file_path}]"
+                args = {"path": file_path}
 
-        # MCP tool calls (docs: mcpToolCall {server, tool, status, arguments, result, error})
+            # Emit both start + complete (file_change only arrives as completed)
+            emitter = get_event_emitter()
+            if emitter:
+                emitter.emit_tool_start(
+                    tool_id=item_id,
+                    tool_name=tool_name,
+                    args=args,
+                    server_name="codex",
+                    agent_id=agent_id,
+                )
+                emitter.emit_tool_complete(
+                    tool_id=item_id,
+                    tool_name=tool_name,
+                    result=result_str,
+                    elapsed_seconds=0.0,
+                    status="success",
+                    is_error=False,
+                    agent_id=agent_id,
+                )
+            return [
+                StreamChunk(
+                    type="mcp_status",
+                    status="mcp_tool_called",
+                    content=f"Calling {tool_name}...",
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+                StreamChunk(
+                    type="mcp_status",
+                    status="function_call",
+                    content=f"Arguments for Calling {tool_name}: {json.dumps(args)}",
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+                StreamChunk(
+                    type="mcp_status",
+                    status="function_call_output",
+                    content=result_str,
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+            ]
+
+        # MCP tool calls (mcpToolCall {server, tool, status, arguments, result, error})
         if item_type in ("mcp_tool_call", "mcpToolCall", "tool_call", "item.tool_call"):
             tool_name = item.get("tool") or item.get("name", "")
             server = item.get("server", "")
-            status = item.get("status", "")
-            # For completed calls with results, emit as content
-            if status == "completed" and item.get("result") is not None:
+            item_id = item.get("id") or str(uuid.uuid4())
+            full_tool_name = f"{server}/{tool_name}" if server else tool_name
+
+            if not is_completed:
+                # item.started (in_progress) — emit tool_start
+                # Skip workflow MCP tools — only the completed result matters
+                if server == "massgen_workflow_tools":
+                    return []
+                self._tool_start_times[item_id] = time.time()
+                self._tool_id_to_name[item_id] = full_tool_name
+                arguments = item.get("arguments", {})
+                emitter = get_event_emitter()
+                if emitter:
+                    emitter.emit_tool_start(
+                        tool_id=item_id,
+                        tool_name=full_tool_name,
+                        args=arguments if isinstance(arguments, dict) else {"input": arguments},
+                        server_name=server or None,
+                        agent_id=agent_id,
+                    )
+                args_str = json.dumps(arguments) if isinstance(arguments, dict) else str(arguments)
+                return [
+                    StreamChunk(
+                        type="mcp_status",
+                        status="mcp_tool_called",
+                        content=f"Calling {full_tool_name}...",
+                        source="codex",
+                        tool_call_id=item_id,
+                    ),
+                    StreamChunk(
+                        type="mcp_status",
+                        status="function_call",
+                        content=f"Arguments for Calling {full_tool_name}: {args_str}",
+                        source="codex",
+                        tool_call_id=item_id,
+                    ),
+                ]
+            else:
+                # item.completed — emit tool_complete or workflow tool_calls
                 result = item.get("result", "")
-                # Check if this is a workflow MCP tool result — extract and emit as tool_calls
+
+                # Workflow MCP tools: extract as tool_calls (preserve existing behavior)
                 if server == "massgen_workflow_tools":
                     workflow_call = self._try_extract_workflow_mcp_result_from_codex(result)
                     if workflow_call:
-                        return StreamChunk(
-                            type="tool_calls",
-                            tool_calls=[workflow_call],
-                            source="codex",
-                        )
-                return StreamChunk(
-                    type="content",
-                    content=f"[MCP {server}/{tool_name}]: {result}",
-                )
-            # For in-progress or started, emit as tool_call
-            # Skip workflow MCP tools — only the completed result matters
-            if status != "completed":
-                if server == "massgen_workflow_tools":
-                    return None
-                tool_call = {
-                    "id": item.get("id", ""),
-                    "name": f"{server}/{tool_name}" if server else tool_name,
-                    "arguments": item.get("arguments", {}),
-                }
-                return StreamChunk(type="tool_calls", tool_calls=[tool_call])
-            # Completed with error
-            if item.get("error"):
-                return StreamChunk(
-                    type="content",
-                    content=f"[MCP {server}/{tool_name} error]: {item['error']}",
-                )
-            return None
+                        return [
+                            StreamChunk(
+                                type="tool_calls",
+                                tool_calls=[workflow_call],
+                                source="codex",
+                            ),
+                        ]
+                    return []
 
-        # Web search (docs: webSearch {query})
+                # Non-workflow: emit tool_complete
+                result_str = str(result) if not isinstance(result, str) else result
+                is_error = bool(item.get("error"))
+                if is_error:
+                    result_str = f"[Error]: {item.get('error', '')}"
+
+                elapsed = time.time() - self._tool_start_times.pop(item_id, time.time())
+                self._tool_id_to_name.pop(item_id, None)
+                emitter = get_event_emitter()
+                if emitter:
+                    emitter.emit_tool_complete(
+                        tool_id=item_id,
+                        tool_name=full_tool_name,
+                        result=result_str,
+                        elapsed_seconds=elapsed,
+                        status="error" if is_error else "success",
+                        is_error=is_error,
+                        agent_id=agent_id,
+                    )
+                return [
+                    StreamChunk(
+                        type="mcp_status",
+                        status="function_call_output",
+                        content=result_str,
+                        source="codex",
+                        tool_call_id=item_id,
+                    ),
+                ]
+
+        # Web search — typically only item.completed
         if item_type in ("web_search", "webSearch"):
+            item_id = item.get("id") or str(uuid.uuid4())
+            tool_name = "codex_web_search"
             query = item.get("query", "")
-            return StreamChunk(type="content", content=f"[Web search: {query}]")
+            result_str = f"[Web search: {query}]"
 
-        # Image view (docs: imageView {path})
+            emitter = get_event_emitter()
+            if emitter:
+                emitter.emit_tool_start(
+                    tool_id=item_id,
+                    tool_name=tool_name,
+                    args={"query": query},
+                    server_name="codex",
+                    agent_id=agent_id,
+                )
+                emitter.emit_tool_complete(
+                    tool_id=item_id,
+                    tool_name=tool_name,
+                    result=result_str,
+                    elapsed_seconds=0.0,
+                    status="success",
+                    is_error=False,
+                    agent_id=agent_id,
+                )
+            return [
+                StreamChunk(
+                    type="mcp_status",
+                    status="mcp_tool_called",
+                    content=f"Calling {tool_name}...",
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+                StreamChunk(
+                    type="mcp_status",
+                    status="function_call",
+                    content=f"Arguments for Calling {tool_name}: {json.dumps({'query': query})}",
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+                StreamChunk(
+                    type="mcp_status",
+                    status="function_call_output",
+                    content=result_str,
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+            ]
+
+        # Image view — typically only item.completed
         if item_type in ("image_view", "imageView"):
-            return StreamChunk(
-                type="content",
-                content=f"[Image: {item.get('path', '')}]",
-            )
+            item_id = item.get("id") or str(uuid.uuid4())
+            tool_name = "codex_image_view"
+            img_path = item.get("path", "")
+            result_str = f"[Image: {img_path}]"
+
+            emitter = get_event_emitter()
+            if emitter:
+                emitter.emit_tool_start(
+                    tool_id=item_id,
+                    tool_name=tool_name,
+                    args={"path": img_path},
+                    server_name="codex",
+                    agent_id=agent_id,
+                )
+                emitter.emit_tool_complete(
+                    tool_id=item_id,
+                    tool_name=tool_name,
+                    result=result_str,
+                    elapsed_seconds=0.0,
+                    status="success",
+                    is_error=False,
+                    agent_id=agent_id,
+                )
+            return [
+                StreamChunk(
+                    type="mcp_status",
+                    status="mcp_tool_called",
+                    content=f"Calling {tool_name}...",
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+                StreamChunk(
+                    type="mcp_status",
+                    status="function_call",
+                    content=f"Arguments for Calling {tool_name}: {json.dumps({'path': img_path})}",
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+                StreamChunk(
+                    type="mcp_status",
+                    status="function_call_output",
+                    content=result_str,
+                    source="codex",
+                    tool_call_id=item_id,
+                ),
+            ]
 
         logger.debug(f"Skipping unknown Codex item type: {item_type}")
-        return None
+        return []
 
     async def stream_with_tools(
         self,
@@ -1124,8 +1368,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                     continue
 
                 logger.info(f"Codex raw event (docker): {json.dumps(event, default=str)[:500]}")
-                chunk = self._parse_codex_event(event)
-                if chunk:
+                chunks = self._parse_codex_event(event)
+                for chunk in chunks:
                     if first_content and chunk.type == "content":
                         self.record_first_token()
                         first_content = False
@@ -1202,8 +1446,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                     continue
 
                 logger.info(f"Codex raw event: {json.dumps(event, default=str)[:500]}")
-                chunk = self._parse_codex_event(event)
-                if chunk:
+                chunks = self._parse_codex_event(event)
+                for chunk in chunks:
                     # Record first token timing
                     if first_content and chunk.type == "content":
                         self.record_first_token()
@@ -1349,6 +1593,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         self.session_id = None
         self._session_file = None
         self._pending_workflow_instructions = ""
+        self._tool_start_times.clear()
+        self._tool_id_to_name.clear()
         self._cleanup_workspace_config()
         logger.info("Codex session state reset.")
 

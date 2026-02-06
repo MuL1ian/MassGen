@@ -16,11 +16,22 @@ import pytest
 
 from massgen.agent_config import AgentConfig, CoordinationConfig
 from massgen.config_validator import ConfigValidator
-from massgen.orchestrator import AgentState
+from massgen.orchestrator import AgentState, Orchestrator
 from massgen.task_decomposer import TaskDecomposerConfig
 from massgen.tool.workflow_toolkits import get_workflow_tools
 from massgen.tool.workflow_toolkits.stop import StopToolkit
 from massgen.utils import ActionType, AgentStatus
+
+
+class _StubBackend:
+    filesystem_manager = None
+    config = {}
+
+
+class _StubAgent:
+    def __init__(self):
+        self.backend = _StubBackend()
+        self._orchestrator = None
 
 
 def _get_tool_names(tools, api_format):
@@ -317,6 +328,89 @@ class TestDecompositionConfig:
         result = validator.validate_config(config)
         subtask_warnings = [w for w in result.warnings if "subtask" in w.suggestion.lower()]
         assert len(subtask_warnings) >= 1
+
+    def test_config_validator_valid_max_new_answers_global(self):
+        """Positive max_new_answers_global should pass validation."""
+        validator = ConfigValidator()
+        config = {
+            "agents": [{"id": "a", "backend": {"type": "openai", "model": "gpt-4o-mini"}}],
+            "orchestrator": {"max_new_answers_global": 5},
+        }
+        result = validator.validate_config(config)
+        global_errors = [e for e in result.errors if "max_new_answers_global" in e.location]
+        assert len(global_errors) == 0
+
+    def test_config_validator_invalid_max_new_answers_global(self):
+        """Non-positive max_new_answers_global should be rejected."""
+        validator = ConfigValidator()
+        config = {
+            "agents": [{"id": "a", "backend": {"type": "openai", "model": "gpt-4o-mini"}}],
+            "orchestrator": {"max_new_answers_global": 0},
+        }
+        result = validator.validate_config(config)
+        global_errors = [e for e in result.errors if "max_new_answers_global" in e.location]
+        assert len(global_errors) == 1
+
+
+class TestDecompositionAnswerLimits:
+    """Test decomposition-specific answer limit behavior."""
+
+    @staticmethod
+    def _answers(n: int):
+        return [type("Answer", (), {"label": f"agent1.{i + 1}", "content": f"answer{i + 1}"})() for i in range(n)]
+
+    def test_per_agent_limit_uses_consecutive_streak_not_total(self):
+        config = AgentConfig()
+        config.coordination_mode = "decomposition"
+        config.max_new_answers_per_agent = 2
+        orchestrator = Orchestrator(
+            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
+            config=config,
+        )
+
+        # Total historical answers is high, but current consecutive streak is low.
+        orchestrator.coordination_tracker.answers_by_agent["frontend"] = self._answers(5)
+        orchestrator.agent_states["frontend"].decomposition_answer_streak = 1
+
+        can_answer, _ = orchestrator._check_answer_count_limit("frontend")
+        assert can_answer is True
+
+        # At streak limit, new_answer should be rejected.
+        orchestrator.agent_states["frontend"].decomposition_answer_streak = 2
+        can_answer, error = orchestrator._check_answer_count_limit("frontend")
+        assert can_answer is False
+        assert error and "consecutive" in error
+
+    def test_streak_resets_after_unseen_external_update(self):
+        config = AgentConfig()
+        config.coordination_mode = "decomposition"
+        orchestrator = Orchestrator(
+            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
+            config=config,
+        )
+
+        state = orchestrator.agent_states["frontend"]
+        state.decomposition_answer_streak = 2
+        state.seen_answer_counts = {"frontend": 1, "backend": 1}
+        orchestrator.coordination_tracker.answers_by_agent["frontend"] = self._answers(1)
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answers(2)
+
+        orchestrator._sync_decomposition_answer_visibility("frontend")
+
+        assert state.decomposition_answer_streak == 0
+        assert state.seen_answer_counts["backend"] == 2
+
+    def test_global_limit_auto_stops_in_decomposition_mode(self):
+        config = AgentConfig()
+        config.coordination_mode = "decomposition"
+        config.max_new_answers_global = 1
+        orchestrator = Orchestrator(agents={"frontend": _StubAgent()}, config=config)
+        orchestrator.coordination_tracker.answers_by_agent["frontend"] = self._answers(1)
+
+        # Decomposition mode auto-stops instead of entering vote-only mode.
+        assert orchestrator._is_vote_only_mode("frontend") is False
+        assert orchestrator.agent_states["frontend"].has_voted is True
+        assert "global answer limit" in (orchestrator.agent_states["frontend"].stop_summary or "")
 
 
 # =============================================================================

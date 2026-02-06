@@ -573,6 +573,7 @@ Full multi-agent configuration demonstrating all 6 configuration levels:
      # Voting and answer control
      voting_sensitivity: "balanced"         # How critical agents are when voting (lenient/balanced)
      max_new_answers_per_agent: 2           # Cap new answers per agent (null=unlimited)
+     max_new_answers_global: 8              # Cap total new answers across all agents (null=unlimited)
      answer_novelty_requirement: "balanced" # How different new answers must be (lenient/balanced/strict)
 
      # Advanced settings
@@ -1051,7 +1052,11 @@ These parameters control coordination behavior to balance quality and duration.
    * - ``max_new_answers_per_agent``
      - integer or null
      - No
-     - Maximum number of new answers each agent can provide. Once an agent reaches this limit, they can only vote (not provide new answers). **Options:** ``null`` (default) - unlimited answers; ``1``, ``2``, ``3``, etc. - cap at N answers per agent. Prevents endless coordination rounds.
+     - Maximum number of new answers each agent can provide. In ``coordination_mode: voting``, this is a total per-agent cap. In ``coordination_mode: decomposition``, this is a **consecutive** cap that resets after the agent sees unseen external answer updates. **Options:** ``null`` (default) - unlimited answers; ``1``, ``2``, ``3``, etc.
+   * - ``max_new_answers_global``
+     - integer or null
+     - No
+     - Maximum number of new answers across all agents combined. When reached, ``new_answer`` is disabled for everyone. In voting mode, agents must vote; in decomposition mode, agents auto-stop. **Options:** ``null`` (default) - unlimited total answers; positive integer - global cap.
    * - ``answer_novelty_requirement``
      - string
      - No
@@ -1066,6 +1071,7 @@ Fast but thorough (recommended for balanced evaluation):
    orchestrator:
      voting_sensitivity: "balanced"       # Critical evaluation
      max_new_answers_per_agent: 2         # But cap at 2 tries
+     max_new_answers_global: 8            # Stop global churn in long runs
      answer_novelty_requirement: "balanced"  # Must actually improve
 
 Maximum quality with bounded time:
@@ -1075,6 +1081,7 @@ Maximum quality with bounded time:
    orchestrator:
      voting_sensitivity: "strict"          # Highest quality bar
      max_new_answers_per_agent: 3
+     max_new_answers_global: 12
      answer_novelty_requirement: "strict"   # Only accept real improvements
 
 Quick convergence:
@@ -1084,7 +1091,22 @@ Quick convergence:
    orchestrator:
      voting_sensitivity: "lenient"
      max_new_answers_per_agent: 1
+     max_new_answers_global: 3
      answer_novelty_requirement: "lenient"
+
+Decomposition mode (recommended defaults):
+
+.. code-block:: yaml
+
+   orchestrator:
+     coordination_mode: "decomposition"
+     presenter_agent: "integrator"
+     # In decomposition mode, use a lower per-agent cap than parallel voting mode.
+     # This cap is consecutive and resets when the agent sees new external answers.
+     max_new_answers_per_agent: 2  # Recommended range: 2-3
+     # Add a global cap for deterministic total coordination budget.
+     max_new_answers_global: 9
+     answer_novelty_requirement: "balanced"
 
 Timeout Configuration
 ~~~~~~~~~~~~~~~~~~~~~

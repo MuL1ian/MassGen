@@ -96,6 +96,10 @@ class AgentState:
         round_start_time: Timestamp when current round started (for per-round timeouts)
         round_timeout_hooks: Tuple of (post_hook, pre_hook) for per-round timeouts, or None
         round_timeout_state: Shared state for timeout hooks (tracks consecutive denials)
+        decomposition_answer_streak: Number of consecutive new answers submitted by this
+            agent without seeing unseen external answer revisions (decomposition mode).
+        seen_answer_counts: Per-agent snapshot of answer revision counts this agent has
+            already seen in its context.
     """
 
     answer: Optional[str] = None
@@ -110,6 +114,8 @@ class AgentState:
     injection_count: int = 0  # Track injections received for mid-stream injection timing
     restart_count: int = 0  # Track full restarts (TUI round = restart_count + 1)
     known_answer_ids: set = field(default_factory=set)  # Agent IDs whose answers this agent has seen
+    decomposition_answer_streak: int = 0  # Decomposition mode: consecutive answers since unseen external updates
+    seen_answer_counts: Dict[str, int] = field(default_factory=dict)  # agent_id -> number of answer revisions seen
     round_start_time: Optional[float] = None  # For per-round timeouts
     round_timeout_hooks: Optional[tuple] = None  # (post_hook, pre_hook) for resetting on new round
     round_timeout_state: Optional["RoundTimeoutState"] = None  # Shared timeout state
@@ -2967,7 +2973,7 @@ Your answer:"""
             yield StreamChunk(
                 type="preparation_status",
                 status="Decomposing task...",
-                detail="Breaking task into subtasks for each agent",
+                detail="Spawning decomposition subagent to assign per-agent subtasks",
             )
             from .task_decomposer import TaskDecomposer
 
@@ -2976,13 +2982,48 @@ Your answer:"""
             parent_configs = []
             for aid, agent in self.agents.items():
                 existing_sys_msgs[aid] = agent.get_configurable_system_message()
-                if hasattr(agent.backend, "config"):
-                    parent_configs.append(agent.backend.config)
+                backend_config = getattr(getattr(agent, "backend", None), "config", None)
+                if isinstance(backend_config, dict):
+                    parent_configs.append({"id": aid, "backend": backend_config})
+
             parent_workspace = ""
             if self.agents:
                 first_agent = next(iter(self.agents.values()))
-                if first_agent.backend.filesystem_manager:
-                    parent_workspace = str(first_agent.backend.filesystem_manager.agent_temporary_workspace or "")
+                fs_manager = getattr(getattr(first_agent, "backend", None), "filesystem_manager", None)
+                if fs_manager:
+                    parent_workspace = str(fs_manager.agent_temporary_workspace or fs_manager.cwd or "")
+
+            log_directory = None
+            try:
+                log_directory = str(get_log_session_dir())
+            except Exception:
+                log_directory = None
+
+            display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+            decomposition_anchor_agent = next(iter(self.agents.keys()), None)
+            decomposition_call_id = "decomposition_task_decomposition"
+
+            def _on_decomposition_subagent_started(
+                subagent_id: str,
+                subagent_task: str,
+                timeout_seconds: int,
+                status_callback: Any,
+                log_path: Optional[str],
+            ) -> None:
+                if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_started"):
+                    try:
+                        display.notify_runtime_subagent_started(
+                            agent_id=decomposition_anchor_agent,
+                            subagent_id=subagent_id,
+                            task=subagent_task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=decomposition_call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                        )
+                    except Exception:
+                        pass
+
             try:
                 self._agent_subtasks = await decomposer.generate_decomposition_via_subagent(
                     task=self.current_task or "",
@@ -2991,10 +3032,64 @@ Your answer:"""
                     parent_agent_configs=parent_configs,
                     parent_workspace=parent_workspace,
                     orchestrator_id=self.orchestrator_id,
+                    log_directory=log_directory,
+                    on_subagent_started=_on_decomposition_subagent_started,
                 )
-                logger.info(f"[Orchestrator] Auto-decomposed task into {len(self._agent_subtasks)} subtasks")
+
+                source = getattr(decomposer, "last_generation_source", "unknown")
+                if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
+                    try:
+                        if source == "subagent":
+                            subtask_preview = " | ".join(f"{aid}: {subtask}" for aid, subtask in list(self._agent_subtasks.items())[:2])[:400]
+                            display.notify_runtime_subagent_completed(
+                                agent_id=decomposition_anchor_agent,
+                                subagent_id="task_decomposition",
+                                call_id=decomposition_call_id,
+                                status="completed",
+                                answer_preview=subtask_preview or "Subtasks generated successfully.",
+                            )
+                        else:
+                            display.notify_runtime_subagent_completed(
+                                agent_id=decomposition_anchor_agent,
+                                subagent_id="task_decomposition",
+                                call_id=decomposition_call_id,
+                                status="failed",
+                                error="Used fallback decomposition subtasks.",
+                            )
+                    except Exception:
+                        pass
+
+                if source == "subagent":
+                    yield StreamChunk(
+                        type="preparation_status",
+                        status="Decomposition ready",
+                        detail=("Subtasks generated by decomposition subagent for " f"{len(self._agent_subtasks)} agent(s)"),
+                    )
+                else:
+                    yield StreamChunk(
+                        type="preparation_status",
+                        status="Decomposition fallback",
+                        detail="Subagent decomposition unavailable; using fallback subtasks",
+                    )
+
+                logger.info(
+                    f"[Orchestrator] Auto-decomposed task into {len(self._agent_subtasks)} subtasks " f"(source={source})",
+                )
             except Exception as e:
-                logger.warning(f"[Orchestrator] Auto-decomposition failed: {e}, agents will work without explicit subtasks")
+                logger.warning(
+                    f"[Orchestrator] Auto-decomposition failed: {e}, agents will work without explicit subtasks",
+                )
+                if display and decomposition_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
+                    try:
+                        display.notify_runtime_subagent_completed(
+                            agent_id=decomposition_anchor_agent,
+                            subagent_id="task_decomposition",
+                            call_id=decomposition_call_id,
+                            status="failed",
+                            error=str(e),
+                        )
+                    except Exception:
+                        pass
 
         # Notify TUI of subtask assignments (from config or auto-decomposition)
         if self._agent_subtasks and any(self._agent_subtasks.values()):
@@ -3268,6 +3363,8 @@ Your answer:"""
 
                     # Track which answers this agent knows about (for vote validation)
                     self.agent_states[agent_id].known_answer_ids = set(current_answers.keys())
+                    # Mark that this agent has received the current answer revision set.
+                    self._sync_decomposition_answer_visibility(agent_id)
 
                     active_streams[agent_id] = self._stream_agent_execution(
                         agent_id,
@@ -3430,6 +3527,13 @@ Your answer:"""
                                 result_data,
                                 snapshot_timestamp=answer_timestamp,
                             )
+                            if self._is_decomposition_mode():
+                                self.agent_states[agent_id].decomposition_answer_streak += 1
+                                # Agent has produced a new self revision; keep its own seen
+                                # revision count in sync without marking external updates as seen.
+                                self.agent_states[agent_id].seen_answer_counts[agent_id] = len(
+                                    self.coordination_tracker.answers_by_agent.get(agent_id, []),
+                                )
                             # End round token tracking with "answer" outcome
                             if agent and hasattr(agent.backend, "end_round_tracking"):
                                 agent.backend.end_round_tracking("answer")
@@ -4699,6 +4803,7 @@ Your answer:"""
 
             # Update known_answer_ids so vote validation knows this agent has seen these
             self.agent_states[agent_id].known_answer_ids.update(new_answers.keys())
+            self._sync_decomposition_answer_visibility(agent_id)
 
             # Track the injection
             logger.info(
@@ -4985,6 +5090,7 @@ Your answer:"""
 
             # Update known_answer_ids so vote validation knows this agent has seen these
             self.agent_states[agent_id].known_answer_ids.update(new_answers.keys())
+            self._sync_decomposition_answer_visibility(agent_id)
 
             # Emit injection_received event for TUI
 
@@ -5362,6 +5468,58 @@ Your answer:"""
         # Answer is sufficiently novel
         return (True, None)
 
+    def _is_decomposition_mode(self) -> bool:
+        """Return True when orchestration is running in decomposition mode."""
+        return getattr(self.config, "coordination_mode", "voting") == "decomposition"
+
+    def _get_answer_revision_counts(self) -> Dict[str, int]:
+        """Get current answer revision counts for all orchestrated agents."""
+        return {aid: len(self.coordination_tracker.answers_by_agent.get(aid, [])) for aid in self.agents.keys()}
+
+    def _sync_decomposition_answer_visibility(self, agent_id: str) -> None:
+        """Update seen-answer revision snapshot and reset streak on unseen external updates.
+
+        In decomposition mode, per-agent answer limits are tracked as consecutive
+        answers since the agent last saw any external answer update.
+        """
+        if not self._is_decomposition_mode():
+            return
+
+        state = self.agent_states.get(agent_id)
+        if not state:
+            return
+
+        current_counts = self._get_answer_revision_counts()
+        saw_unseen_external_update = any(other_id != agent_id and current_count > state.seen_answer_counts.get(other_id, 0) for other_id, current_count in current_counts.items())
+
+        if saw_unseen_external_update and state.decomposition_answer_streak > 0:
+            logger.info(
+                "[Orchestrator] Reset decomposition answer streak for %s after seeing external answer updates",
+                agent_id,
+            )
+            state.decomposition_answer_streak = 0
+
+        state.seen_answer_counts = current_counts
+
+    def _get_agent_answer_count_for_limit(self, agent_id: str) -> int:
+        """Get answer count used for per-agent answer limit enforcement."""
+        if self._is_decomposition_mode():
+            state = self.agent_states.get(agent_id)
+            if state:
+                return state.decomposition_answer_streak
+        return len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
+
+    def _get_total_answer_count(self) -> int:
+        """Get total number of answer revisions across all agents."""
+        return sum(len(answer_revisions) for answer_revisions in self.coordination_tracker.answers_by_agent.values())
+
+    def _is_global_answer_limit_reached(self) -> bool:
+        """Check whether the optional global answer cap has been reached."""
+        global_limit = getattr(self.config, "max_new_answers_global", None)
+        if global_limit is None:
+            return False
+        return self._get_total_answer_count() >= global_limit
+
     def _check_answer_count_limit(self, agent_id: str) -> tuple[bool, Optional[str]]:
         """Check if agent has reached their answer count limit.
 
@@ -5371,21 +5529,44 @@ Your answer:"""
         Returns:
             Tuple of (can_answer, error_message). can_answer=True if agent can provide another answer.
         """
-        # No limit set
+        is_decomposition = self._is_decomposition_mode()
+
+        # Enforce optional global cap first.
+        if self._is_global_answer_limit_reached():
+            total_answer_count = self._get_total_answer_count()
+            global_limit = self.config.max_new_answers_global
+            if is_decomposition:
+                error_msg = f"The global maximum of {global_limit} new answer(s) has been reached " "across all agents. Please call `stop` to signal you are done."
+            else:
+                error_msg = f"The global maximum of {global_limit} new answer(s) has been reached " "across all agents. Please vote for the best existing answer using the `vote` tool."
+            logger.info(
+                "[Orchestrator] Answer rejected: global answer limit reached (%s/%s), attempted by %s",
+                total_answer_count,
+                global_limit,
+                agent_id,
+            )
+            return (False, error_msg)
+
+        # No per-agent limit set
         if self.config.max_new_answers_per_agent is None:
             return (True, None)
 
-        # Count how many answers this agent has provided
-        answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
+        # In voting mode this is total answers by agent; in decomposition mode this is
+        # the consecutive streak since the agent last saw external updates.
+        answer_count = self._get_agent_answer_count_for_limit(agent_id)
 
         if answer_count >= self.config.max_new_answers_per_agent:
-            is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
             if is_decomposition:
-                error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} new answer(s). Please call `stop` to signal you are done."
+                error_msg = (
+                    f"You've reached the maximum of {self.config.max_new_answers_per_agent} " "consecutive new answer(s) without seeing external updates. " "Please call `stop` to signal you are done."
+                )
             else:
-                error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} new answer(s). Please vote for the best existing answer using the `vote` tool."
+                error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} " "new answer(s). Please vote for the best existing answer using the `vote` tool."
             logger.info(
-                f"[Orchestrator] Answer rejected: {agent_id} has reached limit ({answer_count}/{self.config.max_new_answers_per_agent})",
+                "[Orchestrator] Answer rejected: %s has reached per-agent limit (%s/%s)",
+                agent_id,
+                answer_count,
+                self.config.max_new_answers_per_agent,
             )
             return (False, error_msg)
 
@@ -5409,30 +5590,41 @@ Your answer:"""
         Returns:
             True if agent must vote (has hit answer limit AND can vote now), False otherwise.
         """
-        if self.config.max_new_answers_per_agent is None:
-            return False
-        answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
-        hit_answer_limit = answer_count >= self.config.max_new_answers_per_agent
+        per_agent_limit = self.config.max_new_answers_per_agent
+        answer_count = self._get_agent_answer_count_for_limit(agent_id)
+        hit_answer_limit = per_agent_limit is not None and answer_count >= per_agent_limit
+        hit_global_limit = self._is_global_answer_limit_reached()
 
-        if not hit_answer_limit:
+        if not hit_answer_limit and not hit_global_limit:
             return False
 
         # Decomposition mode: auto-stop the agent instead of switching to vote-only
-        if getattr(self.config, "coordination_mode", "voting") == "decomposition":
+        if self._is_decomposition_mode():
             if not self.agent_states[agent_id].has_voted:
                 last_answer = self.agent_states[agent_id].answer or ""
+                if hit_global_limit:
+                    total_answers = self._get_total_answer_count()
+                    global_limit = self.config.max_new_answers_global
+                    stop_reason = f"reached global answer limit ({total_answers}/{global_limit})"
+                else:
+                    stop_reason = f"reached per-agent consecutive answer limit ({answer_count}/{per_agent_limit})"
                 self.agent_states[agent_id].has_voted = True
-                self.agent_states[agent_id].stop_summary = f"Auto-stopped: reached answer limit ({answer_count} answers). Last work: {last_answer[:200]}"
+                self.agent_states[agent_id].stop_summary = f"Auto-stopped: {stop_reason}. Last work: {last_answer[:200]}"
                 self.agent_states[agent_id].stop_status = "complete"
                 self.coordination_tracker.add_agent_stop(
                     agent_id,
                     {"summary": self.agent_states[agent_id].stop_summary, "status": "complete"},
                 )
-                logger.info(f"[Orchestrator] Auto-stopped agent {agent_id} in decomposition mode (hit answer limit)")
+                logger.info(
+                    "[Orchestrator] Auto-stopped agent %s in decomposition mode (%s)",
+                    agent_id,
+                    stop_reason,
+                )
             return False  # Don't switch to vote-only tools, agent is already stopped
 
         # If defer_voting_until_all_answered is enabled, also check that all agents have answered
-        if self.config.defer_voting_until_all_answered:
+        # unless global answer cap has already been reached.
+        if self.config.defer_voting_until_all_answered and not hit_global_limit:
             all_answered = all(state.answer is not None for state in self.agent_states.values())
             if not all_answered:
                 # Agent hit their limit but others haven't answered yet
@@ -5456,10 +5648,14 @@ Your answer:"""
         if not self.config.defer_voting_until_all_answered:
             return False
 
+        # If global answer cap is reached, unblock voting immediately to avoid deadlock.
+        if self._is_global_answer_limit_reached():
+            return False
+
         if self.config.max_new_answers_per_agent is None:
             return False
 
-        answer_count = len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
+        answer_count = self._get_agent_answer_count_for_limit(agent_id)
         hit_answer_limit = answer_count >= self.config.max_new_answers_per_agent
 
         if not hit_answer_limit:
@@ -9903,6 +10099,8 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.injection_count = 0
             state.restart_count = 0
             state.known_answer_ids = set()
+            state.decomposition_answer_streak = 0
+            state.seen_answer_counts = {}
             state.stop_summary = None
             state.stop_status = None
 

@@ -10,8 +10,10 @@ generator pattern in persona_generator.py).
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,8 @@ class TaskDecomposer:
 
     def __init__(self, config: TaskDecomposerConfig):
         self.config = config
+        # Exposed for diagnostics/telemetry: "subagent" | "fallback"
+        self.last_generation_source: str = "unknown"
 
     async def generate_decomposition_via_subagent(
         self,
@@ -48,12 +52,13 @@ class TaskDecomposer:
         parent_workspace: str,
         orchestrator_id: str,
         log_directory: Optional[str] = None,
+        on_subagent_started: Optional[Callable[[str, str, int, Callable[[str], Optional[Any]], Optional[str]], None]] = None,
     ) -> Dict[str, str]:
         """Generate subtask assignments via a MassGen subagent call.
 
-        Uses SubagentManager to spawn a full MassGen subagent with simplified config
-        (tools stripped). If parent has 1 agent, uses single agent + skip voting.
-        If parent has N agents, uses N agents with voting for redundancy.
+        Uses SubagentManager to spawn a full MassGen subagent with simplified config.
+        Returns parsed subtasks if successful, otherwise falls back to role-based
+        heuristic subtasks.
 
         Args:
             task: The original task/query to decompose
@@ -67,13 +72,22 @@ class TaskDecomposer:
         Returns:
             Dictionary mapping agent_id to subtask description
         """
+        self.last_generation_source = "unknown"
+
+        if not agent_ids:
+            logger.warning("[TaskDecomposer] No agent IDs provided; skipping decomposition")
+            self.last_generation_source = "fallback"
+            return {}
+
         from .subagent.manager import SubagentManager
+        from .subagent.models import SubagentOrchestratorConfig
 
         n_agents = len(agent_ids)
 
         # Build agent expertise descriptions
         agent_descriptions = []
-        for aid, sys_msg in existing_system_messages.items():
+        for aid in agent_ids:
+            sys_msg = existing_system_messages.get(aid)
             desc = sys_msg[:200] if sys_msg else "General-purpose agent"
             agent_descriptions.append(f"- {aid}: {desc}")
 
@@ -81,97 +95,124 @@ class TaskDecomposer:
         if self.config.decomposition_guidelines:
             guidelines_section = f"\nDecomposition guidelines: {self.config.decomposition_guidelines}\n"
 
-        prompt = f"""Decompose the following task into {n_agents} complementary subtasks.
-Each subtask should be:
-- Self-contained enough to work on independently
-- Clearly scoped with defined deliverables
-- Complementary to other subtasks (no major overlaps)
+        prompt = f"""Create a decomposition plan for {n_agents} agents.
 
 Task: {task}
 
 Agents and their expertise:
 {chr(10).join(agent_descriptions)}
 {guidelines_section}
-Write a JSON file to workspace/decomposition.json with this exact format:
+Requirements:
+- Assign exactly one subtask to each agent ID.
+- Keep subtasks complementary and non-overlapping.
+- Make each subtask concrete and actionable.
+- Return valid JSON only (no markdown/prose), using this schema:
 {{"subtasks": {{{", ".join(f'"{aid}": "subtask description"' for aid in agent_ids)}}}}}
+"""
 
-The file MUST contain valid JSON with a "subtasks" key mapping each agent ID to their subtask description."""
+        # Normalize parent configs to [{id, backend}, ...]
+        normalized_parent_configs: List[Dict[str, Any]] = []
+        for idx, aid in enumerate(agent_ids):
+            raw = parent_agent_configs[idx] if idx < len(parent_agent_configs) else {}
+            if isinstance(raw, dict) and "backend" in raw:
+                backend = raw.get("backend", {}) if isinstance(raw.get("backend"), dict) else {}
+                normalized_parent_configs.append({"id": raw.get("id", aid), "backend": backend})
+            elif isinstance(raw, dict):
+                normalized_parent_configs.append({"id": aid, "backend": raw})
+            else:
+                normalized_parent_configs.append({"id": aid, "backend": {}})
 
-        # Build subagent config - inherit first parent agent's model, strip tools
-        if parent_agent_configs:
-            base_config = parent_agent_configs[0].copy()
-        else:
-            base_config = {"type": "openai", "model": "gpt-4o-mini"}
+        # Build simplified configs using same models, but strip tools.
+        simplified_configs: List[Dict[str, Any]] = []
+        for idx, aid in enumerate(agent_ids):
+            backend = normalized_parent_configs[idx].get("backend", {}) if idx < len(normalized_parent_configs) else {}
+            simplified_backend: Dict[str, Any] = {
+                "type": backend.get("type", "openai"),
+                "model": backend.get("model") or "gpt-4o-mini",
+                "enable_mcp_command_line": False,
+                "enable_code_based_tools": False,
+                "exclude_file_operation_mcps": True,
+            }
+            base_url = backend.get("base_url")
+            if base_url:
+                simplified_backend["base_url"] = base_url
+            simplified_configs.append({"id": aid, "backend": simplified_backend})
 
-        # Strip tool-related config
-        for key in [
-            "mcp_servers",
-            "enable_mcp_command_line",
-            "cwd",
-            "context_paths",
-            "enable_code_based_tools",
-            "custom_tools_path",
-        ]:
-            base_config.pop(key, None)
-
-        # Create subagent config
-        subagent_config = {
-            "agents": [
-                {
-                    "id": "decomposer",
-                    "backend": base_config,
-                    "system_message": "You are a task decomposition expert. Break down complex tasks into clear, complementary subtasks.",
-                },
-            ],
-            "orchestrator": {
-                "skip_voting": True,
-                "skip_final_presentation": True,
-            },
-        }
-
-        # Create subagent workspace
-        subagent_workspace = os.path.join(parent_workspace, ".decomposer")
-        os.makedirs(subagent_workspace, exist_ok=True)
-
-        try:
-            manager = SubagentManager(
-                parent_orchestrator_id=orchestrator_id,
-                parent_workspace=parent_workspace,
+        # Create dedicated decomposition workspace and guaranteed CONTEXT.md.
+        base_workspace = parent_workspace or os.getcwd()
+        decomposer_workspace = os.path.join(base_workspace, ".decomposer")
+        os.makedirs(decomposer_workspace, exist_ok=True)
+        context_md = os.path.join(decomposer_workspace, "CONTEXT.md")
+        with open(context_md, "w", encoding="utf-8") as f:
+            f.write(
+                "# Task Decomposition Context\n\n" f"Task:\n{task}\n\n" "Goal: produce a clear per-agent subtask assignment JSON.\n",
             )
 
-            result = await manager.run_subagent(
-                task=prompt,
-                config=subagent_config,
-                workspace=subagent_workspace,
-                timeout=120,
+        try:
+            # Use orchestrator mode so decomposition itself can be multi-agent.
+            subagent_orch_config = SubagentOrchestratorConfig(
+                enabled=True,
+                agents=simplified_configs,
+                coordination={
+                    "enable_subagents": False,
+                    "broadcast": False,
+                },
+                max_new_answers=2,
+            )
+
+            manager = SubagentManager(
+                parent_workspace=decomposer_workspace,
+                parent_agent_id="task_decomposer",
+                orchestrator_id=orchestrator_id,
+                parent_agent_configs=simplified_configs,
+                max_concurrent=1,
+                default_timeout=180,
+                subagent_orchestrator_config=subagent_orch_config,
                 log_directory=log_directory,
             )
 
-            # Try to parse decomposition.json from workspace
-            decomp_path = os.path.join(subagent_workspace, "workspace", "decomposition.json")
-            if os.path.exists(decomp_path):
-                with open(decomp_path) as f:
-                    data = json.load(f)
-                subtasks = data.get("subtasks", {})
-                if subtasks and all(aid in subtasks for aid in agent_ids):
-                    logger.info(f"[TaskDecomposer] Successfully decomposed task into {len(subtasks)} subtasks")
-                    return subtasks
-
-            # Try to parse from result text
-            if result and hasattr(result, "final_answer") and result.final_answer:
+            def _status_callback(subagent_id: str) -> Optional[Any]:
                 try:
-                    # Look for JSON in the answer
-                    answer = result.final_answer
-                    start = answer.find("{")
-                    end = answer.rfind("}") + 1
-                    if start >= 0 and end > start:
-                        data = json.loads(answer[start:end])
-                        subtasks = data.get("subtasks", {})
-                        if subtasks:
-                            logger.info("[TaskDecomposer] Parsed subtasks from answer text")
-                            return subtasks
-                except (json.JSONDecodeError, KeyError):
+                    return manager.get_subagent_display_data(subagent_id)
+                except Exception:
+                    return None
+
+            if on_subagent_started:
+                try:
+                    subagent_log_path = None
+                    if log_directory:
+                        subagent_log_path = str(Path(log_directory) / "subagents" / "task_decomposition")
+                    on_subagent_started(
+                        "task_decomposition",
+                        prompt,
+                        180,
+                        _status_callback,
+                        subagent_log_path,
+                    )
+                except Exception:
                     pass
+
+            result = await manager.spawn_subagent(
+                task=prompt,
+                subagent_id="task_decomposition",
+                timeout_seconds=180,
+                refine=False,
+            )
+
+            subtasks: Dict[str, str] = {}
+            if result.answer:
+                subtasks = self._parse_subtasks_from_text(result.answer, agent_ids)
+
+            # Fallback parser: scan workspace for decomposition JSON files.
+            if not subtasks and result.workspace_path:
+                subtasks = self._parse_subtasks_from_workspace(result.workspace_path, agent_ids)
+
+            if subtasks:
+                self.last_generation_source = "subagent"
+                logger.info(
+                    f"[TaskDecomposer] Parsed {len(subtasks)} subtasks from decomposition subagent",
+                )
+                return subtasks
 
             logger.warning("[TaskDecomposer] Could not parse decomposition, using fallback")
 
@@ -179,7 +220,93 @@ The file MUST contain valid JSON with a "subtasks" key mapping each agent ID to 
             logger.warning(f"[TaskDecomposer] Subagent failed: {e}, using fallback")
 
         # Fallback: generate generic subtasks based on system messages
+        self.last_generation_source = "fallback"
         return self._generate_fallback_subtasks(task, agent_ids, existing_system_messages)
+
+    def _parse_subtasks_from_text(self, text: str, agent_ids: List[str]) -> Dict[str, str]:
+        """Parse decomposition JSON from model text output."""
+        candidates = [text.strip()]
+
+        # Prefer fenced JSON if present.
+        for match in re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL):
+            candidates.append(match.strip())
+
+        # Fallback: first outer JSON object in the text.
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            candidates.append(text[start : end + 1].strip())
+
+        for candidate in candidates:
+            if not candidate:
+                continue
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
+            if isinstance(payload, dict):
+                subtasks_obj = payload.get("subtasks", payload)
+                if isinstance(subtasks_obj, dict):
+                    normalized = self._normalize_subtasks(subtasks_obj, agent_ids)
+                    if normalized:
+                        return normalized
+
+        return {}
+
+    def _parse_subtasks_from_workspace(self, workspace_path: str, agent_ids: List[str]) -> Dict[str, str]:
+        """Parse decomposition JSON artifacts from subagent workspace."""
+        workspace = Path(workspace_path)
+        if not workspace.exists():
+            return {}
+
+        candidate_files: List[Path] = [
+            workspace / "decomposition.json",
+            workspace / "subtasks.json",
+        ]
+        for agent_dir in workspace.glob("agent_*"):
+            candidate_files.extend(
+                [
+                    agent_dir / "decomposition.json",
+                    agent_dir / "subtasks.json",
+                    agent_dir / "workspace" / "decomposition.json",
+                    agent_dir / "workspace" / "subtasks.json",
+                ],
+            )
+
+        for path in candidate_files:
+            if not path.exists() or not path.is_file():
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            if isinstance(data, dict):
+                subtasks_obj = data.get("subtasks", data)
+                if isinstance(subtasks_obj, dict):
+                    normalized = self._normalize_subtasks(subtasks_obj, agent_ids)
+                    if normalized:
+                        return normalized
+
+        return {}
+
+    def _normalize_subtasks(self, subtasks: Dict[str, Any], agent_ids: List[str]) -> Dict[str, str]:
+        """Normalize parsed subtask map and ensure all agent IDs are covered."""
+        cleaned: Dict[str, str] = {}
+
+        for aid in agent_ids:
+            value = subtasks.get(aid)
+            if isinstance(value, str) and value.strip():
+                cleaned[aid] = value.strip()
+
+        # If partial, fill missing entries with lightweight deterministic fallbacks.
+        if cleaned and len(cleaned) < len(agent_ids):
+            for idx, aid in enumerate(agent_ids):
+                if aid not in cleaned:
+                    cleaned[aid] = f"Own subtask {idx + 1} of {len(agent_ids)}; focus on a unique, non-overlapping portion."
+
+        return cleaned
 
     def _generate_fallback_subtasks(
         self,
@@ -195,7 +322,7 @@ The file MUST contain valid JSON with a "subtasks" key mapping each agent ID to 
         for i, aid in enumerate(agent_ids):
             sys_msg = system_messages.get(aid)
             if sys_msg:
-                subtasks[aid] = f"Work on your area of expertise as described in your role. Focus on the aspects of the task that align with your specialization: {sys_msg[:100]}"
+                subtasks[aid] = "Work on your area of expertise as described in your role. " "Focus on the aspects of the task that align with your specialization: " f"{sys_msg[:100]}"
             else:
                 subtasks[aid] = f"Work on part {i + 1} of {len(agent_ids)} for this task. Coordinate with other agents to avoid overlap."
 

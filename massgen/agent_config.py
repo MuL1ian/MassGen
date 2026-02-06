@@ -228,6 +228,7 @@ class AgentConfig:
         skip_coordination_rounds: Debug/test mode - skip voting rounds and go straight to final presentation (default: False)
         voting_sensitivity: Controls how critical agents are when voting ("lenient", "balanced", "strict")
         max_new_answers_per_agent: Maximum number of new answers each agent can provide (None = unlimited)
+        max_new_answers_global: Maximum number of new answers across all agents (None = unlimited)
         answer_novelty_requirement: How different new answers must be from existing ones ("lenient", "balanced", "strict")
     """
 
@@ -240,6 +241,7 @@ class AgentConfig:
     # Voting behavior configuration
     voting_sensitivity: str = "lenient"
     max_new_answers_per_agent: Optional[int] = None
+    max_new_answers_global: Optional[int] = None
     answer_novelty_requirement: str = "lenient"
 
     # Agent customization
@@ -937,6 +939,7 @@ class AgentConfig:
             "custom_system_instruction": self._custom_system_instruction,
             "voting_sensitivity": self.voting_sensitivity,
             "max_new_answers_per_agent": self.max_new_answers_per_agent,
+            "max_new_answers_global": self.max_new_answers_global,
             "answer_novelty_requirement": self.answer_novelty_requirement,
             "timeout_config": {
                 "orchestrator_timeout_seconds": self.timeout_config.orchestrator_timeout_seconds,
@@ -981,6 +984,7 @@ class AgentConfig:
         custom_system_instruction = data.get("custom_system_instruction")
         voting_sensitivity = data.get("voting_sensitivity", "lenient")
         max_new_answers_per_agent = data.get("max_new_answers_per_agent")
+        max_new_answers_global = data.get("max_new_answers_global")
         answer_novelty_requirement = data.get("answer_novelty_requirement", "lenient")
 
         # Handle timeout_config
@@ -1012,6 +1016,7 @@ class AgentConfig:
             agent_id=agent_id,
             voting_sensitivity=voting_sensitivity,
             max_new_answers_per_agent=max_new_answers_per_agent,
+            max_new_answers_global=max_new_answers_global,
             answer_novelty_requirement=answer_novelty_requirement,
             timeout_config=timeout_config,
             coordination_config=coordination_config,

@@ -35,6 +35,7 @@ from .coordination_modals import (
 )
 from .input_modals import (
     BroadcastPromptModal,
+    DecompositionGenerationModal,
     DecompositionSubtasksModal,
     StructuredBroadcastPromptModal,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "DecompositionGenerationModal",
     "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",
     # Shortcuts modal

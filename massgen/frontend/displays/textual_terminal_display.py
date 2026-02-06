@@ -49,6 +49,7 @@ try:
         ConversationHistoryModal,
         CoordinationTableModal,
         CostBreakdownModal,
+        DecompositionGenerationModal,
         DecompositionSubtasksModal,
         FileInspectionModal,
         KeyboardShortcutsModal,
@@ -265,7 +266,7 @@ class TextualTerminalDisplay(TerminalDisplay):
         self.max_web_search_lines = kwargs.get("max_web_search_lines", 4)
         self.truncate_web_on_status_change = kwargs.get("truncate_web_on_status_change", True)
         self.max_web_lines_on_status_change = kwargs.get("max_web_lines_on_status_change", 3)
-        self.default_coordination_mode = kwargs.get("default_coordination_mode", "voting")
+        self.default_coordination_mode = kwargs.get("default_coordination_mode", "parallel")
         # Runtime toggle to ignore hotkeys/key handling when enabled
         self.safe_keyboard_mode = kwargs.get("safe_keyboard_mode", False)
         self.max_buffer_batch = kwargs.get("max_buffer_batch", 50)
@@ -514,6 +515,17 @@ class TextualTerminalDisplay(TerminalDisplay):
             # App is no longer running (e.g., early cancellation)
             pass
 
+    def _emit(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Emit web-style display events into Textual app handlers.
+
+        CoordinationUI uses this hook for preparation status events. Textual
+        consumes those to keep progress UI in sync with orchestrator setup.
+        """
+        if event_type == "preparation_status":
+            status = data.get("status", "") if isinstance(data, dict) else ""
+            detail = data.get("detail", "") if isinstance(data, dict) else ""
+            self._call_app_method("handle_preparation_status", status, detail)
+
     def set_input_handler(self, handler: Callable[[str], None]) -> None:
         """Set the callback for user-submitted input (questions or commands)"""
         self._input_handler = handler
@@ -706,6 +718,56 @@ class TextualTerminalDisplay(TerminalDisplay):
         """
         if self._app:
             self._call_app_method("show_subagent_card_from_spawn", agent_id, args, call_id)
+
+    def notify_runtime_subagent_started(
+        self,
+        agent_id: str,
+        subagent_id: str,
+        task: str,
+        timeout_seconds: int = 300,
+        call_id: Optional[str] = None,
+        status_callback: Optional[Callable[[str], Optional[Any]]] = None,
+        log_path: Optional[str] = None,
+    ) -> None:
+        """Show a subagent card for orchestrator-owned runtime subagents.
+
+        Used for decomposition/persona generation style subagents that are
+        spawned directly by orchestrator code (not via tool cards).
+        """
+        if not self._app:
+            return
+        self._call_app_method(
+            "show_runtime_subagent_card",
+            agent_id,
+            subagent_id,
+            task,
+            timeout_seconds,
+            call_id or subagent_id,
+            status_callback,
+            log_path,
+        )
+
+    def notify_runtime_subagent_completed(
+        self,
+        agent_id: str,
+        subagent_id: str,
+        call_id: str,
+        status: str = "completed",
+        answer_preview: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Update a runtime subagent card when orchestration completes."""
+        if not self._app:
+            return
+        self._call_app_method(
+            "update_runtime_subagent_card",
+            agent_id,
+            subagent_id,
+            call_id,
+            status,
+            answer_preview,
+            error,
+        )
 
     def update_hook_execution(
         self,
@@ -2551,6 +2613,16 @@ if TEXTUAL_AVAILABLE:
                 self._mode_state.coordination_mode = "decomposition"
             self._mode_bar: Optional[ModeBar] = None
 
+            # Runtime decomposition generation UI state
+            self._decomposition_generation_modal: Optional[DecompositionGenerationModal] = None
+            self._runtime_decomposition_subtasks: Dict[str, str] = {}
+            self._decomposition_completion_source: str = "subagent"
+            self._decomposition_runtime_subagent_call_id: Optional[str] = None
+            self._decomposition_runtime_subagent_agent_id: Optional[str] = None
+            self._decomposition_runtime_subagent_data: Optional[Any] = None
+            self._decomposition_runtime_status_callback: Optional[Callable[[str], Optional[Any]]] = None
+            self._decomposition_runtime_auto_opened: bool = False
+
             if not self._keyboard_interactive_mode:
                 self.BINDINGS = []
 
@@ -2607,6 +2679,15 @@ if TEXTUAL_AVAILABLE:
             # Final presentation state - clear winner's presentation
             self._final_presentation_agent = None
             self._final_presentation_card = None
+
+            # Decomposition generation modal/runtime state
+            self._runtime_decomposition_subtasks = {}
+            self._dismiss_decomposition_generation_modal()
+            self._decomposition_runtime_subagent_call_id = None
+            self._decomposition_runtime_subagent_agent_id = None
+            self._decomposition_runtime_subagent_data = None
+            self._decomposition_runtime_status_callback = None
+            self._decomposition_runtime_auto_opened = False
 
         def compose(self) -> ComposeResult:
             """Compose the UI layout with adaptive agent arrangement."""
@@ -3926,6 +4007,66 @@ Type your question and press Enter to ask the agents.
 
             self.call_later(lambda: self.run_worker(_show()))
 
+        def _show_decomposition_generation_modal(self, status: str, detail: str = "") -> None:
+            """Open (or update) runtime decomposition progress modal."""
+            if self._decomposition_generation_modal:
+                self._decomposition_generation_modal.update_progress(status, detail)
+                return
+
+            modal = DecompositionGenerationModal(status=status, detail=detail)
+            self._decomposition_generation_modal = modal
+            self._runtime_decomposition_subtasks = {}
+            self._decomposition_completion_source = "subagent"
+
+            def _on_dismiss(_result: Any = None) -> None:
+                self._decomposition_generation_modal = None
+
+            self.push_screen(modal, _on_dismiss)
+
+        def _dismiss_decomposition_generation_modal(self) -> None:
+            """Dismiss decomposition progress modal if present."""
+            if not self._decomposition_generation_modal:
+                return
+            try:
+                self._decomposition_generation_modal.dismiss()
+            except Exception:
+                pass
+
+        def handle_preparation_status(self, status: str, detail: str = "") -> None:
+            """Handle orchestrator preparation status updates in Textual mode."""
+            message = status if not detail else f"{status} — {detail}"
+            self._update_all_loading_text(message)
+
+            lower_status = (status or "").lower()
+            lower_detail = (detail or "").lower()
+            is_decomposition = "decompos" in lower_status or "decompos" in lower_detail or "subtask" in lower_status or "subtask" in lower_detail
+            if not is_decomposition:
+                return
+
+            if "decomposing task" in lower_status:
+                # Decomposition now uses the dedicated subagent screen path.
+                # Keep loading text in panels, but avoid showing the legacy modal.
+                self._dismiss_decomposition_generation_modal()
+                return
+
+            if lower_status in ("decomposition ready", "decomposition fallback"):
+                if self._decomposition_runtime_subagent_call_id:
+                    self._dismiss_decomposition_generation_modal()
+                    return
+                self._decomposition_completion_source = "subagent" if "ready" in lower_status else "fallback"
+                if self._decomposition_generation_modal:
+                    self._decomposition_generation_modal.update_progress(status, detail)
+                    # If subtasks already arrived, render and auto-dismiss.
+                    if self._runtime_decomposition_subtasks:
+                        self._decomposition_generation_modal.show_subtasks(
+                            self._runtime_decomposition_subtasks,
+                            source=self._decomposition_completion_source,
+                        )
+                        self.set_timer(2.5, self._dismiss_decomposition_generation_modal)
+                    else:
+                        # Guard against stale modals if no explicit subtasks are emitted.
+                        self.set_timer(3.0, self._dismiss_decomposition_generation_modal)
+
         async def update_agent_widget(
             self,
             agent_id: str,
@@ -4115,6 +4256,447 @@ Type your question and press Enter to ask the agents.
                         level="debug",
                     )
 
+        def _get_decomposition_runtime_subagent(
+            self,
+            subagent_id: str = "task_decomposition",
+        ) -> Optional[Any]:
+            """Return latest decomposition runtime subagent data."""
+            current = self._decomposition_runtime_subagent_data
+            callback = self._decomposition_runtime_status_callback
+
+            if callback:
+                try:
+                    refreshed = callback(subagent_id)
+                    if refreshed is not None:
+                        self._decomposition_runtime_subagent_data = refreshed
+                        current = refreshed
+                except Exception:
+                    pass
+
+            if current is not None and getattr(current, "id", None) == subagent_id:
+                return current
+            return None
+
+        def _open_decomposition_runtime_subagent_screen(self) -> bool:
+            """Open the decomposition runtime subagent screen.
+
+            Returns:
+                True if a screen was opened, False otherwise.
+            """
+            subagent = self._get_decomposition_runtime_subagent()
+            if not subagent:
+                return False
+
+            screen = SubagentScreen(
+                subagent=subagent,
+                all_subagents=[subagent],
+                status_callback=self._get_decomposition_runtime_subagent,
+            )
+            self.push_screen(screen)
+            return True
+
+        def _decomposition_subagent_events_ready(self) -> bool:
+            """Return True when decomposition subagent has enough data for full subagent view.
+
+            Readiness requires:
+            - a readable events stream, and
+            - detectable inner-agent identity data (metadata or event agent IDs/sources).
+            """
+            subagent = self._get_decomposition_runtime_subagent()
+            if not subagent:
+                return False
+
+            log_path_raw = getattr(subagent, "log_path", None)
+            if not log_path_raw:
+                return False
+
+            try:
+                from massgen.subagent.models import SubagentResult
+
+                log_path = Path(log_path_raw)
+                if not log_path.is_absolute():
+                    log_path = (Path.cwd() / log_path).resolve()
+
+                events_path: Optional[Path] = None
+                if log_path.is_file():
+                    events_path = log_path
+                elif log_path.is_dir():
+                    resolved = SubagentResult.resolve_events_path(log_path)
+                    if resolved:
+                        events_path = Path(resolved)
+
+                if not events_path or not events_path.exists():
+                    return False
+                if events_path.stat().st_size <= 0:
+                    return False
+
+                # Prefer explicit metadata signal (same source SubagentScreen uses).
+                metadata_candidates = [events_path.parent / "execution_metadata.yaml"]
+                if log_path.is_dir():
+                    metadata_candidates.extend(
+                        [
+                            log_path / "full_logs" / "execution_metadata.yaml",
+                            log_path / "execution_metadata.yaml",
+                        ],
+                    )
+                else:
+                    metadata_candidates.append(log_path.parent / "execution_metadata.yaml")
+
+                for candidate in metadata_candidates:
+                    if not candidate.exists():
+                        continue
+                    try:
+                        import yaml
+
+                        with open(candidate, encoding="utf-8") as f:
+                            metadata = yaml.safe_load(f) or {}
+                        agents_cfg = (metadata.get("config") or {}).get("agents") or []
+                        if isinstance(agents_cfg, list):
+                            agent_ids = [a.get("id") for a in agents_cfg if isinstance(a, dict) and isinstance(a.get("id"), str) and a.get("id")]
+                            if agent_ids:
+                                return True
+                    except Exception:
+                        continue
+
+                # Fallback: scan recent event lines for inner-agent sources.
+                def _is_agent_source(source: Optional[str]) -> bool:
+                    if not source:
+                        return False
+                    lowered = source.lower()
+                    if lowered.startswith("mcp_") or lowered.startswith("mcp__") or "mcp__" in lowered:
+                        return False
+                    if lowered in ("mcp_setup", "mcp_session", "orchestrator", "system", "task_decomposition"):
+                        return False
+                    return True
+
+                try:
+                    import json
+
+                    tail_lines = events_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-400:]
+                    seen_agents: set[str] = set()
+                    for raw in tail_lines:
+                        if not raw.strip():
+                            continue
+                        try:
+                            event = json.loads(raw)
+                        except Exception:
+                            continue
+
+                        agent_id = event.get("agent_id")
+                        if isinstance(agent_id, str) and _is_agent_source(agent_id):
+                            seen_agents.add(agent_id)
+
+                        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+                        source = data.get("source") if isinstance(data, dict) else None
+                        if not source and isinstance(data, dict):
+                            chunk = data.get("chunk")
+                            if isinstance(chunk, dict):
+                                source = chunk.get("source")
+                        if isinstance(source, str) and _is_agent_source(source):
+                            seen_agents.add(source)
+
+                    if seen_agents:
+                        return True
+                except Exception:
+                    return False
+
+                return False
+            except Exception:
+                return False
+
+        def _auto_open_decomposition_runtime_subagent_screen(self, attempt: int = 0) -> None:
+            """Auto-open decomposition subagent screen once event data is available."""
+            if self._decomposition_subagent_events_ready():
+                self._open_decomposition_runtime_subagent_screen()
+                return
+
+            # Retry for a short window; avoid forcing an early empty screen.
+            if attempt >= 120:
+                return
+
+            self.set_timer(
+                0.1,
+                lambda: self._auto_open_decomposition_runtime_subagent_screen(attempt + 1),
+            )
+
+        def show_runtime_subagent_card(
+            self,
+            agent_id: str,
+            subagent_id: str,
+            task: str,
+            timeout_seconds: int,
+            call_id: str,
+            status_callback: Optional[Callable[[str], Optional[Any]]] = None,
+            log_path: Optional[str] = None,
+            _retry_count: int = 0,
+        ) -> None:
+            """Render a subagent card for orchestrator-owned runtime subagents."""
+            from massgen.subagent.models import SubagentDisplayData
+
+            # Decomposition pre-run generation should not appear in the main timeline,
+            # but should be visible immediately in the dedicated subagent screen.
+            if subagent_id == "task_decomposition":
+                trimmed_task = (task or "").strip()
+                if len(trimmed_task) > 300:
+                    trimmed_task = trimmed_task[:297] + "..."
+
+                resolved_log_path = log_path
+                if not resolved_log_path:
+                    try:
+                        log_dir = get_log_session_dir()
+                        if log_dir:
+                            resolved_log_path = str(log_dir / "subagents" / subagent_id)
+                    except Exception:
+                        resolved_log_path = None
+
+                self._decomposition_runtime_subagent_call_id = call_id
+                self._decomposition_runtime_subagent_agent_id = agent_id
+                self._decomposition_runtime_status_callback = status_callback
+                self._decomposition_runtime_subagent_data = SubagentDisplayData(
+                    id=subagent_id,
+                    task=trimmed_task,
+                    status="running",
+                    progress_percent=0,
+                    elapsed_seconds=0.0,
+                    timeout_seconds=float(timeout_seconds or 300),
+                    workspace_path="",
+                    workspace_file_count=0,
+                    last_log_line="Starting...",
+                    error=None,
+                    answer_preview=None,
+                    log_path=resolved_log_path,
+                )
+
+                self._dismiss_decomposition_generation_modal()
+                if not self._decomposition_runtime_auto_opened:
+                    self._decomposition_runtime_auto_opened = True
+                    self.set_timer(0.05, self._auto_open_decomposition_runtime_subagent_screen)
+                return
+
+            target_agent = agent_id if agent_id in self.agent_widgets else None
+            if not target_agent:
+                if self._active_agent_id in self.agent_widgets:
+                    target_agent = self._active_agent_id
+                elif self.coordination_display.agent_ids:
+                    candidate = self.coordination_display.agent_ids[0]
+                    if candidate in self.agent_widgets:
+                        target_agent = candidate
+
+            if not target_agent:
+                if _retry_count < 8:
+                    self.set_timer(
+                        0.1,
+                        lambda: self.show_runtime_subagent_card(
+                            agent_id=agent_id,
+                            subagent_id=subagent_id,
+                            task=task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                            _retry_count=_retry_count + 1,
+                        ),
+                    )
+                return
+
+            trimmed_task = (task or "").strip()
+            if len(trimmed_task) > 300:
+                trimmed_task = trimmed_task[:297] + "..."
+
+            resolved_log_path = log_path
+            if not resolved_log_path:
+                try:
+                    log_dir = get_log_session_dir()
+                    if log_dir:
+                        resolved_log_path = str(log_dir / "subagents" / subagent_id)
+                except Exception:
+                    resolved_log_path = None
+
+            subagent = SubagentDisplayData(
+                id=subagent_id,
+                task=trimmed_task,
+                status="running",
+                progress_percent=0,
+                elapsed_seconds=0.0,
+                timeout_seconds=float(timeout_seconds or 300),
+                workspace_path="",
+                workspace_file_count=0,
+                last_log_line="Starting...",
+                error=None,
+                answer_preview=None,
+                log_path=resolved_log_path,
+            )
+
+            panel = self.agent_widgets.get(target_agent)
+            if not panel:
+                if _retry_count < 8:
+                    self.set_timer(
+                        0.1,
+                        lambda: self.show_runtime_subagent_card(
+                            agent_id=agent_id,
+                            subagent_id=subagent_id,
+                            task=task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                            _retry_count=_retry_count + 1,
+                        ),
+                    )
+                return
+
+            # Ensure timeline cards are visible during prep (not masked by loading panel).
+            try:
+                panel._hide_loading()
+            except Exception:
+                pass
+
+            try:
+                timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
+            except Exception:
+                if _retry_count < 8:
+                    self.set_timer(
+                        0.1,
+                        lambda: self.show_runtime_subagent_card(
+                            agent_id=agent_id,
+                            subagent_id=subagent_id,
+                            task=task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                            _retry_count=_retry_count + 1,
+                        ),
+                    )
+                return
+
+            card_id = f"subagent_{call_id}"
+            card: Optional[SubagentCard] = None
+            try:
+                card = timeline.query_one(f"#{card_id}", SubagentCard)
+            except Exception:
+                card = None
+
+            if card:
+                card.update_subagents([subagent])
+                if status_callback:
+                    card.set_status_callback(status_callback)
+            else:
+                card = SubagentCard(
+                    subagents=[subagent],
+                    tool_call_id=call_id,
+                    status_callback=status_callback,
+                    id=card_id,
+                )
+                timeline.add_widget(card)
+
+        def update_runtime_subagent_card(
+            self,
+            agent_id: str,
+            subagent_id: str,
+            call_id: str,
+            status: str,
+            answer_preview: Optional[str] = None,
+            error: Optional[str] = None,
+        ) -> None:
+            """Update status/result info for an orchestrator-owned runtime subagent."""
+            from massgen.subagent.models import SubagentDisplayData
+
+            # Decomposition pre-run generation is intentionally not rendered in timeline.
+            # Keep status in memory so Ctrl+U and the dedicated subagent screen still work.
+            if subagent_id == "task_decomposition":
+                existing = self._get_decomposition_runtime_subagent(subagent_id) or self._decomposition_runtime_subagent_data
+
+                status_map = {
+                    "running": "running",
+                    "pending": "pending",
+                    "completed": "completed",
+                    "timeout": "timeout",
+                    "failed": "failed",
+                    "error": "error",
+                }
+                normalized_status = status_map.get((status or "").lower(), "failed")
+
+                if existing is not None:
+                    self._decomposition_runtime_subagent_data = SubagentDisplayData(
+                        id=existing.id,
+                        task=existing.task,
+                        status=normalized_status,
+                        progress_percent=100 if normalized_status in ("completed", "timeout", "failed", "error") else existing.progress_percent,
+                        elapsed_seconds=existing.elapsed_seconds,
+                        timeout_seconds=existing.timeout_seconds,
+                        workspace_path=existing.workspace_path,
+                        workspace_file_count=existing.workspace_file_count,
+                        last_log_line=existing.last_log_line,
+                        error=error or existing.error,
+                        answer_preview=answer_preview or existing.answer_preview,
+                        log_path=existing.log_path,
+                    )
+
+                if call_id == self._decomposition_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
+                    self._decomposition_runtime_subagent_call_id = None
+                    self._decomposition_runtime_subagent_agent_id = None
+                return
+
+            status_map = {
+                "running": "running",
+                "pending": "pending",
+                "completed": "completed",
+                "timeout": "timeout",
+                "failed": "failed",
+                "error": "error",
+            }
+            normalized_status = status_map.get((status or "").lower(), "failed")
+
+            target_agent = agent_id
+            if call_id == self._decomposition_runtime_subagent_call_id and self._decomposition_runtime_subagent_agent_id:
+                target_agent = self._decomposition_runtime_subagent_agent_id
+
+            panel = self.agent_widgets.get(target_agent)
+            if not panel:
+                return
+
+            try:
+                timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
+            except Exception:
+                return
+
+            card_id = f"subagent_{call_id}"
+            try:
+                card = timeline.query_one(f"#{card_id}", SubagentCard)
+            except Exception:
+                return
+
+            existing = None
+            for sa in card.subagents:
+                if sa.id == subagent_id:
+                    existing = sa
+                    break
+
+            if existing is None:
+                return
+
+            final_progress = 100 if normalized_status in ("completed", "timeout", "failed", "error") else existing.progress_percent
+            updated = SubagentDisplayData(
+                id=existing.id,
+                task=existing.task,
+                status=normalized_status,
+                progress_percent=final_progress,
+                elapsed_seconds=existing.elapsed_seconds,
+                timeout_seconds=existing.timeout_seconds,
+                workspace_path=existing.workspace_path,
+                workspace_file_count=existing.workspace_file_count,
+                last_log_line=existing.last_log_line,
+                error=error or existing.error,
+                answer_preview=answer_preview or existing.answer_preview,
+                log_path=existing.log_path,
+            )
+            card.update_subagent(subagent_id, updated)
+
+            if call_id == self._decomposition_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
+                self._decomposition_runtime_subagent_call_id = None
+                self._decomposition_runtime_subagent_agent_id = None
+
         def show_subagent_card_from_spawn(
             self,
             agent_id: str,
@@ -4187,6 +4769,10 @@ Type your question and press Enter to ask the agents.
             if agent_id in self.agent_widgets:
                 panel = self.agent_widgets[agent_id]
                 try:
+                    try:
+                        panel._hide_loading()
+                    except Exception:
+                        pass
                     timeline = panel.query_one(f"#{panel._timeline_section_id}", TimelineSection)
 
                     # Flush any pending tool batch so the card appears
@@ -5067,8 +5653,16 @@ Type your question and press Enter to ask the agents.
             Args:
                 subtasks: Mapping of agent_id to subtask description.
             """
+            self._runtime_decomposition_subtasks = dict(subtasks or {})
             if self._tab_bar:
                 self._tab_bar.set_agent_subtasks(subtasks)
+
+            if self._decomposition_generation_modal:
+                self._decomposition_generation_modal.show_subtasks(
+                    self._runtime_decomposition_subtasks,
+                    source=self._decomposition_completion_source,
+                )
+                self.set_timer(2.5, self._dismiss_decomposition_generation_modal)
 
         def set_input_enabled(self, enabled: bool):
             """Enable or disable mode controls during execution.
@@ -5281,6 +5875,10 @@ Type your question and press Enter to ask the agents.
                             return
                 except Exception:
                     continue
+
+            # Fallback: runtime decomposition subagent (hidden from timeline by design)
+            if self._open_decomposition_runtime_subagent_screen():
+                return
 
             self.notify("No active subagents", severity="information", timeout=2)
 
@@ -5558,7 +6156,7 @@ Type your question and press Enter to ask the agents.
                     )
                 else:
                     self.notify(
-                        "Cleared explicit subtasks. Auto-decomposition will be used.",
+                        "Cleared explicit subtasks. A decomposition subagent will auto-generate them at runtime.",
                         severity="warning",
                         timeout=3,
                     )
@@ -6930,6 +7528,7 @@ Type your question and press Enter to ask the agents.
                     # Not executing - show normal input
                     tui_log(f"  Phase '{phase}' -> removing execution-mode class")
                     input_area.remove_class("execution-mode")
+                    self._dismiss_decomposition_generation_modal()
                     # Stop execution status update timer
                     if hasattr(self, "_execution_status_timer") and self._execution_status_timer:
                         self._execution_status_timer.stop()

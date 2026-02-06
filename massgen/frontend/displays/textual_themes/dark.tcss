@@ -2257,10 +2257,11 @@ TaskPlanModal .close-button {
 
 /* === Keyboard Shortcuts Modal === */
 #shortcuts_modal_container {
-    width: auto;
+    width: 94%;
     min-width: 80;
     max-width: 150;
-    height: auto;
+    height: 78%;
+    max-height: 36;
     background: #252526;
     border: solid #569cd6;
     padding: 1 2;
@@ -2279,21 +2280,28 @@ TaskPlanModal .close-button {
 
 #shortcuts_columns {
     layout: horizontal;
-    height: auto;
+    height: 1fr;
     width: 100%;
+    margin-bottom: 1;
 }
 
 .shortcuts-column {
     width: 1fr;
-    height: auto;
+    height: 1fr;
     background: #1e1e1e;
     padding: 1;
     margin: 0 1 0 0;
     border: solid #3d4550;
+    overflow-y: auto;
 }
 
 #shortcuts_col_right {
     margin-right: 0;
+}
+
+#shortcuts_modal_container #close_shortcuts_button {
+    dock: bottom;
+    width: 100%;
 }
 
 /* Decomposition subtasks modal */
@@ -2326,6 +2334,42 @@ TaskPlanModal .close-button {
 
 #subtasks_modal_container .subtask_row Input {
     width: 1fr;
+}
+
+/* Runtime decomposition generation modal */
+#decomposition_generation_container {
+    width: 90%;
+    max-width: 120;
+    height: auto;
+    max-height: 75%;
+    background: #252526;
+    border: solid #569cd6;
+    padding: 1 2;
+}
+
+#decomposition_generation_status {
+    color: #569cd6;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#decomposition_generation_detail {
+    color: #858585;
+    margin-bottom: 1;
+}
+
+#decomposition_generation_results {
+    height: auto;
+    max-height: 18;
+    border: solid #3d4550;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+#decomposition_generation_results_content {
+    width: 100%;
+    height: auto;
+    color: #f5f7fa;
 }
 
 #shortcuts_content {
@@ -4882,7 +4926,7 @@ PlanOptionsPopover #close_btn:hover {
     border: none;
     border-bottom: tall $border-default;
     padding: 0 1;
-    margin-left: 0;
+    margin-left: 1;
 }
 
 #mode_help_btn:hover {

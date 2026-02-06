@@ -2309,6 +2309,8 @@ async def run_question_with_history(
     # Apply answer count limit if specified
     if "max_new_answers_per_agent" in orchestrator_cfg:
         orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
+    if "max_new_answers_global" in orchestrator_cfg:
+        orchestrator_config.max_new_answers_global = orchestrator_cfg["max_new_answers_global"]
 
     # Apply answer novelty requirement if specified
     if "answer_novelty_requirement" in orchestrator_cfg:
@@ -3057,6 +3059,8 @@ async def run_single_question(
         # Apply answer count limit if specified
         if "max_new_answers_per_agent" in orchestrator_cfg:
             orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
+        if "max_new_answers_global" in orchestrator_cfg:
+            orchestrator_config.max_new_answers_global = orchestrator_cfg["max_new_answers_global"]
 
         # Apply answer novelty requirement if specified
         if "answer_novelty_requirement" in orchestrator_cfg:
@@ -5243,7 +5247,8 @@ async def run_textual_interactive_mode(
     # Create the Textual display with agent model info for welcome screen
     display_kwargs = ui_config.get("display_kwargs", {})
     display_kwargs["agent_models"] = agent_models
-    display_kwargs["default_coordination_mode"] = orchestrator_cfg.get("coordination_mode", "voting") if orchestrator_cfg else "voting"
+    configured_coordination_mode = orchestrator_cfg.get("coordination_mode", "voting") if orchestrator_cfg else "voting"
+    display_kwargs["default_coordination_mode"] = "decomposition" if configured_coordination_mode == "decomposition" else "parallel"
     display = TextualTerminalDisplay(agent_ids, **display_kwargs)
 
     # Start background MCP registry cache warmup (non-blocking)
@@ -5524,6 +5529,8 @@ async def run_textual_interactive_mode(
                     orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
                 if "max_new_answers_per_agent" in orchestrator_cfg:
                     orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
+                if "max_new_answers_global" in orchestrator_cfg:
+                    orchestrator_config.max_new_answers_global = orchestrator_cfg["max_new_answers_global"]
                 if "answer_novelty_requirement" in orchestrator_cfg:
                     orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
                 if orchestrator_cfg.get("skip_coordination_rounds", False):

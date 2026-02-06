@@ -137,6 +137,25 @@ MassGen is designed for multi-agent collaboration - multiple agents working toge
 
 The agents work in parallel, share observations, vote for solutions, and converge on the best answer.
 
+Decomposition Mode
+~~~~~~~~~~~~~~~~~~
+
+Use decomposition mode when each agent owns a subtask and one presenter combines results:
+
+.. code-block:: bash
+
+   uv run massgen \
+     --config @examples/basic/multi/decomposition_quickstart \
+     "Build a small full-stack todo app"
+
+Recommended decomposition defaults:
+
+* ``max_new_answers_per_agent: 2-3`` (consecutive cap; resets after unseen external updates are injected)
+* ``max_new_answers_global`` set to an overall budget (for example ``9`` with three agents)
+* If a decomposition agent hits its cap, it should stop instead of running a wasteful extra round
+
+Unless you need different behavior, keep these defaults.
+
 Interactive Multi-Turn Mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
