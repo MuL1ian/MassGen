@@ -40,7 +40,7 @@ MassGen: Multi-Agent Scaling System for GenAI
 
 .. raw:: html
 
-   <a href="https://www.youtube.com/watch?v=5JofXWf_Ok8" target="_blank" style="display: block; text-align: center;">
+   <a href="https://www.youtube.com/watch?v=Dp2oldJJImw" style="display: block; text-align: center;">
      <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-light">
      <img src="_static/images/readme.gif" width="800" alt="MassGen Demo - Multi-agent collaboration in action" class="theme-image-dark">
    </a>
@@ -49,14 +49,6 @@ What is MassGen?
 ----------------
 
 MassGen is a cutting-edge multi-agent system that leverages the power of collaborative AI to solve complex tasks. It assigns a task to multiple AI agents who work in parallel, observe each other's progress, and refine their approaches to converge on the best solution to deliver a comprehensive and high-quality result.
-
-.. raw:: html
-
-   <div style="text-align: center; margin: 20px 0;">
-     <a href="case_studies/index.html" target="_blank" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 1.1em; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: transform 0.2s, box-shadow 0.2s;">
-       🎨 View Case Study Demos →
-     </a>
-   </div>
 
 **How It Works:**
 
@@ -67,6 +59,7 @@ MassGen is a cutting-edge multi-agent system that leverages the power of collabo
 * **Natural Consensus** - Coordination continues until all agents vote, then the agent with most votes presents the final answer
 
 Think of it as a "parallel study group" for AI - inspired by advanced systems like **xAI's Grok Heavy** and **Google DeepMind's Gemini Deep Think**. Agents learn from each other to produce better results than any single agent could achieve alone.
+
 
 How Does MassGen Compare?
 -------------------------
@@ -123,27 +116,6 @@ Quick Start
 
 :doc:`quickstart/installation` · :doc:`quickstart/running-massgen` · :doc:`quickstart/configuration`
 
-Video Tutorials
----------------
-
-.. raw:: html
-
-   <a href="https://www.youtube.com/watch?v=JMCnQL615Ek" target="_blank" style="display: block; text-align: center; margin-bottom: 30px;">
-     <img src="_static/images/tutorial-getting-started.gif" width="800" alt="Getting Started with MassGen" class="theme-image-light">
-     <img src="_static/images/tutorial-getting-started.gif" width="800" alt="Getting Started with MassGen" class="theme-image-dark">
-   </a>
-
-Learn how to install, configure, and run your first multi-agent collaboration with MassGen.
-
-.. raw:: html
-
-   <a href="https://www.youtube.com/watch?v=Dfz3D460EDs" target="_blank" style="display: block; text-align: center; margin-top: 30px;">
-     <img src="_static/images/tutorial-develop.gif" width="800" alt="Develop on MassGen" class="theme-image-light">
-     <img src="_static/images/tutorial-develop.gif" width="800" alt="Develop on MassGen" class="theme-image-dark">
-   </a>
-
-Explore how to build custom agents and tools with MassGen.
-
 Key Features
 ------------
 
@@ -185,17 +157,17 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
+**v0.1.42 (January 23, 2026)** - TUI Visual Redesign
 
-New Codex backend for OpenAI Codex CLI with local and Docker execution. TUI theme system refactored to palette-based architecture with unified base styles. Per-agent voting sensitivity configuration. Claude Code backend refactored with shared NativeToolMixin.
+Comprehensive visual overhaul with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, redesigned agent tabs with dot indicators, and polished modals. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
 
-**v0.1.46 (February 2, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
+**v0.1.41 (January 21, 2026)** - Async Subagent Execution
 
-Real-time subagent TUI streaming with interactive preview cards that expand to full timeline views. Unified display components ensure identical tool displays between main and subagents. Enhanced final presentation with workspace visualization and winning agent highlighting. Major TUI event architecture refactor with structured emission pipeline.
+Non-blocking subagent spawning with ``async_=True`` parameter on ``spawn_subagents`` tool. Parent agents continue working while subagents run in background, then poll for completion when ready. New subagent round timeouts (``subagent_round_timeouts``) for per-round timeout control.
 
-**v0.1.45 (January 30, 2026)** - TUI as Default & Config Migration
+**v0.1.40 (January 19, 2026)** - Textual TUI Interactive Mode
 
-Textual Terminal UI now launches by default for all users with automatic config migration. Setup wizard generates TUI configs by default. Enhanced first-run experience with prominent TUI feature descriptions.
+Interactive terminal UI with ``--display textual`` for interactive sessions featuring real-time agent streaming, comprehensive modals for metrics/costs/votes/workspace browsing, answer browser with side-by-side comparisons, and context path ``@`` syntax UI.
 
 :doc:`Full changelog → <changelog>`
 

@@ -365,6 +365,16 @@ class ConfigValidator:
                         f"Use one of: {valid_values}",
                     )
 
+            # Validate optional field: subtask (decomposition mode)
+            if "subtask" in agent_config:
+                subtask = agent_config["subtask"]
+                if not isinstance(subtask, str):
+                    result.add_error(
+                        f"Agent 'subtask' must be a string, got {type(subtask).__name__}",
+                        f"{agent_location}.subtask",
+                        "Use a string describing the agent's subtask",
+                    )
+
     def _validate_backend(self, backend_config: Dict[str, Any], location: str, result: ValidationResult) -> None:
         """Validate backend configuration (Level 3)."""
         if not isinstance(backend_config, dict):
@@ -735,6 +745,27 @@ class ConfigValidator:
                 "Use orchestrator fields like snapshot_storage, context_paths, etc.",
             )
             return
+
+        # Validate coordination_mode if present
+        if "coordination_mode" in orchestrator_config:
+            coordination_mode = orchestrator_config["coordination_mode"]
+            valid_modes = ["voting", "decomposition"]
+            if coordination_mode not in valid_modes:
+                result.add_error(
+                    f"Invalid coordination_mode: '{coordination_mode}'",
+                    f"{location}.coordination_mode",
+                    f"Use one of: {', '.join(valid_modes)}",
+                )
+
+        # Validate presenter_agent if present
+        if "presenter_agent" in orchestrator_config:
+            presenter = orchestrator_config["presenter_agent"]
+            if not isinstance(presenter, str):
+                result.add_error(
+                    f"'presenter_agent' must be a string, got {type(presenter).__name__}",
+                    f"{location}.presenter_agent",
+                    "Use an agent ID string like 'integrator'",
+                )
 
         # Validate context_paths if present
         if "context_paths" in orchestrator_config:
@@ -1207,3 +1238,32 @@ class ConfigValidator:
 
             # Warning: Check for deprecated fields (add as needed)
             # This is a placeholder for future deprecations
+
+        # Cross-validation: decomposition mode
+        orchestrator_cfg = config.get("orchestrator", {})
+        if isinstance(orchestrator_cfg, dict):
+            coordination_mode = orchestrator_cfg.get("coordination_mode")
+            if coordination_mode == "decomposition":
+                # Collect agent IDs
+                agent_ids = []
+                for agent_config in agents:
+                    if isinstance(agent_config, dict) and "id" in agent_config:
+                        agent_ids.append(agent_config["id"])
+
+                # Validate presenter_agent references a valid agent
+                presenter = orchestrator_cfg.get("presenter_agent")
+                if presenter and presenter not in agent_ids:
+                    result.add_error(
+                        f"presenter_agent '{presenter}' does not match any agent ID",
+                        "orchestrator.presenter_agent",
+                        f"Use one of: {', '.join(agent_ids)}",
+                    )
+
+                # Warn if no subtasks defined (auto-decomposition will be used)
+                has_subtasks = any(isinstance(a, dict) and "subtask" in a for a in agents)
+                if not has_subtasks:
+                    result.add_warning(
+                        "No 'subtask' fields defined on agents in decomposition mode",
+                        "orchestrator.coordination_mode",
+                        "Auto-decomposition will be used. Define 'subtask' on each agent for explicit control.",
+                    )

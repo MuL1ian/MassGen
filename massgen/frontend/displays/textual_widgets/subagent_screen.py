@@ -1270,10 +1270,14 @@ class SubagentView(Container):
         try:
             from massgen.frontend.displays.textual import TextContentModal
 
+            content = ""
+            if event.subtask:
+                content += f"Subtask: {event.subtask}\n\n"
+            content += event.question or "(No prompt)"
             self.app.push_screen(
                 TextContentModal(
                     title=f"Turn {event.turn} • Prompt",
-                    content=event.question or "(No prompt)",
+                    content=content,
                 ),
             )
         except Exception as e:

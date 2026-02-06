@@ -20,6 +20,7 @@ from massgen.system_prompt_sections import (
     CodeBasedToolsSection,
     CommandExecutionSection,
     CoreBehaviorsSection,
+    DecompositionSection,
     EvaluationSection,
     EvolvingSkillsSection,
     FileSearchSection,
@@ -97,6 +98,8 @@ class SystemMessageBuilder:
         vote_only: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
         voting_sensitivity_override: Optional[str] = None,
+        coordination_mode: str = "voting",
+        agent_subtask: Optional[str] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -119,6 +122,8 @@ class SystemMessageBuilder:
                           global consistency with vote tool and injections.
             voting_sensitivity_override: Per-agent voting sensitivity override. If provided,
                                         takes precedence over the orchestrator-level setting.
+            coordination_mode: "voting" (default) or "decomposition"
+            agent_subtask: The agent's assigned subtask (decomposition mode)
 
         Returns:
             Complete system prompt string with XML structure
@@ -149,19 +154,23 @@ class SystemMessageBuilder:
             logger.info(f"[SystemMessageBuilder] Added Grok file encoding guidance for {agent_id} (model: {model_name})")
 
         # PRIORITY 1 (HIGH): Output-First Verification - verify outcomes, not implementations
-        builder.add_section(OutputFirstVerificationSection())
+        is_decomposition = coordination_mode == "decomposition"
+        builder.add_section(OutputFirstVerificationSection(decomposition_mode=is_decomposition))
 
-        # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer primitives
-        # Use per-agent override if provided, otherwise fall back to orchestrator default
-        voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
-        answer_novelty_requirement = self.message_templates._answer_novelty_requirement
-        builder.add_section(
-            EvaluationSection(
-                voting_sensitivity=voting_sensitivity,
-                answer_novelty_requirement=answer_novelty_requirement,
-                vote_only=vote_only,
-            ),
-        )
+        # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer or decomposition primitives
+        if coordination_mode == "decomposition":
+            builder.add_section(DecompositionSection(subtask=agent_subtask))
+        else:
+            # Use per-agent override if provided, otherwise fall back to orchestrator default
+            voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
+            answer_novelty_requirement = self.message_templates._answer_novelty_requirement
+            builder.add_section(
+                EvaluationSection(
+                    voting_sensitivity=voting_sensitivity,
+                    answer_novelty_requirement=answer_novelty_requirement,
+                    vote_only=vote_only,
+                ),
+            )
 
         # PRIORITY 5 (HIGH): Skills - Must be visible early
         if use_skills:
@@ -242,7 +251,9 @@ class SystemMessageBuilder:
                 builder.add_section(ProjectInstructionsSection(context_paths, workspace_root=main_workspace))
 
             # Add workspace structure section (critical paths)
-            builder.add_section(WorkspaceStructureSection(main_workspace, [p.get("path", "") for p in context_paths], use_two_tier_workspace=use_two_tier_workspace))
+            builder.add_section(
+                WorkspaceStructureSection(main_workspace, [p.get("path", "") for p in context_paths], use_two_tier_workspace=use_two_tier_workspace, decomposition_mode=is_decomposition),
+            )
 
             # Check command execution settings
             enable_command_execution = False
@@ -270,6 +281,7 @@ class SystemMessageBuilder:
                 enable_sudo=enable_sudo,
                 concurrent_tool_execution=concurrent_tool_execution,
                 agent_mapping=agent_mapping,
+                decomposition_mode=is_decomposition,
             )
 
             builder.add_section(fs_ops)
@@ -331,7 +343,7 @@ class SystemMessageBuilder:
                 and agent.backend.filesystem_manager
                 and agent.backend.filesystem_manager.cwd
             )
-            builder.add_section(TaskPlanningSection(filesystem_mode=filesystem_mode))
+            builder.add_section(TaskPlanningSection(filesystem_mode=filesystem_mode, decomposition_mode=is_decomposition))
 
         # PRIORITY 10 (MEDIUM): Evolving Skills (when auto-discovery AND task planning are both enabled)
         # Both gates must be true: evolving skills are structured work plans that complement task planning
@@ -594,6 +606,7 @@ This makes the work reusable for similar future tasks."""
         enable_sudo: bool = False,
         concurrent_tool_execution: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
+        decomposition_mode: bool = False,
     ) -> Tuple[Any, Any, Optional[Any]]:  # Tuple[FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection]]
         """Build filesystem-related sections.
 
@@ -646,7 +659,7 @@ This makes the work reusable for similar future tasks."""
         )
 
         # Build filesystem best practices section
-        fs_best = FilesystemBestPracticesSection(enable_code_based_tools=enable_code_based_tools)
+        fs_best = FilesystemBestPracticesSection(enable_code_based_tools=enable_code_based_tools, decomposition_mode=decomposition_mode)
 
         # Build command execution section if enabled
         cmd_exec = None

@@ -550,7 +550,7 @@ class AG2Adapter(AgentAdapter):
 
         for tool in tools:
             tool_name = self._get_tool_name(tool)
-            if tool_name in ["new_answer", "vote"]:
+            if tool_name in ["new_answer", "vote", "stop"]:
                 workflow_tools.append(tool)
             else:
                 other_tools.append(tool)

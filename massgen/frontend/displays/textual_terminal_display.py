@@ -1166,6 +1166,15 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         self._write_to_system_file(f"\n=== TURN {turn} ===\nQuestion: {question}\n")
 
+    def set_agent_subtasks(self, subtasks: Dict[str, str]) -> None:
+        """Pass agent subtask assignments to the TUI for display in the tab bar.
+
+        Args:
+            subtasks: Mapping of agent_id to subtask description.
+        """
+        if self._app:
+            self._call_app_method("set_agent_subtasks", subtasks)
+
     def begin_restart(
         self,
         attempt: int,
@@ -5016,6 +5025,15 @@ Type your question and press Enter to ask the agents.
                 # This ensures clean state for each new turn
                 self.coordination_display.reset_turn_state()
 
+        def set_agent_subtasks(self, subtasks: Dict[str, str]) -> None:
+            """Pass agent subtask assignments to the tab bar for display.
+
+            Args:
+                subtasks: Mapping of agent_id to subtask description.
+            """
+            if self._tab_bar:
+                self._tab_bar.set_agent_subtasks(subtasks)
+
         def set_input_enabled(self, enabled: bool):
             """Enable or disable mode controls during execution.
 
@@ -5354,11 +5372,16 @@ Type your question and press Enter to ask the agents.
         def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
             """Handle click on session info to show full prompt."""
             tui_log(f"on_session_info_clicked: turn={event.turn}")
+            # Build content with optional subtask
+            content = ""
+            if event.subtask:
+                content += f"Subtask: {event.subtask}\n\n"
+            content += event.question or "(No prompt)"
             # Show the full prompt in a text modal
             self.push_screen(
                 TextContentModal(
                     title=f"Turn {event.turn} • Prompt",
-                    content=event.question or "(No prompt)",
+                    content=content,
                 ),
             )
             event.stop()

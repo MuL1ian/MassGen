@@ -2325,6 +2325,12 @@ async def run_question_with_history(
     if orchestrator_cfg.get("debug_final_answer"):
         orchestrator_config.debug_final_answer = orchestrator_cfg["debug_final_answer"]
 
+    # Parse decomposition mode parameters
+    if "coordination_mode" in orchestrator_cfg:
+        orchestrator_config.coordination_mode = orchestrator_cfg["coordination_mode"]
+    if "presenter_agent" in orchestrator_cfg:
+        orchestrator_config.presenter_agent = orchestrator_cfg["presenter_agent"]
+
     # Parse coordination config if present
     if "coordination" in orchestrator_cfg:
         from .agent_config import CoordinationConfig
@@ -2347,6 +2353,17 @@ async def run_question_with_history(
             )
             logger.info(
                 f"[CLI] Created PersonaGeneratorConfig: enabled={persona_generator_config.enabled}",
+            )
+
+        # Parse task_decomposer config if present
+        from .task_decomposer import TaskDecomposerConfig
+
+        task_decomposer_config = TaskDecomposerConfig()
+        if "task_decomposer" in coord_cfg:
+            td_cfg = coord_cfg["task_decomposer"]
+            task_decomposer_config = TaskDecomposerConfig(
+                enabled=td_cfg.get("enabled", True),
+                decomposition_guidelines=td_cfg.get("decomposition_guidelines"),
             )
 
         # Parse subagent_orchestrator config if present
@@ -2399,6 +2416,7 @@ async def run_question_with_history(
             subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
             subagent_orchestrator=subagent_orchestrator_config,
             use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
+            task_decomposer=task_decomposer_config,
         )
 
     # Get session_id from session_info (will be generated in save_final_state if not exists)
@@ -2449,6 +2467,18 @@ async def run_question_with_history(
         nlip_config=orchestrator_nlip_config,
         generated_personas=generated_personas,  # Only if persist_across_turns=True
     )
+
+    # Parse per-agent subtask assignments for decomposition mode
+    if orchestrator_config.coordination_mode == "decomposition":
+        raw_agents = kwargs.get("agents_config", [])
+        if isinstance(raw_agents, list):
+            for agent_data in raw_agents:
+                if isinstance(agent_data, dict):
+                    aid = agent_data.get("id", "")
+                    subtask = agent_data.get("subtask")
+                    if subtask:
+                        orchestrator._agent_subtasks[aid] = subtask
+
     # Create a fresh UI instance for each question to ensure clean state
     ui = _build_coordination_ui(ui_config)
 
@@ -3043,6 +3073,12 @@ async def run_single_question(
         if orchestrator_cfg.get("debug_final_answer"):
             orchestrator_config.debug_final_answer = orchestrator_cfg["debug_final_answer"]
 
+        # Parse decomposition mode parameters
+        if "coordination_mode" in orchestrator_cfg:
+            orchestrator_config.coordination_mode = orchestrator_cfg["coordination_mode"]
+        if "presenter_agent" in orchestrator_cfg:
+            orchestrator_config.presenter_agent = orchestrator_cfg["presenter_agent"]
+
         # Parse coordination config if present
         if "coordination" in orchestrator_cfg:
             from .agent_config import CoordinationConfig
@@ -3068,6 +3104,17 @@ async def run_single_question(
                 so_cfg = coord_cfg["subagent_orchestrator"]
                 subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(
                     so_cfg,
+                )
+
+            # Parse task_decomposer config if present
+            from .task_decomposer import TaskDecomposerConfig
+
+            task_decomposer_config = TaskDecomposerConfig()
+            if "task_decomposer" in coord_cfg:
+                td_cfg = coord_cfg["task_decomposer"]
+                task_decomposer_config = TaskDecomposerConfig(
+                    enabled=td_cfg.get("enabled", True),
+                    decomposition_guidelines=td_cfg.get("decomposition_guidelines"),
                 )
 
             orchestrator_config.coordination_config = CoordinationConfig(
@@ -3119,6 +3166,7 @@ async def run_single_question(
                 subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
                 subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
                 subagent_orchestrator=subagent_orchestrator_config,
+                task_decomposer=task_decomposer_config,
             )
 
         orchestrator = Orchestrator(
@@ -3132,6 +3180,18 @@ async def run_single_question(
             enable_nlip=orchestrator_enable_nlip,
             nlip_config=orchestrator_nlip_config,
         )
+
+        # Parse per-agent subtask assignments for decomposition mode
+        if orchestrator_config.coordination_mode == "decomposition":
+            raw_agents = kwargs.get("agents_config", [])
+            if isinstance(raw_agents, list):
+                for agent_data in raw_agents:
+                    if isinstance(agent_data, dict):
+                        aid = agent_data.get("id", "")
+                        subtask = agent_data.get("subtask")
+                        if subtask:
+                            orchestrator._agent_subtasks[aid] = subtask
+
         # Create a fresh UI instance for each question to ensure clean state
         ui = _build_coordination_ui(ui_config)
 
@@ -5470,11 +5530,18 @@ async def run_textual_interactive_mode(
                 if orchestrator_cfg.get("debug_final_answer"):
                     orchestrator_config.debug_final_answer = orchestrator_cfg["debug_final_answer"]
 
+                # Parse decomposition mode parameters
+                if "coordination_mode" in orchestrator_cfg:
+                    orchestrator_config.coordination_mode = orchestrator_cfg["coordination_mode"]
+                if "presenter_agent" in orchestrator_cfg:
+                    orchestrator_config.presenter_agent = orchestrator_cfg["presenter_agent"]
+
                 # Parse coordination config if present
                 if "coordination" in orchestrator_cfg:
                     from .agent_config import CoordinationConfig
                     from .persona_generator import PersonaGeneratorConfig
                     from .subagent.models import SubagentOrchestratorConfig
+                    from .task_decomposer import TaskDecomposerConfig
 
                     coord_cfg = orchestrator_cfg["coordination"]
 
@@ -5494,6 +5561,15 @@ async def run_textual_interactive_mode(
                     if "subagent_orchestrator" in coord_cfg:
                         so_cfg = coord_cfg["subagent_orchestrator"]
                         subagent_orchestrator_config = SubagentOrchestratorConfig.from_dict(so_cfg)
+
+                    # Parse task_decomposer config if present
+                    task_decomposer_config = TaskDecomposerConfig()
+                    if "task_decomposer" in coord_cfg:
+                        td_cfg = coord_cfg["task_decomposer"]
+                        task_decomposer_config = TaskDecomposerConfig(
+                            enabled=td_cfg.get("enabled", True),
+                            decomposition_guidelines=td_cfg.get("decomposition_guidelines"),
+                        )
 
                     orchestrator_config.coordination_config = CoordinationConfig(
                         enable_planning_mode=coord_cfg.get("enable_planning_mode", False),
@@ -5521,6 +5597,7 @@ async def run_textual_interactive_mode(
                         subagent_max_concurrent=coord_cfg.get("subagent_max_concurrent", 3),
                         subagent_round_timeouts=coord_cfg.get("subagent_round_timeouts"),
                         subagent_orchestrator=subagent_orchestrator_config,
+                        task_decomposer=task_decomposer_config,
                     )
 
             # Set timeout config if provided
@@ -5629,6 +5706,22 @@ async def run_textual_interactive_mode(
                 generated_personas=generated_personas,
                 plan_session_id=plan_session_id,
             )
+
+            # Parse per-agent subtask assignments for decomposition mode
+            if orchestrator_config.coordination_mode == "decomposition":
+                raw_agents = []
+                if original_config:
+                    raw_agents = original_config.get("agents", [])
+                    if not raw_agents and "agent" in original_config:
+                        raw_agents = [original_config["agent"]]
+                if isinstance(raw_agents, list):
+                    for agent_data in raw_agents:
+                        if isinstance(agent_data, dict):
+                            aid = agent_data.get("id", "")
+                            subtask = agent_data.get("subtask")
+                            if subtask:
+                                orchestrator._agent_subtasks[aid] = subtask
+
             adapter.update_loading_status("🔌 Connecting to tools...")
 
             # Create coordination UI with preserve_display and interactive_mode
@@ -7723,6 +7816,12 @@ async def main(args):
         # Add orchestrator configuration if present
         if "orchestrator" in config:
             kwargs["orchestrator"] = config["orchestrator"]
+
+        # Add raw agent configs for subtask parsing in decomposition mode
+        if "agents" in config:
+            kwargs["agents_config"] = config["agents"]
+        elif "agent" in config:
+            kwargs["agents_config"] = [config["agent"]]
 
         # Add rate limit flag to kwargs for interactive mode
         kwargs["enable_rate_limit"] = enable_rate_limit

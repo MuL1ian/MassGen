@@ -270,8 +270,35 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
 
         return tool_def
 
-    def get_standard_tools(self, valid_agent_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def get_stop_tool(self) -> Dict[str, Any]:
+        """Get stop tool definition for decomposition mode."""
+        return {
+            "type": "function",
+            "function": {
+                "name": "stop",
+                "description": "Signal that your assigned subtask is complete and well-integrated with other agents' work.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "summary": {
+                            "type": "string",
+                            "description": "What you accomplished and how it connects to other agents' work",
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["complete", "blocked"],
+                            "description": "Whether your subtask is complete or blocked on something",
+                        },
+                    },
+                    "required": ["summary", "status"],
+                },
+            },
+        }
+
+    def get_standard_tools(self, valid_agent_ids: Optional[List[str]] = None, decomposition_mode: bool = False) -> List[Dict[str, Any]]:
         """Get standard tools for MassGen framework."""
+        if decomposition_mode:
+            return [self.get_new_answer_tool(), self.get_stop_tool()]
         return [self.get_new_answer_tool(), self.get_vote_tool(valid_agent_ids)]
 
     def final_presentation_system_message(
@@ -665,6 +692,7 @@ Please address these specific issues in your coordination and final answer.
         base_system_message: Optional[str] = None,
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
+        decomposition_mode: bool = False,
     ) -> Dict[str, Any]:
         """Build complete initial conversation for MassGen evaluation.
 
@@ -693,7 +721,7 @@ Please address these specific issues in your coordination and final answer.
         return {
             "system_message": system_message,
             "user_message": self.build_evaluation_message(task, agent_summaries, paraphrase, agent_mapping),
-            "tools": self.get_standard_tools(valid_agent_ids),
+            "tools": self.get_standard_tools(valid_agent_ids, decomposition_mode=decomposition_mode),
         }
 
     def build_conversation_with_context(
@@ -705,6 +733,7 @@ Please address these specific issues in your coordination and final answer.
         base_system_message: Optional[str] = None,
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
+        decomposition_mode: bool = False,
     ) -> Dict[str, Any]:
         """Build complete conversation with conversation history context for MassGen evaluation.
 
@@ -718,6 +747,7 @@ Please address these specific issues in your coordination and final answer.
             agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            decomposition_mode: If True, use stop tool instead of vote in logged tools
         """
         # Use agent's custom system message if provided, otherwise use default context-aware message
         if base_system_message:
@@ -734,7 +764,7 @@ Please address these specific issues in your coordination and final answer.
         return {
             "system_message": system_message,
             "user_message": self.build_coordination_context(current_task, conversation_history, agent_summaries, paraphrase, agent_mapping),
-            "tools": self.get_standard_tools(valid_agent_ids),
+            "tools": self.get_standard_tools(valid_agent_ids, decomposition_mode=decomposition_mode),
         }
 
     def build_final_presentation_message(

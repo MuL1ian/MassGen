@@ -32,15 +32,17 @@ class AgentTabChanged(Message):
 class SessionInfoClicked(Message):
     """Message emitted when session info is clicked to show full prompt."""
 
-    def __init__(self, turn: int, question: str) -> None:
+    def __init__(self, turn: int, question: str, subtask: Optional[str] = None) -> None:
         """Initialize the message.
 
         Args:
             turn: Current turn number.
             question: Full question text.
+            subtask: Optional subtask for the active agent.
         """
         self.turn = turn
         self.question = question
+        self.subtask = subtask
         super().__init__()
 
 
@@ -77,12 +79,20 @@ class SessionInfoWidget(Static):
         super().__init__(id=id, classes=classes)
         self._turn = turn
         self._question = question
+        self._subtask: Optional[str] = None
 
     def render(self) -> Text:
         """Render the session info."""
         text = Text()
 
-        # Line 1: Turn number with icon prefix (blue for distinction)
+        # Line 1: Subtask label (if present) + Turn number
+        if self._subtask:
+            st = self._subtask.replace("\n", " ").strip()
+            if len(st) > 30:
+                st = st[:27] + "…"
+            text.append(st, style="bold #d2a8ff")
+            text.append("  ", style="")
+
         text.append("◈ ", style="#58a6ff")
         text.append(f"Turn {self._turn}", style="#58a6ff")
 
@@ -102,9 +112,14 @@ class SessionInfoWidget(Static):
         self._question = question
         self.refresh()
 
+    def update_subtask(self, subtask: Optional[str]) -> None:
+        """Update the displayed subtask label."""
+        self._subtask = subtask
+        self.refresh()
+
     async def on_click(self) -> None:
         """Handle click to show full prompt."""
-        self.post_message(SessionInfoClicked(self._turn, self._question))
+        self.post_message(SessionInfoClicked(self._turn, self._question, self._subtask))
 
 
 class AgentTab(Static):
@@ -333,6 +348,7 @@ class AgentTabBar(Widget):
         self._question = question
         self._tab_id_prefix = tab_id_prefix
         self._session_info_widget: Optional[SessionInfoWidget] = None
+        self._agent_subtasks: Dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         """Create agent tabs and session info."""
@@ -406,6 +422,25 @@ class AgentTabBar(Widget):
         # Activate the selected tab
         self._tabs[agent_id].set_active(True)
         self.active_agent = agent_id
+
+        # Update subtask display for the newly active agent
+        if self._session_info_widget and self._agent_subtasks:
+            self._session_info_widget.update_subtask(
+                self._agent_subtasks.get(agent_id),
+            )
+
+    def set_agent_subtasks(self, subtasks: Dict[str, str]) -> None:
+        """Set per-agent subtask assignments for decomposition mode.
+
+        Args:
+            subtasks: Mapping of agent_id to subtask description.
+        """
+        self._agent_subtasks = subtasks
+        # Update display for currently active agent
+        if self._session_info_widget and self.active_agent:
+            self._session_info_widget.update_subtask(
+                subtasks.get(self.active_agent),
+            )
 
     def update_agent_status(self, agent_id: str, status: str) -> None:
         """Update the status badge for an agent.

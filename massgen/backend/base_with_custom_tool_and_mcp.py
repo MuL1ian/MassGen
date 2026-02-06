@@ -1466,7 +1466,7 @@ class CustomToolAndMCPBackend(LLMBackend):
             input_chars=len(arguments_str),
         )
 
-        if tool_name in ["new_answer", "vote"]:
+        if tool_name in ["new_answer", "vote", "stop"]:
             error_msg = f"CRITICAL: Workflow tool {tool_name} incorrectly routed to execution"
             logger.error(error_msg)
             yield StreamChunk(

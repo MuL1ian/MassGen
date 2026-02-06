@@ -915,7 +915,13 @@ class WorkspaceStructureSection(SystemPromptSection):
         use_two_tier_workspace: If True, include documentation for scratch/deliverable structure
     """
 
-    def __init__(self, workspace_path: str, context_paths: List[str], use_two_tier_workspace: bool = False):
+    def __init__(
+        self,
+        workspace_path: str,
+        context_paths: List[str],
+        use_two_tier_workspace: bool = False,
+        decomposition_mode: bool = False,
+    ):
         super().__init__(
             title="Workspace Structure",
             priority=Priority.HIGH,
@@ -924,6 +930,7 @@ class WorkspaceStructureSection(SystemPromptSection):
         self.workspace_path = workspace_path
         self.context_paths = context_paths
         self.use_two_tier_workspace = use_two_tier_workspace
+        self.decomposition_mode = decomposition_mode
 
     def build_content(self) -> str:
         """Build workspace structure documentation."""
@@ -940,17 +947,19 @@ class WorkspaceStructureSection(SystemPromptSection):
             content_parts.append("### Two-Tier Workspace Structure\n")
             content_parts.append("Your workspace has two directories for organizing your work:\n")
             content_parts.append("- **`scratch/`** - Use for working files, experiments, intermediate results, evaluation scripts")
-            content_parts.append("- **`deliverable/`** - Use for final outputs you want to showcase to voters\n")
+            audience = "other agents" if self.decomposition_mode else "voters"
+            content_parts.append(f"- **`deliverable/`** - Use for final outputs you want to showcase to {audience}\n")
             content_parts.append("**IMPORTANT: Deliverables must be self-contained and complete.**")
             content_parts.append("The `deliverable/` directory should contain everything needed to use your output:")
             content_parts.append("- All required files (not just one component)")
             content_parts.append("- Any dependencies, assets, or supporting files")
             content_parts.append("- A README explaining how to run/use it")
-            content_parts.append("Think of `deliverable/` as a standalone package that voters can immediately use without needing files from `scratch/` or anywhere else.\n")
+            content_parts.append(f"Think of `deliverable/` as a standalone package that {audience} can immediately use without needing files from `scratch/` or anywhere else.\n")
             content_parts.append("To promote files from scratch to deliverable, use standard file operations:")
             content_parts.append("- Copy: Use filesystem tools to copy files")
             content_parts.append("- Move: Use command line `mv` or filesystem move\n")
-            content_parts.append("**Note**: Voters will see BOTH directories, so scratch/ helps them understand your process.\n")
+            reviewers = "Other agents" if self.decomposition_mode else "Voters"
+            content_parts.append(f"**Note**: {reviewers} will see BOTH directories, so scratch/ helps them understand your process.\n")
             content_parts.append("### Git Version Control\n")
             content_parts.append("Your workspace is version controlled with git. Changes are automatically committed:")
             content_parts.append("- `[INIT]` - When workspace is created")
@@ -1382,13 +1391,14 @@ class FilesystemBestPracticesSection(SystemPromptSection):
         enable_code_based_tools: Whether code-based tools mode is enabled
     """
 
-    def __init__(self, enable_code_based_tools: bool = False):
+    def __init__(self, enable_code_based_tools: bool = False, decomposition_mode: bool = False):
         super().__init__(
             title="Filesystem Best Practices",
             priority=Priority.AUXILIARY,
             xml_tag="filesystem_best_practices",
         )
         self.enable_code_based_tools = enable_code_based_tools
+        self.decomposition_mode = decomposition_mode
 
     def build_content(self) -> str:
         parts = []
@@ -1416,18 +1426,19 @@ class FilesystemBestPracticesSection(SystemPromptSection):
         )
 
         # Comparison tools (conditional on mode)
+        finalize_phrase = "before finalizing your work" if self.decomposition_mode else "before voting"
         if self.enable_code_based_tools:
             parts.append(
                 "**Comparison Tools**: Use directory and file comparison operations to understand "
                 "differences between workspaces or versions. These read-only operations help you "
                 "understand what changed, build upon existing work effectively, or verify solutions "
-                "before voting.\n",
+                f"{finalize_phrase}.\n",
             )
         else:
             parts.append(
                 "**Comparison Tools**: Use directory and file comparison tools to see differences "
                 "between workspaces or versions. These read-only tools help you understand what "
-                "changed, build upon existing work effectively, or verify solutions before voting.\n",
+                f"changed, build upon existing work effectively, or verify solutions {finalize_phrase}.\n",
             )
 
         # Evaluation guidance - emphasize outcome-based evaluation
@@ -1529,13 +1540,14 @@ class TaskPlanningSection(SystemPromptSection):
         filesystem_mode: If True, includes guidance about filesystem-based task storage
     """
 
-    def __init__(self, filesystem_mode: bool = False):
+    def __init__(self, filesystem_mode: bool = False, decomposition_mode: bool = False):
         super().__init__(
             title="Task Planning",
             priority=Priority.MEDIUM,
             xml_tag="task_planning",
         )
         self.filesystem_mode = filesystem_mode
+        self.decomposition_mode = decomposition_mode
 
     def build_content(self) -> str:
         base_guidance = """
@@ -1622,7 +1634,7 @@ Example format:
 Status: 4/4 tasks completed
 ```
 
-This helps other agents understand your approach and makes voting more specific."""
+This helps other agents understand your approach and evaluate your work."""
 
         if self.filesystem_mode:
             filesystem_guidance = """
@@ -1737,6 +1749,65 @@ Different agents may have different builtin tools and capabilities.
 Otherwise, digest existing answers, combine their strengths, and do additional work to address their weaknesses,
 then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.{novelty_section}
 Make sure you actually call `vote` or `new_answer` (in tool call format).
+
+*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
+
+
+class DecompositionSection(SystemPromptSection):
+    """
+    MassGen decomposition mode coordination mechanics.
+
+    In decomposition mode, each agent owns a specific subtask and uses `stop`
+    instead of `vote` to signal completion. Agents refine their own work and
+    integrate relevant parts of other agents' contributions.
+
+    Same priority slot as EvaluationSection (Priority 2 / CRITICAL).
+
+    Args:
+        subtask: The agent's assigned subtask description (if any)
+    """
+
+    def __init__(self, subtask: Optional[str] = None):
+        super().__init__(
+            title="MassGen Decomposition Coordination",
+            priority=2,  # Same slot as EvaluationSection
+            xml_tag="massgen_coordination",
+        )
+        self.subtask = subtask
+
+    def build_content(self) -> str:
+        import time
+
+        subtask_section = ""
+        if self.subtask:
+            subtask_section = f"""
+**YOUR ASSIGNED SUBTASK:**
+{self.subtask}
+
+"""
+
+        return f"""You are working as part of a decomposed team. Each agent owns a specific subtask of a larger project.
+{subtask_section}
+**CRITICAL: STAY IN YOUR LANE.** You MUST only work on YOUR assigned subtask above.
+Do NOT implement other agents' subtasks — other team members are handling those. Focus exclusively on delivering your piece.
+
+**HOW DECOMPOSITION MODE WORKS:**
+
+1. **Self-refinement**: Continue improving your own work across iterations. Fix issues you spot, try better approaches, increase quality. Submit `new_answer` whenever you have meaningful improvements.
+
+2. **Full awareness**: When you see other agents' work, READ and UNDERSTAND all of it. Maintain awareness of the entire project state, not just your subtask.
+
+3. **Selective integration**: Integrate parts that touch your subtask — adapt interfaces, align contracts, resolve conflicts. For parts outside your area, maintain awareness but don't redo their work.
+
+4. **Dual-purpose new_answer**: Submit `new_answer` when you have meaningful improvements — from self-refinement, integration insights, or both.
+
+5. **Completion**: Call `stop` when your subtask is complete and well-integrated with others' work. Your stop summary should show awareness of the full project.
+
+**TOOLS:**
+- `new_answer`: Submit your improved work (content = summary of what you did + key deliverables)
+- `stop`: Signal your subtask is complete (summary = what you accomplished and how it connects; status = "complete" or "blocked")
+
+Make sure you actually call `new_answer` or `stop` (in tool call format).
 
 *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
 
@@ -2428,15 +2499,16 @@ class OutputFirstVerificationSection(SystemPromptSection):
     Always included regardless of tools available.
     """
 
-    def __init__(self):
+    def __init__(self, decomposition_mode: bool = False):
         super().__init__(
             title="Output-First Iteration",
             priority=Priority.HIGH,
             xml_tag="output_first_iteration",
         )
+        self.decomposition_mode = decomposition_mode
 
     def build_content(self) -> str:
-        return """## Output-First Iteration
+        base = """## Output-First Iteration
 
 **Core Principle: Experience your work exactly as a user would - through dynamic interaction, not just static observation.**
 
@@ -2487,8 +2559,14 @@ Before considering any interactive artifact complete, ask:
 - **Code**: Run with test inputs → crashes on empty array → add validation → rerun with edge cases → confirm robust
 
 ### Finalization:
-- Use `new_answer` when you produced work or iterated improvements based on **interaction testing**.
-- Use `vote` only when an existing answer already meets the bar after **testing as a user would**."""
+- Use `new_answer` when you produced work or iterated improvements based on **interaction testing**."""
+
+        if self.decomposition_mode:
+            base += "\n- Use `stop` only when your subtask is complete and well-tested as a user would experience it."
+        else:
+            base += "\n- Use `vote` only when an existing answer already meets the bar after **testing as a user would**."
+
+        return base
 
 
 class MultimodalToolsSection(SystemPromptSection):

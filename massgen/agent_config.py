@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .persona_generator import PersonaGeneratorConfig
+from .task_decomposer import TaskDecomposerConfig
 
 if TYPE_CHECKING:
     from .message_templates import MessageTemplates
@@ -155,6 +156,7 @@ class CoordinationConfig:
     # Async subagent execution configuration
     async_subagents: Optional[Dict[str, Any]] = None  # {enabled: bool, injection_strategy: str}
     use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
+    task_decomposer: TaskDecomposerConfig = field(default_factory=TaskDecomposerConfig)
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -269,6 +271,13 @@ class AgentConfig:
     # When True, voting only starts after all agents submit their answers
     # Prevents wasteful restarts when agents vote before everyone has answered
     defer_voting_until_all_answered: bool = False
+
+    # Coordination mode: "voting" (default) or "decomposition"
+    # In decomposition mode, each agent works on an assigned subtask and calls stop when done.
+    # A presenter agent synthesizes the final output.
+    coordination_mode: str = "voting"
+    # Agent ID that presents the final synthesized output (decomposition mode)
+    presenter_agent: Optional[str] = None
 
     # Debug mode for restart feature - override final answer on attempt 1 only
     debug_final_answer: Optional[str] = None

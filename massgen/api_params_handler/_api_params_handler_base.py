@@ -123,6 +123,10 @@ class APIParamsHandlerBase(ABC):
             "debug_delay_after_n_tools",
             # Per-agent voting sensitivity (coordination config, not API param)
             "voting_sensitivity",
+            # Decomposition mode parameters (handled by orchestrator, not passed to API)
+            "coordination_mode",
+            "presenter_agent",
+            "subtask",
         }
 
     def build_base_api_params(

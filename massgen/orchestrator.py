@@ -112,6 +112,9 @@ class AgentState:
     round_start_time: Optional[float] = None  # For per-round timeouts
     round_timeout_hooks: Optional[tuple] = None  # (post_hook, pre_hook) for resetting on new round
     round_timeout_state: Optional["RoundTimeoutState"] = None  # Shared timeout state
+    # Decomposition mode fields
+    stop_summary: Optional[str] = None  # Summary from stop tool
+    stop_status: Optional[str] = None  # "complete" or "blocked"
 
 
 class Orchestrator(ChatAgent):
@@ -228,10 +231,14 @@ class Orchestrator(ChatAgent):
         )
         # Create system message builder for all phases (coordination, presentation, post-evaluation)
         self._system_message_builder: Optional[SystemMessageBuilder] = None  # Lazy initialization
+        # Decomposition mode: per-agent subtask assignments
+        self._agent_subtasks: Dict[str, Optional[str]] = {}
+
         # Create workflow tools for agents (vote, new_answer, and optionally broadcast)
         # Will be updated with broadcast tools after coordination config is set
         # Sort agent IDs for consistent anonymous mapping (agent1, agent2, etc.)
         # This ensures consistency with coordination_tracker.get_anonymous_agent_mapping()
+        _is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
         self.workflow_tools = get_workflow_tools(
             valid_agent_ids=sorted(agents.keys()),
             template_overrides=getattr(
@@ -243,6 +250,7 @@ class Orchestrator(ChatAgent):
             orchestrator=self,  # Pass self for broadcast tools
             broadcast_mode=False,  # Will be updated if broadcasts enabled
             broadcast_wait_by_default=True,
+            decomposition_mode=_is_decomposition,
         )
 
         # Client-provided tools (OpenAI-style). These are passed through to backends
@@ -628,6 +636,7 @@ class Orchestrator(ChatAgent):
 
                 # Recreate workflow tools with broadcast enabled
                 # Sort agent IDs for consistent anonymous mapping with coordination_tracker
+                _is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
                 self.workflow_tools = get_workflow_tools(
                     valid_agent_ids=sorted(self.agents.keys()),
                     template_overrides=getattr(
@@ -639,6 +648,7 @@ class Orchestrator(ChatAgent):
                     orchestrator=self,
                     broadcast_mode=broadcast_mode,
                     broadcast_wait_by_default=wait_by_default,
+                    decomposition_mode=_is_decomposition,
                 )
                 tool_names = [t.get("function", {}).get("name", "unknown") for t in self.workflow_tools]
                 logger.info(
@@ -2945,6 +2955,57 @@ Your answer:"""
             )
         await self._generate_and_inject_personas()
 
+        # Auto-decompose task if in decomposition mode with no explicit subtasks
+        if (
+            getattr(self.config, "coordination_mode", "voting") == "decomposition"
+            and not any(self._agent_subtasks.values())
+            and hasattr(self.config, "coordination_config")
+            and hasattr(self.config.coordination_config, "task_decomposer")
+            and self.config.coordination_config.task_decomposer.enabled
+        ):
+            yield StreamChunk(
+                type="preparation_status",
+                status="Decomposing task...",
+                detail="Breaking task into subtasks for each agent",
+            )
+            from .task_decomposer import TaskDecomposer
+
+            decomposer = TaskDecomposer(self.config.coordination_config.task_decomposer)
+            existing_sys_msgs = {}
+            parent_configs = []
+            for aid, agent in self.agents.items():
+                existing_sys_msgs[aid] = agent.get_configurable_system_message()
+                if hasattr(agent.backend, "config"):
+                    parent_configs.append(agent.backend.config)
+            parent_workspace = ""
+            if self.agents:
+                first_agent = next(iter(self.agents.values()))
+                if first_agent.backend.filesystem_manager:
+                    parent_workspace = str(first_agent.backend.filesystem_manager.agent_temporary_workspace or "")
+            try:
+                self._agent_subtasks = await decomposer.generate_decomposition_via_subagent(
+                    task=self.current_task or "",
+                    agent_ids=list(self.agents.keys()),
+                    existing_system_messages=existing_sys_msgs,
+                    parent_agent_configs=parent_configs,
+                    parent_workspace=parent_workspace,
+                    orchestrator_id=self.orchestrator_id,
+                )
+                logger.info(f"[Orchestrator] Auto-decomposed task into {len(self._agent_subtasks)} subtasks")
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Auto-decomposition failed: {e}, agents will work without explicit subtasks")
+
+        # Notify TUI of subtask assignments (from config or auto-decomposition)
+        if self._agent_subtasks and any(self._agent_subtasks.values()):
+            try:
+                display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+                if display and hasattr(display, "set_agent_subtasks"):
+                    display.set_agent_subtasks(
+                        {k: v for k, v in self._agent_subtasks.items() if v},
+                    )
+            except Exception:
+                pass  # TUI notification is non-critical
+
         # Check if we should skip coordination rounds (debug/test mode)
         if self.config.skip_coordination_rounds:
             log_stream_chunk(
@@ -3051,12 +3112,16 @@ Your answer:"""
         ):
             yield chunk
 
-        # Determine final agent based on votes
+        # Determine final agent
         current_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
-        self._selected_agent = self._determine_final_agent_from_votes(
-            votes,
-            current_answers,
-        )
+        if getattr(self.config, "coordination_mode", "voting") == "decomposition":
+            # Decomposition mode: use config-designated presenter or last agent
+            self._selected_agent = getattr(self.config, "presenter_agent", None) or list(self.agents.keys())[-1]
+        else:
+            self._selected_agent = self._determine_final_agent_from_votes(
+                votes,
+                current_answers,
+            )
 
         # Emit voting complete status for TUI event pipeline
 
@@ -3476,12 +3541,25 @@ Your answer:"""
                                         "after voting",
                                     )
                                 voted_agents[agent_id] = result_data
-                                # Pass timestamp to coordination_tracker for mapping
-                                self.coordination_tracker.add_agent_vote(
-                                    agent_id,
-                                    result_data,
-                                    snapshot_timestamp=vote_timestamp,
-                                )
+
+                                # Check if this is a stop (decomposition mode) vs a vote
+                                is_stop = result_data.get("_is_stop", False)
+                                if is_stop:
+                                    # Store stop metadata on AgentState
+                                    self.agent_states[agent_id].stop_summary = result_data.get("stop_summary")
+                                    self.agent_states[agent_id].stop_status = result_data.get("stop_status", "complete")
+                                    # Record stop event in coordination tracker
+                                    self.coordination_tracker.add_agent_stop(
+                                        agent_id,
+                                        result_data,
+                                    )
+                                else:
+                                    # Pass timestamp to coordination_tracker for mapping
+                                    self.coordination_tracker.add_agent_vote(
+                                        agent_id,
+                                        result_data,
+                                        snapshot_timestamp=vote_timestamp,
+                                    )
                                 # End round token tracking with "vote" outcome
                                 if agent and hasattr(
                                     agent.backend,
@@ -3691,10 +3769,12 @@ Your answer:"""
 
             # Apply all state changes atomically after processing all results
             if reset_signal:
-                # Reset all agents' has_voted to False (any new answer invalidates all votes)
+                # Reset all agents' has_voted to False (any new answer invalidates all votes/stops)
                 for state in self.agent_states.values():
                     state.has_voted = False
                     state.votes = {}  # Clear stale vote data
+                    state.stop_summary = None  # Clear stop metadata (wakes up stopped agents)
+                    state.stop_status = None
                 votes.clear()
 
                 # Skip restart signaling when injection is disabled (multi-agent refinement OFF)
@@ -3732,7 +3812,12 @@ Your answer:"""
                         AgentStatus.ANSWERED,
                     )
                 elif agent_id in voted_agents:
-                    self.coordination_tracker.change_status(agent_id, AgentStatus.VOTED)
+                    # Check if this was a stop (decomposition mode) vs a vote
+                    is_stop = voted_agents[agent_id].get("_is_stop", False)
+                    if is_stop:
+                        self.coordination_tracker.change_status(agent_id, AgentStatus.STOPPED)
+                    else:
+                        self.coordination_tracker.change_status(agent_id, AgentStatus.VOTED)
                 # Errors and timeouts are already tracked via track_agent_action
 
         # Cancel any remaining tasks and close streams, as all agents have voted (no more new answers)
@@ -4292,34 +4377,60 @@ Your answer:"""
         else:
             header = f"[UPDATE: {', '.join(new_agents)} submitted new answer(s)]"
 
-        injection_parts = [
-            "",
-            "=" * 60,
-            "⚠️  IMPORTANT: NEW ANSWER RECEIVED - ACTION REQUIRED",
-            "=" * 60,
-            "",
-            header,
-            "",
-            *lines,
-            "=" * 60,
-            "REQUIRED ACTION - You MUST do one of the following:",
-            "=" * 60,
-            "",
-            "1. **ADD A TASK** to your plan: 'Evaluate agent answer(s) and decide next action'",
-            "   - Use update_task_status or create a new task to track this evaluation",
-            "   - Read their workspace files (paths above) to understand their solution",
-            "   - Read their execution_trace.md to see their full tool usage and reasoning",
-            "   - Compare their approach to yours",
-            "",
-            "2. **THEN CHOOSE ONE**:",
-            "   a) VOTE for their answer if it's complete and correct (use vote tool)",
-            "   b) BUILD on their work - improve/extend it and submit YOUR enhanced answer",
-            "   c) MERGE approaches - combine the best parts of their work with yours",
-            "   d) CONTINUE your own approach if you believe it's better",
-            "",
-            "DO NOT ignore this update - you must explicitly evaluate and decide!",
-            "=" * 60,
-        ]
+        # Use different framing for decomposition mode vs voting mode
+        is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+
+        if is_decomposition:
+            injection_parts = [
+                "",
+                "=" * 60,
+                "UPDATE: ANOTHER AGENT SUBMITTED WORK",
+                "=" * 60,
+                "",
+                header,
+                "",
+                *lines,
+                "=" * 60,
+                "RECOMMENDED ACTIONS:",
+                "=" * 60,
+                "",
+                "1. Read and understand their full work — maintain awareness of the entire project state",
+                "2. Actively integrate parts that touch your subtask (interfaces, contracts, dependencies)",
+                "3. Continue refining your own work — fix issues, improve quality, incorporate insights",
+                "4. Submit `new_answer` when you have meaningful improvements",
+                "5. Call `stop` when your subtask is complete and well-integrated",
+                "",
+                "=" * 60,
+            ]
+        else:
+            injection_parts = [
+                "",
+                "=" * 60,
+                "⚠️  IMPORTANT: NEW ANSWER RECEIVED - ACTION REQUIRED",
+                "=" * 60,
+                "",
+                header,
+                "",
+                *lines,
+                "=" * 60,
+                "REQUIRED ACTION - You MUST do one of the following:",
+                "=" * 60,
+                "",
+                "1. **ADD A TASK** to your plan: 'Evaluate agent answer(s) and decide next action'",
+                "   - Use update_task_status or create a new task to track this evaluation",
+                "   - Read their workspace files (paths above) to understand their solution",
+                "   - Read their execution_trace.md to see their full tool usage and reasoning",
+                "   - Compare their approach to yours",
+                "",
+                "2. **THEN CHOOSE ONE**:",
+                "   a) VOTE for their answer if it's complete and correct (use vote tool)",
+                "   b) BUILD on their work - improve/extend it and submit YOUR enhanced answer",
+                "   c) MERGE approaches - combine the best parts of their work with yours",
+                "   d) CONTINUE your own approach if you believe it's better",
+                "",
+                "DO NOT ignore this update - you must explicitly evaluate and decide!",
+                "=" * 60,
+            ]
 
         return "\n".join(injection_parts)
 
@@ -5242,10 +5353,13 @@ Your answer:"""
         return (True, None)
 
     def _is_vote_only_mode(self, agent_id: str) -> bool:
-        """Check if agent has exhausted their answer limit and must vote.
+        """Check if agent has exhausted their answer limit and must vote (or auto-stop).
 
         When an agent reaches max_new_answers_per_agent, they should only
         have the vote tool available (no new_answer or broadcast tools).
+
+        In decomposition mode, hitting the limit auto-stops the agent instead
+        of switching to vote-only tools.
 
         When defer_voting_until_all_answered=True, also requires ALL agents
         to have answered before voting is allowed.
@@ -5263,6 +5377,20 @@ Your answer:"""
 
         if not hit_answer_limit:
             return False
+
+        # Decomposition mode: auto-stop the agent instead of switching to vote-only
+        if getattr(self.config, "coordination_mode", "voting") == "decomposition":
+            if not self.agent_states[agent_id].has_voted:
+                last_answer = self.agent_states[agent_id].answer or ""
+                self.agent_states[agent_id].has_voted = True
+                self.agent_states[agent_id].stop_summary = f"Auto-stopped: reached answer limit ({answer_count} answers). Last work: {last_answer[:200]}"
+                self.agent_states[agent_id].stop_status = "complete"
+                self.coordination_tracker.add_agent_stop(
+                    agent_id,
+                    {"summary": self.agent_states[agent_id].stop_summary, "status": "complete"},
+                )
+                logger.info(f"[Orchestrator] Auto-stopped agent {agent_id} in decomposition mode (hit answer limit)")
+            return False  # Don't switch to vote-only tools, agent is already stopped
 
         # If defer_voting_until_all_answered is enabled, also check that all agents have answered
         if self.config.defer_voting_until_all_answered:
@@ -5852,6 +5980,8 @@ Your answer:"""
                 vote_only=vote_only_for_system_message,
                 agent_mapping=self.coordination_tracker.get_reverse_agent_mapping(),
                 voting_sensitivity_override=getattr(agent, "voting_sensitivity", None),
+                coordination_mode=getattr(self.config, "coordination_mode", "voting"),
+                agent_subtask=self._agent_subtasks.get(agent_id),
             )
 
             # Inject phase-appropriate persona if enabled
@@ -5875,6 +6005,7 @@ Your answer:"""
             sorted_answer_ids = sorted(normalized_answers.keys()) if normalized_answers else None
             # Get global agent mapping for consistent anonymous IDs across all components
             agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+            _is_decomp = getattr(self.config, "coordination_mode", "voting") == "decomposition"
             if conversation_context and conversation_context.get(
                 "conversation_history",
             ):
@@ -5890,6 +6021,7 @@ Your answer:"""
                     base_system_message=system_message,  # Use NEW structured message
                     paraphrase=paraphrase,
                     agent_mapping=agent_mapping,
+                    decomposition_mode=_is_decomp,
                 )
             else:
                 # Fallback to standard conversation building
@@ -5900,6 +6032,7 @@ Your answer:"""
                     base_system_message=system_message,  # Use NEW structured message
                     paraphrase=paraphrase,
                     agent_mapping=agent_mapping,
+                    decomposition_mode=_is_decomp,
                 )
 
             # Inject restart context if this is a restart attempt (like multi-turn context)
@@ -6004,6 +6137,15 @@ Your answer:"""
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": conversation["user_message"]},
             ]
+
+            # In decomposition mode, wrap the user message with subtask scope
+            if getattr(self.config, "coordination_mode", "voting") == "decomposition":
+                subtask = self._agent_subtasks.get(agent_id)
+                if subtask:
+                    original_msg = conversation_messages[1]["content"]
+                    conversation_messages[1]["content"] = (
+                        f"[YOUR ASSIGNED SUBTASK: {subtask}]\n" f"You MUST focus ONLY on your subtask. " f"Do NOT implement other agents' parts.\n\n" f"{original_msg}"
+                    )
 
             # Inject shared memory context
             conversation_messages = await self._inject_shared_memory_context(
@@ -6431,6 +6573,21 @@ Your answer:"""
                                     "coordination" if self.trace_classification == "strict" else "content",
                                     f"🗳️ Voting for [{real_agent_id}] (options: {', '.join(options_anon)}) : {reason}",
                                 )
+                            elif tool_name == "stop":
+                                # Decomposition mode stop tool
+                                summary = tool_args.get("summary", "")
+                                status = tool_args.get("status", "complete")
+                                log_tool_call(
+                                    agent_id,
+                                    "stop",
+                                    {"summary": summary, "status": status},
+                                    None,
+                                    backend_name,
+                                )
+                                yield (
+                                    "coordination" if self.trace_classification == "strict" else "content",
+                                    f"🛑 Stopping ({status}): {summary[:100]}",
+                                )
                             elif tool_name == "ask_others":
                                 # Broadcast tool - handled as custom tool by backend
                                 question = tool_args.get("question", "")
@@ -6751,6 +6908,45 @@ Your answer:"""
                             yield (
                                 "result",
                                 ("vote", {"agent_id": voted_agent, "reason": reason}),
+                            )
+                            yield ("done", None)
+                            return
+
+                        elif tool_name == "stop":
+                            workflow_tool_found = True
+                            # Decomposition mode: agent signals subtask is complete
+                            summary = tool_args.get("summary", "")
+                            status = tool_args.get("status", "complete")
+                            log_tool_call(
+                                agent_id,
+                                "stop",
+                                {"summary": summary, "status": status},
+                                None,
+                                backend_name,
+                            )
+
+                            # Record to shared memory
+                            stop_message = f"Stopped ({status}): {summary}"
+                            await self._record_to_shared_memory(
+                                agent_id=agent_id,
+                                content=stop_message,
+                                role="assistant",
+                            )
+
+                            # Reuse the vote result pipeline — orchestrator processes
+                            # stop the same way as vote (sets has_voted = True)
+                            yield (
+                                "result",
+                                (
+                                    "vote",
+                                    {
+                                        "agent_id": agent_id,
+                                        "reason": summary,
+                                        "stop_summary": summary,
+                                        "stop_status": status,
+                                        "_is_stop": True,
+                                    },
+                                ),
                             )
                             yield ("done", None)
                             return
@@ -7761,13 +7957,30 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             selected_agent_id,
         )
 
-        # Use MessageTemplates to build the presentation message
-        presentation_content = self.message_templates.build_final_presentation_message(
-            original_task=self.current_task or "Task coordination",
-            vote_summary=normalized_voting_summary,
-            all_answers=normalized_all_answers,
-            selected_agent_id=selected_agent_id,
-        )
+        # Build the presentation message
+        is_decomposition = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+        if is_decomposition:
+            # Decomposition mode: presenter synthesizes all agents' work
+            agent_work_sections = []
+            for aid, answer in normalized_all_answers.items():
+                subtask = self._agent_subtasks.get(aid, "No specific subtask assigned")
+                stop_summary = self.agent_states[aid].stop_summary or "No stop summary"
+                agent_work_sections.append(
+                    f"**{aid}** (subtask: {subtask})\n" f"Stop summary: {stop_summary}\n" f"Work: {answer}\n",
+                )
+            presentation_content = (
+                f"ORIGINAL TASK:\n{self.current_task or 'Task coordination'}\n\n"
+                f"AGENT WORK SUMMARIES:\n{''.join(agent_work_sections)}\n\n"
+                "Your job is to assemble the final deliverable from the work each agent produced. "
+                "Ensure quality, fill any gaps, resolve conflicts, and answer the original query comprehensively."
+            )
+        else:
+            presentation_content = self.message_templates.build_final_presentation_message(
+                original_task=self.current_task or "Task coordination",
+                vote_summary=normalized_voting_summary,
+                all_answers=normalized_all_answers,
+                selected_agent_id=selected_agent_id,
+            )
 
         # Get agent's configurable system message using the standard interface
         agent.get_configurable_system_message()
@@ -9533,6 +9746,8 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.injection_count = 0
             state.restart_count = 0
             state.known_answer_ids = set()
+            state.stop_summary = None
+            state.stop_status = None
 
         # Reset orchestrator timeout tracking
         self.total_tokens = 0
