@@ -3349,8 +3349,6 @@ Your answer:"""
                                 status="completed",
                                 content="",
                             )
-                        await self._close_agent_stream(agent_id, active_streams)
-
                         if result_type == "answer":
                             # Agent provided an answer (initial or improved)
                             agent = self.agents.get(agent_id)
@@ -3573,6 +3571,13 @@ Your answer:"""
                                     content=f"✅ Vote recorded for [{result_data['agent_id']}]",
                                     source=agent_id,
                                 )
+
+                        # IMPORTANT: close stream after snapshotting answer/vote.
+                        # Closing the stream triggers _stream_agent_execution.finally, which may run
+                        # round cleanup (including branch switch in write_mode workspace isolation).
+                        # If we close first, snapshots can capture the post-cleanup workspace instead
+                        # of the agent's round output.
+                        await self._close_agent_stream(agent_id, active_streams)
 
                     elif chunk_type == "error":
                         # Agent error
@@ -4017,12 +4022,24 @@ Your answer:"""
                     is_final=is_final,
                 )
 
-                # Clear workspace after saving snapshot (but not for final snapshots)
+                # Clear workspace after saving snapshot (but not for final snapshots).
+                # In write_mode with active round isolation, defer clear until round cleanup
+                # so cleanup_round() can auto-commit the actual round output.
                 if not is_final:
-                    agent.backend.filesystem_manager.clear_workspace()
-                    logger.info(
-                        f"[Orchestrator._save_agent_snapshot] Cleared workspace for {agent_id} after saving snapshot",
+                    pending_round_cleanup = agent_id in getattr(
+                        self,
+                        "_round_isolation_managers",
+                        {},
                     )
+                    if pending_round_cleanup:
+                        logger.info(
+                            f"[Orchestrator._save_agent_snapshot] Deferred workspace clear for {agent_id} " "(pending round isolation cleanup)",
+                        )
+                    else:
+                        agent.backend.filesystem_manager.clear_workspace()
+                        logger.info(
+                            f"[Orchestrator._save_agent_snapshot] Cleared workspace for {agent_id} after saving snapshot",
+                        )
                 else:
                     # Final snapshot: restore workspace from snapshot_storage so
                     # post-evaluator can see the files
@@ -5919,6 +5936,12 @@ Your answer:"""
                     f"[Orchestrator] Agent {agent_id} in vote-only mode for system message (answer limit reached)",
                 )
 
+            # Compute branch info for this agent's system prompt
+            agent_branch = self._agent_current_branches.get(agent_id)
+            # Map other agents' branches to anonymous IDs (e.g. {"agent1": "massgen/abc123"})
+            _branch_agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+            other_agent_branches = {_branch_agent_mapping.get(aid, aid): branch for aid, branch in self._agent_current_branches.items() if aid != agent_id and branch}
+
             system_message = self._get_system_message_builder().build_coordination_message(
                 agent=agent,
                 agent_id=agent_id,
@@ -5937,6 +5960,8 @@ Your answer:"""
                 agent_mapping=self.coordination_tracker.get_reverse_agent_mapping(),
                 voting_sensitivity_override=getattr(agent, "voting_sensitivity", None),
                 worktree_paths=round_worktree_paths,
+                branch_name=agent_branch,
+                other_branches=other_agent_branches if other_agent_branches else None,
             )
 
             # Inject phase-appropriate persona if enabled
@@ -5996,11 +6021,20 @@ Your answer:"""
                     ws = agent_obj.backend.filesystem_manager.get_current_workspace()
                     if ws and ws.exists() and any(ws.iterdir()):
                         workspace_populated = True
+                # Compute branch info for restart context (with anonymous labels)
+                branch_info = None
+                if self._agent_current_branches:
+                    _restart_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+                    branch_info = {
+                        "own_branch": self._agent_current_branches.get(agent_id),
+                        "other_branches": {_restart_mapping.get(aid, aid): b for aid, b in self._agent_current_branches.items() if aid != agent_id and b},
+                    }
                 restart_context = self.message_templates.format_restart_context(
                     self.restart_reason,
                     self.restart_instructions,
                     previous_answer=self.previous_attempt_answer,
                     workspace_populated=workspace_populated,
+                    branch_info=branch_info,
                 )
                 # Prepend restart context to user message
                 conversation["user_message"] = restart_context + "\n\n" + conversation["user_message"]
@@ -7217,9 +7251,12 @@ Your answer:"""
             # Per-round worktree cleanup: move scratch, remove worktree, keep branch
             if agent_id in self._round_isolation_managers:
                 round_iso = self._round_isolation_managers.pop(agent_id)
+                # Use anonymous ID for human-readable archive directory name
+                _agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+                _archive_label = _agent_mapping.get(agent_id, agent_id)
                 for ctx_path in list(round_iso._contexts.keys()):
                     try:
-                        round_iso.move_scratch_to_workspace(ctx_path)
+                        round_iso.move_scratch_to_workspace(ctx_path, archive_label=_archive_label)
                         round_iso.cleanup_round(ctx_path)
                     except Exception as _cleanup_err:
                         logger.warning(f"[Orchestrator] Round worktree cleanup failed for {agent_id}: {_cleanup_err}")
@@ -7820,12 +7857,15 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
                 try:
                     workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
-                    # Use winner's branch as base for the worktree if available
-                    self._agent_current_branches.get(selected_agent_id)
+                    # Use winner's branch as base for the worktree so final presentation
+                    # starts from the winner's committed work (not empty HEAD)
+                    winner_branch = self._agent_current_branches.get(selected_agent_id)
                     self._isolation_manager = IsolationContextManager(
                         session_id=self.session_id,
                         write_mode=write_mode,
                         workspace_path=workspace_path,
+                        base_commit=winner_branch,
+                        branch_label="presenter",
                     )
 
                     # Initialize isolated contexts for writable context paths
@@ -7976,12 +8016,14 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
 
             # Add scratch and branch info for final presentation
             worktree_instructions += "\n**Scratch Space**: `.massgen_scratch/` inside the checkout is git-excluded and invisible to reviewers.\n"
-            # Show other agents' latest branches (one per agent, parity with answers)
-            other_branches = {aid: branch for aid, branch in self._agent_current_branches.items() if aid != selected_agent_id and branch}
+            # Show other agents' latest branches with anonymous labels
+            _pres_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+            other_branches = {_pres_mapping.get(aid, aid): branch for aid, branch in self._agent_current_branches.items() if aid != selected_agent_id and branch}
             if other_branches:
-                worktree_instructions += "\nOther agents' code branches (latest only):\n"
-                worktree_instructions += "Use `git branch` to list, `git diff <branch>` to compare.\n"
-                worktree_instructions += "You may merge or cherry-pick useful changes.\n"
+                worktree_instructions += "\n**Other agents' code branches** (latest only):\n"
+                for label, branch in other_branches.items():
+                    worktree_instructions += f"- {label}: `{branch}`\n"
+                worktree_instructions += "Use `git diff <branch>` to compare, `git merge <branch>` to incorporate.\n"
 
             presentation_content += worktree_instructions
 

@@ -82,6 +82,8 @@ class GitDiffReviewModal(BaseModal):
         ("r", "reject_all", "Reject All"),
         ("enter", "approve_selected", "Approve Selected"),
         ("space", "toggle_selected", "Toggle File"),
+        ("up", "select_previous_file", "Previous File"),
+        ("down", "select_next_file", "Next File"),
     ]
 
     def __init__(self, changes: List[Dict[str, Any]], **kwargs):
@@ -152,13 +154,16 @@ class GitDiffReviewModal(BaseModal):
                 parts.append(f"[bright_green]{added} added[/]")
             if deleted:
                 parts.append(f"[bright_red]{deleted} deleted[/]")
-            summary = ", ".join(parts) if parts else f"{total_files} file(s) changed"
-            if total_contexts > 1:
-                summary += f" across {total_contexts} contexts"
-            yield Static(summary, classes="modal-summary", markup=True)
+            yield Static(
+                self._build_summary_markup(parts=parts, total_contexts=total_contexts, total_files=total_files),
+                id="review_summary",
+                classes="modal-summary",
+                markup=True,
+            )
             yield Static(
                 "[dim]Click [bold]\u2713[/bold]/[bold]\u25cb[/bold] to toggle"
                 " | Click filename to view diff"
+                " | [bold]\u2191/\u2193[/bold] navigate"
                 " | [bold]Space[/bold] toggle selected"
                 " | [bold]a[/bold] approve all"
                 " | [bold]r[/bold] reject[/]",
@@ -252,8 +257,8 @@ class GitDiffReviewModal(BaseModal):
             # Footer with action buttons
             yield from self.make_footer(
                 buttons=[
-                    ("approve_selected_btn", "Apply Selected", "success"),
-                    ("approve_all_btn", "Apply All [a]", "primary"),
+                    ("approve_selected_btn", "Apply Selected", "primary"),
+                    ("approve_all_btn", "Apply All [a]", "default"),
                     ("reject_all_btn", "Reject [r]", "error"),
                     ("cancel_btn", "Cancel [esc]", "default"),
                 ],
@@ -382,6 +387,52 @@ class GitDiffReviewModal(BaseModal):
             return f"[bold]Diff:[/] [italic]{self._selected_file}[/]"
         return "[bold]Diff Preview[/]"
 
+    def _build_summary_markup(
+        self,
+        parts: List[str],
+        total_contexts: int,
+        total_files: int,
+    ) -> str:
+        """Build summary line with change totals + current selection count."""
+        summary = ", ".join(parts) if parts else f"{total_files} file(s) changed"
+        if total_contexts > 1:
+            summary += f" across {total_contexts} contexts"
+
+        selected_count = sum(1 for approved in self.file_approvals.values() if approved)
+        summary += f" [dim]\u2022[/] [bold]{selected_count}/{total_files} selected[/]"
+        return summary
+
+    def _update_summary(self) -> None:
+        """Refresh summary line after approval changes."""
+        total_files = len(self._all_file_paths)
+        if not total_files:
+            return
+
+        total_contexts = len(self.changes)
+        added = sum(1 for ctx in self.changes for c in ctx.get("changes", []) if c.get("status", "").upper() in ("A", "?", "+"))
+        modified = sum(1 for ctx in self.changes for c in ctx.get("changes", []) if c.get("status", "").upper() == "M")
+        deleted = sum(1 for ctx in self.changes for c in ctx.get("changes", []) if c.get("status", "").upper() in ("D", "-"))
+
+        parts = []
+        if modified:
+            parts.append(f"[yellow]{modified} modified[/]")
+        if added:
+            parts.append(f"[bright_green]{added} added[/]")
+        if deleted:
+            parts.append(f"[bright_red]{deleted} deleted[/]")
+
+        try:
+            summary = self.query_one("#review_summary", Static)
+            summary.update(
+                self._build_summary_markup(
+                    parts=parts,
+                    total_contexts=total_contexts,
+                    total_files=total_files,
+                ),
+            )
+        except Exception:
+            pass
+
     # =========================================================================
     # Status badges
     # =========================================================================
@@ -427,6 +478,7 @@ class GitDiffReviewModal(BaseModal):
         """After mount, ensure the first file's row is visually selected."""
         if self._selected_file:
             self._highlight_selected_row(self._selected_file)
+        self._update_summary()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -505,12 +557,27 @@ class GitDiffReviewModal(BaseModal):
         current = self.file_approvals.get(file_path, True)
         self.file_approvals[file_path] = not current
         self._refresh_toggle(file_path)
+        self._update_summary()
 
     def _set_all_approvals(self, value: bool) -> None:
         """Set all files to approved or unapproved."""
         for file_path in self._all_file_paths:
             self.file_approvals[file_path] = value
             self._refresh_toggle(file_path)
+        self._update_summary()
+
+    def _move_selection(self, step: int) -> None:
+        """Move selected file up/down in the file list."""
+        if not self._all_file_paths:
+            return
+
+        if self._selected_file not in self._all_file_paths:
+            self._select_file(self._all_file_paths[0])
+            return
+
+        current_index = self._all_file_paths.index(self._selected_file)
+        next_index = (current_index + step) % len(self._all_file_paths)
+        self._select_file(self._all_file_paths[next_index])
 
     def _refresh_toggle(self, file_path: str) -> None:
         """Update the approval toggle indicator for a file."""
@@ -593,6 +660,14 @@ class GitDiffReviewModal(BaseModal):
         """Keyboard shortcut: Toggle the currently selected file's approval."""
         if self._selected_file:
             self._toggle_file_approval(self._selected_file)
+
+    def action_select_previous_file(self) -> None:
+        """Keyboard shortcut: Select previous file."""
+        self._move_selection(-1)
+
+    def action_select_next_file(self) -> None:
+        """Keyboard shortcut: Select next file."""
+        self._move_selection(1)
 
 
 __all__ = [

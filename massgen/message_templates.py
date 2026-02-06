@@ -507,7 +507,7 @@ When you have composed your final answer, submit it using the `new_answer` tool.
         else:
             return presentation_instructions
 
-    def format_restart_context(self, reason: str, instructions: str, previous_answer: Optional[str] = None, workspace_populated: bool = False) -> str:
+    def format_restart_context(self, reason: str, instructions: str, previous_answer: Optional[str] = None, workspace_populated: bool = False, branch_info: Optional[Dict[str, Any]] = None) -> str:
         """Format restart context for subsequent orchestration attempts.
 
         This context is added to agent messages (like multi-turn context) on restart attempts.
@@ -517,6 +517,8 @@ When you have composed your final answer, submit it using the `new_answer` tool.
             instructions: Detailed guidance for improvement
             previous_answer: The winning answer from the previous attempt (optional)
             workspace_populated: Whether the workspace still has files from previous attempt
+            branch_info: Optional dict with 'own_branch' (str) and 'other_branches' (list[str])
+                for communicating branch names from the previous attempt
         """
         if "format_restart_context" in self._template_overrides:
             override = self._template_overrides["format_restart_context"]
@@ -543,6 +545,20 @@ The previous orchestration attempt was restarted because:
 
 **Previous attempt's workspace is still available in your working directory.**
 Check your deliverable/ and scratch/ directories for files from the previous attempt."""
+
+        if branch_info:
+            own_branch = branch_info.get("own_branch")
+            other_branches = branch_info.get("other_branches", {})
+            if own_branch:
+                base_context += f"\n\n**Your previous work is on branch**: `{own_branch}`"
+                base_context += f"\nYou can build on it: `git merge {own_branch}`"
+            if other_branches:
+                if isinstance(other_branches, dict):
+                    branch_list = ", ".join(f"{label}: `{b}`" for label, b in other_branches.items())
+                else:
+                    # Legacy list format fallback
+                    branch_list = ", ".join(f"`{b}`" for b in other_branches)
+                base_context += f"\n**Other agents' branches**: {branch_list}"
 
         base_context += """
 

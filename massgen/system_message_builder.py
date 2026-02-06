@@ -98,6 +98,8 @@ class SystemMessageBuilder:
         agent_mapping: Optional[Dict[str, str]] = None,
         voting_sensitivity_override: Optional[str] = None,
         worktree_paths: Optional[Dict[str, str]] = None,
+        branch_name: Optional[str] = None,
+        other_branches: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -120,6 +122,9 @@ class SystemMessageBuilder:
                           global consistency with vote tool and injections.
             voting_sensitivity_override: Per-agent voting sensitivity override. If provided,
                                         takes precedence over the orchestrator-level setting.
+            worktree_paths: Dict of worktree_path -> original_path for worktree-based workspaces
+            branch_name: This agent's current git branch name (for display in system prompt)
+            other_branches: Dict mapping anonymous ID to branch name (e.g. {"agent1": "massgen/abc123"})
 
         Returns:
             Complete system prompt string with XML structure
@@ -265,6 +270,8 @@ class SystemMessageBuilder:
                     context_path_strs,
                     use_two_tier_workspace=use_two_tier_workspace,
                     worktree_paths=worktree_paths,
+                    branch_name=branch_name,
+                    other_branches=other_branches,
                 ),
             )
 

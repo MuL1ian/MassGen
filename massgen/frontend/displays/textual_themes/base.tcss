@@ -7248,6 +7248,29 @@ SubagentModal #nav-text {
     min-width: 14;
 }
 
+.review-modal #approve_selected_btn {
+    background: $primary;
+    border: solid $primary;
+    color: $fg-on-accent;
+    text-style: bold;
+}
+
+.review-modal #approve_selected_btn:hover {
+    background: $primary-lighten-1;
+    border: solid $primary-lighten-1;
+}
+
+.review-modal #reject_all_btn {
+    background: $btn-danger-bg;
+    border: solid $btn-danger-bg;
+    color: $fg-on-accent;
+}
+
+.review-modal #reject_all_btn:hover {
+    background: $btn-danger-bg-hover;
+    border: solid $btn-danger-bg-hover;
+}
+
 .review-modal #cancel_btn {
     color: $fg-muted;
 }

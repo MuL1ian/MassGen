@@ -921,6 +921,8 @@ class WorkspaceStructureSection(SystemPromptSection):
         context_paths: List[str],
         use_two_tier_workspace: bool = False,
         worktree_paths: Optional[Dict[str, str]] = None,
+        branch_name: Optional[str] = None,
+        other_branches: Optional[Dict[str, str]] = None,
     ):
         super().__init__(
             title="Workspace Structure",
@@ -931,6 +933,8 @@ class WorkspaceStructureSection(SystemPromptSection):
         self.context_paths = context_paths
         self.use_two_tier_workspace = use_two_tier_workspace
         self.worktree_paths = worktree_paths  # {worktree_path: original_path}
+        self.branch_name = branch_name  # This agent's current branch
+        self.other_branches = other_branches  # {anon_id: branch_name}
 
     def build_content(self) -> str:
         """Build workspace structure documentation."""
@@ -951,21 +955,20 @@ class WorkspaceStructureSection(SystemPromptSection):
                 content_parts.append("- For experiments, eval scripts, notes")
                 content_parts.append("- Git-excluded, invisible to reviewers")
                 content_parts.append("- Can import from project naturally (e.g., `from src.foo import bar`)\n")
-                content_parts.append("### Working with Git Branches\n")
-                content_parts.append("Previous work from this session is preserved on git branches (one per round).")
-                content_parts.append("You start on a fresh branch each round, but previous branches remain available.\n")
-                content_parts.append("**Viewing previous work:**")
-                content_parts.append("- `git branch` — list all branches from this session")
-                content_parts.append("- `git log <branch> --oneline` — see what was done on a branch")
-                content_parts.append("- `git diff <branch>` — compare current state against a previous branch")
-                content_parts.append("- `git diff <branch> -- path/to/file` — compare a specific file\n")
-                content_parts.append("**Building on previous work:**")
-                content_parts.append("- `git merge <branch>` — merge all changes from a previous branch into your current work")
-                content_parts.append("- `git cherry-pick <commit>` — apply a specific commit from a previous branch")
-                content_parts.append("- `git checkout <branch> -- path/to/file` — grab a specific file from a previous branch\n")
-                content_parts.append("**Best practice**: Before starting new work, check `git branch` to see if previous rounds ")
-                content_parts.append("made progress you can build on. Merging useful previous work avoids duplicating effort.\n")
-                content_parts.append("All tracked changes in the checkout will be reviewed during final presentation.\n")
+
+                content_parts.append("### Code Branches\n")
+                if self.branch_name:
+                    content_parts.append(f"Your work is on branch `{self.branch_name}`. All changes are auto-committed when your turn ends.\n")
+                else:
+                    content_parts.append("All changes are auto-committed when your turn ends.\n")
+
+                if self.other_branches:
+                    content_parts.append("**Other agents' branches:**")
+                    for label, branch in self.other_branches.items():
+                        content_parts.append(f"- {label}: `{branch}`")
+                    content_parts.append("\nUse `git diff <branch>` to compare, `git merge <branch>` to incorporate.\n")
+
+                content_parts.append("**Previous scratch files**: Check `.scratch_archive/` in your workspace for experiments from prior rounds.\n")
 
         # Legacy two-tier workspace (deprecated, skipped when worktree_paths set)
         elif self.use_two_tier_workspace:

@@ -2472,30 +2472,11 @@ if TEXTUAL_AVAILABLE:
             base_path = cls.THEMES_DIR / "base.tcss"
 
             # Create combined CSS in a cache directory
+            import hashlib
             import tempfile
 
             cache_dir = Path(tempfile.gettempdir()) / "massgen_themes"
             cache_dir.mkdir(exist_ok=True)
-            combined_path = cache_dir / f"{theme}_combined.tcss"
-
-            # Check if cache is valid (exists and newer than source files)
-            # Check both in-memory cache dict AND the on-disk file (from previous session)
-            cache_valid = False
-            if combined_path.exists():
-                # Check modification times - regenerate if sources are newer
-                cache_mtime = combined_path.stat().st_mtime
-                palette_mtime = palette_path.stat().st_mtime if palette_path.exists() else 0
-                base_mtime = base_path.stat().st_mtime if base_path.exists() else 0
-                # Also check modal_base.py since MODAL_BASE_CSS is included
-                modal_base_path = Path(__file__).parent / "textual" / "widgets" / "modal_base.py"
-                modal_base_mtime = modal_base_path.stat().st_mtime if modal_base_path.exists() else 0
-                source_mtime = max(palette_mtime, base_mtime, modal_base_mtime)
-                cache_valid = cache_mtime >= source_mtime
-
-            if cache_valid:
-                # Ensure in-memory cache is up to date
-                cls._combined_css_cache[theme] = combined_path
-                return combined_path
 
             # Read and concatenate files
             palette_css = palette_path.read_text() if palette_path.exists() else ""
@@ -2530,8 +2511,24 @@ if TEXTUAL_AVAILABLE:
                 combined_css += "\n\n/* Theme-specific component overrides */\n\n"
                 combined_css += "\n".join(palette_overrides)
 
-            combined_path.write_text(combined_css)
+            # Use a content hash in the filename so stale cached files are never reused.
+            # This avoids mismatches when the CSS assembly logic changes across runs.
+            css_hash = hashlib.sha256(combined_css.encode("utf-8")).hexdigest()[:12]
+            combined_path = cache_dir / f"{theme}_combined_{css_hash}.tcss"
+
+            if not combined_path.exists():
+                combined_path.write_text(combined_css)
+
             cls._combined_css_cache[theme] = combined_path
+
+            # Best-effort cleanup of stale combined CSS files for this theme.
+            for stale_path in cache_dir.glob(f"{theme}_combined*.tcss"):
+                if stale_path != combined_path:
+                    try:
+                        stale_path.unlink()
+                    except OSError:
+                        pass
+
             return combined_path
 
         # Minimal bindings - most features accessed via /slash commands
@@ -7561,7 +7558,7 @@ Type your question and press Enter to ask the agents.
             """Refresh widgets when the terminal window is resized with debounce."""
             if self._resize_debounce_handle:
                 try:
-                    self._resize_debounce_handle.cancel()
+                    self._resize_debounce_handle.stop()
                 except Exception as e:
                     tui_log(f"[TextualDisplay] {e}")
 

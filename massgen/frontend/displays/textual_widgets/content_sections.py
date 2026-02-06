@@ -520,10 +520,7 @@ class TimelineSection(ScrollableContainer):
             (f"Round {round_number}", None),
         )
         insert_before = None
-        try:
-            indicator = self.query_one("#scroll_mode_indicator", Static)
-        except Exception:
-            indicator = None
+        indicator = self._get_scroll_indicator()
         for child in self.children:
             if indicator is not None and child is indicator:
                 continue
@@ -555,10 +552,7 @@ class TimelineSection(ScrollableContainer):
 
     def _first_content_child(self) -> Optional[Any]:
         """Get the first timeline child after the scroll indicator, if any."""
-        try:
-            indicator = self.query_one("#scroll_mode_indicator", Static)
-        except Exception:
-            indicator = None
+        indicator = self._get_scroll_indicator()
 
         for child in self.children:
             if indicator is not None and child is indicator:
@@ -572,10 +566,7 @@ class TimelineSection(ScrollableContainer):
         This allows late-arriving items from an earlier round to be inserted
         before the next round's banner/content.
         """
-        try:
-            indicator = self.query_one("#scroll_mode_indicator", Static)
-        except Exception:
-            indicator = None
+        indicator = self._get_scroll_indicator()
 
         for child in self.children:
             if indicator is not None and child is indicator:
@@ -661,22 +652,28 @@ class TimelineSection(ScrollableContainer):
         """Reset scroll mode tracking state."""
         self._user_scrolled_up = False
 
+    def _get_scroll_indicator(self) -> Optional[Static]:
+        """Return the scroll indicator widget without throwing if absent."""
+        for widget in self.query("#scroll_mode_indicator"):
+            if isinstance(widget, Static):
+                return widget
+        return None
+
     def _update_scroll_indicator(self) -> None:
         """Update the scroll mode indicator in the UI."""
-        try:
-            indicator = self.query_one("#scroll_mode_indicator", Static)
-            if self._scroll_mode:
-                # Compact pill format
-                if self._new_content_count > 0:
-                    msg = f"↑ Scrolling ({self._new_content_count} new) · q/Esc"
-                else:
-                    msg = "↑ Scrolling · q/Esc"
-                indicator.update(msg)
-                indicator.remove_class("hidden")
+        indicator = self._get_scroll_indicator()
+        if indicator is None:
+            return
+        if self._scroll_mode:
+            # Compact pill format
+            if self._new_content_count > 0:
+                msg = f"↑ Scrolling ({self._new_content_count} new) · q/Esc"
             else:
-                indicator.add_class("hidden")
-        except Exception as e:
-            tui_log(f"[ContentSections] {e}")
+                msg = "↑ Scrolling · q/Esc"
+            indicator.update(msg)
+            indicator.remove_class("hidden")
+        else:
+            indicator.add_class("hidden")
 
     def _auto_scroll(self) -> None:
         """Scroll to end only if not in scroll mode."""
@@ -1778,11 +1775,7 @@ class TimelineSection(ScrollableContainer):
 
         try:
             # Keep the scroll indicator, remove everything else
-            indicator = None
-            try:
-                indicator = self.query_one("#scroll_mode_indicator", Static)
-            except Exception as e:
-                tui_log(f"[ContentSections] {e}")
+            indicator = self._get_scroll_indicator()
             child_count_before = len(self.children)
             self.remove_children()
             logger.info(f"[TimelineSection] Removed {child_count_before} children")
@@ -2578,6 +2571,8 @@ class FinalPresentationCard(Vertical):
 
     # Debounce interval for batched updates (seconds)
     _UPDATE_DEBOUNCE_MS = 50
+    # Cap context-path rows in the inline section to keep final-card mount fast.
+    _MAX_CONTEXT_PATH_ROWS = 30
 
     def __init__(
         self,
@@ -2653,6 +2648,7 @@ class FinalPresentationCard(Vertical):
                 yield Static("", id="post_eval_content")
 
         # Context paths section (hidden if no paths)
+        shown_new_paths, shown_mod_paths, hidden_path_count = self._limit_context_paths(self.context_paths)
         has_paths = bool(self.context_paths.get("new") or self.context_paths.get("modified"))
         with Vertical(id="final_card_context_paths", classes="" if has_paths else "hidden"):
             new_count = len(self.context_paths.get("new", []))
@@ -2660,10 +2656,12 @@ class FinalPresentationCard(Vertical):
             total = new_count + mod_count
             yield Label(f"📂 Files Written ({total})", id="context_paths_header")
             with Vertical(id="context_paths_list"):
-                for path in self.context_paths.get("new", []):
+                for path in shown_new_paths:
                     yield Label(f"  ✚ {path}", classes="context-path-new")
-                for path in self.context_paths.get("modified", []):
+                for path in shown_mod_paths:
                     yield Label(f"  ✎ {path}", classes="context-path-modified")
+                if hidden_path_count > 0:
+                    yield Label(f"  ... ({hidden_path_count} more files)", classes="context-path-more")
 
         # Footer with link-style actions and continue message (hidden until complete)
         with Vertical(id="final_card_footer", classes="hidden"):
@@ -2702,6 +2700,20 @@ class FinalPresentationCard(Vertical):
         counts_str = ", ".join(f"{aid} ({count})" for aid, count in vote_counts.items())
 
         return f"Winner: {winner}{tie_note} | Votes: {counts_str}"
+
+    @classmethod
+    def _limit_context_paths(cls, context_paths: Optional[Dict]) -> tuple[list[str], list[str], int]:
+        """Return bounded context-path rows for fast final-card mount."""
+        context_paths = context_paths or {}
+        new_paths = list(context_paths.get("new", []))
+        mod_paths = list(context_paths.get("modified", []))
+
+        max_rows = max(0, cls._MAX_CONTEXT_PATH_ROWS)
+        shown_new = new_paths[:max_rows]
+        remaining_slots = max(0, max_rows - len(shown_new))
+        shown_mod = mod_paths[:remaining_slots]
+        hidden_count = (len(new_paths) + len(mod_paths)) - (len(shown_new) + len(shown_mod))
+        return shown_new, shown_mod, max(0, hidden_count)
 
     def append_chunk(self, chunk: str) -> None:
         """Append streaming content to the card.

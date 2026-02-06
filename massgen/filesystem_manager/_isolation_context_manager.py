@@ -52,6 +52,8 @@ class IsolationContextManager:
         temp_base: Optional[str] = None,
         workspace_path: Optional[str] = None,
         previous_branch: Optional[str] = None,
+        base_commit: Optional[str] = None,
+        branch_label: Optional[str] = None,
     ):
         """
         Initialize the IsolationContextManager.
@@ -65,12 +67,19 @@ class IsolationContextManager:
                 This makes the worktree accessible to the agent as a workspace subdirectory.
             previous_branch: Optional branch name from this agent's previous round.
                 Will be deleted during initialize_context() to maintain one-branch-per-agent.
+            base_commit: Optional commit/branch to use as the starting point for new
+                worktrees. When set, the worktree starts from this commit instead of HEAD.
+                Used for final presentation to start from the winner's branch.
+            branch_label: Optional explicit branch name override (e.g. "presenter").
+                When set, used as the branch name instead of the default massgen/{random}.
         """
         self.session_id = session_id
         self.write_mode = write_mode
         self.temp_base = temp_base
         self.workspace_path = workspace_path
         self.previous_branch = previous_branch
+        self.base_commit = base_commit
+        self.branch_label = branch_label
 
         # Track active contexts: original_path -> context info
         self._contexts: Dict[str, Dict[str, Any]] = {}
@@ -84,7 +93,7 @@ class IsolationContextManager:
         # Counter for unique branch names
         self._branch_counter = 0
 
-        log.info(f"IsolationContextManager initialized: session={session_id}, mode={write_mode}")
+        log.info(f"IsolationContextManager initialized: session={session_id}, mode={write_mode}, branch_label={branch_label}")
 
     def initialize_context(self, context_path: str, agent_id: Optional[str] = None) -> str:
         """
@@ -202,10 +211,13 @@ class IsolationContextManager:
 
         wm = self._worktree_managers[repo_root]
 
-        # Generate unique branch name with random suffix (no agent ID or round number)
+        # Generate branch name: use branch_label if explicitly provided, otherwise short random
         self._branch_counter += 1
-        random_suffix = secrets.token_hex(4)
-        branch_name = f"massgen/{self.session_id}/{random_suffix}"
+        if self.branch_label:
+            branch_name = self.branch_label
+        else:
+            random_suffix = secrets.token_hex(4)
+            branch_name = f"massgen/{random_suffix}"
 
         # Create worktree path - prefer workspace if available
         if self.workspace_path:
@@ -228,7 +240,8 @@ class IsolationContextManager:
             os.rmdir(worktree_path)
 
         try:
-            isolated_path = wm.create_worktree(worktree_path, branch_name)
+            base = self.base_commit or "HEAD"
+            isolated_path = wm.create_worktree(worktree_path, branch_name, base_commit=base)
 
             # Store manager reference for cleanup
             self._contexts[context_path] = {
@@ -408,9 +421,12 @@ class IsolationContextManager:
         if self.previous_branch:
             self._delete_previous_branch(workspace_path)
 
-        # Create a branch for this round
-        random_suffix = secrets.token_hex(4)
-        branch_name = f"massgen/{self.session_id}/{random_suffix}"
+        # Create a branch for this round: use branch_label if explicitly provided
+        if self.branch_label:
+            branch_name = self.branch_label
+        else:
+            random_suffix = secrets.token_hex(4)
+            branch_name = f"massgen/{random_suffix}"
 
         if workspace_path not in self._worktree_managers:
             self._worktree_managers[workspace_path] = WorktreeManager(workspace_path)
@@ -444,8 +460,8 @@ class IsolationContextManager:
         scratch_path = os.path.join(workspace_path, SCRATCH_DIR_NAME)
         return scratch_path
 
-    def move_scratch_to_workspace(self, context_path: str) -> Optional[str]:
-        """Move .massgen_scratch/ to {workspace}/.scratch_archive/{random_suffix}/.
+    def move_scratch_to_workspace(self, context_path: str, archive_label: Optional[str] = None) -> Optional[str]:
+        """Move .massgen_scratch/ to {workspace}/.scratch_archive/{label}/.
 
         This preserves scratch files after worktree teardown. The archive
         lives in the workspace (sibling of .worktree/), so it gets included
@@ -453,6 +469,8 @@ class IsolationContextManager:
 
         Args:
             context_path: Original context path
+            archive_label: Human-readable label for the archive dir (e.g. "agent1").
+                When set, used instead of extracting suffix from branch name.
 
         Returns:
             Path to the archive directory, or None if no scratch to move
@@ -471,10 +489,13 @@ class IsolationContextManager:
             log.debug(f"Scratch directory empty, skipping archive: {scratch_path}")
             return None
 
-        # Use the random suffix from the branch name for archive directory
-        branch_name = ctx.get("branch_name", "")
-        # Extract the random suffix (last component of branch path)
-        random_suffix = branch_name.rsplit("/", 1)[-1] if "/" in branch_name else secrets.token_hex(4)
+        # Use archive_label for directory name if provided, otherwise
+        # extract the suffix from the branch name
+        if archive_label:
+            archive_name = archive_label
+        else:
+            branch_name = ctx.get("branch_name", "")
+            archive_name = branch_name.rsplit("/", 1)[-1] if "/" in branch_name else secrets.token_hex(4)
 
         # Determine archive location
         workspace = self.workspace_path
@@ -482,7 +503,7 @@ class IsolationContextManager:
             log.warning("No workspace_path set, cannot archive scratch")
             return None
 
-        archive_dir = os.path.join(workspace, ".scratch_archive", random_suffix)
+        archive_dir = os.path.join(workspace, ".scratch_archive", archive_name)
         os.makedirs(os.path.dirname(archive_dir), exist_ok=True)
 
         try:
@@ -493,11 +514,41 @@ class IsolationContextManager:
             log.warning(f"Failed to move scratch to archive: {e}")
             return None
 
+    def _auto_commit_worktree(self, isolated_path: str, message: str = "[ROUND] Auto-commit") -> bool:
+        """Auto-commit any uncommitted changes in a worktree before cleanup.
+
+        This ensures agent work is preserved on the branch even after the
+        worktree is removed. Without this, the branch would point at HEAD
+        (empty) and cross-agent visibility would find nothing.
+
+        Args:
+            isolated_path: Path to the worktree or workspace
+            message: Commit message
+
+        Returns:
+            True if a commit was made, False otherwise
+        """
+        try:
+            from git import Repo
+
+            repo = Repo(isolated_path)
+            if repo.is_dirty(untracked_files=True):
+                repo.git.add("-A")
+                repo.index.commit(message)
+                log.info(f"Auto-committed changes in worktree: {isolated_path}")
+                return True
+            return False
+        except Exception as e:
+            log.warning(f"Failed to auto-commit in worktree {isolated_path}: {e}")
+            return False
+
     def cleanup_round(self, context_path: str) -> None:
         """Remove worktree but keep the branch (for cross-agent visibility).
 
         This is used between coordination rounds. The branch is preserved
         so other agents can see it via `git branch` / `git diff`.
+        Any uncommitted changes are auto-committed first so the branch
+        contains the agent's actual work.
 
         Args:
             context_path: Original context path
@@ -514,6 +565,8 @@ class IsolationContextManager:
             isolated_path = ctx.get("isolated_path")
             if isinstance(manager, WorktreeManager) and isolated_path:
                 try:
+                    # Auto-commit before removing worktree so branch has agent's work
+                    self._auto_commit_worktree(isolated_path)
                     # Remove worktree but keep branch (delete_branch=False)
                     manager.remove_worktree(isolated_path, force=True, delete_branch=False)
                     log.info(f"Removed worktree (kept branch): {isolated_path}")
@@ -521,7 +574,11 @@ class IsolationContextManager:
                     log.warning(f"Failed to cleanup worktree {isolated_path}: {e}")
 
         elif mode == "workspace":
-            # Workspace mode: switch back to main/master but keep the branch
+            # Workspace mode: auto-commit before switching branches
+            isolated_path = ctx.get("isolated_path")
+            if isolated_path:
+                self._auto_commit_worktree(isolated_path)
+            # Switch back to main/master but keep the branch
             try:
                 from git import Repo
 
